@@ -35,4 +35,4 @@ def downgrade():
         'productos_erp',
         sa.Column('activo', sa.Boolean(), nullable=False, server_default=sa.text('true'))
     )
-    op.drop_column('publicaciones_ml', 'activo')
+    #op.drop_column('publicaciones_ml', 'activo')
