@@ -19,10 +19,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
-    # Quitar 'activo' de productos_erp
-    op.drop_column('productos_erp', 'activo')
-
-    # Agregar 'activo' en publicaciones_ml
+    # ❌ No intentes dropear 'activo' porque nunca existió en DB
     op.add_column(
         'publicaciones_ml',
         sa.Column('activo', sa.Boolean(), nullable=False, server_default=sa.text('true'))
@@ -30,9 +27,9 @@ def upgrade():
 
 
 def downgrade():
-    # Revertir cambios
-    op.add_column(
-        'productos_erp',
-        sa.Column('activo', sa.Boolean(), nullable=False, server_default=sa.text('true'))
-    )
-    #op.drop_column('publicaciones_ml', 'activo')
+    op.drop_column('publicaciones_ml', 'activo')
+    # si querés, acá podrías re-crear 'activo' en productos_erp
+    # op.add_column(
+    #     'productos_erp',
+    #     sa.Column('activo', sa.Boolean(), nullable=False, server_default=sa.text('true'))
+    # )
