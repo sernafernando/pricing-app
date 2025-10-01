@@ -24,6 +24,7 @@ class ProductoERP(Base):
     envio = Column(Float, default=0.0)
     
     stock = Column(Integer, default=0)
+    activo = Column(Boolean, default=True)
     
     fecha_sync = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -31,7 +32,6 @@ class ProductoERP(Base):
     # Relaciones
     pricing = relationship("ProductoPricing", back_populates="producto", uselist=False)
     publicaciones_ml = relationship("PublicacionML", back_populates="producto")
-
 
 class ProductoPricing(Base):
     __tablename__ = "productos_pricing"
@@ -63,22 +63,3 @@ class HistorialPrecio(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     
     producto_pricing = relationship("ProductoPricing", back_populates="historial")
-
-class PublicacionML(Base):
-    __tablename__ = "publicaciones_ml"
-
-    id = Column(Integer, primary_key=True, index=True)
-    mla = Column(String(50), unique=True, index=True)
-    item_id = Column(Integer, ForeignKey("productos_erp.item_id"), index=True)
-
-    codigo = Column(String(100))
-    item_title = Column(String(500))
-    pricelist_id = Column(Integer)
-    lista_nombre = Column(String(255))
-
-    activo = Column(Boolean, default=True)  # <-- se mueve acá
-
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    producto = relationship("ProductoERP", back_populates="publicaciones_ml")

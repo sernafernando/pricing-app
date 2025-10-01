@@ -53,7 +53,6 @@ export default function Productos() {
   
   return (
     <div className={styles.container}>
-      {/* Stats */}
       <div className={styles.statsGrid}>
         <div className={styles.statCard}>
           <div className={styles.statLabel}>Total Productos</div>
@@ -61,25 +60,18 @@ export default function Productos() {
         </div>
         <div className={styles.statCard}>
           <div className={styles.statLabel}>Con Stock</div>
-          <div className={`${styles.statValue} ${styles.green}`}>
-            {stats?.con_stock || 0}
-          </div>
+          <div className={`${styles.statValue} ${styles.green}`}>{stats?.con_stock || 0}</div>
         </div>
         <div className={styles.statCard}>
           <div className={styles.statLabel}>Sin Precio</div>
-          <div className={`${styles.statValue} ${styles.red}`}>
-            {stats?.sin_precio || 0}
-          </div>
+          <div className={`${styles.statValue} ${styles.red}`}>{stats?.sin_precio || 0}</div>
         </div>
         <div className={styles.statCard}>
           <div className={styles.statLabel}>Con Precio</div>
-          <div className={`${styles.statValue} ${styles.blue}`}>
-            {stats?.con_precio || 0}
-          </div>
+          <div className={`${styles.statValue} ${styles.blue}`}>{stats?.con_precio || 0}</div>
         </div>
       </div>
       
-      {/* Buscador */}
       <div className={styles.searchBar}>
         <input
           type="text"
@@ -91,7 +83,6 @@ export default function Productos() {
         {loading && <span style={{ marginLeft: '10px', color: '#666' }}>Buscando...</span>}
       </div>
       
-      {/* Tabla */}
       <div className={styles.tableContainer}>
         {loading ? (
           <div className={styles.loading}>Cargando...</div>
@@ -131,7 +122,6 @@ export default function Productos() {
               </tbody>
             </table>
             
-            {/* Paginación */}
             <div className={styles.pagination}>
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
@@ -153,7 +143,6 @@ export default function Productos() {
         )}
       </div>
       
-      {/* Modal */}
       {productoSeleccionado && (
         <PricingModal
           producto={productoSeleccionado}

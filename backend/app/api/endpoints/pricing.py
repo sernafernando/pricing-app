@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
-
+from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
 from app.services.pricing_calculator import (
@@ -330,3 +330,77 @@ async def calcular_precios_completos(
             resultado["cuotas"][nombre_cuota] = calculo
     
     return resultado
+
+@router.post("/precios/set-rapido")
+async def setear_precio_rapido(
+    item_id: int,
+    precio: float,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Setea precio clásica y calcula markup al instante"""
+    
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+    if not producto:
+        raise HTTPException(404, "Producto no encontrado")
+    
+    # Obtener TC si es USD
+    tipo_cambio = None
+    if producto.moneda_costo == "USD":
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+    
+    # Calcular markup del precio ingresado
+    from app.services.pricing_calculator import (
+        convertir_a_pesos,
+        obtener_grupo_subcategoria,
+        obtener_comision_base,
+        calcular_comision_ml_total,
+        calcular_limpio,
+        calcular_markup,
+        VARIOS_DEFAULT
+    )
+    
+    costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+    grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+    comision_base = obtener_comision_base(db, 4, grupo_id)  # Lista clásica
+    
+    if not comision_base:
+        raise HTTPException(400, "No hay comisión configurada")
+    
+    comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, VARIOS_DEFAULT)
+    limpio = calcular_limpio(precio, producto.iva, producto.envio or 0, comisiones["comision_total"])
+    markup = calcular_markup(limpio, costo_ars)
+    
+    # Guardar precio
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+    
+    if pricing:
+        historial = HistorialPrecio(
+            producto_pricing_id=pricing.id,
+            precio_anterior=pricing.precio_lista_ml,
+            precio_nuevo=precio,
+            usuario_id=current_user.id,
+            motivo="Edición rápida"
+        )
+        db.add(historial)
+        pricing.precio_lista_ml = precio
+        pricing.usuario_id = current_user.id
+        pricing.fecha_modificacion = datetime.now()
+    else:
+        pricing = ProductoPricing(
+            item_id=item_id,
+            precio_lista_ml=precio,
+            usuario_id=current_user.id,
+            motivo_cambio="Edición rápida"
+        )
+        db.add(pricing)
+    
+    db.commit()
+    
+    return {
+        "item_id": item_id,
+        "precio": precio,
+        "markup": round(markup * 100, 2),
+        "limpio": round(limpio, 2),
+        "costo_ars": round(costo_ars, 2)
+    }

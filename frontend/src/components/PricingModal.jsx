@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './PricingModal.module.css';
 
@@ -10,7 +10,10 @@ export default function PricingModal({ producto, onClose, onSave }) {
   const [calculando, setCalculando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState('');
-  
+
+  const [ofertas, setOfertas] = useState(null);
+  const [loadingOfertas, setLoadingOfertas] = useState(true);
+
   const cambiarModo = (nuevoModo) => {
     setModo(nuevoModo);
     setResultado(null);
@@ -101,6 +104,24 @@ export default function PricingModal({ producto, onClose, onSave }) {
     }
   };
   
+  useEffect(() => {
+  cargarOfertas();
+  }, []);
+
+  const cargarOfertas = async () => {
+    setLoadingOfertas(true);
+    try {
+      const response = await axios.get(
+        `https://pricing.gaussonline.com.ar/api/productos/${producto.item_id}/ofertas-vigentes`
+      );
+      setOfertas(response.data);
+    } catch (error) {
+      console.error('Error cargando ofertas:', error);
+    } finally {
+      setLoadingOfertas(false);
+    }
+  };
+
   const modalContent = (
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
@@ -116,6 +137,45 @@ export default function PricingModal({ producto, onClose, onSave }) {
           <button onClick={onClose} className={styles.closeBtn}>×</button>
         </div>
         
+	{/* Ofertas vigentes */}
+        {!loadingOfertas && ofertas && ofertas.con_oferta > 0 && (
+          <div className={styles.section}>
+            <h3 className={styles.label}>
+              📢 Ofertas Vigentes ({ofertas.con_oferta} de {ofertas.total_publicaciones} publicaciones)
+            </h3>
+            <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '8px' }}>
+              {ofertas.publicaciones
+                .filter(p => p.tiene_oferta)
+                .map((pub) => (
+                  <div key={pub.mla} style={{ 
+                    padding: '8px', 
+                    marginBottom: '8px', 
+                    backgroundColor: '#fef3c7',
+                    borderRadius: '4px',
+                    borderLeft: '3px solid #f59e0b'
+                  }}>
+                    <div style={{ fontSize: '11px', fontFamily: 'monospace', color: '#6b7280', marginBottom: '4px' }}>
+                      {pub.mla}
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>
+                      {pub.lista_nombre}
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#374151' }}>
+                      Precio de oferta: <strong>${pub.oferta.precio_final.toLocaleString('es-AR')}</strong>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                      Aporte Meli: ${pub.oferta.aporte_meli_pesos.toLocaleString('es-AR')} 
+                      {pub.oferta.aporte_meli_porcentaje && ` (${pub.oferta.aporte_meli_porcentaje}%)`}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>
+                      Vigente hasta: {new Date(pub.oferta.fecha_hasta).toLocaleDateString('es-AR')}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+	
         {/* Selector de modo */}
         <div className={styles.section}>
           <label className={styles.label}>Modo de cálculo</label>

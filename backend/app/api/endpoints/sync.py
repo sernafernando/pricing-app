@@ -43,3 +43,31 @@ async def obtener_publicaciones(item_id: int, db: Session = Depends(get_db)):
             for p in pubs
         ]
     }
+
+from app.services.google_sheets_sync import sincronizar_ofertas_sheets
+
+@router.post("/sync-sheets")
+async def sincronizar_sheets(db: Session = Depends(get_db)):
+    """Sincroniza ofertas desde Google Sheets"""
+    resultado = sincronizar_ofertas_sheets(db)
+    return resultado
+
+@router.get("/debug-ofertas-ignoradas")
+async def debug_ofertas(db: Session = Depends(get_db)):
+    """Muestra MLA de ofertas que no están en publicaciones"""
+    from app.services.google_sheets_sync import obtener_datos_sheets
+    
+    data = obtener_datos_sheets()
+    mlas_sheets = set(row.get('MLA', '').strip() for row in data if row.get('MLA'))
+    
+    from app.models.publicacion_ml import PublicacionML
+    mlas_db = set(p.mla for p in db.query(PublicacionML.mla).all())
+    
+    no_encontrados = list(mlas_sheets - mlas_db)
+    
+    return {
+        "total_mlas_sheets": len(mlas_sheets),
+        "total_mlas_db": len(mlas_db),
+        "no_encontrados": len(no_encontrados),
+        "sample_no_encontrados": no_encontrados[:20]
+    }
