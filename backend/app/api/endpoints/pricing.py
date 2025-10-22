@@ -159,18 +159,34 @@ async def setear_precio(
     db: Session = Depends(get_db)
 ):
     """Setea el precio de lista ML para un producto"""
-    
+
     producto = db.query(ProductoERP).filter(
         ProductoERP.item_id == request.item_id
     ).first()
-    
+
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
-    
+
     pricing = db.query(ProductoPricing).filter(
         ProductoPricing.item_id == request.item_id
     ).first()
+
+    # Calcular markup
+    tipo_cambio = None
+    if producto.moneda_costo == "USD":
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
     
+    costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+    grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+    comision_base = obtener_comision_base(db, 4, grupo_id)
+    
+    markup_calculado = None
+    if comision_base:
+        comisiones = calcular_comision_ml_total(request.precio_lista_ml, comision_base, producto.iva, VARIOS_DEFAULT)
+        limpio = calcular_limpio(request.precio_lista_ml, producto.iva, producto.envio or 0, comisiones["comision_total"])
+        markup = calcular_markup(limpio, costo_ars)
+        markup_calculado = round(markup * 100, 2)
+
     if pricing:
         historial = HistorialPrecio(
             producto_pricing_id=pricing.id,
@@ -180,8 +196,9 @@ async def setear_precio(
             motivo=request.motivo
         )
         db.add(historial)
-        
+
         pricing.precio_lista_ml = request.precio_lista_ml
+        pricing.markup_calculado = markup_calculado
         pricing.usuario_id = request.usuario_id
         pricing.motivo_cambio = request.motivo
         pricing.fecha_modificacion = datetime.now()
@@ -189,17 +206,19 @@ async def setear_precio(
         pricing = ProductoPricing(
             item_id=request.item_id,
             precio_lista_ml=request.precio_lista_ml,
+            markup_calculado=markup_calculado,
             usuario_id=request.usuario_id,
             motivo_cambio=request.motivo
         )
         db.add(pricing)
-    
+
     db.commit()
     db.refresh(pricing)
-    
+
     return {
         "item_id": request.item_id,
         "precio_lista_ml": request.precio_lista_ml,
+        "markup": markup_calculado,
         "actualizado": pricing.fecha_modificacion
     }
 
@@ -384,6 +403,7 @@ async def setear_precio_rapido(
         )
         db.add(historial)
         pricing.precio_lista_ml = precio
+        pricing.markup_calculado = round(markup * 100, 2)
         pricing.usuario_id = current_user.id
         pricing.fecha_modificacion = datetime.now()
     else:

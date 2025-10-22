@@ -40,6 +40,7 @@ class ProductoPricing(Base):
     item_id = Column(Integer, ForeignKey('productos_erp.item_id'), index=True, unique=True)
     
     precio_lista_ml = Column(Float)
+    markup_calculado = Column(Float)
     usuario_id = Column(Integer, ForeignKey('usuarios.id'))
     motivo_cambio = Column(String(255))
     

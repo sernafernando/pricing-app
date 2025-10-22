@@ -8,7 +8,7 @@ from app.models.oferta_ml import OfertaML
 from app.models.publicacion_ml import PublicacionML
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-WORKSHEET_GID = 164680750
+WORKSHEET_GID = 1669753772
 
 def parse_fecha(fecha_str: str):
     try:
@@ -39,10 +39,10 @@ def obtener_datos_sheets() -> List[Dict]:
             raise Exception(f"No se encontró la hoja con gid {WORKSHEET_GID}")
         
         all_values = worksheet.get_all_values()
-        if not all_values or len(all_values) < 2:
+        if not all_values or len(all_values) < 4:
             return []
         
-        headers = all_values[0]
+        headers = all_values[2]
         clean_headers = []
         seen = {}
         
@@ -58,7 +58,7 @@ def obtener_datos_sheets() -> List[Dict]:
             clean_headers.append(h)
         
         data = []
-        for row in all_values[1:]:
+        for row in all_values[3:]:
             row_dict = {}
             for i, value in enumerate(row):
                 if i < len(clean_headers):

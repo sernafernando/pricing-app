@@ -1,7 +1,9 @@
 .container {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 24px;
+  box-sizing: border-box;
+  overflow-x: hidden; /* Por las dudas */
 }
 
 .statsGrid {
@@ -44,19 +46,18 @@
 }
 
 .searchBar {
-  background: white;
-  padding: 16px;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  margin-bottom: 24px;
+  width: 100%;
+  max-width: 100%; /* IMPORTANTE */
+  box-sizing: border-box; /* IMPORTANTE */
 }
 
 .searchInput {
   width: 100%;
-  padding: 12px;
-  font-size: 16px;
+  padding: 12px 16px;
   border: 1px solid #d1d5db;
-  border-radius: 6px;
+  border-radius: 8px;
+  font-size: 14px;
+  box-sizing: border-box; /* IMPORTANTE */
 }
 
 .searchInput:focus {

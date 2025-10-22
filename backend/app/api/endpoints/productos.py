@@ -22,6 +22,7 @@ class ProductoResponse(BaseModel):
     iva: float
     stock: int
     precio_lista_ml: Optional[float]
+    markup: Optional[float]
     usuario_modifico: Optional[str]
     fecha_modificacion: Optional[datetime]
     tiene_precio: bool
@@ -52,11 +53,16 @@ async def listar_productos(
     )
 
     if search:
-        search_filter = or_(
-            ProductoERP.descripcion.ilike(f"%{search}%"),
-            ProductoERP.codigo.ilike(f"%{search}%")
+        # Normalizar búsqueda: quitar guiones, espacios extras, mayúsculas
+        search_normalized = search.replace('-', '').replace(' ', '').upper()
+        
+        query = query.filter(
+            or_(
+                func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
+            )
         )
-        query = query.filter(search_filter)
 
     if categoria:
         query = query.filter(ProductoERP.categoria == categoria)
@@ -90,6 +96,7 @@ async def listar_productos(
             iva=producto_erp.iva,
             stock=producto_erp.stock,
             precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
+            markup=producto_pricing.markup_calculado if producto_pricing else None,
             usuario_modifico=None,
             fecha_modificacion=producto_pricing.fecha_modificacion if producto_pricing else None,
             tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False,
@@ -123,6 +130,7 @@ async def obtener_producto(item_id: int, db: Session = Depends(get_db)):
         iva=producto_erp.iva,
         stock=producto_erp.stock,
         precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
+        markup=producto_pricing.markup_calculado if producto_pricing else None,
         usuario_modifico=None,
         fecha_modificacion=producto_pricing.fecha_modificacion if producto_pricing else None,
         tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False,
@@ -160,22 +168,60 @@ async def listar_marcas(db: Session = Depends(get_db)):
 async def obtener_ofertas_vigentes(item_id: int, db: Session = Depends(get_db)):
     from app.models.publicacion_ml import PublicacionML
     from app.models.oferta_ml import OfertaML
-
+    from app.services.pricing_calculator import (
+        obtener_tipo_cambio_actual, 
+        convertir_a_pesos,
+        obtener_grupo_subcategoria,
+        obtener_comision_base,
+        calcular_comision_ml_total,
+        calcular_limpio,
+        calcular_markup,
+        VARIOS_DEFAULT
+    )
+    
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+    if not producto:
+        return {"item_id": item_id, "publicaciones": []}
+    
+    tipo_cambio = None
+    if producto.moneda_costo == "USD":
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+    costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+    
     publicaciones = db.query(PublicacionML).filter(PublicacionML.item_id == item_id).all()
-
     if not publicaciones:
         return {"item_id": item_id, "publicaciones": []}
-
+    
     hoy = date.today()
     resultado = []
-
+    
     for pub in publicaciones:
         oferta = db.query(OfertaML).filter(
             OfertaML.mla == pub.mla,
             OfertaML.fecha_desde <= hoy,
             OfertaML.fecha_hasta >= hoy
         ).first()
-
+        
+        markup_oferta = None
+        if oferta and oferta.pvp_seller and oferta.pvp_seller > 0:
+            grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+            comision_base = obtener_comision_base(db, pub.pricelist_id, grupo_id)
+            
+            if comision_base:
+                comisiones = calcular_comision_ml_total(
+                    oferta.pvp_seller,
+                    comision_base,
+                    producto.iva,
+                    VARIOS_DEFAULT
+                )
+                limpio = calcular_limpio(
+                    oferta.pvp_seller,
+                    producto.iva,
+                    producto.envio or 0,
+                    comisiones["comision_total"]
+                )
+                markup_oferta = round(calcular_markup(limpio, costo_ars) * 100, 2)
+        
         resultado.append({
             "mla": pub.mla,
             "item_title": pub.item_title,
@@ -184,13 +230,15 @@ async def obtener_ofertas_vigentes(item_id: int, db: Session = Depends(get_db)):
             "tiene_oferta": oferta is not None,
             "oferta": {
                 "precio_final": oferta.precio_final,
+                "pvp_seller": oferta.pvp_seller,
+                "markup_oferta": markup_oferta,
                 "aporte_meli_pesos": oferta.aporte_meli_pesos,
                 "aporte_meli_porcentaje": oferta.aporte_meli_porcentaje,
                 "fecha_desde": oferta.fecha_desde.isoformat(),
                 "fecha_hasta": oferta.fecha_hasta.isoformat(),
             } if oferta else None
         })
-
+    
     return {
         "item_id": item_id,
         "total_publicaciones": len(resultado),

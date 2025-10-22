@@ -13,6 +13,7 @@ class OfertaML(Base):
     fecha_hasta = Column(Date, nullable=False)
     
     precio_final = Column(Float)
+    pvp_seller = Column(Float)
     aporte_meli_pesos = Column(Float)
     aporte_meli_porcentaje = Column(Float)
     

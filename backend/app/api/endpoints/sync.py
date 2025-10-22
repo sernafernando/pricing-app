@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.services.erp_sync import sincronizar_erp
+from app.services.ml_sync import sincronizar_publicaciones_ml
+from app.services.google_sheets_sync import sincronizar_ofertas_sheets
+from typing import Dict
 
 router = APIRouter()
 
@@ -9,65 +12,121 @@ router = APIRouter()
 async def sync_erp(db: Session = Depends(get_db)):
     """Sincroniza productos desde el ERP"""
     try:
-        stats = await sincronizar_erp(db)
-        return {
-            "status": "success",
-            "stats": stats
-        }
+        resultado = await sincronizar_erp(db)
+        return resultado
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-from app.services.ml_sync import sincronizar_publicaciones_ml, obtener_publicaciones_por_item
+        return {"status": "error", "message": str(e)}
 
 @router.post("/sync-ml")
 async def sincronizar_ml(db: Session = Depends(get_db)):
     """Sincroniza publicaciones de Mercado Libre"""
-    resultado = await sincronizar_publicaciones_ml(db)
-    return resultado
-
-@router.get("/publicaciones-ml/{item_id}")
-async def obtener_publicaciones(item_id: int, db: Session = Depends(get_db)):
-    """Obtiene publicaciones ML de un producto"""
-    pubs = obtener_publicaciones_por_item(db, item_id)
-    
-    return {
-        "item_id": item_id,
-        "total": len(pubs),
-        "publicaciones": [
-            {
-                "mla": p.mla,
-                "item_title": p.item_title,
-                "pricelist_id": p.pricelist_id,
-                "lista_nombre": p.lista_nombre,
-            }
-            for p in pubs
-        ]
-    }
-
-from app.services.google_sheets_sync import sincronizar_ofertas_sheets
+    try:
+        resultado = await sincronizar_publicaciones_ml(db)
+        return resultado
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @router.post("/sync-sheets")
 async def sincronizar_sheets(db: Session = Depends(get_db)):
     """Sincroniza ofertas desde Google Sheets"""
-    resultado = sincronizar_ofertas_sheets(db)
-    return resultado
+    try:
+        resultado = sincronizar_ofertas_sheets(db)
+        return resultado
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
-@router.get("/debug-ofertas-ignoradas")
-async def debug_ofertas(db: Session = Depends(get_db)):
-    """Muestra MLA de ofertas que no están en publicaciones"""
-    from app.services.google_sheets_sync import obtener_datos_sheets
+@router.post("/sync-tipo-cambio")
+async def sincronizar_tipo_cambio(db: Session = Depends(get_db)):
+    """Sincroniza tipo de cambio desde BNA"""
+    try:
+        from app.services.tipo_cambio_service import actualizar_tipo_cambio_bna
+        resultado = actualizar_tipo_cambio_bna(db)
+        return resultado
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@router.get("/tipo-cambio/actual")
+async def obtener_tipo_cambio_actual_endpoint(db: Session = Depends(get_db)):
+    """Obtiene el tipo de cambio más reciente"""
+    from app.models.tipo_cambio import TipoCambio
     
-    data = obtener_datos_sheets()
-    mlas_sheets = set(row.get('MLA', '').strip() for row in data if row.get('MLA'))
+    tc = db.query(TipoCambio).filter(
+        TipoCambio.moneda == "USD"
+    ).order_by(TipoCambio.fecha.desc()).first()
     
-    from app.models.publicacion_ml import PublicacionML
-    mlas_db = set(p.mla for p in db.query(PublicacionML.mla).all())
-    
-    no_encontrados = list(mlas_sheets - mlas_db)
+    if not tc:
+        return {"error": "No hay tipo de cambio disponible"}
     
     return {
-        "total_mlas_sheets": len(mlas_sheets),
-        "total_mlas_db": len(mlas_db),
-        "no_encontrados": len(no_encontrados),
-        "sample_no_encontrados": no_encontrados[:20]
+        "moneda": tc.moneda,
+        "compra": tc.compra,
+        "venta": tc.venta,
+        "fecha": tc.fecha.isoformat()
     }
+
+@router.post("/recalcular-markups")
+async def recalcular_markups_endpoint(db: Session = Depends(get_db)):
+    """Recalcula markups de todos los productos con precio"""
+    from app.models.producto import ProductoERP, ProductoPricing
+    from app.services.pricing_calculator import (
+        obtener_tipo_cambio_actual, convertir_a_pesos,
+        obtener_grupo_subcategoria, obtener_comision_base,
+        calcular_comision_ml_total, calcular_limpio,
+        calcular_markup, VARIOS_DEFAULT
+    )
+    
+    try:
+        actualizados = 0
+        errores = 0
+        
+        pricings = db.query(ProductoPricing).filter(
+            ProductoPricing.precio_lista_ml.isnot(None)
+        ).all()
+        
+        for pricing in pricings:
+            try:
+                producto = db.query(ProductoERP).filter(
+                    ProductoERP.item_id == pricing.item_id
+                ).first()
+                
+                if not producto:
+                    continue
+                
+                tipo_cambio = None
+                if producto.moneda_costo == "USD":
+                    tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+                
+                costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+                grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+                comision_base = obtener_comision_base(db, 4, grupo_id)
+                
+                if not comision_base:
+                    continue
+                
+                comisiones = calcular_comision_ml_total(
+                    pricing.precio_lista_ml, 
+                    comision_base, 
+                    producto.iva, 
+                    VARIOS_DEFAULT
+                )
+                limpio = calcular_limpio(
+                    pricing.precio_lista_ml, 
+                    producto.iva, 
+                    producto.envio or 0, 
+                    comisiones["comision_total"]
+                )
+                markup = calcular_markup(limpio, costo_ars)
+                
+                pricing.markup_calculado = round(markup * 100, 2)
+                actualizados += 1
+                
+            except Exception as e:
+                errores += 1
+                continue
+        
+        db.commit()
+        return {"status": "success", "actualizados": actualizados, "errores": errores}
+        
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
