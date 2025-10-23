@@ -49,6 +49,7 @@ class ProductoPricing(Base):
     producto = relationship("ProductoERP", back_populates="pricing")
     usuario = relationship("Usuario", back_populates="precios_modificados")
     historial = relationship("HistorialPrecio", back_populates="producto_pricing")
+    auditoria = relationship("AuditoriaPrecio", back_populates="producto")
 
 class HistorialPrecio(Base):
     __tablename__ = "historial_precios"

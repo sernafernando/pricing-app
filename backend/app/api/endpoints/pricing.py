@@ -6,6 +6,8 @@ from datetime import datetime
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
+from app.models.auditoria_precio import AuditoriaPrecio
+from app.models.usuario import Usuario
 from app.services.pricing_calculator import (
     calcular_precio_producto,
     calcular_comision_ml_total,
@@ -188,6 +190,18 @@ async def setear_precio(
         markup_calculado = round(markup * 100, 2)
 
     if pricing:
+        if pricing.precio_lista_ml != request.precio_lista_ml:
+                auditoria = AuditoriaPrecio(
+                    producto_id=pricing.id,
+                    usuario_id=request.usuario_id,
+                    precio_anterior=pricing.precio_lista_ml,
+                    precio_contado_anterior=None,  # Por ahora no usamos contado aquí
+                    precio_nuevo=request.precio_lista_ml,
+                    precio_contado_nuevo=None,
+                    comentario=request.motivo
+                )
+                db.add(auditoria)
+            
         historial = HistorialPrecio(
             producto_pricing_id=pricing.id,
             precio_anterior=pricing.precio_lista_ml,
@@ -394,6 +408,18 @@ async def setear_precio_rapido(
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
     
     if pricing:
+        if pricing.precio_lista_ml != precio:
+                auditoria = AuditoriaPrecio(
+                    producto_id=pricing.id,
+                    usuario_id=current_user.id,
+                    precio_anterior=pricing.precio_lista_ml,
+                    precio_contado_anterior=None,
+                    precio_nuevo=precio,
+                    precio_contado_nuevo=None,
+                    comentario="Edición rápida"
+                )
+                db.add(auditoria)
+                
         historial = HistorialPrecio(
             producto_pricing_id=pricing.id,
             precio_anterior=pricing.precio_lista_ml,

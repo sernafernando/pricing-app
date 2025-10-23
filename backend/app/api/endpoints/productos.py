@@ -4,8 +4,11 @@ from sqlalchemy import or_, func
 from typing import Optional, List
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
+from app.models.usuario import Usuario
 from pydantic import BaseModel
 from datetime import datetime, date
+from app.models.auditoria_precio import AuditoriaPrecio
+from app.api.deps import get_current_user
 
 router = APIRouter()
 
@@ -36,6 +39,11 @@ class ProductoListResponse(BaseModel):
     page: int
     page_size: int
     productos: List[ProductoResponse]
+
+class PrecioUpdate(BaseModel):
+    precio_lista_final: Optional[float] = None
+    precio_contado_final: Optional[float] = None
+    comentario: Optional[str] = None
 
 @router.get("/productos", response_model=ProductoListResponse)
 async def listar_productos(
@@ -245,3 +253,46 @@ async def obtener_ofertas_vigentes(item_id: int, db: Session = Depends(get_db)):
         "con_oferta": sum(1 for r in resultado if r["tiene_oferta"]),
         "publicaciones": resultado
     }
+    
+@router.patch("/productos/{producto_id}/precio")
+async def actualizar_precio(
+    producto_id: int,
+    datos: PrecioUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Actualiza precio de un producto y registra en auditoría"""
+    
+    producto = db.query(ProductoPricing).filter(ProductoPricing.id == producto_id).first()
+    if not producto:
+        raise HTTPException(404, "Producto no encontrado")
+    
+    # Guardar valores anteriores para auditoría
+    precio_ant = producto.precio_lista_final
+    contado_ant = producto.precio_contado_final
+    
+    # Actualizar precios
+    if datos.precio_lista_final is not None:
+        producto.precio_lista_final = datos.precio_lista_final
+    if datos.precio_contado_final is not None:
+        producto.precio_contado_final = datos.precio_contado_final
+    
+    # Registrar en auditoría SOLO si cambió algún precio
+    if (datos.precio_lista_final is not None and precio_ant != datos.precio_lista_final) or \
+       (datos.precio_contado_final is not None and contado_ant != datos.precio_contado_final):
+        
+        auditoria = AuditoriaPrecio(
+            producto_id=producto_id,
+            usuario_id=current_user.id,
+            precio_anterior=precio_ant,
+            precio_contado_anterior=contado_ant,
+            precio_nuevo=producto.precio_lista_final,
+            precio_contado_nuevo=producto.precio_contado_final,
+            comentario=datos.comentario if hasattr(datos, 'comentario') else None
+        )
+        db.add(auditoria)
+    
+    db.commit()
+    db.refresh(producto)
+    
+    return producto

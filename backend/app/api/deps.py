@@ -14,7 +14,6 @@ async def get_current_user(
     db: Session = Depends(get_db)
 ) -> Usuario:
     """Obtiene el usuario actual desde el token JWT"""
-    
     token = credentials.credentials
     payload = decode_token(token)
     
@@ -32,7 +31,6 @@ async def get_current_user(
         )
     
     usuario = db.query(Usuario).filter(Usuario.email == email).first()
-    
     if usuario is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

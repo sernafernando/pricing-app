@@ -1,0 +1,45 @@
+"""crear_tabla_auditoria_precios
+
+Revision ID: [DEJAR EL ID QUE GENERÓ]
+Revises: b72e99fcc3c8
+Create Date: [DEJAR LA FECHA QUE GENERÓ]
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = '[COPIAR EL ID QUE GENERÓ]'
+down_revision: Union[str, None] = 'b72e99fcc3c8'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    # Crear tabla de auditoría de precios
+    op.create_table(
+        'auditoria_precios',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('producto_id', sa.Integer(), nullable=False),
+        sa.Column('usuario_id', sa.Integer(), nullable=False),
+        sa.Column('precio_anterior', sa.Numeric(10, 2), nullable=True),
+        sa.Column('precio_contado_anterior', sa.Numeric(10, 2), nullable=True),
+        sa.Column('precio_nuevo', sa.Numeric(10, 2), nullable=True),
+        sa.Column('precio_contado_nuevo', sa.Numeric(10, 2), nullable=True),
+        sa.Column('fecha_cambio', sa.DateTime(), nullable=False),
+        sa.Column('comentario', sa.String(500), nullable=True),
+        sa.ForeignKeyConstraint(['producto_id'], ['productos_pricing.id'], ),
+        sa.ForeignKeyConstraint(['usuario_id'], ['usuarios.id'], ),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_auditoria_precios_producto_id'), 'auditoria_precios', ['producto_id'], unique=False)
+    op.create_index(op.f('ix_auditoria_precios_fecha_cambio'), 'auditoria_precios', ['fecha_cambio'], unique=False)
+
+
+def downgrade() -> None:
+    op.drop_index(op.f('ix_auditoria_precios_fecha_cambio'), table_name='auditoria_precios')
+    op.drop_index(op.f('ix_auditoria_precios_producto_id'), table_name='auditoria_precios')
+    op.drop_table('auditoria_precios')

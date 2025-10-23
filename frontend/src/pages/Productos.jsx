@@ -18,6 +18,8 @@ export default function Productos() {
   const [filtroPrecio, setFiltroPrecio] = useState('todos');
   const [totalProductos, setTotalProductos] = useState(0);
   const [pageSize, setPageSize] = useState(50);
+  const [auditoriaVisible, setAuditoriaVisible] = useState(false);
+  const [auditoriaData, setAuditoriaData] = useState([]);	
 
   const debouncedSearch = useDebounce(searchInput, 500);
 
@@ -72,6 +74,21 @@ export default function Productos() {
       console.error('Error:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const verAuditoria = async (productoId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(
+        `https://pricing.gaussonline.com.ar/api/productos/${productoId}/auditoria`,
+        { headers: { Authorization: `Bearer ${token}` }}
+      );
+      setAuditoriaData(response.data);
+      setAuditoriaVisible(true);
+    } catch (error) {
+      console.error('Error cargando auditoría:', error);
+      alert('Error al cargar el historial');
     }
   };
 
@@ -292,15 +309,142 @@ export default function Productos() {
                    	    </div>
                    	  ) : '-'}
                    	</td>
-                    <td>
-                      <button onClick={() => setProductoSeleccionado(p)} className={styles.priceBtn}>
-                        Detalle
-                      </button>
+                    {/* Cambiar de botón a iconos */}
+                    <td style={{ padding: '8px', textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                        {/* Icono de detalle */}
+                        <button
+                          onClick={() => setProductoSeleccionado(producto)}
+                          style={{
+                            padding: '6px 8px',
+                            background: '#3b82f6',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '16px'
+                          }}
+                          title="Ver detalle"
+                        >
+                          🔍
+                        </button>
+                        
+                        {/* Icono de auditoría */}
+                        <button
+                          onClick={() => verAuditoria(p.item_id)}
+                          style={{
+                            padding: '6px 8px',
+                            background: '#8b5cf6',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '16px'
+                          }}
+                          title="Ver historial de cambios"
+                        >
+                          📋
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+
+            {/* Modal de Auditoría */}
+            {auditoriaVisible && (
+              <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0,0,0,0.5)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 1000
+              }}>
+                <div style={{
+                  background: 'white',
+                  borderRadius: '12px',
+                  padding: '24px',
+                  maxWidth: '800px',
+                  width: '90%',
+                  maxHeight: '80vh',
+                  overflow: 'auto'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                    <h2>📋 Historial de Cambios de Precio</h2>
+                    <button
+                      onClick={() => setAuditoriaVisible(false)}
+                      style={{
+                        padding: '8px 16px',
+                        background: '#ef4444',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+            
+                  {auditoriaData.length === 0 ? (
+                    <p style={{ textAlign: 'center', color: '#666' }}>No hay cambios registrados</p>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left' }}>
+                          <th style={{ padding: '12px' }}>Fecha</th>
+                          <th style={{ padding: '12px' }}>Usuario</th>
+                          <th style={{ padding: '12px' }}>Precio Anterior</th>
+                          <th style={{ padding: '12px' }}>Precio Nuevo</th>
+                          <th style={{ padding: '12px' }}>Cambio</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditoriaData.map(item => {
+                          const cambio = item.precio_nuevo - item.precio_anterior;
+                          const porcentaje = ((cambio / item.precio_anterior) * 100).toFixed(2);
+                          
+                          return (
+                            <tr key={item.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                              <td style={{ padding: '12px' }}>
+                                {new Date(item.fecha_cambio).toLocaleString('es-AR')}
+                              </td>
+                              <td style={{ padding: '12px' }}>
+                                <div>
+                                  <strong>{item.usuario_nombre}</strong>
+                                  <br />
+                                  <small style={{ color: '#666' }}>{item.usuario_email}</small>
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px' }}>
+                                ${item.precio_anterior.toFixed(2)}
+                              </td>
+                              <td style={{ padding: '12px' }}>
+                                ${item.precio_nuevo.toFixed(2)}
+                              </td>
+                              <td style={{ padding: '12px' }}>
+                                <span style={{
+                                  color: cambio >= 0 ? '#059669' : '#dc2626',
+                                  fontWeight: 'bold'
+                                }}>
+                                  {cambio >= 0 ? '+' : ''}{cambio.toFixed(2)} ({porcentaje}%)
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className={styles.pagination}>
               <button 

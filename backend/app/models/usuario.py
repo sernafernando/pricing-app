@@ -5,10 +5,11 @@ from app.core.database import Base
 import enum
 
 class RolUsuario(str, enum.Enum):
-    ADMIN = "admin"
-    PRICING_MANAGER = "pricing_manager"
-    ANALISTA = "analista"
-    AUDITOR = "auditor"
+    SUPERADMIN = "SUPERADMIN"
+    ADMIN = "ADMIN"
+    PRICING_MANAGER = "PRICING_MANAGER"
+    ANALISTA = "ANALISTA"
+    AUDITOR = "AUDITOR"
 
 class AuthProvider(str, enum.Enum):
     LOCAL = "local"
