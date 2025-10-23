@@ -27,6 +27,13 @@ export default function Navbar() {
           >
             📦 Productos
           </Link>
+
+          <Link
+            to="/ultimos-cambios"
+            className={`${styles.link} ${isActive('/ultimos-cambios') ? styles.active : ''}`}
+          >
+            📋 Últimos Cambios
+          </Link>
           
           <Link 
             to="/admin" 

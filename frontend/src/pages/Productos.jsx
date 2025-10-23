@@ -314,7 +314,7 @@ export default function Productos() {
                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                         {/* Icono de detalle */}
                         <button
-                          onClick={() => setProductoSeleccionado(producto)}
+                          onClick={() => setProductoSeleccionado(p)}
                           style={{
                             padding: '6px 8px',
                             background: '#3b82f6',

@@ -1,0 +1,153 @@
+.container {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.limitSelect {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: white;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.loading, .empty {
+  text-align: center;
+  padding: 48px;
+  color: #6b7280;
+  font-size: 16px;
+}
+
+.tableContainer {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table thead {
+  background: #f9fafb;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 13px;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.table tbody tr {
+  border-bottom: 1px solid #e5e7eb;
+  transition: background-color 0.15s;
+}
+
+.table tbody tr:hover {
+  background-color: #f9fafb;
+}
+
+.table td {
+  padding: 12px 16px;
+  font-size: 14px;
+}
+
+.fecha {
+  font-size: 13px;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.usuario {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.usuario strong {
+  color: #1f2937;
+  font-size: 14px;
+}
+
+.usuario small {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.producto {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.producto strong {
+  color: #3b82f6;
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.descripcion {
+  color: #374151;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.marca {
+  color: #6b7280;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.precio {
+  font-family: monospace;
+  font-size: 14px;
+  color: #1f2937;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.cambio {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.cambio strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cambio small {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.comentario {
+  color: #6b7280;
+  font-size: 12px;
+  font-style: italic;
+}

@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import Productos from './pages/Productos';
 import Navbar from './components/Navbar';
 import Admin from './pages/Admin';
+import UltimosCambios from './pages/UltimosCambios';
 
 function PrivateRoute({ children }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -32,6 +33,7 @@ function App() {
                   <Navbar />
                   <Routes>
                     <Route path="/productos" element={<Productos />} />
+                    <Route path="/ultimos-cambios" element={<UltimosCambios />} />
                     <Route path="/admin" element={<Admin />} />
                   </Routes>
                 </>

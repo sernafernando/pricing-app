@@ -63,3 +63,50 @@ async def obtener_auditoria_producto(
         })
     
     return resultado
+
+@router.get("/auditoria/ultimos-cambios", response_model=List[dict])
+async def obtener_ultimos_cambios(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene los últimos N cambios de precio de todos los productos"""
+    
+    from app.models.producto import ProductoPricing, ProductoERP
+    
+    auditorias = db.query(
+        AuditoriaPrecio,
+        ProductoPricing,
+        ProductoERP
+    ).join(
+        ProductoPricing, AuditoriaPrecio.producto_id == ProductoPricing.id
+    ).join(
+        ProductoERP, ProductoPricing.item_id == ProductoERP.item_id
+    ).order_by(
+        AuditoriaPrecio.fecha_cambio.desc()
+    ).limit(limit).all()
+    
+    resultado = []
+    for aud, pricing, producto in auditorias:
+        cambio = float(aud.precio_nuevo or 0) - float(aud.precio_anterior or 0)
+        porcentaje = 0
+        if aud.precio_anterior and aud.precio_anterior > 0:
+            porcentaje = (cambio / float(aud.precio_anterior)) * 100
+        
+        resultado.append({
+            "id": aud.id,
+            "fecha_cambio": aud.fecha_cambio,
+            "usuario_nombre": aud.usuario.nombre,
+            "usuario_email": aud.usuario.email,
+            "item_id": producto.item_id,
+            "codigo": producto.codigo,
+            "descripcion": producto.descripcion,
+            "marca": producto.marca,
+            "precio_anterior": float(aud.precio_anterior or 0),
+            "precio_nuevo": float(aud.precio_nuevo or 0),
+            "cambio": round(cambio, 2),
+            "cambio_porcentaje": round(porcentaje, 2),
+            "comentario": aud.comentario
+        })
+    
+    return resultado
