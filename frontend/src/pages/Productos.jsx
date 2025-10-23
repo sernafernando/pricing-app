@@ -20,6 +20,8 @@ export default function Productos() {
   const [pageSize, setPageSize] = useState(50);
   const [auditoriaVisible, setAuditoriaVisible] = useState(false);
   const [auditoriaData, setAuditoriaData] = useState([]);	
+  const [editandoRebate, setEditandoRebate] = useState(null);
+  const [rebateTemp, setRebateTemp] = useState({ participa: false, porcentaje: 3.8 });
 
   const debouncedSearch = useDebounce(searchInput, 500);
 
@@ -135,6 +137,47 @@ export default function Productos() {
     }
   };
 
+  const guardarRebate = async (itemId) => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      await axios.patch(
+        `https://pricing.gaussonline.com.ar/api/productos/${itemId}/rebate`,
+        {
+          participa_rebate: rebateTemp.participa,
+          porcentaje_rebate: rebateTemp.porcentaje
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      setProductos(prods => prods.map(p =>
+        p.item_id === itemId
+          ? { 
+              ...p, 
+              participa_rebate: rebateTemp.participa,
+              porcentaje_rebate: rebateTemp.porcentaje,
+              precio_rebate: rebateTemp.participa && p.precio_lista_ml 
+                ? p.precio_lista_ml / (1 - rebateTemp.porcentaje / 100)
+                : null
+            }
+          : p
+      ));
+  
+      setEditandoRebate(null);
+    } catch (error) {
+      console.error('Error al guardar rebate:', error);
+      alert('Error al guardar rebate');
+    }
+  };
+
+  const iniciarEdicionRebate = (producto) => {
+    setEditandoRebate(producto.item_id);
+    setRebateTemp({
+      participa: producto.participa_rebate || false,
+      porcentaje: producto.porcentaje_rebate || 3.8
+    });
+  };
+
   return (
     <div className={styles.container}>
       <div className={styles.statsGrid}>
@@ -230,6 +273,7 @@ export default function Productos() {
                   <th>Stock</th>
                   <th>Costo</th>
                   <th>Precio Clásica</th>
+                  <th>Precio Rebate</th>
                   <th>Mejor Oferta</th>
                   <th>Acción</th>
                 </tr>
@@ -269,6 +313,64 @@ export default function Productos() {
                               fontWeight: '600'
                             }}>
                               {p.markup}%
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    {/* Columna Precio Rebate */}
+                    <td>
+                      {editandoRebate === p.item_id ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <input
+                              type="checkbox"
+                              checked={rebateTemp.participa}
+                              onChange={(e) => setRebateTemp({ ...rebateTemp, participa: e.target.checked })}
+                              style={{ width: '16px', height: '16px' }}
+                            />
+                            <span style={{ fontSize: '12px' }}>Rebate</span>
+                          </div>
+                          {rebateTemp.participa && (
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={rebateTemp.porcentaje}
+                              onChange={(e) => setRebateTemp({ ...rebateTemp, porcentaje: parseFloat(e.target.value) })}
+                              style={{ width: '60px', padding: '4px', fontSize: '12px' }}
+                              placeholder="%"
+                            />
+                          )}
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button onClick={() => guardarRebate(p.item_id)} style={{ padding: '4px 8px', fontSize: '12px' }}>✓</button>
+                            <button onClick={() => setEditandoRebate(null)} style={{ padding: '4px 8px', fontSize: '12px' }}>✗</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div 
+                          style={{ cursor: 'pointer', padding: '4px' }} 
+                          onClick={() => iniciarEdicionRebate(p)}
+                        >
+                          {p.participa_rebate && p.precio_rebate ? (
+                            <div>
+                              <div style={{ 
+                                fontSize: '14px', 
+                                fontWeight: '600',
+                                color: '#8b5cf6',
+                                borderBottom: '1px dashed #ccc'
+                              }}>
+                                ${p.precio_rebate.toFixed(2).toLocaleString('es-AR')}
+                              </div>
+                              <div style={{ 
+                                fontSize: '11px', 
+                                color: '#6b7280'
+                              }}>
+                                {p.porcentaje_rebate}% rebate
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ borderBottom: '1px dashed #ccc', display: 'inline-block', fontSize: '12px', color: '#9ca3af' }}>
+                              Sin rebate
                             </div>
                           )}
                         </div>

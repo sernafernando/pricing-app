@@ -30,6 +30,9 @@ class ProductoResponse(BaseModel):
     fecha_modificacion: Optional[datetime]
     tiene_precio: bool
     necesita_revision: bool
+    participa_rebate: Optional[bool] = False
+    porcentaje_rebate: Optional[float] = 3.8
+    precio_rebate: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -44,6 +47,10 @@ class PrecioUpdate(BaseModel):
     precio_lista_final: Optional[float] = None
     precio_contado_final: Optional[float] = None
     comentario: Optional[str] = None
+
+class RebateUpdate(BaseModel):
+    participa_rebate: bool
+    porcentaje_rebate: float
 
 @router.get("/productos", response_model=ProductoListResponse)
 async def listar_productos(
@@ -108,7 +115,10 @@ async def listar_productos(
             usuario_modifico=None,
             fecha_modificacion=producto_pricing.fecha_modificacion if producto_pricing else None,
             tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False,
-            necesita_revision=False
+            necesita_revision=False,
+            participa_rebate=producto_pricing.participa_rebate if producto_pricing else False,
+            porcentaje_rebate=float(producto_pricing.porcentaje_rebate) if producto_pricing and producto_pricing.porcentaje_rebate else 3.8,
+            precio_rebate=float(producto_pricing.precio_lista_ml) / (1 - float(producto_pricing.porcentaje_rebate or 3.8) / 100) if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate else None
         ))
 
     return ProductoListResponse(total=total, page=page, page_size=page_size, productos=productos)
@@ -296,3 +306,38 @@ async def actualizar_precio(
     db.refresh(producto)
     
     return producto
+
+
+@router.patch("/productos/{item_id}/rebate")
+async def actualizar_rebate(
+    item_id: int,
+    datos: RebateUpdate,  # ← CAMBIAR ESTO
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Actualiza configuración de rebate de un producto"""
+    
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+    
+    if not pricing:
+        # Si no existe pricing, crear uno
+        pricing = ProductoPricing(
+            item_id=item_id,
+            participa_rebate=datos.participa_rebate,  # ← CAMBIAR
+            porcentaje_rebate=datos.porcentaje_rebate,  # ← CAMBIAR
+            usuario_id=current_user.id
+        )
+        db.add(pricing)
+    else:
+        pricing.participa_rebate = datos.participa_rebate  # ← CAMBIAR
+        pricing.porcentaje_rebate = datos.porcentaje_rebate  # ← CAMBIAR
+        pricing.fecha_modificacion = datetime.now()
+    
+    db.commit()
+    db.refresh(pricing)
+    
+    return {
+        "item_id": item_id,
+        "participa_rebate": datos.participa_rebate,  # ← CAMBIAR
+        "porcentaje_rebate": datos.porcentaje_rebate  # ← CAMBIAR
+    }

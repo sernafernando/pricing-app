@@ -10,13 +10,25 @@ router = APIRouter()
 
 @router.post("/sync")
 async def sync_erp(db: Session = Depends(get_db)):
-    """Sincroniza productos desde el ERP"""
+    """Sincroniza productos desde el ERP y precios de ML"""
     try:
-        resultado = await sincronizar_erp(db)
-        return resultado
+        # Sincronizar ERP
+        print("=== Iniciando sincronización ERP ===")
+        resultado_erp = await sincronizar_erp(db)
+        
+        # Sincronizar precios de MercadoLibre
+        print("=== Iniciando sincronización de precios ML ===")
+        from app.services.sync_precios_ml import sincronizar_precios_ml
+        resultado_ml = sincronizar_precios_ml(db)
+        
+        return {
+            "status": "success",
+            "erp": resultado_erp,
+            "precios_ml": resultado_ml
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}
-
+        
 @router.post("/sync-ml")
 async def sincronizar_ml(db: Session = Depends(get_db)):
     """Sincroniza publicaciones de Mercado Libre"""

@@ -63,12 +63,20 @@ export default function Admin() {
       agregarLog('Sincronizando productos ERP...');
       const erpRes = await axios.post('https://pricing.gaussonline.com.ar/api/sync', {}, 
         { headers: { Authorization: `Bearer ${token}` }});
-      agregarLog(`✓ ERP: ${erpRes.data.total_sincronizados} productos`);
+      if (erpRes.data.erp) {
+        const totalErp = (erpRes.data.erp.productos_nuevos || 0) + (erpRes.data.erp.productos_actualizados || 0);
+        agregarLog(`✓ ERP: ${totalErp} productos sincronizados (${erpRes.data.erp.productos_nuevos || 0} nuevos, ${erpRes.data.erp.productos_actualizados || 0} actualizados)`);
+      }
       
       agregarLog('Sincronizando publicaciones ML...');
       const mlRes = await axios.post('https://pricing.gaussonline.com.ar/api/sync-ml', {}, 
         { headers: { Authorization: `Bearer ${token}` }});
-      agregarLog(`✓ ML: ${mlRes.data.total_publicaciones} publicaciones`);
+      if (erpRes.data.precios_ml) {
+        agregarLog(`✓ Precios ML: ${erpRes.data.precios_ml.exitosos} precios actualizados en ${erpRes.data.precios_ml.listas_procesadas?.length || 0} listas`);
+        erpRes.data.precios_ml.listas_procesadas?.forEach(lista => {
+          agregarLog(`  → ${lista.nombre}: ${lista.items} items`);
+        });
+      }
       
       agregarLog('Sincronizando ofertas...');
       const sheetsRes = await axios.post('https://pricing.gaussonline.com.ar/api/sync-sheets', {}, 
@@ -86,6 +94,20 @@ export default function Admin() {
       agregarLog(`❌ Error: ${error.message}`);
     } finally {
       setSincronizando(false);
+    }
+  };
+
+  const sincronizarPreciosML = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(
+        'https://pricing.gaussonline.com.ar/api/sync-ml/precios',
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      alert('Sincronización iniciada: ' + JSON.stringify(response.data));
+    } catch (error) {
+      alert('Error al sincronizar: ' + error.message);
     }
   };
 

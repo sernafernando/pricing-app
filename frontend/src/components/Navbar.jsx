@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import styles from './Navbar.module.css';
+import logo from '../assets/white-g-logo.png';
 
 export default function Navbar() {
   const location = useLocation();
@@ -16,7 +17,7 @@ export default function Navbar() {
     <nav className={styles.navbar}>
       <div className={styles.container}>
         <div className={styles.brand}>
-          <span className={styles.logo}>💰</span>
+          <img src={logo} alt="Logo" className={styles.logo} />
           <span className={styles.title}>Pricing App</span>
         </div>
         

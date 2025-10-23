@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Enum as SQLEnum, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Enum as SQLEnum, Numeric, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -45,6 +45,9 @@ class ProductoPricing(Base):
     motivo_cambio = Column(String(255))
     
     fecha_modificacion = Column(DateTime(timezone=True), server_default=func.now())
+
+    participa_rebate = Column(Boolean, default=False)
+    porcentaje_rebate = Column(Numeric(5, 2), default=3.8) 
     
     producto = relationship("ProductoERP", back_populates="pricing")
     usuario = relationship("Usuario", back_populates="precios_modificados")

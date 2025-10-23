@@ -24,7 +24,9 @@
 }
 
 .logo {
-  font-size: 28px;
+  width: 280px;
+  margin-right: 8px;
+  vertical-align: middle;
 }
 
 .title {

@@ -5,6 +5,7 @@ from app.models.tipo_cambio import TipoCambio
 from app.models.subcategoria import Subcategoria
 from app.models.comision_config import GrupoComision, SubcategoriaGrupo, ComisionListaGrupo
 from app.models.auditoria_precio import AuditoriaPrecio
+from app.models.precio_ml import PrecioML
 
 __all__ = [
     "ProductoERP",
@@ -18,4 +19,5 @@ __all__ = [
     "ComisionListaGrupo",
     "PublicacionML",
     "AuditoriaPrecio"
+    "PrecioML"
 ]

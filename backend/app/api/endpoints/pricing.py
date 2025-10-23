@@ -154,6 +154,8 @@ class SetPrecioRequest(BaseModel):
     precio_lista_ml: float
     motivo: Optional[str] = None
     usuario_id: Optional[int] = 1
+    participa_rebate: Optional[bool] = False
+    porcentaje_rebate: Optional[float] = 3.8 
 
 @router.post("/precios/set")
 async def setear_precio(
@@ -216,13 +218,17 @@ async def setear_precio(
         pricing.usuario_id = request.usuario_id
         pricing.motivo_cambio = request.motivo
         pricing.fecha_modificacion = datetime.now()
+        pricing.participa_rebate = request.participa_rebate
+        pricing.porcentaje_rebate = request.porcentaje_rebate
     else:
         pricing = ProductoPricing(
             item_id=request.item_id,
             precio_lista_ml=request.precio_lista_ml,
             markup_calculado=markup_calculado,
             usuario_id=request.usuario_id,
-            motivo_cambio=request.motivo
+            motivo_cambio=request.motivo,
+            participa_rebate=request.participa_rebate,
+            porcentaje_rebate=request.porcentaje_rebate
         )
         db.add(pricing)
 
