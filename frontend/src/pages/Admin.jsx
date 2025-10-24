@@ -63,20 +63,26 @@ export default function Admin() {
       agregarLog('Sincronizando productos ERP...');
       const erpRes = await axios.post('https://pricing.gaussonline.com.ar/api/sync', {}, 
         { headers: { Authorization: `Bearer ${token}` }});
+      // Mostrar resultados ERP
       if (erpRes.data.erp) {
         const totalErp = (erpRes.data.erp.productos_nuevos || 0) + (erpRes.data.erp.productos_actualizados || 0);
         agregarLog(`✓ ERP: ${totalErp} productos sincronizados (${erpRes.data.erp.productos_nuevos || 0} nuevos, ${erpRes.data.erp.productos_actualizados || 0} actualizados)`);
       }
       
-      agregarLog('Sincronizando publicaciones ML...');
-      const mlRes = await axios.post('https://pricing.gaussonline.com.ar/api/sync-ml', {}, 
-        { headers: { Authorization: `Bearer ${token}` }});
+      // Mostrar resultados precios ML
       if (erpRes.data.precios_ml) {
-        agregarLog(`✓ Precios ML: ${erpRes.data.precios_ml.exitosos} precios actualizados en ${erpRes.data.precios_ml.listas_procesadas?.length || 0} listas`);
+        const totalPrecios = erpRes.data.precios_ml.exitosos || 0;
+        agregarLog(`✓ Precios ML: ${totalPrecios} precios actualizados en ${erpRes.data.precios_ml.listas_procesadas?.length || 0} listas`);
+        
         erpRes.data.precios_ml.listas_procesadas?.forEach(lista => {
           agregarLog(`  → ${lista.nombre}: ${lista.items} items`);
         });
       }
+      
+      agregarLog('Sincronizando publicaciones ML...');
+      const mlRes = await axios.post('https://pricing.gaussonline.com.ar/api/sync-ml', {},
+        { headers: { Authorization: `Bearer ${token}` }});
+      agregarLog(`✓ ML: ${mlRes.data.total_publicaciones || 0} publicaciones`);
       
       agregarLog('Sincronizando ofertas...');
       const sheetsRes = await axios.post('https://pricing.gaussonline.com.ar/api/sync-sheets', {}, 

@@ -30,6 +30,13 @@ export default function Navbar() {
           </Link>
 
           <Link
+            to="/precios-listas"
+            className={`${styles.link} ${isActive('/precios-listas') ? styles.active : ''}`}
+          >
+            💰 Precios por Lista
+          </Link>
+
+          <Link
             to="/ultimos-cambios"
             className={`${styles.link} ${isActive('/ultimos-cambios') ? styles.active : ''}`}
           >

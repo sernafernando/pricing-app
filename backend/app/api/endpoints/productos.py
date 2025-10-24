@@ -123,6 +123,86 @@ async def listar_productos(
 
     return ProductoListResponse(total=total, page=page, page_size=page_size, productos=productos)
 
+@router.get("/productos/precios-listas")
+async def listar_productos_con_precios_listas(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    search: Optional[str] = None,
+    categoria: Optional[str] = None,
+    marca: Optional[str] = None,
+    con_stock: Optional[bool] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Lista productos con sus precios en todas las listas de ML"""
+    from app.models.precio_ml import PrecioML
+    from app.models.publicacion_ml import PublicacionML
+
+    # Query base
+    query = db.query(ProductoERP).outerjoin(
+        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
+    )
+
+    # Filtros
+    if search:
+        search_normalized = search.replace('-', '').replace(' ', '').upper()
+        query = query.filter(
+            or_(
+                func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
+            )
+        )
+
+    if categoria:
+        query = query.filter(ProductoERP.categoria == categoria)
+    if marca:
+        query = query.filter(ProductoERP.marca == marca)
+    if con_stock is not None:
+        query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
+
+    total = query.count()
+    offset = (page - 1) * page_size
+    results = query.offset(offset).limit(page_size).all()
+
+    productos = []
+    for producto_erp in results:
+        # Obtener precios de todas las listas directamente por item_id
+        precios_listas = {}
+    
+        for pricelist_id in [4, 17, 14, 13, 23]:
+            precio_ml = db.query(PrecioML).filter(
+                PrecioML.item_id == producto_erp.item_id,
+                PrecioML.pricelist_id == pricelist_id
+            ).first()
+        
+            if precio_ml:
+                precios_listas[pricelist_id] = {
+                    "precio": float(precio_ml.precio) if precio_ml.precio else None,
+                    "mla": precio_ml.mla,
+                    "cotizacion_dolar": float(precio_ml.cotizacion_dolar) if precio_ml.cotizacion_dolar else None
+                }
+        
+        productos.append({
+            "item_id": producto_erp.item_id,
+            "codigo": producto_erp.codigo,
+            "descripcion": producto_erp.descripcion,
+            "marca": producto_erp.marca,
+            "categoria": producto_erp.categoria,
+            "stock": producto_erp.stock,
+            "costo": float(producto_erp.costo),
+            "moneda_costo": producto_erp.moneda_costo,
+            "precios_listas": precios_listas
+        })
+    
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "productos": productos
+    }
+
+
 @router.get("/productos/{item_id}", response_model=ProductoResponse)
 async def obtener_producto(item_id: int, db: Session = Depends(get_db)):
     result = db.query(ProductoERP, ProductoPricing).outerjoin(
@@ -341,3 +421,5 @@ async def actualizar_rebate(
         "participa_rebate": datos.participa_rebate,  # ← CAMBIAR
         "porcentaje_rebate": datos.porcentaje_rebate  # ← CAMBIAR
     }
+
+
