@@ -8,6 +8,7 @@ export default function Admin() {
   const [comisiones, setComisiones] = useState([]);
   const [tipoCambio, setTipoCambio] = useState(null);
   const [usuarios, setUsuarios] = useState([]);
+  const [usuarioActual, setUsuarioActual] = useState(null);
   const [mostrarFormUsuario, setMostrarFormUsuario] = useState(false);
   const [nuevoUsuario, setNuevoUsuario] = useState({
     email: '',
@@ -31,11 +32,27 @@ export default function Admin() {
         { headers: { Authorization: `Bearer ${token}` }});
       setTipoCambio(tcRes.data);
 
-      // Cargar usuarios
-      const usuariosRes = await axios.get('https://pricing.gaussonline.com.ar/api/usuarios', 
-        { headers: { Authorization: `Bearer ${token}` }});
-      setUsuarios(usuariosRes.data);
-      
+      // Obtener usuario actual
+	  const meRes = await axios.get('https://pricing.gaussonline.com.ar/api/auth/me',
+	    { headers: { Authorization: `Bearer ${token}` }});
+	    
+	  const currentUser = meRes.data;
+	    
+	  // Cargar usuarios
+	  const usuariosRes = await axios.get('https://pricing.gaussonline.com.ar/api/usuarios',
+	    { headers: { Authorization: `Bearer ${token}` }});
+	    
+	  let usuariosFiltrados = usuariosRes.data;
+	    
+	  // Si es ADMIN, no puede ver SUPERADMIN
+      if (currentUser.rol === 'ADMIN') {
+	    usuariosFiltrados = usuariosFiltrados.filter(u => u.rol !== 'SUPERADMIN');
+	  }
+	   
+	  setUsuarios(usuariosFiltrados);
+	  setUsuarioActual(currentUser);
+
+          
       // TODO: Cargar comisiones cuando esté el endpoint
     } catch (error) {
       console.error('Error cargando datos:', error);
@@ -284,13 +301,18 @@ export default function Admin() {
                 style={{ padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db' }}
               />
               <select
-                value={nuevoUsuario.rol}
-                onChange={(e) => setNuevoUsuario({...nuevoUsuario, rol: e.target.value})}
-                style={{ padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                value={nuevoUsuario.rol || datosEdicion.rol}
+                onChange={(e) => nuevoUsuario.rol 
+                  ? setNuevoUsuario({...nuevoUsuario, rol: e.target.value})
+                  : setDatosEdicion({...datosEdicion, rol: e.target.value})
+                }
+                style={{ padding: '8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
               >
-                <option value="user">Usuario</option>
-                <option value="admin">Administrador</option>
-                <option value="superadmin">Super Administrador</option>
+                {usuarioActual?.rol === 'SUPERADMIN' && <option value="SUPERADMIN">Superadmin</option>}
+                <option value="ADMIN">Admin</option>
+                <option value="GERENTE">Gerente</option>
+                <option value="PRICING">Pricing</option>
+                <option value="VENTAS">Ventas</option>
               </select>
               <button 
                 onClick={crearUsuario}
@@ -375,11 +397,11 @@ export default function Admin() {
                       onChange={(e) => setDatosEdicion({...datosEdicion, rol: e.target.value})}
                       style={{ padding: '6px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                     >
-                      <option value="AUDITOR">Auditor</option>
-                      <option value="ANALISTA">Analista</option>
-                      <option value="PRICING_MANAGER">Pricing Manager</option>
-                      <option value="ADMIN">Administrador</option>
-                      <option value="SUPERADMIN">Super Administrador</option>
+                      {usuarioActual?.rol === 'SUPERADMIN' && <option value="SUPERADMIN">Superadmin</option>}
+                      <option value="ADMIN">Admin</option>
+                      <option value="GERENTE">Gerente</option>
+                      <option value="PRICING">Pricing</option>
+                      <option value="VENTAS">Ventas</option>
                     </select>
                   ) : (
                     <span style={{
@@ -387,21 +409,24 @@ export default function Admin() {
                       borderRadius: '4px',
                       fontSize: '12px',
                       fontWeight: '600',
-                      background: 
-                        user.rol === 'SUPERADMIN' ? '#fef3c7' : 
-                        user.rol === 'ADMIN' ? '#dbeafe' : 
-                        user.rol === 'PRICING_MANAGER' ? '#e0e7ff' :
-                        user.rol === 'ANALISTA' ? '#fce7f3' : '#f3f4f6',
-                      color: 
-                        user.rol === 'SUPERADMIN' ? '#92400e' : 
-                        user.rol === 'ADMIN' ? '#1e40af' : 
-                        user.rol === 'PRICING_MANAGER' ? '#4338ca' :
-                        user.rol === 'ANALISTA' ? '#be185d' : '#374151'
+                      background:
+                        user.rol === 'SUPERADMIN' ? '#fef3c7' :
+                        user.rol === 'ADMIN' ? '#dbeafe' :
+                        user.rol === 'GERENTE' ? '#e0e7ff' :
+                        user.rol === 'PRICING' ? '#d1fae5' : 
+                        user.rol === 'VENTAS' ? '#fce7f3' : '#f3f4f6',
+                      color:
+                        user.rol === 'SUPERADMIN' ? '#92400e' :
+                        user.rol === 'ADMIN' ? '#1e40af' :
+                        user.rol === 'GERENTE' ? '#4338ca' :
+                        user.rol === 'PRICING' ? '#065f46' :
+                        user.rol === 'VENTAS' ? '#be185d' : '#374151'
                     }}>
-                      {user.rol === 'SUPERADMIN' ? '⭐ Super Admin' : 
-                       user.rol === 'ADMIN' ? '👑 Admin' : 
-                       user.rol === 'PRICING_MANAGER' ? '💰 Pricing Manager' :
-                       user.rol === 'ANALISTA' ? '📊 Analista' : '👁️ Auditor'}
+                      {user.rol === 'SUPERADMIN' ? '👑 Superadmin' :
+                       user.rol === 'ADMIN' ? '⚙️ Admin' :
+                       user.rol === 'GERENTE' ? '📊 Gerente' :
+                       user.rol === 'PRICING' ? '💰 Pricing' : 
+                       user.rol === 'VENTAS' ? '🤝 Ventas' : user.rol}
                     </span>
                   )}
                 </td>

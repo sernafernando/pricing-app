@@ -1,10 +1,14 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import styles from './Navbar.module.css';
 import logo from '../assets/white-g-logo.png';
+import { useAuthStore } from '../store/authStore';
 
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const user = useAuthStore((state) => state.user);
+  const puedeVerAdmin = ['SUPERADMIN', 'ADMIN'].includes(user?.rol);
+  const puedeVerHistorial = ['SUPERADMIN', 'ADMIN', 'GERENTE'].includes(user?.rol);
   
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -36,19 +40,23 @@ export default function Navbar() {
             💰 Precios por Lista
           </Link>
 
+          {puedeVerHistorial && ( 
           <Link
             to="/ultimos-cambios"
             className={`${styles.link} ${isActive('/ultimos-cambios') ? styles.active : ''}`}
           >
             📋 Últimos Cambios
           </Link>
-          
+          )}
+
+          {puedeVerAdmin && ( 
           <Link 
             to="/admin" 
             className={`${styles.link} ${isActive('/admin') ? styles.active : ''}`}
           >
             ⚙️ Admin
           </Link>
+          )}
         </div>
 
         <button onClick={handleLogout} className={styles.logoutBtn}>

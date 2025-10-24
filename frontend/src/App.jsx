@@ -27,7 +27,6 @@ function App() {
   
   return (
     <BrowserRouter>
-	 <div style={{ fontFamily: 'Inter, sans-serif' }}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Navigate to="/productos" replace />} />
@@ -35,15 +34,30 @@ function App() {
           <ProtectedRoute>
             <Navbar />
             <Routes>
-              <Route path="/productos" element={<Productos />} />
-              <Route path="/precios-listas" element={<PreciosListas />} />
-              <Route path="/ultimos-cambios" element={<UltimosCambios />} />
-              <Route path="/admin" element={<Admin />} />
+              <Route path="/productos" element={
+                <ProtectedRoute>
+                  <Productos />
+                </ProtectedRoute>
+              } />
+              <Route path="/precios-listas" element={
+                <ProtectedRoute>
+                  <PreciosListas />
+                </ProtectedRoute>
+              } />
+              <Route path="/ultimos-cambios" element={
+                <ProtectedRoute allowedRoles={['SUPERADMIN', 'ADMIN', 'GERENTE']}>
+                  <UltimosCambios />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin" element={
+                <ProtectedRoute allowedRoles={['SUPERADMIN', 'ADMIN']}>
+                  <Admin />
+                </ProtectedRoute>
+              } />
             </Routes>
           </ProtectedRoute>
         } />
       </Routes>
-     </div>
     </BrowserRouter>
   );
 }

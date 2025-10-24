@@ -4,6 +4,7 @@ import PricingModal from '../components/PricingModal';
 import { useDebounce } from '../hooks/useDebounce';
 import styles from './Productos.module.css';
 import axios from 'axios';
+import { useAuthStore } from '../store/authStore';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -22,6 +23,9 @@ export default function Productos() {
   const [auditoriaData, setAuditoriaData] = useState([]);	
   const [editandoRebate, setEditandoRebate] = useState(null);
   const [rebateTemp, setRebateTemp] = useState({ participa: false, porcentaje: 3.8 });
+
+  const user = useAuthStore((state) => state.user);
+  const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
 
   const debouncedSearch = useDebounce(searchInput, 500);
 
@@ -301,8 +305,8 @@ export default function Productos() {
                           <button onClick={() => setEditandoPrecio(null)} style={{ padding: '4px 8px' }}>✗</button>
                         </div>
                       ) : (
-                        <div style={{ cursor: 'pointer' }} onClick={() => iniciarEdicion(p)}>
-                          <div style={{ borderBottom: '1px dashed #ccc', display: 'inline-block' }}>
+                        <div style={{ cursor: puedeEditar ? 'pointer' : 'default' }} onClick={() => puedeEditar && iniciarEdicion(p)}>
+                          <div style={{borderBottom: puedeEditar ? '1px dashed #ccc' : 'none', display: 'inline-block' }}>
                             {p.precio_lista_ml ? `$${p.precio_lista_ml.toLocaleString('es-AR')}` : 'Sin precio'}
                           </div>
                           {p.markup !== null && p.markup !== undefined && (
@@ -415,6 +419,7 @@ export default function Productos() {
                     <td style={{ padding: '8px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                         {/* Icono de detalle */}
+                        {puedeEditar && (
                         <button
                           onClick={() => setProductoSeleccionado(p)}
                           style={{
@@ -430,7 +435,7 @@ export default function Productos() {
                         >
                           🔍
                         </button>
-                        
+                        )}
                         {/* Icono de auditoría */}
                         <button
                           onClick={() => verAuditoria(p.item_id)}

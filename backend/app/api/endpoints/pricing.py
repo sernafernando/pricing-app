@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 from app.api.deps import get_current_user
@@ -19,6 +19,7 @@ from app.services.pricing_calculator import (
     obtener_comision_base,
     VARIOS_DEFAULT
 )
+
 
 router = APIRouter()
 
@@ -151,16 +152,16 @@ async def calcular_por_precio(
 
 class SetPrecioRequest(BaseModel):
     item_id: int
-    precio_lista_ml: float
+    precio_lista_ml: float = Field(gt=0, le=999999999.99)
     motivo: Optional[str] = None
-    usuario_id: Optional[int] = 1
     participa_rebate: Optional[bool] = False
-    porcentaje_rebate: Optional[float] = 3.8 
+    porcentaje_rebate: Optional[float] = 3.8
 
 @router.post("/precios/set")
 async def setear_precio(
     request: SetPrecioRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
     """Setea el precio de lista ML para un producto"""
 
@@ -195,7 +196,7 @@ async def setear_precio(
         if pricing.precio_lista_ml != request.precio_lista_ml:
                 auditoria = AuditoriaPrecio(
                     producto_id=pricing.id,
-                    usuario_id=request.usuario_id,
+                    usuario_id=current_user.id,
                     precio_anterior=pricing.precio_lista_ml,
                     precio_contado_anterior=None,  # Por ahora no usamos contado aquí
                     precio_nuevo=request.precio_lista_ml,
@@ -208,14 +209,14 @@ async def setear_precio(
             producto_pricing_id=pricing.id,
             precio_anterior=pricing.precio_lista_ml,
             precio_nuevo=request.precio_lista_ml,
-            usuario_id=request.usuario_id,
+            usuario_id=current_user.id,
             motivo=request.motivo
         )
         db.add(historial)
 
         pricing.precio_lista_ml = request.precio_lista_ml
         pricing.markup_calculado = markup_calculado
-        pricing.usuario_id = request.usuario_id
+        pricing.usuario_id = current_user.id
         pricing.motivo_cambio = request.motivo
         pricing.fecha_modificacion = datetime.now()
         pricing.participa_rebate = request.participa_rebate
@@ -225,7 +226,7 @@ async def setear_precio(
             item_id=request.item_id,
             precio_lista_ml=request.precio_lista_ml,
             markup_calculado=markup_calculado,
-            usuario_id=request.usuario_id,
+            usuario_id=current_user.id,
             motivo_cambio=request.motivo,
             participa_rebate=request.participa_rebate,
             porcentaje_rebate=request.porcentaje_rebate
@@ -373,7 +374,7 @@ async def calcular_precios_completos(
 @router.post("/precios/set-rapido")
 async def setear_precio_rapido(
     item_id: int,
-    precio: float,
+    precio: float = Query(gt=0, le=999999999.99),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):

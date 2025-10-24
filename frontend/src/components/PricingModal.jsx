@@ -82,10 +82,15 @@ export default function PricingModal({ producto, onClose, onSave }) {
 
     const precio = modo === 'markup' ? resultado.clasica?.precio : resultado.precioManual;
 
-    if (!precio) {
-      setError('No hay precio para guardar');
+    if (!precio || precio <= 0) {
+      setError('El precio debe ser mayor a 0');
       return;
-    }
+     }
+      
+     if (precio > 999999999.99) {
+       setError('El precio no puede ser mayor a $999.999.999,99');
+       return;
+     }
 
     try {
       const token = localStorage.getItem('token');

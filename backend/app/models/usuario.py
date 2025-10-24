@@ -7,9 +7,9 @@ import enum
 class RolUsuario(str, enum.Enum):
     SUPERADMIN = "SUPERADMIN"
     ADMIN = "ADMIN"
-    PRICING_MANAGER = "PRICING_MANAGER"
-    ANALISTA = "ANALISTA"
-    AUDITOR = "AUDITOR"
+    GERENTE = "GERENTE"
+    PRICING = "PRICING"
+    VENTAS = "VENTAS"
 
 class AuthProvider(str, enum.Enum):
     LOCAL = "local"
@@ -23,7 +23,7 @@ class Usuario(Base):
     nombre = Column(String(255), nullable=False)
     password_hash = Column(String(255), nullable=True)  # Nullable para OAuth
     
-    rol = Column(SQLEnum(RolUsuario), default=RolUsuario.ANALISTA)
+    rol = Column(SQLEnum(RolUsuario), default=RolUsuario.VENTAS)
     auth_provider = Column(SQLEnum(AuthProvider), default=AuthProvider.LOCAL)
     
     activo = Column(Boolean, default=True)
