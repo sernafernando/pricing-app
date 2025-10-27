@@ -35,19 +35,26 @@ export default function UltimosCambios() {
   };
 
   const formatearFecha = (fecha) => {
-    const date = new Date(fecha);
+    // Asegurar que se interprete como UTC y convertir a GMT-3
+    const date = new Date(fecha + (fecha.includes('Z') ? '' : 'Z'));
+    
+    // Crear fechas de referencia en GMT-3
     const hoy = new Date();
     const ayer = new Date(hoy);
     ayer.setDate(ayer.getDate() - 1);
-
-    const esHoy = date.toDateString() === hoy.toDateString();
-    const esAyer = date.toDateString() === ayer.toDateString();
-
-    const hora = date.toLocaleTimeString('es-AR', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    
+    const esHoy = date.toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }) === 
+                  hoy.toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
+    const esAyer = date.toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }) === 
+                   ayer.toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
+    
+    const hora = date.toLocaleTimeString('es-AR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'America/Argentina/Buenos_Aires'
     });
-
+    
     if (esHoy) return `Hoy ${hora}`;
     if (esAyer) return `Ayer ${hora}`;
     
@@ -56,7 +63,9 @@ export default function UltimosCambios() {
       month: '2-digit',
       year: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'America/Argentina/Buenos_Aires'
     });
   };
 

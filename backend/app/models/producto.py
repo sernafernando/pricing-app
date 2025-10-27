@@ -43,11 +43,15 @@ class ProductoPricing(Base):
     markup_calculado = Column(Float)
     usuario_id = Column(Integer, ForeignKey('usuarios.id'))
     motivo_cambio = Column(String(255))
-    
+    markup_web_real = Column(Numeric(10, 2))
     fecha_modificacion = Column(DateTime(timezone=True), server_default=func.now())
 
     participa_rebate = Column(Boolean, default=False)
     porcentaje_rebate = Column(Numeric(5, 2), default=3.8) 
+
+    participa_web_transferencia = Column(Boolean, default=False)
+    porcentaje_markup_web = Column(Numeric(5, 2), default=6.0)
+    precio_web_transferencia = Column(Numeric(15, 2))
     
     producto = relationship("ProductoERP", back_populates="pricing")
     usuario = relationship("Usuario", back_populates="precios_modificados")

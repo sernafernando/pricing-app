@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Index
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Index, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -13,6 +13,9 @@ class PublicacionML(Base):
     item_title = Column(String(500))
     pricelist_id = Column(Integer)
     lista_nombre = Column(String(100))
+    fecha_sync = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True))
+    activo = Column(Boolean, nullable=False, default=True)
     
     fecha_sync = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

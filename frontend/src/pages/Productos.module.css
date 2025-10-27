@@ -7,17 +7,21 @@
 }
 
 .statsGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  display: flex;
+  justify-content: center;
   gap: 16px;
   margin-bottom: 24px;
+  flex-wrap: wrap;
 }
 
 .statCard {
+  flex: 0 1 240px;
+  min-width: 200px;
   background: white;
   padding: 20px;
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  text-align: center;
 }
 
 .statLabel {
@@ -25,12 +29,14 @@
   font-weight: 500;
   color: #6b7280;
   margin-bottom: 8px;
+  text-align: center;
 }
 
 .statValue {
   font-size: 32px;
   font-weight: bold;
   color: #111827;
+  text-align: center;
 }
 
 .statValue.green {

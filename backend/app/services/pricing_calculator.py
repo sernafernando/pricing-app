@@ -165,7 +165,9 @@ def calcular_precio_producto(
         }
     
     markup_total = markup_objetivo + adicional_markup
-    
+
+
+
     precio = precio_por_markup_goalseek(
         costo=costo_ars,
         markup_objetivo=markup_total,
@@ -174,11 +176,11 @@ def calcular_precio_producto(
         varios=VARIOS_DEFAULT,
         costo_envio=envio
     )
-    
+
     comisiones = calcular_comision_ml_total(precio, comision_base, iva, VARIOS_DEFAULT)
     limpio = calcular_limpio(precio, iva, envio, comisiones["comision_total"])
     markup_real = calcular_markup(limpio, costo_ars)
-    
+
     return {
         "precio": precio,
         "costo_ars": round(costo_ars, 2),
@@ -193,4 +195,56 @@ def calcular_precio_producto(
         "markup_objetivo": markup_objetivo,
         "markup_real": round(markup_real * 100, 2),
         "adicional_markup": adicional_markup
+    }
+
+
+
+def calcular_precio_web_transferencia(costo_ars: float, iva: float, markup_objetivo: float, max_iter: int = 100) -> dict:
+    COMISION_WEB = 0.0073
+    IIBB = 0.05
+    TOLERANCIA = 0.0001
+    
+    # Convertir IVA de porcentaje a decimal si viene como 10.5, 21, etc
+    iva_decimal = iva / 100 if iva > 1 else iva
+    
+    # Precio inicial
+    precio = costo_ars * (1 + iva_decimal) * (1 + markup_objetivo) * 1.1
+    
+    for i in range(max_iter):
+        # 1. Comisión sobre precio con IVA
+        comision = precio * COMISION_WEB
+        
+        # 2. Precio sin IVA
+        precio_sin_iva = precio / (1 + iva_decimal)
+        
+        # 3. IIBB sobre precio sin IVA
+        iibb = precio_sin_iva * IIBB
+        
+        # 4. Limpio con IVA
+        limpio_con_iva = precio - comision - iibb
+        
+        # 5. Limpio sin IVA
+        limpio_sin_iva = limpio_con_iva / (1 + iva_decimal)
+        
+        # 6. Markup real
+        markup_real = (limpio_sin_iva - costo_ars) / costo_ars if costo_ars > 0 else 0
+        
+        # Verificar convergencia
+        if abs(markup_real - markup_objetivo) < TOLERANCIA:
+            return {
+                "precio": round(precio, 2),
+                "markup_real": round(markup_real * 100, 2),
+                "iteraciones": i + 1,
+                "convergio": True
+            }
+        
+        # Ajustar
+        factor = (1 + markup_objetivo) / (1 + markup_real) if markup_real > 0 else 1.1
+        precio = precio * factor
+    
+    return {
+        "precio": round(precio, 2),
+        "markup_real": round(markup_real * 100, 2),
+        "iteraciones": max_iter,
+        "convergio": False
     }

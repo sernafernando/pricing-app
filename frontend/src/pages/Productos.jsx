@@ -5,6 +5,8 @@ import { useDebounce } from '../hooks/useDebounce';
 import styles from './Productos.module.css';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
+import ExportModal from '../components/ExportModal';
+import xlsIcon from '../assets/xls.svg';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -23,6 +25,9 @@ export default function Productos() {
   const [auditoriaData, setAuditoriaData] = useState([]);	
   const [editandoRebate, setEditandoRebate] = useState(null);
   const [rebateTemp, setRebateTemp] = useState({ participa: false, porcentaje: 3.8 });
+  const [mostrarExportModal, setMostrarExportModal] = useState(false);
+  const [editandoWebTransf, setEditandoWebTransf] = useState(null);
+  const [webTransfTemp, setWebTransfTemp] = useState({ participa: false, porcentaje: 6.0 });
 
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
@@ -44,6 +49,65 @@ export default function Productos() {
     } catch (error) {
       console.error('Error:', error);
     }
+  };
+
+  const iniciarEdicionWebTransf = (producto) => {
+    setEditandoWebTransf(producto.item_id);
+    setWebTransfTemp({
+      participa: producto.participa_web_transferencia || false,
+      porcentaje: producto.porcentaje_markup_web || 6.0
+    });
+  };
+  
+  const guardarWebTransf = async (itemId) => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.patch(
+        `https://pricing.gaussonline.com.ar/api/productos/${itemId}/web-transferencia`,
+        null,
+        {
+          params: {
+            participa: webTransfTemp.participa,
+            porcentaje_markup: webTransfTemp.porcentaje
+          },
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      
+      setProductos(prods => prods.map(p =>
+        p.item_id === itemId
+          ? {
+              ...p,
+              participa_web_transferencia: webTransfTemp.participa,
+              porcentaje_markup_web: webTransfTemp.porcentaje,
+              precio_web_transferencia: response.data.precio_web_transferencia,
+              markup_web_real: response.data.markup_web_real  // ← AGREGAR
+            }
+          : p
+      ));
+      
+      setEditandoWebTransf(null);
+    } catch (error) {
+      console.error('Error al guardar web transferencia:', error);
+      alert('Error al guardar');
+    }
+  };
+
+  const formatearFechaGMT3 = (fechaString) => {
+    const fecha = new Date(fechaString + 'Z'); // Forzar que se interprete como UTC
+    // Convertir a GMT-3 (Argentina)
+    const opciones = {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone: 'America/Argentina/Buenos_Aires'
+    };
+    return fecha.toLocaleString('es-AR', opciones);
   };
 
   const cargarProductos = async () => {
@@ -235,6 +299,25 @@ export default function Productos() {
 	      <option value="con_precio">✅ Con precio</option>
 	      <option value="sin_precio">❌ Sin precio</option>
 	    </select>
+
+	    <button
+	      onClick={() => setMostrarExportModal(true)}
+	      style={{
+	        padding: '10px 16px',
+	        background: '#10b981',
+	        color: 'white',
+	        border: 'none',
+	        borderRadius: '6px',
+	        cursor: 'pointer',
+	        display: 'flex',
+	        alignItems: 'center',
+	        gap: '8px',
+	        fontWeight: '600'
+	      }}
+	    >
+	      <img src={xlsIcon} alt="Excel" style={{ width: '20px', height: '20px' }} />
+	      Exportar Rebate
+	    </button>
 	  
 	  </div>
      
@@ -279,6 +362,7 @@ export default function Productos() {
                   <th>Precio Clásica</th>
                   <th>Precio Rebate</th>
                   <th>Mejor Oferta</th>
+                  <th style={{ padding: '12px', textAlign: 'left' }}>Web Transf.</th>
                   <th>Acción</th>
                 </tr>
               </thead>
@@ -415,6 +499,64 @@ export default function Productos() {
                    	    </div>
                    	  ) : '-'}
                    	</td>
+
+                   	<td style={{ padding: '8px' }}>
+                   	  {editandoWebTransf === p.item_id ? (
+                   	    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                   	      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
+                   	        <input
+                   	          type="checkbox"
+                   	          checked={webTransfTemp.participa}
+                   	          onChange={(e) => setWebTransfTemp({...webTransfTemp, participa: e.target.checked})}
+                   	        />
+                   	        Participa
+                   	      </label>
+                   	      <input
+                   	        type="number"
+                   	        step="0.1"
+                   	        value={webTransfTemp.porcentaje}
+                   	        onChange={(e) => setWebTransfTemp({...webTransfTemp, porcentaje: parseFloat(e.target.value)})}
+                   	        style={{ padding: '4px', width: '60px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+                   	        placeholder="%"
+                   	      />
+                   	      <div style={{ display: 'flex', gap: '4px' }}>
+                   	        <button
+                   	          onClick={() => guardarWebTransf(p.item_id)}
+                   	          style={{ padding: '4px 8px', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                   	        >
+                   	          ✓
+                   	        </button>
+                   	        <button
+                   	          onClick={() => setEditandoWebTransf(null)}
+                   	          style={{ padding: '4px 8px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                   	        >
+                   	          ✗
+                   	        </button>
+                   	      </div>
+                   	    </div>
+                   	  ) : (
+                   	    <div onClick={() => iniciarEdicionWebTransf(p)} style={{ cursor: 'pointer' }}>
+                   	      {p.participa_web_transferencia ? (
+                   	        <div>
+                   	          <div style={{ fontSize: '12px', color: '#059669', fontWeight: '600' }}>
+                   	            ✓ {p.markup_web_real ? `${p.markup_web_real.toFixed(2)}%` : '-'}
+                   	          </div>
+                   	          <div style={{ fontSize: '10px', color: '#6b7280' }}>
+                   	            (+{p.porcentaje_markup_web}%)
+                   	          </div>
+                   	          {p.precio_web_transferencia && (
+                   	            <div style={{ fontSize: '13px', fontWeight: '600', marginTop: '2px' }}>
+                   	              ${p.precio_web_transferencia.toLocaleString('es-AR')}
+                   	            </div>
+                   	          )}
+                   	        </div>
+                   	      ) : (
+                   	        <span style={{ fontSize: '11px', color: '#9ca3af' }}>-</span>
+                   	      )}
+                   	    </div>
+                   	  )}
+                   	</td>
+                   	
                     {/* Cambiar de botón a iconos */}
                     <td style={{ padding: '8px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
@@ -519,8 +661,8 @@ export default function Productos() {
                           
                           return (
                             <tr key={item.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                              <td style={{ padding: '12px' }}>
-                                {new Date(item.fecha_cambio).toLocaleString('es-AR')}
+                             <td style={{ padding: '12px' }}>
+                                {formatearFechaGMT3(item.fecha_cambio)}
                               </td>
                               <td style={{ padding: '12px' }}>
                                 <div>
@@ -575,16 +717,20 @@ export default function Productos() {
       </div>
 
       {productoSeleccionado && (
-        <PricingModal
-          producto={productoSeleccionado}
-          onClose={() => setProductoSeleccionado(null)}
-          onSave={() => {
-            setProductoSeleccionado(null);
-            cargarProductos();
-            cargarStats();
-          }}
-        />
-      )}
-    </div>
-  );
-}
+            <PricingModal
+              producto={productoSeleccionado}
+              onClose={() => setProductoSeleccionado(null)}
+              onSave={() => {
+                setProductoSeleccionado(null);
+                cargarProductos();
+                cargarStats();
+              }}
+            />
+          )}
+          
+          {mostrarExportModal && (
+            <ExportModal onClose={() => setMostrarExportModal(false)} />
+          )}
+        </div>
+      );
+    }

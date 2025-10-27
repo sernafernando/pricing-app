@@ -171,7 +171,15 @@ export default function PricingModal({ producto, onClose, onSave }) {
                       {pub.lista_nombre}
                     </div>
                     <div style={{ fontSize: '14px', color: '#374151' }}>
-                      Precio de oferta: <strong>${pub.oferta.precio_final.toLocaleString('es-AR')}</strong>
+                      Precio de oferta: <strong>${pub.oferta.precio_final.toLocaleString('es-AR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                          hour12: false
+                        })}</strong>
                     </div>
                     <div style={{ fontSize: '12px', color: '#6b7280' }}>
                       Aporte Meli: ${pub.oferta.aporte_meli_pesos.toLocaleString('es-AR')}

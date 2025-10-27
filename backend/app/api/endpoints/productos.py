@@ -33,6 +33,10 @@ class ProductoResponse(BaseModel):
     participa_rebate: Optional[bool] = False
     porcentaje_rebate: Optional[float] = 3.8
     precio_rebate: Optional[float] = None
+    participa_web_transferencia: Optional[bool] = False
+    porcentaje_markup_web: Optional[float] = 6.0
+    precio_web_transferencia: Optional[float] = None
+    markup_web_real: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -118,7 +122,11 @@ async def listar_productos(
             necesita_revision=False,
             participa_rebate=producto_pricing.participa_rebate if producto_pricing else False,
             porcentaje_rebate=float(producto_pricing.porcentaje_rebate) if producto_pricing and producto_pricing.porcentaje_rebate else 3.8,
-            precio_rebate=float(producto_pricing.precio_lista_ml) / (1 - float(producto_pricing.porcentaje_rebate or 3.8) / 100) if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate else None
+            precio_rebate=float(producto_pricing.precio_lista_ml) / (1 - float(producto_pricing.porcentaje_rebate or 3.8) / 100) if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate else None,
+            participa_web_transferencia=producto_pricing.participa_web_transferencia if producto_pricing else False,
+            porcentaje_markup_web=float(producto_pricing.porcentaje_markup_web) if producto_pricing and producto_pricing.porcentaje_markup_web else 6.0,
+            precio_web_transferencia=float(producto_pricing.precio_web_transferencia) if producto_pricing and producto_pricing.precio_web_transferencia else None,
+            markup_web_real=float(producto_pricing.markup_web_real) if producto_pricing and producto_pricing.markup_web_real else None,
         ))
 
     return ProductoListResponse(total=total, page=page, page_size=page_size, productos=productos)
@@ -420,6 +428,180 @@ async def actualizar_rebate(
         "item_id": item_id,
         "participa_rebate": datos.participa_rebate,  # ← CAMBIAR
         "porcentaje_rebate": datos.porcentaje_rebate  # ← CAMBIAR
+
     }
+    
+@router.post("/productos/exportar-rebate")
+async def exportar_rebate(
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Exporta productos con rebate a Excel"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment
+    from datetime import datetime, date
+    from calendar import monthrange
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+    from app.models.publicacion_ml import PublicacionML
+    
+    # Fechas por defecto
+    hoy = date.today()
+    if not fecha_desde:
+        fecha_desde = hoy.strftime('%Y-%m-%d')
+    if not fecha_hasta:
+        ultimo_dia = monthrange(hoy.year, hoy.month)[1]
+        fecha_hasta = f"{hoy.year}-{hoy.month:02d}-{ultimo_dia:02d}"
+    
+    # Obtener productos con rebate
+    productos = db.query(ProductoERP, ProductoPricing).join(
+        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
+    ).filter(
+        ProductoPricing.participa_rebate == True
+    ).all()
+    
+    # Crear Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Rebate Export"
+    
+    # Headers
+    headers = [
+        "REBATE", "MARCA", "DESDE", "HASTA", "TIPO DE OFERTA", "CATEGORÍA",
+        "DESCRIPCIÓN DE LA PUBLICACIÓN", "TIPO DE PUBLICACIÓN", "STOCK",
+        "FULL", "MLAs", "PVP LLENO", "PVP SELLER"
+    ]
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal='center')
+    
+    # Datos
+    row = 2
+    for producto_erp, producto_pricing in productos:
+        # Buscar MLAs de lista clásica (pricelist_id = 4)
+        mlas = db.query(PublicacionML).filter(
+            PublicacionML.item_id == producto_erp.item_id,
+            PublicacionML.pricelist_id == 4,
+            PublicacionML.activo == True
+        ).all()
+        
+        # Si no tiene MLAs, skip
+        if not mlas:
+            continue
+        
+        # Obtener precio de lista clásica
+        from app.models.precio_ml import PrecioML
+        precio_clasica = db.query(PrecioML).filter(
+            PrecioML.item_id == producto_erp.item_id,
+            PrecioML.pricelist_id == 4
+        ).first()
+        
+        pvp_lleno = float(precio_clasica.precio) if precio_clasica else 0
+        
+        # Calcular PVP Seller (precio con rebate aplicado)
+        porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
+        pvp_seller = pvp_lleno * (1 - porcentaje_rebate / 100)
+        
+        # Una fila por cada MLA
+        for mla in mlas:
+            ws.cell(row=row, column=1, value=f"{porcentaje_rebate}%")
+            ws.cell(row=row, column=2, value=producto_erp.marca or "")
+            ws.cell(row=row, column=3, value=fecha_desde)
+            ws.cell(row=row, column=4, value=fecha_hasta)
+            ws.cell(row=row, column=5, value="DXI")
+            ws.cell(row=row, column=6, value="")  # Categoría vacía
+            ws.cell(row=row, column=7, value=producto_erp.descripcion or "")
+            ws.cell(row=row, column=8, value="Clásica")
+            ws.cell(row=row, column=9, value=producto_erp.stock)
+            ws.cell(row=row, column=10, value="FALSE")
+            ws.cell(row=row, column=11, value=mla.mla)
+            ws.cell(row=row, column=12, value=pvp_lleno)
+            ws.cell(row=row, column=13, value=round(pvp_seller, 2))
+            row += 1
+    
+    # Guardar en memoria
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=rebate_export_{hoy.strftime('%Y%m%d')}.xlsx"}
+    )
+
+@router.patch("/productos/{item_id}/web-transferencia")
+async def actualizar_web_transferencia(
+    item_id: int,
+    participa: bool,
+    porcentaje_markup: float = 6.0,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Activa/desactiva web transferencia y calcula precio"""
+    from app.services.pricing_calculator import (
+        calcular_precio_web_transferencia,
+        obtener_tipo_cambio_actual,
+        convertir_a_pesos
+    )
+    
+    # Obtener producto
+    producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+    if not producto_erp:
+        raise HTTPException(404, "Producto no encontrado")
+    
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+    
+    if not pricing:
+        pricing = ProductoPricing(
+            item_id=item_id,
+            participa_web_transferencia=participa,
+            porcentaje_markup_web=porcentaje_markup,
+            usuario_id=current_user.id
+        )
+        db.add(pricing)
+    else:
+        pricing.participa_web_transferencia = participa
+        pricing.porcentaje_markup_web = porcentaje_markup
+        pricing.fecha_modificacion = datetime.now()
+    
+    # Si participa, calcular precio
+    precio_web = None
+    if participa and pricing.markup_calculado is not None:
+        tipo_cambio = None
+        if producto_erp.moneda_costo == "USD":
+            tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+        
+        costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
+        markup_clasica = pricing.markup_calculado / 100  # Convertir a decimal (1.94% → 0.0194)
+        markup_objetivo = markup_clasica + (porcentaje_markup / 100)  # 0.0194 + 0.06 = 0.0794 (7.94%)
+        
+        resultado = calcular_precio_web_transferencia(
+            costo_ars=costo_ars,
+            iva=producto_erp.iva,
+            markup_objetivo=markup_objetivo
+        )
+        
+        precio_web = resultado["precio"]
+        markup_web_real = resultado["markup_real"]
+        pricing.precio_web_transferencia = precio_web
+    else:
+        pricing.precio_web_transferencia = None
+    
+    db.commit()
+    db.refresh(pricing)
+    
+    return {
+        "item_id": item_id,
+        "participa_web_transferencia": participa,
+        "porcentaje_markup_web": porcentaje_markup,
+        "precio_web_transferencia": precio_web,
+        "markup_web_real": markup_web_real if precio_web else None
+    }
+    
 
 
