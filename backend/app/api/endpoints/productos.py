@@ -603,5 +603,76 @@ async def actualizar_web_transferencia(
         "markup_web_real": markup_web_real if precio_web else None
     }
     
+class CalculoWebMasivoRequest(BaseModel):
+    porcentaje_con_precio: float
+    porcentaje_sin_precio: float
 
-
+@router.post("/productos/calcular-web-masivo")
+async def calcular_web_masivo(
+    request: CalculoWebMasivoRequest,  # ← CAMBIAR
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Calcula precio web transferencia masivamente"""
+    from app.services.pricing_calculator import (
+        calcular_precio_web_transferencia,
+        obtener_tipo_cambio_actual,
+        convertir_a_pesos
+    )
+    
+    # Obtener todos los productos
+    productos = db.query(ProductoERP, ProductoPricing).outerjoin(
+        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
+    ).all()
+    
+    procesados = 0
+    
+    for producto_erp, producto_pricing in productos:
+        # Determinar markup a usar
+        if producto_pricing and producto_pricing.precio_lista_ml:
+            # Tiene precio: sumar porcentaje
+            markup_base = (producto_pricing.markup_calculado or 0) / 100
+            porcentaje_adicional = request.porcentaje_con_precio  # ← CAMBIAR
+        else:
+            # No tiene precio: usar porcentaje base
+            markup_base = 0
+            porcentaje_adicional = request.porcentaje_sin_precio  # ← CAMBIAR
+        
+        markup_objetivo = markup_base + (porcentaje_adicional / 100)
+        
+        # Calcular precio
+        tipo_cambio = None
+        if producto_erp.moneda_costo == "USD":
+            tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+        
+        costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
+        
+        resultado = calcular_precio_web_transferencia(
+            costo_ars=costo_ars,
+            iva=producto_erp.iva,
+            markup_objetivo=markup_objetivo
+        )
+        
+        # Crear o actualizar pricing
+        if not producto_pricing:
+            producto_pricing = ProductoPricing(
+                item_id=producto_erp.item_id,
+                usuario_id=current_user.id
+            )
+            db.add(producto_pricing)
+        
+        producto_pricing.participa_web_transferencia = True
+        producto_pricing.porcentaje_markup_web = porcentaje_adicional
+        producto_pricing.precio_web_transferencia = resultado["precio"]
+        producto_pricing.markup_web_real = resultado["markup_real"]
+        producto_pricing.fecha_modificacion = datetime.now()
+        
+        procesados += 1
+    
+    db.commit()
+    
+    return {
+        "procesados": procesados,
+        "porcentaje_con_precio": request.porcentaje_con_precio,  # ← CAMBIAR
+        "porcentaje_sin_precio": request.porcentaje_sin_precio  # ← CAMBIAR
+    }

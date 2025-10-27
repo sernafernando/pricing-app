@@ -7,6 +7,7 @@ import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import ExportModal from '../components/ExportModal';
 import xlsIcon from '../assets/xls.svg';
+import CalcularWebModal from '../components/CalcularWebModal';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -28,6 +29,7 @@ export default function Productos() {
   const [mostrarExportModal, setMostrarExportModal] = useState(false);
   const [editandoWebTransf, setEditandoWebTransf] = useState(null);
   const [webTransfTemp, setWebTransfTemp] = useState({ participa: false, porcentaje: 6.0 });
+  const [mostrarCalcularWebModal, setMostrarCalcularWebModal] = useState(false);
 
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
@@ -317,6 +319,24 @@ export default function Productos() {
 	    >
 	      <img src={xlsIcon} alt="Excel" style={{ width: '20px', height: '20px' }} />
 	      Exportar Rebate
+	    </button>
+
+	    <button
+	      onClick={() => setMostrarCalcularWebModal(true)}
+	      style={{
+	        padding: '10px 16px',
+	        background: '#3b82f6',
+	        color: 'white',
+	        border: 'none',
+	        borderRadius: '6px',
+	        cursor: 'pointer',
+	        display: 'flex',
+	        alignItems: 'center',
+	        gap: '8px',
+	        fontWeight: '600'
+	      }}
+	    >
+	      🧮 Calcular Web Transf.
 	    </button>
 	  
 	  </div>
@@ -730,6 +750,16 @@ export default function Productos() {
           
           {mostrarExportModal && (
             <ExportModal onClose={() => setMostrarExportModal(false)} />
+          )}
+
+          {mostrarCalcularWebModal && (
+            <CalcularWebModal 
+              onClose={() => setMostrarCalcularWebModal(false)}
+              onSuccess={() => {
+                cargarProductos();
+                cargarStats();
+              }}
+            />
           )}
         </div>
       );
