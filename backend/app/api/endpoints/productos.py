@@ -62,9 +62,11 @@ async def listar_productos(
     page_size: int = Query(50, ge=1, le=200),
     search: Optional[str] = None,
     categoria: Optional[str] = None,
-    marca: Optional[str] = None,
+    marcas: Optional[str] = None,
     con_stock: Optional[bool] = None,
     con_precio: Optional[bool] = None,
+    orden_campos: Optional[str] = None,
+    orden_direcciones: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
@@ -72,9 +74,7 @@ async def listar_productos(
     )
 
     if search:
-        # Normalizar búsqueda: quitar guiones, espacios extras, mayúsculas
         search_normalized = search.replace('-', '').replace(' ', '').upper()
-        
         query = query.filter(
             or_(
                 func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
@@ -85,15 +85,52 @@ async def listar_productos(
 
     if categoria:
         query = query.filter(ProductoERP.categoria == categoria)
-    if marca:
-        query = query.filter(ProductoERP.marca == marca)
+    
+    if marcas:
+        marcas_list = [m.strip() for m in marcas.split(',')]
+        query = query.filter(ProductoERP.marca.in_(marcas_list))
+    
     if con_stock is not None:
         query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
+    
     if con_precio is not None:
         if con_precio:
             query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
         else:
             query = query.filter(ProductoPricing.precio_lista_ml.is_(None))
+    
+    # Ordenamiento
+    if orden_campos and orden_direcciones:
+        campos = orden_campos.split(',')
+        direcciones = orden_direcciones.split(',')
+        
+        for campo, direccion in zip(campos, direcciones):
+            # Mapeo de campos del frontend a columnas de la DB
+            if campo == 'item_id':
+                col = ProductoERP.item_id
+            elif campo == 'codigo':
+                col = ProductoERP.codigo
+            elif campo == 'descripcion':
+                col = ProductoERP.descripcion
+            elif campo == 'marca':
+                col = ProductoERP.marca
+            elif campo == 'moneda_costo':
+                col = ProductoERP.moneda_costo
+            elif campo == 'costo':
+                col = ProductoERP.costo
+            elif campo == 'stock':
+                col = ProductoERP.stock
+            elif campo == 'precio_lista_ml':
+                col = ProductoPricing.precio_lista_ml
+            elif campo == 'markup':
+                col = ProductoPricing.markup_calculado
+            else:
+                continue
+            
+            if direccion == 'asc':
+                query = query.order_by(col.asc().nullslast())
+            else:
+                query = query.order_by(col.desc().nullslast())
 
     total = query.count()
     offset = (page - 1) * page_size
@@ -675,4 +712,40 @@ async def calcular_web_masivo(
         "procesados": procesados,
         "porcentaje_con_precio": request.porcentaje_con_precio,  # ← CAMBIAR
         "porcentaje_sin_precio": request.porcentaje_sin_precio  # ← CAMBIAR
+    }
+
+
+@router.post("/productos/limpiar-rebate")
+async def limpiar_rebate(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Desactiva rebate en todos los productos"""
+    count = db.query(ProductoPricing).update({
+        ProductoPricing.participa_rebate: False
+        # ← ELIMINAR la línea de precio_rebate
+    })
+    db.commit()
+    
+    return {
+        "mensaje": "Rebate desactivado en todos los productos",
+        "productos_actualizados": count
+    }
+
+@router.post("/productos/limpiar-web-transferencia")
+async def limpiar_web_transferencia(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Desactiva web transferencia en todos los productos"""
+    count = db.query(ProductoPricing).update({
+        ProductoPricing.participa_web_transferencia: False,
+        ProductoPricing.precio_web_transferencia: None,
+        ProductoPricing.markup_web_real: None
+    })
+    db.commit()
+    
+    return {
+        "mensaje": "Web transferencia desactivada en todos los productos",
+        "productos_actualizados": count
     }

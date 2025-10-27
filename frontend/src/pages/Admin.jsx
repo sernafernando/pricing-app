@@ -245,6 +245,61 @@ export default function Admin() {
         )}
       </div>
 
+	  {/* Sección Limpieza Masiva */}
+	  	<div className={styles.section}>
+	  	  <h2 className={styles.sectionTitle}>Limpieza Masiva de Precios</h2>
+	  	  <p className={styles.description}>
+	  	    Desactiva rebate o web transferencia en todos los productos.
+	  	  </p>
+	  	  
+	  	  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+	  	    <button
+	  	      onClick={async () => {
+	  	        if (!confirm('¿Confirmar desactivar REBATE en TODOS los productos?')) return;
+	  	        try {
+	  	          const token = localStorage.getItem('token');
+	  	          const response = await axios.post(
+	  	            'https://pricing.gaussonline.com.ar/api/productos/limpiar-rebate',
+	  	            {},
+	  	            { headers: { Authorization: `Bearer ${token}` } }
+	  	          );
+	  	          alert(`✓ ${response.data.mensaje}\nProductos actualizados: ${response.data.productos_actualizados}`);
+	  	        } catch (error) {
+	  	          console.error('Error:', error);
+	  	          alert('Error al limpiar rebate');
+	  	        }
+	  	      }}
+	  	      className={styles.secondaryButton}
+	  	      style={{ background: '#ef4444', color: 'white', cursor: 'pointer' }}
+	  	    >
+	  	      🧹 Limpiar Rebate
+	  	    </button>
+	  	    
+	  	    <button
+	  	      onClick={async () => {
+	  	        if (!confirm('¿Confirmar desactivar WEB TRANSFERENCIA en TODOS los productos?')) return;
+	  	        try {
+	  	          const token = localStorage.getItem('token');
+	  	          const response = await axios.post(
+	  	            'https://pricing.gaussonline.com.ar/api/productos/limpiar-web-transferencia',
+	  	            {},
+	  	            { headers: { Authorization: `Bearer ${token}` } }
+	  	          );
+	  	          alert(`✓ ${response.data.mensaje}\nProductos actualizados: ${response.data.productos_actualizados}`);
+	  	        } catch (error) {
+	  	          console.error('Error:', error);
+	  	          alert('Error al limpiar web transferencia');
+	  	        }
+	  	      }}
+	  	      className={styles.secondaryButton}
+	  	      style={{ background: '#f59e0b', color: 'white', cursor: 'pointer' }}
+	  	    >
+	  	      🧹 Limpiar Web Transferencia
+	  	    </button>
+	  	  </div>
+	  	</div>	
+    	  
+
       {/* Sección Comisiones */}
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Comisiones y Tiers</h2>

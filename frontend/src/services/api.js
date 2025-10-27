@@ -20,6 +20,8 @@ export const authAPI = {
 export const productosAPI = {
   listar: (params) => api.get('/productos', { params }),
   stats: () => api.get('/stats'),
+  marcas: () => api.get('/marcas'),  // ← AGREGAR
+  categorias: () => api.get('/categorias'),
 };
 
 export const pricingAPI = {

@@ -28,6 +28,8 @@ class ProductoERP(Base):
     
     fecha_sync = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    hash_datos = Column(String(64))
     
     # Relaciones
     pricing = relationship("ProductoPricing", back_populates="producto", uselist=False)

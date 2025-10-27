@@ -30,6 +30,10 @@ export default function Productos() {
   const [editandoWebTransf, setEditandoWebTransf] = useState(null);
   const [webTransfTemp, setWebTransfTemp] = useState({ participa: false, porcentaje: 6.0 });
   const [mostrarCalcularWebModal, setMostrarCalcularWebModal] = useState(false);
+  const [marcas, setMarcas] = useState([]);
+  const [marcasSeleccionadas, setMarcasSeleccionadas] = useState([]);
+  const [mostrarMenuMarcas, setMostrarMenuMarcas] = useState(false);
+  const [busquedaMarca, setBusquedaMarca] = useState('');
 
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
@@ -42,7 +46,7 @@ export default function Productos() {
 
   useEffect(() => {
     cargarProductos();
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize]);
+  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas]);
 
   const cargarStats = async () => {
     try {
@@ -50,6 +54,23 @@ export default function Productos() {
       setStats(statsRes.data);
     } catch (error) {
       console.error('Error:', error);
+    }
+  };
+
+  useEffect(() => {
+    cargarMarcas();
+  }, []);
+
+  const marcasFiltradas = marcas.filter(m => 
+    m.toLowerCase().includes(busquedaMarca.toLowerCase())
+  );
+  
+  const cargarMarcas = async () => {
+    try {
+      const response = await productosAPI.marcas();
+      setMarcas(response.data.marcas);
+    } catch (error) {
+      console.error('Error cargando marcas:', error);
     }
   };
 
@@ -121,6 +142,7 @@ export default function Productos() {
       if (filtroStock === 'sin_stock') params.con_stock = false;
       if (filtroPrecio === 'con_precio') params.con_precio = true;
       if (filtroPrecio === 'sin_precio') params.con_precio = false;
+      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
 
       const productosRes = await productosAPI.listar(params);
       setTotalProductos(productosRes.data.total || productosRes.data.productos.length);
@@ -301,6 +323,149 @@ export default function Productos() {
 	      <option value="con_precio">✅ Con precio</option>
 	      <option value="sin_precio">❌ Sin precio</option>
 	    </select>
+
+		{/* Filtro de Marcas */}
+		<div style={{ position: 'relative' }}>
+		  <button
+		    onClick={() => setMostrarMenuMarcas(!mostrarMenuMarcas)}
+		    style={{
+		      padding: '10px 16px',
+		      borderRadius: '6px',
+		      border: '1px solid #d1d5db',
+		      background: marcasSeleccionadas.length > 0 ? '#3b82f6' : 'white',
+		      color: marcasSeleccionadas.length > 0 ? 'white' : '#374151',
+		      cursor: 'pointer',
+		      display: 'flex',
+		      alignItems: 'center',
+		      gap: '8px',
+		      fontWeight: '500'
+		    }}
+		  >
+		    🏷️ Marcas {marcasSeleccionadas.length > 0 && `(${marcasSeleccionadas.length})`}
+		  </button>
+		  
+		  {mostrarMenuMarcas && (
+		    <div style={{
+		      position: 'absolute',
+		      top: '100%',
+		      left: 0,
+		      marginTop: '4px',
+		      background: 'white',
+		      border: '1px solid #d1d5db',
+		      borderRadius: '8px',
+		      boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+		      zIndex: 1000,
+		      width: '300px',
+		      display: 'flex',
+		      flexDirection: 'column',
+		      maxHeight: '400px'
+		    }}>
+		      {/* Sección fija arriba */}
+		      <div style={{ borderBottom: '1px solid #e5e7eb' }}>
+		        <div style={{ padding: '12px' }}>
+		          <div style={{ position: 'relative' }}>
+		            <input
+		              type="text"
+		              placeholder="Buscar marca..."
+		              value={busquedaMarca}
+		              onChange={(e) => setBusquedaMarca(e.target.value)}
+		              style={{
+		                width: '100%',
+		                padding: '8px',
+		                paddingRight: '32px',  // ← espacio para la X
+		                border: '1px solid #d1d5db',
+		                borderRadius: '4px',
+		                fontSize: '14px',
+		                boxSizing: 'border-box'
+		              }}
+		            />
+		            {busquedaMarca && (
+		              <button
+		                onClick={() => setBusquedaMarca('')}
+		                style={{
+		                  position: 'absolute',
+		                  right: '8px',
+		                  top: '50%',
+		                  transform: 'translateY(-50%)',
+		                  background: 'transparent',
+		                  border: 'none',
+		                  cursor: 'pointer',
+		                  color: '#9ca3af',
+		                  fontSize: '16px',
+		                  padding: '4px',
+		                  lineHeight: 1
+		                }}
+		              >
+		                ✕
+		              </button>
+		            )}
+		          </div>
+		        </div>
+		        
+		        {marcasSeleccionadas.length > 0 && (
+		          <div style={{ padding: '0 12px 12px 12px' }}>
+		            <button
+		              onClick={() => {
+		                setMarcasSeleccionadas([]);
+		                setPage(1);
+		              }}
+		              style={{
+		                width: '100%',
+		                padding: '8px',
+		                background: '#ef4444',
+		                color: 'white',
+		                border: 'none',
+		                borderRadius: '4px',
+		                cursor: 'pointer',
+		                fontSize: '13px'
+		              }}
+		            >
+		              Limpiar filtros ({marcasSeleccionadas.length})
+		            </button>
+		          </div>
+		        )}
+		      </div>
+		      
+		      {/* Lista con scroll */}
+		      <div style={{ 
+		        padding: '8px', 
+		        overflowY: 'auto',
+		        flex: 1
+		      }}>
+		        {marcasFiltradas.map(marca => (
+		          <label
+		            key={marca}
+		            style={{
+		              display: 'flex',
+		              alignItems: 'center',
+		              padding: '8px',
+		              cursor: 'pointer',
+		              borderRadius: '4px',
+		              background: marcasSeleccionadas.includes(marca) ? '#eff6ff' : 'transparent'
+		            }}
+		            onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
+		            onMouseLeave={(e) => e.currentTarget.style.background = marcasSeleccionadas.includes(marca) ? '#eff6ff' : 'transparent'}
+		          >
+		            <input
+		              type="checkbox"
+		              checked={marcasSeleccionadas.includes(marca)}
+		              onChange={(e) => {
+		                if (e.target.checked) {
+		                  setMarcasSeleccionadas([...marcasSeleccionadas, marca]);
+		                } else {
+		                  setMarcasSeleccionadas(marcasSeleccionadas.filter(m => m !== marca));
+		                }
+		                setPage(1);
+		              }}
+		              style={{ marginRight: '8px' }}
+		            />
+		            <span style={{ fontSize: '14px' }}>{marca}</span>
+		          </label>
+		        ))}
+		      </div>
+		    </div>
+		  )}
+		</div>
 
 	    <button
 	      onClick={() => setMostrarExportModal(true)}

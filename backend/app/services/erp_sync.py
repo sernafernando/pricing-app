@@ -103,6 +103,8 @@ async def sincronizar_erp(db: Session) -> Dict:
                         continue
 
                     stock = stock_dict.get(item_id, 0)
+                    if item_id == 22:  # Debug temporal
+                        print(f"DEBUG item_id 22: stock desde dict={stock}, stock actual en DB={producto_existente.stock if producto_existente else 'nuevo'}")
                     producto_data['Stock'] = stock
                     hash_nuevo = calcular_hash(producto_data)
 
@@ -149,50 +151,51 @@ async def sincronizar_erp(db: Session) -> Dict:
                         producto_existente.hash_datos = hash_nuevo
                         stats["productos_actualizados"] += 1
                     else:
-                        stats["productos_sin_cambios"] += 1
+                        if producto_existente.stock != stock:
+                            producto_existente.stock = stock
+                            stats["productos_actualizados"] += 1
+                        else:
+                            stats["productos_sin_cambios"] += 1
 
                     # SINCRONIZAR PRECIO si viene del ERP
                     if precio_publicado and precio_publicado > 0:
-                        from app.services.pricing_calculator import (
-                            obtener_tipo_cambio_actual, convertir_a_pesos,
-                            obtener_grupo_subcategoria, obtener_comision_base,
-                            calcular_comision_ml_total, calcular_limpio,
-                            calcular_markup, VARIOS_DEFAULT
-                        )
-                        
-                        moneda_costo = producto_data.get('Moneda_Costo')
-                        tipo_cambio = None
-                        if moneda_costo == "USD":
-                            tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
-                        
-                        costo_ars = convertir_a_pesos(costo, moneda_costo, tipo_cambio)
-                        grupo_id = obtener_grupo_subcategoria(db, subcategoria_id)
-                        comision_base = obtener_comision_base(db, 4, grupo_id)
-                        
-                        markup_calculado = None
-                        if comision_base:
-                            comisiones = calcular_comision_ml_total(precio_publicado, comision_base, iva, VARIOS_DEFAULT)
-                            limpio = calcular_limpio(precio_publicado, iva, envio or 0, comisiones["comision_total"])
-                            markup = calcular_markup(limpio, costo_ars)
-                            markup_calculado = round(markup * 100, 2)
-                        
                         pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
                         
-                        if pricing:
-                            pricing.precio_lista_ml = precio_publicado
-                            pricing.markup_calculado = markup_calculado
-                            pricing.fecha_modificacion = datetime.now()
-                        else:
-                            pricing = ProductoPricing(
-                                item_id=item_id,
-                                precio_lista_ml=precio_publicado,
-                                markup_calculado=markup_calculado,
-                                usuario_id=1,
-                                motivo_cambio="Sincronización ERP"
+                        # SOLO actualizar si NO existe o NO tiene precio
+                        if not pricing or pricing.precio_lista_ml is None:
+                            from app.services.pricing_calculator import (
+                                obtener_tipo_cambio_actual, convertir_a_pesos,
+                                obtener_grupo_subcategoria, obtener_comision_base,
+                                calcular_comision_ml_total, calcular_limpio,
+                                calcular_markup, VARIOS_DEFAULT
                             )
-                            db.add(pricing)
-                        
-                        stats["precios_sincronizados"] += 1
+                    
+                            moneda_costo = producto_data.get('Moneda_Costo')
+                            tipo_cambio = None
+                            if moneda_costo == "USD":
+                                tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+                    
+                            costo_ars = convertir_a_pesos(costo, moneda_costo, tipo_cambio)
+                            grupo_id = obtener_grupo_subcategoria(db, subcategoria_id)
+                            comision_base = obtener_comision_base(db, 4, grupo_id)
+                    
+                            markup_calculado = None
+                            if comision_base:
+                                comisiones = calcular_comision_ml_total(precio_publicado, comision_base, iva, VARIOS_DEFAULT)
+                                limpio = calcular_limpio(precio_publicado, iva, envio or 0, comisiones["comision_total"])
+                                markup = calcular_markup(limpio, costo_ars)
+                                markup_calculado = round(markup * 100, 2)
+                    
+                            if not pricing:
+                                pricing = ProductoPricing(
+                                    item_id=item_id,
+                                    precio_lista_ml=precio_publicado,
+                                    markup_calculado=markup_calculado,
+                                    usuario_id=1,
+                                    motivo_cambio="Sincronización ERP - Inicial"
+                                )
+                                db.add(pricing)
+                                stats["precios_sincronizados"] += 1
 
                 except Exception as e:
                     stats["errores"].append(f"Error en item {item_id}: {str(e)}")
