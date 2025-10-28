@@ -942,7 +942,7 @@ export default function Productos() {
 	      }}
 	    >
 	      <img src={xlsIcon} alt="Excel" style={{ width: '20px', height: '20px' }} />
-	      Exportar Rebate
+	      Exportar
 	    </button>
 
 	    <button
@@ -1200,7 +1200,7 @@ export default function Productos() {
                    	    <div onClick={() => iniciarEdicionWebTransf(p)} style={{ cursor: 'pointer' }}>
                    	      {p.participa_web_transferencia ? (
                    	        <div>
-                   	          <div style={{ fontSize: '12px', color: '#059669', fontWeight: '600' }}>
+                   	          <div style={{ fontSize: '12px', color: getMarkupColor(p.markup_web_real), fontWeight: '600' }}>
                    	            ✓ {p.markup_web_real ? `${p.markup_web_real.toFixed(2)}%` : '-'}
                    	          </div>
                    	          <div style={{ fontSize: '10px', color: '#6b7280' }}>

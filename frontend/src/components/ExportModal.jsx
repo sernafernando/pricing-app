@@ -2,7 +2,7 @@ import { useState } from 'react';
 import axios from 'axios';
 
 export default function ExportModal({ onClose }) {
-  const [tab, setTab] = useState('rebate'); // 'rebate' o 'web_transf'
+  const [tab, setTab] = useState('rebate');
   const [exportando, setExportando] = useState(false);
   
   // Estados para rebate
@@ -15,6 +15,9 @@ export default function ExportModal({ onClose }) {
     const ultimoDia = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
     return ultimoDia.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
   });
+
+  // Estado para web transferencia
+  const [porcentajeWebTransf, setPorcentajeWebTransf] = useState(0);
 
   const convertirFechaParaAPI = (fechaDD_MM_YYYY) => {
     const [d, m, y] = fechaDD_MM_YYYY.split('/');
@@ -61,7 +64,7 @@ export default function ExportModal({ onClose }) {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(
-        'https://pricing.gaussonline.com.ar/api/exportar-web-transferencia',
+        `https://pricing.gaussonline.com.ar/api/exportar-web-transferencia?porcentaje_adicional=${porcentajeWebTransf}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'
@@ -251,11 +254,35 @@ export default function ExportModal({ onClose }) {
             </div>
           ) : (
             <div>
-              <p style={{ color: '#6b7280', marginBottom: '20px', fontSize: '14px' }}>
-                Exporta los precios de Web Transferencia activos en formato XLS.
+              <p style={{ color: '#6b7280', marginBottom: '16px', fontSize: '14px' }}>
+                Exporta los precios de Web Transferencia activos en formato Excel.
                 <br />
                 <strong>Formato:</strong> Código/EAN | Precio | ID Moneda (1=ARS)
               </p>
+              
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
+                  Porcentaje adicional (%):
+                </label>
+                <input
+                  type="number"
+                  placeholder="Ej: 25"
+                  value={porcentajeWebTransf}
+                  onChange={(e) => setPorcentajeWebTransf(parseFloat(e.target.value) || 0)}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '6px',
+                    border: '1px solid #d1d5db',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                <small style={{ color: '#6b7280', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+                  Suma este porcentaje a los precios de Web Transferencia
+                </small>
+              </div>
+
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                 <button
                   onClick={onClose}
@@ -283,7 +310,7 @@ export default function ExportModal({ onClose }) {
                     fontWeight: '600'
                   }}
                 >
-                  {exportando ? '⏳ Exportando...' : '📥 Exportar Web'}
+                  {exportando ? '⏳ Exportando...' : '📥 Exportar Excel'}
                 </button>
               </div>
             </div>

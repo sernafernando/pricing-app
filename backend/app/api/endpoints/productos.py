@@ -10,6 +10,7 @@ from datetime import datetime, date
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.api.deps import get_current_user
 from fastapi.responses import Response
+from decimal import Decimal
 
 router = APIRouter()
 
@@ -591,14 +592,14 @@ async def actualizar_web_transferencia(
         obtener_tipo_cambio_actual,
         convertir_a_pesos
     )
-    
+
     # Obtener producto
     producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto_erp:
         raise HTTPException(404, "Producto no encontrado")
-    
+
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
-    
+
     if not pricing:
         pricing = ProductoPricing(
             item_id=item_id,
@@ -611,33 +612,41 @@ async def actualizar_web_transferencia(
         pricing.participa_web_transferencia = participa
         pricing.porcentaje_markup_web = porcentaje_markup
         pricing.fecha_modificacion = datetime.now()
-    
+
     # Si participa, calcular precio
     precio_web = None
-    if participa and pricing.markup_calculado is not None:
+    markup_web_real = None
+    
+    if participa:
         tipo_cambio = None
         if producto_erp.moneda_costo == "USD":
             tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
-        
+
         costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
-        markup_clasica = pricing.markup_calculado / 100  # Convertir a decimal (1.94% → 0.0194)
-        markup_objetivo = markup_clasica + (porcentaje_markup / 100)  # 0.0194 + 0.06 = 0.0794 (7.94%)
         
+        # Si tiene precio ML, sumar sobre el markup calculado. Si no, partir de 0
+        if pricing.markup_calculado is not None and pricing.precio_lista_ml is not None:
+            markup_clasica = pricing.markup_calculado / 100
+        else:
+            markup_clasica = 0  # ← AGREGAR: Si no tiene precio ML, markup inicial es 0
+        
+        markup_objetivo = markup_clasica + (porcentaje_markup / 100)
+
         resultado = calcular_precio_web_transferencia(
             costo_ars=costo_ars,
             iva=producto_erp.iva,
             markup_objetivo=markup_objetivo
         )
-        
+
         precio_web = resultado["precio"]
         markup_web_real = resultado["markup_real"]
         pricing.precio_web_transferencia = precio_web
     else:
         pricing.precio_web_transferencia = None
-    
+
     db.commit()
     db.refresh(pricing)
-    
+
     return {
         "item_id": item_id,
         "participa_web_transferencia": participa,
@@ -796,14 +805,15 @@ async def sincronizar_subcategorias_endpoint():
     return {"mensaje": "Subcategorías sincronizadas"}
 
 
-
 @router.get("/exportar-web-transferencia")
-async def exportar_web_transferencia(db: Session = Depends(get_db)):
-    """Exporta precios de Web Transferencia en formato Excel"""
+async def exportar_web_transferencia(
+    porcentaje_adicional: float = Query(0, description="Porcentaje adicional a sumar"),
+    db: Session = Depends(get_db)
+):
+    """Exporta precios de Web Transferencia en formato Excel con porcentaje adicional opcional"""
     from io import BytesIO
     from openpyxl import Workbook
     
-    # Obtener productos con precio web transferencia
     query = db.query(
         ProductoERP.codigo,
         ProductoPricing.precio_web_transferencia
@@ -817,23 +827,26 @@ async def exportar_web_transferencia(db: Session = Depends(get_db)):
     
     productos = query.all()
     
-    # Crear Excel
     wb = Workbook()
     ws = wb.active
     ws.title = "Web Transferencia"
     
-    # Header
     ws.append(['Código/EAN', 'Precio', 'ID Moneda'])
     
-    # Datos - todo como texto
-    for codigo, precio in productos:
+    for codigo, precio_base in productos:
+        # Convertir ambos a Decimal antes de operar
+        precio_base = Decimal(precio_base)
+        porcentaje = Decimal(str(porcentaje_adicional))
+        precio_final = precio_base * (Decimal('1') + (porcentaje / Decimal('100')))
+        
+        precio_final = round(precio_final / Decimal('10')) * 10
+        
         ws.append([
-            str(codigo),  # Código como string
-            str(int(precio)),  # Precio sin decimales como string
-            '1'  # ID Moneda (1 = Pesos)
+            str(codigo),
+            str(int(precio_final)),
+            '1'
         ])
     
-    # Guardar en memoria
     output = BytesIO()
     wb.save(output)
     output.seek(0)
