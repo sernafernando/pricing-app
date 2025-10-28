@@ -231,20 +231,42 @@ def calcular_precio_web_transferencia(costo_ars: float, iva: float, markup_objet
         
         # Verificar convergencia
         if abs(markup_real - markup_objetivo) < TOLERANCIA:
-            return {
-                "precio": round(precio, 2),
-                "markup_real": round(markup_real * 100, 2),
-                "iteraciones": i + 1,
-                "convergio": True
-            }
-        
+                # Redondear a múltiplo de 10
+                precio_redondeado = round(precio / 10) * 10
+                
+                # Recalcular markup real con el precio redondeado
+                comision_final = precio_redondeado * COMISION_WEB
+                precio_sin_iva_final = precio_redondeado / (1 + iva_decimal)
+                iibb_final = precio_sin_iva_final * IIBB
+                limpio_con_iva_final = precio_redondeado - comision_final - iibb_final
+                limpio_sin_iva_final = limpio_con_iva_final / (1 + iva_decimal)
+                markup_real_final = (limpio_sin_iva_final - costo_ars) / costo_ars if costo_ars > 0 else 0
+                
+                return {
+                    "precio": precio_redondeado,
+                    "markup_real": round(markup_real_final * 100, 2),
+                    "iteraciones": i + 1,
+                    "convergio": True
+                }
+
         # Ajustar
         factor = (1 + markup_objetivo) / (1 + markup_real) if markup_real > 0 else 1.1
         precio = precio * factor
     
+    # Si no converge, también redondear
+    precio_redondeado = round(precio / 10) * 10
+    
+    # Recalcular markup real con el precio redondeado
+    comision_final = precio_redondeado * COMISION_WEB
+    precio_sin_iva_final = precio_redondeado / (1 + iva_decimal)
+    iibb_final = precio_sin_iva_final * IIBB
+    limpio_con_iva_final = precio_redondeado - comision_final - iibb_final
+    limpio_sin_iva_final = limpio_con_iva_final / (1 + iva_decimal)
+    markup_real_final = (limpio_sin_iva_final - costo_ars) / costo_ars if costo_ars > 0 else 0
+    
     return {
-        "precio": round(precio, 2),
-        "markup_real": round(markup_real * 100, 2),
+        "precio": round(precio_redondeado, 0),
+        "markup_real": round(markup_real_final * 100, 2),
         "iteraciones": max_iter,
         "convergio": False
     }

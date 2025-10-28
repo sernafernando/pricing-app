@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from datetime import datetime, date
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.api.deps import get_current_user
+from fastapi.responses import Response
 
 router = APIRouter()
 
@@ -793,3 +794,54 @@ async def sincronizar_subcategorias_endpoint():
     from app.scripts.sync_subcategorias import sincronizar_subcategorias
     sincronizar_subcategorias()
     return {"mensaje": "Subcategorías sincronizadas"}
+
+
+
+@router.get("/exportar-web-transferencia")
+async def exportar_web_transferencia(db: Session = Depends(get_db)):
+    """Exporta precios de Web Transferencia en formato Excel"""
+    from io import BytesIO
+    from openpyxl import Workbook
+    
+    # Obtener productos con precio web transferencia
+    query = db.query(
+        ProductoERP.codigo,
+        ProductoPricing.precio_web_transferencia
+    ).join(
+        ProductoPricing,
+        ProductoERP.item_id == ProductoPricing.item_id
+    ).filter(
+        ProductoPricing.participa_web_transferencia == True,
+        ProductoPricing.precio_web_transferencia.isnot(None)
+    )
+    
+    productos = query.all()
+    
+    # Crear Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Web Transferencia"
+    
+    # Header
+    ws.append(['Código/EAN', 'Precio', 'ID Moneda'])
+    
+    # Datos - todo como texto
+    for codigo, precio in productos:
+        ws.append([
+            str(codigo),  # Código como string
+            str(int(precio)),  # Precio sin decimales como string
+            '1'  # ID Moneda (1 = Pesos)
+        ])
+    
+    # Guardar en memoria
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": "attachment; filename=web_transferencia.xlsx"
+        }
+    )
