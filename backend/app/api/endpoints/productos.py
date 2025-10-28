@@ -59,10 +59,11 @@ class RebateUpdate(BaseModel):
 @router.get("/productos", response_model=ProductoListResponse)
 async def listar_productos(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=10000),
     search: Optional[str] = None,
     categoria: Optional[str] = None,
     marcas: Optional[str] = None,
+    subcategorias: Optional[str] = None,
     con_stock: Optional[bool] = None,
     con_precio: Optional[bool] = None,
     orden_campos: Optional[str] = None,
@@ -85,10 +86,14 @@ async def listar_productos(
 
     if categoria:
         query = query.filter(ProductoERP.categoria == categoria)
+
+    if subcategorias:
+        subcat_list = [int(s.strip()) for s in subcategorias.split(',')]
+        query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
     
     if marcas:
-        marcas_list = [m.strip() for m in marcas.split(',')]
-        query = query.filter(ProductoERP.marca.in_(marcas_list))
+        marcas_list = [m.strip().upper() for m in marcas.split(',')]
+        query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
     
     if con_stock is not None:
         query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
@@ -749,3 +754,42 @@ async def limpiar_web_transferencia(
         "mensaje": "Web transferencia desactivada en todos los productos",
         "productos_actualizados": count
     }
+
+
+@router.get("/subcategorias")
+async def listar_subcategorias(db: Session = Depends(get_db)):
+    """Lista todas las subcategorías agrupadas por categoría"""
+    from app.models.comision_config import SubcategoriaGrupo
+    from collections import defaultdict
+    
+    subcats = db.query(SubcategoriaGrupo).order_by(
+        SubcategoriaGrupo.nombre_categoria,
+        SubcategoriaGrupo.nombre_subcategoria
+    ).all()
+    
+    # Agrupar por categoría
+    agrupadas = defaultdict(list)
+    for s in subcats:
+        if s.nombre_subcategoria and s.nombre_categoria:
+            agrupadas[s.nombre_categoria].append({
+                "id": s.subcat_id,
+                "nombre": s.nombre_subcategoria,
+                "grupo_id": s.grupo_id
+            })
+    
+    return {
+        "categorias": [
+            {
+                "nombre": cat,
+                "subcategorias": subs
+            }
+            for cat, subs in sorted(agrupadas.items())
+        ]
+    }
+    
+@router.post("/sincronizar-subcategorias")
+async def sincronizar_subcategorias_endpoint():
+    """Sincroniza subcategorías desde el worker"""
+    from app.scripts.sync_subcategorias import sincronizar_subcategorias
+    sincronizar_subcategorias()
+    return {"mensaje": "Subcategorías sincronizadas"}

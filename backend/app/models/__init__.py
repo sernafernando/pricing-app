@@ -18,6 +18,6 @@ __all__ = [
     "SubcategoriaGrupo",
     "ComisionListaGrupo",
     "PublicacionML",
-    "AuditoriaPrecio"
+    "AuditoriaPrecio",
     "PrecioML"
 ]

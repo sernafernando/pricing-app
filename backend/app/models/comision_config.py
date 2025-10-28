@@ -18,6 +18,8 @@ class SubcategoriaGrupo(Base):
     subcat_id = Column(Integer, unique=True, index=True)
     grupo_id = Column(Integer, index=True)
     nombre_subcategoria = Column(String(200), nullable=True)
+    cat_id = Column(String(10), index=True, nullable=True)
+    nombre_categoria = Column(String(200), nullable=True) 
 
 class ComisionListaGrupo(Base):
     """Comisión según Lista de Precios (pricelist4) y Grupo"""
