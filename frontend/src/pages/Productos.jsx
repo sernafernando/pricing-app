@@ -988,7 +988,7 @@ export default function Productos() {
         </div>
 
         {/* Botones de Acción */}
-        <div className="action-buttons-group">
+        <div className="action-buttons-card">
           <button
             onClick={() => setMostrarExportModal(true)}
             className="btn-action export"
