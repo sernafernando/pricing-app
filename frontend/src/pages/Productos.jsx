@@ -235,31 +235,32 @@ export default function Productos() {
   const guardarWebTransf = async (itemId) => {
     try {
       const token = localStorage.getItem('token');
-
+      const porcentajeNumerico = parseFloat(webTransfTemp.porcentaje) || 0;  // ← AGREGAR
+  
       const response = await axios.patch(
         `https://pricing.gaussonline.com.ar/api/productos/${itemId}/web-transferencia`,
         null,
         {
           params: {
             participa: webTransfTemp.participa,
-            porcentaje_markup: webTransfTemp.porcentaje
+            porcentaje_markup: porcentajeNumerico  // ← CAMBIAR de webTransfTemp.porcentaje
           },
           headers: { Authorization: `Bearer ${token}` }
         }
       );
-
+  
       setProductos(prods => prods.map(p =>
         p.item_id === itemId
           ? {
               ...p,
               participa_web_transferencia: webTransfTemp.participa,
-              porcentaje_markup_web: webTransfTemp.porcentaje,
+              porcentaje_markup_web: porcentajeNumerico,  // ← CAMBIAR
               precio_web_transferencia: response.data.precio_web_transferencia,
-              markup_web_real: response.data.markup_web_real  // ← AGREGAR
+              markup_web_real: response.data.markup_web_real
             }
           : p
       ));
-
+  
       setEditandoWebTransf(null);
     } catch (error) {
       console.error('Error al guardar web transferencia:', error);
@@ -418,7 +419,7 @@ export default function Productos() {
   const guardarRebate = async (itemId) => {
     try {
       const token = localStorage.getItem('token');
-
+      console.log('Enviando rebate:', rebateTemp);
       await axios.patch(
         `https://pricing.gaussonline.com.ar/api/productos/${itemId}/rebate`,
         {
@@ -452,7 +453,9 @@ export default function Productos() {
     setEditandoRebate(producto.item_id);
     setRebateTemp({
       participa: producto.participa_rebate || false,
-      porcentaje: producto.porcentaje_rebate || 3.8
+      porcentaje: producto.porcentaje_rebate !== null && producto.porcentaje_rebate !== undefined 
+        ? producto.porcentaje_rebate 
+        : 3.8
     });
   };
 
@@ -1158,12 +1161,18 @@ export default function Productos() {
                             />
                             Participa
                           </label>
-                          <input
-                            type="number"
-                            step="0.1"
+                         <input
+                            type="text"
                             value={webTransfTemp.porcentaje}
-                            onChange={(e) => setWebTransfTemp({...webTransfTemp, porcentaje: parseFloat(e.target.value)})}
+                            onChange={(e) => {
+                              const valor = e.target.value;
+                              // Permitir solo números, punto decimal y guión al inicio
+                              if (valor === '' || valor === '-' || /^-?\d*\.?\d*$/.test(valor)) {
+                                setWebTransfTemp({...webTransfTemp, porcentaje: valor});
+                              }
+                            }}
                             placeholder="%"
+                            style={{ width: '60px', padding: '4px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                           />
                           <div className="inline-edit">
                             <button onClick={() => guardarWebTransf(p.item_id)}>✓</button>

@@ -5,7 +5,7 @@ from typing import Optional, List
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, date
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.api.deps import get_current_user
@@ -63,7 +63,7 @@ class PrecioUpdate(BaseModel):
 
 class RebateUpdate(BaseModel):
     participa_rebate: bool
-    porcentaje_rebate: float
+    porcentaje_rebate: float = Field(ge=0, le=100)
 
 @router.get("/productos", response_model=ProductoListResponse)
 async def listar_productos(
@@ -303,8 +303,8 @@ async def listar_productos(
             tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False,
             necesita_revision=False,
             participa_rebate=producto_pricing.participa_rebate if producto_pricing else False,
-            porcentaje_rebate=float(producto_pricing.porcentaje_rebate) if producto_pricing and producto_pricing.porcentaje_rebate else 3.8,
-            precio_rebate=float(producto_pricing.precio_lista_ml) / (1 - float(producto_pricing.porcentaje_rebate or 3.8) / 100) if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate else None,
+            porcentaje_rebate=float(producto_pricing.porcentaje_rebate) if producto_pricing and producto_pricing.porcentaje_rebate is not None else 3.8,
+            precio_rebate=float(producto_pricing.precio_lista_ml) / (1 - float(producto_pricing.porcentaje_rebate if producto_pricing.porcentaje_rebate is not None else 3.8) / 100) if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate else None,
             participa_web_transferencia=producto_pricing.participa_web_transferencia if producto_pricing else False,
             porcentaje_markup_web=float(producto_pricing.porcentaje_markup_web) if producto_pricing and producto_pricing.porcentaje_markup_web else 6.0,
             precio_web_transferencia=float(producto_pricing.precio_web_transferencia) if producto_pricing and producto_pricing.precio_web_transferencia else None,
@@ -601,7 +601,7 @@ async def actualizar_rebate(
     # Guardar valores anteriores
     valores_anteriores = {
         "participa_rebate": pricing.participa_rebate if pricing else False,
-        "porcentaje_rebate": float(pricing.porcentaje_rebate) if pricing and pricing.porcentaje_rebate else None
+        "porcentaje_rebate": float(pricing.porcentaje_rebate) if pricing and pricing.porcentaje_rebate is not None else None
     }
 
     if not pricing:
