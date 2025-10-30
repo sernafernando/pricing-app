@@ -267,8 +267,9 @@ async def listar_productos(
     # ya que estos valores se calculan dinámicamente
 
     # Contar total antes de aplicar filtros complejos y ordenamientos dinámicos
+    total_productos = None
     if con_oferta is None and markup_rebate_positivo is None and markup_oferta_positivo is None and not orden_requiere_calculo:
-        total = query.count()
+        total_productos = query.count()
         offset = (page - 1) * page_size
         results = query.offset(offset).limit(page_size).all()
     else:
@@ -465,29 +466,7 @@ async def listar_productos(
             campos = orden_campos.split(',')
             direcciones = orden_direcciones.split(',')
 
-            # Crear función de ordenamiento multi-columna
-            def sort_key(prod):
-                keys = []
-                for campo in campos:
-                    if campo == 'precio_rebate':
-                        val = prod.get('markup_rebate')
-                        keys.append((val is None, val if val is not None else float('-inf')))
-                    elif campo == 'mejor_oferta':
-                        val = prod.get('mejor_oferta_markup')
-                        if val is not None:
-                            val = val * 100
-                        keys.append((val is None, val if val is not None else float('-inf')))
-                    elif campo == 'precio_clasica':
-                        val = prod.get('markup')
-                        keys.append((val is None, val if val is not None else float('-inf')))
-                    elif campo == 'web_transf':
-                        val = prod.get('markup_web_real')
-                        keys.append((val is None, val if val is not None else float('-inf')))
-                    else:
-                        keys.append((False, 0))  # Campo no relevante para ordenamiento dinámico
-                return keys
-
-            # Ordenar por cada columna con su dirección
+            # Ordenar por cada columna con su dirección (en orden inverso para aplicar prioridad correcta)
             for i in range(len(campos) - 1, -1, -1):
                 campo = campos[i]
                 direccion = direcciones[i]
@@ -496,15 +475,15 @@ async def listar_productos(
                 if campo in ['precio_rebate', 'mejor_oferta', 'precio_clasica', 'web_transf']:
                     def get_sort_value(prod, campo=campo):
                         if campo == 'precio_rebate':
-                            val = prod.get('markup_rebate')
+                            val = prod.markup_rebate
                         elif campo == 'mejor_oferta':
-                            val = prod.get('mejor_oferta_markup')
+                            val = prod.mejor_oferta_markup
                             if val is not None:
                                 val = val * 100
                         elif campo == 'precio_clasica':
-                            val = prod.get('markup')
+                            val = prod.markup
                         elif campo == 'web_transf':
-                            val = prod.get('markup_web_real')
+                            val = prod.markup_web_real
                         else:
                             val = None
                         return (val is None, val if val is not None else float('-inf'))
@@ -515,7 +494,8 @@ async def listar_productos(
         offset = (page - 1) * page_size
         productos = productos[offset:offset + page_size]
     else:
-        total = len(productos)
+        # Si no hay filtros dinámicos, usar el total pre-calculado
+        total = total_productos if total_productos is not None else len(productos)
 
     return ProductoListResponse(total=total, page=page, page_size=page_size, productos=productos)
 
