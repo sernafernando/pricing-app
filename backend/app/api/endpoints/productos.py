@@ -89,6 +89,7 @@ async def listar_productos(
     markup_rebate_positivo: Optional[bool] = None,
     markup_oferta_positivo: Optional[bool] = None,
     markup_web_transf_positivo: Optional[bool] = None,
+    out_of_cards: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
@@ -206,6 +207,17 @@ async def listar_productos(
             query = query.filter(ProductoPricing.markup_web_real > 0)
         else:
             query = query.filter(ProductoPricing.markup_web_real < 0)
+
+    if out_of_cards is not None:
+        if out_of_cards:
+            query = query.filter(ProductoPricing.out_of_cards == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.out_of_cards == False,
+                    ProductoPricing.out_of_cards.is_(None)
+                )
+            )
 
     # Ordenamiento
     if orden_campos and orden_direcciones:

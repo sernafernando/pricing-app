@@ -58,6 +58,8 @@ export default function Productos() {
   const [filtroMarkupRebate, setFiltroMarkupRebate] = useState(null);
   const [filtroMarkupOferta, setFiltroMarkupOferta] = useState(null);
   const [filtroMarkupWebTransf, setFiltroMarkupWebTransf] = useState(null);
+  const [filtroOutOfCards, setFiltroOutOfCards] = useState(null);
+  const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
 
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
@@ -72,7 +74,7 @@ export default function Productos() {
 
   useEffect(() => {
     cargarProductos();
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf]);
+  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards]);
 
   const cargarStats = async () => {
     try {
@@ -330,6 +332,9 @@ export default function Productos() {
       if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
       if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
       if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
+
+      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
+      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
 
       if (ordenColumnas.length > 0) {
         params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
@@ -957,76 +962,18 @@ export default function Productos() {
           )}
         </div>
 
-        {/* Filtros adicionales */}
-        <select
-          value={filtroRebate || 'todos'}
-          onChange={(e) => { setFiltroRebate(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
-          className="filter-select"
+        {/* Botón de filtros avanzados */}
+        <button
+          onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
+          className={`filter-button advanced ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) ? 'active' : ''}`}
         >
-          <option value="todos">🎁 Rebate: Todos</option>
-          <option value="con_rebate">✅ Con Rebate</option>
-          <option value="sin_rebate">❌ Sin Rebate</option>
-        </select>
-
-        <select
-          value={filtroOferta || 'todos'}
-          onChange={(e) => { setFiltroOferta(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
-          className="filter-select"
-        >
-          <option value="todos">🏷️ Oferta: Todos</option>
-          <option value="con_oferta">✅ Con Oferta</option>
-          <option value="sin_oferta">❌ Sin Oferta</option>
-        </select>
-
-        <select
-          value={filtroWebTransf || 'todos'}
-          onChange={(e) => { setFiltroWebTransf(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
-          className="filter-select"
-        >
-          <option value="todos">💳 Web Transf.: Todos</option>
-          <option value="con_web_transf">✅ Con Web Transf.</option>
-          <option value="sin_web_transf">❌ Sin Web Transf.</option>
-        </select>
-
-        <select
-          value={filtroMarkupClasica || 'todos'}
-          onChange={(e) => { setFiltroMarkupClasica(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
-          className="filter-select"
-        >
-          <option value="todos">📊 Markup Clásica: Todos</option>
-          <option value="positivo">✅ Positivo</option>
-          <option value="negativo">❌ Negativo</option>
-        </select>
-
-        <select
-          value={filtroMarkupRebate || 'todos'}
-          onChange={(e) => { setFiltroMarkupRebate(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
-          className="filter-select"
-        >
-          <option value="todos">📊 Markup Rebate: Todos</option>
-          <option value="positivo">✅ Positivo</option>
-          <option value="negativo">❌ Negativo</option>
-        </select>
-
-        <select
-          value={filtroMarkupOferta || 'todos'}
-          onChange={(e) => { setFiltroMarkupOferta(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
-          className="filter-select"
-        >
-          <option value="todos">📊 Markup Oferta: Todos</option>
-          <option value="positivo">✅ Positivo</option>
-          <option value="negativo">❌ Negativo</option>
-        </select>
-
-        <select
-          value={filtroMarkupWebTransf || 'todos'}
-          onChange={(e) => { setFiltroMarkupWebTransf(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
-          className="filter-select"
-        >
-          <option value="todos">📊 Markup Web Transf.: Todos</option>
-          <option value="positivo">✅ Positivo</option>
-          <option value="negativo">❌ Negativo</option>
-        </select>
+          🎯 Filtros Avanzados
+          {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) && (
+            <span className="filter-badge">
+              {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length}
+            </span>
+          )}
+        </button>
 
         <button
           onClick={() => setMostrarExportModal(true)}
@@ -1043,6 +990,149 @@ export default function Productos() {
           🧮 Calcular Web Transf.
         </button>
       </div>
+
+      {/* Panel de filtros avanzados */}
+      {mostrarFiltrosAvanzados && (
+        <div className="advanced-filters-panel">
+          <div className="advanced-filters-header">
+            <h3>Filtros Avanzados</h3>
+            <button
+              onClick={() => {
+                setFiltroRebate(null);
+                setFiltroOferta(null);
+                setFiltroWebTransf(null);
+                setFiltroMarkupClasica(null);
+                setFiltroMarkupRebate(null);
+                setFiltroMarkupOferta(null);
+                setFiltroMarkupWebTransf(null);
+                setFiltroOutOfCards(null);
+                setPage(1);
+              }}
+              className="btn-clear-all"
+            >
+              Limpiar Todos
+            </button>
+          </div>
+
+          <div className="advanced-filters-grid">
+            {/* Filtros de Presencia */}
+            <div className="filter-group">
+              <div className="filter-group-title">💰 Filtros de Presencia</div>
+              <div className="filter-group-content">
+                <div className="filter-item">
+                  <label>🎁 Rebate</label>
+                  <select
+                    value={filtroRebate || 'todos'}
+                    onChange={(e) => { setFiltroRebate(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="con_rebate">Con Rebate</option>
+                    <option value="sin_rebate">Sin Rebate</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>🏷️ Mejor Oferta</label>
+                  <select
+                    value={filtroOferta || 'todos'}
+                    onChange={(e) => { setFiltroOferta(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="con_oferta">Con Oferta</option>
+                    <option value="sin_oferta">Sin Oferta</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>💳 Web Transferencia</label>
+                  <select
+                    value={filtroWebTransf || 'todos'}
+                    onChange={(e) => { setFiltroWebTransf(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="con_web_transf">Con Web Transf.</option>
+                    <option value="sin_web_transf">Sin Web Transf.</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>🚫 Out of Cards</label>
+                  <select
+                    value={filtroOutOfCards || 'todos'}
+                    onChange={(e) => { setFiltroOutOfCards(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="con_out_of_cards">Marcados</option>
+                    <option value="sin_out_of_cards">No Marcados</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Filtros de Markup */}
+            <div className="filter-group">
+              <div className="filter-group-title">📊 Filtros de Markup</div>
+              <div className="filter-group-content">
+                <div className="filter-item">
+                  <label>Markup Clásica</label>
+                  <select
+                    value={filtroMarkupClasica || 'todos'}
+                    onChange={(e) => { setFiltroMarkupClasica(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="positivo">✅ Positivo</option>
+                    <option value="negativo">❌ Negativo</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>Markup Rebate</label>
+                  <select
+                    value={filtroMarkupRebate || 'todos'}
+                    onChange={(e) => { setFiltroMarkupRebate(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="positivo">✅ Positivo</option>
+                    <option value="negativo">❌ Negativo</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>Markup Oferta</label>
+                  <select
+                    value={filtroMarkupOferta || 'todos'}
+                    onChange={(e) => { setFiltroMarkupOferta(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="positivo">✅ Positivo</option>
+                    <option value="negativo">❌ Negativo</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>Markup Web Transf.</label>
+                  <select
+                    value={filtroMarkupWebTransf || 'todos'}
+                    onChange={(e) => { setFiltroMarkupWebTransf(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="positivo">✅ Positivo</option>
+                    <option value="negativo">❌ Negativo</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="results-info">
         <div>
