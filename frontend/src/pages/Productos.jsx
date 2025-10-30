@@ -540,27 +540,38 @@ export default function Productos() {
         />
       </div>
 
-      <div className="filters-container">
-        <select
-          value={filtroStock}
-          onChange={(e) => { setFiltroStock(e.target.value); setPage(1); }}
-          className="filter-select"
-        >
-          <option value="todos">📦 Todo el stock</option>
-          <option value="con_stock">✅ Con stock</option>
-          <option value="sin_stock">❌ Sin stock</option>
-        </select>
+      <div className="filters-container-modern">
+        {/* Filtros Básicos */}
+        <div className="filters-basic-group">
+          <div className="filter-item-inline">
+            <label className="filter-label">📦 Stock</label>
+            <select
+              value={filtroStock}
+              onChange={(e) => { setFiltroStock(e.target.value); setPage(1); }}
+              className="filter-select-modern"
+            >
+              <option value="todos">Todos</option>
+              <option value="con_stock">Con stock</option>
+              <option value="sin_stock">Sin stock</option>
+            </select>
+          </div>
 
-        <select
-          value={filtroPrecio}
-          onChange={(e) => { setFiltroPrecio(e.target.value); setPage(1); }}
-          className="filter-select"
-        >
-          <option value="todos">💰 Todos los precios</option>
-          <option value="con_precio">✅ Con precio</option>
-          <option value="sin_precio">❌ Sin precio</option>
-        </select>
+          <div className="filter-item-inline">
+            <label className="filter-label">💰 Precio</label>
+            <select
+              value={filtroPrecio}
+              onChange={(e) => { setFiltroPrecio(e.target.value); setPage(1); }}
+              className="filter-select-modern"
+            >
+              <option value="todos">Todos</option>
+              <option value="con_precio">Con precio</option>
+              <option value="sin_precio">Sin precio</option>
+            </select>
+          </div>
+        </div>
 
+        {/* Filtros de Dropdown */}
+        <div className="filters-dropdown-group">
         {/* Filtro de Marcas */}
         <div className="filter-dropdown">
           <button
@@ -967,28 +978,32 @@ export default function Productos() {
           onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
           className={`filter-button advanced ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) ? 'active' : ''}`}
         >
-          🎯 Filtros Avanzados
+          �� Filtros Avanzados
           {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) && (
             <span className="filter-badge">
               {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length}
             </span>
           )}
         </button>
+        </div>
 
-        <button
-          onClick={() => setMostrarExportModal(true)}
-          className="btn-action export"
-        >
-          <img src={xlsIcon} alt="Excel" />
-          Exportar
-        </button>
+        {/* Botones de Acción */}
+        <div className="action-buttons-group">
+          <button
+            onClick={() => setMostrarExportModal(true)}
+            className="btn-action export"
+          >
+            <img src={xlsIcon} alt="Excel" />
+            Exportar
+          </button>
 
-        <button
-          onClick={() => setMostrarCalcularWebModal(true)}
-          className="btn-action calculate"
-        >
-          🧮 Calcular Web Transf.
-        </button>
+          <button
+            onClick={() => setMostrarCalcularWebModal(true)}
+            className="btn-action calculate"
+          >
+            🧮 Calcular Web Transf.
+          </button>
+        </div>
       </div>
 
       {/* Panel de filtros avanzados */}
