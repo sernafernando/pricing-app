@@ -13,7 +13,19 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
     filtrosActivos?.con_stock !== null ||
     filtrosActivos?.con_precio !== null ||
     (filtrosActivos?.marcas?.length > 0) ||
-    (filtrosActivos?.subcategorias?.length > 0);
+    (filtrosActivos?.subcategorias?.length > 0) ||
+    filtrosActivos?.filtroRebate !== null ||
+    filtrosActivos?.filtroOferta !== null ||
+    filtrosActivos?.filtroWebTransf !== null ||
+    filtrosActivos?.filtroMarkupClasica !== null ||
+    filtrosActivos?.filtroMarkupRebate !== null ||
+    filtrosActivos?.filtroMarkupOferta !== null ||
+    filtrosActivos?.filtroMarkupWebTransf !== null ||
+    filtrosActivos?.filtroOutOfCards !== null ||
+    (filtrosActivos?.audit_usuarios?.length > 0) ||
+    (filtrosActivos?.audit_tipos_accion?.length > 0) ||
+    !!filtrosActivos?.audit_fecha_desde ||
+    !!filtrosActivos?.audit_fecha_hasta;
 
   const calcularMasivo = async () => {
     const mensaje = aplicarFiltros 
@@ -40,6 +52,28 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
           marcas: filtrosActivos.marcas?.length > 0 ? filtrosActivos.marcas.join(',') : null,
           subcategorias: filtrosActivos.subcategorias?.length > 0 ? filtrosActivos.subcategorias.join(',') : null
         };
+
+        // Agregar filtros avanzados
+        if (filtrosActivos.filtroRebate === 'con_rebate') body.filtros.con_rebate = true;
+        if (filtrosActivos.filtroRebate === 'sin_rebate') body.filtros.con_rebate = false;
+        if (filtrosActivos.filtroOferta === 'con_oferta') body.filtros.con_oferta = true;
+        if (filtrosActivos.filtroOferta === 'sin_oferta') body.filtros.con_oferta = false;
+        if (filtrosActivos.filtroWebTransf === 'con_web_transf') body.filtros.con_web_transf = true;
+        if (filtrosActivos.filtroWebTransf === 'sin_web_transf') body.filtros.con_web_transf = false;
+        if (filtrosActivos.filtroMarkupClasica === 'positivo') body.filtros.markup_clasica_positivo = true;
+        if (filtrosActivos.filtroMarkupClasica === 'negativo') body.filtros.markup_clasica_positivo = false;
+        if (filtrosActivos.filtroMarkupRebate === 'positivo') body.filtros.markup_rebate_positivo = true;
+        if (filtrosActivos.filtroMarkupRebate === 'negativo') body.filtros.markup_rebate_positivo = false;
+        if (filtrosActivos.filtroMarkupOferta === 'positivo') body.filtros.markup_oferta_positivo = true;
+        if (filtrosActivos.filtroMarkupOferta === 'negativo') body.filtros.markup_oferta_positivo = false;
+        if (filtrosActivos.filtroMarkupWebTransf === 'positivo') body.filtros.markup_web_transf_positivo = true;
+        if (filtrosActivos.filtroMarkupWebTransf === 'negativo') body.filtros.markup_web_transf_positivo = false;
+        if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') body.filtros.out_of_cards = true;
+        if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') body.filtros.out_of_cards = false;
+        if (filtrosActivos.audit_usuarios?.length > 0) body.filtros.audit_usuarios = filtrosActivos.audit_usuarios.join(',');
+        if (filtrosActivos.audit_tipos_accion?.length > 0) body.filtros.audit_tipos_accion = filtrosActivos.audit_tipos_accion.join(',');
+        if (filtrosActivos.audit_fecha_desde) body.filtros.audit_fecha_desde = filtrosActivos.audit_fecha_desde;
+        if (filtrosActivos.audit_fecha_hasta) body.filtros.audit_fecha_hasta = filtrosActivos.audit_fecha_hasta;
       }
 
       const response = await axios.post(

@@ -1450,7 +1450,19 @@ export default function Productos() {
             con_stock: filtroStock === 'con_stock' ? true : filtroStock === 'sin_stock' ? false : null,
             con_precio: filtroPrecio === 'con_precio' ? true : filtroPrecio === 'sin_precio' ? false : null,
             marcas: marcasSeleccionadas,
-            subcategorias: subcategoriasSeleccionadas
+            subcategorias: subcategoriasSeleccionadas,
+            filtroRebate,
+            filtroOferta,
+            filtroWebTransf,
+            filtroMarkupClasica,
+            filtroMarkupRebate,
+            filtroMarkupOferta,
+            filtroMarkupWebTransf,
+            filtroOutOfCards,
+            audit_usuarios: filtrosAuditoria.usuarios,
+            audit_tipos_accion: filtrosAuditoria.tipos_accion,
+            audit_fecha_desde: filtrosAuditoria.fecha_desde,
+            audit_fecha_hasta: filtrosAuditoria.fecha_hasta
           }}
         />
       )}
@@ -1463,7 +1475,19 @@ export default function Productos() {
             con_stock: filtroStock === 'con_stock' ? true : filtroStock === 'sin_stock' ? false : null,
             con_precio: filtroPrecio === 'con_precio' ? true : filtroPrecio === 'sin_precio' ? false : null,
             marcas: marcasSeleccionadas,
-            subcategorias: subcategoriasSeleccionadas
+            subcategorias: subcategoriasSeleccionadas,
+            filtroRebate,
+            filtroOferta,
+            filtroWebTransf,
+            filtroMarkupClasica,
+            filtroMarkupRebate,
+            filtroMarkupOferta,
+            filtroMarkupWebTransf,
+            filtroOutOfCards,
+            audit_usuarios: filtrosAuditoria.usuarios,
+            audit_tipos_accion: filtrosAuditoria.tipos_accion,
+            audit_fecha_desde: filtrosAuditoria.fecha_desde,
+            audit_fecha_hasta: filtrosAuditoria.fecha_hasta
           }}
         />
       )}

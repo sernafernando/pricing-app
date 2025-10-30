@@ -12,7 +12,44 @@ export default function ExportModal({ onClose, filtrosActivos }) {  // ← AGREG
     filtrosActivos?.con_stock !== null ||
     filtrosActivos?.con_precio !== null ||
     (filtrosActivos?.marcas?.length > 0) ||
-    (filtrosActivos?.subcategorias?.length > 0);
+    (filtrosActivos?.subcategorias?.length > 0) ||
+    filtrosActivos?.filtroRebate !== null ||
+    filtrosActivos?.filtroOferta !== null ||
+    filtrosActivos?.filtroWebTransf !== null ||
+    filtrosActivos?.filtroMarkupClasica !== null ||
+    filtrosActivos?.filtroMarkupRebate !== null ||
+    filtrosActivos?.filtroMarkupOferta !== null ||
+    filtrosActivos?.filtroMarkupWebTransf !== null ||
+    filtrosActivos?.filtroOutOfCards !== null ||
+    (filtrosActivos?.audit_usuarios?.length > 0) ||
+    (filtrosActivos?.audit_tipos_accion?.length > 0) ||
+    !!filtrosActivos?.audit_fecha_desde ||
+    !!filtrosActivos?.audit_fecha_hasta;
+
+  // Función auxiliar para agregar filtros avanzados a los parámetros
+  const agregarFiltrosAvanzados = (params) => {
+    if (filtrosActivos.filtroRebate === 'con_rebate') params.con_rebate = true;
+    if (filtrosActivos.filtroRebate === 'sin_rebate') params.con_rebate = false;
+    if (filtrosActivos.filtroOferta === 'con_oferta') params.con_oferta = true;
+    if (filtrosActivos.filtroOferta === 'sin_oferta') params.con_oferta = false;
+    if (filtrosActivos.filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
+    if (filtrosActivos.filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
+    if (filtrosActivos.filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
+    if (filtrosActivos.filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
+    if (filtrosActivos.filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
+    if (filtrosActivos.filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
+    if (filtrosActivos.filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
+    if (filtrosActivos.filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
+    if (filtrosActivos.filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
+    if (filtrosActivos.filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
+    if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
+    if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
+    if (filtrosActivos.audit_usuarios?.length > 0) params.audit_usuarios = filtrosActivos.audit_usuarios.join(',');
+    if (filtrosActivos.audit_tipos_accion?.length > 0) params.audit_tipos_accion = filtrosActivos.audit_tipos_accion.join(',');
+    if (filtrosActivos.audit_fecha_desde) params.audit_fecha_desde = filtrosActivos.audit_fecha_desde;
+    if (filtrosActivos.audit_fecha_hasta) params.audit_fecha_hasta = filtrosActivos.audit_fecha_hasta;
+    return params;
+  };
   
   // Estados para rebate
   const [fechaDesde, setFechaDesde] = useState(() => {
@@ -51,6 +88,8 @@ export default function ExportModal({ onClose, filtrosActivos }) {  // ← AGREG
           marcas: filtrosActivos.marcas?.length > 0 ? filtrosActivos.marcas.join(',') : null,
           subcategorias: filtrosActivos.subcategorias?.length > 0 ? filtrosActivos.subcategorias.join(',') : null
         };
+        // Agregar filtros avanzados
+        body.filtros = agregarFiltrosAvanzados(body.filtros);
       }
 
       const response = await axios.post(
@@ -85,16 +124,38 @@ export default function ExportModal({ onClose, filtrosActivos }) {  // ← AGREG
     setExportando(true);
     try {
       const token = localStorage.getItem('token');
-      
+
       // Construir parámetros
       let params = `porcentaje_adicional=${porcentajeClasica}`;
-      
+
       if (aplicarFiltros) {
         if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
         if (filtrosActivos.con_stock !== null) params += `&con_stock=${filtrosActivos.con_stock}`;
         if (filtrosActivos.con_precio !== null) params += `&con_precio=${filtrosActivos.con_precio}`;
         if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
         if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
+
+        // Agregar filtros avanzados
+        if (filtrosActivos.filtroRebate === 'con_rebate') params += `&con_rebate=true`;
+        if (filtrosActivos.filtroRebate === 'sin_rebate') params += `&con_rebate=false`;
+        if (filtrosActivos.filtroOferta === 'con_oferta') params += `&con_oferta=true`;
+        if (filtrosActivos.filtroOferta === 'sin_oferta') params += `&con_oferta=false`;
+        if (filtrosActivos.filtroWebTransf === 'con_web_transf') params += `&con_web_transf=true`;
+        if (filtrosActivos.filtroWebTransf === 'sin_web_transf') params += `&con_web_transf=false`;
+        if (filtrosActivos.filtroMarkupClasica === 'positivo') params += `&markup_clasica_positivo=true`;
+        if (filtrosActivos.filtroMarkupClasica === 'negativo') params += `&markup_clasica_positivo=false`;
+        if (filtrosActivos.filtroMarkupRebate === 'positivo') params += `&markup_rebate_positivo=true`;
+        if (filtrosActivos.filtroMarkupRebate === 'negativo') params += `&markup_rebate_positivo=false`;
+        if (filtrosActivos.filtroMarkupOferta === 'positivo') params += `&markup_oferta_positivo=true`;
+        if (filtrosActivos.filtroMarkupOferta === 'negativo') params += `&markup_oferta_positivo=false`;
+        if (filtrosActivos.filtroMarkupWebTransf === 'positivo') params += `&markup_web_transf_positivo=true`;
+        if (filtrosActivos.filtroMarkupWebTransf === 'negativo') params += `&markup_web_transf_positivo=false`;
+        if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') params += `&out_of_cards=true`;
+        if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') params += `&out_of_cards=false`;
+        if (filtrosActivos.audit_usuarios?.length > 0) params += `&audit_usuarios=${filtrosActivos.audit_usuarios.join(',')}`;
+        if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
+        if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
+        if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
       }
       
       const response = await axios.get(
@@ -128,16 +189,38 @@ export default function ExportModal({ onClose, filtrosActivos }) {  // ← AGREG
     setExportando(true);
     try {
       const token = localStorage.getItem('token');
-      
+
       // Construir parámetros
       let params = `porcentaje_adicional=${porcentajeWebTransf}`;
-      
+
       if (aplicarFiltros) {
         if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
         if (filtrosActivos.con_stock !== null) params += `&con_stock=${filtrosActivos.con_stock}`;
         if (filtrosActivos.con_precio !== null) params += `&con_precio=${filtrosActivos.con_precio}`;
         if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
         if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
+
+        // Agregar filtros avanzados
+        if (filtrosActivos.filtroRebate === 'con_rebate') params += `&con_rebate=true`;
+        if (filtrosActivos.filtroRebate === 'sin_rebate') params += `&con_rebate=false`;
+        if (filtrosActivos.filtroOferta === 'con_oferta') params += `&con_oferta=true`;
+        if (filtrosActivos.filtroOferta === 'sin_oferta') params += `&con_oferta=false`;
+        if (filtrosActivos.filtroWebTransf === 'con_web_transf') params += `&con_web_transf=true`;
+        if (filtrosActivos.filtroWebTransf === 'sin_web_transf') params += `&con_web_transf=false`;
+        if (filtrosActivos.filtroMarkupClasica === 'positivo') params += `&markup_clasica_positivo=true`;
+        if (filtrosActivos.filtroMarkupClasica === 'negativo') params += `&markup_clasica_positivo=false`;
+        if (filtrosActivos.filtroMarkupRebate === 'positivo') params += `&markup_rebate_positivo=true`;
+        if (filtrosActivos.filtroMarkupRebate === 'negativo') params += `&markup_rebate_positivo=false`;
+        if (filtrosActivos.filtroMarkupOferta === 'positivo') params += `&markup_oferta_positivo=true`;
+        if (filtrosActivos.filtroMarkupOferta === 'negativo') params += `&markup_oferta_positivo=false`;
+        if (filtrosActivos.filtroMarkupWebTransf === 'positivo') params += `&markup_web_transf_positivo=true`;
+        if (filtrosActivos.filtroMarkupWebTransf === 'negativo') params += `&markup_web_transf_positivo=false`;
+        if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') params += `&out_of_cards=true`;
+        if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') params += `&out_of_cards=false`;
+        if (filtrosActivos.audit_usuarios?.length > 0) params += `&audit_usuarios=${filtrosActivos.audit_usuarios.join(',')}`;
+        if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
+        if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
+        if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
       }
       
       const response = await axios.get(
