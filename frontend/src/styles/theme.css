@@ -1,0 +1,137 @@
+/* ===== TEMA CLARO ===== */
+:root[data-theme="light"] {
+  /* Backgrounds */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --bg-tertiary: #f3f4f6;
+  --bg-hover: #f0f0f0;
+  --bg-active: #e5e7eb;
+
+  /* Text colors */
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --text-tertiary: #9ca3af;
+  --text-inverse: #ffffff;
+
+  /* Borders */
+  --border-primary: #e5e7eb;
+  --border-secondary: #d1d5db;
+  --border-focus: #3b82f6;
+
+  /* Brand colors */
+  --brand-primary: #3b82f6;
+  --brand-primary-hover: #2563eb;
+  --brand-primary-light: #dbeafe;
+
+  /* Success */
+  --success: #10b981;
+  --success-hover: #059669;
+  --success-light: #d1fae5;
+  --success-text: #065f46;
+
+  /* Warning */
+  --warning: #f59e0b;
+  --warning-hover: #d97706;
+  --warning-light: #fef3c7;
+  --warning-text: #92400e;
+
+  /* Error */
+  --error: #ef4444;
+  --error-hover: #dc2626;
+  --error-light: #fee2e2;
+  --error-text: #991b1b;
+
+  /* Info */
+  --info: #8b5cf6;
+  --info-hover: #7c3aed;
+  --info-light: #ede9fe;
+  --info-text: #5b21b6;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  --gradient-warning: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  --gradient-error: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  --gradient-info: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  --gradient-navbar: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+}
+
+/* ===== TEMA OSCURO ===== */
+:root[data-theme="dark"] {
+  /* Backgrounds */
+  --bg-primary: #1e293b;
+  --bg-secondary: #0f172a;
+  --bg-tertiary: #334155;
+  --bg-hover: #475569;
+  --bg-active: #64748b;
+
+  /* Text colors */
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-tertiary: #94a3b8;
+  --text-inverse: #0f172a;
+
+  /* Borders */
+  --border-primary: #334155;
+  --border-secondary: #475569;
+  --border-focus: #60a5fa;
+
+  /* Brand colors - más brillantes para dark mode */
+  --brand-primary: #60a5fa;
+  --brand-primary-hover: #3b82f6;
+  --brand-primary-light: #1e3a8a;
+
+  /* Success - ajustado para dark mode */
+  --success: #34d399;
+  --success-hover: #10b981;
+  --success-light: #064e3b;
+  --success-text: #6ee7b7;
+
+  /* Warning - ajustado para dark mode */
+  --warning: #fbbf24;
+  --warning-hover: #f59e0b;
+  --warning-light: #78350f;
+  --warning-text: #fcd34d;
+
+  /* Error - ajustado para dark mode */
+  --error: #f87171;
+  --error-hover: #ef4444;
+  --error-light: #7f1d1d;
+  --error-text: #fca5a5;
+
+  /* Info - ajustado para dark mode */
+  --info: #a78bfa;
+  --info-hover: #8b5cf6;
+  --info-light: #4c1d95;
+  --info-text: #c4b5fd;
+
+  /* Shadows - más sutiles en dark mode */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+
+  /* Gradients - ajustados para dark mode */
+  --gradient-primary: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+  --gradient-success: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+  --gradient-warning: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  --gradient-error: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+  --gradient-info: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+  --gradient-navbar: linear-gradient(135deg, #0f172a 0%, #020617 100%);
+}
+
+/* Reset global con variables de tema */
+* {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+body {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}

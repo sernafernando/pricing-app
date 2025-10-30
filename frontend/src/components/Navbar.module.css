@@ -1,11 +1,11 @@
 .navbar {
-  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  background: var(--gradient-navbar);
   border-bottom: 3px solid transparent;
-  border-image: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899) 1;
+  border-image: linear-gradient(90deg, var(--brand-primary), var(--info), #ec4899) 1;
   position: sticky;
   top: 0;
   z-index: 1000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg);
 }
 
 .container {
@@ -57,7 +57,7 @@
 
 .link {
   padding: 10px 18px;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   text-decoration: none;
   border-radius: 8px;
   font-weight: 600;
@@ -83,14 +83,14 @@
 }
 
 .link:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  background: var(--bg-hover);
+  color: var(--text-inverse);
   transform: translateY(-2px);
 }
 
 .link.active {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
+  background: var(--gradient-primary);
+  color: var(--text-inverse);
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
 }
 
@@ -110,7 +110,7 @@
 }
 
 .userName {
-  color: #f1f5f9;
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 600;
 }
@@ -125,46 +125,46 @@
 }
 
 .roleSuperAdmin {
-  background: linear-gradient(135deg, #dc2626, #991b1b);
-  color: white;
-  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+  background: var(--gradient-error);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-sm);
 }
 
 .roleAdmin {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  color: white;
-  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+  background: var(--gradient-warning);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-sm);
 }
 
 .roleGerente {
-  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
-  color: white;
-  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+  background: var(--gradient-info);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-sm);
 }
 
 .roleDefault {
   background: linear-gradient(135deg, #64748b, #475569);
-  color: white;
-  box-shadow: 0 2px 8px rgba(100, 116, 139, 0.3);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-sm);
 }
 
 .logoutBtn {
   padding: 10px 18px;
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  color: white;
+  background: var(--gradient-error);
+  color: var(--text-inverse);
   border: none;
   border-radius: 8px;
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
   transition: all 0.3s;
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  box-shadow: var(--shadow-md);
 }
 
 .logoutBtn:hover {
-  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  background: var(--gradient-error);
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+  box-shadow: var(--shadow-lg);
 }
 
 .logoutBtn:active {
@@ -193,8 +193,8 @@
 .mobileMenu {
   display: none;
   flex-direction: column;
-  background: #0f172a;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-primary);
   padding: 16px 24px;
   animation: slideDown 0.3s ease-out;
 }
@@ -212,7 +212,7 @@
 
 .mobileLink {
   padding: 14px 16px;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   text-decoration: none;
   border-radius: 8px;
   font-weight: 600;
@@ -222,26 +222,26 @@
 }
 
 .mobileLink:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .mobileLink.active {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  background: var(--gradient-primary);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-md);
 }
 
 .mobileUserInfo {
   margin-top: 16px;
   padding: 16px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-tertiary);
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-primary);
 }
 
 .mobileUserName {
-  color: #f1f5f9;
+  color: var(--text-primary);
   font-size: 15px;
   font-weight: 600;
   margin-bottom: 8px;
@@ -260,21 +260,28 @@
 .mobileLogoutBtn {
   margin-top: 16px;
   padding: 14px 18px;
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  color: white;
+  background: var(--gradient-error);
+  color: var(--text-inverse);
   border: none;
   border-radius: 8px;
   font-weight: 600;
   font-size: 15px;
   cursor: pointer;
   transition: all 0.3s;
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  box-shadow: var(--shadow-md);
   width: 100%;
 }
 
 .mobileLogoutBtn:hover {
-  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+  background: var(--gradient-error);
+  box-shadow: var(--shadow-lg);
+}
+
+.mobileThemeToggleWrapper {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
+  margin: 8px 0;
 }
 
 /* Responsive Design */

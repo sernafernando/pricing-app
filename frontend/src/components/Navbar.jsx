@@ -3,6 +3,7 @@ import { useState } from 'react';
 import styles from './Navbar.module.css';
 import logo from '../assets/white-g-logo.png';
 import { useAuthStore } from '../store/authStore';
+import ThemeToggle from './ThemeToggle';
 
 export default function Navbar() {
   const location = useLocation();
@@ -85,6 +86,7 @@ export default function Navbar() {
               </span>
             </div>
           )}
+          <ThemeToggle />
           <button onClick={handleLogout} className={styles.logoutBtn}>
             🚪 Salir
           </button>
@@ -147,6 +149,10 @@ export default function Navbar() {
               </div>
             </div>
           )}
+
+          <div className={styles.mobileThemeToggleWrapper}>
+            <ThemeToggle />
+          </div>
 
           <button onClick={handleLogout} className={styles.mobileLogoutBtn}>
             🚪 Cerrar Sesión

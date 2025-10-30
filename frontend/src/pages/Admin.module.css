@@ -2,53 +2,58 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 24px;
+  min-height: 100vh;
+  background: var(--bg-secondary);
 }
 
 .title {
   font-size: 32px;
   font-weight: 700;
   margin-bottom: 32px;
-  color: #111827;
+  color: var(--text-primary);
 }
 
 .section {
-  background: white;
+  background: var(--bg-primary);
   border-radius: 12px;
   padding: 24px;
   margin-bottom: 24px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 .sectionTitle {
   font-size: 20px;
   font-weight: 600;
   margin-bottom: 12px;
-  color: #374151;
+  color: var(--text-primary);
 }
 
 .description {
-  color: #6b7280;
+  color: var(--text-secondary);
   margin-bottom: 16px;
 }
 
 .syncButton {
   padding: 12px 24px;
-  background: #3b82f6;
-  color: white;
+  background: var(--gradient-primary);
+  color: var(--text-inverse);
   border: none;
   border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
 }
 
 .syncButton:hover:not(:disabled) {
-  background: #2563eb;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 
 .syncButton:disabled {
-  background: #9ca3af;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
   cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .logContainer {
@@ -62,8 +67,8 @@
 }
 
 .log {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
   border-radius: 6px;
   padding: 12px;
   max-height: 300px;
@@ -74,7 +79,7 @@
 
 .logLine {
   padding: 4px 0;
-  color: #374151;
+  color: var(--text-primary);
 }
 
 .infoGrid {
@@ -84,28 +89,28 @@
 }
 
 .infoCard {
-  background: #f9fafb;
+  background: var(--bg-secondary);
   padding: 16px;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-primary);
 }
 
 .infoLabel {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 
 .infoValue {
   font-size: 24px;
   font-weight: 600;
-  color: #111827;
+  color: var(--text-primary);
 }
 
 .secondaryButton {
   padding: 10px 20px;
-  background: #e5e7eb;
-  color: #6b7280;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
   border: none;
   border-radius: 8px;
   font-weight: 500;
