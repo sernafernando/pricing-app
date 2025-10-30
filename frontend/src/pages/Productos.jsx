@@ -571,7 +571,7 @@ export default function Productos() {
         </div>
 
         {/* Filtros de Dropdown */}
-        <div className="filters-dropdown-group">
+        <div className="filters-dropdown-card">
         {/* Filtro de Marcas */}
         <div className="filter-dropdown">
           <button
@@ -978,7 +978,7 @@ export default function Productos() {
           onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
           className={`filter-button advanced ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) ? 'active' : ''}`}
         >
-          �� Filtros Avanzados
+          🎯 Filtros Avanzados
           {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) && (
             <span className="filter-badge">
               {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length}

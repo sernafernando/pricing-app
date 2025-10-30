@@ -82,6 +82,19 @@
   height: fit-content;
 }
 
+.filters-dropdown-card {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex: 1;
+  background: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  height: fit-content;
+}
+
 .filters-dropdown-group {
   display: flex;
   gap: 12px;
@@ -168,9 +181,9 @@
 
 .filter-button {
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 2px solid #e5e7eb;
-  background: white;
+  background: #f9fafb;
   color: #374151;
   cursor: pointer;
   font-size: 14px;
@@ -179,13 +192,13 @@
   align-items: center;
   gap: 8px;
   transition: all 0.2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-  height: 42px;
+  box-shadow: none;
+  height: auto;
 }
 
 .filter-button:hover {
   border-color: #d1d5db;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  background: white;
   transform: translateY(-1px);
 }
 
