@@ -392,6 +392,16 @@ async def listar_productos(
                 )
                 markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
 
+        # Si el producto tiene rebate y está out_of_cards, replicar el rebate a mejor_oferta
+        if producto_pricing and producto_pricing.out_of_cards and precio_rebate is not None and markup_rebate is not None:
+            # Replicar datos del rebate a mejor_oferta
+            mejor_oferta_precio = precio_rebate
+            mejor_oferta_pvp = precio_rebate  # El PVP es el mismo que el precio rebate
+            mejor_oferta_markup = markup_rebate / 100  # Convertir de porcentaje a decimal
+            mejor_oferta_porcentaje = None  # No hay aporte de Meli en rebate
+            mejor_oferta_monto = None  # No hay monto de rebate en este caso
+            mejor_oferta_fecha_hasta = None  # No aplica fecha para rebate
+
         producto_obj = ProductoResponse(
             item_id=producto_erp.item_id,
             codigo=producto_erp.codigo,
