@@ -51,6 +51,13 @@ export default function Productos() {
     fecha_hasta: ''
   });
   const [mostrarFiltrosAuditoria, setMostrarFiltrosAuditoria] = useState(false);
+  const [filtroRebate, setFiltroRebate] = useState(null);
+  const [filtroOferta, setFiltroOferta] = useState(null);
+  const [filtroWebTransf, setFiltroWebTransf] = useState(null);
+  const [filtroMarkupClasica, setFiltroMarkupClasica] = useState(null);
+  const [filtroMarkupRebate, setFiltroMarkupRebate] = useState(null);
+  const [filtroMarkupOferta, setFiltroMarkupOferta] = useState(null);
+  const [filtroMarkupWebTransf, setFiltroMarkupWebTransf] = useState(null);
 
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
@@ -65,7 +72,7 @@ export default function Productos() {
 
   useEffect(() => {
     cargarProductos();
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria]);
+  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf]);
 
   const cargarStats = async () => {
     try {
@@ -179,26 +186,26 @@ export default function Productos() {
           break;
 
         case 'precio_clasica':
-          valorA = a.precio_lista_ml ?? -Infinity;
-          valorB = b.precio_lista_ml ?? -Infinity;
+          valorA = a.markup ?? -Infinity;
+          valorB = b.markup ?? -Infinity;
           comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
           break;
 
         case 'precio_rebate':
-          valorA = a.precio_rebate ?? -Infinity;
-          valorB = b.precio_rebate ?? -Infinity;
+          valorA = a.markup_rebate ?? -Infinity;
+          valorB = b.markup_rebate ?? -Infinity;
           comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
           break;
 
         case 'mejor_oferta':
-          valorA = a.mejor_oferta_precio ?? -Infinity;
-          valorB = b.mejor_oferta_precio ?? -Infinity;
+          valorA = (a.mejor_oferta_markup !== null ? a.mejor_oferta_markup * 100 : -Infinity);
+          valorB = (b.mejor_oferta_markup !== null ? b.mejor_oferta_markup * 100 : -Infinity);
           comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
           break;
 
         case 'web_transf':
-          valorA = a.precio_web_transferencia ?? -Infinity;
-          valorB = b.precio_web_transferencia ?? -Infinity;
+          valorA = a.markup_web_real ?? -Infinity;
+          valorB = b.markup_web_real ?? -Infinity;
           comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
           break;
       }
@@ -307,6 +314,22 @@ export default function Productos() {
       if (filtrosAuditoria.fecha_hasta) {
         params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
       }
+
+      if (filtroRebate === 'con_rebate') params.con_rebate = true;
+      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
+      if (filtroOferta === 'con_oferta') params.con_oferta = true;
+      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
+      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
+      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
+
+      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
+      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
+      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
+      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
+      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
+      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
+      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
+      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
 
       if (ordenColumnas.length > 0) {
         params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
@@ -933,6 +956,77 @@ export default function Productos() {
             </>
           )}
         </div>
+
+        {/* Filtros adicionales */}
+        <select
+          value={filtroRebate || 'todos'}
+          onChange={(e) => { setFiltroRebate(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+          className="filter-select"
+        >
+          <option value="todos">🎁 Rebate: Todos</option>
+          <option value="con_rebate">✅ Con Rebate</option>
+          <option value="sin_rebate">❌ Sin Rebate</option>
+        </select>
+
+        <select
+          value={filtroOferta || 'todos'}
+          onChange={(e) => { setFiltroOferta(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+          className="filter-select"
+        >
+          <option value="todos">🏷️ Oferta: Todos</option>
+          <option value="con_oferta">✅ Con Oferta</option>
+          <option value="sin_oferta">❌ Sin Oferta</option>
+        </select>
+
+        <select
+          value={filtroWebTransf || 'todos'}
+          onChange={(e) => { setFiltroWebTransf(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+          className="filter-select"
+        >
+          <option value="todos">💳 Web Transf.: Todos</option>
+          <option value="con_web_transf">✅ Con Web Transf.</option>
+          <option value="sin_web_transf">❌ Sin Web Transf.</option>
+        </select>
+
+        <select
+          value={filtroMarkupClasica || 'todos'}
+          onChange={(e) => { setFiltroMarkupClasica(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+          className="filter-select"
+        >
+          <option value="todos">📊 Markup Clásica: Todos</option>
+          <option value="positivo">✅ Positivo</option>
+          <option value="negativo">❌ Negativo</option>
+        </select>
+
+        <select
+          value={filtroMarkupRebate || 'todos'}
+          onChange={(e) => { setFiltroMarkupRebate(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+          className="filter-select"
+        >
+          <option value="todos">📊 Markup Rebate: Todos</option>
+          <option value="positivo">✅ Positivo</option>
+          <option value="negativo">❌ Negativo</option>
+        </select>
+
+        <select
+          value={filtroMarkupOferta || 'todos'}
+          onChange={(e) => { setFiltroMarkupOferta(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+          className="filter-select"
+        >
+          <option value="todos">📊 Markup Oferta: Todos</option>
+          <option value="positivo">✅ Positivo</option>
+          <option value="negativo">❌ Negativo</option>
+        </select>
+
+        <select
+          value={filtroMarkupWebTransf || 'todos'}
+          onChange={(e) => { setFiltroMarkupWebTransf(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+          className="filter-select"
+        >
+          <option value="todos">📊 Markup Web Transf.: Todos</option>
+          <option value="positivo">✅ Positivo</option>
+          <option value="negativo">❌ Negativo</option>
+        </select>
 
         <button
           onClick={() => setMostrarExportModal(true)}

@@ -35,6 +35,7 @@ class ProductoResponse(BaseModel):
     participa_rebate: Optional[bool] = False
     porcentaje_rebate: Optional[float] = 3.8
     precio_rebate: Optional[float] = None
+    markup_rebate: Optional[float] = None
     participa_web_transferencia: Optional[bool] = False
     porcentaje_markup_web: Optional[float] = 6.0
     precio_web_transferencia: Optional[float] = None
@@ -81,6 +82,13 @@ async def listar_productos(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    con_rebate: Optional[bool] = None,
+    con_oferta: Optional[bool] = None,
+    con_web_transf: Optional[bool] = None,
+    markup_clasica_positivo: Optional[bool] = None,
+    markup_rebate_positivo: Optional[bool] = None,
+    markup_oferta_positivo: Optional[bool] = None,
+    markup_web_transf_positivo: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
@@ -162,7 +170,43 @@ async def listar_productos(
             query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
         else:
             query = query.filter(ProductoPricing.precio_lista_ml.is_(None))
-    
+
+    # Filtros de valores específicos
+    if con_rebate is not None:
+        if con_rebate:
+            query = query.filter(ProductoPricing.participa_rebate == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.participa_rebate == False,
+                    ProductoPricing.participa_rebate.is_(None)
+                )
+            )
+
+    if con_web_transf is not None:
+        if con_web_transf:
+            query = query.filter(ProductoPricing.participa_web_transferencia == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.participa_web_transferencia == False,
+                    ProductoPricing.participa_web_transferencia.is_(None)
+                )
+            )
+
+    # Filtros de markup
+    if markup_clasica_positivo is not None:
+        if markup_clasica_positivo:
+            query = query.filter(ProductoPricing.markup_calculado > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_calculado < 0)
+
+    if markup_web_transf_positivo is not None:
+        if markup_web_transf_positivo:
+            query = query.filter(ProductoPricing.markup_web_real > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_web_real < 0)
+
     # Ordenamiento
     if orden_campos and orden_direcciones:
         campos = orden_campos.split(',')
@@ -196,9 +240,18 @@ async def listar_productos(
             else:
                 query = query.order_by(col.desc().nullslast())
 
-    total = query.count()
-    offset = (page - 1) * page_size
-    results = query.offset(offset).limit(page_size).all()
+    # Para filtros de oferta y markup rebate/oferta, necesitamos procesar después
+    # ya que estos valores se calculan dinámicamente
+
+    # Contar total antes de aplicar filtros complejos
+    if con_oferta is None and markup_rebate_positivo is None and markup_oferta_positivo is None:
+        total = query.count()
+        offset = (page - 1) * page_size
+        results = query.offset(offset).limit(page_size).all()
+    else:
+        # Obtener todos los resultados para filtrar después
+        results = query.all()
+        total_antes_filtro = len(results)
 
     from app.models.oferta_ml import OfertaML
     from app.models.publicacion_ml import PublicacionML
@@ -283,8 +336,39 @@ async def listar_productos(
                         comisiones["comision_total"]
                     )
                     mejor_oferta_markup = calcular_markup(limpio, costo_calc)
-                            
-        productos.append(ProductoResponse(
+
+        # Calcular precio_rebate y markup_rebate
+        precio_rebate = None
+        markup_rebate = None
+        if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate:
+            porcentaje_rebate_val = float(producto_pricing.porcentaje_rebate if producto_pricing.porcentaje_rebate is not None else 3.8)
+            precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
+
+            # Calcular markup del rebate
+            tipo_cambio_rebate = None
+            if producto_erp.moneda_costo == "USD":
+                tipo_cambio_rebate = obtener_tipo_cambio_actual(db, "USD")
+
+            costo_rebate = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_rebate)
+            grupo_id_rebate = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+            comision_base_rebate = obtener_comision_base(db, 4, grupo_id_rebate)  # Lista clásica
+
+            if comision_base_rebate and precio_rebate > 0:
+                comisiones_rebate = calcular_comision_ml_total(
+                    precio_rebate,
+                    comision_base_rebate,
+                    producto_erp.iva,
+                    VARIOS_DEFAULT
+                )
+                limpio_rebate = calcular_limpio(
+                    precio_rebate,
+                    producto_erp.iva,
+                    producto_erp.envio or 0,
+                    comisiones_rebate["comision_total"]
+                )
+                markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
+
+        producto_obj = ProductoResponse(
             item_id=producto_erp.item_id,
             codigo=producto_erp.codigo,
             descripcion=producto_erp.descripcion,
@@ -304,7 +388,8 @@ async def listar_productos(
             necesita_revision=False,
             participa_rebate=producto_pricing.participa_rebate if producto_pricing else False,
             porcentaje_rebate=float(producto_pricing.porcentaje_rebate) if producto_pricing and producto_pricing.porcentaje_rebate is not None else 3.8,
-            precio_rebate=float(producto_pricing.precio_lista_ml) / (1 - float(producto_pricing.porcentaje_rebate if producto_pricing.porcentaje_rebate is not None else 3.8) / 100) if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate else None,
+            precio_rebate=precio_rebate,
+            markup_rebate=markup_rebate,
             participa_web_transferencia=producto_pricing.participa_web_transferencia if producto_pricing else False,
             porcentaje_markup_web=float(producto_pricing.porcentaje_markup_web) if producto_pricing and producto_pricing.porcentaje_markup_web else 6.0,
             precio_web_transferencia=float(producto_pricing.precio_web_transferencia) if producto_pricing and producto_pricing.precio_web_transferencia else None,
@@ -316,7 +401,47 @@ async def listar_productos(
             mejor_oferta_porcentaje_rebate=mejor_oferta_porcentaje,
             mejor_oferta_fecha_hasta=mejor_oferta_fecha_hasta,
             out_of_cards=producto_pricing.out_of_cards if producto_pricing else False,
-        ))
+        )
+
+        # Aplicar filtros dinámicos
+        incluir = True
+
+        if con_oferta is not None:
+            tiene_oferta = mejor_oferta_precio is not None
+            if con_oferta and not tiene_oferta:
+                incluir = False
+            elif not con_oferta and tiene_oferta:
+                incluir = False
+
+        if markup_rebate_positivo is not None and incluir:
+            if markup_rebate is not None:
+                if markup_rebate_positivo and markup_rebate < 0:
+                    incluir = False
+                elif not markup_rebate_positivo and markup_rebate >= 0:
+                    incluir = False
+            else:
+                incluir = False
+
+        if markup_oferta_positivo is not None and incluir:
+            if mejor_oferta_markup is not None:
+                markup_oferta_pct = mejor_oferta_markup * 100
+                if markup_oferta_positivo and markup_oferta_pct < 0:
+                    incluir = False
+                elif not markup_oferta_positivo and markup_oferta_pct >= 0:
+                    incluir = False
+            else:
+                incluir = False
+
+        if incluir:
+            productos.append(producto_obj)
+
+    # Si aplicamos filtros dinámicos, necesitamos paginar manualmente
+    if con_oferta is not None or markup_rebate_positivo is not None or markup_oferta_positivo is not None:
+        total = len(productos)
+        offset = (page - 1) * page_size
+        productos = productos[offset:offset + page_size]
+    else:
+        total = len(productos)
 
     return ProductoListResponse(total=total, page=page, page_size=page_size, productos=productos)
 
