@@ -142,83 +142,8 @@ export default function Productos() {
     return index >= 0 ? index + 1 : null;
   };
 
-  const productosOrdenados = [...productos].sort((a, b) => {
-    if (ordenColumnas.length === 0) return 0;
-
-    // Ordenar por cada columna en orden de prioridad
-    for (const { columna, direccion } of ordenColumnas) {
-      let valorA, valorB;
-      let comparacion = 0;
-
-      switch(columna) {
-        case 'codigo':
-          valorA = a.codigo || '';
-          valorB = b.codigo || '';
-          comparacion = direccion === 'asc'
-            ? valorA.localeCompare(valorB, 'es', { numeric: true })
-            : valorB.localeCompare(valorA, 'es', { numeric: true });
-          break;
-
-        case 'descripcion':
-          valorA = a.descripcion || '';
-          valorB = b.descripcion || '';
-          comparacion = direccion === 'asc'
-            ? valorA.localeCompare(valorB)
-            : valorB.localeCompare(valorA);
-          break;
-
-        case 'marca':
-          valorA = a.marca || '';
-          valorB = b.marca || '';
-          comparacion = direccion === 'asc'
-            ? valorA.localeCompare(valorB)
-            : valorB.localeCompare(valorA);
-          break;
-
-        case 'stock':
-          valorA = a.stock ?? -Infinity;
-          valorB = b.stock ?? -Infinity;
-          comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
-          break;
-
-        case 'costo':
-          valorA = a.costo ?? -Infinity;
-          valorB = b.costo ?? -Infinity;
-          comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
-          break;
-
-        case 'precio_clasica':
-          valorA = a.markup ?? -Infinity;
-          valorB = b.markup ?? -Infinity;
-          comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
-          break;
-
-        case 'precio_rebate':
-          valorA = a.markup_rebate ?? -Infinity;
-          valorB = b.markup_rebate ?? -Infinity;
-          comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
-          break;
-
-        case 'mejor_oferta':
-          valorA = (a.mejor_oferta_markup !== null ? a.mejor_oferta_markup * 100 : -Infinity);
-          valorB = (b.mejor_oferta_markup !== null ? b.mejor_oferta_markup * 100 : -Infinity);
-          comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
-          break;
-
-        case 'web_transf':
-          valorA = a.markup_web_real ?? -Infinity;
-          valorB = b.markup_web_real ?? -Infinity;
-          comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
-          break;
-      }
-
-      // Si hay diferencia en esta columna, retornar
-      if (comparacion !== 0) return comparacion;
-    }
-
-    return 0;
-  });
-
+  // Los productos ya vienen ordenados desde el backend
+  const productosOrdenados = productos;
 
   const marcasFiltradas = marcas.filter(m =>
     m.toLowerCase().includes(busquedaMarca.toLowerCase())
