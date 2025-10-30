@@ -206,22 +206,22 @@
 }
 
 .filter-button.active {
-  color: white;
+  color: var(--text-inverse);
   border-color: transparent;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  box-shadow: var(--shadow-md);
 }
 
 .filter-button.marcas.active {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: var(--gradient-primary);
 }
 .filter-button.subcategorias.active {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: var(--gradient-success);
 }
 .filter-button.auditoria.active {
-  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  background: var(--gradient-info);
 }
 .filter-button.advanced.active {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  background: var(--gradient-warning);
 }
 
 .filter-badge {
