@@ -27,6 +27,41 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
     !!filtrosActivos?.audit_fecha_desde ||
     !!filtrosActivos?.audit_fecha_hasta;
 
+  // Componente para mostrar los filtros activos
+  const FiltrosActivosDisplay = () => (
+    <>
+      {filtrosActivos.search && <div>• Búsqueda: "{filtrosActivos.search}"</div>}
+      {filtrosActivos.con_stock === true && <div>• Con stock</div>}
+      {filtrosActivos.con_stock === false && <div>• Sin stock</div>}
+      {filtrosActivos.con_precio === true && <div>• Con precio</div>}
+      {filtrosActivos.con_precio === false && <div>• Sin precio</div>}
+      {filtrosActivos.marcas?.length > 0 && <div>• {filtrosActivos.marcas.length} marca(s)</div>}
+      {filtrosActivos.subcategorias?.length > 0 && <div>• {filtrosActivos.subcategorias.length} subcategoría(s)</div>}
+
+      {/* Filtros Avanzados */}
+      {filtrosActivos.filtroRebate === 'con_rebate' && <div>• Con Rebate</div>}
+      {filtrosActivos.filtroRebate === 'sin_rebate' && <div>• Sin Rebate</div>}
+      {filtrosActivos.filtroOferta === 'con_oferta' && <div>• Con Oferta</div>}
+      {filtrosActivos.filtroOferta === 'sin_oferta' && <div>• Sin Oferta</div>}
+      {filtrosActivos.filtroWebTransf === 'con_web_transf' && <div>• Con Web Transferencia</div>}
+      {filtrosActivos.filtroWebTransf === 'sin_web_transf' && <div>• Sin Web Transferencia</div>}
+      {filtrosActivos.filtroOutOfCards === 'con_out_of_cards' && <div>• Con Out of Cards</div>}
+      {filtrosActivos.filtroOutOfCards === 'sin_out_of_cards' && <div>• Sin Out of Cards</div>}
+      {filtrosActivos.filtroMarkupClasica === 'positivo' && <div>• Markup Clásica: Positivo</div>}
+      {filtrosActivos.filtroMarkupClasica === 'negativo' && <div>• Markup Clásica: Negativo</div>}
+      {filtrosActivos.filtroMarkupRebate === 'positivo' && <div>• Markup Rebate: Positivo</div>}
+      {filtrosActivos.filtroMarkupRebate === 'negativo' && <div>• Markup Rebate: Negativo</div>}
+      {filtrosActivos.filtroMarkupOferta === 'positivo' && <div>• Markup Oferta: Positivo</div>}
+      {filtrosActivos.filtroMarkupOferta === 'negativo' && <div>• Markup Oferta: Negativo</div>}
+      {filtrosActivos.filtroMarkupWebTransf === 'positivo' && <div>• Markup Web Transf: Positivo</div>}
+      {filtrosActivos.filtroMarkupWebTransf === 'negativo' && <div>• Markup Web Transf: Negativo</div>}
+      {filtrosActivos.audit_usuarios?.length > 0 && <div>• {filtrosActivos.audit_usuarios.length} usuario(s) auditoría</div>}
+      {filtrosActivos.audit_tipos_accion?.length > 0 && <div>• {filtrosActivos.audit_tipos_accion.length} tipo(s) de acción</div>}
+      {filtrosActivos.audit_fecha_desde && <div>• Auditoría desde: {filtrosActivos.audit_fecha_desde}</div>}
+      {filtrosActivos.audit_fecha_hasta && <div>• Auditoría hasta: {filtrosActivos.audit_fecha_hasta}</div>}
+    </>
+  );
+
   const calcularMasivo = async () => {
     const mensaje = aplicarFiltros 
       ? '¿Confirmar cálculo de precios web transferencia para los productos FILTRADOS?'
@@ -140,13 +175,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
             </label>
             {aplicarFiltros && (
               <div style={{ marginTop: '8px', fontSize: '13px', color: '#059669' }}>
-                {filtrosActivos.search && <div>• Búsqueda: "{filtrosActivos.search}"</div>}
-                {filtrosActivos.con_stock === true && <div>• Con stock</div>}
-                {filtrosActivos.con_stock === false && <div>• Sin stock</div>}
-                {filtrosActivos.con_precio === true && <div>• Con precio</div>}
-                {filtrosActivos.con_precio === false && <div>• Sin precio</div>}
-                {filtrosActivos.marcas?.length > 0 && <div>• {filtrosActivos.marcas.length} marca(s)</div>}
-                {filtrosActivos.subcategorias?.length > 0 && <div>• {filtrosActivos.subcategorias.length} subcategoría(s)</div>}
+                <FiltrosActivosDisplay />
               </div>
             )}
           </div>
