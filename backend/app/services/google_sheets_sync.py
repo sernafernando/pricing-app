@@ -18,7 +18,10 @@ def parse_fecha(fecha_str: str):
 
 def parse_numero(num_str: str):
     try:
-        num_str = num_str.replace('$', '').replace(' ', '').replace('.', '').replace(',', '.')
+        # Remover símbolos de moneda, espacios y %
+        num_str = num_str.replace('$', '').replace(' ', '').replace('%', '')
+        # Reemplazar punto como separador de miles y coma como decimal
+        num_str = num_str.replace('.', '').replace(',', '.')
         return float(num_str) if num_str else None
     except:
         return None
@@ -100,7 +103,8 @@ def sincronizar_ofertas_sheets(db: Session) -> Dict:
                 
                 precio_final = parse_numero(row.get('PRECIO FINAL', '0'))
                 aporte_meli = parse_numero(row.get('$ APORTE MELI', '0'))
-                aporte_pct = parse_numero(row.get('% APORTE MELI', '0'))
+                aporte_pct = parse_numero(row.get('%', '0'))
+                pvp_seller = parse_numero(row.get('PVP SELLER\n(Min 5% de dto)', '0'))
                 
                 oferta = db.query(OfertaML).filter(
                     OfertaML.mla == mla,
@@ -112,6 +116,7 @@ def sincronizar_ofertas_sheets(db: Session) -> Dict:
                     oferta.precio_final = precio_final
                     oferta.aporte_meli_pesos = aporte_meli
                     oferta.aporte_meli_porcentaje = aporte_pct
+                    oferta.pvp_seller = pvp_seller
                     actualizadas += 1
                 else:
                     oferta = OfertaML(
@@ -120,7 +125,8 @@ def sincronizar_ofertas_sheets(db: Session) -> Dict:
                         fecha_hasta=fecha_hasta,
                         precio_final=precio_final,
                         aporte_meli_pesos=aporte_meli,
-                        aporte_meli_porcentaje=aporte_pct
+                        aporte_meli_porcentaje=aporte_pct,
+                        pvp_seller=pvp_seller
                     )
                     db.add(oferta)
                     nuevas += 1

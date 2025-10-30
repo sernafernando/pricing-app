@@ -47,9 +47,10 @@ class ProductoPricing(Base):
     motivo_cambio = Column(String(255))
     markup_web_real = Column(Numeric(10, 2))
     fecha_modificacion = Column(DateTime(timezone=True), server_default=func.now())
-
+    
     participa_rebate = Column(Boolean, default=False)
-    porcentaje_rebate = Column(Numeric(5, 2), default=3.8) 
+    porcentaje_rebate = Column(Numeric(5, 2), default=3.8)
+    out_of_cards = Column(Boolean, default=False)
 
     participa_web_transferencia = Column(Boolean, default=False)
     porcentaje_markup_web = Column(Numeric(5, 2), default=6.0)

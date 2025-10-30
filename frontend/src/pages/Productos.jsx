@@ -18,8 +18,8 @@ export default function Productos() {
   const [page, setPage] = useState(1);
   const [editandoPrecio, setEditandoPrecio] = useState(null);
   const [precioTemp, setPrecioTemp] = useState('');
-  const [filtroStock, setFiltroStock] = useState('todos');
-  const [filtroPrecio, setFiltroPrecio] = useState('todos');
+  const [filtroStock, setFiltroStock] = useState(null);
+  const [filtroPrecio, setFiltroPrecio] = useState(null);
   const [totalProductos, setTotalProductos] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [auditoriaVisible, setAuditoriaVisible] = useState(false);
@@ -47,6 +47,8 @@ export default function Productos() {
 
   const debouncedSearch = useDebounce(searchInput, 500);
 
+  const API_URL = 'https://pricing.gaussonline.com.ar/api';
+  
   useEffect(() => {
     cargarStats();
   }, []);
@@ -180,8 +182,8 @@ export default function Productos() {
           break;
         
         case 'mejor_oferta':
-          valorA = a.mejor_oferta?.oferta?.precio_final ?? -Infinity;
-          valorB = b.mejor_oferta?.oferta?.precio_final ?? -Infinity;
+          valorA = a.mejor_oferta_precio ?? -Infinity;
+          valorB = b.mejor_oferta_precio ?? -Infinity;
           comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
           break;
         
@@ -297,7 +299,7 @@ export default function Productos() {
 
           return {
             ...p,
-            mejor_oferta: ofertaMinima
+            // mejor_oferta: ofertaMinima
             // p.markup ya viene del backend, no hace falta calcularlo
           };
         })
@@ -1097,26 +1099,59 @@ export default function Productos() {
                           </div>
                         </div>
                       ) : (
-                        <div 
-                          style={{ cursor: 'pointer', padding: '4px' }} 
+                        <div
+                          style={{ cursor: 'pointer', padding: '4px' }}
                           onClick={() => iniciarEdicionRebate(p)}
                         >
                           {p.participa_rebate && p.precio_rebate ? (
                             <div>
-                              <div style={{ 
-                                fontSize: '14px', 
+                              <div style={{
+                                fontSize: '14px',
                                 fontWeight: '600',
                                 color: '#8b5cf6',
                                 borderBottom: '1px dashed #ccc'
                               }}>
                                 ${p.precio_rebate.toFixed(2).toLocaleString('es-AR')}
                               </div>
-                              <div style={{ 
-                                fontSize: '11px', 
+                              <div style={{
+                                fontSize: '11px',
                                 color: '#6b7280'
                               }}>
                                 {p.porcentaje_rebate}% rebate
                               </div>
+                              {/* AGREGAR ESTE CHECKBOX */}
+                              <label 
+                                style={{ 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  marginTop: '4px',
+                                  fontSize: '11px',
+                                  cursor: 'pointer'
+                                }}
+                                onClick={(e) => e.stopPropagation()} // Evitar que abra la edición
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={p.out_of_cards || false}
+                                  onChange={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      const response = await axios.patch(
+                                        `${API_URL}/productos/${p.item_id}/out-of-cards`,
+                                        { out_of_cards: e.target.checked },
+                                        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+                                      );
+                                      console.log('Respuesta:', response.data);
+                                      await cargarProductos(); // Esperar a que termine
+                                    } catch (error) {
+                                      console.error('Error completo:', error);
+                                      alert(`Error al actualizar: ${error.response?.data?.detail || error.message}`);
+                                    }
+                                  }}
+                                  style={{ marginRight: '4px' }}
+                                />
+                                Out of Cards
+                              </label>
                             </div>
                           ) : (
                             <div style={{ borderBottom: '1px dashed #ccc', display: 'inline-block', fontSize: '12px', color: '#9ca3af' }}>
@@ -1127,39 +1162,45 @@ export default function Productos() {
                       )}
                     </td>
                    	<td>
-                   	  {p.mejor_oferta ? (
+                   	  {p.mejor_oferta_precio ? (
                    	    <div style={{ fontSize: '12px' }}>
-                   	      <div>
-                   	        <span style={{ fontWeight: 'bold', color: '#f59e0b' }}>
-                   	          ${p.mejor_oferta.oferta.precio_final.toLocaleString('es-AR')}
-                   	        </span>
-                   	        {p.mejor_oferta.oferta.aporte_meli_porcentaje && (
-                   	          <span style={{ fontSize: '9px', color: '#10b981', marginLeft: '4px' }}>
-                   	            +{p.mejor_oferta.oferta.aporte_meli_porcentaje}%
-                   	          </span>
-                   	        )}
+                   	      <div style={{ fontWeight: '600', color: '#059669' }}>
+                   	        ${p.mejor_oferta_precio.toLocaleString('es-AR')}
                    	      </div>
-                   	      <div style={{ fontSize: '10px', color: '#6b7280' }}>
-                   	        Hasta {new Date(p.mejor_oferta.oferta.fecha_hasta).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
-                   	      </div>
-                   	      {p.mejor_oferta.oferta.pvp_seller > 0 && (
-                   	        <div style={{ fontSize: '11px', marginTop: '4px', borderTop: '1px solid #e5e7eb', paddingTop: '4px' }}>
-                   	          <div style={{ color: '#374151' }}>
-                   	            PVP: ${p.mejor_oferta.oferta.pvp_seller.toLocaleString('es-AR')}
-                   	          </div>
-                   	          {p.mejor_oferta.oferta.markup_oferta !== null && (
-                   	            <div style={{ 
-                   	              fontSize: '10px', 
-                   	              color: getMarkupColor(p.mejor_oferta.oferta.markup_oferta),
-                   	              fontWeight: '600'
-                   	            }}>
-                   	              {p.mejor_oferta.oferta.markup_oferta}%
-                   	            </div>
-                   	          )}
+                   	      {p.mejor_oferta_porcentaje_rebate && (
+                   	        <div style={{ fontSize: '11px', color: '#7c3aed', fontWeight: '600' }}>
+                   	          {p.mejor_oferta_porcentaje_rebate.toFixed(2)}%
+                   	        </div>
+                   	      )}
+                   	      {p.mejor_oferta_monto_rebate && (
+                   	        <div style={{ fontSize: '11px', color: '#7c3aed' }}>
+                   	          Rebate: ${p.mejor_oferta_monto_rebate.toLocaleString('es-AR')}
+                   	        </div>
+                   	      )}
+                   	      {p.mejor_oferta_fecha_hasta && (
+                   	        <div style={{ fontSize: '10px', color: '#6b7280' }}>
+                   	          Hasta {new Date(p.mejor_oferta_fecha_hasta).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
+                   	        </div>
+                   	      )}
+                   	      {p.mejor_oferta_pvp_seller && (
+                   	        <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                   	          PVP: ${p.mejor_oferta_pvp_seller.toLocaleString('es-AR')}
+                   	        </div>
+                   	      )}
+                   	      {p.mejor_oferta_markup !== null && (
+                   	        <div style={{
+                   	          fontSize: '11px',
+                   	          fontWeight: '600',
+                   	          color: getMarkupColor(p.mejor_oferta_markup * 100),
+                   	          marginTop: '2px'
+                   	        }}>
+                   	          Markup: {(p.mejor_oferta_markup * 100).toFixed(2)}%
                    	        </div>
                    	      )}
                    	    </div>
-                   	  ) : '-'}
+                   	  ) : (
+                   	    <span style={{ color: '#9ca3af', fontSize: '12px' }}>-</span>
+                   	  )}
                    	</td>
 
                    	<td style={{ padding: '8px' }}>
@@ -1390,16 +1431,32 @@ export default function Productos() {
             />
           )}
           
-          {mostrarExportModal && (
-            <ExportModal onClose={() => setMostrarExportModal(false)} />
-          )}
-
           {mostrarCalcularWebModal && (
-            <CalcularWebModal 
+            <CalcularWebModal
               onClose={() => setMostrarCalcularWebModal(false)}
               onSuccess={() => {
                 cargarProductos();
                 cargarStats();
+              }}
+              filtrosActivos={{
+                search: debouncedSearch,
+                con_stock: filtroStock === 'con_stock' ? true : filtroStock === 'sin_stock' ? false : null,
+                con_precio: filtroPrecio === 'con_precio' ? true : filtroPrecio === 'sin_precio' ? false : null,
+                marcas: marcasSeleccionadas,
+                subcategorias: subcategoriasSeleccionadas
+              }}
+            />
+          )}
+          
+          {mostrarExportModal && (
+            <ExportModal 
+              onClose={() => setMostrarExportModal(false)}
+              filtrosActivos={{
+                search: debouncedSearch,
+                con_stock: filtroStock === 'con_stock' ? true : filtroStock === 'sin_stock' ? false : null,
+                con_precio: filtroPrecio === 'con_precio' ? true : filtroPrecio === 'sin_precio' ? false : null,
+                marcas: marcasSeleccionadas,
+                subcategorias: subcategoriasSeleccionadas
               }}
             />
           )}

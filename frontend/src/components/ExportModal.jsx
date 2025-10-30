@@ -1,9 +1,18 @@
 import { useState } from 'react';
 import axios from 'axios';
 
-export default function ExportModal({ onClose }) {
+export default function ExportModal({ onClose, filtrosActivos }) {  // ← AGREGAR filtrosActivos
   const [tab, setTab] = useState('rebate');
   const [exportando, setExportando] = useState(false);
+  const [aplicarFiltros, setAplicarFiltros] = useState(false);
+  const [porcentajeClasica, setPorcentajeClasica] = useState(0);
+  
+  const hayFiltros =
+    !!filtrosActivos?.search ||
+    filtrosActivos?.con_stock !== null ||
+    filtrosActivos?.con_precio !== null ||
+    (filtrosActivos?.marcas?.length > 0) ||
+    (filtrosActivos?.subcategorias?.length > 0);
   
   // Estados para rebate
   const [fechaDesde, setFechaDesde] = useState(() => {
@@ -28,12 +37,25 @@ export default function ExportModal({ onClose }) {
     setExportando(true);
     try {
       const token = localStorage.getItem('token');
+      const body = {
+        fecha_desde: convertirFechaParaAPI(fechaDesde),
+        fecha_hasta: convertirFechaParaAPI(fechaHasta)
+      };
+
+      // Agregar filtros si están activos
+      if (aplicarFiltros) {
+        body.filtros = {
+          search: filtrosActivos.search || null,
+          con_stock: filtrosActivos.con_stock,
+          con_precio: filtrosActivos.con_precio,
+          marcas: filtrosActivos.marcas?.length > 0 ? filtrosActivos.marcas.join(',') : null,
+          subcategorias: filtrosActivos.subcategorias?.length > 0 ? filtrosActivos.subcategorias.join(',') : null
+        };
+      }
+
       const response = await axios.post(
         'https://pricing.gaussonline.com.ar/api/productos/exportar-rebate',
-        {
-          fecha_desde: convertirFechaParaAPI(fechaDesde),
-          fecha_hasta: convertirFechaParaAPI(fechaHasta)
-        },
+        body,
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'
@@ -59,12 +81,67 @@ export default function ExportModal({ onClose }) {
     }
   };
 
+  const exportarClasica = async () => {
+    setExportando(true);
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Construir parámetros
+      let params = `porcentaje_adicional=${porcentajeClasica}`;
+      
+      if (aplicarFiltros) {
+        if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
+        if (filtrosActivos.con_stock !== null) params += `&con_stock=${filtrosActivos.con_stock}`;
+        if (filtrosActivos.con_precio !== null) params += `&con_precio=${filtrosActivos.con_precio}`;
+        if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
+        if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
+      }
+      
+      const response = await axios.get(
+        `https://pricing.gaussonline.com.ar/api/exportar-clasica?${params}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'blob'
+        }
+      );
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      const ahora = new Date();
+      const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const nombreArchivo = `clasica_${timestamp}.xlsx`;
+      link.setAttribute('download', nombreArchivo);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      alert('Exportación completada');
+      onClose();
+    } catch (error) {
+      console.error('Error exportando:', error);
+      alert('Error al exportar Clásica');
+    } finally {
+      setExportando(false);
+    }
+  };
+
   const exportarWebTransf = async () => {
     setExportando(true);
     try {
       const token = localStorage.getItem('token');
+      
+      // Construir parámetros
+      let params = `porcentaje_adicional=${porcentajeWebTransf}`;
+      
+      if (aplicarFiltros) {
+        if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
+        if (filtrosActivos.con_stock !== null) params += `&con_stock=${filtrosActivos.con_stock}`;
+        if (filtrosActivos.con_precio !== null) params += `&con_precio=${filtrosActivos.con_precio}`;
+        if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
+        if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
+      }
+      
       const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/exportar-web-transferencia?porcentaje_adicional=${porcentajeWebTransf}`,
+        `https://pricing.gaussonline.com.ar/api/exportar-web-transferencia?${params}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'
@@ -175,12 +252,66 @@ export default function ExportModal({ onClose }) {
           >
             Web Transferencia
           </button>
+          <button
+            onClick={() => setTab('clasica')}
+            style={{
+              flex: 1,
+              padding: '12px 20px',
+              background: 'none',
+              border: 'none',
+              borderBottom: tab === 'clasica' ? '3px solid #10b981' : '3px solid transparent',
+              color: tab === 'clasica' ? '#10b981' : '#6b7280',
+              fontWeight: tab === 'clasica' ? '600' : '400',
+              cursor: 'pointer',
+              fontSize: '14px',
+              transition: 'all 0.2s'
+            }}
+          >
+            Clásica
+          </button>
         </div>
 
         {/* Contenido */}
         <div style={{ padding: '24px' }}>
           {tab === 'rebate' ? (
             <div>
+              {/* Selector de ámbito para Rebate */}
+              {hayFiltros && (
+                <div style={{
+                  marginBottom: '16px',
+                  padding: '12px',
+                  background: '#f0fdf4',
+                  border: '1px solid #86efac',
+                  borderRadius: '8px'
+                }}>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    fontWeight: '500'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={aplicarFiltros}
+                      onChange={(e) => setAplicarFiltros(e.target.checked)}
+                      style={{ marginRight: '8px' }}
+                    />
+                    Exportar solo productos filtrados
+                  </label>
+                  {aplicarFiltros && (
+                    <div style={{ marginTop: '8px', fontSize: '13px', color: '#059669' }}>
+                      {filtrosActivos?.search && <div>• Búsqueda: "{filtrosActivos.search}"</div>}
+                      {filtrosActivos?.con_stock === true && <div>• Con stock</div>}
+                      {filtrosActivos?.con_stock === false && <div>• Sin stock</div>}
+                      {filtrosActivos?.con_precio === true && <div>• Con precio</div>}
+                      {filtrosActivos?.con_precio === false && <div>• Sin precio</div>}
+                      {filtrosActivos?.marcas?.length > 0 && <div>• {filtrosActivos.marcas.length} marca(s)</div>}
+                      {filtrosActivos?.subcategorias?.length > 0 && <div>• {filtrosActivos.subcategorias.length} subcategoría(s)</div>}
+                    </div>
+                  )}
+                </div>
+              )}
+              
               <div style={{ display: 'grid', gap: '16px', marginBottom: '20px' }}>
                 <div>
                   <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
@@ -221,6 +352,7 @@ export default function ExportModal({ onClose }) {
                   />
                 </div>
               </div>
+              
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                 <button
                   onClick={onClose}
@@ -252,8 +384,45 @@ export default function ExportModal({ onClose }) {
                 </button>
               </div>
             </div>
-          ) : (
+          ) : tab === 'web_transf' ? (
             <div>
+              {/* Selector de ámbito para Web Transf */}
+              {hayFiltros && (
+                <div style={{
+                  marginBottom: '16px',
+                  padding: '12px',
+                  background: '#f0fdf4',
+                  border: '1px solid #86efac',
+                  borderRadius: '8px'
+                }}>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    fontWeight: '500'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={aplicarFiltros}
+                      onChange={(e) => setAplicarFiltros(e.target.checked)}
+                      style={{ marginRight: '8px' }}
+                    />
+                    Exportar solo productos filtrados
+                  </label>
+                  {aplicarFiltros && (
+                    <div style={{ marginTop: '8px', fontSize: '13px', color: '#059669' }}>
+                      {filtrosActivos?.search && <div>• Búsqueda: "{filtrosActivos.search}"</div>}
+                      {filtrosActivos?.con_stock === true && <div>• Con stock</div>}
+                      {filtrosActivos?.con_stock === false && <div>• Sin stock</div>}
+                      {filtrosActivos?.con_precio === true && <div>• Con precio</div>}
+                      {filtrosActivos?.con_precio === false && <div>• Sin precio</div>}
+                      {filtrosActivos?.marcas?.length > 0 && <div>• {filtrosActivos.marcas.length} marca(s)</div>}
+                      {filtrosActivos?.subcategorias?.length > 0 && <div>• {filtrosActivos.subcategorias.length} subcategoría(s)</div>}
+                    </div>
+                  )}
+                </div>
+              )}
+              
               <p style={{ color: '#6b7280', marginBottom: '16px', fontSize: '14px' }}>
                 Exporta los precios de Web Transferencia activos en formato Excel.
                 <br />
@@ -313,10 +482,107 @@ export default function ExportModal({ onClose }) {
                   {exportando ? '⏳ Exportando...' : '📥 Exportar Excel'}
                 </button>
               </div>
+                     </div>
+        ) : tab === 'clasica' ? (
+          <div>
+            {/* Selector de ámbito para Clásica */}
+            {hayFiltros && (
+              <div style={{
+                marginBottom: '16px',
+                padding: '12px',
+                background: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: '8px'
+              }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                  fontWeight: '500'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={aplicarFiltros}
+                    onChange={(e) => setAplicarFiltros(e.target.checked)}
+                    style={{ marginRight: '8px' }}
+                  />
+                  Exportar solo productos filtrados
+                </label>
+                {aplicarFiltros && (
+                  <div style={{ marginTop: '8px', fontSize: '13px', color: '#059669' }}>
+                    {filtrosActivos?.search && <div>• Búsqueda: "{filtrosActivos.search}"</div>}
+                    {filtrosActivos?.con_stock === true && <div>• Con stock</div>}
+                    {filtrosActivos?.con_stock === false && <div>• Sin stock</div>}
+                    {filtrosActivos?.con_precio === true && <div>• Con precio</div>}
+                    {filtrosActivos?.con_precio === false && <div>• Sin precio</div>}
+                    {filtrosActivos?.marcas?.length > 0 && <div>• {filtrosActivos.marcas.length} marca(s)</div>}
+                    {filtrosActivos?.subcategorias?.length > 0 && <div>• {filtrosActivos.subcategorias.length} subcategoría(s)</div>}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            <p style={{ color: '#6b7280', marginBottom: '16px', fontSize: '14px' }}>
+              Exporta precios de Clásica. Si el producto tiene rebate activo, aplica el % sobre el precio rebate. Si no, exporta el precio clásica original.
+            </p>
+            
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
+                Porcentaje adicional sobre rebate (%):
+              </label>
+              <input
+                type="number"
+                placeholder="Ej: 20"
+                value={porcentajeClasica}
+                onChange={(e) => setPorcentajeClasica(parseFloat(e.target.value) || 0)}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '6px',
+                  border: '1px solid #d1d5db',
+                  fontSize: '14px',
+                  boxSizing: 'border-box'
+                }}
+              />
+              <small style={{ color: '#6b7280', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+                Solo aplica a productos con rebate activo
+              </small>
             </div>
-          )}
-        </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={onClose}
+                disabled={exportando}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: '6px',
+                  border: '1px solid #d1d5db',
+                  background: 'white',
+                  cursor: exportando ? 'not-allowed' : 'pointer'
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={exportarClasica}
+                disabled={exportando}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: exportando ? '#9ca3af' : '#10b981',
+                  color: 'white',
+                  cursor: exportando ? 'not-allowed' : 'pointer',
+                  fontWeight: '600'
+                }}
+              >
+                {exportando ? '⏳ Exportando...' : '📥 Exportar Excel'}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
-  );
+  </div>
+);
 }

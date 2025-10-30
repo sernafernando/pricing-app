@@ -39,6 +39,13 @@ class ProductoResponse(BaseModel):
     porcentaje_markup_web: Optional[float] = 6.0
     precio_web_transferencia: Optional[float] = None
     markup_web_real: Optional[float] = None
+    mejor_oferta_precio: Optional[float] = None
+    mejor_oferta_monto_rebate: Optional[float] = None
+    mejor_oferta_pvp_seller: Optional[float] = None
+    mejor_oferta_markup: Optional[float] = None
+    mejor_oferta_porcentaje_rebate: Optional[float] = None
+    mejor_oferta_fecha_hasta: Optional[date] = None
+    out_of_cards: Optional[bool] = False
 
     class Config:
         from_attributes = True
@@ -143,9 +150,90 @@ async def listar_productos(
     offset = (page - 1) * page_size
     results = query.offset(offset).limit(page_size).all()
 
+    from app.models.oferta_ml import OfertaML
+    from app.models.publicacion_ml import PublicacionML
+    from app.services.pricing_calculator import (
+        obtener_tipo_cambio_actual,
+        convertir_a_pesos,
+        obtener_grupo_subcategoria,
+        obtener_comision_base,
+        calcular_comision_ml_total,
+        calcular_limpio,
+        calcular_markup,
+        VARIOS_DEFAULT
+    )
+    from datetime import date
+    
+    hoy = date.today()
+    
     productos = []
     for producto_erp, producto_pricing in results:
         costo_ars = producto_erp.costo if producto_erp.moneda_costo == "ARS" else None
+        # Buscar mejor oferta vigente
+        mejor_oferta_precio = None
+        mejor_oferta_monto = None
+        mejor_oferta_pvp = None
+        mejor_oferta_markup = None
+        mejor_oferta_porcentaje = None
+        mejor_oferta_fecha_hasta = None
+        
+        # Buscar publicación del producto
+        pubs = db.query(PublicacionML).filter(PublicacionML.item_id == producto_erp.item_id).all()
+                                
+        mejor_oferta = None
+        mejor_pub = None
+        
+        for pub in pubs:
+            # Buscar oferta vigente para esta publicación
+            oferta = db.query(OfertaML).filter(
+                OfertaML.mla == pub.mla,
+                OfertaML.fecha_desde <= hoy,
+                OfertaML.fecha_hasta >= hoy,
+                OfertaML.pvp_seller.isnot(None)
+            ).order_by(OfertaML.fecha_desde.desc()).first()
+            
+            if oferta:
+                # Tomar la primera que encuentre (o implementar lógica para elegir la mejor)
+                if not mejor_oferta:
+                    mejor_oferta = oferta
+                    mejor_pub = pub
+        
+        
+        if mejor_oferta and mejor_pub:
+            mejor_oferta_precio = float(mejor_oferta.precio_final) if mejor_oferta.precio_final else None
+            mejor_oferta_pvp = float(mejor_oferta.pvp_seller) if mejor_oferta.pvp_seller else None
+            mejor_oferta_porcentaje = float(mejor_oferta.aporte_meli_porcentaje) if mejor_oferta.aporte_meli_porcentaje else None  # ← AGREGAR
+            mejor_oferta_fecha_hasta = mejor_oferta.fecha_hasta
+            
+            # Calcular monto rebate
+            if mejor_oferta_precio and mejor_oferta_pvp:
+                mejor_oferta_monto = mejor_oferta_pvp - mejor_oferta_precio
+            
+            # Calcular markup de la oferta
+            if mejor_oferta_pvp and mejor_oferta_pvp > 0:
+                tipo_cambio = None
+                if producto_erp.moneda_costo == "USD":
+                    tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+                
+                costo_calc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
+                grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+                comision_base = obtener_comision_base(db, mejor_pub.pricelist_id, grupo_id)
+                
+                if comision_base:
+                    comisiones = calcular_comision_ml_total(
+                        mejor_oferta_pvp,
+                        comision_base,
+                        producto_erp.iva,
+                        VARIOS_DEFAULT
+                    )
+                    limpio = calcular_limpio(
+                        mejor_oferta_pvp,
+                        producto_erp.iva,
+                        producto_erp.envio or 0,
+                        comisiones["comision_total"]
+                    )
+                    mejor_oferta_markup = calcular_markup(limpio, costo_calc)
+                            
         productos.append(ProductoResponse(
             item_id=producto_erp.item_id,
             codigo=producto_erp.codigo,
@@ -171,6 +259,13 @@ async def listar_productos(
             porcentaje_markup_web=float(producto_pricing.porcentaje_markup_web) if producto_pricing and producto_pricing.porcentaje_markup_web else 6.0,
             precio_web_transferencia=float(producto_pricing.precio_web_transferencia) if producto_pricing and producto_pricing.precio_web_transferencia else None,
             markup_web_real=float(producto_pricing.markup_web_real) if producto_pricing and producto_pricing.markup_web_real else None,
+            mejor_oferta_precio=mejor_oferta_precio,
+            mejor_oferta_monto_rebate=mejor_oferta_monto,
+            mejor_oferta_pvp_seller=mejor_oferta_pvp,
+            mejor_oferta_markup=mejor_oferta_markup,
+            mejor_oferta_porcentaje_rebate=mejor_oferta_porcentaje,
+            mejor_oferta_fecha_hasta=mejor_oferta_fecha_hasta,
+            out_of_cards=producto_pricing.out_of_cards if producto_pricing else False,
         ))
 
     return ProductoListResponse(total=total, page=page, page_size=page_size, productos=productos)
@@ -503,7 +598,8 @@ async def exportar_rebate(
     productos = db.query(ProductoERP, ProductoPricing).join(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     ).filter(
-        ProductoPricing.participa_rebate == True
+        ProductoPricing.participa_rebate == True,
+        ProductoPricing.out_of_cards != True
     ).all()
     
     # Crear Excel
@@ -558,7 +654,7 @@ async def exportar_rebate(
             ws.cell(row=row, column=4, value=fecha_hasta)
             ws.cell(row=row, column=5, value="DXI")
             ws.cell(row=row, column=6, value="")  # Categoría vacía
-            ws.cell(row=row, column=7, value=producto_erp.descripcion or "")
+            ws.cell(row=row, column=7, value=mla.item_title or producto_erp.descripcion or "")
             ws.cell(row=row, column=8, value="Clásica")
             ws.cell(row=row, column=9, value=producto_erp.stock)
             ws.cell(row=row, column=10, value="FALSE")
@@ -656,12 +752,13 @@ async def actualizar_web_transferencia(
     }
     
 class CalculoWebMasivoRequest(BaseModel):
-    porcentaje_con_precio: float
-    porcentaje_sin_precio: float
-
+        porcentaje_con_precio: float
+        porcentaje_sin_precio: float
+        filtros: dict = None  # ← AGREGAR
+    
 @router.post("/productos/calcular-web-masivo")
 async def calcular_web_masivo(
-    request: CalculoWebMasivoRequest,  # ← CAMBIAR
+    request: CalculoWebMasivoRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -671,40 +768,65 @@ async def calcular_web_masivo(
         obtener_tipo_cambio_actual,
         convertir_a_pesos
     )
-    
-    # Obtener todos los productos
-    productos = db.query(ProductoERP, ProductoPricing).outerjoin(
+
+    # Obtener productos base
+    query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
-    ).all()
+    )
     
+    # Aplicar filtros si existen
+    if request.filtros:
+        if request.filtros.get('search'):
+            search_term = f"%{request.filtros['search']}%"
+            query = query.filter(
+                (ProductoERP.descripcion.ilike(search_term)) |
+                (ProductoERP.codigo.ilike(search_term))
+            )
+        
+        if request.filtros.get('con_stock'):
+            query = query.filter(ProductoERP.stock > 0)
+        
+        if request.filtros.get('con_precio'):
+            query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+        
+        if request.filtros.get('marcas'):
+            marcas_list = request.filtros['marcas'].split(',')
+            query = query.filter(ProductoERP.marca.in_(marcas_list))
+        
+        if request.filtros.get('subcategorias'):
+            subcats_list = [int(s) for s in request.filtros['subcategorias'].split(',')]
+            query = query.filter(ProductoERP.subcategoria_id.in_(subcats_list))
+    
+    productos = query.all()
+
     procesados = 0
-    
+
     for producto_erp, producto_pricing in productos:
         # Determinar markup a usar
         if producto_pricing and producto_pricing.precio_lista_ml:
             # Tiene precio: sumar porcentaje
             markup_base = (producto_pricing.markup_calculado or 0) / 100
-            porcentaje_adicional = request.porcentaje_con_precio  # ← CAMBIAR
+            porcentaje_adicional = request.porcentaje_con_precio
         else:
             # No tiene precio: usar porcentaje base
             markup_base = 0
-            porcentaje_adicional = request.porcentaje_sin_precio  # ← CAMBIAR
-        
+            porcentaje_adicional = request.porcentaje_sin_precio
+
         markup_objetivo = markup_base + (porcentaje_adicional / 100)
-        
+
         # Calcular precio
         tipo_cambio = None
         if producto_erp.moneda_costo == "USD":
             tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
-        
+
         costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
-        
+
         resultado = calcular_precio_web_transferencia(
             costo_ars=costo_ars,
             iva=producto_erp.iva,
             markup_objetivo=markup_objetivo
         )
-        
+
         # Crear o actualizar pricing
         if not producto_pricing:
             producto_pricing = ProductoPricing(
@@ -712,21 +834,21 @@ async def calcular_web_masivo(
                 usuario_id=current_user.id
             )
             db.add(producto_pricing)
-        
+
         producto_pricing.participa_web_transferencia = True
         producto_pricing.porcentaje_markup_web = porcentaje_adicional
         producto_pricing.precio_web_transferencia = resultado["precio"]
         producto_pricing.markup_web_real = resultado["markup_real"]
         producto_pricing.fecha_modificacion = datetime.now()
-        
+
         procesados += 1
-    
+
     db.commit()
-    
+
     return {
         "procesados": procesados,
-        "porcentaje_con_precio": request.porcentaje_con_precio,  # ← CAMBIAR
-        "porcentaje_sin_precio": request.porcentaje_sin_precio  # ← CAMBIAR
+        "porcentaje_con_precio": request.porcentaje_con_precio,
+        "porcentaje_sin_precio": request.porcentaje_sin_precio
     }
 
 
@@ -808,12 +930,18 @@ async def sincronizar_subcategorias_endpoint():
 @router.get("/exportar-web-transferencia")
 async def exportar_web_transferencia(
     porcentaje_adicional: float = Query(0, description="Porcentaje adicional a sumar"),
+    search: Optional[str] = None,
+    con_stock: Optional[bool] = None,
+    con_precio: Optional[bool] = None,
+    marcas: Optional[str] = None,
+    subcategorias: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Exporta precios de Web Transferencia en formato Excel con porcentaje adicional opcional"""
+    """Exporta precios de Web Transferencia en formato Excel con filtros opcionales"""
     from io import BytesIO
     from openpyxl import Workbook
     
+    # Obtener productos con precio web transferencia
     query = db.query(
         ProductoERP.codigo,
         ProductoPricing.precio_web_transferencia
@@ -825,21 +953,45 @@ async def exportar_web_transferencia(
         ProductoPricing.precio_web_transferencia.isnot(None)
     )
     
+    # Aplicar filtros
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            (ProductoERP.descripcion.ilike(search_term)) |
+            (ProductoERP.codigo.ilike(search_term))
+        )
+    
+    if con_stock:
+        query = query.filter(ProductoERP.stock > 0)
+    
+    if con_precio:
+        query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+    
+    if marcas:
+        marcas_list = marcas.split(',')
+        query = query.filter(ProductoERP.marca.in_(marcas_list))
+    
+    if subcategorias:
+        subcats_list = [int(s) for s in subcategorias.split(',')]
+        query = query.filter(ProductoERP.subcategoria_id.in_(subcats_list))
+    
     productos = query.all()
     
+    # Crear Excel
     wb = Workbook()
     ws = wb.active
     ws.title = "Web Transferencia"
     
+    # Header
     ws.append(['Código/EAN', 'Precio', 'ID Moneda'])
     
+    # Datos - todo como texto
     for codigo, precio_base in productos:
-        # Convertir ambos a Decimal antes de operar
-        precio_base = Decimal(precio_base)
-        porcentaje = Decimal(str(porcentaje_adicional))
-        precio_final = precio_base * (Decimal('1') + (porcentaje / Decimal('100')))
+        # Aplicar porcentaje adicional
+        precio_final = float(precio_base) * (1 + porcentaje_adicional / 100)
         
-        precio_final = round(precio_final / Decimal('10')) * 10
+        # Redondear a múltiplo de 10
+        precio_final = round(precio_final / 10) * 10
         
         ws.append([
             str(codigo),
@@ -847,6 +999,7 @@ async def exportar_web_transferencia(
             '1'
         ])
     
+    # Guardar en memoria
     output = BytesIO()
     wb.save(output)
     output.seek(0)
@@ -858,3 +1011,111 @@ async def exportar_web_transferencia(
             "Content-Disposition": "attachment; filename=web_transferencia.xlsx"
         }
     )
+
+@router.get("/exportar-clasica")
+async def exportar_clasica(
+    porcentaje_adicional: float = Query(0, description="Porcentaje adicional sobre rebate"),
+    search: Optional[str] = None,
+    con_stock: Optional[bool] = None,
+    con_precio: Optional[bool] = None,
+    marcas: Optional[str] = None,
+    subcategorias: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Exporta precios de Clásica. Si tiene rebate activo, aplica % sobre precio rebate."""
+    from io import BytesIO
+    from openpyxl import Workbook
+    
+    # Obtener productos con precio clásica
+    query = db.query(
+        ProductoERP.codigo,
+        ProductoPricing.precio_lista_ml,
+        ProductoPricing.participa_rebate,
+        ProductoPricing.porcentaje_rebate
+    ).join(
+        ProductoPricing,
+        ProductoERP.item_id == ProductoPricing.item_id
+    ).filter(
+        ProductoPricing.precio_lista_ml.isnot(None)
+    )
+    
+    # Aplicar filtros
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            (ProductoERP.descripcion.ilike(search_term)) |
+            (ProductoERP.codigo.ilike(search_term))
+        )
+    
+    if con_stock:
+        query = query.filter(ProductoERP.stock > 0)
+    
+    if con_precio:
+        query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+    
+    if marcas:
+        marcas_list = marcas.split(',')
+        query = query.filter(ProductoERP.marca.in_(marcas_list))
+    
+    if subcategorias:
+        subcats_list = [int(s) for s in subcategorias.split(',')]
+        query = query.filter(ProductoERP.subcategoria_id.in_(subcats_list))
+    
+    productos = query.all()
+    
+    # Crear Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Clasica"
+    
+    # Header
+    ws.append(['Código/EAN', 'Precio', 'ID Moneda'])
+    
+    # Datos
+    for codigo, precio_clasica, participa_rebate, porcentaje_rebate in productos:
+        # Si tiene rebate activo, calcular precio rebate y aplicar % adicional
+        if participa_rebate and porcentaje_rebate:
+            precio_rebate = precio_clasica * (1 + float(porcentaje_rebate) / 100)
+            precio_final = precio_rebate * (1 + porcentaje_adicional / 100)
+            # Redondear a múltiplo de 10
+            precio_final = round(precio_final / 10) * 10
+        else:
+            # Si no tiene rebate, usar precio clásica sin modificar
+            precio_final = round(precio_clasica / 10) * 10
+        
+        ws.append([
+            str(codigo),
+            str(int(precio_final)),
+            '1'
+        ])
+    
+    # Guardar en memoria
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": "attachment; filename=clasica.xlsx"
+        }
+    )
+
+@router.patch("/productos/{item_id}/out-of-cards")
+async def actualizar_out_of_cards(
+    item_id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Actualiza el estado de out_of_cards de un producto"""
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+    
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    
+    pricing.out_of_cards = data.get("out_of_cards", False)
+    db.commit()
+    
+    return {"status": "success", "out_of_cards": pricing.out_of_cards}
