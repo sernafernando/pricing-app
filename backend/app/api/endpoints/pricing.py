@@ -416,6 +416,7 @@ async def setear_precio_rapido(
     
     if pricing:
         if pricing.precio_lista_ml != precio:
+                # Registro en tabla vieja
                 auditoria = AuditoriaPrecio(
                     producto_id=pricing.id,
                     usuario_id=current_user.id,
@@ -426,6 +427,23 @@ async def setear_precio_rapido(
                     comentario="Edición rápida"
                 )
                 db.add(auditoria)
+                
+                # Registro en tabla nueva para filtros
+                from app.services.auditoria_service import registrar_auditoria
+                from app.models.auditoria import TipoAccion
+                
+                registrar_auditoria(
+                    db=db,
+                    usuario_id=current_user.id,
+                    tipo_accion=TipoAccion.MODIFICAR_PRECIO_CLASICA,
+                    item_id=item_id,
+                    valores_anteriores={
+                        "precio_lista_ml": float(pricing.precio_lista_ml) if pricing.precio_lista_ml else None
+                    },
+                    valores_nuevos={
+                        "precio_lista_ml": float(precio)
+                    }
+                )
                 
         historial = HistorialPrecio(
             producto_pricing_id=pricing.id,

@@ -53,7 +53,7 @@ async def fetch_stock_erp() -> Dict[int, int]:
 
 def calcular_hash(producto: Dict) -> str:
     """Calcula hash de los datos relevantes para detectar cambios"""
-    datos = f"{producto.get('coslis_price', 0)}{producto.get('Descripción', '')}{producto.get('Stock', 0)}"
+    datos = f"{producto.get('coslis_price', 0)}{producto.get('Descripción', '')}{producto.get('Stock', 0)}{producto.get('Envío', 0)}"
     return hashlib.sha256(datos.encode()).hexdigest()
 
 async def sincronizar_erp(db: Session) -> Dict:
@@ -78,18 +78,24 @@ async def sincronizar_erp(db: Session) -> Dict:
         print(f"Procesando {len(productos)} productos...")
 
         # Detectar duplicados en el ERP
-        items_vistos = set()
-        productos_unicos = []
+        items_dict = {}
 
         for producto_data in productos:
             item_id = convertir_a_entero(producto_data.get('Item_ID'))
-            if item_id in items_vistos:
+            envio_actual = convertir_a_numero(producto_data.get('Envío'), 0)
+            
+            if item_id in items_dict:
+                # Si ya existe, comparar envío
+                envio_guardado = convertir_a_numero(items_dict[item_id].get('Envío'), 0)
+                if envio_actual > envio_guardado:
+                    items_dict[item_id] = producto_data
                 stats["productos_duplicados"] += 1
-                continue
-            items_vistos.add(item_id)
-            productos_unicos.append(producto_data)
+            else:
+                items_dict[item_id] = producto_data
 
-        print(f"Productos únicos: {len(productos_unicos)}, duplicados ignorados: {stats['productos_duplicados']}")
+        productos_unicos = list(items_dict.values())
+
+        print(f"Productos únicos: {len(productos_unicos)}, duplicados resueltos por mayor envío: {stats['productos_duplicados']}")
 
         # Procesar en lotes de 100
         batch_size = 100
