@@ -145,6 +145,7 @@
   font-size: 13px;
   cursor: pointer;
   background: var(--bg-primary);
+  color: var(--text-primary);
   min-width: 120px;
   transition: all 0.2s;
 }
@@ -175,6 +176,8 @@
   min-width: 150px;
   font-size: 14px;
   cursor: pointer;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 /* Botones de filtro dropdown */
@@ -591,6 +594,8 @@
   border-radius: 6px;
   border: 1px solid var(--border-secondary);
   cursor: pointer;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 /* Contenedor de tabla */
@@ -1028,6 +1033,7 @@
   font-size: 13px;
   cursor: pointer;
   background: var(--bg-primary);
+  color: var(--text-primary);
   transition: all 0.2s;
 }
 
@@ -1039,6 +1045,15 @@
   outline: none;
   border-color: var(--brand-primary);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Opciones de select */
+.filter-select-modern option,
+.filter-select option,
+.filter-select-compact option,
+.page-size-selector select option {
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 /* Utilidades */
