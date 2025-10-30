@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Enum
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
-from app.db.base_class import Base
+from app.core.database import Base
 
 class TipoAccion(str, enum.Enum):
     MODIFICAR_PRECIO_CLASICA = "modificar_precio_clasica"

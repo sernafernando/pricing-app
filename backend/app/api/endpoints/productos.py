@@ -77,11 +77,61 @@ async def listar_productos(
     con_precio: Optional[bool] = None,
     orden_campos: Optional[str] = None,
     orden_direcciones: Optional[str] = None,
+    audit_usuarios: Optional[str] = None,
+    audit_tipos_accion: Optional[str] = None,
+    audit_fecha_desde: Optional[str] = None,
+    audit_fecha_hasta: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
+
+    # FILTRADO POR AUDITORÍA
+    if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
+        from app.models.auditoria import Auditoria
+        from datetime import datetime
+        
+        audit_query = db.query(Auditoria.item_id).filter(Auditoria.item_id.isnot(None))
+        
+        if audit_usuarios:
+            usuarios_ids = [int(u) for u in audit_usuarios.split(',')]
+            audit_query = audit_query.filter(Auditoria.usuario_id.in_(usuarios_ids))
+        
+        if audit_tipos_accion:
+            tipos_list = audit_tipos_accion.split(',')
+            audit_query = audit_query.filter(Auditoria.tipo_accion.in_(tipos_list))
+        
+        if audit_fecha_desde:
+            try:
+                fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                try:
+                    fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d')
+                except ValueError:
+                    # Si falla todo, usar fecha de hoy
+                    from datetime import date
+                    fecha_desde_dt = datetime.combine(date.today(), datetime.min.time())
+            audit_query = audit_query.filter(Auditoria.fecha >= fecha_desde_dt)
+        
+        if audit_fecha_hasta:
+            try:
+                fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                try:
+                    fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d')
+                    fecha_hasta_dt = fecha_hasta_dt.replace(hour=23, minute=59, second=59)
+                except ValueError:
+                    from datetime import date
+                    fecha_hasta_dt = datetime.combine(date.today(), datetime.max.time())
+            audit_query = audit_query.filter(Auditoria.fecha <= fecha_hasta_dt)
+        
+        item_ids = [item_id for (item_id,) in audit_query.distinct().all()]
+        
+        if item_ids:
+            query = query.filter(ProductoERP.item_id.in_(item_ids))
+        else:
+            return ProductoListResponse(total=0, page=page, page_size=page_size, productos=[])
 
     if search:
         search_normalized = search.replace('-', '').replace(' ', '').upper()
@@ -538,38 +588,65 @@ async def actualizar_precio(
 @router.patch("/productos/{item_id}/rebate")
 async def actualizar_rebate(
     item_id: int,
-    datos: RebateUpdate,  # ← CAMBIAR ESTO
+    datos: RebateUpdate,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """Actualiza configuración de rebate de un producto"""
-    
+    from app.services.auditoria_service import registrar_auditoria
+    from app.models.auditoria import TipoAccion
+
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
-    
+
+    # Guardar valores anteriores
+    valores_anteriores = {
+        "participa_rebate": pricing.participa_rebate if pricing else False,
+        "porcentaje_rebate": float(pricing.porcentaje_rebate) if pricing and pricing.porcentaje_rebate else None
+    }
+
     if not pricing:
-        # Si no existe pricing, crear uno
         pricing = ProductoPricing(
             item_id=item_id,
-            participa_rebate=datos.participa_rebate,  # ← CAMBIAR
-            porcentaje_rebate=datos.porcentaje_rebate,  # ← CAMBIAR
+            participa_rebate=datos.participa_rebate,
+            porcentaje_rebate=datos.porcentaje_rebate,
             usuario_id=current_user.id
         )
         db.add(pricing)
     else:
-        pricing.participa_rebate = datos.participa_rebate  # ← CAMBIAR
-        pricing.porcentaje_rebate = datos.porcentaje_rebate  # ← CAMBIAR
+        pricing.participa_rebate = datos.participa_rebate
+        pricing.porcentaje_rebate = datos.porcentaje_rebate
         pricing.fecha_modificacion = datetime.now()
-    
+
     db.commit()
     db.refresh(pricing)
-    
+
+    # Determinar tipo de acción
+    if datos.participa_rebate and not valores_anteriores["participa_rebate"]:
+        tipo_accion = TipoAccion.ACTIVAR_REBATE
+    elif not datos.participa_rebate and valores_anteriores["participa_rebate"]:
+        tipo_accion = TipoAccion.DESACTIVAR_REBATE
+    else:
+        tipo_accion = TipoAccion.MODIFICAR_PORCENTAJE_REBATE
+
+    # Registrar auditoría
+    registrar_auditoria(
+        db=db,
+        usuario_id=current_user.id,
+        tipo_accion=tipo_accion,
+        item_id=item_id,
+        valores_anteriores=valores_anteriores,
+        valores_nuevos={
+            "participa_rebate": datos.participa_rebate,
+            "porcentaje_rebate": datos.porcentaje_rebate
+        }
+    )
+
     return {
         "item_id": item_id,
-        "participa_rebate": datos.participa_rebate,  # ← CAMBIAR
-        "porcentaje_rebate": datos.porcentaje_rebate  # ← CAMBIAR
-
+        "participa_rebate": datos.participa_rebate,
+        "porcentaje_rebate": datos.porcentaje_rebate
     }
-    
+        
 @router.post("/productos/exportar-rebate")
 async def exportar_rebate(
     fecha_desde: str = None,
@@ -688,13 +765,21 @@ async def actualizar_web_transferencia(
         obtener_tipo_cambio_actual,
         convertir_a_pesos
     )
+    from app.services.auditoria_service import registrar_auditoria
+    from app.models.auditoria import TipoAccion
 
-    # Obtener producto
     producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto_erp:
         raise HTTPException(404, "Producto no encontrado")
 
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+
+    # Guardar valores anteriores
+    valores_anteriores = {
+        "participa_web_transferencia": pricing.participa_web_transferencia if pricing else False,
+        "porcentaje_markup_web": float(pricing.porcentaje_markup_web) if pricing and pricing.porcentaje_markup_web else None,
+        "precio_web_transferencia": float(pricing.precio_web_transferencia) if pricing and pricing.precio_web_transferencia else None
+    }
 
     if not pricing:
         pricing = ProductoPricing(
@@ -709,23 +794,21 @@ async def actualizar_web_transferencia(
         pricing.porcentaje_markup_web = porcentaje_markup
         pricing.fecha_modificacion = datetime.now()
 
-    # Si participa, calcular precio
     precio_web = None
     markup_web_real = None
-    
+
     if participa:
         tipo_cambio = None
         if producto_erp.moneda_costo == "USD":
             tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
 
         costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
-        
-        # Si tiene precio ML, sumar sobre el markup calculado. Si no, partir de 0
+
         if pricing.markup_calculado is not None and pricing.precio_lista_ml is not None:
             markup_clasica = pricing.markup_calculado / 100
         else:
-            markup_clasica = 0  # ← AGREGAR: Si no tiene precio ML, markup inicial es 0
-        
+            markup_clasica = 0
+
         markup_objetivo = markup_clasica + (porcentaje_markup / 100)
 
         resultado = calcular_precio_web_transferencia(
@@ -737,11 +820,36 @@ async def actualizar_web_transferencia(
         precio_web = resultado["precio"]
         markup_web_real = resultado["markup_real"]
         pricing.precio_web_transferencia = precio_web
+        pricing.markup_web_real = markup_web_real
     else:
         pricing.precio_web_transferencia = None
+        pricing.markup_web_real = None
 
     db.commit()
     db.refresh(pricing)
+
+    # Determinar tipo de acción
+    if participa and not valores_anteriores["participa_web_transferencia"]:
+        tipo_accion = TipoAccion.ACTIVAR_WEB_TRANSFERENCIA
+    elif not participa and valores_anteriores["participa_web_transferencia"]:
+        tipo_accion = TipoAccion.DESACTIVAR_WEB_TRANSFERENCIA
+    else:
+        tipo_accion = TipoAccion.MODIFICAR_PRECIO_WEB
+
+    # Registrar auditoría
+    registrar_auditoria(
+        db=db,
+        usuario_id=current_user.id,
+        tipo_accion=tipo_accion,
+        item_id=item_id,
+        valores_anteriores=valores_anteriores,
+        valores_nuevos={
+            "participa_web_transferencia": participa,
+            "porcentaje_markup_web": porcentaje_markup,
+            "precio_web_transferencia": precio_web,
+            "markup_web_real": markup_web_real
+        }
+    )
 
     return {
         "item_id": item_id,
@@ -844,6 +952,25 @@ async def calcular_web_masivo(
         procesados += 1
 
     db.commit()
+    
+    # Registrar auditoría masiva
+    from app.services.auditoria_service import registrar_auditoria
+    from app.models.auditoria import TipoAccion
+    
+    registrar_auditoria(
+        db=db,
+        usuario_id=current_user.id,
+        tipo_accion=TipoAccion.MODIFICACION_MASIVA,
+        es_masivo=True,
+        productos_afectados=procesados,
+        valores_nuevos={
+            "accion": "calcular_web_masivo",
+            "porcentaje_con_precio": request.porcentaje_con_precio,
+            "porcentaje_sin_precio": request.porcentaje_sin_precio,
+            "filtros": request.filtros
+        },
+        comentario="Cálculo masivo de precios web transferencia"
+    )
 
     return {
         "procesados": procesados,
@@ -858,12 +985,29 @@ async def limpiar_rebate(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Desactiva rebate en todos los productos"""
-    count = db.query(ProductoPricing).update({
+    from app.services.auditoria_service import registrar_auditoria
+    from app.models.auditoria import TipoAccion
+    
+    count = db.query(ProductoPricing).filter(
+        ProductoPricing.participa_rebate == True
+    ).count()
+    
+    db.query(ProductoPricing).update({
         ProductoPricing.participa_rebate: False
-        # ← ELIMINAR la línea de precio_rebate
     })
     db.commit()
-    
+
+    # Registrar auditoría
+    registrar_auditoria(
+        db=db,
+        usuario_id=current_user.id,
+        tipo_accion=TipoAccion.MODIFICACION_MASIVA,
+        es_masivo=True,
+        productos_afectados=count,
+        valores_nuevos={"accion": "limpiar_rebate"},
+        comentario="Limpieza masiva de rebate"
+    )
+
     return {
         "mensaje": "Rebate desactivado en todos los productos",
         "productos_actualizados": count
@@ -875,18 +1019,35 @@ async def limpiar_web_transferencia(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Desactiva web transferencia en todos los productos"""
-    count = db.query(ProductoPricing).update({
+    from app.services.auditoria_service import registrar_auditoria
+    from app.models.auditoria import TipoAccion
+    
+    count = db.query(ProductoPricing).filter(
+        ProductoPricing.participa_web_transferencia == True
+    ).count()
+    
+    db.query(ProductoPricing).update({
         ProductoPricing.participa_web_transferencia: False,
         ProductoPricing.precio_web_transferencia: None,
         ProductoPricing.markup_web_real: None
     })
     db.commit()
-    
+
+    # Registrar auditoría
+    registrar_auditoria(
+        db=db,
+        usuario_id=current_user.id,
+        tipo_accion=TipoAccion.MODIFICACION_MASIVA,
+        es_masivo=True,
+        productos_afectados=count,
+        valores_nuevos={"accion": "limpiar_web_transferencia"},
+        comentario="Limpieza masiva de web transferencia"
+    )
+
     return {
         "mensaje": "Web transferencia desactivada en todos los productos",
         "productos_actualizados": count
     }
-
 
 @router.get("/subcategorias")
 async def listar_subcategorias(db: Session = Depends(get_db)):
@@ -1110,12 +1271,29 @@ async def actualizar_out_of_cards(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el estado de out_of_cards de un producto"""
+    from app.services.auditoria_service import registrar_auditoria
+    from app.models.auditoria import TipoAccion
+    
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
     
     if not pricing:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
     
-    pricing.out_of_cards = data.get("out_of_cards", False)
+    # Guardar valor anterior
+    valor_anterior = pricing.out_of_cards
+    valor_nuevo = data.get("out_of_cards", False)
+    
+    pricing.out_of_cards = valor_nuevo
     db.commit()
+    
+    # Registrar auditoría
+    registrar_auditoria(
+        db=db,
+        usuario_id=current_user.id,
+        tipo_accion=TipoAccion.MARCAR_OUT_OF_CARDS if valor_nuevo else TipoAccion.DESMARCAR_OUT_OF_CARDS,
+        item_id=item_id,
+        valores_anteriores={"out_of_cards": valor_anterior},
+        valores_nuevos={"out_of_cards": valor_nuevo}
+    )
     
     return {"status": "success", "out_of_cards": pricing.out_of_cards}

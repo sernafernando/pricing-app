@@ -8,6 +8,7 @@ import { useAuthStore } from '../store/authStore';
 import ExportModal from '../components/ExportModal';
 import xlsIcon from '../assets/xls.svg';
 import CalcularWebModal from '../components/CalcularWebModal';
+import './Productos.css';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -23,7 +24,7 @@ export default function Productos() {
   const [totalProductos, setTotalProductos] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [auditoriaVisible, setAuditoriaVisible] = useState(false);
-  const [auditoriaData, setAuditoriaData] = useState([]);	
+  const [auditoriaData, setAuditoriaData] = useState([]);
   const [editandoRebate, setEditandoRebate] = useState(null);
   const [rebateTemp, setRebateTemp] = useState({ participa: false, porcentaje: 3.8 });
   const [mostrarExportModal, setMostrarExportModal] = useState(false);
@@ -41,6 +42,15 @@ export default function Productos() {
   const [subcategoriasSeleccionadas, setSubcategoriasSeleccionadas] = useState([]);
   const [mostrarMenuSubcategorias, setMostrarMenuSubcategorias] = useState(false);
   const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
+  const [usuarios, setUsuarios] = useState([]);
+  const [tiposAccion, setTiposAccion] = useState([]);
+  const [filtrosAuditoria, setFiltrosAuditoria] = useState({
+    usuarios: [],
+    tipos_accion: [],
+    fecha_desde: '',
+    fecha_hasta: ''
+  });
+  const [mostrarFiltrosAuditoria, setMostrarFiltrosAuditoria] = useState(false);
 
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
@@ -48,14 +58,14 @@ export default function Productos() {
   const debouncedSearch = useDebounce(searchInput, 500);
 
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
-  
+
   useEffect(() => {
     cargarStats();
   }, []);
 
   useEffect(() => {
     cargarProductos();
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas]);
+  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria]);
 
   const cargarStats = async () => {
     try {
@@ -68,19 +78,18 @@ export default function Productos() {
 
   useEffect(() => {
     cargarMarcas();
-  }, []);
-
-  useEffect(() => {
     cargarSubcategorias();
+    cargarUsuariosAuditoria();
+    cargarTiposAccion();
   }, []);
 
   const handleOrdenar = (columna, event) => {
     const shiftPressed = event?.shiftKey;
-    
+
     if (!shiftPressed) {
       // Sin Shift: ordenamiento simple (como antes)
       const existente = ordenColumnas.find(o => o.columna === columna);
-      
+
       if (existente) {
         if (existente.direccion === 'asc') {
           setOrdenColumnas([{ columna, direccion: 'desc' }]);
@@ -93,12 +102,12 @@ export default function Productos() {
     } else {
       // Con Shift: ordenamiento múltiple
       const existente = ordenColumnas.find(o => o.columna === columna);
-      
+
       if (existente) {
         if (existente.direccion === 'asc') {
           // Cambiar a descendente
           setOrdenColumnas(
-            ordenColumnas.map(o => 
+            ordenColumnas.map(o =>
               o.columna === columna ? { ...o, direccion: 'desc' } : o
             )
           );
@@ -112,35 +121,35 @@ export default function Productos() {
       }
     }
   };
-  
+
   const getIconoOrden = (columna) => {
     const orden = ordenColumnas.find(o => o.columna === columna);
     if (!orden) return '↕';
     return orden.direccion === 'asc' ? '▲' : '▼';
   };
-  
+
   const getNumeroOrden = (columna) => {
     const index = ordenColumnas.findIndex(o => o.columna === columna);
     return index >= 0 ? index + 1 : null;
   };
-  
+
   const productosOrdenados = [...productos].sort((a, b) => {
     if (ordenColumnas.length === 0) return 0;
-    
+
     // Ordenar por cada columna en orden de prioridad
     for (const { columna, direccion } of ordenColumnas) {
       let valorA, valorB;
       let comparacion = 0;
-      
+
       switch(columna) {
         case 'codigo':
           valorA = a.codigo || '';
           valorB = b.codigo || '';
-          comparacion = direccion === 'asc' 
+          comparacion = direccion === 'asc'
             ? valorA.localeCompare(valorB, 'es', { numeric: true })
             : valorB.localeCompare(valorA, 'es', { numeric: true });
           break;
-        
+
         case 'descripcion':
           valorA = a.descripcion || '';
           valorB = b.descripcion || '';
@@ -148,7 +157,7 @@ export default function Productos() {
             ? valorA.localeCompare(valorB)
             : valorB.localeCompare(valorA);
           break;
-        
+
         case 'marca':
           valorA = a.marca || '';
           valorB = b.marca || '';
@@ -156,56 +165,56 @@ export default function Productos() {
             ? valorA.localeCompare(valorB)
             : valorB.localeCompare(valorA);
           break;
-        
+
         case 'stock':
           valorA = a.stock ?? -Infinity;
           valorB = b.stock ?? -Infinity;
           comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
           break;
-        
+
         case 'costo':
           valorA = a.costo ?? -Infinity;
           valorB = b.costo ?? -Infinity;
           comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
           break;
-        
+
         case 'precio_clasica':
           valorA = a.precio_lista_ml ?? -Infinity;
           valorB = b.precio_lista_ml ?? -Infinity;
           comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
           break;
-        
+
         case 'precio_rebate':
           valorA = a.precio_rebate ?? -Infinity;
           valorB = b.precio_rebate ?? -Infinity;
           comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
           break;
-        
+
         case 'mejor_oferta':
           valorA = a.mejor_oferta_precio ?? -Infinity;
           valorB = b.mejor_oferta_precio ?? -Infinity;
           comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
           break;
-        
+
         case 'web_transf':
           valorA = a.precio_web_transferencia ?? -Infinity;
           valorB = b.precio_web_transferencia ?? -Infinity;
           comparacion = direccion === 'asc' ? valorA - valorB : valorB - valorA;
           break;
       }
-      
+
       // Si hay diferencia en esta columna, retornar
       if (comparacion !== 0) return comparacion;
     }
-    
+
     return 0;
   });
-  
 
-  const marcasFiltradas = marcas.filter(m => 
+
+  const marcasFiltradas = marcas.filter(m =>
     m.toLowerCase().includes(busquedaMarca.toLowerCase())
   );
-  
+
   const cargarMarcas = async () => {
     try {
       const response = await productosAPI.marcas();
@@ -222,11 +231,11 @@ export default function Productos() {
       porcentaje: producto.porcentaje_markup_web || 6.0
     });
   };
-  
+
   const guardarWebTransf = async (itemId) => {
     try {
       const token = localStorage.getItem('token');
-      
+
       const response = await axios.patch(
         `https://pricing.gaussonline.com.ar/api/productos/${itemId}/web-transferencia`,
         null,
@@ -238,7 +247,7 @@ export default function Productos() {
           headers: { Authorization: `Bearer ${token}` }
         }
       );
-      
+
       setProductos(prods => prods.map(p =>
         p.item_id === itemId
           ? {
@@ -250,7 +259,7 @@ export default function Productos() {
             }
           : p
       ));
-      
+
       setEditandoWebTransf(null);
     } catch (error) {
       console.error('Error al guardar web transferencia:', error);
@@ -285,6 +294,23 @@ export default function Productos() {
       if (filtroPrecio === 'sin_precio') params.con_precio = false;
       if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
       if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
+      if (filtrosAuditoria.usuarios.length > 0) {
+        params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
+      }
+      if (filtrosAuditoria.tipos_accion.length > 0) {
+        params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
+      }
+      if (filtrosAuditoria.fecha_desde) {
+        params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
+      }
+      if (filtrosAuditoria.fecha_hasta) {
+        params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
+      }
+
+      if (ordenColumnas.length > 0) {
+        params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
+        params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
+      }
 
       /*const productosRes = await productosAPI.listar(params);
       setTotalProductos(productosRes.data.total || productosRes.data.productos.length);*/
@@ -310,11 +336,11 @@ export default function Productos() {
         params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
         params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
       }
-  
+
       const productosRes = await productosAPI.listar(params);
       setTotalProductos(productosRes.data.total || productosRes.data.productos.length);
       setProductos(productosRes.data.productos);
-      
+
     } catch (error) {
       console.error('Error:', error);
     } finally {
@@ -330,7 +356,7 @@ export default function Productos() {
       console.error('Error cargando subcategorías:', error);
     }
   };
-  
+
   const verAuditoria = async (productoId) => {
     try {
       const token = localStorage.getItem('token');
@@ -392,7 +418,7 @@ export default function Productos() {
   const guardarRebate = async (itemId) => {
     try {
       const token = localStorage.getItem('token');
-      
+
       await axios.patch(
         `https://pricing.gaussonline.com.ar/api/productos/${itemId}/rebate`,
         {
@@ -401,20 +427,20 @@ export default function Productos() {
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
+
       setProductos(prods => prods.map(p =>
         p.item_id === itemId
-          ? { 
-              ...p, 
+          ? {
+              ...p,
               participa_rebate: rebateTemp.participa,
               porcentaje_rebate: rebateTemp.porcentaje,
-              precio_rebate: rebateTemp.participa && p.precio_lista_ml 
+              precio_rebate: rebateTemp.participa && p.precio_lista_ml
                 ? p.precio_lista_ml / (1 - rebateTemp.porcentaje / 100)
                 : null
             }
           : p
       ));
-  
+
       setEditandoRebate(null);
     } catch (error) {
       console.error('Error al guardar rebate:', error);
@@ -430,558 +456,511 @@ export default function Productos() {
     });
   };
 
+  const cargarUsuariosAuditoria = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auditoria/usuarios`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      setUsuarios(response.data.usuarios);
+    } catch (error) {
+      console.error('Error cargando usuarios:', error);
+    }
+  };
+
+  const cargarTiposAccion = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auditoria/tipos-accion`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      setTiposAccion(response.data.tipos);
+    } catch (error) {
+      console.error('Error cargando tipos:', error);
+    }
+  };
+
   return (
-    <div className={styles.container}>
-      <div className={styles.statsGrid}>
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>Total Productos</div>
-          <div className={styles.statValue}>{stats?.total_productos || 0}</div>
+    <div className="productos-container">
+      <div className="stats-grid">
+        <div className="stat-card">
+          <div className="stat-label">Total Productos</div>
+          <div className="stat-value">{stats?.total_productos || 0}</div>
         </div>
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>Con Stock</div>
-          <div className={`${styles.statValue} ${styles.green}`}>{stats?.con_stock || 0}</div>
+        <div className="stat-card">
+          <div className="stat-label">Con Stock</div>
+          <div className="stat-value green">{stats?.con_stock || 0}</div>
         </div>
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>Sin Precio</div>
-          <div className={`${styles.statValue} ${styles.red}`}>{stats?.sin_precio || 0}</div>
+        <div className="stat-card">
+          <div className="stat-label">Sin Precio</div>
+          <div className="stat-value red">{stats?.sin_precio || 0}</div>
         </div>
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>Con Precio</div>
-          <div className={`${styles.statValue} ${styles.blue}`}>{stats?.con_precio || 0}</div>
+        <div className="stat-card">
+          <div className="stat-label">Con Precio</div>
+          <div className="stat-value blue">{stats?.con_precio || 0}</div>
         </div>
       </div>
 
-	  {/* Búsqueda */}
-	  <div className={styles.searchBar} style={{ marginBottom: '16px' }}>
-	    <input
-	      type="text"
-	      placeholder="Buscar por código, descripción o marca..."
-	      value={searchInput}
-	      onChange={handleSearchChange}
-	      className={styles.searchInput}
-	    />
-	  </div>
-	  
-	  {/* Filtros */}
-	  <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
-	    <select
-	      value={filtroStock}
-	      onChange={(e) => { setFiltroStock(e.target.value); setPage(1); }}
-	      style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', flex: '1', minWidth: '150px' }}
-	    >
-	      <option value="todos">📦 Todo el stock</option>
-	      <option value="con_stock">✅ Con stock</option>
-	      <option value="sin_stock">❌ Sin stock</option>
-	    </select>
-	  
-	    <select
-	      value={filtroPrecio}
-	      onChange={(e) => { setFiltroPrecio(e.target.value); setPage(1); }}
-	      style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', flex: '1', minWidth: '150px' }}
-	    >
-	      <option value="todos">💰 Todos los precios</option>
-	      <option value="con_precio">✅ Con precio</option>
-	      <option value="sin_precio">❌ Sin precio</option>
-	    </select>
+      <div className="search-bar">
+        <input
+          type="text"
+          placeholder="Buscar por código, descripción o marca..."
+          value={searchInput}
+          onChange={handleSearchChange}
+          className="search-input"
+        />
+      </div>
 
-		{/* Filtro de Marcas */}
-		<div style={{ position: 'relative' }}>
-		  <button
-		    onClick={() => setMostrarMenuMarcas(!mostrarMenuMarcas)}
-		    style={{
-		      padding: '10px 16px',
-		      borderRadius: '6px',
-		      border: '1px solid #d1d5db',
-		      background: marcasSeleccionadas.length > 0 ? '#3b82f6' : 'white',
-		      color: marcasSeleccionadas.length > 0 ? 'white' : '#374151',
-		      cursor: 'pointer',
-		      display: 'flex',
-		      alignItems: 'center',
-		      gap: '8px',
-		      fontWeight: '500'
-		    }}
-		  >
-		    🏷️ Marcas {marcasSeleccionadas.length > 0 && `(${marcasSeleccionadas.length})`}
-		  </button>
-		  
-		  {mostrarMenuMarcas && (
-		    <div style={{
-		      position: 'absolute',
-		      top: '100%',
-		      left: 0,
-		      marginTop: '4px',
-		      background: 'white',
-		      border: '1px solid #d1d5db',
-		      borderRadius: '8px',
-		      boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-		      zIndex: 1000,
-		      width: '300px',
-		      display: 'flex',
-		      flexDirection: 'column',
-		      maxHeight: '400px'
-		    }}>
-		      {/* Sección fija arriba */}
-		      <div style={{ borderBottom: '1px solid #e5e7eb' }}>
-		        <div style={{ padding: '12px' }}>
-		          <div style={{ position: 'relative' }}>
-		            <input
-		              type="text"
-		              placeholder="Buscar marca..."
-		              value={busquedaMarca}
-		              onChange={(e) => setBusquedaMarca(e.target.value)}
-		              style={{
-		                width: '100%',
-		                padding: '8px',
-		                paddingRight: '32px',  // ← espacio para la X
-		                border: '1px solid #d1d5db',
-		                borderRadius: '4px',
-		                fontSize: '14px',
-		                boxSizing: 'border-box'
-		              }}
-		            />
-		            {busquedaMarca && (
-		              <button
-		                onClick={() => setBusquedaMarca('')}
-		                style={{
-		                  position: 'absolute',
-		                  right: '8px',
-		                  top: '50%',
-		                  transform: 'translateY(-50%)',
-		                  background: 'transparent',
-		                  border: 'none',
-		                  cursor: 'pointer',
-		                  color: '#9ca3af',
-		                  fontSize: '16px',
-		                  padding: '4px',
-		                  lineHeight: 1
-		                }}
-		              >
-		                ✕
-		              </button>
-		            )}
-		          </div>
-		        </div>
-		        
-		        {marcasSeleccionadas.length > 0 && (
-		          <div style={{ padding: '0 12px 12px 12px' }}>
-		            <button
-		              onClick={() => {
-		                setMarcasSeleccionadas([]);
-		                setPage(1);
-		              }}
-		              style={{
-		                width: '100%',
-		                padding: '8px',
-		                background: '#ef4444',
-		                color: 'white',
-		                border: 'none',
-		                borderRadius: '4px',
-		                cursor: 'pointer',
-		                fontSize: '13px'
-		              }}
-		            >
-		              Limpiar filtros ({marcasSeleccionadas.length})
-		            </button>
-		          </div>
-		        )}
-		      </div>
-		      
-		      {/* Lista con scroll */}
-		      <div style={{ 
-		        padding: '8px', 
-		        overflowY: 'auto',
-		        flex: 1
-		      }}>
-		        {marcasFiltradas.map(marca => (
-		          <label
-		            key={marca}
-		            style={{
-		              display: 'flex',
-		              alignItems: 'center',
-		              padding: '8px',
-		              cursor: 'pointer',
-		              borderRadius: '4px',
-		              background: marcasSeleccionadas.includes(marca) ? '#eff6ff' : 'transparent'
-		            }}
-		            onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
-		            onMouseLeave={(e) => e.currentTarget.style.background = marcasSeleccionadas.includes(marca) ? '#eff6ff' : 'transparent'}
-		          >
-		            <input
-		              type="checkbox"
-		              checked={marcasSeleccionadas.includes(marca)}
-		              onChange={(e) => {
-		                if (e.target.checked) {
-		                  setMarcasSeleccionadas([...marcasSeleccionadas, marca]);
-		                } else {
-		                  setMarcasSeleccionadas(marcasSeleccionadas.filter(m => m !== marca));
-		                }
-		                setPage(1);
-		              }}
-		              style={{ marginRight: '8px' }}
-		            />
-		            <span style={{ fontSize: '14px' }}>{marca}</span>
-		          </label>
-		        ))}
-		      </div>
+      <div className="filters-container">
+        <select
+          value={filtroStock}
+          onChange={(e) => { setFiltroStock(e.target.value); setPage(1); }}
+          className="filter-select"
+        >
+          <option value="todos">📦 Todo el stock</option>
+          <option value="con_stock">✅ Con stock</option>
+          <option value="sin_stock">❌ Sin stock</option>
+        </select>
 
-		      
-		    </div>
-		  )}
-		</div>
+        <select
+          value={filtroPrecio}
+          onChange={(e) => { setFiltroPrecio(e.target.value); setPage(1); }}
+          className="filter-select"
+        >
+          <option value="todos">💰 Todos los precios</option>
+          <option value="con_precio">✅ Con precio</option>
+          <option value="sin_precio">❌ Sin precio</option>
+        </select>
 
-		{/* Filtro de Subcategorías */}
-		<div style={{ position: 'relative' }}>
-		  <button
-		    onClick={() => setMostrarMenuSubcategorias(!mostrarMenuSubcategorias)}
-		    style={{
-		      padding: '10px 16px',
-		      borderRadius: '6px',
-		      border: '1px solid #d1d5db',
-		      background: subcategoriasSeleccionadas.length > 0 ? '#10b981' : 'white',
-		      color: subcategoriasSeleccionadas.length > 0 ? 'white' : '#374151',
-		      cursor: 'pointer',
-		      fontSize: '14px',
-		      fontWeight: '500',
-		      display: 'flex',
-		      alignItems: 'center',
-		      gap: '8px'
-		    }}
-		  >
-		    📋 Subcategorías
-		    {subcategoriasSeleccionadas.length > 0 && (
-		      <span style={{
-		        background: 'rgba(255,255,255,0.3)',
-		        padding: '2px 8px',
-		        borderRadius: '12px',
-		        fontSize: '12px'
-		      }}>
-		        {subcategoriasSeleccionadas.length}
-		      </span>
-		    )}
-		  </button>
-		
-		  {mostrarMenuSubcategorias && (
-		    <>
-		      <div
-		        onClick={() => setMostrarMenuSubcategorias(false)}
-		        style={{
-		          position: 'fixed',
-		          top: 0,
-		          left: 0,
-		          right: 0,
-		          bottom: 0,
-		          zIndex: 999
-		        }}
-		      />
-		      <div style={{
-		        position: 'absolute',
-		        top: '100%',
-		        left: 0,
-		        marginTop: '4px',
-		        background: 'white',
-		        border: '1px solid #d1d5db',
-		        borderRadius: '8px',
-		        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-		        zIndex: 1000,
-		        minWidth: '350px',
-		        maxWidth: '450px',
-		        maxHeight: '500px',
-		        display: 'flex',
-		        flexDirection: 'column'
-		      }}>
-		        {/* Buscador fijo */}
-		        <div style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', position: 'relative' }}>
-		          <input
-		            type="text"
-		            placeholder="Buscar subcategoría..."
-		            value={busquedaSubcategoria}
-		            onChange={(e) => setBusquedaSubcategoria(e.target.value)}
-		            onClick={(e) => e.stopPropagation()}
-		            style={{
-		              width: '100%',
-		              padding: '8px 32px 8px 12px',
-		              border: '1px solid #d1d5db',
-		              borderRadius: '6px',
-		              fontSize: '14px',
-		              outline: 'none',
-		              boxSizing: 'border-box'
-		            }}
-		          />
-		          {busquedaSubcategoria && (
-		            <button
-		              onClick={(e) => {
-		                e.stopPropagation();
-		                setBusquedaSubcategoria('');
-		              }}
-		              style={{
-		                position: 'absolute',
-		                right: '20px',
-		                top: '50%',
-		                transform: 'translateY(-50%)',
-		                background: 'none',
-		                border: 'none',
-		                cursor: 'pointer',
-		                fontSize: '16px',
-		                color: '#9ca3af',
-		                padding: '4px'
-		              }}
-		            >
-		              ✕
-		            </button>
-		          )}
-		        </div>
-		
-		        {/* Botones de acción */}
-		        <div style={{
-		          padding: '8px 12px',
-		          borderBottom: '1px solid #e5e7eb',
-		          display: 'flex',
-		          gap: '8px'
-		        }}>
-		          <button
-		            onClick={(e) => {
-		              e.stopPropagation();
-		              setSubcategoriasSeleccionadas([]);
-		            }}
-		            style={{
-		              padding: '4px 12px',
-		              background: '#ef4444',
-		              color: 'white',
-		              border: 'none',
-		              borderRadius: '4px',
-		              fontSize: '12px',
-		              cursor: 'pointer'
-		            }}
-		          >
-		            Limpiar
-		          </button>
-		          <button
-		            onClick={(e) => {
-		              e.stopPropagation();
-		              setMostrarMenuSubcategorias(false);
-		            }}
-		            style={{
-		              padding: '4px 12px',
-		              background: '#3b82f6',
-		              color: 'white',
-		              border: 'none',
-		              borderRadius: '4px',
-		              fontSize: '12px',
-		              cursor: 'pointer'
-		            }}
-		          >
-		            Aplicar
-		          </button>
-		        </div>
-		
-		        {/* Lista jerárquica de categorías y subcategorías */}
-		        {/* Lista jerárquica de categorías y subcategorías */}
-		        <div style={{
-		          overflowY: 'auto',
-		          maxHeight: '400px',
-		          padding: '8px'
-		        }}>
-		          {(subcategorias || [])
-		            .filter(cat => 
-		              !busquedaSubcategoria || 
-		              cat.nombre.toLowerCase().includes(busquedaSubcategoria.toLowerCase()) ||
-		              cat.subcategorias.some(sub => sub.nombre.toLowerCase().includes(busquedaSubcategoria.toLowerCase()))
-		            )
-		            .map(categoria => {
-		              // Si la búsqueda coincide con la categoría, mostrar TODAS las subcategorías
-		              const categoriaCoincide = !busquedaSubcategoria || 
-		                categoria.nombre.toLowerCase().includes(busquedaSubcategoria.toLowerCase());
-		              
-		              const subcatsDeCategoria = categoriaCoincide 
-		                ? categoria.subcategorias // Mostrar todas si la categoría coincide
-		                : categoria.subcategorias.filter(sub => 
-		                    sub.nombre.toLowerCase().includes(busquedaSubcategoria.toLowerCase())
-		                  );
-		              
-		              const todasSeleccionadas = subcatsDeCategoria.length > 0 && subcatsDeCategoria.every(sub => 
-		                subcategoriasSeleccionadas.includes(sub.id.toString())
-		              );
-		              
-		              const algunaSeleccionada = subcatsDeCategoria.some(sub => 
-		                subcategoriasSeleccionadas.includes(sub.id.toString())
-		              );
-		        
-		              return (
-		                <div key={categoria.nombre} style={{ marginBottom: '12px' }}>
-		                  {/* Checkbox de categoría */}
-		                  <label
-		                    onClick={(e) => e.stopPropagation()}
-		                    style={{
-		                      display: 'flex',
-		                      alignItems: 'center',
-		                      fontSize: '13px',
-		                      fontWeight: '600',
-		                      color: '#374151',
-		                      padding: '8px 12px',
-		                      background: '#f9fafb',
-		                      borderRadius: '4px',
-		                      marginBottom: '4px',
-		                      cursor: 'pointer'
-		                    }}
-		                  >
-		                    <input
-		                      type="checkbox"
-		                      checked={todasSeleccionadas}
-		                      ref={input => {
-		                        if (input) input.indeterminate = algunaSeleccionada && !todasSeleccionadas;
-		                      }}
-		                      onChange={(e) => {
-		                        e.stopPropagation();
-		                        const subcatIds = subcatsDeCategoria.map(s => s.id.toString());
-		                        if (todasSeleccionadas) {
-		                          // Deseleccionar todas de esta categoría
-		                          setSubcategoriasSeleccionadas(prev =>
-		                            prev.filter(id => !subcatIds.includes(id))
-		                          );
-		                        } else {
-		                          // Seleccionar todas de esta categoría
-		                          setSubcategoriasSeleccionadas(prev => {
-		                            const nuevas = [...prev];
-		                            subcatIds.forEach(id => {
-		                              if (!nuevas.includes(id)) {
-		                                nuevas.push(id);
-		                              }
-		                            });
-		                            return nuevas;
-		                          });
-		                        }
-		                      }}
-		                      style={{ marginRight: '8px', cursor: 'pointer' }}
-		                    />
-		                    {categoria.nombre}
-		                    {algunaSeleccionada && (
-		                      <span style={{
-		                        marginLeft: 'auto',
-		                        fontSize: '11px',
-		                        color: '#10b981',
-		                        background: '#d1fae5',
-		                        padding: '2px 8px',
-		                        borderRadius: '12px'
-		                      }}>
-		                        {subcatsDeCategoria.filter(sub => 
-		                          subcategoriasSeleccionadas.includes(sub.id.toString())
-		                        ).length}/{subcatsDeCategoria.length}
-		                      </span>
-		                    )}
-		                  </label>
-		                  
-		                  {/* Subcategorías */}
-		                  {subcatsDeCategoria.map(subcat => (
-		                    <label
-		                      key={subcat.id}
-		                      onClick={(e) => e.stopPropagation()}
-		                      style={{
-		                        display: 'flex',
-		                        alignItems: 'center',
-		                        padding: '6px 12px 6px 36px',
-		                        cursor: 'pointer',
-		                        borderRadius: '4px',
-		                        fontSize: '13px',
-		                        transition: 'background 0.2s',
-		                        background: subcategoriasSeleccionadas.includes(subcat.id.toString()) ? '#eff6ff' : 'transparent'
-		                      }}
-		                      onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
-		                      onMouseLeave={(e) => e.currentTarget.style.background = subcategoriasSeleccionadas.includes(subcat.id.toString()) ? '#eff6ff' : 'transparent'}
-		                    >
-		                      <input
-		                        type="checkbox"
-		                        checked={subcategoriasSeleccionadas.includes(subcat.id.toString())}
-		                        onChange={(e) => {
-		                          e.stopPropagation();
-		                          const subcatId = subcat.id.toString();
-		                          if (subcategoriasSeleccionadas.includes(subcatId)) {
-		                            setSubcategoriasSeleccionadas(prev => prev.filter(m => m !== subcatId));
-		                          } else {
-		                            setSubcategoriasSeleccionadas(prev => [...prev, subcatId]);
-		                          }
-		                        }}
-		                        style={{ marginRight: '8px', cursor: 'pointer' }}
-		                      />
-		                      <div style={{ flex: 1 }}>
-		                        {subcat.nombre}
-		                        {subcat.grupo_id && (
-		                          <span style={{
-		                            marginLeft: '8px',
-		                            fontSize: '10px',
-		                            color: '#6b7280',
-		                            background: '#f3f4f6',
-		                            padding: '2px 6px',
-		                            borderRadius: '4px'
-		                          }}>
-		                            G{subcat.grupo_id}
-		                          </span>
-		                        )}
-		                      </div>
-		                    </label>
-		                  ))}
-		                </div>
-		              );
-		            })}
-		        </div>
-		      </div>
-		    </>
-		  )}
-		</div>
+        {/* Filtro de Marcas */}
+        <div className="filter-dropdown">
+          <button
+            onClick={() => setMostrarMenuMarcas(!mostrarMenuMarcas)}
+            className={`filter-button marcas ${marcasSeleccionadas.length > 0 ? 'active' : ''}`}
+          >
+            🏷️ Marcas {marcasSeleccionadas.length > 0 && `(${marcasSeleccionadas.length})`}
+          </button>
 
-	    <button
-	      onClick={() => setMostrarExportModal(true)}
-	      style={{
-	        padding: '10px 16px',
-	        background: '#10b981',
-	        color: 'white',
-	        border: 'none',
-	        borderRadius: '6px',
-	        cursor: 'pointer',
-	        display: 'flex',
-	        alignItems: 'center',
-	        gap: '8px',
-	        fontWeight: '600'
-	      }}
-	    >
-	      <img src={xlsIcon} alt="Excel" style={{ width: '20px', height: '20px' }} />
-	      Exportar
-	    </button>
+          {mostrarMenuMarcas && (
+          	<>
+          	<div onClick={() => setMostrarMenuMarcas(false)} className="dropdown-overlay" />
+            <div className="dropdown-panel marcas">
+              <div className="dropdown-header">
+                <div className="dropdown-search">
+                  <input
+                    type="text"
+                    placeholder="Buscar marca..."
+                    value={busquedaMarca}
+                    onChange={(e) => setBusquedaMarca(e.target.value)}
+                  />
+                  {busquedaMarca && (
+                    <button
+                      onClick={() => setBusquedaMarca('')}
+                      className="dropdown-search-clear"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
 
-	    <button
-	      onClick={() => setMostrarCalcularWebModal(true)}
-	      style={{
-	        padding: '10px 16px',
-	        background: '#3b82f6',
-	        color: 'white',
-	        border: 'none',
-	        borderRadius: '6px',
-	        cursor: 'pointer',
-	        display: 'flex',
-	        alignItems: 'center',
-	        gap: '8px',
-	        fontWeight: '600'
-	      }}
-	    >
-	      🧮 Calcular Web Transf.
-	    </button>
-	  
-	  </div>
-     
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <div style={{ color: '#6b7280' }}>
+                {marcasSeleccionadas.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setMarcasSeleccionadas([]);
+                      setPage(1);
+                    }}
+                    className="btn-clear"
+                  >
+                    Limpiar filtros ({marcasSeleccionadas.length})
+                  </button>
+                )}
+              </div>
+
+              <div className="dropdown-content">
+                {marcasFiltradas.map(marca => (
+                  <label
+                    key={marca}
+                    className={`dropdown-item ${marcasSeleccionadas.includes(marca) ? 'selected' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={marcasSeleccionadas.includes(marca)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setMarcasSeleccionadas([...marcasSeleccionadas, marca]);
+                        } else {
+                          setMarcasSeleccionadas(marcasSeleccionadas.filter(m => m !== marca));
+                        }
+                        setPage(1);
+                      }}
+                    />
+                    <span>{marca}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+           </>
+          )}
+        </div>
+
+        {/* Filtro de Subcategorías */}
+        <div className="filter-dropdown">
+          <button
+            onClick={() => setMostrarMenuSubcategorias(!mostrarMenuSubcategorias)}
+            className={`filter-button subcategorias ${subcategoriasSeleccionadas.length > 0 ? 'active' : ''}`}
+          >
+            📋 Subcategorías
+            {subcategoriasSeleccionadas.length > 0 && (
+              <span className="filter-badge">
+                {subcategoriasSeleccionadas.length}
+              </span>
+            )}
+          </button>
+
+          {mostrarMenuSubcategorias && (
+            <>
+              <div onClick={() => setMostrarMenuSubcategorias(false)} className="dropdown-overlay" />
+              <div className="dropdown-panel subcategorias">
+                <div className="dropdown-header">
+                  <div className="dropdown-search">
+                    <input
+                      type="text"
+                      placeholder="Buscar subcategoría..."
+                      value={busquedaSubcategoria}
+                      onChange={(e) => setBusquedaSubcategoria(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    {busquedaSubcategoria && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setBusquedaSubcategoria('');
+                        }}
+                        className="dropdown-search-clear"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="dropdown-actions">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSubcategoriasSeleccionadas([]);
+                    }}
+                    className="btn-clear"
+                  >
+                    Limpiar
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMostrarMenuSubcategorias(false);
+                    }}
+                    className="btn-apply"
+                  >
+                    Aplicar
+                  </button>
+                </div>
+
+                <div className="dropdown-content">
+                  {(subcategorias || [])
+                    .filter(cat =>
+                      !busquedaSubcategoria ||
+                      cat.nombre.toLowerCase().includes(busquedaSubcategoria.toLowerCase()) ||
+                      cat.subcategorias.some(sub => sub.nombre.toLowerCase().includes(busquedaSubcategoria.toLowerCase()))
+                    )
+                    .map(categoria => {
+                      const categoriaCoincide = !busquedaSubcategoria ||
+                        categoria.nombre.toLowerCase().includes(busquedaSubcategoria.toLowerCase());
+
+                      const subcatsDeCategoria = categoriaCoincide
+                        ? categoria.subcategorias
+                        : categoria.subcategorias.filter(sub =>
+                            sub.nombre.toLowerCase().includes(busquedaSubcategoria.toLowerCase())
+                          );
+
+                      const todasSeleccionadas = subcatsDeCategoria.length > 0 && subcatsDeCategoria.every(sub =>
+                        subcategoriasSeleccionadas.includes(sub.id.toString())
+                      );
+
+                      const algunaSeleccionada = subcatsDeCategoria.some(sub =>
+                        subcategoriasSeleccionadas.includes(sub.id.toString())
+                      );
+
+                      return (
+                        <div key={categoria.nombre} className="category-group">
+                          <label onClick={(e) => e.stopPropagation()} className="category-header">
+                            <input
+                              type="checkbox"
+                              checked={todasSeleccionadas}
+                              ref={input => {
+                                if (input) input.indeterminate = algunaSeleccionada && !todasSeleccionadas;
+                              }}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                const subcatIds = subcatsDeCategoria.map(s => s.id.toString());
+                                if (todasSeleccionadas) {
+                                  setSubcategoriasSeleccionadas(prev =>
+                                    prev.filter(id => !subcatIds.includes(id))
+                                  );
+                                } else {
+                                  setSubcategoriasSeleccionadas(prev => {
+                                    const nuevas = [...prev];
+                                    subcatIds.forEach(id => {
+                                      if (!nuevas.includes(id)) {
+                                        nuevas.push(id);
+                                      }
+                                    });
+                                    return nuevas;
+                                  });
+                                }
+                              }}
+                            />
+                            {categoria.nombre}
+                            {algunaSeleccionada && (
+                              <span className="category-count">
+                                {subcatsDeCategoria.filter(sub =>
+                                  subcategoriasSeleccionadas.includes(sub.id.toString())
+                                ).length}/{subcatsDeCategoria.length}
+                              </span>
+                            )}
+                          </label>
+
+                          {subcatsDeCategoria.map(subcat => (
+                            <label
+                              key={subcat.id}
+                              onClick={(e) => e.stopPropagation()}
+                              className={`subcategory-item ${subcategoriasSeleccionadas.includes(subcat.id.toString()) ? 'selected' : ''}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={subcategoriasSeleccionadas.includes(subcat.id.toString())}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  const subcatId = subcat.id.toString();
+                                  if (subcategoriasSeleccionadas.includes(subcatId)) {
+                                    setSubcategoriasSeleccionadas(prev => prev.filter(m => m !== subcatId));
+                                  } else {
+                                    setSubcategoriasSeleccionadas(prev => [...prev, subcatId]);
+                                  }
+                                }}
+                              />
+                              <div>
+                                {subcat.nombre}
+                                {subcat.grupo_id && (
+                                  <span className="subcategory-badge">
+                                    G{subcat.grupo_id}
+                                  </span>
+                                )}
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Filtros de Auditoría */}
+        <div className="filter-dropdown">
+          <button
+            onClick={() => setMostrarFiltrosAuditoria(!mostrarFiltrosAuditoria)}
+            className={`filter-button auditoria ${(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0 || filtrosAuditoria.fecha_desde || filtrosAuditoria.fecha_hasta) ? 'active' : ''}`}
+          >
+            🔍 Filtros de Auditoría
+            {(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0) && (
+              <span className="filter-badge">
+                {filtrosAuditoria.usuarios.length + filtrosAuditoria.tipos_accion.length}
+              </span>
+            )}
+          </button>
+
+          {mostrarFiltrosAuditoria && (
+            <>
+              <div onClick={() => setMostrarFiltrosAuditoria(false)} className="dropdown-overlay" />
+              <div className="dropdown-panel auditoria">
+                <div className="dropdown-actions">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFiltrosAuditoria({
+                        usuarios: [],
+                        tipos_accion: [],
+                        fecha_desde: '',
+                        fecha_hasta: ''
+                      });
+                      setPage(1);
+                    }}
+                    className="btn-clear"
+                  >
+                    Limpiar Todo
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMostrarFiltrosAuditoria(false);
+                    }}
+                    className="btn-apply"
+                  >
+                    Aplicar
+                  </button>
+                </div>
+
+                <div className="dropdown-content with-padding">
+                  <div className="audit-section">
+                    <div className="audit-section-header">
+                      👤 Usuario que modificó
+                      {filtrosAuditoria.usuarios.length > 0 && (
+                        <span className="audit-section-badge">
+                          {filtrosAuditoria.usuarios.length}
+                        </span>
+                      )}
+                    </div>
+                    <div className="audit-section-content">
+                      {usuarios.map(usuario => (
+                        <label
+                          key={usuario.id}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`dropdown-item ${filtrosAuditoria.usuarios.includes(usuario.id) ? 'selected' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={filtrosAuditoria.usuarios.includes(usuario.id)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setFiltrosAuditoria(prev => ({
+                                ...prev,
+                                usuarios: e.target.checked
+                                  ? [...prev.usuarios, usuario.id]
+                                  : prev.usuarios.filter(u => u !== usuario.id)
+                              }));
+                              setPage(1);
+                            }}
+                          />
+                          {usuario.nombre}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="audit-section">
+                    <div className="audit-section-header">
+                      ⚡ Tipo de Modificación
+                      {filtrosAuditoria.tipos_accion.length > 0 && (
+                        <span className="audit-section-badge">
+                          {filtrosAuditoria.tipos_accion.length}
+                        </span>
+                      )}
+                    </div>
+                    <div className="audit-section-content">
+                      {tiposAccion.map(tipo => (
+                        <label
+                          key={tipo}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`dropdown-item ${filtrosAuditoria.tipos_accion.includes(tipo) ? 'selected' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={filtrosAuditoria.tipos_accion.includes(tipo)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setFiltrosAuditoria(prev => ({
+                                ...prev,
+                                tipos_accion: e.target.checked
+                                  ? [...prev.tipos_accion, tipo]
+                                  : prev.tipos_accion.filter(t => t !== tipo)
+                              }));
+                              setPage(1);
+                            }}
+                          />
+                          {tipo.split('_').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ')}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="audit-section">
+                    <div className="audit-section-header">
+                      📅 Rango de Fechas
+                    </div>
+                    <div className="audit-section-content">
+                      <div className="date-input-group">
+                        <label className="date-input-label">Desde</label>
+                        <input
+                          type="datetime-local"
+                          value={filtrosAuditoria.fecha_desde.replace(' ', 'T')}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            setFiltrosAuditoria(prev => ({
+                              ...prev,
+                              fecha_desde: e.target.value.replace('T', ' ')
+                            }));
+                            setPage(1);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="date-input"
+                        />
+                      </div>
+
+                      <div className="date-input-group">
+                        <label className="date-input-label">Hasta</label>
+                        <input
+                          type="datetime-local"
+                          value={filtrosAuditoria.fecha_hasta.replace(' ', 'T')}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            setFiltrosAuditoria(prev => ({
+                              ...prev,
+                              fecha_hasta: e.target.value.replace('T', ' ')
+                            }));
+                            setPage(1);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="date-input"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <button
+          onClick={() => setMostrarExportModal(true)}
+          className="btn-action export"
+        >
+          <img src={xlsIcon} alt="Excel" />
+          Exportar
+        </button>
+
+        <button
+          onClick={() => setMostrarCalcularWebModal(true)}
+          className="btn-action calculate"
+        >
+          🧮 Calcular Web Transf.
+        </button>
+      </div>
+
+      <div className="results-info">
+        <div>
           Mostrando {productos.length} de {totalProductos.toLocaleString('es-AR')} productos
           {debouncedSearch && ` (filtrado por "${debouncedSearch}")`}
         </div>
-        
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <span style={{ color: '#6b7280', fontSize: '14px' }}>Mostrar:</span>
+
+        <div className="page-size-selector">
+          <span>Mostrar:</span>
           <select
             value={pageSize}
-            onChange={(e) => { 
-              setPageSize(Number(e.target.value)); 
-              setPage(1); 
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
             }}
-            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db' }}
           >
             <option value={50}>50</option>
             <option value={100}>100</option>
@@ -992,45 +971,45 @@ export default function Productos() {
         </div>
       </div>
 
-      <div className={styles.tableContainer}>
+      <div className="table-container">
         {loading ? (
-          <div className={styles.loading}>Cargando...</div>
+          <div className="loading">Cargando...</div>
         ) : (
           <>
-            <table className={styles.table}>
-              <thead className={styles.tableHead}>
+            <table className="table">
+              <thead className="table-head">
                 <tr>
-                  <th onClick={(e) => handleOrdenar('codigo', e)} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Código {getIconoOrden('codigo')} {getNumeroOrden('codigo') && <span style={{ fontSize: '10px', marginLeft: '4px' }}>{getNumeroOrden('codigo')}</span>}
+                  <th onClick={(e) => handleOrdenar('codigo', e)}>
+                    Código {getIconoOrden('codigo')} {getNumeroOrden('codigo') && <span>{getNumeroOrden('codigo')}</span>}
                   </th>
-                  <th onClick={(e) => handleOrdenar('descripcion', e)} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Descripción {getIconoOrden('descripcion')} {getNumeroOrden('descripcion') && <span style={{ fontSize: '10px', marginLeft: '4px' }}>{getNumeroOrden('descripcion')}</span>}
+                  <th onClick={(e) => handleOrdenar('descripcion', e)}>
+                    Descripción {getIconoOrden('descripcion')} {getNumeroOrden('descripcion') && <span>{getNumeroOrden('descripcion')}</span>}
                   </th>
-                  <th onClick={(e) => handleOrdenar('marca', e)} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Marca {getIconoOrden('marca')} {getNumeroOrden('marca') && <span style={{ fontSize: '10px', marginLeft: '4px' }}>{getNumeroOrden('marca')}</span>}
+                  <th onClick={(e) => handleOrdenar('marca', e)}>
+                    Marca {getIconoOrden('marca')} {getNumeroOrden('marca') && <span>{getNumeroOrden('marca')}</span>}
                   </th>
-                  <th onClick={(e) => handleOrdenar('stock', e)} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Stock {getIconoOrden('stock')} {getNumeroOrden('stock') && <span style={{ fontSize: '10px', marginLeft: '4px' }}>{getNumeroOrden('stock')}</span>}
+                  <th onClick={(e) => handleOrdenar('stock', e)}>
+                    Stock {getIconoOrden('stock')} {getNumeroOrden('stock') && <span>{getNumeroOrden('stock')}</span>}
                   </th>
-                  <th onClick={(e) => handleOrdenar('costo', e)} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Costo {getIconoOrden('costo')} {getNumeroOrden('costo') && <span style={{ fontSize: '10px', marginLeft: '4px' }}>{getNumeroOrden('costo')}</span>}
+                  <th onClick={(e) => handleOrdenar('costo', e)}>
+                    Costo {getIconoOrden('costo')} {getNumeroOrden('costo') && <span>{getNumeroOrden('costo')}</span>}
                   </th>
-                  <th onClick={(e) => handleOrdenar('precio_clasica', e)} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Precio Clásica {getIconoOrden('precio_clasica')} {getNumeroOrden('precio_clasica') && <span style={{ fontSize: '10px', marginLeft: '4px' }}>{getNumeroOrden('precio_clasica')}</span>}
+                  <th onClick={(e) => handleOrdenar('precio_clasica', e)}>
+                    Precio Clásica {getIconoOrden('precio_clasica')} {getNumeroOrden('precio_clasica') && <span>{getNumeroOrden('precio_clasica')}</span>}
                   </th>
-                  <th onClick={(e) => handleOrdenar('precio_rebate', e)} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Precio Rebate {getIconoOrden('precio_rebate')} {getNumeroOrden('precio_rebate') && <span style={{ fontSize: '10px', marginLeft: '4px' }}>{getNumeroOrden('precio_rebate')}</span>}
+                  <th onClick={(e) => handleOrdenar('precio_rebate', e)}>
+                    Precio Rebate {getIconoOrden('precio_rebate')} {getNumeroOrden('precio_rebate') && <span>{getNumeroOrden('precio_rebate')}</span>}
                   </th>
-                  <th onClick={(e) => handleOrdenar('mejor_oferta', e)} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Mejor Oferta {getIconoOrden('mejor_oferta')} {getNumeroOrden('mejor_oferta') && <span style={{ fontSize: '10px', marginLeft: '4px' }}>{getNumeroOrden('mejor_oferta')}</span>}
+                  <th onClick={(e) => handleOrdenar('mejor_oferta', e)}>
+                    Mejor Oferta {getIconoOrden('mejor_oferta')} {getNumeroOrden('mejor_oferta') && <span>{getNumeroOrden('mejor_oferta')}</span>}
                   </th>
-                  <th onClick={(e) => handleOrdenar('web_transf', e)} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                    Web Transf. {getIconoOrden('web_transf')} {getNumeroOrden('web_transf') && <span style={{ fontSize: '10px', marginLeft: '4px' }}>{getNumeroOrden('web_transf')}</span>}
+                  <th onClick={(e) => handleOrdenar('web_transf', e)}>
+                    Web Transf. {getIconoOrden('web_transf')} {getNumeroOrden('web_transf') && <span>{getNumeroOrden('web_transf')}</span>}
                   </th>
                   <th>Acciones</th>
                 </tr>
               </thead>
-              <tbody className={styles.tableBody}>
+              <tbody className="table-body">
                 {productosOrdenados.map((p) => (
                   <tr key={p.item_id}>
                     <td>{p.codigo}</td>
@@ -1040,95 +1019,68 @@ export default function Productos() {
                     <td>{p.moneda_costo} ${p.costo?.toFixed(2)}</td>
                     <td>
                       {editandoPrecio === p.item_id ? (
-                        <div style={{ display: 'flex', gap: '4px' }}>
+                        <div className="inline-edit">
                           <input
                             type="number"
                             value={precioTemp}
                             onChange={(e) => setPrecioTemp(e.target.value)}
                             onKeyPress={(e) => e.key === 'Enter' && guardarPrecio(p.item_id)}
                             autoFocus
-                            style={{ width: '100px', padding: '4px' }}
                           />
-                          <button onClick={() => guardarPrecio(p.item_id)} style={{ padding: '4px 8px' }}>✓</button>
-                          <button onClick={() => setEditandoPrecio(null)} style={{ padding: '4px 8px' }}>✗</button>
+                          <button onClick={() => guardarPrecio(p.item_id)}>✓</button>
+                          <button onClick={() => setEditandoPrecio(null)}>✗</button>
                         </div>
                       ) : (
-                        <div style={{ cursor: puedeEditar ? 'pointer' : 'default' }} onClick={() => puedeEditar && iniciarEdicion(p)}>
-                          <div style={{borderBottom: puedeEditar ? '1px dashed #ccc' : 'none', display: 'inline-block' }}>
+                        <div onClick={() => puedeEditar && iniciarEdicion(p)}>
+                          <div className={puedeEditar ? 'editable-field' : ''}>
                             {p.precio_lista_ml ? `$${p.precio_lista_ml.toLocaleString('es-AR')}` : 'Sin precio'}
                           </div>
                           {p.markup !== null && p.markup !== undefined && (
-                            <div style={{
-                              fontSize: '10px',
-                              color: getMarkupColor(p.markup),
-                              marginTop: '2px',
-                              fontWeight: '600'
-                            }}>
+                            <div className="markup-display" style={{ color: getMarkupColor(p.markup) }}>
                               {p.markup}%
                             </div>
                           )}
                         </div>
                       )}
                     </td>
-                    {/* Columna Precio Rebate */}
                     <td>
                       {editandoRebate === p.item_id ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <div className="rebate-edit">
+                          <label className="rebate-checkbox">
                             <input
                               type="checkbox"
                               checked={rebateTemp.participa}
                               onChange={(e) => setRebateTemp({ ...rebateTemp, participa: e.target.checked })}
-                              style={{ width: '16px', height: '16px' }}
                             />
-                            <span style={{ fontSize: '12px' }}>Rebate</span>
-                          </div>
+                            <span>Rebate</span>
+                          </label>
                           {rebateTemp.participa && (
                             <input
                               type="number"
                               step="0.1"
                               value={rebateTemp.porcentaje}
                               onChange={(e) => setRebateTemp({ ...rebateTemp, porcentaje: parseFloat(e.target.value) })}
-                              style={{ width: '60px', padding: '4px', fontSize: '12px' }}
                               placeholder="%"
                             />
                           )}
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            <button onClick={() => guardarRebate(p.item_id)} style={{ padding: '4px 8px', fontSize: '12px' }}>✓</button>
-                            <button onClick={() => setEditandoRebate(null)} style={{ padding: '4px 8px', fontSize: '12px' }}>✗</button>
+                          <div className="inline-edit">
+                            <button onClick={() => guardarRebate(p.item_id)}>✓</button>
+                            <button onClick={() => setEditandoRebate(null)}>✗</button>
                           </div>
                         </div>
                       ) : (
-                        <div
-                          style={{ cursor: 'pointer', padding: '4px' }}
-                          onClick={() => iniciarEdicionRebate(p)}
-                        >
+                        <div className="rebate-info" onClick={() => iniciarEdicionRebate(p)}>
                           {p.participa_rebate && p.precio_rebate ? (
                             <div>
-                              <div style={{
-                                fontSize: '14px',
-                                fontWeight: '600',
-                                color: '#8b5cf6',
-                                borderBottom: '1px dashed #ccc'
-                              }}>
+                              <div className="rebate-price">
                                 ${p.precio_rebate.toFixed(2).toLocaleString('es-AR')}
                               </div>
-                              <div style={{
-                                fontSize: '11px',
-                                color: '#6b7280'
-                              }}>
+                              <div className="rebate-percentage">
                                 {p.porcentaje_rebate}% rebate
                               </div>
-                              {/* AGREGAR ESTE CHECKBOX */}
-                              <label 
-                                style={{ 
-                                  display: 'flex', 
-                                  alignItems: 'center', 
-                                  marginTop: '4px',
-                                  fontSize: '11px',
-                                  cursor: 'pointer'
-                                }}
-                                onClick={(e) => e.stopPropagation()} // Evitar que abra la edición
+                              <label
+                                className="out-of-cards-checkbox"
+                                onClick={(e) => e.stopPropagation()}
                               >
                                 <input
                                   type="checkbox"
@@ -1136,163 +1088,124 @@ export default function Productos() {
                                   onChange={async (e) => {
                                     e.stopPropagation();
                                     try {
-                                      const response = await axios.patch(
+                                      await axios.patch(
                                         `${API_URL}/productos/${p.item_id}/out-of-cards`,
                                         { out_of_cards: e.target.checked },
                                         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
                                       );
-                                      console.log('Respuesta:', response.data);
-                                      await cargarProductos(); // Esperar a que termine
+                                      await cargarProductos();
                                     } catch (error) {
-                                      console.error('Error completo:', error);
-                                      alert(`Error al actualizar: ${error.response?.data?.detail || error.message}`);
+                                      console.error('Error:', error);
+                                      alert(`Error: ${error.response?.data?.detail || error.message}`);
                                     }
                                   }}
-                                  style={{ marginRight: '4px' }}
                                 />
                                 Out of Cards
                               </label>
                             </div>
                           ) : (
-                            <div style={{ borderBottom: '1px dashed #ccc', display: 'inline-block', fontSize: '12px', color: '#9ca3af' }}>
+                            <div className="text-muted editable-field">
                               Sin rebate
                             </div>
                           )}
                         </div>
                       )}
                     </td>
-                   	<td>
-                   	  {p.mejor_oferta_precio ? (
-                   	    <div style={{ fontSize: '12px' }}>
-                   	      <div style={{ fontWeight: '600', color: '#059669' }}>
-                   	        ${p.mejor_oferta_precio.toLocaleString('es-AR')}
-                   	      </div>
-                   	      {p.mejor_oferta_porcentaje_rebate && (
-                   	        <div style={{ fontSize: '11px', color: '#7c3aed', fontWeight: '600' }}>
-                   	          {p.mejor_oferta_porcentaje_rebate.toFixed(2)}%
-                   	        </div>
-                   	      )}
-                   	      {p.mejor_oferta_monto_rebate && (
-                   	        <div style={{ fontSize: '11px', color: '#7c3aed' }}>
-                   	          Rebate: ${p.mejor_oferta_monto_rebate.toLocaleString('es-AR')}
-                   	        </div>
-                   	      )}
-                   	      {p.mejor_oferta_fecha_hasta && (
-                   	        <div style={{ fontSize: '10px', color: '#6b7280' }}>
-                   	          Hasta {new Date(p.mejor_oferta_fecha_hasta).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
-                   	        </div>
-                   	      )}
-                   	      {p.mejor_oferta_pvp_seller && (
-                   	        <div style={{ fontSize: '11px', color: '#6b7280' }}>
-                   	          PVP: ${p.mejor_oferta_pvp_seller.toLocaleString('es-AR')}
-                   	        </div>
-                   	      )}
-                   	      {p.mejor_oferta_markup !== null && (
-                   	        <div style={{
-                   	          fontSize: '11px',
-                   	          fontWeight: '600',
-                   	          color: getMarkupColor(p.mejor_oferta_markup * 100),
-                   	          marginTop: '2px'
-                   	        }}>
-                   	          Markup: {(p.mejor_oferta_markup * 100).toFixed(2)}%
-                   	        </div>
-                   	      )}
-                   	    </div>
-                   	  ) : (
-                   	    <span style={{ color: '#9ca3af', fontSize: '12px' }}>-</span>
-                   	  )}
-                   	</td>
-
-                   	<td style={{ padding: '8px' }}>
-                   	  {editandoWebTransf === p.item_id ? (
-                   	    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                   	      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
-                   	        <input
-                   	          type="checkbox"
-                   	          checked={webTransfTemp.participa}
-                   	          onChange={(e) => setWebTransfTemp({...webTransfTemp, participa: e.target.checked})}
-                   	        />
-                   	        Participa
-                   	      </label>
-                   	      <input
-                   	        type="number"
-                   	        step="0.1"
-                   	        value={webTransfTemp.porcentaje}
-                   	        onChange={(e) => setWebTransfTemp({...webTransfTemp, porcentaje: parseFloat(e.target.value)})}
-                   	        style={{ padding: '4px', width: '60px', borderRadius: '4px', border: '1px solid #d1d5db' }}
-                   	        placeholder="%"
-                   	      />
-                   	      <div style={{ display: 'flex', gap: '4px' }}>
-                   	        <button
-                   	          onClick={() => guardarWebTransf(p.item_id)}
-                   	          style={{ padding: '4px 8px', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                   	        >
-                   	          ✓
-                   	        </button>
-                   	        <button
-                   	          onClick={() => setEditandoWebTransf(null)}
-                   	          style={{ padding: '4px 8px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                   	        >
-                   	          ✗
-                   	        </button>
-                   	      </div>
-                   	    </div>
-                   	  ) : (
-                   	    <div onClick={() => iniciarEdicionWebTransf(p)} style={{ cursor: 'pointer' }}>
-                   	      {p.participa_web_transferencia ? (
-                   	        <div>
-                   	          <div style={{ fontSize: '12px', color: getMarkupColor(p.markup_web_real), fontWeight: '600' }}>
-                   	            ✓ {p.markup_web_real ? `${p.markup_web_real.toFixed(2)}%` : '-'}
-                   	          </div>
-                   	          <div style={{ fontSize: '10px', color: '#6b7280' }}>
-                   	            (+{p.porcentaje_markup_web}%)
-                   	          </div>
-                   	          {p.precio_web_transferencia && (
-                   	            <div style={{ fontSize: '13px', fontWeight: '600', marginTop: '2px' }}>
-                   	              ${p.precio_web_transferencia.toLocaleString('es-AR')}
-                   	            </div>
-                   	          )}
-                   	        </div>
-                   	      ) : (
-                   	        <span style={{ fontSize: '11px', color: '#9ca3af' }}>-</span>
-                   	      )}
-                   	    </div>
-                   	  )}
-                   	</td>
-                   	
-                    {/* Cambiar de botón a iconos */}
-                    <td style={{ padding: '8px', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                        {/* Icono de detalle */}
+                    <td>
+                      {p.mejor_oferta_precio ? (
+                        <div className="mejor-oferta-info">
+                          <div className="mejor-oferta-precio">
+                            ${p.mejor_oferta_precio.toLocaleString('es-AR')}
+                          </div>
+                          {p.mejor_oferta_porcentaje_rebate && (
+                            <div className="mejor-oferta-rebate">
+                              {p.mejor_oferta_porcentaje_rebate.toFixed(2)}%
+                            </div>
+                          )}
+                          {p.mejor_oferta_monto_rebate && (
+                            <div className="mejor-oferta-rebate">
+                              Rebate: ${p.mejor_oferta_monto_rebate.toLocaleString('es-AR')}
+                            </div>
+                          )}
+                          {p.mejor_oferta_fecha_hasta && (
+                            <div className="mejor-oferta-detalle">
+                              Hasta {new Date(p.mejor_oferta_fecha_hasta).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
+                            </div>
+                          )}
+                          {p.mejor_oferta_pvp_seller && (
+                            <div className="mejor-oferta-detalle">
+                              PVP: ${p.mejor_oferta_pvp_seller.toLocaleString('es-AR')}
+                            </div>
+                          )}
+                          {p.mejor_oferta_markup !== null && (
+                            <div className="mejor-oferta-detalle" style={{ color: getMarkupColor(p.mejor_oferta_markup * 100) }}>
+                              Markup: {(p.mejor_oferta_markup * 100).toFixed(2)}%
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted">-</span>
+                      )}
+                    </td>
+                    <td>
+                      {editandoWebTransf === p.item_id ? (
+                        <div className="web-transf-edit">
+                          <label className="web-transf-checkbox">
+                            <input
+                              type="checkbox"
+                              checked={webTransfTemp.participa}
+                              onChange={(e) => setWebTransfTemp({...webTransfTemp, participa: e.target.checked})}
+                            />
+                            Participa
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={webTransfTemp.porcentaje}
+                            onChange={(e) => setWebTransfTemp({...webTransfTemp, porcentaje: parseFloat(e.target.value)})}
+                            placeholder="%"
+                          />
+                          <div className="inline-edit">
+                            <button onClick={() => guardarWebTransf(p.item_id)}>✓</button>
+                            <button onClick={() => setEditandoWebTransf(null)}>✗</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="web-transf-info" onClick={() => iniciarEdicionWebTransf(p)}>
+                          {p.participa_web_transferencia ? (
+                            <div>
+                              <div className="web-transf-markup" style={{ color: getMarkupColor(p.markup_web_real) }}>
+                                ✓ {p.markup_web_real ? `${p.markup_web_real.toFixed(2)}%` : '-'}
+                              </div>
+                              <div className="web-transf-porcentaje">
+                                (+{p.porcentaje_markup_web}%)
+                              </div>
+                              {p.precio_web_transferencia && (
+                                <div className="web-transf-precio">
+                                  ${p.precio_web_transferencia.toLocaleString('es-AR')}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted">-</span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="table-actions">
+                      <div className="table-actions-group">
                         {puedeEditar && (
-                        <button
-                          onClick={() => setProductoSeleccionado(p)}
-                          style={{
-                            padding: '6px 8px',
-                            background: '#3b82f6',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '16px'
-                          }}
-                          title="Ver detalle"
-                        >
-                          🔍
-                        </button>
+                          <button
+                            onClick={() => setProductoSeleccionado(p)}
+                            className="icon-button detail"
+                            title="Ver detalle"
+                          >
+                            🔍
+                          </button>
                         )}
-                        {/* Icono de auditoría */}
                         <button
                           onClick={() => verAuditoria(p.item_id)}
-                          style={{
-                            padding: '6px 8px',
-                            background: '#8b5cf6',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '16px'
-                          }}
+                          className="icon-button audit"
                           title="Ver historial de cambios"
                         >
                           📋
@@ -1304,87 +1217,48 @@ export default function Productos() {
               </tbody>
             </table>
 
-            {/* Modal de Auditoría */}
             {auditoriaVisible && (
-              <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(0,0,0,0.5)',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                zIndex: 1000
-              }}>
-                <div style={{
-                  background: 'white',
-                  borderRadius: '12px',
-                  padding: '24px',
-                  maxWidth: '800px',
-                  width: '90%',
-                  maxHeight: '80vh',
-                  overflow: 'auto'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <div className="modal-overlay">
+                <div className="modal-content">
+                  <div className="modal-header">
                     <h2>📋 Historial de Cambios de Precio</h2>
-                    <button
-                      onClick={() => setAuditoriaVisible(false)}
-                      style={{
-                        padding: '8px 16px',
-                        background: '#ef4444',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: 'pointer'
-                      }}
-                    >
+                    <button onClick={() => setAuditoriaVisible(false)} className="modal-close">
                       Cerrar
                     </button>
                   </div>
-            
+
                   {auditoriaData.length === 0 ? (
-                    <p style={{ textAlign: 'center', color: '#666' }}>No hay cambios registrados</p>
+                    <p className="text-muted">No hay cambios registrados</p>
                   ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left' }}>
-                          <th style={{ padding: '12px' }}>Fecha</th>
-                          <th style={{ padding: '12px' }}>Usuario</th>
-                          <th style={{ padding: '12px' }}>Precio Anterior</th>
-                          <th style={{ padding: '12px' }}>Precio Nuevo</th>
-                          <th style={{ padding: '12px' }}>Cambio</th>
+                    <table className="table">
+                      <thead className="table-head">
+                        <tr>
+                          <th>Fecha</th>
+                          <th>Usuario</th>
+                          <th>Precio Anterior</th>
+                          <th>Precio Nuevo</th>
+                          <th>Cambio</th>
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody className="table-body">
                         {auditoriaData.map(item => {
                           const cambio = item.precio_nuevo - item.precio_anterior;
                           const porcentaje = ((cambio / item.precio_anterior) * 100).toFixed(2);
-                          
+
                           return (
-                            <tr key={item.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                             <td style={{ padding: '12px' }}>
-                                {formatearFechaGMT3(item.fecha_cambio)}
-                              </td>
-                              <td style={{ padding: '12px' }}>
+                            <tr key={item.id}>
+                              <td>{formatearFechaGMT3(item.fecha_cambio)}</td>
+                              <td>
                                 <div>
                                   <strong>{item.usuario_nombre}</strong>
                                   <br />
-                                  <small style={{ color: '#666' }}>{item.usuario_email}</small>
+                                  <small className="text-muted">{item.usuario_email}</small>
                                 </div>
                               </td>
-                              <td style={{ padding: '12px' }}>
-                                ${item.precio_anterior.toFixed(2)}
-                              </td>
-                              <td style={{ padding: '12px' }}>
-                                ${item.precio_nuevo.toFixed(2)}
-                              </td>
-                              <td style={{ padding: '12px' }}>
-                                <span style={{
-                                  color: cambio >= 0 ? '#059669' : '#dc2626',
-                                  fontWeight: 'bold'
-                                }}>
+                              <td>${item.precio_anterior.toFixed(2)}</td>
+                              <td>${item.precio_nuevo.toFixed(2)}</td>
+                              <td>
+                                <span className={cambio >= 0 ? 'text-success' : 'text-danger'} style={{ fontWeight: 'bold' }}>
                                   {cambio >= 0 ? '+' : ''}{cambio.toFixed(2)} ({porcentaje}%)
                                 </span>
                               </td>
@@ -1398,19 +1272,19 @@ export default function Productos() {
               </div>
             )}
 
-            <div className={styles.pagination}>
-              <button 
-                onClick={() => setPage(p => Math.max(1, p - 1))} 
-                disabled={page === 1} 
-                className={styles.paginationBtn}
+            <div className="pagination">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="pagination-btn"
               >
                 ← Anterior
               </button>
               <span>Página {page} {totalProductos > 0 && `(${((page-1)*pageSize + 1)} - ${Math.min(page*pageSize, totalProductos)})`}</span>
-              <button 
-                onClick={() => setPage(p => p + 1)} 
-                disabled={productos.length < pageSize} 
-                className={styles.paginationBtn}
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={productos.length < pageSize}
+                className="pagination-btn"
               >
                 Siguiente →
               </button>
@@ -1420,46 +1294,46 @@ export default function Productos() {
       </div>
 
       {productoSeleccionado && (
-            <PricingModal
-              producto={productoSeleccionado}
-              onClose={() => setProductoSeleccionado(null)}
-              onSave={() => {
-                setProductoSeleccionado(null);
-                cargarProductos();
-                cargarStats();
-              }}
-            />
-          )}
-          
-          {mostrarCalcularWebModal && (
-            <CalcularWebModal
-              onClose={() => setMostrarCalcularWebModal(false)}
-              onSuccess={() => {
-                cargarProductos();
-                cargarStats();
-              }}
-              filtrosActivos={{
-                search: debouncedSearch,
-                con_stock: filtroStock === 'con_stock' ? true : filtroStock === 'sin_stock' ? false : null,
-                con_precio: filtroPrecio === 'con_precio' ? true : filtroPrecio === 'sin_precio' ? false : null,
-                marcas: marcasSeleccionadas,
-                subcategorias: subcategoriasSeleccionadas
-              }}
-            />
-          )}
-          
-          {mostrarExportModal && (
-            <ExportModal 
-              onClose={() => setMostrarExportModal(false)}
-              filtrosActivos={{
-                search: debouncedSearch,
-                con_stock: filtroStock === 'con_stock' ? true : filtroStock === 'sin_stock' ? false : null,
-                con_precio: filtroPrecio === 'con_precio' ? true : filtroPrecio === 'sin_precio' ? false : null,
-                marcas: marcasSeleccionadas,
-                subcategorias: subcategoriasSeleccionadas
-              }}
-            />
-          )}
-        </div>
+        <PricingModal
+          producto={productoSeleccionado}
+          onClose={() => setProductoSeleccionado(null)}
+          onSave={() => {
+            setProductoSeleccionado(null);
+            cargarProductos();
+            cargarStats();
+          }}
+        />
+      )}
+
+      {mostrarCalcularWebModal && (
+        <CalcularWebModal
+          onClose={() => setMostrarCalcularWebModal(false)}
+          onSuccess={() => {
+            cargarProductos();
+            cargarStats();
+          }}
+          filtrosActivos={{
+            search: debouncedSearch,
+            con_stock: filtroStock === 'con_stock' ? true : filtroStock === 'sin_stock' ? false : null,
+            con_precio: filtroPrecio === 'con_precio' ? true : filtroPrecio === 'sin_precio' ? false : null,
+            marcas: marcasSeleccionadas,
+            subcategorias: subcategoriasSeleccionadas
+          }}
+        />
+      )}
+
+      {mostrarExportModal && (
+        <ExportModal
+          onClose={() => setMostrarExportModal(false)}
+          filtrosActivos={{
+            search: debouncedSearch,
+            con_stock: filtroStock === 'con_stock' ? true : filtroStock === 'sin_stock' ? false : null,
+            con_precio: filtroPrecio === 'con_precio' ? true : filtroPrecio === 'sin_precio' ? false : null,
+            marcas: marcasSeleccionadas,
+            subcategorias: subcategoriasSeleccionadas
+          }}
+        />
+      )}
+    </div>
       );
     }

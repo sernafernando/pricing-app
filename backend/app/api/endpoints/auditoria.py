@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from sqlalchemy import and_, or_
+from typing import List, Optional 
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.auditoria_precio import AuditoriaPrecio
+from app.models.auditoria import Auditoria, TipoAccion
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -110,3 +112,131 @@ async def obtener_ultimos_cambios(
         })
     
     return resultado
+
+
+class AuditoriaGeneralResponse(BaseModel):
+    id: int
+    item_id: Optional[int]
+    usuario_id: int
+    usuario_nombre: Optional[str]
+    tipo_accion: str
+    valores_anteriores: Optional[dict]
+    valores_nuevos: Optional[dict]
+    es_masivo: bool
+    productos_afectados: Optional[int]
+    comentario: Optional[str]
+    fecha: datetime
+
+    class Config:
+        from_attributes = True
+
+class AuditoriaListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    registros: List[AuditoriaGeneralResponse]
+
+@router.get("/auditoria", response_model=AuditoriaListResponse)
+async def listar_auditoria_general(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    usuarios: Optional[str] = None,
+    tipos_accion: Optional[str] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+    item_id: Optional[int] = None,
+    es_masivo: Optional[bool] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Lista registros de auditoría general con filtros"""
+    
+    query = db.query(Auditoria, Usuario).join(
+        Usuario, Auditoria.usuario_id == Usuario.id
+    )
+    
+    if usuarios:
+        usuarios_ids = [int(u) for u in usuarios.split(',')]
+        query = query.filter(Auditoria.usuario_id.in_(usuarios_ids))
+    
+    if tipos_accion:
+        tipos_list = tipos_accion.split(',')
+        query = query.filter(Auditoria.tipo_accion.in_(tipos_list))
+    
+    if fecha_desde:
+        try:
+            fecha_desde_dt = datetime.strptime(fecha_desde, '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            fecha_desde_dt = datetime.strptime(fecha_desde, '%Y-%m-%d')
+        query = query.filter(Auditoria.fecha >= fecha_desde_dt)
+    
+    if fecha_hasta:
+        try:
+            fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d')
+            fecha_hasta_dt = fecha_hasta_dt.replace(hour=23, minute=59, second=59)
+        query = query.filter(Auditoria.fecha <= fecha_hasta_dt)
+    
+    if item_id:
+        query = query.filter(Auditoria.item_id == item_id)
+    
+    if es_masivo is not None:
+        query = query.filter(Auditoria.es_masivo == es_masivo)
+    
+    query = query.order_by(Auditoria.fecha.desc())
+    
+    total = query.count()
+    offset = (page - 1) * page_size
+    results = query.offset(offset).limit(page_size).all()
+    
+    registros = [
+        AuditoriaGeneralResponse(
+            id=auditoria.id,
+            item_id=auditoria.item_id,
+            usuario_id=auditoria.usuario_id,
+            usuario_nombre=usuario.nombre,
+            tipo_accion=auditoria.tipo_accion,
+            valores_anteriores=auditoria.valores_anteriores,
+            valores_nuevos=auditoria.valores_nuevos,
+            es_masivo=auditoria.es_masivo,
+            productos_afectados=auditoria.productos_afectados,
+            comentario=auditoria.comentario,
+            fecha=auditoria.fecha
+        )
+        for auditoria, usuario in results
+    ]
+    
+    return AuditoriaListResponse(
+        total=total,
+        page=page,
+        page_size=page_size,
+        registros=registros
+    )
+
+@router.get("/auditoria/tipos-accion")
+async def listar_tipos_accion(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Lista todos los tipos de acción disponibles"""
+    return {
+        "tipos": [tipo.value for tipo in TipoAccion]
+    }
+
+@router.get("/auditoria/usuarios")
+async def listar_usuarios_auditoria(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Lista usuarios que han realizado modificaciones"""
+    usuarios = db.query(Usuario).join(
+        Auditoria, Usuario.id == Auditoria.usuario_id
+    ).distinct().all()
+    
+    return {
+        "usuarios": [
+            {"id": u.id, "nombre": u.nombre, "email": u.email}
+            for u in usuarios
+        ]
+    }
