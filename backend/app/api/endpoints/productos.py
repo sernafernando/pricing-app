@@ -898,19 +898,27 @@ async def exportar_rebate(
         # Si no tiene MLAs, skip
         if not mlas:
             continue
-        
-        # Obtener precio de lista clásica
+
+        # Obtener precio de lista clásica (pricelist_id = 4) de PrecioML
         from app.models.precio_ml import PrecioML
         precio_clasica = db.query(PrecioML).filter(
             PrecioML.item_id == producto_erp.item_id,
             PrecioML.pricelist_id == 4
         ).first()
-        
-        pvp_lleno = float(precio_clasica.precio) if precio_clasica else 0
-        
-        # Calcular PVP Seller (precio con rebate aplicado)
+
+        # PVP LLENO = Precio de la lista de precios 4 en MercadoLibre
+        pvp_lleno = float(precio_clasica.precio) if precio_clasica and precio_clasica.precio else 0
+
+        if pvp_lleno == 0:
+            continue
+
+        # PVP SELLER = Precio con rebate aplicado (mismo cálculo que en línea 369)
+        # Basado en precio_lista_ml de ProductoPricing
+        if not producto_pricing.precio_lista_ml:
+            continue
+
         porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
-        pvp_seller = pvp_lleno * (1 - porcentaje_rebate / 100)
+        pvp_seller = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate / 100)
         
         # Una fila por cada MLA
         for mla in mlas:
