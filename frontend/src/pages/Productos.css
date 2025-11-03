@@ -925,13 +925,21 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Filas coloreadas - mantener color de texto del tema */
+/* Filas coloreadas - usar texto oscuro sobre colores pastel */
 .row-colored {
-  color: var(--text-primary) !important;
+  color: #1f2937 !important;
 }
 
 .row-colored td {
-  color: var(--text-primary) !important;
+  color: #1f2937 !important;
+}
+
+.row-colored .markup-display,
+.row-colored .text-muted,
+.row-colored .text-success,
+.row-colored .text-danger,
+.row-colored small {
+  color: #374151 !important;
 }
 
 /* Modal */

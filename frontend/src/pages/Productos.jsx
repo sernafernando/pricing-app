@@ -1194,12 +1194,11 @@ export default function Productos() {
               <tbody className="table-body">
                 {productosOrdenados.map((p) => {
                   const colorInfo = COLORES_DISPONIBLES.find(c => c.id === p.color_marcado);
+                  const rowStyle = colorInfo?.color ? { backgroundColor: colorInfo.color } : {};
                   return (
                   <tr
                     key={p.item_id}
-                    style={{
-                      backgroundColor: colorInfo?.color || 'transparent'
-                    }}
+                    style={rowStyle}
                     className={p.color_marcado ? 'row-colored' : ''}
                   >
                     <td>{p.codigo}</td>
