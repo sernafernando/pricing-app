@@ -343,7 +343,7 @@ export default function Productos() {
     { id: 'azul', nombre: 'Info', color: '#dbeafe', colorTexto: '#1e40af' },
     { id: 'purpura', nombre: 'Revisión', color: '#e9d5ff', colorTexto: '#6b21a8' },
     { id: 'gris', nombre: 'Inactivo', color: '#e5e7eb', colorTexto: '#374151' },
-    { id: null, nombre: 'Sin color', color: '#ffffff', colorTexto: '#000000' },
+    { id: null, nombre: 'Sin color', color: null, colorTexto: null },
   ];
 
   const cambiarColorProducto = async (itemId, color) => {
