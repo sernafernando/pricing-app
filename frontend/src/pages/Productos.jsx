@@ -58,6 +58,8 @@ export default function Productos() {
   const [filtroMarkupWebTransf, setFiltroMarkupWebTransf] = useState(null);
   const [filtroOutOfCards, setFiltroOutOfCards] = useState(null);
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
+  const [colorDropdownAbierto, setColorDropdownAbierto] = useState(null); // item_id del producto
+  const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
 
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
@@ -72,7 +74,7 @@ export default function Productos() {
 
   useEffect(() => {
     cargarProductos();
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards]);
+  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados]);
 
   const cargarStats = async () => {
     try {
@@ -259,6 +261,8 @@ export default function Productos() {
       if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
       if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
 
+      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
+
       if (ordenColumnas.length > 0) {
         params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
         params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
@@ -329,6 +333,36 @@ export default function Productos() {
     if (markup < 0) return '#ef4444';
     if (markup < 1) return '#f97316';
     return '#059669';
+  };
+
+  const COLORES_DISPONIBLES = [
+    { id: 'rojo', nombre: 'Urgente', color: '#fee2e2', colorTexto: '#991b1b' },
+    { id: 'naranja', nombre: 'Advertencia', color: '#fed7aa', colorTexto: '#9a3412' },
+    { id: 'amarillo', nombre: 'Atención', color: '#fef3c7', colorTexto: '#92400e' },
+    { id: 'verde', nombre: 'OK', color: '#d1fae5', colorTexto: '#065f46' },
+    { id: 'azul', nombre: 'Info', color: '#dbeafe', colorTexto: '#1e40af' },
+    { id: 'purpura', nombre: 'Revisión', color: '#e9d5ff', colorTexto: '#6b21a8' },
+    { id: 'gris', nombre: 'Inactivo', color: '#e5e7eb', colorTexto: '#374151' },
+    { id: null, nombre: 'Sin color', color: '#ffffff', colorTexto: '#000000' },
+  ];
+
+  const cambiarColorProducto = async (itemId, color) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.patch(
+        `https://pricing.gaussonline.com.ar/api/productos/${itemId}/color`,
+        null,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { color }
+        }
+      );
+      setColorDropdownAbierto(null);
+      cargarProductos();
+    } catch (error) {
+      console.error('Error cambiando color:', error);
+      alert('Error al cambiar el color');
+    }
   };
 
   const handleSearchChange = (e) => {
@@ -532,12 +566,12 @@ export default function Productos() {
           {/* Botón de filtros avanzados */}
           <button
             onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
-            className={`filter-button advanced ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) ? 'active' : ''}`}
+            className={`filter-button advanced ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
           >
             🎯 Filtros Avanzados
-            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) && (
+            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) && (
               <span className="filter-badge">
-                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length}
+                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length}
               </span>
             )}
           </button>
@@ -925,6 +959,7 @@ export default function Productos() {
                 setFiltroMarkupOferta(null);
                 setFiltroMarkupWebTransf(null);
                 setFiltroOutOfCards(null);
+                setColoresSeleccionados([]);
                 setPage(1);
               }}
               className="btn-clear-all"
@@ -1049,6 +1084,47 @@ export default function Productos() {
                 </div>
               </div>
             </div>
+
+            {/* Filtros de Color */}
+            <div className="filter-group">
+              <div className="filter-group-title">🎨 Marcado por Color</div>
+              <div className="filter-group-content" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {COLORES_DISPONIBLES.filter(c => c.id !== null).map(c => (
+                  <label
+                    key={c.id}
+                    className="color-checkbox"
+                    style={{
+                      backgroundColor: c.color,
+                      border: coloresSeleccionados.includes(c.id) ? '3px solid #000' : '2px solid #ccc',
+                      cursor: 'pointer',
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s'
+                    }}
+                    title={c.nombre}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={coloresSeleccionados.includes(c.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setColoresSeleccionados([...coloresSeleccionados, c.id]);
+                        } else {
+                          setColoresSeleccionados(coloresSeleccionados.filter(color => color !== c.id));
+                        }
+                        setPage(1);
+                      }}
+                      style={{ display: 'none' }}
+                    />
+                    {coloresSeleccionados.includes(c.id) && <span style={{ fontSize: '20px' }}>✓</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1116,8 +1192,16 @@ export default function Productos() {
                 </tr>
               </thead>
               <tbody className="table-body">
-                {productosOrdenados.map((p) => (
-                  <tr key={p.item_id}>
+                {productosOrdenados.map((p) => {
+                  const colorInfo = COLORES_DISPONIBLES.find(c => c.id === p.color_marcado);
+                  return (
+                  <tr
+                    key={p.item_id}
+                    style={{
+                      backgroundColor: colorInfo?.color || 'transparent',
+                      color: colorInfo?.colorTexto || 'inherit'
+                    }}
+                  >
                     <td>{p.codigo}</td>
                     <td>{p.descripcion}</td>
                     <td>{p.marca}</td>
@@ -1322,10 +1406,39 @@ export default function Productos() {
                         >
                           📋
                         </button>
+                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                          <button
+                            onClick={() => setColorDropdownAbierto(colorDropdownAbierto === p.item_id ? null : p.item_id)}
+                            className="icon-button color"
+                            title="Marcar con color"
+                          >
+                            🎨
+                          </button>
+                          {colorDropdownAbierto === p.item_id && (
+                            <div className="color-dropdown">
+                              {COLORES_DISPONIBLES.map(c => (
+                                <button
+                                  key={c.id || 'sin-color'}
+                                  className="color-option"
+                                  style={{
+                                    backgroundColor: c.color,
+                                    color: c.colorTexto,
+                                    border: c.id === p.color_marcado ? '2px solid #000' : '1px solid #ccc'
+                                  }}
+                                  onClick={() => cambiarColorProducto(p.item_id, c.id)}
+                                  title={c.nombre}
+                                >
+                                  {c.nombre}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
 

@@ -55,7 +55,9 @@ class ProductoPricing(Base):
     participa_web_transferencia = Column(Boolean, default=False)
     porcentaje_markup_web = Column(Numeric(5, 2), default=6.0)
     precio_web_transferencia = Column(Numeric(15, 2))
-    
+
+    color_marcado = Column(String(20), default=None)  # rojo, naranja, amarillo, verde, azul, purpura, gris, NULL
+
     producto = relationship("ProductoERP", back_populates="pricing")
     usuario = relationship("Usuario", back_populates="precios_modificados")
     historial = relationship("HistorialPrecio", back_populates="producto_pricing")

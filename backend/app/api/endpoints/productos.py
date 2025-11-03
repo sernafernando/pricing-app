@@ -47,6 +47,7 @@ class ProductoResponse(BaseModel):
     mejor_oferta_porcentaje_rebate: Optional[float] = None
     mejor_oferta_fecha_hasta: Optional[date] = None
     out_of_cards: Optional[bool] = False
+    color_marcado: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -90,6 +91,7 @@ async def listar_productos(
     markup_oferta_positivo: Optional[bool] = None,
     markup_web_transf_positivo: Optional[bool] = None,
     out_of_cards: Optional[bool] = None,
+    colores: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
@@ -218,6 +220,11 @@ async def listar_productos(
                     ProductoPricing.out_of_cards.is_(None)
                 )
             )
+
+    # Filtro de colores
+    if colores:
+        colores_list = colores.split(',')
+        query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
 
     # Ordenamiento
     orden_requiere_calculo = False
@@ -435,6 +442,7 @@ async def listar_productos(
             mejor_oferta_porcentaje_rebate=mejor_oferta_porcentaje,
             mejor_oferta_fecha_hasta=mejor_oferta_fecha_hasta,
             out_of_cards=producto_pricing.out_of_cards if producto_pricing else False,
+            color_marcado=producto_pricing.color_marcado if producto_pricing else None,
         )
 
         # Aplicar filtros dinámicos
@@ -1244,6 +1252,38 @@ async def limpiar_web_transferencia(
     return {
         "mensaje": "Web transferencia desactivada en todos los productos",
         "productos_actualizados": count
+    }
+
+@router.patch("/productos/{item_id}/color")
+async def actualizar_color_producto(
+    item_id: int,
+    color: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Actualiza el color de marcado de un producto"""
+
+    # Validar color
+    colores_validos = ['rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris', None]
+    if color not in colores_validos:
+        raise HTTPException(status_code=400, detail="Color inválido")
+
+    # Buscar producto pricing
+    producto_pricing = db.query(ProductoPricing).filter(
+        ProductoPricing.item_id == item_id
+    ).first()
+
+    if not producto_pricing:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    color_anterior = producto_pricing.color_marcado
+    producto_pricing.color_marcado = color
+    db.commit()
+
+    return {
+        "mensaje": "Color actualizado",
+        "color_anterior": color_anterior,
+        "color_nuevo": color
     }
 
 @router.get("/subcategorias")
