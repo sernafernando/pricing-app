@@ -105,6 +105,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
         if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') body.filtros.out_of_cards = true;
         if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') body.filtros.out_of_cards = false;
         if (filtrosActivos.coloresSeleccionados?.length > 0) body.filtros.colores = filtrosActivos.coloresSeleccionados.join(',');
+        if (filtrosActivos.pmsSeleccionados?.length > 0) body.filtros.pms = filtrosActivos.pmsSeleccionados.join(',');
         if (filtrosActivos.audit_usuarios?.length > 0) body.filtros.audit_usuarios = filtrosActivos.audit_usuarios.join(',');
         if (filtrosActivos.audit_tipos_accion?.length > 0) body.filtros.audit_tipos_accion = filtrosActivos.audit_tipos_accion.join(',');
         if (filtrosActivos.audit_fecha_desde) body.filtros.audit_fecha_desde = filtrosActivos.audit_fecha_desde;

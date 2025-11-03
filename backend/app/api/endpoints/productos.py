@@ -1032,6 +1032,88 @@ async def exportar_rebate(
             colores_list = filtros['colores'].split(',')
             query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
 
+        if filtros.get('pms'):
+            from app.models.marca_pm import MarcaPM
+            pms_ids = [int(pm) for pm in filtros['pms'].split(',')]
+            marcas_asignadas = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pms_ids)).all()
+            marcas_list = [m[0].upper() for m in marcas_asignadas]
+            if marcas_list:
+                query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
+
+        if filtros.get('con_rebate') is not None:
+            if filtros['con_rebate']:
+                query = query.filter(ProductoPricing.participa_rebate == True)
+            else:
+                query = query.filter(
+                    or_(
+                        ProductoPricing.participa_rebate == False,
+                        ProductoPricing.participa_rebate.is_(None)
+                    )
+                )
+
+        if filtros.get('out_of_cards') is not None:
+            if filtros['out_of_cards']:
+                query = query.filter(ProductoPricing.out_of_cards == True)
+            else:
+                query = query.filter(
+                    or_(
+                        ProductoPricing.out_of_cards == False,
+                        ProductoPricing.out_of_cards.is_(None)
+                    )
+                )
+
+        if filtros.get('markup_clasica_positivo') is not None:
+            if filtros['markup_clasica_positivo']:
+                query = query.filter(ProductoPricing.markup > 0)
+            else:
+                query = query.filter(ProductoPricing.markup <= 0)
+
+        if filtros.get('markup_rebate_positivo') is not None:
+            if filtros['markup_rebate_positivo']:
+                query = query.filter(ProductoPricing.markup_rebate > 0)
+            else:
+                query = query.filter(ProductoPricing.markup_rebate <= 0)
+
+        if filtros.get('markup_oferta_positivo') is not None:
+            if filtros['markup_oferta_positivo']:
+                query = query.filter(ProductoPricing.mejor_oferta_markup > 0)
+            else:
+                query = query.filter(ProductoPricing.mejor_oferta_markup <= 0)
+
+        if filtros.get('markup_web_transf_positivo') is not None:
+            if filtros['markup_web_transf_positivo']:
+                query = query.filter(ProductoPricing.markup_web_real > 0)
+            else:
+                query = query.filter(ProductoPricing.markup_web_real <= 0)
+
+        # Filtros de auditoría
+        if filtros.get('audit_usuarios') or filtros.get('audit_tipos_accion') or filtros.get('audit_fecha_desde') or filtros.get('audit_fecha_hasta'):
+            from app.models.auditoria_precio import AuditoriaPrecio
+
+            # Subquery para obtener item_ids que cumplen con los filtros de auditoría
+            audit_query = db.query(AuditoriaPrecio.item_id).distinct()
+
+            if filtros.get('audit_usuarios'):
+                usuarios_ids = [int(u) for u in filtros['audit_usuarios'].split(',')]
+                audit_query = audit_query.filter(AuditoriaPrecio.usuario_id.in_(usuarios_ids))
+
+            if filtros.get('audit_tipos_accion'):
+                tipos_list = filtros['audit_tipos_accion'].split(',')
+                audit_query = audit_query.filter(AuditoriaPrecio.tipo_accion.in_(tipos_list))
+
+            if filtros.get('audit_fecha_desde'):
+                audit_query = audit_query.filter(AuditoriaPrecio.fecha >= filtros['audit_fecha_desde'])
+
+            if filtros.get('audit_fecha_hasta'):
+                audit_query = audit_query.filter(AuditoriaPrecio.fecha <= filtros['audit_fecha_hasta'])
+
+            item_ids_auditados = [item_id for (item_id,) in audit_query.all()]
+            if item_ids_auditados:
+                query = query.filter(ProductoERP.item_id.in_(item_ids_auditados))
+            else:
+                # Si no hay items que cumplan con los filtros de auditoría, no devolver nada
+                query = query.filter(ProductoERP.item_id == -1)
+
     productos = query.all()
     
     # Crear Excel
