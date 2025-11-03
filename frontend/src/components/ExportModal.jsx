@@ -6,7 +6,7 @@ export default function ExportModal({ onClose, filtrosActivos }) {
   const [tab, setTab] = useState('rebate');
   const [exportando, setExportando] = useState(false);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
-  const [porcentajeClasica, setPorcentajeClasica] = useState(0);
+  const [porcentajeClasica, setPorcentajeClasica] = useState('0');
 
   // Auto-focus en primer input al abrir modal
   useEffect(() => {
@@ -150,7 +150,7 @@ export default function ExportModal({ onClose, filtrosActivos }) {
     return ultimoDia.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
   });
 
-  const [porcentajeWebTransf, setPorcentajeWebTransf] = useState(0);
+  const [porcentajeWebTransf, setPorcentajeWebTransf] = useState('0');
 
   const convertirFechaParaAPI = (fechaDD_MM_YYYY) => {
     const [d, m, y] = fechaDD_MM_YYYY.split('/');
@@ -209,7 +209,7 @@ export default function ExportModal({ onClose, filtrosActivos }) {
     setExportando(true);
     try {
       const token = localStorage.getItem('token');
-      let params = `porcentaje_adicional=${porcentajeClasica}`;
+      let params = `porcentaje_adicional=${parseFloat(porcentajeClasica.toString().replace(',', '.')) || 0}`;
 
       if (aplicarFiltros) {
         if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
@@ -272,7 +272,7 @@ export default function ExportModal({ onClose, filtrosActivos }) {
     setExportando(true);
     try {
       const token = localStorage.getItem('token');
-      let params = `porcentaje_adicional=${porcentajeWebTransf}`;
+      let params = `porcentaje_adicional=${parseFloat(porcentajeWebTransf.toString().replace(',', '.')) || 0}`;
 
       if (aplicarFiltros) {
         if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
@@ -445,13 +445,13 @@ export default function ExportModal({ onClose, filtrosActivos }) {
                     setPorcentajeWebTransf(e.target.value);
                   }}
                   onBlur={(e) => {
-                    // Al salir del campo, normalizar y validar
+                    // Al salir del campo, validar que sea un número válido
                     const valor = e.target.value.replace(',', '.');
-                    const normalizado = parseFloat(valor);
-                    if (!isNaN(normalizado)) {
-                      setPorcentajeWebTransf(normalizado);
+                    const numero = parseFloat(valor);
+                    if (!isNaN(numero)) {
+                      setPorcentajeWebTransf(numero.toString());
                     } else {
-                      setPorcentajeWebTransf(0);
+                      setPorcentajeWebTransf('0');
                     }
                   }}
                   className={styles.input}
@@ -504,13 +504,13 @@ export default function ExportModal({ onClose, filtrosActivos }) {
                     setPorcentajeClasica(e.target.value);
                   }}
                   onBlur={(e) => {
-                    // Al salir del campo, normalizar y validar
+                    // Al salir del campo, validar que sea un número válido
                     const valor = e.target.value.replace(',', '.');
-                    const normalizado = parseFloat(valor);
-                    if (!isNaN(normalizado)) {
-                      setPorcentajeClasica(normalizado);
+                    const numero = parseFloat(valor);
+                    if (!isNaN(numero)) {
+                      setPorcentajeClasica(numero.toString());
                     } else {
-                      setPorcentajeClasica(0);
+                      setPorcentajeClasica('0');
                     }
                   }}
                   className={styles.input}

@@ -3,8 +3,8 @@ import axios from 'axios';
 import styles from './CalcularWebModal.module.css';
 
 export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos }) {
-  const [porcentajeConPrecio, setPorcentajeConPrecio] = useState(6.0);
-  const [porcentajeSinPrecio, setPorcentajeSinPrecio] = useState(10.0);
+  const [porcentajeConPrecio, setPorcentajeConPrecio] = useState('6.0');
+  const [porcentajeSinPrecio, setPorcentajeSinPrecio] = useState('10.0');
   const [calculando, setCalculando] = useState(false);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
 
@@ -126,8 +126,8 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
       const token = localStorage.getItem('token');
 
       const body = {
-        porcentaje_con_precio: porcentajeConPrecio,
-        porcentaje_sin_precio: porcentajeSinPrecio
+        porcentaje_con_precio: parseFloat(porcentajeConPrecio.toString().replace(',', '.')) || 0,
+        porcentaje_sin_precio: parseFloat(porcentajeSinPrecio.toString().replace(',', '.')) || 0
       };
 
       if (aplicarFiltros) {
@@ -221,13 +221,13 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
                   setPorcentajeConPrecio(e.target.value);
                 }}
                 onBlur={(e) => {
-                  // Al salir del campo, normalizar y validar
+                  // Al salir del campo, validar que sea un número válido
                   const valor = e.target.value.replace(',', '.');
-                  const normalizado = parseFloat(valor);
-                  if (!isNaN(normalizado)) {
-                    setPorcentajeConPrecio(normalizado);
+                  const numero = parseFloat(valor);
+                  if (!isNaN(numero)) {
+                    setPorcentajeConPrecio(numero.toString());
                   } else {
-                    setPorcentajeConPrecio(0);
+                    setPorcentajeConPrecio('0');
                   }
                 }}
                 className={styles.input}
@@ -251,13 +251,13 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
                   setPorcentajeSinPrecio(e.target.value);
                 }}
                 onBlur={(e) => {
-                  // Al salir del campo, normalizar y validar
+                  // Al salir del campo, validar que sea un número válido
                   const valor = e.target.value.replace(',', '.');
-                  const normalizado = parseFloat(valor);
-                  if (!isNaN(normalizado)) {
-                    setPorcentajeSinPrecio(normalizado);
+                  const numero = parseFloat(valor);
+                  if (!isNaN(numero)) {
+                    setPorcentajeSinPrecio(numero.toString());
                   } else {
-                    setPorcentajeSinPrecio(0);
+                    setPorcentajeSinPrecio('0');
                   }
                 }}
                 className={styles.input}

@@ -218,32 +218,33 @@ export default function Productos() {
   const guardarWebTransf = async (itemId) => {
     try {
       const token = localStorage.getItem('token');
-      const porcentajeNumerico = parseFloat(webTransfTemp.porcentaje) || 0;  // ← AGREGAR
-  
+      // Normalizar: reemplazar coma por punto
+      const porcentajeNumerico = parseFloat(webTransfTemp.porcentaje.toString().replace(',', '.')) || 0;
+
       const response = await axios.patch(
         `https://pricing.gaussonline.com.ar/api/productos/${itemId}/web-transferencia`,
         null,
         {
           params: {
             participa: webTransfTemp.participa,
-            porcentaje_markup: porcentajeNumerico  // ← CAMBIAR de webTransfTemp.porcentaje
+            porcentaje_markup: porcentajeNumerico
           },
           headers: { Authorization: `Bearer ${token}` }
         }
       );
-  
+
       setProductos(prods => prods.map(p =>
         p.item_id === itemId
           ? {
               ...p,
               participa_web_transferencia: webTransfTemp.participa,
-              porcentaje_markup_web: porcentajeNumerico,  // ← CAMBIAR
+              porcentaje_markup_web: porcentajeNumerico,
               precio_web_transferencia: response.data.precio_web_transferencia,
               markup_web_real: response.data.markup_web_real
             }
           : p
       ));
-  
+
       setEditandoWebTransf(null);
     } catch (error) {
       console.error('Error al guardar web transferencia:', error);
@@ -486,19 +487,21 @@ export default function Productos() {
   const guardarPrecio = async (itemId) => {
     try {
       const token = localStorage.getItem('token');
-      const precioLimpio = parseFloat(precioTemp.toString().replace(/\./g, '').replace(',', '.'));
+      // Normalizar: reemplazar coma por punto
+      const precioNormalizado = parseFloat(precioTemp.toString().replace(',', '.'));
+
       const response = await axios.post(
         'https://pricing.gaussonline.com.ar/api/precios/set-rapido',
-        { item_id: itemId, precio: parseFloat(precioTemp) },
+        { item_id: itemId, precio: precioNormalizado },
         {
           headers: { Authorization: `Bearer ${token}` },
-          params: { item_id: itemId, precio: parseFloat(precioTemp) }
+          params: { item_id: itemId, precio: precioNormalizado }
         }
       );
 
       setProductos(prods => prods.map(p =>
         p.item_id === itemId
-          ? { ...p, precio_lista_ml: parseFloat(precioTemp), markup: response.data.markup }
+          ? { ...p, precio_lista_ml: precioNormalizado, markup: response.data.markup }
           : p
       ));
 
@@ -512,12 +515,15 @@ export default function Productos() {
   const guardarRebate = async (itemId) => {
     try {
       const token = localStorage.getItem('token');
+      // Normalizar: reemplazar coma por punto
+      const porcentajeNormalizado = parseFloat(rebateTemp.porcentaje.toString().replace(',', '.'));
+
       console.log('Enviando rebate:', rebateTemp);
       await axios.patch(
         `https://pricing.gaussonline.com.ar/api/productos/${itemId}/rebate`,
         {
           participa_rebate: rebateTemp.participa,
-          porcentaje_rebate: rebateTemp.porcentaje
+          porcentaje_rebate: porcentajeNormalizado
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -527,9 +533,9 @@ export default function Productos() {
           ? {
               ...p,
               participa_rebate: rebateTemp.participa,
-              porcentaje_rebate: rebateTemp.porcentaje,
+              porcentaje_rebate: porcentajeNormalizado,
               precio_rebate: rebateTemp.participa && p.precio_lista_ml
-                ? p.precio_lista_ml / (1 - rebateTemp.porcentaje / 100)
+                ? p.precio_lista_ml / (1 - porcentajeNormalizado / 100)
                 : null
             }
           : p
@@ -1784,7 +1790,8 @@ export default function Productos() {
                       {editandoPrecio === p.item_id ? (
                         <div className="inline-edit">
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             value={precioTemp}
                             onChange={(e) => setPrecioTemp(e.target.value)}
                             onKeyDown={(e) => {
@@ -1841,10 +1848,10 @@ export default function Productos() {
                           </label>
                           {rebateTemp.participa && (
                             <input
-                              type="number"
-                              step="0.1"
+                              type="text"
+                              inputMode="decimal"
                               value={rebateTemp.porcentaje}
-                              onChange={(e) => setRebateTemp({ ...rebateTemp, porcentaje: parseFloat(e.target.value) })}
+                              onChange={(e) => setRebateTemp({ ...rebateTemp, porcentaje: e.target.value })}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                   e.preventDefault();
@@ -1968,13 +1975,11 @@ export default function Productos() {
                           </label>
                          <input
                             type="text"
+                            inputMode="decimal"
                             value={webTransfTemp.porcentaje}
                             onChange={(e) => {
-                              const valor = e.target.value;
-                              // Permitir solo números, punto decimal y guión al inicio
-                              if (valor === '' || valor === '-' || /^-?\d*\.?\d*$/.test(valor)) {
-                                setWebTransfTemp({...webTransfTemp, porcentaje: valor});
-                              }
+                              // Permitir escribir libremente
+                              setWebTransfTemp({...webTransfTemp, porcentaje: e.target.value});
                             }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
