@@ -19,8 +19,8 @@ export default function Productos() {
   const [page, setPage] = useState(1);
   const [editandoPrecio, setEditandoPrecio] = useState(null);
   const [precioTemp, setPrecioTemp] = useState('');
-  const [filtroStock, setFiltroStock] = useState(null);
-  const [filtroPrecio, setFiltroPrecio] = useState(null);
+  const [filtroStock, setFiltroStock] = useState("todos");
+  const [filtroPrecio, setFiltroPrecio] = useState("todos");
   const [totalProductos, setTotalProductos] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [auditoriaVisible, setAuditoriaVisible] = useState(false);
@@ -383,8 +383,8 @@ export default function Productos() {
 
   const limpiarTodosFiltros = () => {
     setSearchInput('');
-    setFiltroStock(null);
-    setFiltroPrecio(null);
+    setFiltroStock("todos");
+    setFiltroPrecio("todos");
     setMarcasSeleccionadas([]);
     setSubcategoriasSeleccionadas([]);
     setFiltrosAuditoria({
