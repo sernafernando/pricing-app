@@ -939,10 +939,14 @@ async def actualizar_rebate(
         "porcentaje_rebate": datos.porcentaje_rebate
     }
         
+class ExportRebateRequest(BaseModel):
+    fecha_desde: Optional[str] = None
+    fecha_hasta: Optional[str] = None
+    filtros: Optional[dict] = None
+
 @router.post("/productos/exportar-rebate")
 async def exportar_rebate(
-    fecha_desde: str = None,
-    fecha_hasta: str = None,
+    request: ExportRebateRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -962,19 +966,73 @@ async def exportar_rebate(
 
     # Fechas por defecto
     hoy = date.today()
+    fecha_desde = request.fecha_desde
+    fecha_hasta = request.fecha_hasta
     if not fecha_desde:
         fecha_desde = hoy.strftime('%Y-%m-%d')
     if not fecha_hasta:
         ultimo_dia = monthrange(hoy.year, hoy.month)[1]
         fecha_hasta = f"{hoy.year}-{hoy.month:02d}-{ultimo_dia:02d}"
-    
-    # Obtener productos con rebate
-    productos = db.query(ProductoERP, ProductoPricing).join(
+
+    # Construir query con filtros
+    query = db.query(ProductoERP, ProductoPricing).join(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     ).filter(
         ProductoPricing.participa_rebate == True,
         ProductoPricing.out_of_cards != True
-    ).all()
+    )
+
+    # Aplicar filtros si existen
+    if request.filtros:
+        filtros = request.filtros
+
+        if filtros.get('search'):
+            search_normalized = filtros['search'].replace('-', '').replace(' ', '').upper()
+            query = query.filter(
+                or_(
+                    func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                    func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                    func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
+                )
+            )
+
+        if filtros.get('con_stock') is not None:
+            query = query.filter(ProductoERP.stock > 0 if filtros['con_stock'] else ProductoERP.stock == 0)
+
+        if filtros.get('con_precio') is not None:
+            if filtros['con_precio']:
+                query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+            else:
+                query = query.filter(ProductoPricing.precio_lista_ml.is_(None))
+
+        if filtros.get('marcas'):
+            marcas_list = [m.strip().upper() for m in filtros['marcas'].split(',')]
+            query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
+
+        if filtros.get('subcategorias'):
+            subcat_list = [int(s.strip()) for s in filtros['subcategorias'].split(',')]
+            query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
+
+        if filtros.get('con_oferta') is not None:
+            # Filtro de oferta si es necesario
+            pass
+
+        if filtros.get('con_web_transf') is not None:
+            if filtros['con_web_transf']:
+                query = query.filter(ProductoPricing.participa_web_transferencia == True)
+            else:
+                query = query.filter(
+                    or_(
+                        ProductoPricing.participa_web_transferencia == False,
+                        ProductoPricing.participa_web_transferencia.is_(None)
+                    )
+                )
+
+        if filtros.get('colores'):
+            colores_list = filtros['colores'].split(',')
+            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+
+    productos = query.all()
     
     # Crear Excel
     wb = Workbook()

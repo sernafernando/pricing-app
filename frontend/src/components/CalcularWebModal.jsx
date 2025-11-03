@@ -6,7 +6,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
   const [porcentajeConPrecio, setPorcentajeConPrecio] = useState(6.0);
   const [porcentajeSinPrecio, setPorcentajeSinPrecio] = useState(10.0);
   const [calculando, setCalculando] = useState(false);
-  const [aplicarFiltros, setAplicarFiltros] = useState(false);
+  const [aplicarFiltros, setAplicarFiltros] = useState(true);
 
   const hayFiltros =
     !!filtrosActivos?.search ||

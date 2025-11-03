@@ -5,7 +5,7 @@ import styles from './ExportModal.module.css';
 export default function ExportModal({ onClose, filtrosActivos }) {
   const [tab, setTab] = useState('rebate');
   const [exportando, setExportando] = useState(false);
-  const [aplicarFiltros, setAplicarFiltros] = useState(false);
+  const [aplicarFiltros, setAplicarFiltros] = useState(true);
   const [porcentajeClasica, setPorcentajeClasica] = useState(0);
 
   const hayFiltros =
