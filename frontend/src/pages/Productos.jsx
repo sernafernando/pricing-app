@@ -820,13 +820,17 @@ export default function Productos() {
         }
 
         // Números 1-9: Selección rápida de colores (solo si NO estamos editando nada)
-        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[1-9]$/.test(e.key)) {
+        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
           e.preventDefault();
-          const colores = ['rojo', 'amarillo', 'verde', 'azul', 'naranja', 'violeta', 'rosa', 'gris', 'cyan'];
-          const colorIndex = parseInt(e.key) - 1;
-          if (colorIndex < colores.length && puedeEditar) {
-            const producto = productos[rowIndex];
-            cambiarColorRapido(producto.item_id, colores[colorIndex]);
+          e.stopPropagation();
+          if (puedeEditar && productos[rowIndex]) {
+            const colores = ['rojo', 'amarillo', 'verde', 'azul', 'naranja', 'violeta', 'rosa', 'gris', 'cyan'];
+            const colorIndex = parseInt(e.key) - 1;
+            if (colorIndex < colores.length) {
+              const producto = productos[rowIndex];
+              console.log('Cambiando color a:', colores[colorIndex], 'para producto:', producto.item_id);
+              cambiarColorRapido(producto.item_id, colores[colorIndex]);
+            }
           }
           return;
         }
@@ -859,7 +863,7 @@ export default function Productos() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, mostrarFiltrosAvanzados]);
+  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, mostrarFiltrosAvanzados]);
 
   // Funciones de edición rápida desde teclado
   const iniciarEdicionDesdeTeclado = (producto, columna) => {
