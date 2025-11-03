@@ -22,6 +22,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
     filtrosActivos?.filtroMarkupOferta !== null ||
     filtrosActivos?.filtroMarkupWebTransf !== null ||
     filtrosActivos?.filtroOutOfCards !== null ||
+    (filtrosActivos?.coloresSeleccionados?.length > 0) ||
     (filtrosActivos?.audit_usuarios?.length > 0) ||
     (filtrosActivos?.audit_tipos_accion?.length > 0) ||
     !!filtrosActivos?.audit_fecha_desde ||
@@ -56,6 +57,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
       {filtrosActivos.audit_tipos_accion?.length > 0 && <div>• {filtrosActivos.audit_tipos_accion.length} tipo(s) de acción</div>}
       {filtrosActivos.audit_fecha_desde && <div>• Auditoría desde: {filtrosActivos.audit_fecha_desde}</div>}
       {filtrosActivos.audit_fecha_hasta && <div>• Auditoría hasta: {filtrosActivos.audit_fecha_hasta}</div>}
+      {filtrosActivos.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
     </div>
   );
 
@@ -100,6 +102,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
         if (filtrosActivos.filtroMarkupWebTransf === 'negativo') body.filtros.markup_web_transf_positivo = false;
         if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') body.filtros.out_of_cards = true;
         if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') body.filtros.out_of_cards = false;
+        if (filtrosActivos.coloresSeleccionados?.length > 0) body.filtros.colores = filtrosActivos.coloresSeleccionados.join(',');
         if (filtrosActivos.audit_usuarios?.length > 0) body.filtros.audit_usuarios = filtrosActivos.audit_usuarios.join(',');
         if (filtrosActivos.audit_tipos_accion?.length > 0) body.filtros.audit_tipos_accion = filtrosActivos.audit_tipos_accion.join(',');
         if (filtrosActivos.audit_fecha_desde) body.filtros.audit_fecha_desde = filtrosActivos.audit_fecha_desde;
