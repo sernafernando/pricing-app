@@ -1714,7 +1714,24 @@ export default function Productos() {
                     <td>{p.moneda_costo} ${p.costo?.toFixed(2)}</td>
                     <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
                       {editandoPrecio === p.item_id ? (
-                        <div className="inline-edit">
+                        <div className="inline-edit" onKeyDown={(e) => {
+                          if (e.key === 'Tab') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // Implementar navegación circular entre elementos
+                            const focusable = e.currentTarget.querySelectorAll('input, button');
+                            const currentIndex = Array.from(focusable).indexOf(document.activeElement);
+                            if (e.shiftKey) {
+                              // Tab + Shift: ir hacia atrás
+                              const prevIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
+                              focusable[prevIndex]?.focus();
+                            } else {
+                              // Tab: ir hacia adelante
+                              const nextIndex = currentIndex >= focusable.length - 1 ? 0 : currentIndex + 1;
+                              focusable[nextIndex]?.focus();
+                            }
+                          }
+                        }}>
                           <input
                             type="number"
                             value={precioTemp}
@@ -1722,7 +1739,12 @@ export default function Productos() {
                             onKeyPress={(e) => e.key === 'Enter' && guardarPrecio(p.item_id)}
                             autoFocus
                           />
-                          <button onClick={() => guardarPrecio(p.item_id)}>✓</button>
+                          <button onClick={() => guardarPrecio(p.item_id)} onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              guardarPrecio(p.item_id);
+                            }
+                          }}>✓</button>
                           <button onClick={() => setEditandoPrecio(null)}>✗</button>
                         </div>
                       ) : (
@@ -1740,12 +1762,30 @@ export default function Productos() {
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
                       {editandoRebate === p.item_id ? (
-                        <div className="rebate-edit">
+                        <div className="rebate-edit" onKeyDown={(e) => {
+                          if (e.key === 'Tab') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // Implementar navegación circular entre elementos
+                            const focusable = e.currentTarget.querySelectorAll('input, button');
+                            const currentIndex = Array.from(focusable).indexOf(document.activeElement);
+                            if (e.shiftKey) {
+                              // Tab + Shift: ir hacia atrás
+                              const prevIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
+                              focusable[prevIndex]?.focus();
+                            } else {
+                              // Tab: ir hacia adelante
+                              const nextIndex = currentIndex >= focusable.length - 1 ? 0 : currentIndex + 1;
+                              focusable[nextIndex]?.focus();
+                            }
+                          }
+                        }}>
                           <label className="rebate-checkbox">
                             <input
                               type="checkbox"
                               checked={rebateTemp.participa}
                               onChange={(e) => setRebateTemp({ ...rebateTemp, participa: e.target.checked })}
+                              autoFocus
                             />
                             <span>Rebate</span>
                           </label>
@@ -1759,7 +1799,12 @@ export default function Productos() {
                             />
                           )}
                           <div className="inline-edit">
-                            <button onClick={() => guardarRebate(p.item_id)}>✓</button>
+                            <button onClick={() => guardarRebate(p.item_id)} onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                guardarRebate(p.item_id);
+                              }
+                            }}>✓</button>
                             <button onClick={() => setEditandoRebate(null)}>✗</button>
                           </div>
                         </div>
@@ -1844,12 +1889,30 @@ export default function Productos() {
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
                       {editandoWebTransf === p.item_id ? (
-                        <div className="web-transf-edit">
+                        <div className="web-transf-edit" onKeyDown={(e) => {
+                          if (e.key === 'Tab') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // Implementar navegación circular entre elementos
+                            const focusable = e.currentTarget.querySelectorAll('input, button');
+                            const currentIndex = Array.from(focusable).indexOf(document.activeElement);
+                            if (e.shiftKey) {
+                              // Tab + Shift: ir hacia atrás
+                              const prevIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
+                              focusable[prevIndex]?.focus();
+                            } else {
+                              // Tab: ir hacia adelante
+                              const nextIndex = currentIndex >= focusable.length - 1 ? 0 : currentIndex + 1;
+                              focusable[nextIndex]?.focus();
+                            }
+                          }
+                        }}>
                           <label className="web-transf-checkbox">
                             <input
                               type="checkbox"
                               checked={webTransfTemp.participa}
                               onChange={(e) => setWebTransfTemp({...webTransfTemp, participa: e.target.checked})}
+                              autoFocus
                             />
                             Participa
                           </label>
@@ -1867,7 +1930,12 @@ export default function Productos() {
                             style={{ width: '60px', padding: '4px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                           />
                           <div className="inline-edit">
-                            <button onClick={() => guardarWebTransf(p.item_id)}>✓</button>
+                            <button onClick={() => guardarWebTransf(p.item_id)} onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                guardarWebTransf(p.item_id);
+                              }
+                            }}>✓</button>
                             <button onClick={() => setEditandoWebTransf(null)}>✗</button>
                           </div>
                         </div>
