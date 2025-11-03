@@ -375,6 +375,10 @@
   flex: 1;
   padding: 8px;
   max-height: 400px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 8px;
+  align-items: start;
 }
 
 .dropdown-content.with-padding {
@@ -433,11 +437,38 @@
 
 .audit-section-content {
   padding-left: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+/* Contenedor especial para auditoría con 3 secciones */
+.dropdown-content.with-padding {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.dropdown-content.with-padding .audit-section {
+  display: flex;
+  flex-direction: column;
 }
 
 /* Categorías jerárquicas */
 .category-group {
   margin-bottom: 12px;
+  grid-column: 1 / -1; /* Ocupa todo el ancho para que se vea la jerarquía */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 4px;
+}
+
+.category-group .category-header {
+  grid-column: 1 / -1; /* El header de categoría ocupa todo el ancho */
+}
+
+.category-group .subcategory-item {
+  /* Los items de subcategoría se distribuyen en columnas */
 }
 
 .category-header {
