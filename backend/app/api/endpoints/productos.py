@@ -1088,24 +1088,24 @@ async def exportar_rebate(
 
         # Filtros de auditoría
         if filtros.get('audit_usuarios') or filtros.get('audit_tipos_accion') or filtros.get('audit_fecha_desde') or filtros.get('audit_fecha_hasta'):
-            from app.models.auditoria_precio import AuditoriaPrecio
+            from app.models.auditoria import Auditoria
 
             # Subquery para obtener item_ids que cumplen con los filtros de auditoría
-            audit_query = db.query(AuditoriaPrecio.item_id).distinct()
+            audit_query = db.query(Auditoria.item_id).distinct()
 
             if filtros.get('audit_usuarios'):
                 usuarios_ids = [int(u) for u in filtros['audit_usuarios'].split(',')]
-                audit_query = audit_query.filter(AuditoriaPrecio.usuario_id.in_(usuarios_ids))
+                audit_query = audit_query.filter(Auditoria.usuario_id.in_(usuarios_ids))
 
             if filtros.get('audit_tipos_accion'):
                 tipos_list = filtros['audit_tipos_accion'].split(',')
-                audit_query = audit_query.filter(AuditoriaPrecio.tipo_accion.in_(tipos_list))
+                audit_query = audit_query.filter(Auditoria.tipo_accion.in_(tipos_list))
 
             if filtros.get('audit_fecha_desde'):
-                audit_query = audit_query.filter(AuditoriaPrecio.fecha >= filtros['audit_fecha_desde'])
+                audit_query = audit_query.filter(Auditoria.fecha >= filtros['audit_fecha_desde'])
 
             if filtros.get('audit_fecha_hasta'):
-                audit_query = audit_query.filter(AuditoriaPrecio.fecha <= filtros['audit_fecha_hasta'])
+                audit_query = audit_query.filter(Auditoria.fecha <= filtros['audit_fecha_hasta'])
 
             item_ids_auditados = [item_id for (item_id,) in audit_query.all()]
             if item_ids_auditados:
