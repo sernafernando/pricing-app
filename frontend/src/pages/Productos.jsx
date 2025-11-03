@@ -456,18 +456,19 @@ export default function Productos() {
   const cambiarColorProducto = async (itemId, color) => {
     try {
       const token = localStorage.getItem('token');
+      console.log('Cambiando color desde dropdown:', { itemId, color });
       await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/productos/${itemId}/color`,
-        null,
+        `${API_URL}/productos/${itemId}/color`,
+        { color },  // Enviar en el body, no en params
         {
-          headers: { Authorization: `Bearer ${token}` },
-          params: { color }
+          headers: { Authorization: `Bearer ${token}` }
         }
       );
       setColorDropdownAbierto(null);
       cargarProductos();
     } catch (error) {
       console.error('Error cambiando color:', error);
+      console.error('Detalles:', error.response?.data);
       alert('Error al cambiar el color');
     }
   };
@@ -820,17 +821,18 @@ export default function Productos() {
         }
 
         // Números 1-7: Selección rápida de colores (solo si NO estamos editando nada)
-        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[1-7]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[0-7]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
           e.preventDefault();
           e.stopPropagation();
           if (puedeEditar && productos[rowIndex]) {
             // Colores válidos según el backend
-            const colores = ['rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
-            const colorIndex = parseInt(e.key) - 1;
+            const colores = [null, 'rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
+            const colorIndex = parseInt(e.key);
             if (colorIndex < colores.length) {
               const producto = productos[rowIndex];
-              console.log('Cambiando color a:', colores[colorIndex], 'para producto:', producto.item_id);
-              cambiarColorRapido(producto.item_id, colores[colorIndex]);
+              const colorSeleccionado = colores[colorIndex];
+              console.log('Cambiando color a:', colorSeleccionado || 'sin color', 'para producto:', producto.item_id);
+              cambiarColorRapido(producto.item_id, colorSeleccionado);
             }
           }
           return;
@@ -2278,8 +2280,8 @@ export default function Productos() {
               <div className="shortcuts-section">
                 <h3>Acciones Rápidas (en fila activa)</h3>
                 <div className="shortcut-item">
-                  <kbd>1</kbd>-<kbd>7</kbd>
-                  <span>Asignar color (1=Rojo, 2=Naranja, 3=Amarillo, 4=Verde, 5=Azul, 6=Púrpura, 7=Gris)</span>
+                  <kbd>0</kbd>-<kbd>7</kbd>
+                  <span>Asignar color (0=Sin color, 1=Rojo, 2=Naranja, 3=Amarillo, 4=Verde, 5=Azul, 6=Púrpura, 7=Gris)</span>
                 </div>
                 <div className="shortcut-item">
                   <kbd>R</kbd>

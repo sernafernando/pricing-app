@@ -1208,10 +1208,11 @@
   }
 }
 
-/* Fila activa con borde sutil */
+/* Fila activa con borde grueso - NO cambiar background para respetar color marcado */
 .keyboard-row-active {
-  background: rgba(59, 130, 246, 0.05) !important;
-  border-left: 4px solid var(--brand-primary) !important;
+  outline: 3px solid var(--brand-primary) !important;
+  outline-offset: -3px !important;
+  position: relative !important;
 }
 
 /* Indicador de modo navegación */
