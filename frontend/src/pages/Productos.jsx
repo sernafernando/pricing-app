@@ -587,9 +587,15 @@ export default function Productos() {
   // Sistema de navegación por teclado
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Si estamos en un input/textarea o modal abierto, no procesar shortcuts globales
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-        // Solo procesar Escape para salir de edición
+      // SIEMPRE prevenir Tab en modo navegación (incluso en checkboxes)
+      if (modoNavegacion && e.key === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+
+      // Si estamos en un input/textarea editando precios, solo procesar Escape
+      if ((e.target.tagName === 'INPUT' && e.target.type === 'number') ||
+          (e.target.tagName === 'TEXTAREA')) {
         if (e.key === 'Escape') {
           setEditandoPrecio(null);
           setEditandoRebate(null);
@@ -674,8 +680,8 @@ export default function Productos() {
         return;
       }
 
-      // Ctrl+W: Abrir modal de calcular web
-      if (e.ctrlKey && e.key === 'w') {
+      // Ctrl+K: Abrir modal de calcular web
+      if (e.ctrlKey && e.key === 'k') {
         e.preventDefault();
         setMostrarCalcularWebModal(true);
         return;
@@ -2207,7 +2213,7 @@ export default function Productos() {
                   <span>Abrir modal de exportar</span>
                 </div>
                 <div className="shortcut-item">
-                  <kbd>Ctrl</kbd> + <kbd>W</kbd>
+                  <kbd>Ctrl</kbd> + <kbd>K</kbd>
                   <span>Calcular Web Transferencia masivo</span>
                 </div>
                 <div className="shortcut-item">
