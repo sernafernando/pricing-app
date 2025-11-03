@@ -441,16 +441,18 @@ export default function ExportModal({ onClose, filtrosActivos }) {
                   placeholder="Ej: 25"
                   value={porcentajeWebTransf}
                   onChange={(e) => {
-                    const valor = e.target.value;
-                    // Permitir números, punto, coma, y guión
-                    if (valor === '' || /^-?\d*[.,]?\d*$/.test(valor)) {
-                      setPorcentajeWebTransf(valor);
-                    }
+                    // Aceptar cualquier entrada, dejar que el usuario escriba libremente
+                    setPorcentajeWebTransf(e.target.value);
                   }}
                   onBlur={(e) => {
-                    // Al salir del campo, normalizar el valor
-                    const normalizado = parseFloat(e.target.value.replace(',', '.')) || 0;
-                    setPorcentajeWebTransf(normalizado);
+                    // Al salir del campo, normalizar y validar
+                    const valor = e.target.value.replace(',', '.');
+                    const normalizado = parseFloat(valor);
+                    if (!isNaN(normalizado)) {
+                      setPorcentajeWebTransf(normalizado);
+                    } else {
+                      setPorcentajeWebTransf(0);
+                    }
                   }}
                   className={styles.input}
                 />
@@ -498,16 +500,18 @@ export default function ExportModal({ onClose, filtrosActivos }) {
                   placeholder="Ej: 20"
                   value={porcentajeClasica}
                   onChange={(e) => {
-                    const valor = e.target.value;
-                    // Permitir números, punto, coma, y guión
-                    if (valor === '' || /^-?\d*[.,]?\d*$/.test(valor)) {
-                      setPorcentajeClasica(valor);
-                    }
+                    // Aceptar cualquier entrada, dejar que el usuario escriba libremente
+                    setPorcentajeClasica(e.target.value);
                   }}
                   onBlur={(e) => {
-                    // Al salir del campo, normalizar el valor
-                    const normalizado = parseFloat(e.target.value.replace(',', '.')) || 0;
-                    setPorcentajeClasica(normalizado);
+                    // Al salir del campo, normalizar y validar
+                    const valor = e.target.value.replace(',', '.');
+                    const normalizado = parseFloat(valor);
+                    if (!isNaN(normalizado)) {
+                      setPorcentajeClasica(normalizado);
+                    } else {
+                      setPorcentajeClasica(0);
+                    }
                   }}
                   className={styles.input}
                 />

@@ -217,16 +217,18 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
                 inputMode="decimal"
                 value={porcentajeConPrecio}
                 onChange={(e) => {
-                  const valor = e.target.value;
-                  // Permitir números, punto, coma, y guión
-                  if (valor === '' || /^-?\d*[.,]?\d*$/.test(valor)) {
-                    setPorcentajeConPrecio(valor);
-                  }
+                  // Aceptar cualquier entrada, dejar que el usuario escriba libremente
+                  setPorcentajeConPrecio(e.target.value);
                 }}
                 onBlur={(e) => {
-                  // Al salir del campo, normalizar el valor
-                  const normalizado = parseFloat(e.target.value.replace(',', '.')) || 0;
-                  setPorcentajeConPrecio(normalizado);
+                  // Al salir del campo, normalizar y validar
+                  const valor = e.target.value.replace(',', '.');
+                  const normalizado = parseFloat(valor);
+                  if (!isNaN(normalizado)) {
+                    setPorcentajeConPrecio(normalizado);
+                  } else {
+                    setPorcentajeConPrecio(0);
+                  }
                 }}
                 className={styles.input}
                 placeholder="0.0"
@@ -245,16 +247,18 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
                 inputMode="decimal"
                 value={porcentajeSinPrecio}
                 onChange={(e) => {
-                  const valor = e.target.value;
-                  // Permitir números, punto, coma, y guión
-                  if (valor === '' || /^-?\d*[.,]?\d*$/.test(valor)) {
-                    setPorcentajeSinPrecio(valor);
-                  }
+                  // Aceptar cualquier entrada, dejar que el usuario escriba libremente
+                  setPorcentajeSinPrecio(e.target.value);
                 }}
                 onBlur={(e) => {
-                  // Al salir del campo, normalizar el valor
-                  const normalizado = parseFloat(e.target.value.replace(',', '.')) || 0;
-                  setPorcentajeSinPrecio(normalizado);
+                  // Al salir del campo, normalizar y validar
+                  const valor = e.target.value.replace(',', '.');
+                  const normalizado = parseFloat(valor);
+                  if (!isNaN(normalizado)) {
+                    setPorcentajeSinPrecio(normalizado);
+                  } else {
+                    setPorcentajeSinPrecio(0);
+                  }
                 }}
                 className={styles.input}
                 placeholder="0.0"
