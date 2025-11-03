@@ -719,21 +719,12 @@ export default function Productos() {
           return;
         }
 
-        // Enter: Siguiente fila (misma columna)
-        if (e.key === 'Enter' && !editandoPrecio) {
+        // Enter: Editar celda activa (igual que Espacio)
+        if (e.key === 'Enter' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
           e.preventDefault();
-          if (rowIndex < productos.length - 1) {
-            setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
-          }
-          return;
-        }
-
-        // Shift+Enter: Fila anterior
-        if (e.key === 'Enter' && e.shiftKey && !editandoPrecio) {
-          e.preventDefault();
-          if (rowIndex > 0) {
-            setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
-          }
+          const producto = productos[rowIndex];
+          const columna = columnasEditables[colIndex];
+          iniciarEdicionDesdeTeclado(producto, columna);
           return;
         }
 
@@ -2133,19 +2124,11 @@ export default function Productos() {
                   <span>Columna anterior</span>
                 </div>
                 <div className="shortcut-item">
-                  <kbd>Enter</kbd> (en tabla)
-                  <span>Siguiente fila</span>
-                </div>
-                <div className="shortcut-item">
-                  <kbd>Shift</kbd> + <kbd>Enter</kbd>
-                  <span>Fila anterior</span>
-                </div>
-                <div className="shortcut-item">
                   <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>
                   <span>Navegar por celdas</span>
                 </div>
                 <div className="shortcut-item">
-                  <kbd>Espacio</kbd>
+                  <kbd>Enter</kbd> o <kbd>Espacio</kbd>
                   <span>Editar celda activa</span>
                 </div>
                 <div className="shortcut-item">
