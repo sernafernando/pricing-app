@@ -445,7 +445,7 @@
 /* Contenedor especial para auditoría con 3 secciones */
 .dropdown-content.with-padding {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr 1fr 280px;
   gap: 16px;
 }
 
