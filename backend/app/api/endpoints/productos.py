@@ -954,7 +954,12 @@ async def exportar_rebate(
     from io import BytesIO
     from fastapi.responses import StreamingResponse
     from app.models.publicacion_ml import PublicacionML
-    
+    from app.models.mla_banlist import MLABanlist
+
+    # Obtener MLAs baneados
+    mlas_baneados = db.query(MLABanlist.mla).filter(MLABanlist.activo == True).all()
+    mlas_baneados_set = {mla[0] for mla in mlas_baneados}
+
     # Fechas por defecto
     hoy = date.today()
     if not fecha_desde:
@@ -1023,8 +1028,12 @@ async def exportar_rebate(
         porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
         pvp_seller = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate / 100)
         
-        # Una fila por cada MLA
+        # Una fila por cada MLA (excluyendo los baneados)
         for mla in mlas:
+            # Saltar si el MLA está en la banlist
+            if mla.mla in mlas_baneados_set:
+                continue
+
             ws.cell(row=row, column=1, value=f"{porcentaje_rebate}%")
             ws.cell(row=row, column=2, value=producto_erp.marca or "")
             ws.cell(row=row, column=3, value=fecha_desde)

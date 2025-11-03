@@ -57,6 +57,13 @@ export default function Navbar() {
             💰 Precios por Lista
           </Link>
 
+          <Link
+            to="/mla-banlist"
+            className={`${styles.link} ${isActive('/mla-banlist') ? styles.active : ''}`}
+          >
+            🚫 Banlist MLAs
+          </Link>
+
           {puedeVerHistorial && (
           <Link
             to="/ultimos-cambios"
@@ -127,6 +134,14 @@ export default function Navbar() {
             onClick={handleLinkClick}
           >
             💰 Precios por Lista
+          </Link>
+
+          <Link
+            to="/mla-banlist"
+            className={`${styles.mobileLink} ${isActive('/mla-banlist') ? styles.active : ''}`}
+            onClick={handleLinkClick}
+          >
+            🚫 Banlist MLAs
           </Link>
 
           {puedeVerHistorial && (

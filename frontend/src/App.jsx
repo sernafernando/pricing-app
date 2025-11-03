@@ -10,6 +10,7 @@ import Admin from './pages/Admin';
 import UltimosCambios from './pages/UltimosCambios';
 import PreciosListas from './pages/PreciosListas';
 import GestionPM from './pages/GestionPM';
+import MLABanlist from './pages/MLABanlist';
 import ProtectedRoute from './components/ProtectedRoute';
 import './styles/theme.css';
 
@@ -61,6 +62,11 @@ function App() {
                 <Route path="/gestion-pm" element={
                   <ProtectedRoute allowedRoles={['SUPERADMIN', 'ADMIN']}>
                     <GestionPM />
+                  </ProtectedRoute>
+                } />
+                <Route path="/mla-banlist" element={
+                  <ProtectedRoute>
+                    <MLABanlist />
                   </ProtectedRoute>
                 } />
               </Routes>
