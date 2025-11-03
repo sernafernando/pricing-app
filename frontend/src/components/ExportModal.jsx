@@ -8,6 +8,18 @@ export default function ExportModal({ onClose, filtrosActivos }) {
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
   const [porcentajeClasica, setPorcentajeClasica] = useState(0);
 
+  // Auto-focus en primer input al abrir modal
+  useEffect(() => {
+    const modal = document.querySelector(`.${styles.modal}`);
+    if (modal) {
+      const firstInput = modal.querySelector('input');
+      if (firstInput) {
+        // Pequeño delay para asegurar que el modal esté renderizado
+        setTimeout(() => firstInput.focus(), 100);
+      }
+    }
+  }, []);
+
   // Cerrar modal con Escape y capturar Tab para navegación interna
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -424,23 +436,21 @@ export default function ExportModal({ onClose, filtrosActivos }) {
               <div className={styles.formGroup}>
                 <label className={styles.label}>Porcentaje adicional (%):</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="Ej: 25"
                   value={porcentajeWebTransf}
-                  onChange={(e) => setPorcentajeWebTransf(parseFloat(e.target.value) || 0)}
-                  onKeyPress={(e) => {
-                    // Convertir coma a punto para decimales
-                    if (e.key === ',') {
-                      e.preventDefault();
-                      const input = e.target;
-                      const start = input.selectionStart;
-                      const end = input.selectionEnd;
-                      const value = input.value;
-                      const newValue = value.substring(0, start) + '.' + value.substring(end);
-                      input.value = newValue;
-                      input.setSelectionRange(start + 1, start + 1);
-                      setPorcentajeWebTransf(parseFloat(newValue) || 0);
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    // Permitir números, punto, coma, y guión
+                    if (valor === '' || /^-?\d*[.,]?\d*$/.test(valor)) {
+                      setPorcentajeWebTransf(valor);
                     }
+                  }}
+                  onBlur={(e) => {
+                    // Al salir del campo, normalizar el valor
+                    const normalizado = parseFloat(e.target.value.replace(',', '.')) || 0;
+                    setPorcentajeWebTransf(normalizado);
                   }}
                   className={styles.input}
                 />
@@ -483,23 +493,21 @@ export default function ExportModal({ onClose, filtrosActivos }) {
               <div className={styles.formGroup}>
                 <label className={styles.label}>Porcentaje adicional sobre rebate (%):</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="Ej: 20"
                   value={porcentajeClasica}
-                  onChange={(e) => setPorcentajeClasica(parseFloat(e.target.value) || 0)}
-                  onKeyPress={(e) => {
-                    // Convertir coma a punto para decimales
-                    if (e.key === ',') {
-                      e.preventDefault();
-                      const input = e.target;
-                      const start = input.selectionStart;
-                      const end = input.selectionEnd;
-                      const value = input.value;
-                      const newValue = value.substring(0, start) + '.' + value.substring(end);
-                      input.value = newValue;
-                      input.setSelectionRange(start + 1, start + 1);
-                      setPorcentajeClasica(parseFloat(newValue) || 0);
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    // Permitir números, punto, coma, y guión
+                    if (valor === '' || /^-?\d*[.,]?\d*$/.test(valor)) {
+                      setPorcentajeClasica(valor);
                     }
+                  }}
+                  onBlur={(e) => {
+                    // Al salir del campo, normalizar el valor
+                    const normalizado = parseFloat(e.target.value.replace(',', '.')) || 0;
+                    setPorcentajeClasica(normalizado);
                   }}
                   className={styles.input}
                 />

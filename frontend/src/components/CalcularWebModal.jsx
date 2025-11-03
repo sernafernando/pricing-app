@@ -8,6 +8,18 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
   const [calculando, setCalculando] = useState(false);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
 
+  // Auto-focus en primer input al abrir modal
+  useEffect(() => {
+    const modal = document.querySelector(`.${styles.modal}`);
+    if (modal) {
+      const firstInput = modal.querySelector('input');
+      if (firstInput) {
+        // Pequeño delay para asegurar que el modal esté renderizado
+        setTimeout(() => firstInput.focus(), 100);
+      }
+    }
+  }, []);
+
   // Cerrar modal con Escape y capturar Tab para navegación interna
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -201,25 +213,23 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
                 % para productos CON precio web transferencia:
               </label>
               <input
-                type="number"
-                step="0.1"
+                type="text"
+                inputMode="decimal"
                 value={porcentajeConPrecio}
-                onChange={(e) => setPorcentajeConPrecio(parseFloat(e.target.value) || 0)}
-                onKeyPress={(e) => {
-                  // Convertir coma a punto para decimales
-                  if (e.key === ',') {
-                    e.preventDefault();
-                    const input = e.target;
-                    const start = input.selectionStart;
-                    const end = input.selectionEnd;
-                    const value = input.value;
-                    const newValue = value.substring(0, start) + '.' + value.substring(end);
-                    input.value = newValue;
-                    input.setSelectionRange(start + 1, start + 1);
-                    setPorcentajeConPrecio(parseFloat(newValue) || 0);
+                onChange={(e) => {
+                  const valor = e.target.value;
+                  // Permitir números, punto, coma, y guión
+                  if (valor === '' || /^-?\d*[.,]?\d*$/.test(valor)) {
+                    setPorcentajeConPrecio(valor);
                   }
                 }}
+                onBlur={(e) => {
+                  // Al salir del campo, normalizar el valor
+                  const normalizado = parseFloat(e.target.value.replace(',', '.')) || 0;
+                  setPorcentajeConPrecio(normalizado);
+                }}
                 className={styles.input}
+                placeholder="0.0"
               />
               <small style={{ display: 'block', marginTop: '4px', color: 'var(--text-secondary)', fontSize: '12px' }}>
                 Se suma este % al precio clásica
@@ -231,25 +241,23 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
                 % para productos SIN precio web transferencia:
               </label>
               <input
-                type="number"
-                step="0.1"
+                type="text"
+                inputMode="decimal"
                 value={porcentajeSinPrecio}
-                onChange={(e) => setPorcentajeSinPrecio(parseFloat(e.target.value) || 0)}
-                onKeyPress={(e) => {
-                  // Convertir coma a punto para decimales
-                  if (e.key === ',') {
-                    e.preventDefault();
-                    const input = e.target;
-                    const start = input.selectionStart;
-                    const end = input.selectionEnd;
-                    const value = input.value;
-                    const newValue = value.substring(0, start) + '.' + value.substring(end);
-                    input.value = newValue;
-                    input.setSelectionRange(start + 1, start + 1);
-                    setPorcentajeSinPrecio(parseFloat(newValue) || 0);
+                onChange={(e) => {
+                  const valor = e.target.value;
+                  // Permitir números, punto, coma, y guión
+                  if (valor === '' || /^-?\d*[.,]?\d*$/.test(valor)) {
+                    setPorcentajeSinPrecio(valor);
                   }
                 }}
+                onBlur={(e) => {
+                  // Al salir del campo, normalizar el valor
+                  const normalizado = parseFloat(e.target.value.replace(',', '.')) || 0;
+                  setPorcentajeSinPrecio(normalizado);
+                }}
                 className={styles.input}
+                placeholder="0.0"
               />
               <small style={{ display: 'block', marginTop: '4px', color: 'var(--text-secondary)', fontSize: '12px' }}>
                 Se suma este % al precio clásica (primera vez)

@@ -877,10 +877,10 @@ export default function Productos() {
         const filas = tabla.querySelectorAll('tr');
         const filaActiva = filas[celdaActiva.rowIndex];
         if (filaActiva) {
-          // Hacer scroll para que la fila esté visible
+          // Hacer scroll para que la fila esté visible y centrada
           filaActiva.scrollIntoView({
             behavior: 'smooth',
-            block: 'nearest',  // No hace scroll si ya está visible
+            block: 'center',  // Centrar la fila en la pantalla
             inline: 'nearest'
           });
         }
