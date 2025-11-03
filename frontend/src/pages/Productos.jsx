@@ -693,15 +693,10 @@ export default function Productos() {
         return;
       }
 
-      // Alt+C: Abrir filtros avanzados (donde está el filtro de colores)
+      // Alt+C: Toggle filtros avanzados (donde está el filtro de colores)
       if (e.altKey && e.key === 'c') {
         e.preventDefault();
-        // Si los filtros avanzados están cerrados, abrirlos
-        if (!mostrarFiltrosAvanzados) {
-          setMostrarFiltrosAvanzados(true);
-        }
-        // Toggle el panel de colores
-        setPanelFiltroActivo(panelFiltroActivo === 'colores' ? null : 'colores');
+        setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados);
         return;
       }
 
