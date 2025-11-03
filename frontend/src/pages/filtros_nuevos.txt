@@ -1,0 +1,32 @@
+        {/* Filtros de Dropdown - Botones */}
+        <div className="filters-dropdown-card">
+          <button
+            onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'marcas' ? null : 'marcas')}
+            className={`filter-button marcas ${marcasSeleccionadas.length > 0 ? 'active' : ''}`}
+          >
+            🏷️ Marcas {marcasSeleccionadas.length > 0 && `(${marcasSeleccionadas.length})`}
+          </button>
+
+          <button
+            onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias')}
+            className={`filter-button subcategorias ${subcategoriasSeleccionadas.length > 0 ? 'active' : ''}`}
+          >
+            📋 Subcategorías
+            {subcategoriasSeleccionadas.length > 0 && (
+              <span className="filter-badge">
+                {subcategoriasSeleccionadas.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'auditoria' ? null : 'auditoria')}
+            className={`filter-button auditoria ${(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0 || filtrosAuditoria.fecha_desde || filtrosAuditoria.fecha_hasta) ? 'active' : ''}`}
+          >
+            🔍 Filtros de Auditoría
+            {(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0) && (
+              <span className="filter-badge">
+                {filtrosAuditoria.usuarios.length + filtrosAuditoria.tipos_accion.length}
+              </span>
+            )}
+          </button>

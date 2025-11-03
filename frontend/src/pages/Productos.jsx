@@ -33,14 +33,12 @@ export default function Productos() {
   const [mostrarCalcularWebModal, setMostrarCalcularWebModal] = useState(false);
   const [marcas, setMarcas] = useState([]);
   const [marcasSeleccionadas, setMarcasSeleccionadas] = useState([]);
-  const [mostrarMenuMarcas, setMostrarMenuMarcas] = useState(false);
   const [busquedaMarca, setBusquedaMarca] = useState('');
   const [ordenColumna, setOrdenColumna] = useState(null);
   const [ordenDireccion, setOrdenDireccion] = useState('asc');
   const [ordenColumnas, setOrdenColumnas] = useState([]);
   const [subcategorias, setSubcategorias] = useState([]);
   const [subcategoriasSeleccionadas, setSubcategoriasSeleccionadas] = useState([]);
-  const [mostrarMenuSubcategorias, setMostrarMenuSubcategorias] = useState(false);
   const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
   const [usuarios, setUsuarios] = useState([]);
   const [tiposAccion, setTiposAccion] = useState([]);
@@ -50,7 +48,7 @@ export default function Productos() {
     fecha_desde: '',
     fecha_hasta: ''
   });
-  const [mostrarFiltrosAuditoria, setMostrarFiltrosAuditoria] = useState(false);
+  const [panelFiltroActivo, setPanelFiltroActivo] = useState(null); // 'marcas', 'subcategorias', 'auditoria', null
   const [filtroRebate, setFiltroRebate] = useState(null);
   const [filtroOferta, setFiltroOferta] = useState(null);
   const [filtroWebTransf, setFiltroWebTransf] = useState(null);
@@ -60,6 +58,7 @@ export default function Productos() {
   const [filtroMarkupWebTransf, setFiltroMarkupWebTransf] = useState(null);
   const [filtroOutOfCards, setFiltroOutOfCards] = useState(null);
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
+  const [panelFiltroActivo, setPanelFiltroActivo] = useState(null); // 'marcas', 'subcategorias', 'auditoria', null
 
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
@@ -497,81 +496,17 @@ export default function Productos() {
 
         {/* Filtros de Dropdown */}
         <div className="filters-dropdown-card">
-        {/* Filtro de Marcas */}
-        <div className="filter-dropdown">
+          {/* Filtro de Marcas */}
           <button
-            onClick={() => setMostrarMenuMarcas(!mostrarMenuMarcas)}
+            onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'marcas' ? null : 'marcas')}
             className={`filter-button marcas ${marcasSeleccionadas.length > 0 ? 'active' : ''}`}
           >
             🏷️ Marcas {marcasSeleccionadas.length > 0 && `(${marcasSeleccionadas.length})`}
           </button>
 
-          {mostrarMenuMarcas && (
-          	<>
-          	<div onClick={() => setMostrarMenuMarcas(false)} className="dropdown-overlay" />
-            <div className="dropdown-panel marcas">
-              <div className="dropdown-header">
-                <div className="dropdown-search">
-                  <input
-                    type="text"
-                    placeholder="Buscar marca..."
-                    value={busquedaMarca}
-                    onChange={(e) => setBusquedaMarca(e.target.value)}
-                  />
-                  {busquedaMarca && (
-                    <button
-                      onClick={() => setBusquedaMarca('')}
-                      className="dropdown-search-clear"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-
-                {marcasSeleccionadas.length > 0 && (
-                  <button
-                    onClick={() => {
-                      setMarcasSeleccionadas([]);
-                      setPage(1);
-                    }}
-                    className="btn-clear"
-                  >
-                    Limpiar filtros ({marcasSeleccionadas.length})
-                  </button>
-                )}
-              </div>
-
-              <div className="dropdown-content">
-                {marcasFiltradas.map(marca => (
-                  <label
-                    key={marca}
-                    className={`dropdown-item ${marcasSeleccionadas.includes(marca) ? 'selected' : ''}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={marcasSeleccionadas.includes(marca)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setMarcasSeleccionadas([...marcasSeleccionadas, marca]);
-                        } else {
-                          setMarcasSeleccionadas(marcasSeleccionadas.filter(m => m !== marca));
-                        }
-                        setPage(1);
-                      }}
-                    />
-                    <span>{marca}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-           </>
-          )}
-        </div>
-
-        {/* Filtro de Subcategorías */}
-        <div className="filter-dropdown">
+          {/* Filtro de Subcategorías */}
           <button
-            onClick={() => setMostrarMenuSubcategorias(!mostrarMenuSubcategorias)}
+            onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias')}
             className={`filter-button subcategorias ${subcategoriasSeleccionadas.length > 0 ? 'active' : ''}`}
           >
             📋 Subcategorías
@@ -582,10 +517,103 @@ export default function Productos() {
             )}
           </button>
 
-          {mostrarMenuSubcategorias && (
-            <>
-              <div onClick={() => setMostrarMenuSubcategorias(false)} className="dropdown-overlay" />
-              <div className="dropdown-panel subcategorias">
+          {/* Filtros de Auditoría */}
+          <button
+            onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'auditoria' ? null : 'auditoria')}
+            className={`filter-button auditoria ${(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0 || filtrosAuditoria.fecha_desde || filtrosAuditoria.fecha_hasta) ? 'active' : ''}`}
+          >
+            🔍 Filtros de Auditoría
+            {(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0) && (
+              <span className="filter-badge">
+                {filtrosAuditoria.usuarios.length + filtrosAuditoria.tipos_accion.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Panel compartido de filtros */}
+        {panelFiltroActivo && (
+          <div className="advanced-filters-panel">
+            {/* Contenido de Marcas */}
+            {panelFiltroActivo === 'marcas' && (
+              <>
+                <div className="advanced-filters-header">
+                  <h3>Marcas</h3>
+                  {marcasSeleccionadas.length > 0 && (
+                    <button
+                      onClick={() => {
+                        setMarcasSeleccionadas([]);
+                        setPage(1);
+                      }}
+                      className="btn-clear-all"
+                    >
+                      Limpiar filtros ({marcasSeleccionadas.length})
+                    </button>
+                  )}
+                </div>
+
+                <div className="dropdown-header">
+                  <div className="dropdown-search">
+                    <input
+                      type="text"
+                      placeholder="Buscar marca..."
+                      value={busquedaMarca}
+                      onChange={(e) => setBusquedaMarca(e.target.value)}
+                    />
+                    {busquedaMarca && (
+                      <button
+                        onClick={() => setBusquedaMarca('')}
+                        className="dropdown-search-clear"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="dropdown-content">
+                  {marcasFiltradas.map(marca => (
+                    <label
+                      key={marca}
+                      className={`dropdown-item ${marcasSeleccionadas.includes(marca) ? 'selected' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={marcasSeleccionadas.includes(marca)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setMarcasSeleccionadas([...marcasSeleccionadas, marca]);
+                          } else {
+                            setMarcasSeleccionadas(marcasSeleccionadas.filter(m => m !== marca));
+                          }
+                          setPage(1);
+                        }}
+                      />
+                      <span>{marca}</span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Contenido de Subcategorías */}
+            {panelFiltroActivo === 'subcategorias' && (
+              <>
+                <div className="advanced-filters-header">
+                  <h3>Subcategorías</h3>
+                  <div className="dropdown-actions">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSubcategoriasSeleccionadas([]);
+                      }}
+                      className="btn-clear-all"
+                    >
+                      Limpiar
+                    </button>
+                  </div>
+                </div>
+
                 <div className="dropdown-header">
                   <div className="dropdown-search">
                     <input
@@ -607,27 +635,6 @@ export default function Productos() {
                       </button>
                     )}
                   </div>
-                </div>
-
-                <div className="dropdown-actions">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSubcategoriasSeleccionadas([]);
-                    }}
-                    className="btn-clear"
-                  >
-                    Limpiar
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMostrarMenuSubcategorias(false);
-                    }}
-                    className="btn-apply"
-                  >
-                    Aplicar
-                  </button>
                 </div>
 
                 <div className="dropdown-content">
@@ -727,30 +734,14 @@ export default function Productos() {
                       );
                     })}
                 </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Filtros de Auditoría */}
-        <div className="filter-dropdown">
-          <button
-            onClick={() => setMostrarFiltrosAuditoria(!mostrarFiltrosAuditoria)}
-            className={`filter-button auditoria ${(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0 || filtrosAuditoria.fecha_desde || filtrosAuditoria.fecha_hasta) ? 'active' : ''}`}
-          >
-            🔍 Filtros de Auditoría
-            {(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0) && (
-              <span className="filter-badge">
-                {filtrosAuditoria.usuarios.length + filtrosAuditoria.tipos_accion.length}
-              </span>
+              </>
             )}
-          </button>
 
-          {mostrarFiltrosAuditoria && (
-            <>
-              <div onClick={() => setMostrarFiltrosAuditoria(false)} className="dropdown-overlay" />
-              <div className="dropdown-panel auditoria">
-                <div className="dropdown-actions">
+            {/* Contenido de Auditoría */}
+            {panelFiltroActivo === 'auditoria' && (
+              <>
+                <div className="advanced-filters-header">
+                  <h3>Filtros de Auditoría</h3>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -762,18 +753,9 @@ export default function Productos() {
                       });
                       setPage(1);
                     }}
-                    className="btn-clear"
+                    className="btn-clear-all"
                   >
                     Limpiar Todo
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMostrarFiltrosAuditoria(false);
-                    }}
-                    className="btn-apply"
-                  >
-                    Aplicar
                   </button>
                 </div>
 
@@ -893,10 +875,10 @@ export default function Productos() {
                     </div>
                   </div>
                 </div>
-              </div>
-            </>
-          )}
-        </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Botón de filtros avanzados */}
         <button
