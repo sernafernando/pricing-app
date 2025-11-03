@@ -212,9 +212,15 @@ El sistema incluye un completo sistema de navegación por teclado diseñado para
 | <kbd>Enter</kbd> | Activar modo navegación |
 | <kbd>Tab</kbd> | Siguiente columna de precio |
 | <kbd>Shift</kbd> + <kbd>Tab</kbd> | Columna anterior |
-| <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> | Navegar por celdas |
+| <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> | Navegar por celdas (una a la vez) |
+| <kbd>Shift</kbd> + <kbd>↑</kbd> | Ir al inicio de la tabla |
+| <kbd>Shift</kbd> + <kbd>↓</kbd> | Ir al final de la tabla |
+| <kbd>Re Pág</kbd> (PageUp) | Subir 10 filas |
+| <kbd>Av Pág</kbd> (PageDown) | Bajar 10 filas |
+| <kbd>Home</kbd> | Ir a primera columna |
+| <kbd>End</kbd> | Ir a última columna |
 | <kbd>Enter</kbd> o <kbd>Espacio</kbd> | Editar celda activa |
-| <kbd>Esc</kbd> | Salir de navegación/edición |
+| <kbd>Esc</kbd> | Salir de edición (mantiene navegación) |
 
 **Nota:** Solo puedes navegar por las 4 columnas de precios: Precio Clásica, Precio Rebate, Mejor Oferta y Web Transf.
 

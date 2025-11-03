@@ -587,23 +587,24 @@ export default function Productos() {
   // Sistema de navegación por teclado
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // SIEMPRE prevenir Tab en modo navegación (incluso en checkboxes)
-      if (modoNavegacion && e.key === 'Tab') {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-
-      // Si estamos en un input/textarea editando precios, solo procesar Escape
-      if ((e.target.tagName === 'INPUT' && e.target.type === 'number') ||
-          (e.target.tagName === 'TEXTAREA')) {
+      // Si estamos editando una celda, permitir navegación normal con Tab DENTRO de la celda
+      if (editandoPrecio || editandoRebate || editandoWebTransf) {
+        // Solo procesar Escape para salir de edición
         if (e.key === 'Escape') {
           setEditandoPrecio(null);
           setEditandoRebate(null);
           setEditandoWebTransf(null);
-          setCeldaActiva(null);
-          setModoNavegacion(false);
+          // Mantener modo navegación activo después de salir de edición
+          return;
         }
+        // Permitir Tab, Enter y cualquier otra tecla para navegar dentro del formulario
         return;
+      }
+
+      // SOLO prevenir Tab cuando estamos en modo navegación pero NO editando
+      if (modoNavegacion && e.key === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
       }
 
       // Mostrar ayuda de shortcuts (?)
@@ -747,7 +748,10 @@ export default function Productos() {
 
         if (e.key === 'ArrowDown' && !editandoPrecio) {
           e.preventDefault();
-          if (rowIndex < productos.length - 1) {
+          if (e.shiftKey) {
+            // Shift+ArrowDown: Ir al final de la tabla
+            setCeldaActiva({ rowIndex: productos.length - 1, colIndex });
+          } else if (rowIndex < productos.length - 1) {
             setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
           }
           return;
@@ -755,9 +759,42 @@ export default function Productos() {
 
         if (e.key === 'ArrowUp' && !editandoPrecio) {
           e.preventDefault();
-          if (rowIndex > 0) {
+          if (e.shiftKey) {
+            // Shift+ArrowUp: Ir al inicio de la tabla
+            setCeldaActiva({ rowIndex: 0, colIndex });
+          } else if (rowIndex > 0) {
             setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
           }
+          return;
+        }
+
+        // PageUp: Subir 10 filas
+        if (e.key === 'PageUp' && !editandoPrecio) {
+          e.preventDefault();
+          const newRow = Math.max(0, rowIndex - 10);
+          setCeldaActiva({ rowIndex: newRow, colIndex });
+          return;
+        }
+
+        // PageDown: Bajar 10 filas
+        if (e.key === 'PageDown' && !editandoPrecio) {
+          e.preventDefault();
+          const newRow = Math.min(productos.length - 1, rowIndex + 10);
+          setCeldaActiva({ rowIndex: newRow, colIndex });
+          return;
+        }
+
+        // Home: Ir a primera columna
+        if (e.key === 'Home' && !editandoPrecio) {
+          e.preventDefault();
+          setCeldaActiva({ rowIndex, colIndex: 0 });
+          return;
+        }
+
+        // End: Ir a última columna
+        if (e.key === 'End' && !editandoPrecio) {
+          e.preventDefault();
+          setCeldaActiva({ rowIndex, colIndex: columnasEditables.length - 1 });
           return;
         }
 
@@ -2125,7 +2162,31 @@ export default function Productos() {
                 </div>
                 <div className="shortcut-item">
                   <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>
-                  <span>Navegar por celdas</span>
+                  <span>Navegar por celdas (una a la vez)</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Shift</kbd> + <kbd>↑</kbd>
+                  <span>Ir al inicio de la tabla</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Shift</kbd> + <kbd>↓</kbd>
+                  <span>Ir al final de la tabla</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Re Pág</kbd> (PageUp)
+                  <span>Subir 10 filas</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Av Pág</kbd> (PageDown)
+                  <span>Bajar 10 filas</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Home</kbd>
+                  <span>Ir a primera columna</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>End</kbd>
+                  <span>Ir a última columna</span>
                 </div>
                 <div className="shortcut-item">
                   <kbd>Enter</kbd> o <kbd>Espacio</kbd>
@@ -2133,7 +2194,7 @@ export default function Productos() {
                 </div>
                 <div className="shortcut-item">
                   <kbd>Esc</kbd>
-                  <span>Salir de navegación/edición</span>
+                  <span>Salir de edición (mantiene navegación)</span>
                 </div>
               </div>
 
