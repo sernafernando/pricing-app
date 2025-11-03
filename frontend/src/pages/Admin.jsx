@@ -18,6 +18,8 @@ export default function Admin() {
   });
   const [editandoUsuario, setEditandoUsuario] = useState(null);
   const [datosEdicion, setDatosEdicion] = useState({});
+  const [cambiandoPassword, setCambiandoPassword] = useState(null);
+  const [nuevaPassword, setNuevaPassword] = useState('');
 
   useEffect(() => {
     cargarDatos();
@@ -179,13 +181,35 @@ export default function Admin() {
   const toggleUsuario = async (id, activo) => {
     try {
       const token = localStorage.getItem('token');
-      await axios.patch(`https://pricing.gaussonline.com.ar/api/usuarios/${id}`, 
-        { activo: !activo }, 
+      await axios.patch(`https://pricing.gaussonline.com.ar/api/usuarios/${id}`,
+        { activo: !activo },
         { headers: { Authorization: `Bearer ${token}` }});
-      
+
       cargarDatos();
     } catch (error) {
       alert('❌ Error al modificar usuario');
+    }
+  };
+
+  const cambiarPassword = async (usuarioId) => {
+    if (!nuevaPassword || nuevaPassword.length < 6) {
+      alert('❌ La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      await axios.patch(
+        `https://pricing.gaussonline.com.ar/api/usuarios/${usuarioId}/password`,
+        { nueva_password: nuevaPassword },
+        { headers: { Authorization: `Bearer ${token}` }}
+      );
+
+      alert('✅ Contraseña actualizada correctamente');
+      setCambiandoPassword(null);
+      setNuevaPassword('');
+    } catch (error) {
+      alert('❌ Error: ' + (error.response?.data?.detail || error.message));
     }
   };
 
@@ -502,20 +526,84 @@ export default function Admin() {
                 
                 {/* Acciones */}
                 <td style={{ padding: '12px' }}>
-                  <button
-                    onClick={() => toggleUsuario(user.id, user.activo)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '4px',
-                      border: 'none',
-                      background: user.activo ? '#fee2e2' : '#dcfce7',
-                      color: user.activo ? '#991b1b' : '#166534',
-                      cursor: 'pointer',
-                      fontSize: '13px'
-                    }}
-                  >
-                    {user.activo ? 'Desactivar' : 'Activar'}
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => toggleUsuario(user.id, user.activo)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '4px',
+                        border: 'none',
+                        background: user.activo ? '#fee2e2' : '#dcfce7',
+                        color: user.activo ? '#991b1b' : '#166534',
+                        cursor: 'pointer',
+                        fontSize: '13px'
+                      }}
+                    >
+                      {user.activo ? 'Desactivar' : 'Activar'}
+                    </button>
+
+                    {cambiandoPassword === user.id ? (
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        <input
+                          type="password"
+                          placeholder="Nueva contraseña"
+                          value={nuevaPassword}
+                          onChange={(e) => setNuevaPassword(e.target.value)}
+                          style={{
+                            padding: '6px',
+                            borderRadius: '4px',
+                            border: '1px solid #d1d5db',
+                            fontSize: '13px',
+                            width: '150px'
+                          }}
+                        />
+                        <button
+                          onClick={() => cambiarPassword(user.id)}
+                          style={{
+                            padding: '6px 10px',
+                            background: '#10b981',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          ✓
+                        </button>
+                        <button
+                          onClick={() => {
+                            setCambiandoPassword(null);
+                            setNuevaPassword('');
+                          }}
+                          style={{
+                            padding: '6px 10px',
+                            background: '#ef4444',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          ✗
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setCambiandoPassword(user.id)}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '4px',
+                          border: 'none',
+                          background: '#dbeafe',
+                          color: '#1e40af',
+                          cursor: 'pointer',
+                          fontSize: '13px'
+                        }}
+                      >
+                        🔑 Cambiar Password
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

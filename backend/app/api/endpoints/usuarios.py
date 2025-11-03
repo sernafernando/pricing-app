@@ -22,6 +22,9 @@ class UsuarioUpdate(BaseModel):
     activo: Optional[bool] = None
     rol: Optional[str] = None
 
+class PasswordUpdate(BaseModel):
+    nueva_password: str
+
 class UsuarioResponse(BaseModel):
     id: int
     email: str
@@ -116,6 +119,35 @@ async def actualizar_usuario(
     
     return usuario
 
+@router.patch("/usuarios/{usuario_id}/password")
+async def cambiar_password_usuario(
+    usuario_id: int,
+    datos: PasswordUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Cambia el password de un usuario (solo admin)"""
+    if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
+        raise HTTPException(403, "No tienes permisos")
+
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(404, "Usuario no encontrado")
+
+    # Validar longitud mínima
+    if len(datos.nueva_password) < 6:
+        raise HTTPException(400, "La contraseña debe tener al menos 6 caracteres")
+
+    # PROTECCIÓN: Solo superadmin puede cambiar password de otro superadmin
+    if usuario.rol.value == "SUPERADMIN" and current_user.rol.value != "SUPERADMIN":
+        raise HTTPException(403, "No puedes cambiar el password de un superadministrador")
+
+    # Cambiar password
+    usuario.password_hash = pwd_context.hash(datos.nueva_password)
+    db.commit()
+
+    return {"mensaje": "Password actualizado correctamente"}
+
 @router.delete("/usuarios/{usuario_id}")
 async def eliminar_usuario(
     usuario_id: int,
@@ -125,20 +157,20 @@ async def eliminar_usuario(
     """Elimina un usuario (solo admin)"""
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
         raise HTTPException(403, "No tienes permisos")
-    
+
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not usuario:
         raise HTTPException(404, "Usuario no encontrado")
-    
+
     # PROTECCIÓN: No se puede eliminar un superadmin
     if usuario.rol == "SUPERADMIN":
         raise HTTPException(403, "No puedes eliminar un superadministrador")
-    
+
     # No permitir eliminarse a sí mismo
     if usuario.id == current_user.id:
         raise HTTPException(400, "No puedes eliminarte a ti mismo")
-    
+
     db.delete(usuario)
     db.commit()
-    
+
     return {"message": "Usuario eliminado"}
