@@ -17,11 +17,16 @@
   --border-primary: #e5e7eb;
   --border-secondary: #d1d5db;
   --border-focus: #3b82f6;
+  --border-color: #e5e7eb;
 
   /* Brand colors */
   --brand-primary: #3b82f6;
   --brand-primary-hover: #2563eb;
   --brand-primary-light: #dbeafe;
+
+  /* Accent */
+  --accent-bg: #dbeafe;
+  --accent-text: #1e40af;
 
   /* Success */
   --success: #10b981;
@@ -33,6 +38,7 @@
   --warning: #f59e0b;
   --warning-hover: #d97706;
   --warning-light: #fef3c7;
+  --warning-bg: #fef3c7;
   --warning-text: #92400e;
 
   /* Error */
@@ -81,11 +87,16 @@
   --border-primary: #334155;
   --border-secondary: #475569;
   --border-focus: #60a5fa;
+  --border-color: #334155;
 
   /* Brand colors - más brillantes para dark mode */
   --brand-primary: #60a5fa;
   --brand-primary-hover: #3b82f6;
   --brand-primary-light: #1e3a8a;
+
+  /* Accent */
+  --accent-bg: #1e3a8a;
+  --accent-text: #93c5fd;
 
   /* Success - ajustado para dark mode */
   --success: #34d399;
@@ -97,6 +108,7 @@
   --warning: #fbbf24;
   --warning-hover: #f59e0b;
   --warning-light: #78350f;
+  --warning-bg: #78350f;
   --warning-text: #fcd34d;
 
   /* Error - ajustado para dark mode */

@@ -117,13 +117,15 @@ export default function GestionPM() {
               width: '100%',
               padding: '12px',
               borderRadius: '8px',
-              border: '1px solid #e5e7eb',
-              fontSize: '14px'
+              border: '1px solid var(--border-color)',
+              fontSize: '14px',
+              background: 'var(--bg-primary)',
+              color: 'var(--text-primary)'
             }}
           />
         </div>
 
-        <div style={{ marginBottom: '20px', padding: '12px', background: '#f3f4f6', borderRadius: '8px' }}>
+        <div style={{ marginBottom: '20px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', fontSize: '14px' }}>
             <div>
               <strong>Total Marcas:</strong> {marcas.length}
@@ -143,21 +145,21 @@ export default function GestionPM() {
             <div
               key={key}
               style={{
-                border: '1px solid #e5e7eb',
+                border: '1px solid var(--border-color)',
                 borderRadius: '8px',
                 padding: '16px',
-                background: key === 'sin_asignar' ? '#fef3c7' : 'white'
+                background: key === 'sin_asignar' ? 'var(--warning-bg)' : 'var(--bg-secondary)'
               }}
             >
-              <h3 style={{ marginBottom: '12px', fontSize: '16px', fontWeight: '600' }}>
+              <h3 style={{ marginBottom: '12px', fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>
                 {data.usuario ? (
                   <>
-                    👤 {data.usuario.nombre} <span style={{ color: '#6b7280', fontSize: '14px' }}>({data.usuario.email})</span>
+                    👤 {data.usuario.nombre} <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>({data.usuario.email})</span>
                   </>
                 ) : (
                   <>⚠️ Sin asignar</>
                 )}
-                <span style={{ marginLeft: '8px', color: '#6b7280', fontSize: '14px' }}>
+                <span style={{ marginLeft: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
                   - {data.marcas.length} marca{data.marcas.length !== 1 ? 's' : ''}
                 </span>
               </h3>
@@ -171,12 +173,13 @@ export default function GestionPM() {
                       justifyContent: 'space-between',
                       alignItems: 'center',
                       padding: '8px 12px',
-                      background: '#f9fafb',
+                      background: 'var(--bg-tertiary)',
                       borderRadius: '6px',
-                      fontSize: '14px'
+                      fontSize: '14px',
+                      border: '1px solid var(--border-color)'
                     }}
                   >
-                    <span style={{ fontWeight: '500' }}>{marca.marca}</span>
+                    <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>{marca.marca}</span>
 
                     {editandoMarca === marca.id ? (
                       <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
@@ -186,8 +189,10 @@ export default function GestionPM() {
                           style={{
                             padding: '4px 8px',
                             borderRadius: '4px',
-                            border: '1px solid #d1d5db',
-                            fontSize: '12px'
+                            border: '1px solid var(--border-color)',
+                            fontSize: '12px',
+                            background: 'var(--bg-primary)',
+                            color: 'var(--text-primary)'
                           }}
                         >
                           <option value="">Sin asignar</option>
@@ -217,8 +222,8 @@ export default function GestionPM() {
                         onClick={() => setEditandoMarca(marca.id)}
                         style={{
                           padding: '4px 8px',
-                          background: '#dbeafe',
-                          color: '#1e40af',
+                          background: 'var(--accent-bg)',
+                          color: 'var(--accent-text)',
                           border: 'none',
                           borderRadius: '4px',
                           cursor: 'pointer',
