@@ -1198,9 +1198,9 @@ export default function Productos() {
                   <tr
                     key={p.item_id}
                     style={{
-                      backgroundColor: colorInfo?.color || 'transparent',
-                      color: colorInfo?.colorTexto || 'inherit'
+                      backgroundColor: colorInfo?.color || 'transparent'
                     }}
+                    className={p.color_marcado ? 'row-colored' : ''}
                   >
                     <td>{p.codigo}</td>
                     <td>{p.descripcion}</td>

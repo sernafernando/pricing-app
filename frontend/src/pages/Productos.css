@@ -925,6 +925,15 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+/* Filas coloreadas - mantener color de texto del tema */
+.row-colored {
+  color: var(--text-primary) !important;
+}
+
+.row-colored td {
+  color: var(--text-primary) !important;
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;
