@@ -63,8 +63,16 @@ export default function Productos() {
   const [pms, setPms] = useState([]);
   const [pmsSeleccionados, setPmsSeleccionados] = useState([]);
 
+  // Estados para navegación por teclado
+  const [celdaActiva, setCeldaActiva] = useState(null); // { rowIndex, colIndex }
+  const [modoNavegacion, setModoNavegacion] = useState(false);
+  const [mostrarShortcutsHelp, setMostrarShortcutsHelp] = useState(false);
+
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
+
+  // Columnas editables (solo precios)
+  const columnasEditables = ['precio_clasica', 'precio_rebate', 'mejor_oferta', 'precio_web_transf'];
 
   const debouncedSearch = useDebounce(searchInput, 500);
 
@@ -573,6 +581,315 @@ export default function Productos() {
       setPms(response.data);
     } catch (error) {
       console.error('Error cargando PMs:', error);
+    }
+  };
+
+  // Sistema de navegación por teclado
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Si estamos en un input/textarea o modal abierto, no procesar shortcuts globales
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        // Solo procesar Escape para salir de edición
+        if (e.key === 'Escape') {
+          setEditandoPrecio(null);
+          setEditandoRebate(null);
+          setEditandoWebTransf(null);
+          setCeldaActiva(null);
+          setModoNavegacion(false);
+        }
+        return;
+      }
+
+      // Mostrar ayuda de shortcuts (?)
+      if (e.key === '?' && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setMostrarShortcutsHelp(!mostrarShortcutsHelp);
+        return;
+      }
+
+      // Escape: Salir de modo navegación o cerrar paneles
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setCeldaActiva(null);
+        setModoNavegacion(false);
+        setPanelFiltroActivo(null);
+        setColorDropdownAbierto(null);
+        setMostrarShortcutsHelp(false);
+        return;
+      }
+
+      // Ctrl+F: Focus en búsqueda
+      if (e.ctrlKey && e.key === 'f') {
+        e.preventDefault();
+        document.querySelector('.search-bar input')?.focus();
+        return;
+      }
+
+      // Alt+M: Toggle filtro de marcas
+      if (e.altKey && e.key === 'm') {
+        e.preventDefault();
+        setPanelFiltroActivo(panelFiltroActivo === 'marcas' ? null : 'marcas');
+        return;
+      }
+
+      // Alt+S: Toggle filtro de subcategorías
+      if (e.altKey && e.key === 's') {
+        e.preventDefault();
+        setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias');
+        return;
+      }
+
+      // Alt+A: Toggle filtro de auditoría
+      if (e.altKey && e.key === 'a') {
+        e.preventDefault();
+        setPanelFiltroActivo(panelFiltroActivo === 'auditoria' ? null : 'auditoria');
+        return;
+      }
+
+      // Alt+P: Toggle filtro de PMs
+      if (e.altKey && e.key === 'p') {
+        e.preventDefault();
+        setPanelFiltroActivo(panelFiltroActivo === 'pms' ? null : 'pms');
+        return;
+      }
+
+      // Alt+C: Toggle filtro de colores
+      if (e.altKey && e.key === 'c') {
+        e.preventDefault();
+        setPanelFiltroActivo(panelFiltroActivo === 'colores' ? null : 'colores');
+        return;
+      }
+
+      // Alt+F: Toggle filtros avanzados
+      if (e.altKey && e.key === 'f') {
+        e.preventDefault();
+        setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados);
+        return;
+      }
+
+      // Ctrl+E: Abrir modal de export
+      if (e.ctrlKey && e.key === 'e') {
+        e.preventDefault();
+        setMostrarExportModal(true);
+        return;
+      }
+
+      // Ctrl+W: Abrir modal de calcular web
+      if (e.ctrlKey && e.key === 'w') {
+        e.preventDefault();
+        setMostrarCalcularWebModal(true);
+        return;
+      }
+
+      // Enter: Activar modo navegación en la tabla
+      if (e.key === 'Enter' && !modoNavegacion && productos.length > 0) {
+        e.preventDefault();
+        setModoNavegacion(true);
+        setCeldaActiva({ rowIndex: 0, colIndex: 0 });
+        return;
+      }
+
+      // Navegación en modo tabla
+      if (modoNavegacion && celdaActiva) {
+        const { rowIndex, colIndex } = celdaActiva;
+
+        // Tab: Siguiente columna
+        if (e.key === 'Tab' && !e.shiftKey) {
+          e.preventDefault();
+          const nextCol = colIndex < columnasEditables.length - 1 ? colIndex + 1 : 0;
+          const nextRow = nextCol === 0 && colIndex === columnasEditables.length - 1 ?
+            (rowIndex < productos.length - 1 ? rowIndex + 1 : rowIndex) : rowIndex;
+          setCeldaActiva({ rowIndex: nextRow, colIndex: nextCol });
+          return;
+        }
+
+        // Shift+Tab: Columna anterior
+        if (e.key === 'Tab' && e.shiftKey) {
+          e.preventDefault();
+          const prevCol = colIndex > 0 ? colIndex - 1 : columnasEditables.length - 1;
+          const prevRow = prevCol === columnasEditables.length - 1 && colIndex === 0 ?
+            (rowIndex > 0 ? rowIndex - 1 : rowIndex) : rowIndex;
+          setCeldaActiva({ rowIndex: prevRow, colIndex: prevCol });
+          return;
+        }
+
+        // Enter: Siguiente fila (misma columna)
+        if (e.key === 'Enter' && !editandoPrecio) {
+          e.preventDefault();
+          if (rowIndex < productos.length - 1) {
+            setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
+          }
+          return;
+        }
+
+        // Shift+Enter: Fila anterior
+        if (e.key === 'Enter' && e.shiftKey && !editandoPrecio) {
+          e.preventDefault();
+          if (rowIndex > 0) {
+            setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
+          }
+          return;
+        }
+
+        // Flechas: Navegación por celdas
+        if (e.key === 'ArrowRight' && !editandoPrecio) {
+          e.preventDefault();
+          if (colIndex < columnasEditables.length - 1) {
+            setCeldaActiva({ rowIndex, colIndex: colIndex + 1 });
+          }
+          return;
+        }
+
+        if (e.key === 'ArrowLeft' && !editandoPrecio) {
+          e.preventDefault();
+          if (colIndex > 0) {
+            setCeldaActiva({ rowIndex, colIndex: colIndex - 1 });
+          }
+          return;
+        }
+
+        if (e.key === 'ArrowDown' && !editandoPrecio) {
+          e.preventDefault();
+          if (rowIndex < productos.length - 1) {
+            setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
+          }
+          return;
+        }
+
+        if (e.key === 'ArrowUp' && !editandoPrecio) {
+          e.preventDefault();
+          if (rowIndex > 0) {
+            setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
+          }
+          return;
+        }
+
+        // Espacio: Editar precio en celda activa
+        if (e.key === ' ' && !editandoPrecio && puedeEditar) {
+          e.preventDefault();
+          const producto = productos[rowIndex];
+          const columna = columnasEditables[colIndex];
+          iniciarEdicionDesdeTeclado(producto, columna);
+          return;
+        }
+
+        // Números 1-9: Selección rápida de colores
+        if (!editandoPrecio && /^[1-9]$/.test(e.key)) {
+          e.preventDefault();
+          const colores = ['rojo', 'amarillo', 'verde', 'azul', 'naranja', 'violeta', 'rosa', 'gris', 'cyan'];
+          const colorIndex = parseInt(e.key) - 1;
+          if (colorIndex < colores.length && puedeEditar) {
+            const producto = productos[rowIndex];
+            cambiarColorRapido(producto.item_id, colores[colorIndex]);
+          }
+          return;
+        }
+
+        // R: Toggle rebate
+        if (e.key === 'r' && !editandoPrecio && puedeEditar) {
+          e.preventDefault();
+          const producto = productos[rowIndex];
+          toggleRebateRapido(producto);
+          return;
+        }
+
+        // W: Toggle web transferencia
+        if (e.key === 'w' && !editandoPrecio && puedeEditar) {
+          e.preventDefault();
+          const producto = productos[rowIndex];
+          toggleWebTransfRapido(producto);
+          return;
+        }
+
+        // O: Toggle out of cards
+        if (e.key === 'o' && !editandoPrecio && puedeEditar) {
+          e.preventDefault();
+          const producto = productos[rowIndex];
+          toggleOutOfCardsRapido(producto);
+          return;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, mostrarFiltrosAvanzados]);
+
+  // Funciones de edición rápida desde teclado
+  const iniciarEdicionDesdeTeclado = (producto, columna) => {
+    if (columna === 'precio_clasica') {
+      setEditandoPrecio(producto.item_id);
+      setPrecioTemp(producto.precio_lista_ml || '');
+    } else if (columna === 'precio_rebate') {
+      setEditandoRebate(producto.item_id);
+      setRebateTemp({
+        participa: producto.participa_rebate || false,
+        porcentaje: producto.porcentaje_rebate || 3.8
+      });
+    } else if (columna === 'precio_web_transf') {
+      setEditandoWebTransf(producto.item_id);
+      setWebTransfTemp({
+        participa: producto.participa_web_transferencia || false,
+        porcentaje: producto.porcentaje_markup_web || 6.0
+      });
+    }
+  };
+
+  const cambiarColorRapido = async (itemId, color) => {
+    try {
+      await axios.patch(
+        `${API_URL}/productos/${itemId}/color`,
+        { color },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      cargarProductos();
+    } catch (error) {
+      console.error('Error cambiando color:', error);
+    }
+  };
+
+  const toggleRebateRapido = async (producto) => {
+    try {
+      await axios.patch(
+        `${API_URL}/productos/${producto.item_id}/rebate`,
+        {
+          participa_rebate: !producto.participa_rebate,
+          porcentaje_rebate: producto.porcentaje_rebate || 3.8
+        },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      cargarProductos();
+    } catch (error) {
+      console.error('Error toggling rebate:', error);
+    }
+  };
+
+  const toggleWebTransfRapido = async (producto) => {
+    try {
+      await axios.patch(
+        `${API_URL}/productos/${producto.item_id}/web-transferencia`,
+        {
+          participa: !producto.participa_web_transferencia,
+          porcentaje: producto.porcentaje_markup_web || 6.0
+        },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      cargarProductos();
+    } catch (error) {
+      console.error('Error toggling web transf:', error);
+    }
+  };
+
+  const toggleOutOfCardsRapido = async (producto) => {
+    try {
+      await axios.patch(
+        `${API_URL}/productos/${producto.item_id}/out-of-cards`,
+        { out_of_cards: !producto.out_of_cards },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      cargarProductos();
+    } catch (error) {
+      console.error('Error toggling out of cards:', error);
     }
   };
 
@@ -1372,21 +1689,22 @@ export default function Productos() {
                 </tr>
               </thead>
               <tbody className="table-body">
-                {productosOrdenados.map((p) => {
+                {productosOrdenados.map((p, rowIndex) => {
                   const colorInfo = COLORES_DISPONIBLES.find(c => c.id === p.color_marcado);
                   const rowStyle = colorInfo?.color ? { backgroundColor: colorInfo.color } : undefined;
+                  const isRowActive = modoNavegacion && celdaActiva?.rowIndex === rowIndex;
                   return (
                   <tr
                     key={p.item_id}
                     style={rowStyle}
-                    className={p.color_marcado ? 'row-colored' : ''}
+                    className={`${p.color_marcado ? 'row-colored' : ''} ${isRowActive ? 'keyboard-row-active' : ''}`}
                   >
                     <td>{p.codigo}</td>
                     <td>{p.descripcion}</td>
                     <td>{p.marca}</td>
                     <td>{p.stock}</td>
                     <td>{p.moneda_costo} ${p.costo?.toFixed(2)}</td>
-                    <td>
+                    <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
                       {editandoPrecio === p.item_id ? (
                         <div className="inline-edit">
                           <input
@@ -1412,7 +1730,7 @@ export default function Productos() {
                         </div>
                       )}
                     </td>
-                    <td>
+                    <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
                       {editandoRebate === p.item_id ? (
                         <div className="rebate-edit">
                           <label className="rebate-checkbox">
@@ -1480,7 +1798,7 @@ export default function Productos() {
                         </div>
                       )}
                     </td>
-                    <td>
+                    <td className={isRowActive && celdaActiva?.colIndex === 2 ? 'keyboard-cell-active' : ''}>
                       {p.mejor_oferta_precio ? (
                         <div className="mejor-oferta-info">
                           <div className="mejor-oferta-precio">
@@ -1516,7 +1834,7 @@ export default function Productos() {
                         <span className="text-muted">-</span>
                       )}
                     </td>
-                    <td>
+                    <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
                       {editandoWebTransf === p.item_id ? (
                         <div className="web-transf-edit">
                           <label className="web-transf-checkbox">
@@ -1783,6 +2101,130 @@ export default function Productos() {
             audit_fecha_hasta: filtrosAuditoria.fecha_hasta
           }}
         />
+      )}
+
+      {/* Modal de ayuda de shortcuts */}
+      {mostrarShortcutsHelp && (
+        <div className="shortcuts-modal-overlay" onClick={() => setMostrarShortcutsHelp(false)}>
+          <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="shortcuts-header">
+              <h2>⌨️ Atajos de Teclado</h2>
+              <button onClick={() => setMostrarShortcutsHelp(false)} className="close-btn">✕</button>
+            </div>
+            <div className="shortcuts-content">
+              <div className="shortcuts-section">
+                <h3>Navegación en Tabla</h3>
+                <div className="shortcut-item">
+                  <kbd>Enter</kbd>
+                  <span>Activar modo navegación</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Tab</kbd>
+                  <span>Siguiente columna</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Shift</kbd> + <kbd>Tab</kbd>
+                  <span>Columna anterior</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Enter</kbd> (en tabla)
+                  <span>Siguiente fila</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Shift</kbd> + <kbd>Enter</kbd>
+                  <span>Fila anterior</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>
+                  <span>Navegar por celdas</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Espacio</kbd>
+                  <span>Editar celda activa</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Esc</kbd>
+                  <span>Salir de navegación/edición</span>
+                </div>
+              </div>
+
+              <div className="shortcuts-section">
+                <h3>Acciones Rápidas (en fila activa)</h3>
+                <div className="shortcut-item">
+                  <kbd>1</kbd>-<kbd>9</kbd>
+                  <span>Asignar color (1=Rojo, 2=Amarillo, 3=Verde, etc.)</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>R</kbd>
+                  <span>Toggle Rebate ON/OFF</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>W</kbd>
+                  <span>Toggle Web Transferencia ON/OFF</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>O</kbd>
+                  <span>Toggle Out of Cards</span>
+                </div>
+              </div>
+
+              <div className="shortcuts-section">
+                <h3>Filtros</h3>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd> + <kbd>F</kbd>
+                  <span>Buscar productos</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Alt</kbd> + <kbd>M</kbd>
+                  <span>Toggle filtro Marcas</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Alt</kbd> + <kbd>S</kbd>
+                  <span>Toggle filtro Subcategorías</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Alt</kbd> + <kbd>P</kbd>
+                  <span>Toggle filtro PMs</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Alt</kbd> + <kbd>C</kbd>
+                  <span>Toggle filtro Colores</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Alt</kbd> + <kbd>A</kbd>
+                  <span>Toggle filtro Auditoría</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Alt</kbd> + <kbd>F</kbd>
+                  <span>Toggle filtros avanzados</span>
+                </div>
+              </div>
+
+              <div className="shortcuts-section">
+                <h3>Acciones Globales</h3>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd> + <kbd>E</kbd>
+                  <span>Abrir modal de exportar</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd> + <kbd>W</kbd>
+                  <span>Calcular Web Transferencia masivo</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>?</kbd>
+                  <span>Mostrar/ocultar esta ayuda</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Indicador de modo navegación */}
+      {modoNavegacion && (
+        <div className="navigation-indicator">
+          ⌨️ Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
+        </div>
       )}
     </div>
       );
