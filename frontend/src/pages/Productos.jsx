@@ -58,7 +58,6 @@ export default function Productos() {
   const [filtroMarkupWebTransf, setFiltroMarkupWebTransf] = useState(null);
   const [filtroOutOfCards, setFiltroOutOfCards] = useState(null);
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
-  const [panelFiltroActivo, setPanelFiltroActivo] = useState(null); // 'marcas', 'subcategorias', 'auditoria', null
 
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
