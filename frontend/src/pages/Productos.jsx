@@ -528,6 +528,19 @@ export default function Productos() {
               </span>
             )}
           </button>
+
+          {/* Botón de filtros avanzados */}
+          <button
+            onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
+            className={`filter-button advanced ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) ? 'active' : ''}`}
+          >
+            🎯 Filtros Avanzados
+            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) && (
+              <span className="filter-badge">
+                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Panel compartido de filtros */}
@@ -878,20 +891,6 @@ export default function Productos() {
             )}
           </div>
         )}
-
-        {/* Botón de filtros avanzados */}
-        <button
-          onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
-          className={`filter-button advanced ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) ? 'active' : ''}`}
-        >
-          🎯 Filtros Avanzados
-          {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards) && (
-            <span className="filter-badge">
-              {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length}
-            </span>
-          )}
-        </button>
-        </div>
 
         {/* Botones de Acción */}
         <div className="action-buttons-card">
