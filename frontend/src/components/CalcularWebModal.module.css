@@ -120,6 +120,7 @@
   background: var(--bg-primary);
   color: var(--text-primary);
   transition: all 0.2s;
+  box-sizing: border-box;
 }
 
 .input:focus {
