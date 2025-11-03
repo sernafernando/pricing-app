@@ -1757,7 +1757,12 @@ export default function Productos() {
                             type="number"
                             value={precioTemp}
                             onChange={(e) => setPrecioTemp(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && guardarPrecio(p.item_id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                guardarPrecio(p.item_id);
+                              }
+                            }}
                             autoFocus
                           />
                           <button onClick={() => guardarPrecio(p.item_id)} onKeyDown={(e) => {
@@ -1766,7 +1771,12 @@ export default function Productos() {
                               guardarPrecio(p.item_id);
                             }
                           }}>✓</button>
-                          <button onClick={() => setEditandoPrecio(null)}>✗</button>
+                          <button onClick={() => setEditandoPrecio(null)} onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              setEditandoPrecio(null);
+                            }
+                          }}>✗</button>
                         </div>
                       ) : (
                         <div onClick={() => puedeEditar && iniciarEdicion(p)}>
@@ -1789,6 +1799,12 @@ export default function Productos() {
                               type="checkbox"
                               checked={rebateTemp.participa}
                               onChange={(e) => setRebateTemp({ ...rebateTemp, participa: e.target.checked })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  guardarRebate(p.item_id);
+                                }
+                              }}
                               autoFocus
                             />
                             <span>Rebate</span>
@@ -1799,6 +1815,12 @@ export default function Productos() {
                               step="0.1"
                               value={rebateTemp.porcentaje}
                               onChange={(e) => setRebateTemp({ ...rebateTemp, porcentaje: parseFloat(e.target.value) })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  guardarRebate(p.item_id);
+                                }
+                              }}
                               placeholder="%"
                             />
                           )}
@@ -1809,7 +1831,12 @@ export default function Productos() {
                                 guardarRebate(p.item_id);
                               }
                             }}>✓</button>
-                            <button onClick={() => setEditandoRebate(null)}>✗</button>
+                            <button onClick={() => setEditandoRebate(null)} onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                setEditandoRebate(null);
+                              }
+                            }}>✗</button>
                           </div>
                         </div>
                       ) : (
@@ -1899,6 +1926,12 @@ export default function Productos() {
                               type="checkbox"
                               checked={webTransfTemp.participa}
                               onChange={(e) => setWebTransfTemp({...webTransfTemp, participa: e.target.checked})}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  guardarWebTransf(p.item_id);
+                                }
+                              }}
                               autoFocus
                             />
                             Participa
@@ -1913,6 +1946,12 @@ export default function Productos() {
                                 setWebTransfTemp({...webTransfTemp, porcentaje: valor});
                               }
                             }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                guardarWebTransf(p.item_id);
+                              }
+                            }}
                             placeholder="%"
                             style={{ width: '60px', padding: '4px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                           />
@@ -1923,7 +1962,12 @@ export default function Productos() {
                                 guardarWebTransf(p.item_id);
                               }
                             }}>✓</button>
-                            <button onClick={() => setEditandoWebTransf(null)}>✗</button>
+                            <button onClick={() => setEditandoWebTransf(null)} onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                setEditandoWebTransf(null);
+                              }
+                            }}>✗</button>
                           </div>
                         </div>
                       ) : (
