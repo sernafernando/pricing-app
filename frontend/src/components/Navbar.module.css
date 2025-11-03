@@ -50,48 +50,33 @@
 
 .links {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   flex: 1;
   justify-content: center;
+  align-items: center;
 }
 
 .link {
-  padding: 10px 18px;
-  color: var(--text-secondary);
+  padding: 6px 12px;
+  color: rgba(255, 255, 255, 0.7);
   text-decoration: none;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 14px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-.link::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-  transition: left 0.5s;
-}
-
-.link:hover::before {
-  left: 100%;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
 }
 
 .link:hover {
-  background: var(--bg-hover);
-  color: var(--text-inverse);
-  transform: translateY(-2px);
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .link.active {
-  background: var(--gradient-primary);
-  color: var(--text-inverse);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  color: white;
+  background: rgba(255, 255, 255, 0.12);
+  border-bottom-color: rgba(96, 165, 250, 0.8);
 }
 
 /* User Section */
@@ -110,18 +95,19 @@
 }
 
 .userName {
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .roleBadge {
-  padding: 2px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
+  opacity: 0.9;
 }
 
 .roleSuperAdmin {
@@ -149,26 +135,24 @@
 }
 
 .logoutBtn {
-  padding: 10px 18px;
-  background: var(--gradient-error);
-  color: var(--text-inverse);
-  border: none;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 14px;
+  padding: 6px 12px;
+  background: rgba(239, 68, 68, 0.15);
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 13px;
   cursor: pointer;
-  transition: all 0.3s;
-  box-shadow: var(--shadow-md);
+  transition: all 0.2s ease;
 }
 
 .logoutBtn:hover {
-  background: var(--gradient-error);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 .logoutBtn:active {
-  transform: translateY(0);
+  transform: scale(0.98);
 }
 
 /* Mobile Menu Button */
@@ -287,20 +271,34 @@
 /* Responsive Design */
 @media (max-width: 1024px) {
   .links {
-    gap: 4px;
+    gap: 2px;
   }
 
   .link {
-    padding: 8px 14px;
-    font-size: 13px;
+    padding: 6px 10px;
+    font-size: 12px;
   }
 
   .logo {
-    width: 220px;
+    width: 200px;
   }
 
   .title {
-    font-size: 18px;
+    font-size: 16px;
+  }
+
+  .userName {
+    font-size: 12px;
+  }
+
+  .roleBadge {
+    font-size: 9px;
+    padding: 2px 6px;
+  }
+
+  .logoutBtn {
+    padding: 6px 10px;
+    font-size: 12px;
   }
 }
 
