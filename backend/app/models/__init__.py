@@ -7,10 +7,11 @@ from app.models.comision_config import GrupoComision, SubcategoriaGrupo, Comisio
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.models.precio_ml import PrecioML
 from app.models.auditoria import Auditoria
+from app.models.marca_pm import MarcaPM
 
 __all__ = [
     "ProductoERP",
-    "ProductoPricing", 
+    "ProductoPricing",
     "HistorialPrecio",
     "Usuario",
     "TipoCambio",
@@ -21,5 +22,6 @@ __all__ = [
     "PublicacionML",
     "AuditoriaPrecio",
     "PrecioML",
-    "Auditoria"
+    "Auditoria",
+    "MarcaPM"
 ]
