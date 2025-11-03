@@ -587,17 +587,55 @@ export default function Productos() {
   // Sistema de navegación por teclado
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Si estamos editando una celda, NO interceptar NADA (dejar funcionar todo normal)
+      // Si estamos editando una celda
       if (editandoPrecio || editandoRebate || editandoWebTransf) {
-        // Solo interceptar Escape para salir de edición
+        // Interceptar Escape para salir de edición
         if (e.key === 'Escape') {
           e.preventDefault();
           setEditandoPrecio(null);
           setEditandoRebate(null);
           setEditandoWebTransf(null);
-          // Mantener modo navegación activo después de salir de edición
+          return;
         }
-        // No interceptar ninguna otra tecla - dejar que funcione normal
+        // Interceptar Tab para evitar que escape del formulario
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          e.stopPropagation();
+
+          // Encontrar el contenedor de edición activo buscando desde el elemento activo
+          let editContainer = document.activeElement?.closest('.inline-edit, .rebate-edit, .web-transf-edit');
+
+          // Si no hay elemento activo en un contenedor, buscar el contenedor visible
+          if (!editContainer) {
+            if (editandoPrecio) {
+              editContainer = document.querySelector('.inline-edit');
+            } else if (editandoRebate) {
+              editContainer = document.querySelector('.rebate-edit');
+            } else if (editandoWebTransf) {
+              editContainer = document.querySelector('.web-transf-edit');
+            }
+          }
+
+          if (editContainer) {
+            const focusable = Array.from(editContainer.querySelectorAll('input, button')).filter(el => {
+              // Filtrar solo elementos visibles y no disabled
+              return el.offsetParent !== null && !el.disabled;
+            });
+            const currentIndex = focusable.indexOf(document.activeElement);
+
+            if (e.shiftKey) {
+              // Tab + Shift: ir hacia atrás
+              const prevIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
+              focusable[prevIndex]?.focus();
+            } else {
+              // Tab: ir hacia adelante
+              const nextIndex = currentIndex >= focusable.length - 1 ? 0 : currentIndex + 1;
+              focusable[nextIndex]?.focus();
+            }
+          }
+          return;
+        }
+        // Dejar pasar otras teclas (arrows, enter, etc) para que funcionen en los inputs
         return;
       }
 
@@ -1714,24 +1752,7 @@ export default function Productos() {
                     <td>{p.moneda_costo} ${p.costo?.toFixed(2)}</td>
                     <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
                       {editandoPrecio === p.item_id ? (
-                        <div className="inline-edit" onKeyDown={(e) => {
-                          if (e.key === 'Tab') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            // Implementar navegación circular entre elementos
-                            const focusable = e.currentTarget.querySelectorAll('input, button');
-                            const currentIndex = Array.from(focusable).indexOf(document.activeElement);
-                            if (e.shiftKey) {
-                              // Tab + Shift: ir hacia atrás
-                              const prevIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
-                              focusable[prevIndex]?.focus();
-                            } else {
-                              // Tab: ir hacia adelante
-                              const nextIndex = currentIndex >= focusable.length - 1 ? 0 : currentIndex + 1;
-                              focusable[nextIndex]?.focus();
-                            }
-                          }
-                        }}>
+                        <div className="inline-edit">
                           <input
                             type="number"
                             value={precioTemp}
@@ -1762,24 +1783,7 @@ export default function Productos() {
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
                       {editandoRebate === p.item_id ? (
-                        <div className="rebate-edit" onKeyDown={(e) => {
-                          if (e.key === 'Tab') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            // Implementar navegación circular entre elementos
-                            const focusable = e.currentTarget.querySelectorAll('input, button');
-                            const currentIndex = Array.from(focusable).indexOf(document.activeElement);
-                            if (e.shiftKey) {
-                              // Tab + Shift: ir hacia atrás
-                              const prevIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
-                              focusable[prevIndex]?.focus();
-                            } else {
-                              // Tab: ir hacia adelante
-                              const nextIndex = currentIndex >= focusable.length - 1 ? 0 : currentIndex + 1;
-                              focusable[nextIndex]?.focus();
-                            }
-                          }
-                        }}>
+                        <div className="rebate-edit">
                           <label className="rebate-checkbox">
                             <input
                               type="checkbox"
@@ -1889,24 +1893,7 @@ export default function Productos() {
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
                       {editandoWebTransf === p.item_id ? (
-                        <div className="web-transf-edit" onKeyDown={(e) => {
-                          if (e.key === 'Tab') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            // Implementar navegación circular entre elementos
-                            const focusable = e.currentTarget.querySelectorAll('input, button');
-                            const currentIndex = Array.from(focusable).indexOf(document.activeElement);
-                            if (e.shiftKey) {
-                              // Tab + Shift: ir hacia atrás
-                              const prevIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
-                              focusable[prevIndex]?.focus();
-                            } else {
-                              // Tab: ir hacia adelante
-                              const nextIndex = currentIndex >= focusable.length - 1 ? 0 : currentIndex + 1;
-                              focusable[nextIndex]?.focus();
-                            }
-                          }
-                        }}>
+                        <div className="web-transf-edit">
                           <label className="web-transf-checkbox">
                             <input
                               type="checkbox"
