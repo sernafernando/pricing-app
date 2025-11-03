@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './CalcularWebModal.module.css';
 
@@ -7,6 +7,18 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
   const [porcentajeSinPrecio, setPorcentajeSinPrecio] = useState(10.0);
   const [calculando, setCalculando] = useState(false);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
+
+  // Cerrar modal con Escape
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && !calculando) {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, calculando]);
 
   const hayFiltros =
     !!filtrosActivos?.search ||

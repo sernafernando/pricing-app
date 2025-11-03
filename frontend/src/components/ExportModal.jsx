@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './ExportModal.module.css';
 
@@ -7,6 +7,18 @@ export default function ExportModal({ onClose, filtrosActivos }) {
   const [exportando, setExportando] = useState(false);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
   const [porcentajeClasica, setPorcentajeClasica] = useState(0);
+
+  // Cerrar modal con Escape
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && !exportando) {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, exportando]);
 
   const hayFiltros =
     !!filtrosActivos?.search ||
