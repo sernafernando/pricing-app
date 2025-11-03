@@ -374,6 +374,7 @@
   overflow-y: auto;
   flex: 1;
   padding: 8px;
+  max-height: 400px;
 }
 
 .dropdown-content.with-padding {
