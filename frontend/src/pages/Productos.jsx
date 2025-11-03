@@ -741,8 +741,8 @@ export default function Productos() {
           return;
         }
 
-        // Flechas: Navegación por celdas
-        if (e.key === 'ArrowRight' && !editandoPrecio) {
+        // Flechas: Navegación por celdas (solo si NO estamos editando)
+        if (e.key === 'ArrowRight' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
           e.preventDefault();
           if (colIndex < columnasEditables.length - 1) {
             setCeldaActiva({ rowIndex, colIndex: colIndex + 1 });
@@ -750,7 +750,7 @@ export default function Productos() {
           return;
         }
 
-        if (e.key === 'ArrowLeft' && !editandoPrecio) {
+        if (e.key === 'ArrowLeft' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
           e.preventDefault();
           if (colIndex > 0) {
             setCeldaActiva({ rowIndex, colIndex: colIndex - 1 });
@@ -758,7 +758,7 @@ export default function Productos() {
           return;
         }
 
-        if (e.key === 'ArrowDown' && !editandoPrecio) {
+        if (e.key === 'ArrowDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
           e.preventDefault();
           if (e.shiftKey) {
             // Shift+ArrowDown: Ir al final de la tabla
@@ -769,7 +769,7 @@ export default function Productos() {
           return;
         }
 
-        if (e.key === 'ArrowUp' && !editandoPrecio) {
+        if (e.key === 'ArrowUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
           e.preventDefault();
           if (e.shiftKey) {
             // Shift+ArrowUp: Ir al inicio de la tabla
@@ -780,38 +780,38 @@ export default function Productos() {
           return;
         }
 
-        // PageUp: Subir 10 filas
-        if (e.key === 'PageUp' && !editandoPrecio) {
+        // PageUp: Subir 10 filas (solo si NO estamos editando)
+        if (e.key === 'PageUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
           e.preventDefault();
           const newRow = Math.max(0, rowIndex - 10);
           setCeldaActiva({ rowIndex: newRow, colIndex });
           return;
         }
 
-        // PageDown: Bajar 10 filas
-        if (e.key === 'PageDown' && !editandoPrecio) {
+        // PageDown: Bajar 10 filas (solo si NO estamos editando)
+        if (e.key === 'PageDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
           e.preventDefault();
           const newRow = Math.min(productos.length - 1, rowIndex + 10);
           setCeldaActiva({ rowIndex: newRow, colIndex });
           return;
         }
 
-        // Home: Ir a primera columna
-        if (e.key === 'Home' && !editandoPrecio) {
+        // Home: Ir a primera columna (solo si NO estamos editando)
+        if (e.key === 'Home' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
           e.preventDefault();
           setCeldaActiva({ rowIndex, colIndex: 0 });
           return;
         }
 
-        // End: Ir a última columna
-        if (e.key === 'End' && !editandoPrecio) {
+        // End: Ir a última columna (solo si NO estamos editando)
+        if (e.key === 'End' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
           e.preventDefault();
           setCeldaActiva({ rowIndex, colIndex: columnasEditables.length - 1 });
           return;
         }
 
-        // Espacio: Editar precio en celda activa
-        if (e.key === ' ' && !editandoPrecio && puedeEditar) {
+        // Espacio: Editar precio en celda activa (solo si NO estamos editando nada)
+        if (e.key === ' ' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
           const columna = columnasEditables[colIndex];
@@ -819,8 +819,8 @@ export default function Productos() {
           return;
         }
 
-        // Números 1-9: Selección rápida de colores
-        if (!editandoPrecio && /^[1-9]$/.test(e.key)) {
+        // Números 1-9: Selección rápida de colores (solo si NO estamos editando nada)
+        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[1-9]$/.test(e.key)) {
           e.preventDefault();
           const colores = ['rojo', 'amarillo', 'verde', 'azul', 'naranja', 'violeta', 'rosa', 'gris', 'cyan'];
           const colorIndex = parseInt(e.key) - 1;
@@ -831,24 +831,24 @@ export default function Productos() {
           return;
         }
 
-        // R: Toggle rebate
-        if (e.key === 'r' && !editandoPrecio && puedeEditar) {
+        // R: Toggle rebate (solo si NO estamos editando nada)
+        if (e.key === 'r' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
           toggleRebateRapido(producto);
           return;
         }
 
-        // W: Toggle web transferencia
-        if (e.key === 'w' && !editandoPrecio && puedeEditar) {
+        // W: Toggle web transferencia (solo si NO estamos editando nada)
+        if (e.key === 'w' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
           toggleWebTransfRapido(producto);
           return;
         }
 
-        // O: Toggle out of cards
-        if (e.key === 'o' && !editandoPrecio && puedeEditar) {
+        // O: Toggle out of cards (solo si NO estamos editando nada)
+        if (e.key === 'o' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
           toggleOutOfCardsRapido(producto);
