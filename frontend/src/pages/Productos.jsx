@@ -542,9 +542,27 @@ export default function Productos() {
             )}
           </button>
         </div>
+        {/* Botones de Acción */}
+        <div className="action-buttons-card">
+          <button
+            onClick={() => setMostrarExportModal(true)}
+            className="btn-action export"
+          >
+            <img src={xlsIcon} alt="Excel" />
+            Exportar
+          </button>
 
-        {/* Panel compartido de filtros */}
-        {panelFiltroActivo && (
+          <button
+            onClick={() => setMostrarCalcularWebModal(true)}
+            className="btn-action calculate"
+          >
+            🧮 Calcular Web Transf.
+          </button>
+        </div>
+      </div>
+
+      {/* Panel compartido de filtros */}
+      {panelFiltroActivo && (
           <div className="advanced-filters-panel">
             {/* Contenido de Marcas */}
             {panelFiltroActivo === 'marcas' && (
@@ -891,25 +909,6 @@ export default function Productos() {
             )}
           </div>
         )}
-
-        {/* Botones de Acción */}
-        <div className="action-buttons-card">
-          <button
-            onClick={() => setMostrarExportModal(true)}
-            className="btn-action export"
-          >
-            <img src={xlsIcon} alt="Excel" />
-            Exportar
-          </button>
-
-          <button
-            onClick={() => setMostrarCalcularWebModal(true)}
-            className="btn-action calculate"
-          >
-            🧮 Calcular Web Transf.
-          </button>
-        </div>
-      </div>
 
       {/* Panel de filtros avanzados */}
       {mostrarFiltrosAvanzados && (
