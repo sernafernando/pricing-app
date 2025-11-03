@@ -92,6 +92,7 @@ async def listar_productos(
     markup_web_transf_positivo: Optional[bool] = None,
     out_of_cards: Optional[bool] = None,
     colores: Optional[str] = None,
+    pms: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
@@ -164,7 +165,22 @@ async def listar_productos(
     if marcas:
         marcas_list = [m.strip().upper() for m in marcas.split(',')]
         query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
-    
+
+    # Filtro por PMs (Product Managers)
+    if pms:
+        from app.models.marca_pm import MarcaPM
+        pm_ids = [int(pm.strip()) for pm in pms.split(',')]
+
+        # Obtener marcas asignadas a esos PMs
+        marcas_pm = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
+        marcas_asignadas = [m[0] for m in marcas_pm]
+
+        if marcas_asignadas:
+            query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
+        else:
+            # Si no hay marcas asignadas, retornar vacío
+            return ProductoListResponse(total=0, page=page, page_size=page_size, productos=[])
+
     if con_stock is not None:
         query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
     

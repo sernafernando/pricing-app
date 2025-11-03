@@ -9,6 +9,7 @@ import Navbar from './components/Navbar';
 import Admin from './pages/Admin';
 import UltimosCambios from './pages/UltimosCambios';
 import PreciosListas from './pages/PreciosListas';
+import GestionPM from './pages/GestionPM';
 import ProtectedRoute from './components/ProtectedRoute';
 import './styles/theme.css';
 
@@ -55,6 +56,11 @@ function App() {
                 <Route path="/admin" element={
                   <ProtectedRoute allowedRoles={['SUPERADMIN', 'ADMIN']}>
                     <Admin />
+                  </ProtectedRoute>
+                } />
+                <Route path="/gestion-pm" element={
+                  <ProtectedRoute allowedRoles={['SUPERADMIN', 'ADMIN']}>
+                    <GestionPM />
                   </ProtectedRoute>
                 } />
               </Routes>

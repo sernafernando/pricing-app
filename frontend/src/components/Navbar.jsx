@@ -67,12 +67,20 @@ export default function Navbar() {
           )}
 
           {puedeVerAdmin && (
+          <>
+          <Link
+            to="/gestion-pm"
+            className={`${styles.link} ${isActive('/gestion-pm') ? styles.active : ''}`}
+          >
+            👤 Gestión PMs
+          </Link>
           <Link
             to="/admin"
             className={`${styles.link} ${isActive('/admin') ? styles.active : ''}`}
           >
             ⚙️ Admin
           </Link>
+          </>
           )}
         </div>
 
@@ -132,6 +140,14 @@ export default function Navbar() {
           )}
 
           {puedeVerAdmin && (
+          <>
+          <Link
+            to="/gestion-pm"
+            className={`${styles.mobileLink} ${isActive('/gestion-pm') ? styles.active : ''}`}
+            onClick={handleLinkClick}
+          >
+            👤 Gestión PMs
+          </Link>
           <Link
             to="/admin"
             className={`${styles.mobileLink} ${isActive('/admin') ? styles.active : ''}`}
@@ -139,6 +155,7 @@ export default function Navbar() {
           >
             ⚙️ Admin
           </Link>
+          </>
           )}
 
           {user && (

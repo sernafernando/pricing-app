@@ -60,6 +60,8 @@ export default function Productos() {
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
   const [colorDropdownAbierto, setColorDropdownAbierto] = useState(null); // item_id del producto
   const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
+  const [pms, setPms] = useState([]);
+  const [pmsSeleccionados, setPmsSeleccionados] = useState([]);
 
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
@@ -74,7 +76,7 @@ export default function Productos() {
 
   useEffect(() => {
     cargarProductos();
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados]);
+  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados]);
 
   const cargarStats = async () => {
     try {
@@ -88,6 +90,7 @@ export default function Productos() {
   useEffect(() => {
     cargarUsuariosAuditoria();
     cargarTiposAccion();
+    cargarPMs();
   }, []);
 
   // Recargar marcas cuando cambien filtros (excepto marcasSeleccionadas)
@@ -301,6 +304,8 @@ export default function Productos() {
 
       if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
 
+      if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
+
       if (ordenColumnas.length > 0) {
         params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
         params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
@@ -387,6 +392,7 @@ export default function Productos() {
     setFiltroPrecio("todos");
     setMarcasSeleccionadas([]);
     setSubcategoriasSeleccionadas([]);
+    setPmsSeleccionados([]);
     setFiltrosAuditoria({
       usuarios: [],
       tipos_accion: [],
@@ -559,6 +565,17 @@ export default function Productos() {
     }
   };
 
+  const cargarPMs = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/usuarios/pms`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      setPms(response.data);
+    } catch (error) {
+      console.error('Error cargando PMs:', error);
+    }
+  };
+
   return (
     <div className="productos-container">
       <div className="stats-grid">
@@ -639,6 +656,19 @@ export default function Productos() {
             {subcategoriasSeleccionadas.length > 0 && (
               <span className="filter-badge">
                 {subcategoriasSeleccionadas.length}
+              </span>
+            )}
+          </button>
+
+          {/* Filtro de PMs */}
+          <button
+            onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'pms' ? null : 'pms')}
+            className={`filter-button pms ${pmsSeleccionados.length > 0 ? 'active' : ''}`}
+          >
+            👤 Product Managers
+            {pmsSeleccionados.length > 0 && (
+              <span className="filter-badge">
+                {pmsSeleccionados.length}
               </span>
             )}
           </button>
@@ -899,6 +929,54 @@ export default function Productos() {
                         </div>
                       );
                     })}
+                </div>
+              </>
+            )}
+
+            {/* Contenido de PMs */}
+            {panelFiltroActivo === 'pms' && (
+              <>
+                <div className="advanced-filters-header">
+                  <h3>Product Managers</h3>
+                  {pmsSeleccionados.length > 0 && (
+                    <button
+                      onClick={() => {
+                        setPmsSeleccionados([]);
+                        setPage(1);
+                      }}
+                      className="btn-clear-all"
+                    >
+                      Limpiar filtros ({pmsSeleccionados.length})
+                    </button>
+                  )}
+                </div>
+
+                <div className="dropdown-content">
+                  {pms.map(pm => (
+                    <label
+                      key={pm.id}
+                      className={`dropdown-item ${pmsSeleccionados.includes(pm.id) ? 'selected' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={pmsSeleccionados.includes(pm.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setPmsSeleccionados([...pmsSeleccionados, pm.id]);
+                          } else {
+                            setPmsSeleccionados(pmsSeleccionados.filter(id => id !== pm.id));
+                          }
+                          setPage(1);
+                        }}
+                      />
+                      <span>{pm.nombre} ({pm.email})</span>
+                    </label>
+                  ))}
+                  {pms.length === 0 && (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#6b7280' }}>
+                      No hay PMs disponibles
+                    </div>
+                  )}
                 </div>
               </>
             )}
