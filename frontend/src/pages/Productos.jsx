@@ -675,7 +675,7 @@ export default function Productos() {
             className="filter-button clear-all"
             title="Limpiar todos los filtros"
           >
-            🗑️ Limpiar Filtros
+            🧹
           </button>
         </div>
         {/* Botones de Acción */}
