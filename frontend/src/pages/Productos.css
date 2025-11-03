@@ -437,8 +437,15 @@
 
 .audit-section-content {
   padding-left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Solo la sección de tipos de acción tiene 2 columnas */
+.audit-section:nth-child(2) .audit-section-content {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
@@ -544,13 +551,6 @@
   margin-bottom: 8px;
   font-size: 13px;
   font-weight: 500;
-}
-
-/* Sobrescribir grid para la sección de fechas */
-.audit-section .audit-section-content {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .date-input {
