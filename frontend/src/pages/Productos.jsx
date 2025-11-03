@@ -567,7 +567,7 @@ export default function Productos() {
 
   const cargarPMs = async () => {
     try {
-      const response = await axios.get(`${API_URL}/usuarios/pms`, {
+      const response = await axios.get(`${API_URL}/usuarios/pms?solo_con_marcas=true`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setPms(response.data);
@@ -665,7 +665,7 @@ export default function Productos() {
             onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'pms' ? null : 'pms')}
             className={`filter-button pms ${pmsSeleccionados.length > 0 ? 'active' : ''}`}
           >
-            👤 Product Managers
+            👤 PM
             {pmsSeleccionados.length > 0 && (
               <span className="filter-badge">
                 {pmsSeleccionados.length}
@@ -1740,6 +1740,7 @@ export default function Productos() {
             con_precio: filtroPrecio === 'con_precio' ? true : filtroPrecio === 'sin_precio' ? false : null,
             marcas: marcasSeleccionadas,
             subcategorias: subcategoriasSeleccionadas,
+            pmsSeleccionados,
             filtroRebate,
             filtroOferta,
             filtroWebTransf,
@@ -1766,6 +1767,7 @@ export default function Productos() {
             con_precio: filtroPrecio === 'con_precio' ? true : filtroPrecio === 'sin_precio' ? false : null,
             marcas: marcasSeleccionadas,
             subcategorias: subcategoriasSeleccionadas,
+            pmsSeleccionados,
             filtroRebate,
             filtroOferta,
             filtroWebTransf,

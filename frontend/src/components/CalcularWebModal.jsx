@@ -23,6 +23,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
     filtrosActivos?.filtroMarkupWebTransf !== null ||
     filtrosActivos?.filtroOutOfCards !== null ||
     (filtrosActivos?.coloresSeleccionados?.length > 0) ||
+    (filtrosActivos?.pmsSeleccionados?.length > 0) ||
     (filtrosActivos?.audit_usuarios?.length > 0) ||
     (filtrosActivos?.audit_tipos_accion?.length > 0) ||
     !!filtrosActivos?.audit_fecha_desde ||
@@ -53,11 +54,12 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
       {filtrosActivos.filtroMarkupOferta === 'negativo' && <div>• Markup Oferta: Negativo</div>}
       {filtrosActivos.filtroMarkupWebTransf === 'positivo' && <div>• Markup Web Transf: Positivo</div>}
       {filtrosActivos.filtroMarkupWebTransf === 'negativo' && <div>• Markup Web Transf: Negativo</div>}
+      {filtrosActivos.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
+      {filtrosActivos.pmsSeleccionados?.length > 0 && <div>• {filtrosActivos.pmsSeleccionados.length} PM(s) seleccionado(s)</div>}
       {filtrosActivos.audit_usuarios?.length > 0 && <div>• {filtrosActivos.audit_usuarios.length} usuario(s) auditoría</div>}
       {filtrosActivos.audit_tipos_accion?.length > 0 && <div>• {filtrosActivos.audit_tipos_accion.length} tipo(s) de acción</div>}
       {filtrosActivos.audit_fecha_desde && <div>• Auditoría desde: {filtrosActivos.audit_fecha_desde}</div>}
       {filtrosActivos.audit_fecha_hasta && <div>• Auditoría hasta: {filtrosActivos.audit_fecha_hasta}</div>}
-      {filtrosActivos.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
     </div>
   );
 

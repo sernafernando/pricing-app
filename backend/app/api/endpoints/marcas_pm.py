@@ -112,6 +112,7 @@ async def sincronizar_marcas(
 
 @router.get("/usuarios/pms", response_model=List[dict])
 async def listar_usuarios_pm(
+    solo_con_marcas: bool = False,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -119,15 +120,33 @@ async def listar_usuarios_pm(
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
         raise HTTPException(403, "No tienes permisos")
 
-    # Obtener usuarios activos
-    usuarios = db.query(Usuario).filter(Usuario.activo == True).all()
+    if solo_con_marcas:
+        # Obtener solo usuarios que tienen al menos una marca asignada
+        usuarios_con_marcas = db.query(Usuario).join(
+            MarcaPM, Usuario.id == MarcaPM.usuario_id
+        ).filter(
+            Usuario.activo == True
+        ).distinct().all()
 
-    return [
-        {
-            "id": u.id,
-            "nombre": u.nombre,
-            "email": u.email,
-            "rol": u.rol.value
-        }
-        for u in usuarios
-    ]
+        return [
+            {
+                "id": u.id,
+                "nombre": u.nombre,
+                "email": u.email,
+                "rol": u.rol.value
+            }
+            for u in usuarios_con_marcas
+        ]
+    else:
+        # Obtener todos los usuarios activos
+        usuarios = db.query(Usuario).filter(Usuario.activo == True).all()
+
+        return [
+            {
+                "id": u.id,
+                "nombre": u.nombre,
+                "email": u.email,
+                "rol": u.rol.value
+            }
+            for u in usuarios
+        ]
