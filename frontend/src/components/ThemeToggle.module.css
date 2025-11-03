@@ -39,8 +39,9 @@
   background: white;
   border-radius: 50%;
   position: absolute;
-  top: 0px;
-  left: 0px;
+  top: 50%;
+  left: 2px;
+  transform: translateY(-50%);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
@@ -49,7 +50,7 @@
 }
 
 .toggleTrack.dark .toggleThumb {
-  transform: translateX(24px);
+  transform: translate(24px, -50%);
   background: #1e293b;
 }
 
