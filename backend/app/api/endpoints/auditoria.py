@@ -14,16 +14,15 @@ router = APIRouter()
 
 class AuditoriaResponse(BaseModel):
     id: int
-    producto_id: int
+    item_id: int
     usuario_nombre: str
     usuario_email: str
-    precio_anterior: float
-    precio_contado_anterior: float
-    precio_nuevo: float
-    precio_contado_nuevo: float
+    tipo_accion: str
+    valores_anteriores: Optional[dict]
+    valores_nuevos: Optional[dict]
     fecha_cambio: datetime
-    comentario: str = None
-    
+    comentario: Optional[str] = None
+
     class Config:
         from_attributes = True
 
@@ -33,37 +32,27 @@ async def obtener_auditoria_producto(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Obtiene el historial de cambios de precio de un producto"""
-    
-    # Buscar el producto_pricing por item_id
-    from app.models.producto import ProductoPricing
-    producto_pricing = db.query(ProductoPricing).filter(
-        ProductoPricing.item_id == producto_id
-    ).first()
-    
-    if not producto_pricing:
-        return []  # Si no tiene pricing, no tiene auditoría
-    
-    # Buscar auditorías del producto_pricing
-    auditorias = db.query(AuditoriaPrecio).filter(
-        AuditoriaPrecio.producto_id == producto_pricing.id
-    ).order_by(AuditoriaPrecio.fecha_cambio.desc()).all()
-    
+    """Obtiene el historial de cambios de un producto"""
+
+    # Buscar auditorías de este producto en la tabla general
+    auditorias = db.query(Auditoria).filter(
+        Auditoria.item_id == producto_id
+    ).order_by(Auditoria.fecha.desc()).all()
+
     resultado = []
     for aud in auditorias:
         resultado.append({
             "id": aud.id,
-            "producto_id": aud.producto_id,
+            "item_id": aud.item_id,
             "usuario_nombre": aud.usuario.nombre,
             "usuario_email": aud.usuario.email,
-            "precio_anterior": float(aud.precio_anterior or 0),
-            "precio_contado_anterior": float(aud.precio_contado_anterior or 0),
-            "precio_nuevo": float(aud.precio_nuevo or 0),
-            "precio_contado_nuevo": float(aud.precio_contado_nuevo or 0),
-            "fecha_cambio": aud.fecha_cambio,
+            "tipo_accion": aud.tipo_accion,
+            "valores_anteriores": aud.valores_anteriores,
+            "valores_nuevos": aud.valores_nuevos,
+            "fecha_cambio": aud.fecha,
             "comentario": aud.comentario
         })
-    
+
     return resultado
 
 @router.get("/auditoria/ultimos-cambios", response_model=List[dict])
@@ -72,45 +61,53 @@ async def obtener_ultimos_cambios(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Obtiene los últimos N cambios de precio de todos los productos"""
-    
-    from app.models.producto import ProductoPricing, ProductoERP
-    
+    """Obtiene los últimos N cambios de todos los productos"""
+
+    from app.models.producto import ProductoERP
+
     auditorias = db.query(
-        AuditoriaPrecio,
-        ProductoPricing,
+        Auditoria,
         ProductoERP
-    ).join(
-        ProductoPricing, AuditoriaPrecio.producto_id == ProductoPricing.id
-    ).join(
-        ProductoERP, ProductoPricing.item_id == ProductoERP.item_id
+    ).outerjoin(
+        ProductoERP, Auditoria.item_id == ProductoERP.item_id
     ).order_by(
-        AuditoriaPrecio.fecha_cambio.desc()
+        Auditoria.fecha.desc()
     ).limit(limit).all()
-    
+
     resultado = []
-    for aud, pricing, producto in auditorias:
-        cambio = float(aud.precio_nuevo or 0) - float(aud.precio_anterior or 0)
-        porcentaje = 0
-        if aud.precio_anterior and aud.precio_anterior > 0:
-            porcentaje = (cambio / float(aud.precio_anterior)) * 100
-        
-        resultado.append({
+    for aud, producto in auditorias:
+        registro = {
             "id": aud.id,
-            "fecha_cambio": aud.fecha_cambio,
+            "fecha_cambio": aud.fecha,
             "usuario_nombre": aud.usuario.nombre,
             "usuario_email": aud.usuario.email,
-            "item_id": producto.item_id,
-            "codigo": producto.codigo,
-            "descripcion": producto.descripcion,
-            "marca": producto.marca,
-            "precio_anterior": float(aud.precio_anterior or 0),
-            "precio_nuevo": float(aud.precio_nuevo or 0),
-            "cambio": round(cambio, 2),
-            "cambio_porcentaje": round(porcentaje, 2),
+            "tipo_accion": aud.tipo_accion,
+            "valores_anteriores": aud.valores_anteriores,
+            "valores_nuevos": aud.valores_nuevos,
+            "es_masivo": aud.es_masivo,
+            "productos_afectados": aud.productos_afectados,
             "comentario": aud.comentario
-        })
-    
+        }
+
+        # Si hay producto asociado, agregar sus datos
+        if producto:
+            registro.update({
+                "item_id": producto.item_id,
+                "codigo": producto.codigo,
+                "descripcion": producto.descripcion,
+                "marca": producto.marca
+            })
+        else:
+            # Para cambios masivos
+            registro.update({
+                "item_id": None,
+                "codigo": None,
+                "descripcion": "Modificación masiva",
+                "marca": None
+            })
+
+        resultado.append(registro)
+
     return resultado
 
 

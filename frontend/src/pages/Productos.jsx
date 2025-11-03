@@ -1329,11 +1329,11 @@ export default function Productos() {
               </tbody>
             </table>
 
-            {auditoriaVisible && (
+{auditoriaVisible && (
               <div className="modal-overlay">
                 <div className="modal-content">
                   <div className="modal-header">
-                    <h2>📋 Historial de Cambios de Precio</h2>
+                    <h2>📋 Historial de Cambios</h2>
                     <button onClick={() => setAuditoriaVisible(false)} className="modal-close">
                       Cerrar
                     </button>
@@ -1347,15 +1347,37 @@ export default function Productos() {
                         <tr>
                           <th>Fecha</th>
                           <th>Usuario</th>
-                          <th>Precio Anterior</th>
-                          <th>Precio Nuevo</th>
-                          <th>Cambio</th>
+                          <th>Tipo de Cambio</th>
+                          <th>Valores Anteriores</th>
+                          <th>Valores Nuevos</th>
                         </tr>
                       </thead>
                       <tbody className="table-body">
                         {auditoriaData.map(item => {
-                          const cambio = item.precio_nuevo - item.precio_anterior;
-                          const porcentaje = ((cambio / item.precio_anterior) * 100).toFixed(2);
+                          const formatearTipoAccion = (tipo) => {
+                            const tipos = {
+                              'modificar_precio_clasica': '💰 Precio Clásica',
+                              'modificar_precio_web': '🌐 Precio Web',
+                              'activar_rebate': '✅ Activar Rebate',
+                              'desactivar_rebate': '❌ Desactivar Rebate',
+                              'modificar_porcentaje_rebate': '📊 % Rebate',
+                              'marcar_out_of_cards': '🚫 Out of Cards ON',
+                              'desmarcar_out_of_cards': '✅ Out of Cards OFF',
+                              'activar_web_transferencia': '✅ Web Transf. ON',
+                              'desactivar_web_transferencia': '❌ Web Transf. OFF',
+                              'modificacion_masiva': '📦 Modificación Masiva'
+                            };
+                            return tipos[tipo] || tipo;
+                          };
+
+                          const formatearValores = (valores) => {
+                            if (!valores) return '-';
+                            return Object.entries(valores).map(([key, value]) => (
+                              <div key={key}>
+                                <strong>{key}:</strong> {typeof value === 'number' ? value.toFixed(2) : String(value)}
+                              </div>
+                            ));
+                          };
 
                           return (
                             <tr key={item.id}>
@@ -1367,13 +1389,9 @@ export default function Productos() {
                                   <small className="text-muted">{item.usuario_email}</small>
                                 </div>
                               </td>
-                              <td>${item.precio_anterior.toFixed(2)}</td>
-                              <td>${item.precio_nuevo.toFixed(2)}</td>
-                              <td>
-                                <span className={cambio >= 0 ? 'text-success' : 'text-danger'} style={{ fontWeight: 'bold' }}>
-                                  {cambio >= 0 ? '+' : ''}{cambio.toFixed(2)} ({porcentaje}%)
-                                </span>
-                              </td>
+                              <td>{formatearTipoAccion(item.tipo_accion)}</td>
+                              <td style={{ fontSize: '0.9em' }}>{formatearValores(item.valores_anteriores)}</td>
+                              <td style={{ fontSize: '0.9em' }}>{formatearValores(item.valores_nuevos)}</td>
                             </tr>
                           );
                         })}

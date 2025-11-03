@@ -28,10 +28,28 @@ export default function UltimosCambios() {
     }
   };
 
-  const getChangeColor = (cambio) => {
-    if (cambio > 0) return '#059669';
-    if (cambio < 0) return '#dc2626';
-    return '#6b7280';
+  const formatearTipoAccion = (tipo) => {
+    const tipos = {
+      'modificar_precio_clasica': '💰 Precio Clásica',
+      'modificar_precio_web': '🌐 Precio Web',
+      'activar_rebate': '✅ Activar Rebate',
+      'desactivar_rebate': '❌ Desactivar Rebate',
+      'modificar_porcentaje_rebate': '📊 % Rebate',
+      'marcar_out_of_cards': '🚫 Out of Cards ON',
+      'desmarcar_out_of_cards': '✅ Out of Cards OFF',
+      'activar_web_transferencia': '✅ Web Transf. ON',
+      'desactivar_web_transferencia': '❌ Web Transf. OFF',
+      'modificacion_masiva': '📦 Modificación Masiva'
+    };
+    return tipos[tipo] || tipo;
+  };
+
+  const formatearValores = (valores) => {
+    if (!valores) return '-';
+    return Object.entries(valores).map(([key, value]) => {
+      const displayValue = typeof value === 'number' ? value.toFixed(2) : String(value);
+      return `${key}: ${displayValue}`;
+    }).join(', ');
   };
 
   const formatearFecha = (fecha) => {
@@ -72,7 +90,7 @@ export default function UltimosCambios() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <h1 className={styles.title}>📋 Últimos Cambios de Precios</h1>
+        <h1 className={styles.title}>📋 Últimos Cambios</h1>
         <select
           value={limit}
           onChange={(e) => setLimit(Number(e.target.value))}
@@ -97,9 +115,9 @@ export default function UltimosCambios() {
                 <th>Fecha y Hora</th>
                 <th>Usuario</th>
                 <th>Producto</th>
-                <th>Precio Anterior</th>
-                <th>Precio Nuevo</th>
-                <th>Cambio</th>
+                <th>Tipo de Cambio</th>
+                <th>Valores Anteriores</th>
+                <th>Valores Nuevos</th>
                 <th>Comentario</th>
               </tr>
             </thead>
@@ -119,44 +137,34 @@ export default function UltimosCambios() {
                   </td>
                   <td>
                     <div className={styles.producto}>
-                      <strong>{cambio.codigo}</strong>
-                      <div className={styles.descripcion}>
-                        {cambio.descripcion}
-                      </div>
-                      {cambio.marca && (
-                        <small className={styles.marca}>{cambio.marca}</small>
+                      {cambio.codigo ? (
+                        <>
+                          <strong>{cambio.codigo}</strong>
+                          <div className={styles.descripcion}>
+                            {cambio.descripcion}
+                          </div>
+                          {cambio.marca && (
+                            <small className={styles.marca}>{cambio.marca}</small>
+                          )}
+                        </>
+                      ) : (
+                        <div>
+                          <strong>{cambio.descripcion}</strong>
+                          {cambio.productos_afectados && (
+                            <small> ({cambio.productos_afectados} productos)</small>
+                          )}
+                        </div>
                       )}
                     </div>
                   </td>
-                  <td className={styles.precio}>
-                    ${cambio.precio_anterior.toLocaleString('es-AR', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    })}
-                  </td>
-                  <td className={styles.precio}>
-                    ${cambio.precio_nuevo.toLocaleString('es-AR', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    })}
-                  </td>
                   <td>
-                    <div 
-                      className={styles.cambio}
-                      style={{ color: getChangeColor(cambio.cambio) }}
-                    >
-                      <strong>
-                        {cambio.cambio >= 0 ? '+' : ''}
-                        ${cambio.cambio.toLocaleString('es-AR', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </strong>
-                      <small>
-                        ({cambio.cambio_porcentaje >= 0 ? '+' : ''}
-                        {cambio.cambio_porcentaje.toFixed(2)}%)
-                      </small>
-                    </div>
+                    <strong>{formatearTipoAccion(cambio.tipo_accion)}</strong>
+                  </td>
+                  <td className={styles.valores}>
+                    <small>{formatearValores(cambio.valores_anteriores)}</small>
+                  </td>
+                  <td className={styles.valores}>
+                    <small>{formatearValores(cambio.valores_nuevos)}</small>
                   </td>
                   <td>
                     <small className={styles.comentario}>
