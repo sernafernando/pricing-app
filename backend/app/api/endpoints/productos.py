@@ -652,8 +652,87 @@ async def listar_categorias(db: Session = Depends(get_db)):
     return {"categorias": [c[0] for c in categorias if c[0]]}
 
 @router.get("/marcas")
-async def listar_marcas(db: Session = Depends(get_db)):
-    marcas = db.query(ProductoERP.marca).distinct().order_by(ProductoERP.marca).all()
+async def listar_marcas(
+    search: Optional[str] = None,
+    con_stock: Optional[bool] = None,
+    con_precio: Optional[bool] = None,
+    subcategorias: Optional[str] = None,
+    con_rebate: Optional[bool] = None,
+    con_oferta: Optional[bool] = None,
+    con_web_transf: Optional[bool] = None,
+    markup_clasica_positivo: Optional[bool] = None,
+    markup_rebate_positivo: Optional[bool] = None,
+    markup_oferta_positivo: Optional[bool] = None,
+    markup_web_transf_positivo: Optional[bool] = None,
+    out_of_cards: Optional[bool] = None,
+    colores: Optional[str] = None,
+    audit_usuarios: Optional[str] = None,
+    audit_tipos_accion: Optional[str] = None,
+    audit_fecha_desde: Optional[str] = None,
+    audit_fecha_hasta: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Lista marcas disponibles según filtros activos"""
+
+    # Query base igual que en el endpoint de listar productos
+    query = db.query(ProductoERP.marca).distinct().join(
+        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id, isouter=True
+    )
+
+    # Aplicar filtros (reutilizar la lógica del endpoint de listar productos)
+    if search:
+        query = query.filter(
+            or_(
+                ProductoERP.codigo.ilike(f'%{search}%'),
+                ProductoERP.descripcion.ilike(f'%{search}%'),
+                ProductoERP.marca.ilike(f'%{search}%')
+            )
+        )
+
+    if con_stock is not None:
+        if con_stock:
+            query = query.filter(ProductoERP.stock > 0)
+        else:
+            query = query.filter(ProductoERP.stock == 0)
+
+    if con_precio is not None:
+        if con_precio:
+            query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+        else:
+            query = query.filter(ProductoPricing.precio_lista_ml.is_(None))
+
+    if subcategorias:
+        subcat_list = [int(s.strip()) for s in subcategorias.split(',') if s.strip()]
+        query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
+
+    if con_rebate is not None:
+        query = query.filter(ProductoPricing.participa_rebate == con_rebate)
+
+    if con_web_transf is not None:
+        query = query.filter(ProductoPricing.participa_web_transferencia == con_web_transf)
+
+    if out_of_cards is not None:
+        if out_of_cards:
+            query = query.filter(ProductoPricing.out_of_cards == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.out_of_cards == False,
+                    ProductoPricing.out_of_cards.is_(None)
+                )
+            )
+
+    if colores:
+        colores_list = colores.split(',')
+        query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+
+    if markup_clasica_positivo is not None:
+        if markup_clasica_positivo:
+            query = query.filter(ProductoPricing.markup_calculado > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_calculado < 0)
+
+    marcas = query.order_by(ProductoERP.marca).all()
     return {"marcas": [m[0] for m in marcas if m[0]]}
 
 @router.get("/productos/{item_id}/ofertas-vigentes")
@@ -1287,16 +1366,99 @@ async def actualizar_color_producto(
     }
 
 @router.get("/subcategorias")
-async def listar_subcategorias(db: Session = Depends(get_db)):
-    """Lista todas las subcategorías agrupadas por categoría"""
+async def listar_subcategorias(
+    search: Optional[str] = None,
+    con_stock: Optional[bool] = None,
+    con_precio: Optional[bool] = None,
+    marcas: Optional[str] = None,
+    con_rebate: Optional[bool] = None,
+    con_oferta: Optional[bool] = None,
+    con_web_transf: Optional[bool] = None,
+    markup_clasica_positivo: Optional[bool] = None,
+    markup_rebate_positivo: Optional[bool] = None,
+    markup_oferta_positivo: Optional[bool] = None,
+    markup_web_transf_positivo: Optional[bool] = None,
+    out_of_cards: Optional[bool] = None,
+    colores: Optional[str] = None,
+    audit_usuarios: Optional[str] = None,
+    audit_tipos_accion: Optional[str] = None,
+    audit_fecha_desde: Optional[str] = None,
+    audit_fecha_hasta: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Lista subcategorías disponibles según filtros activos"""
     from app.models.comision_config import SubcategoriaGrupo
     from collections import defaultdict
-    
-    subcats = db.query(SubcategoriaGrupo).order_by(
+
+    # Query para obtener subcategorias_id disponibles según filtros
+    query = db.query(ProductoERP.subcategoria_id).distinct().join(
+        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id, isouter=True
+    )
+
+    # Aplicar filtros
+    if search:
+        query = query.filter(
+            or_(
+                ProductoERP.codigo.ilike(f'%{search}%'),
+                ProductoERP.descripcion.ilike(f'%{search}%'),
+                ProductoERP.marca.ilike(f'%{search}%')
+            )
+        )
+
+    if con_stock is not None:
+        if con_stock:
+            query = query.filter(ProductoERP.stock > 0)
+        else:
+            query = query.filter(ProductoERP.stock == 0)
+
+    if con_precio is not None:
+        if con_precio:
+            query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+        else:
+            query = query.filter(ProductoPricing.precio_lista_ml.is_(None))
+
+    if marcas:
+        marcas_list = [m.strip() for m in marcas.split(',') if m.strip()]
+        query = query.filter(ProductoERP.marca.in_(marcas_list))
+
+    if con_rebate is not None:
+        query = query.filter(ProductoPricing.participa_rebate == con_rebate)
+
+    if con_web_transf is not None:
+        query = query.filter(ProductoPricing.participa_web_transferencia == con_web_transf)
+
+    if out_of_cards is not None:
+        if out_of_cards:
+            query = query.filter(ProductoPricing.out_of_cards == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.out_of_cards == False,
+                    ProductoPricing.out_of_cards.is_(None)
+                )
+            )
+
+    if colores:
+        colores_list = colores.split(',')
+        query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+
+    if markup_clasica_positivo is not None:
+        if markup_clasica_positivo:
+            query = query.filter(ProductoPricing.markup_calculado > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_calculado < 0)
+
+    # Obtener IDs de subcategorías disponibles
+    subcat_ids_disponibles = [s[0] for s in query.all() if s[0]]
+
+    # Obtener todas las subcategorías del mapping
+    subcats = db.query(SubcategoriaGrupo).filter(
+        SubcategoriaGrupo.subcat_id.in_(subcat_ids_disponibles)
+    ).order_by(
         SubcategoriaGrupo.nombre_categoria,
         SubcategoriaGrupo.nombre_subcategoria
     ).all()
-    
+
     # Agrupar por categoría
     agrupadas = defaultdict(list)
     for s in subcats:
@@ -1306,7 +1468,7 @@ async def listar_subcategorias(db: Session = Depends(get_db)):
                 "nombre": s.nombre_subcategoria,
                 "grupo_id": s.grupo_id
             })
-    
+
     return {
         "categorias": [
             {

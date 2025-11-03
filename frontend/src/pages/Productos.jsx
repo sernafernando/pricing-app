@@ -86,11 +86,19 @@ export default function Productos() {
   };
 
   useEffect(() => {
-    cargarMarcas();
-    cargarSubcategorias();
     cargarUsuariosAuditoria();
     cargarTiposAccion();
   }, []);
+
+  // Recargar marcas cuando cambien filtros (excepto marcasSeleccionadas)
+  useEffect(() => {
+    cargarMarcas();
+  }, [debouncedSearch, filtroStock, filtroPrecio, subcategoriasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
+
+  // Recargar subcategorías cuando cambien filtros (excepto subcategoriasSeleccionadas)
+  useEffect(() => {
+    cargarSubcategorias();
+  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
 
   const handleOrdenar = (columna, event) => {
     const shiftPressed = event?.shiftKey;
@@ -151,7 +159,37 @@ export default function Productos() {
 
   const cargarMarcas = async () => {
     try {
-      const response = await productosAPI.marcas();
+      // Construir params con filtros activos (excluyendo marcas)
+      const params = {};
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (filtroStock === 'con_stock') params.con_stock = true;
+      if (filtroStock === 'sin_stock') params.con_stock = false;
+      if (filtroPrecio === 'con_precio') params.con_precio = true;
+      if (filtroPrecio === 'sin_precio') params.con_precio = false;
+      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
+      if (filtroRebate === 'con_rebate') params.con_rebate = true;
+      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
+      if (filtroOferta === 'con_oferta') params.con_oferta = true;
+      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
+      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
+      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
+      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
+      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
+      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
+      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
+      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
+      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
+      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
+      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
+      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
+      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
+      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
+      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
+      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
+      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
+      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
+
+      const response = await productosAPI.marcas(params);
       setMarcas(response.data.marcas);
     } catch (error) {
       console.error('Error cargando marcas:', error);
@@ -306,11 +344,66 @@ export default function Productos() {
 
   const cargarSubcategorias = async () => {
     try {
-      const response = await productosAPI.subcategorias();
-      setSubcategorias(response.data.categorias); // ← Cambiar de .subcategorias a .categorias
+      // Construir params con filtros activos (excluyendo subcategorías)
+      const params = {};
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (filtroStock === 'con_stock') params.con_stock = true;
+      if (filtroStock === 'sin_stock') params.con_stock = false;
+      if (filtroPrecio === 'con_precio') params.con_precio = true;
+      if (filtroPrecio === 'sin_precio') params.con_precio = false;
+      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
+      if (filtroRebate === 'con_rebate') params.con_rebate = true;
+      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
+      if (filtroOferta === 'con_oferta') params.con_oferta = true;
+      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
+      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
+      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
+      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
+      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
+      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
+      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
+      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
+      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
+      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
+      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
+      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
+      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
+      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
+      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
+      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
+      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
+      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
+
+      const response = await productosAPI.subcategorias(params);
+      setSubcategorias(response.data.categorias);
     } catch (error) {
       console.error('Error cargando subcategorías:', error);
     }
+  };
+
+  const limpiarTodosFiltros = () => {
+    setSearchInput('');
+    setFiltroStock(null);
+    setFiltroPrecio(null);
+    setMarcasSeleccionadas([]);
+    setSubcategoriasSeleccionadas([]);
+    setFiltrosAuditoria({
+      usuarios: [],
+      tipos_accion: [],
+      fecha_desde: '',
+      fecha_hasta: ''
+    });
+    setFiltroRebate(null);
+    setFiltroOferta(null);
+    setFiltroWebTransf(null);
+    setFiltroMarkupClasica(null);
+    setFiltroMarkupRebate(null);
+    setFiltroMarkupOferta(null);
+    setFiltroMarkupWebTransf(null);
+    setFiltroOutOfCards(null);
+    setColoresSeleccionados([]);
+    setOrdenColumnas([]);
+    setPage(1);
   };
 
   const verAuditoria = async (productoId) => {
@@ -574,6 +667,15 @@ export default function Productos() {
                 {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length}
               </span>
             )}
+          </button>
+
+          {/* Botón limpiar todos los filtros */}
+          <button
+            onClick={limpiarTodosFiltros}
+            className="filter-button clear-all"
+            title="Limpiar todos los filtros"
+          >
+            🗑️ Limpiar Filtros
           </button>
         </div>
         {/* Botones de Acción */}

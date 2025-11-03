@@ -223,6 +223,19 @@
 .filter-button.auditoria.active {
   background: var(--gradient-info);
 }
+
+.filter-button.clear-all {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  border-color: transparent;
+}
+
+.filter-button.clear-all:hover {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+}
+}
 .filter-button.advanced.active {
   background: var(--gradient-warning);
 }
