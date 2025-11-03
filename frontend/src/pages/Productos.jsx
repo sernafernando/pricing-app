@@ -868,6 +868,26 @@ export default function Productos() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, mostrarFiltrosAvanzados]);
 
+  // Scroll automático para seguir la celda activa
+  useEffect(() => {
+    if (modoNavegacion && celdaActiva) {
+      // Buscar la fila activa en el DOM
+      const tabla = document.querySelector('.table-body');
+      if (tabla) {
+        const filas = tabla.querySelectorAll('tr');
+        const filaActiva = filas[celdaActiva.rowIndex];
+        if (filaActiva) {
+          // Hacer scroll para que la fila esté visible
+          filaActiva.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',  // No hace scroll si ya está visible
+            inline: 'nearest'
+          });
+        }
+      }
+    }
+  }, [celdaActiva, modoNavegacion]);
+
   // Funciones de edición rápida desde teclado
   const iniciarEdicionDesdeTeclado = (producto, columna) => {
     if (columna === 'precio_clasica') {

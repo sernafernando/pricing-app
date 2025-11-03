@@ -8,11 +8,38 @@ export default function ExportModal({ onClose, filtrosActivos }) {
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
   const [porcentajeClasica, setPorcentajeClasica] = useState(0);
 
-  // Cerrar modal con Escape
+  // Cerrar modal con Escape y capturar Tab para navegación interna
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && !exportando) {
         onClose();
+        return;
+      }
+
+      // Capturar Tab para mantenerlo dentro del modal
+      if (e.key === 'Tab') {
+        const modal = document.querySelector(`.${styles.modal}`);
+        if (modal) {
+          const focusableElements = modal.querySelectorAll(
+            'input, button, [tabindex]:not([tabindex="-1"])'
+          );
+          const firstElement = focusableElements[0];
+          const lastElement = focusableElements[focusableElements.length - 1];
+
+          if (e.shiftKey) {
+            // Tab + Shift: ir hacia atrás
+            if (document.activeElement === firstElement) {
+              e.preventDefault();
+              lastElement.focus();
+            }
+          } else {
+            // Tab: ir hacia adelante
+            if (document.activeElement === lastElement) {
+              e.preventDefault();
+              firstElement.focus();
+            }
+          }
+        }
       }
     };
 
@@ -401,6 +428,20 @@ export default function ExportModal({ onClose, filtrosActivos }) {
                   placeholder="Ej: 25"
                   value={porcentajeWebTransf}
                   onChange={(e) => setPorcentajeWebTransf(parseFloat(e.target.value) || 0)}
+                  onKeyPress={(e) => {
+                    // Convertir coma a punto para decimales
+                    if (e.key === ',') {
+                      e.preventDefault();
+                      const input = e.target;
+                      const start = input.selectionStart;
+                      const end = input.selectionEnd;
+                      const value = input.value;
+                      const newValue = value.substring(0, start) + '.' + value.substring(end);
+                      input.value = newValue;
+                      input.setSelectionRange(start + 1, start + 1);
+                      setPorcentajeWebTransf(parseFloat(newValue) || 0);
+                    }
+                  }}
                   className={styles.input}
                 />
                 <small className={styles.filterInfo}>
@@ -446,6 +487,20 @@ export default function ExportModal({ onClose, filtrosActivos }) {
                   placeholder="Ej: 20"
                   value={porcentajeClasica}
                   onChange={(e) => setPorcentajeClasica(parseFloat(e.target.value) || 0)}
+                  onKeyPress={(e) => {
+                    // Convertir coma a punto para decimales
+                    if (e.key === ',') {
+                      e.preventDefault();
+                      const input = e.target;
+                      const start = input.selectionStart;
+                      const end = input.selectionEnd;
+                      const value = input.value;
+                      const newValue = value.substring(0, start) + '.' + value.substring(end);
+                      input.value = newValue;
+                      input.setSelectionRange(start + 1, start + 1);
+                      setPorcentajeClasica(parseFloat(newValue) || 0);
+                    }
+                  }}
                   className={styles.input}
                 />
                 <small className={styles.filterInfo}>

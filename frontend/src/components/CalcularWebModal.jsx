@@ -8,11 +8,38 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
   const [calculando, setCalculando] = useState(false);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
 
-  // Cerrar modal con Escape
+  // Cerrar modal con Escape y capturar Tab para navegación interna
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && !calculando) {
         onClose();
+        return;
+      }
+
+      // Capturar Tab para mantenerlo dentro del modal
+      if (e.key === 'Tab') {
+        const modal = document.querySelector(`.${styles.modal}`);
+        if (modal) {
+          const focusableElements = modal.querySelectorAll(
+            'input, button, [tabindex]:not([tabindex="-1"])'
+          );
+          const firstElement = focusableElements[0];
+          const lastElement = focusableElements[focusableElements.length - 1];
+
+          if (e.shiftKey) {
+            // Tab + Shift: ir hacia atrás
+            if (document.activeElement === firstElement) {
+              e.preventDefault();
+              lastElement.focus();
+            }
+          } else {
+            // Tab: ir hacia adelante
+            if (document.activeElement === lastElement) {
+              e.preventDefault();
+              firstElement.focus();
+            }
+          }
+        }
       }
     };
 
@@ -178,6 +205,20 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
                 step="0.1"
                 value={porcentajeConPrecio}
                 onChange={(e) => setPorcentajeConPrecio(parseFloat(e.target.value) || 0)}
+                onKeyPress={(e) => {
+                  // Convertir coma a punto para decimales
+                  if (e.key === ',') {
+                    e.preventDefault();
+                    const input = e.target;
+                    const start = input.selectionStart;
+                    const end = input.selectionEnd;
+                    const value = input.value;
+                    const newValue = value.substring(0, start) + '.' + value.substring(end);
+                    input.value = newValue;
+                    input.setSelectionRange(start + 1, start + 1);
+                    setPorcentajeConPrecio(parseFloat(newValue) || 0);
+                  }
+                }}
                 className={styles.input}
               />
               <small style={{ display: 'block', marginTop: '4px', color: 'var(--text-secondary)', fontSize: '12px' }}>
@@ -194,6 +235,20 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
                 step="0.1"
                 value={porcentajeSinPrecio}
                 onChange={(e) => setPorcentajeSinPrecio(parseFloat(e.target.value) || 0)}
+                onKeyPress={(e) => {
+                  // Convertir coma a punto para decimales
+                  if (e.key === ',') {
+                    e.preventDefault();
+                    const input = e.target;
+                    const start = input.selectionStart;
+                    const end = input.selectionEnd;
+                    const value = input.value;
+                    const newValue = value.substring(0, start) + '.' + value.substring(end);
+                    input.value = newValue;
+                    input.setSelectionRange(start + 1, start + 1);
+                    setPorcentajeSinPrecio(parseFloat(newValue) || 0);
+                  }
+                }}
                 className={styles.input}
               />
               <small style={{ display: 'block', marginTop: '4px', color: 'var(--text-secondary)', fontSize: '12px' }}>
