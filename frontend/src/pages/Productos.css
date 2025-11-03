@@ -235,7 +235,7 @@
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
 }
-}
+
 .filter-button.advanced.active {
   background: var(--gradient-warning);
 }
