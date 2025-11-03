@@ -445,7 +445,7 @@
 /* Contenedor especial para auditoría con 3 secciones */
 .dropdown-content.with-padding {
   display: grid;
-  grid-template-columns: 1fr 1fr 280px;
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
 
@@ -559,6 +559,7 @@
   border: 1px solid var(--border-secondary);
   border-radius: 4px;
   font-size: 13px;
+  box-sizing: border-box;
 }
 
 /* Botones de acción principales */
