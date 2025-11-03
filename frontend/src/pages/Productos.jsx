@@ -819,12 +819,13 @@ export default function Productos() {
           return;
         }
 
-        // Números 1-9: Selección rápida de colores (solo si NO estamos editando nada)
-        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        // Números 1-7: Selección rápida de colores (solo si NO estamos editando nada)
+        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[1-7]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
           e.preventDefault();
           e.stopPropagation();
           if (puedeEditar && productos[rowIndex]) {
-            const colores = ['rojo', 'amarillo', 'verde', 'azul', 'naranja', 'violeta', 'rosa', 'gris', 'cyan'];
+            // Colores válidos según el backend
+            const colores = ['rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
             const colorIndex = parseInt(e.key) - 1;
             if (colorIndex < colores.length) {
               const producto = productos[rowIndex];
@@ -887,14 +888,17 @@ export default function Productos() {
 
   const cambiarColorRapido = async (itemId, color) => {
     try {
-      await axios.patch(
+      console.log('Enviando cambio de color:', { itemId, color, url: `${API_URL}/productos/${itemId}/color` });
+      const response = await axios.patch(
         `${API_URL}/productos/${itemId}/color`,
         { color },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
+      console.log('Respuesta del servidor:', response.data);
       cargarProductos();
     } catch (error) {
       console.error('Error cambiando color:', error);
+      console.error('Detalles del error:', error.response?.data);
     }
   };
 
@@ -2274,8 +2278,8 @@ export default function Productos() {
               <div className="shortcuts-section">
                 <h3>Acciones Rápidas (en fila activa)</h3>
                 <div className="shortcut-item">
-                  <kbd>1</kbd>-<kbd>9</kbd>
-                  <span>Asignar color (1=Rojo, 2=Amarillo, 3=Verde, etc.)</span>
+                  <kbd>1</kbd>-<kbd>7</kbd>
+                  <span>Asignar color (1=Rojo, 2=Naranja, 3=Amarillo, 4=Verde, 5=Azul, 6=Púrpura, 7=Gris)</span>
                 </div>
                 <div className="shortcut-item">
                   <kbd>R</kbd>
