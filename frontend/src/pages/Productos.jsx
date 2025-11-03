@@ -587,24 +587,18 @@ export default function Productos() {
   // Sistema de navegación por teclado
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Si estamos editando una celda, permitir navegación normal con Tab DENTRO de la celda
+      // Si estamos editando una celda, NO interceptar NADA (dejar funcionar todo normal)
       if (editandoPrecio || editandoRebate || editandoWebTransf) {
-        // Solo procesar Escape para salir de edición
+        // Solo interceptar Escape para salir de edición
         if (e.key === 'Escape') {
+          e.preventDefault();
           setEditandoPrecio(null);
           setEditandoRebate(null);
           setEditandoWebTransf(null);
           // Mantener modo navegación activo después de salir de edición
-          return;
         }
-        // Permitir Tab, Enter y cualquier otra tecla para navegar dentro del formulario
+        // No interceptar ninguna otra tecla - dejar que funcione normal
         return;
-      }
-
-      // SOLO prevenir Tab cuando estamos en modo navegación pero NO editando
-      if (modoNavegacion && e.key === 'Tab') {
-        e.preventDefault();
-        e.stopPropagation();
       }
 
       // Mostrar ayuda de shortcuts (?)
@@ -699,26 +693,6 @@ export default function Productos() {
       // Navegación en modo tabla
       if (modoNavegacion && celdaActiva) {
         const { rowIndex, colIndex } = celdaActiva;
-
-        // Tab: Siguiente columna
-        if (e.key === 'Tab' && !e.shiftKey) {
-          e.preventDefault();
-          const nextCol = colIndex < columnasEditables.length - 1 ? colIndex + 1 : 0;
-          const nextRow = nextCol === 0 && colIndex === columnasEditables.length - 1 ?
-            (rowIndex < productos.length - 1 ? rowIndex + 1 : rowIndex) : rowIndex;
-          setCeldaActiva({ rowIndex: nextRow, colIndex: nextCol });
-          return;
-        }
-
-        // Shift+Tab: Columna anterior
-        if (e.key === 'Tab' && e.shiftKey) {
-          e.preventDefault();
-          const prevCol = colIndex > 0 ? colIndex - 1 : columnasEditables.length - 1;
-          const prevRow = prevCol === columnasEditables.length - 1 && colIndex === 0 ?
-            (rowIndex > 0 ? rowIndex - 1 : rowIndex) : rowIndex;
-          setCeldaActiva({ rowIndex: prevRow, colIndex: prevCol });
-          return;
-        }
 
         // Enter: Editar celda activa (igual que Espacio)
         if (e.key === 'Enter' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
@@ -2153,14 +2127,6 @@ export default function Productos() {
                   <span>Activar modo navegación</span>
                 </div>
                 <div className="shortcut-item">
-                  <kbd>Tab</kbd>
-                  <span>Siguiente columna</span>
-                </div>
-                <div className="shortcut-item">
-                  <kbd>Shift</kbd> + <kbd>Tab</kbd>
-                  <span>Columna anterior</span>
-                </div>
-                <div className="shortcut-item">
                   <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>
                   <span>Navegar por celdas (una a la vez)</span>
                 </div>
@@ -2191,6 +2157,10 @@ export default function Productos() {
                 <div className="shortcut-item">
                   <kbd>Enter</kbd> o <kbd>Espacio</kbd>
                   <span>Editar celda activa</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Tab</kbd> (en edición)
+                  <span>Navegar entre campos del formulario</span>
                 </div>
                 <div className="shortcut-item">
                   <kbd>Esc</kbd>
