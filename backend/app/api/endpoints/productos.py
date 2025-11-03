@@ -1501,16 +1501,18 @@ async def limpiar_web_transferencia(
 @router.patch("/productos/{item_id}/color")
 async def actualizar_color_producto(
     item_id: int,
-    color: Optional[str] = None,
+    request: dict,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el color de marcado de un producto"""
 
+    color = request.get('color')
+
     # Validar color
     colores_validos = ['rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris', None]
     if color not in colores_validos:
-        raise HTTPException(status_code=400, detail="Color inválido")
+        raise HTTPException(status_code=400, detail=f"Color inválido: {color}. Válidos: {colores_validos}")
 
     # Buscar producto pricing
     producto_pricing = db.query(ProductoPricing).filter(
