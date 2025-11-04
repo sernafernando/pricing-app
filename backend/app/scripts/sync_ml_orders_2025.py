@@ -31,7 +31,7 @@ async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
         # Llamar al endpoint externo
         url = "https://parser-worker-js.gaussonline.workers.dev/consulta"
         params = {
-            "strScriptLabel": "scriptMercadoLibreOrdersHeader",
+            "strScriptLabel": "scriptMLOrdersHeader",
             "fromDate": from_date,
             "toDate": to_date
         }
