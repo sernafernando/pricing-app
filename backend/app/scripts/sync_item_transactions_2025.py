@@ -182,7 +182,7 @@ async def sync_item_transactions_mes(db: Session, from_date: str, to_date: str):
                     it_packinginvoicependoriginal=to_decimal(item_json.get("it_packingInvoicePendOriginal")),
                     it_packinginvoiceselectedguid=guid_value,
                     it_transaction_original=to_int(item_json.get("it_transaction_original")),
-                    it_transaction_nostockdiscount=to_bool(item_json.get("it_transaction_NoStockDiscount")),
+                    it_transaction_nostockdiscount=to_int(item_json.get("it_transaction_NoStockDiscount")),
                     it_salescurrid4exchangetobranchcurrency=to_int(item_json.get("it_SalesCurrId4exchangeToBranchCurrency")),
                     it_allusetag1=item_json.get("it_AllUseTag1"),
                     it_allusetag2=item_json.get("it_AllUseTag2"),
