@@ -254,7 +254,15 @@ export default function ExportModal({ onClose, filtrosActivos }) {
       link.href = url;
       const ahora = new Date();
       const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-      const nombreArchivo = `clasica_${timestamp}.xlsx`;
+
+      // Determinar nombre del archivo según tipo de cuotas
+      let nombreBase = 'clasica';
+      if (tipoCuotas === '3') nombreBase = '3_cuotas';
+      else if (tipoCuotas === '6') nombreBase = '6_cuotas';
+      else if (tipoCuotas === '9') nombreBase = '9_cuotas';
+      else if (tipoCuotas === '12') nombreBase = '12_cuotas';
+
+      const nombreArchivo = `${nombreBase}_${timestamp}.xlsx`;
       link.setAttribute('download', nombreArchivo);
       document.body.appendChild(link);
       link.click();
