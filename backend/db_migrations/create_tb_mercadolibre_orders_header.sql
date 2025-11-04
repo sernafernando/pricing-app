@@ -4,7 +4,7 @@
 CREATE TABLE tb_mercadolibre_orders_header (
     comp_id INT,
     mlo_id BIGINT PRIMARY KEY,
-    mluser_id INT,
+    mluser_id BIGINT,
     cust_id INT,
     mlo_firstjson JSON,
     mlo_lastjson JSON,

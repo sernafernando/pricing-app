@@ -14,7 +14,7 @@ class MercadoLibreOrderHeader(Base):
     # IDs principales
     comp_id = Column(Integer, index=True)
     mlo_id = Column(BigInteger, primary_key=True, index=True)
-    mluser_id = Column(Integer)
+    mluser_id = Column(BigInteger)
     cust_id = Column(Integer, index=True)
 
     # JSONs
