@@ -46,6 +46,11 @@ async def sync_ventas_mes(db: Session, from_date: str, to_date: str):
             print(f"❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
+        # Verificar si el API devuelve error (ej: {"Column1": "-9"})
+        if len(ventas_data) == 1 and "Column1" in ventas_data[0]:
+            print(f"   ⚠️  No hay datos disponibles para este período")
+            return 0, 0, 0
+
         print(f"   Procesando {len(ventas_data)} ventas...")
 
         # Insertar o actualizar ventas
@@ -55,8 +60,14 @@ async def sync_ventas_mes(db: Session, from_date: str, to_date: str):
 
         for venta_json in ventas_data:
             try:
-                # Verificar si ya existe
+                # Verificar que tenga ID_de_Operación
                 id_operacion = venta_json.get("ID_de_Operación")
+                if id_operacion is None:
+                    print(f"   ⚠️  Venta sin ID_de_Operación, omitiendo...")
+                    ventas_errores += 1
+                    continue
+
+                # Verificar si ya existe
                 venta_existente = db.query(VentaML).filter(
                     VentaML.id_operacion == id_operacion
                 ).first()
