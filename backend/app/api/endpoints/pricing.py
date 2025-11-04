@@ -156,6 +156,11 @@ class SetPrecioRequest(BaseModel):
     motivo: Optional[str] = None
     participa_rebate: Optional[bool] = False
     porcentaje_rebate: Optional[float] = 3.8
+    # Precios con cuotas
+    precio_3_cuotas: Optional[float] = None
+    precio_6_cuotas: Optional[float] = None
+    precio_9_cuotas: Optional[float] = None
+    precio_12_cuotas: Optional[float] = None
 
 @router.post("/precios/set")
 async def setear_precio(
@@ -221,6 +226,11 @@ async def setear_precio(
         pricing.fecha_modificacion = datetime.now()
         pricing.participa_rebate = request.participa_rebate
         pricing.porcentaje_rebate = request.porcentaje_rebate
+        # Actualizar precios con cuotas
+        pricing.precio_3_cuotas = request.precio_3_cuotas
+        pricing.precio_6_cuotas = request.precio_6_cuotas
+        pricing.precio_9_cuotas = request.precio_9_cuotas
+        pricing.precio_12_cuotas = request.precio_12_cuotas
     else:
         pricing = ProductoPricing(
             item_id=request.item_id,
@@ -229,7 +239,11 @@ async def setear_precio(
             usuario_id=current_user.id,
             motivo_cambio=request.motivo,
             participa_rebate=request.participa_rebate,
-            porcentaje_rebate=request.porcentaje_rebate
+            porcentaje_rebate=request.porcentaje_rebate,
+            precio_3_cuotas=request.precio_3_cuotas,
+            precio_6_cuotas=request.precio_6_cuotas,
+            precio_9_cuotas=request.precio_9_cuotas,
+            precio_12_cuotas=request.precio_12_cuotas
         )
         db.add(pricing)
 

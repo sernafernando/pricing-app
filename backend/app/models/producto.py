@@ -47,7 +47,13 @@ class ProductoPricing(Base):
     motivo_cambio = Column(String(255))
     markup_web_real = Column(Numeric(10, 2))
     fecha_modificacion = Column(DateTime(timezone=True), server_default=func.now())
-    
+
+    # Precios con cuotas
+    precio_3_cuotas = Column(Numeric(15, 2))
+    precio_6_cuotas = Column(Numeric(15, 2))
+    precio_9_cuotas = Column(Numeric(15, 2))
+    precio_12_cuotas = Column(Numeric(15, 2))
+
     participa_rebate = Column(Boolean, default=False)
     porcentaje_rebate = Column(Numeric(5, 2), default=3.8)
     out_of_cards = Column(Boolean, default=False)

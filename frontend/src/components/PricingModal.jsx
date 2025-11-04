@@ -86,7 +86,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
       setError('El precio debe ser mayor a 0');
       return;
      }
-      
+
      if (precio > 999999999.99) {
        setError('El precio no puede ser mayor a $999.999.999,99');
        return;
@@ -94,6 +94,10 @@ export default function PricingModal({ producto, onClose, onSave }) {
 
     try {
       const token = localStorage.getItem('token');
+
+      // Extraer precios de cuotas del resultado
+      const cuotas = resultado.cuotas || {};
+
       await axios.post(
         'https://pricing.gaussonline.com.ar/api/precios/set',
         {
@@ -101,7 +105,12 @@ export default function PricingModal({ producto, onClose, onSave }) {
           precio_lista_ml: precio,
           motivo: `Seteo ${modo === 'markup' ? 'por markup' : 'manual'}`,
           participa_rebate: participaRebate,
-          porcentaje_rebate: porcentajeRebate
+          porcentaje_rebate: porcentajeRebate,
+          // Enviar precios con cuotas
+          precio_3_cuotas: cuotas['3_cuotas']?.precio || null,
+          precio_6_cuotas: cuotas['6_cuotas']?.precio || null,
+          precio_9_cuotas: cuotas['9_cuotas']?.precio || null,
+          precio_12_cuotas: cuotas['12_cuotas']?.precio || null
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );

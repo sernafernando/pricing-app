@@ -1753,12 +1753,16 @@ async def exportar_clasica(
     from io import BytesIO
     from openpyxl import Workbook
     
-    # Obtener productos con precio clásica
+    # Obtener productos con precio clásica y precios con cuotas
     query = db.query(
         ProductoERP.codigo,
         ProductoPricing.precio_lista_ml,
         ProductoPricing.participa_rebate,
-        ProductoPricing.porcentaje_rebate
+        ProductoPricing.porcentaje_rebate,
+        ProductoPricing.precio_3_cuotas,
+        ProductoPricing.precio_6_cuotas,
+        ProductoPricing.precio_9_cuotas,
+        ProductoPricing.precio_12_cuotas
     ).join(
         ProductoPricing,
         ProductoERP.item_id == ProductoPricing.item_id
@@ -1796,10 +1800,10 @@ async def exportar_clasica(
     ws.title = "Clasica"
     
     # Header
-    ws.append(['Código/EAN', 'Precio', 'ID Moneda'])
-    
+    ws.append(['Código/EAN', 'Precio Clásica', '3 Cuotas', '6 Cuotas', '9 Cuotas', '12 Cuotas', 'ID Moneda'])
+
     # Datos
-    for codigo, precio_clasica, participa_rebate, porcentaje_rebate in productos:
+    for codigo, precio_clasica, participa_rebate, porcentaje_rebate, precio_3, precio_6, precio_9, precio_12 in productos:
         # Si tiene rebate activo, calcular precio rebate y aplicar % adicional
         if participa_rebate and porcentaje_rebate:
             precio_rebate = precio_clasica * (1 + float(porcentaje_rebate) / 100)
@@ -1809,10 +1813,20 @@ async def exportar_clasica(
         else:
             # Si no tiene rebate, usar precio clásica sin modificar
             precio_final = round(precio_clasica / 10) * 10
-        
+
+        # Formatear precios de cuotas (redondear a múltiplo de 10)
+        precio_3_formatted = str(int(round(float(precio_3) / 10) * 10)) if precio_3 else ''
+        precio_6_formatted = str(int(round(float(precio_6) / 10) * 10)) if precio_6 else ''
+        precio_9_formatted = str(int(round(float(precio_9) / 10) * 10)) if precio_9 else ''
+        precio_12_formatted = str(int(round(float(precio_12) / 10) * 10)) if precio_12 else ''
+
         ws.append([
             str(codigo),
             str(int(precio_final)),
+            precio_3_formatted,
+            precio_6_formatted,
+            precio_9_formatted,
+            precio_12_formatted,
             '1'
         ])
     
