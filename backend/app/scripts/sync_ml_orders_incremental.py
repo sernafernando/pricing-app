@@ -119,14 +119,11 @@ async def sync_ml_orders_incremental(db: Session):
             except:
                 return None
 
-        def to_bigint(value):
-            """Convierte a bigint, retorna None si no es válido"""
+        def to_string(value):
+            """Convierte a string, retorna None si es None"""
             if value is None or value == '':
                 return None
-            try:
-                return int(value)
-            except:
-                return None
+            return str(value)
 
         for order_json in orders_data:
             try:
@@ -140,7 +137,7 @@ async def sync_ml_orders_incremental(db: Session):
                     cust_id=to_int(order_json.get("cust_id")),
                     mlo_firstjson=order_json.get("mlo_firstJSON"),
                     mlo_lastjson=order_json.get("mlo_lastJSON"),
-                    ml_id=to_bigint(order_json.get("ML_id")),
+                    ml_id=to_string(order_json.get("ML_id")),
                     ml_date_created=parse_date(order_json.get("ML_date_created")),
                     ml_date_closed=parse_date(order_json.get("ML_date_closed")),
                     ml_last_updated=parse_date(order_json.get("ML_last_updated")),
@@ -150,7 +147,7 @@ async def sync_ml_orders_incremental(db: Session):
                     mlo_overpaid_amount=to_decimal(order_json.get("mlo_overpaid_amount")),
                     mlo_total_paid_amount=to_decimal(order_json.get("mlo_total_paid_amount")),
                     mlo_status=order_json.get("mlo_status"),
-                    mlorder_id=to_bigint(order_json.get("MLorder_id")),
+                    mlorder_id=to_string(order_json.get("MLorder_id")),
                     mlo_issaleordergenerated=to_bool(order_json.get("mlo_isSaleOrderGenerated")),
                     mlo_email=order_json.get("mlo_email"),
                     identificationnumber=to_bigint(order_json.get("identificationNumber")),
@@ -175,11 +172,11 @@ async def sync_ml_orders_incremental(db: Session):
                     mluser_alternative_phone=order_json.get("MLUser_alternative_phone"),
                     mlo_isorderreceiptmessage=to_bool(order_json.get("mlo_isorderReceiptMessage")),
                     mlo_iscancelled=to_bool(order_json.get("mlo_isCancelled")),
-                    mlshippingid=to_bigint(order_json.get("MLShippingID")),
-                    mlpickupid=to_bigint(order_json.get("MLPickUpID")),
+                    mlshippingid=to_string(order_json.get("MLShippingID")),
+                    mlpickupid=to_string(order_json.get("MLPickUpID")),
                     mlpickupperson=order_json.get("MLPickUpPerson"),
                     mlbra_id=to_int(order_json.get("mlbra_id")),
-                    ml_pack_id=to_bigint(order_json.get("ML_pack_id")),
+                    ml_pack_id=to_string(order_json.get("ML_pack_id")),
                     mls_id=to_int(order_json.get("mls_id")),
                     mluser_first_name=order_json.get("MLUser_first_name"),
                     mluser_last_name=order_json.get("MLUser_last_name"),

@@ -21,12 +21,12 @@ class MercadoLibreOrderHeader(Base):
     mlo_firstjson = Column(JSON)
     mlo_lastjson = Column(JSON)
 
-    # IDs de MercadoLibre
-    ml_id = Column(BigInteger, index=True)
-    mlorder_id = Column(BigInteger, index=True)
-    mlshippingid = Column(BigInteger)
-    mlpickupid = Column(BigInteger)
-    ml_pack_id = Column(BigInteger)
+    # IDs de MercadoLibre (VARCHAR porque pueden ser muy grandes o tener formato especial)
+    ml_id = Column(String(50), index=True)
+    mlorder_id = Column(String(50), index=True)
+    mlshippingid = Column(String(50))
+    mlpickupid = Column(String(50))
+    ml_pack_id = Column(String(50))
 
     # Fechas
     ml_date_created = Column(DateTime, index=True)
