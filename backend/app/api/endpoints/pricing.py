@@ -210,8 +210,8 @@ async def setear_precio(
     if any(v is None for v in precios_cuotas_calculados.values()):
         if markup_calculado is not None:
             # Usar el markup del precio clásica + 4% para calcular cuotas
-            markup_objetivo = markup_calculado / 100  # Convertir de porcentaje a decimal
-            adicional_cuotas = 4.0  # 4% adicional para cuotas
+            # markup_calculado ya está en porcentaje (ej: 35.5)
+            markup_objetivo_cuotas = (markup_calculado + 4.0) / 100  # Sumar 4% y convertir a decimal
 
             # IDs de pricelists para cuotas
             cuotas_config = {
@@ -227,7 +227,7 @@ async def setear_precio(
                     if comision_cuota:
                         precio_cuota = precio_por_markup_goalseek(
                             costo=costo_ars,
-                            markup_objetivo=markup_objetivo + (adicional_cuotas / 100),
+                            markup_objetivo=markup_objetivo_cuotas,
                             iva=producto.iva,
                             comision_ml=comision_cuota,
                             varios=VARIOS_DEFAULT,
@@ -471,8 +471,9 @@ async def setear_precio_rapido(
     precios_cuotas = {'precio_3_cuotas': None, 'precio_6_cuotas': None, 'precio_9_cuotas': None, 'precio_12_cuotas': None}
 
     if recalcular_cuotas:
-        markup_objetivo = markup  # Ya está en decimal
-        adicional_cuotas = 0.04  # 4% adicional
+        # markup ya está en decimal (ej: 0.355 para 35.5%)
+        # Sumar 4% = 0.04
+        markup_objetivo_cuotas = markup + 0.04
 
         cuotas_config = {
             'precio_3_cuotas': 17,
@@ -487,7 +488,7 @@ async def setear_precio_rapido(
                 if comision_cuota:
                     precio_cuota = precio_por_markup_goalseek(
                         costo=costo_ars,
-                        markup_objetivo=markup_objetivo + adicional_cuotas,
+                        markup_objetivo=markup_objetivo_cuotas,
                         iva=producto.iva,
                         comision_ml=comision_cuota,
                         varios=VARIOS_DEFAULT,
