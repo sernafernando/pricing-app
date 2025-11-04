@@ -209,9 +209,8 @@ async def setear_precio(
     # Si al menos uno es None, calcular todos automáticamente
     if any(v is None for v in precios_cuotas_calculados.values()):
         if markup_calculado is not None:
-            # Usar el markup del precio clásica + 4% para calcular cuotas
+            # Usar la misma función que usa el modal: calcular_precio_producto
             # markup_calculado ya está en porcentaje (ej: 35.5)
-            markup_objetivo_cuotas = (markup_calculado + 4.0) / 100  # Sumar 4% y convertir a decimal
 
             # IDs de pricelists para cuotas
             cuotas_config = {
@@ -223,17 +222,22 @@ async def setear_precio(
 
             for nombre_campo, pricelist_id in cuotas_config.items():
                 try:
-                    comision_cuota = obtener_comision_base(db, pricelist_id, grupo_id)
-                    if comision_cuota:
-                        precio_cuota = precio_por_markup_goalseek(
-                            costo=costo_ars,
-                            markup_objetivo=markup_objetivo_cuotas,
-                            iva=producto.iva,
-                            comision_ml=comision_cuota,
-                            varios=VARIOS_DEFAULT,
-                            costo_envio=producto.envio or 0
-                        )
-                        precios_cuotas_calculados[nombre_campo] = round(precio_cuota, 2)
+                    # Usar calcular_precio_producto con adicional_markup = 4.0
+                    resultado = calcular_precio_producto(
+                        db=db,
+                        costo=producto.costo,
+                        moneda_costo=producto.moneda_costo,
+                        iva=producto.iva,
+                        envio=producto.envio or 0,
+                        subcategoria_id=producto.subcategoria_id,
+                        pricelist_id=pricelist_id,
+                        markup_objetivo=markup_calculado,
+                        tipo_cambio=tipo_cambio,
+                        adicional_markup=4.0  # 4% adicional como en el modal
+                    )
+
+                    if "error" not in resultado:
+                        precios_cuotas_calculados[nombre_campo] = round(resultado["precio"], 2)
                 except:
                     # Si falla el cálculo, dejar en None
                     precios_cuotas_calculados[nombre_campo] = None
@@ -471,9 +475,8 @@ async def setear_precio_rapido(
     precios_cuotas = {'precio_3_cuotas': None, 'precio_6_cuotas': None, 'precio_9_cuotas': None, 'precio_12_cuotas': None}
 
     if recalcular_cuotas:
-        # markup ya está en decimal (ej: 0.355 para 35.5%)
-        # Sumar 4% = 0.04
-        markup_objetivo_cuotas = markup + 0.04
+        # markup está en decimal (ej: 0.355 para 35.5%), convertir a porcentaje
+        markup_porcentaje = round(markup * 100, 2)
 
         cuotas_config = {
             'precio_3_cuotas': 17,
@@ -484,17 +487,22 @@ async def setear_precio_rapido(
 
         for nombre_campo, pricelist_id in cuotas_config.items():
             try:
-                comision_cuota = obtener_comision_base(db, pricelist_id, grupo_id)
-                if comision_cuota:
-                    precio_cuota = precio_por_markup_goalseek(
-                        costo=costo_ars,
-                        markup_objetivo=markup_objetivo_cuotas,
-                        iva=producto.iva,
-                        comision_ml=comision_cuota,
-                        varios=VARIOS_DEFAULT,
-                        costo_envio=producto.envio or 0
-                    )
-                    precios_cuotas[nombre_campo] = round(precio_cuota, 2)
+                # Usar calcular_precio_producto con adicional_markup = 4.0 (como en el modal)
+                resultado = calcular_precio_producto(
+                    db=db,
+                    costo=producto.costo,
+                    moneda_costo=producto.moneda_costo,
+                    iva=producto.iva,
+                    envio=producto.envio or 0,
+                    subcategoria_id=producto.subcategoria_id,
+                    pricelist_id=pricelist_id,
+                    markup_objetivo=markup_porcentaje,
+                    tipo_cambio=tipo_cambio,
+                    adicional_markup=4.0  # 4% adicional como en el modal
+                )
+
+                if "error" not in resultado:
+                    precios_cuotas[nombre_campo] = round(resultado["precio"], 2)
             except:
                 pass
 
