@@ -111,6 +111,19 @@ export default function Productos() {
     cargarSubcategorias();
   }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
 
+  // Auto-focus en inputs de búsqueda cuando se abren los paneles de filtro
+  useEffect(() => {
+    if (panelFiltroActivo === 'marcas' || panelFiltroActivo === 'subcategorias') {
+      // Pequeño delay para asegurar que el panel esté renderizado
+      setTimeout(() => {
+        const input = document.querySelector('.dropdown-search input');
+        if (input) {
+          input.focus();
+        }
+      }, 100);
+    }
+  }, [panelFiltroActivo]);
+
   const handleOrdenar = (columna, event) => {
     const shiftPressed = event?.shiftKey;
 

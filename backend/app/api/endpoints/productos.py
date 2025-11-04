@@ -1815,13 +1815,25 @@ async def exportar_clasica(
                 # Si no tiene rebate, usar precio clásica sin modificar
                 precio_exportar = precio_clasica
         elif tipo_cuotas == "3":
-            precio_exportar = float(precio_3) if precio_3 else precio_clasica
+            # Si no hay precio de 3 cuotas, saltar este producto
+            if not precio_3:
+                continue
+            precio_exportar = float(precio_3)
         elif tipo_cuotas == "6":
-            precio_exportar = float(precio_6) if precio_6 else precio_clasica
+            # Si no hay precio de 6 cuotas, saltar este producto
+            if not precio_6:
+                continue
+            precio_exportar = float(precio_6)
         elif tipo_cuotas == "9":
-            precio_exportar = float(precio_9) if precio_9 else precio_clasica
+            # Si no hay precio de 9 cuotas, saltar este producto
+            if not precio_9:
+                continue
+            precio_exportar = float(precio_9)
         elif tipo_cuotas == "12":
-            precio_exportar = float(precio_12) if precio_12 else precio_clasica
+            # Si no hay precio de 12 cuotas, saltar este producto
+            if not precio_12:
+                continue
+            precio_exportar = float(precio_12)
         else:
             precio_exportar = precio_clasica
 
