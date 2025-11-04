@@ -185,7 +185,7 @@ async def sync_ml_orders_incremental(db: Session):
                     mluser_last_name=order_json.get("MLUser_last_name"),
                     mlo_ismshops=to_bool(order_json.get("mlo_ismshops")),
                     mlo_cd=parse_date(order_json.get("mlo_cd")),
-                    mlo_me1_deliverystatus=order_json.get("mlo_ME1_deliveryStatus"),
+                    mlo_me1_deliverystatus=str(order_json.get("mlo_ME1_deliveryStatus")) if order_json.get("mlo_ME1_deliveryStatus") is not None else None,
                     mlo_me1_deliverytracking=order_json.get("mlo_ME1_deliveryTracking"),
                     mlo_mustprintlabel=to_bool(order_json.get("mlo_mustPrintLabel")),
                     mlo_ismshops_invited=to_bool(order_json.get("mlo_ismshops_invited")),
