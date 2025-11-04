@@ -1,7 +1,20 @@
 """
 Script para sincronizar ventas de MercadoLibre del año 2025
 Trae la data mes por mes para evitar timeouts
+
+Ejecutar desde el directorio backend:
+    cd /var/www/html/pricing-app/backend
+    python -m app.scripts.sync_ventas_2025
 """
+import sys
+import os
+
+# Agregar el directorio backend al path si se ejecuta directamente
+if __name__ == "__main__":
+    backend_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if backend_path not in sys.path:
+        sys.path.insert(0, backend_path)
+
 import asyncio
 import httpx
 from datetime import datetime, timedelta
