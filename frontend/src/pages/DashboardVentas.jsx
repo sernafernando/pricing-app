@@ -31,14 +31,15 @@ export default function DashboardVentas() {
   const cargarVentas = async () => {
     setLoading(true);
     try {
+      const token = localStorage.getItem('token');
       const response = await axios.get(
-        `https://parser-worker-js.gaussonline.workers.dev/consulta`,
+        'https://pricing.gaussonline.com.ar/api/ventas-ml',
         {
           params: {
-            strScriptLabel: 'scriptDashboard',
-            fromDate: fromDate,
-            toDate: toDate
-          }
+            from_date: fromDate,
+            to_date: toDate
+          },
+          headers: { Authorization: `Bearer ${token}` }
         }
       );
       setVentas(Array.isArray(response.data) ? response.data : []);
@@ -93,9 +94,9 @@ export default function DashboardVentas() {
 
   const calcularTotales = () => {
     return ventas.reduce((acc, venta) => {
-      acc.cantidad += venta.Cantidad || 0;
-      acc.montoTotal += venta.Monto_Total || 0;
-      acc.costoEnvio += venta.MLShippmentCost4Seller || 0;
+      acc.cantidad += venta.cantidad || 0;
+      acc.montoTotal += parseFloat(venta.monto_total) || 0;
+      acc.costoEnvio += parseFloat(venta.ml_shipment_cost_seller) || 0;
       return acc;
     }, { cantidad: 0, montoTotal: 0, costoEnvio: 0 });
   };
@@ -182,27 +183,27 @@ export default function DashboardVentas() {
                   </tr>
                 ) : (
                   ventas.map((venta) => (
-                    <tr key={venta.ID_de_Operación}>
-                      <td>{formatearFecha(venta.Fecha)}</td>
-                      <td>{venta.ID_de_Operación}</td>
-                      <td>{venta.Marca}</td>
+                    <tr key={venta.id_operacion}>
+                      <td>{formatearFecha(venta.fecha)}</td>
+                      <td>{venta.id_operacion}</td>
+                      <td>{venta.marca}</td>
                       <td>
                         <div className={styles.categoria}>
-                          <div>{venta.Categoría}</div>
-                          <div className={styles.subcategoria}>{venta.SubCategoría}</div>
+                          <div>{venta.categoria}</div>
+                          <div className={styles.subcategoria}>{venta.subcategoria}</div>
                         </div>
                       </td>
-                      <td className={styles.descripcion}>{venta.Descripción}</td>
-                      <td className={styles.centrado}>{venta.Cantidad}</td>
-                      <td className={styles.monto}>{formatearMoneda(venta.Monto_Unitario)}</td>
-                      <td className={styles.monto}>{formatearMoneda(venta.Monto_Total)}</td>
-                      <td className={styles.monto}>{formatearDolar(venta.Costo_sin_IVA)}</td>
-                      <td className={styles.centrado}>{venta.IVA}%</td>
-                      <td>{getTipoLogistica(venta.ML_logistic_type)}</td>
-                      <td className={styles.monto}>{formatearMoneda(venta.MLShippmentCost4Seller || 0)}</td>
+                      <td className={styles.descripcion}>{venta.descripcion}</td>
+                      <td className={styles.centrado}>{venta.cantidad}</td>
+                      <td className={styles.monto}>{formatearMoneda(venta.monto_unitario)}</td>
+                      <td className={styles.monto}>{formatearMoneda(venta.monto_total)}</td>
+                      <td className={styles.monto}>{formatearDolar(venta.costo_sin_iva)}</td>
+                      <td className={styles.centrado}>{venta.iva}%</td>
+                      <td>{getTipoLogistica(venta.ml_logistic_type)}</td>
+                      <td className={styles.monto}>{formatearMoneda(venta.ml_shipment_cost_seller || 0)}</td>
                       <td className={styles.centrado}>
                         <a
-                          href={`https://www.mercadolibre.com.ar/ventas/${venta.ML_id}/detalle`}
+                          href={`https://www.mercadolibre.com.ar/ventas/${venta.ml_id}/detalle`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className={styles.mlLink}
