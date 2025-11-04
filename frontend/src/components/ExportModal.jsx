@@ -7,6 +7,7 @@ export default function ExportModal({ onClose, filtrosActivos }) {
   const [exportando, setExportando] = useState(false);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
   const [porcentajeClasica, setPorcentajeClasica] = useState('0');
+  const [tipoCuotas, setTipoCuotas] = useState('clasica'); // clasica, 3, 6, 9, 12
 
   // Auto-focus en primer input al abrir modal
   useEffect(() => {
@@ -209,7 +210,7 @@ export default function ExportModal({ onClose, filtrosActivos }) {
     setExportando(true);
     try {
       const token = localStorage.getItem('token');
-      let params = `porcentaje_adicional=${parseFloat(porcentajeClasica.toString().replace(',', '.')) || 0}`;
+      let params = `porcentaje_adicional=${parseFloat(porcentajeClasica.toString().replace(',', '.')) || 0}&tipo_cuotas=${tipoCuotas}`;
 
       if (aplicarFiltros) {
         if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
@@ -491,6 +492,21 @@ export default function ExportModal({ onClose, filtrosActivos }) {
               <p className={styles.description}>
                 Exporta precios de Clásica. Si el producto tiene rebate activo, aplica el % sobre el precio rebate. Si no, exporta el precio clásica original.
               </p>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Tipo de precio a exportar:</label>
+                <select
+                  value={tipoCuotas}
+                  onChange={(e) => setTipoCuotas(e.target.value)}
+                  className={styles.input}
+                >
+                  <option value="clasica">Clásica</option>
+                  <option value="3">3 Cuotas</option>
+                  <option value="6">6 Cuotas</option>
+                  <option value="9">9 Cuotas</option>
+                  <option value="12">12 Cuotas</option>
+                </select>
+              </div>
 
               <div className={styles.formGroup}>
                 <label className={styles.label}>Porcentaje adicional sobre rebate (%):</label>

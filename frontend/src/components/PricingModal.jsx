@@ -119,7 +119,9 @@ export default function PricingModal({ producto, onClose, onSave }) {
       onSave();
       onClose();
     } catch (err) {
-      setError('Error al guardar precio');
+      console.error('Error al guardar precio:', err);
+      console.error('Respuesta del servidor:', err.response?.data);
+      setError(err.response?.data?.detail || 'Error al guardar precio');
     }
   };
 

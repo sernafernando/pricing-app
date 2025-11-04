@@ -1742,6 +1742,7 @@ async def exportar_web_transferencia(
 @router.get("/exportar-clasica")
 async def exportar_clasica(
     porcentaje_adicional: float = Query(0, description="Porcentaje adicional sobre rebate"),
+    tipo_cuotas: str = Query("clasica", description="Tipo de cuotas: clasica, 3, 6, 9, 12"),
     search: Optional[str] = None,
     con_stock: Optional[bool] = None,
     con_precio: Optional[bool] = None,
@@ -1798,35 +1799,38 @@ async def exportar_clasica(
     wb = Workbook()
     ws = wb.active
     ws.title = "Clasica"
-    
-    # Header
-    ws.append(['Código/EAN', 'Precio Clásica', '3 Cuotas', '6 Cuotas', '9 Cuotas', '12 Cuotas', 'ID Moneda'])
+
+    # Header - Solo 3 columnas
+    ws.append(['Código/EAN', 'Precio', 'ID Moneda'])
 
     # Datos
     for codigo, precio_clasica, participa_rebate, porcentaje_rebate, precio_3, precio_6, precio_9, precio_12 in productos:
-        # Si tiene rebate activo, calcular precio rebate y aplicar % adicional
-        if participa_rebate and porcentaje_rebate:
-            precio_rebate = precio_clasica * (1 + float(porcentaje_rebate) / 100)
-            precio_final = precio_rebate * (1 + porcentaje_adicional / 100)
-            # Redondear a múltiplo de 10
-            precio_final = round(precio_final / 10) * 10
+        # Determinar qué precio usar según tipo_cuotas
+        if tipo_cuotas == "clasica":
+            # Si tiene rebate activo, calcular precio rebate y aplicar % adicional
+            if participa_rebate and porcentaje_rebate:
+                precio_rebate = precio_clasica * (1 + float(porcentaje_rebate) / 100)
+                precio_exportar = precio_rebate * (1 + porcentaje_adicional / 100)
+            else:
+                # Si no tiene rebate, usar precio clásica sin modificar
+                precio_exportar = precio_clasica
+        elif tipo_cuotas == "3":
+            precio_exportar = float(precio_3) if precio_3 else precio_clasica
+        elif tipo_cuotas == "6":
+            precio_exportar = float(precio_6) if precio_6 else precio_clasica
+        elif tipo_cuotas == "9":
+            precio_exportar = float(precio_9) if precio_9 else precio_clasica
+        elif tipo_cuotas == "12":
+            precio_exportar = float(precio_12) if precio_12 else precio_clasica
         else:
-            # Si no tiene rebate, usar precio clásica sin modificar
-            precio_final = round(precio_clasica / 10) * 10
+            precio_exportar = precio_clasica
 
-        # Formatear precios de cuotas (redondear a múltiplo de 10)
-        precio_3_formatted = str(int(round(float(precio_3) / 10) * 10)) if precio_3 else ''
-        precio_6_formatted = str(int(round(float(precio_6) / 10) * 10)) if precio_6 else ''
-        precio_9_formatted = str(int(round(float(precio_9) / 10) * 10)) if precio_9 else ''
-        precio_12_formatted = str(int(round(float(precio_12) / 10) * 10)) if precio_12 else ''
+        # Redondear a múltiplo de 10
+        precio_final = round(precio_exportar / 10) * 10
 
         ws.append([
             str(codigo),
             str(int(precio_final)),
-            precio_3_formatted,
-            precio_6_formatted,
-            precio_9_formatted,
-            precio_12_formatted,
             '1'
         ])
     
