@@ -216,6 +216,7 @@ async def sync_transacciones_mes(db: Session, from_date: str, to_date: str):
             except Exception as e:
                 print(f"   ⚠️  Error procesando transacción {trans_json.get('ct_transaction')}: {str(e)}")
                 transacciones_errores += 1
+                db.rollback()  # IMPORTANTE: rollback después de cada error
                 continue
 
         # Commit final
