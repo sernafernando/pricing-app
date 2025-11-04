@@ -11,6 +11,7 @@ import UltimosCambios from './pages/UltimosCambios';
 import PreciosListas from './pages/PreciosListas';
 import GestionPM from './pages/GestionPM';
 import MLABanlist from './pages/MLABanlist';
+import DashboardVentas from './pages/DashboardVentas';
 import ProtectedRoute from './components/ProtectedRoute';
 import './styles/theme.css';
 
@@ -67,6 +68,11 @@ function App() {
                 <Route path="/mla-banlist" element={
                   <ProtectedRoute>
                     <MLABanlist />
+                  </ProtectedRoute>
+                } />
+                <Route path="/dashboard-ventas" element={
+                  <ProtectedRoute>
+                    <DashboardVentas />
                   </ProtectedRoute>
                 } />
               </Routes>

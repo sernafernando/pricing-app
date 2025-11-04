@@ -64,6 +64,13 @@ export default function Navbar() {
             🚫 Banlist MLAs
           </Link>
 
+          <Link
+            to="/dashboard-ventas"
+            className={`${styles.link} ${isActive('/dashboard-ventas') ? styles.active : ''}`}
+          >
+            📊 Dashboard Ventas
+          </Link>
+
           {puedeVerHistorial && (
           <Link
             to="/ultimos-cambios"
@@ -142,6 +149,14 @@ export default function Navbar() {
             onClick={handleLinkClick}
           >
             🚫 Banlist MLAs
+          </Link>
+
+          <Link
+            to="/dashboard-ventas"
+            className={`${styles.mobileLink} ${isActive('/dashboard-ventas') ? styles.active : ''}`}
+            onClick={handleLinkClick}
+          >
+            📊 Dashboard Ventas
           </Link>
 
           {puedeVerHistorial && (
