@@ -68,6 +68,16 @@ export default function Productos() {
   const [modoNavegacion, setModoNavegacion] = useState(false);
   const [mostrarShortcutsHelp, setMostrarShortcutsHelp] = useState(false);
 
+  // Estados para vista de cuotas
+  const [vistaModoCuotas, setVistaModoCuotas] = useState(false); // false = vista normal, true = vista cuotas
+  const [recalcularCuotasAuto, setRecalcularCuotasAuto] = useState(() => {
+    // Leer del localStorage, por defecto true
+    const saved = localStorage.getItem('recalcularCuotasAuto');
+    return saved === null ? true : saved === 'true';
+  });
+  const [editandoCuota, setEditandoCuota] = useState(null); // {item_id, tipo: '3'|'6'|'9'|'12'}
+  const [cuotaTemp, setCuotaTemp] = useState('');
+
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
 
@@ -123,6 +133,11 @@ export default function Productos() {
       }, 100);
     }
   }, [panelFiltroActivo]);
+
+  // Guardar preferencia de recalcular cuotas en localStorage
+  useEffect(() => {
+    localStorage.setItem('recalcularCuotasAuto', recalcularCuotasAuto);
+  }, [recalcularCuotasAuto]);
 
   const handleOrdenar = (columna, event) => {
     const shiftPressed = event?.shiftKey;
@@ -508,13 +523,26 @@ export default function Productos() {
         { item_id: itemId, precio: precioNormalizado },
         {
           headers: { Authorization: `Bearer ${token}` },
-          params: { item_id: itemId, precio: precioNormalizado }
+          params: {
+            item_id: itemId,
+            precio: precioNormalizado,
+            recalcular_cuotas: recalcularCuotasAuto  // Enviar flag de recalculo
+          }
         }
       );
 
       setProductos(prods => prods.map(p =>
         p.item_id === itemId
-          ? { ...p, precio_lista_ml: precioNormalizado, markup: response.data.markup }
+          ? {
+              ...p,
+              precio_lista_ml: precioNormalizado,
+              markup: response.data.markup,
+              // Actualizar precios de cuotas si vienen en la respuesta
+              precio_3_cuotas: response.data.precio_3_cuotas || p.precio_3_cuotas,
+              precio_6_cuotas: response.data.precio_6_cuotas || p.precio_6_cuotas,
+              precio_9_cuotas: response.data.precio_9_cuotas || p.precio_9_cuotas,
+              precio_12_cuotas: response.data.precio_12_cuotas || p.precio_12_cuotas
+            }
           : p
       ));
 
@@ -1122,6 +1150,56 @@ export default function Productos() {
         </div>
         {/* Botones de Acción */}
         <div className="action-buttons-card">
+          {/* Toggle Vista Cuotas */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '8px 16px',
+            background: vistaModoCuotas ? '#e0f2fe' : '#f3f4f6',
+            borderRadius: '8px',
+            border: vistaModoCuotas ? '2px solid #0284c7' : '2px solid #d1d5db'
+          }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '14px',
+              color: vistaModoCuotas ? '#0369a1' : '#374151'
+            }}>
+              <input
+                type="checkbox"
+                checked={vistaModoCuotas}
+                onChange={(e) => setVistaModoCuotas(e.target.checked)}
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+              />
+              {vistaModoCuotas ? '📊 Vista Cuotas' : '📋 Vista Normal'}
+            </label>
+
+            {vistaModoCuotas && (
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                color: '#6b7280',
+                borderLeft: '1px solid #cbd5e1',
+                paddingLeft: '12px'
+              }}>
+                <input
+                  type="checkbox"
+                  checked={recalcularCuotasAuto}
+                  onChange={(e) => setRecalcularCuotasAuto(e.target.checked)}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                ♻️ Auto-recalcular cuotas
+              </label>
+            )}
+          </div>
+
           <button
             onClick={() => setMostrarExportModal(true)}
             className="btn-action export"

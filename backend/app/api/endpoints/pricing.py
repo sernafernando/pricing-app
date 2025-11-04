@@ -17,6 +17,7 @@ from app.services.pricing_calculator import (
     obtener_tipo_cambio_actual,
     obtener_grupo_subcategoria,
     obtener_comision_base,
+    precio_por_markup_goalseek,
     VARIOS_DEFAULT
 )
 
@@ -185,17 +186,57 @@ async def setear_precio(
     tipo_cambio = None
     if producto.moneda_costo == "USD":
         tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
-    
+
     costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
     grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
     comision_base = obtener_comision_base(db, 4, grupo_id)
-    
+
     markup_calculado = None
     if comision_base:
         comisiones = calcular_comision_ml_total(request.precio_lista_ml, comision_base, producto.iva, VARIOS_DEFAULT)
         limpio = calcular_limpio(request.precio_lista_ml, producto.iva, producto.envio or 0, comisiones["comision_total"])
         markup = calcular_markup(limpio, costo_ars)
         markup_calculado = round(markup * 100, 2)
+
+    # Si no se proporcionaron precios de cuotas, calcularlos automáticamente
+    precios_cuotas_calculados = {
+        'precio_3_cuotas': request.precio_3_cuotas,
+        'precio_6_cuotas': request.precio_6_cuotas,
+        'precio_9_cuotas': request.precio_9_cuotas,
+        'precio_12_cuotas': request.precio_12_cuotas
+    }
+
+    # Si al menos uno es None, calcular todos automáticamente
+    if any(v is None for v in precios_cuotas_calculados.values()):
+        if markup_calculado is not None:
+            # Usar el markup del precio clásica + 4% para calcular cuotas
+            markup_objetivo = markup_calculado / 100  # Convertir de porcentaje a decimal
+            adicional_cuotas = 4.0  # 4% adicional para cuotas
+
+            # IDs de pricelists para cuotas
+            cuotas_config = {
+                'precio_3_cuotas': 17,   # Lista ML PREMIUM 3C
+                'precio_6_cuotas': 14,   # Lista ML PREMIUM 6C
+                'precio_9_cuotas': 13,   # Lista ML PREMIUM 9C
+                'precio_12_cuotas': 23   # Lista ML PREMIUM 12C
+            }
+
+            for nombre_campo, pricelist_id in cuotas_config.items():
+                try:
+                    comision_cuota = obtener_comision_base(db, pricelist_id, grupo_id)
+                    if comision_cuota:
+                        precio_cuota = precio_por_markup_goalseek(
+                            costo=costo_ars,
+                            markup_objetivo=markup_objetivo + (adicional_cuotas / 100),
+                            iva=producto.iva,
+                            comision_ml=comision_cuota,
+                            varios=VARIOS_DEFAULT,
+                            costo_envio=producto.envio or 0
+                        )
+                        precios_cuotas_calculados[nombre_campo] = round(precio_cuota, 2)
+                except:
+                    # Si falla el cálculo, dejar en None
+                    precios_cuotas_calculados[nombre_campo] = None
 
     if pricing:
         if pricing.precio_lista_ml != request.precio_lista_ml:
@@ -226,11 +267,11 @@ async def setear_precio(
         pricing.fecha_modificacion = datetime.now()
         pricing.participa_rebate = request.participa_rebate
         pricing.porcentaje_rebate = request.porcentaje_rebate
-        # Actualizar precios con cuotas
-        pricing.precio_3_cuotas = request.precio_3_cuotas
-        pricing.precio_6_cuotas = request.precio_6_cuotas
-        pricing.precio_9_cuotas = request.precio_9_cuotas
-        pricing.precio_12_cuotas = request.precio_12_cuotas
+        # Actualizar precios con cuotas (usar los calculados si no se proporcionaron)
+        pricing.precio_3_cuotas = precios_cuotas_calculados['precio_3_cuotas']
+        pricing.precio_6_cuotas = precios_cuotas_calculados['precio_6_cuotas']
+        pricing.precio_9_cuotas = precios_cuotas_calculados['precio_9_cuotas']
+        pricing.precio_12_cuotas = precios_cuotas_calculados['precio_12_cuotas']
     else:
         pricing = ProductoPricing(
             item_id=request.item_id,
@@ -240,10 +281,10 @@ async def setear_precio(
             motivo_cambio=request.motivo,
             participa_rebate=request.participa_rebate,
             porcentaje_rebate=request.porcentaje_rebate,
-            precio_3_cuotas=request.precio_3_cuotas,
-            precio_6_cuotas=request.precio_6_cuotas,
-            precio_9_cuotas=request.precio_9_cuotas,
-            precio_12_cuotas=request.precio_12_cuotas
+            precio_3_cuotas=precios_cuotas_calculados['precio_3_cuotas'],
+            precio_6_cuotas=precios_cuotas_calculados['precio_6_cuotas'],
+            precio_9_cuotas=precios_cuotas_calculados['precio_9_cuotas'],
+            precio_12_cuotas=precios_cuotas_calculados['precio_12_cuotas']
         )
         db.add(pricing)
 
@@ -389,10 +430,11 @@ async def calcular_precios_completos(
 async def setear_precio_rapido(
     item_id: int,
     precio: float = Query(gt=0, le=999999999.99),
+    recalcular_cuotas: bool = Query(True, description="Si True, recalcula precios de cuotas automáticamente"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Setea precio clásica y calcula markup al instante"""
+    """Setea precio clásica y calcula markup al instante. Opcionalmente recalcula cuotas."""
     
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
@@ -424,7 +466,37 @@ async def setear_precio_rapido(
     comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, VARIOS_DEFAULT)
     limpio = calcular_limpio(precio, producto.iva, producto.envio or 0, comisiones["comision_total"])
     markup = calcular_markup(limpio, costo_ars)
-    
+
+    # Calcular precios de cuotas si recalcular_cuotas es True
+    precios_cuotas = {'precio_3_cuotas': None, 'precio_6_cuotas': None, 'precio_9_cuotas': None, 'precio_12_cuotas': None}
+
+    if recalcular_cuotas:
+        markup_objetivo = markup  # Ya está en decimal
+        adicional_cuotas = 0.04  # 4% adicional
+
+        cuotas_config = {
+            'precio_3_cuotas': 17,
+            'precio_6_cuotas': 14,
+            'precio_9_cuotas': 13,
+            'precio_12_cuotas': 23
+        }
+
+        for nombre_campo, pricelist_id in cuotas_config.items():
+            try:
+                comision_cuota = obtener_comision_base(db, pricelist_id, grupo_id)
+                if comision_cuota:
+                    precio_cuota = precio_por_markup_goalseek(
+                        costo=costo_ars,
+                        markup_objetivo=markup_objetivo + adicional_cuotas,
+                        iva=producto.iva,
+                        comision_ml=comision_cuota,
+                        varios=VARIOS_DEFAULT,
+                        costo_envio=producto.envio or 0
+                    )
+                    precios_cuotas[nombre_campo] = round(precio_cuota, 2)
+            except:
+                pass
+
     # Guardar precio
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
     
@@ -471,21 +543,40 @@ async def setear_precio_rapido(
         pricing.markup_calculado = round(markup * 100, 2)
         pricing.usuario_id = current_user.id
         pricing.fecha_modificacion = datetime.now()
+        # Actualizar precios de cuotas si se recalcularon
+        if recalcular_cuotas:
+            pricing.precio_3_cuotas = precios_cuotas['precio_3_cuotas']
+            pricing.precio_6_cuotas = precios_cuotas['precio_6_cuotas']
+            pricing.precio_9_cuotas = precios_cuotas['precio_9_cuotas']
+            pricing.precio_12_cuotas = precios_cuotas['precio_12_cuotas']
     else:
         pricing = ProductoPricing(
             item_id=item_id,
             precio_lista_ml=precio,
             usuario_id=current_user.id,
-            motivo_cambio="Edición rápida"
+            motivo_cambio="Edición rápida",
+            precio_3_cuotas=precios_cuotas['precio_3_cuotas'] if recalcular_cuotas else None,
+            precio_6_cuotas=precios_cuotas['precio_6_cuotas'] if recalcular_cuotas else None,
+            precio_9_cuotas=precios_cuotas['precio_9_cuotas'] if recalcular_cuotas else None,
+            precio_12_cuotas=precios_cuotas['precio_12_cuotas'] if recalcular_cuotas else None
         )
         db.add(pricing)
     
     db.commit()
-    
-    return {
+
+    response = {
         "item_id": item_id,
         "precio": precio,
         "markup": round(markup * 100, 2),
         "limpio": round(limpio, 2),
         "costo_ars": round(costo_ars, 2)
     }
+
+    # Agregar precios de cuotas si se recalcularon
+    if recalcular_cuotas:
+        response["precio_3_cuotas"] = precios_cuotas['precio_3_cuotas']
+        response["precio_6_cuotas"] = precios_cuotas['precio_6_cuotas']
+        response["precio_9_cuotas"] = precios_cuotas['precio_9_cuotas']
+        response["precio_12_cuotas"] = precios_cuotas['precio_12_cuotas']
+
+    return response
