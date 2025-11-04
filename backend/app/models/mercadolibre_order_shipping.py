@@ -36,19 +36,19 @@ class MercadoLibreOrderShipping(Base):
     mlshippmentcolectadaytime = Column(DateTime)
 
     # Dirección de entrega
-    mlreceiver_address = Column(String(500))
-    mlstreet_name = Column(String(255))
+    mlreceiver_address = Column(Text)
+    mlstreet_name = Column(String(500))
     mlstreet_number = Column(String(50))
     mlcomment = Column(Text)
     mlzip_code = Column(String(50))
-    mlcity_name = Column(String(255))
-    mlstate_name = Column(String(255))
-    mlcity_id = Column(String(255))
+    mlcity_name = Column(String(500))
+    mlstate_name = Column(String(500))
+    mlcity_id = Column(Text)  # Puede contener direcciones completas
     mlstate_id = Column(String(50))
     mlconuntry_name = Column(String(100))
 
     # Información del receptor
-    mlreceiver_name = Column(String(255))
+    mlreceiver_name = Column(String(500))
     mlreceiver_phone = Column(String(50))
 
     # Costos y fees
@@ -66,7 +66,7 @@ class MercadoLibreOrderShipping(Base):
     mlcross_docking = Column(String(50))
     mlself_service = Column(String(50))
     ml_logistic_type = Column(String(50))
-    ml_tracking_method = Column(String(50))
+    ml_tracking_method = Column(String(255))
     mlturbo = Column(String(50))
 
     # Timestamps
