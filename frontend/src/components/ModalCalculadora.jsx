@@ -59,16 +59,22 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
       ? costo * tipoCambio
       : costo;
 
-    // Calcular comisión total de ML
-    const baseComision = precioFinal * (comisionML / 100);
+    // Calcular precio sin IVA
+    const precioSinIva = precioFinal / (1 + iva / 100);
+
+    // Calcular comisión total de ML (sobre precio sin IVA)
+    const baseComision = precioSinIva * (comisionML / 100);
     const ivaComision = baseComision * (iva / 100);
     const comisionTotal = baseComision + ivaComision;
 
+    // Calcular envío sin IVA (solo si el precio es >= 33000)
+    const envioSinIva = precioFinal >= 33000 ? (costoEnvio / 1.21) : 0;
+
     // Calcular limpio
-    const limpio = precioFinal - (precioFinal * (iva / 100)) - costoEnvio - comisionTotal;
+    const limpio = precioSinIva - envioSinIva - comisionTotal;
 
     // Calcular markup
-    const markup = ((limpio - costoARS) / costoARS) * 100;
+    const markup = ((limpio / costoARS) - 1) * 100;
 
     setResultados({
       costoARS: costoARS.toFixed(2),
