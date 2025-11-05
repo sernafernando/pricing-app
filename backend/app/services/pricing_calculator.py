@@ -265,15 +265,25 @@ def precio_por_markup_goalseek(
     varios: float,
     costo_envio: float
 ) -> float:
-    """Goal seek: dado un markup objetivo, encuentra el precio necesario"""
-    
-    if costo <= 0 or markup_objetivo <= 0:
+    """Goal seek: dado un markup objetivo, encuentra el precio necesario
+
+    Funciona con markups positivos y negativos.
+    """
+
+    if costo <= 0:
         return 0
-    
+
     markup_objetivo_decimal = markup_objetivo / 100
-    
-    precio_min = costo
-    precio_max = costo * 10
+
+    # Para markups negativos, permitir precios más altos
+    # (porque con comisiones altas, incluso precios > costo pueden dar markup negativo)
+    if markup_objetivo < 0:
+        precio_min = costo * 0.5
+        precio_max = costo * 5
+    else:
+        precio_min = costo
+        precio_max = costo * 10
+
     precio = (precio_min + precio_max) / 2
     
     for iteracion in range(50):
