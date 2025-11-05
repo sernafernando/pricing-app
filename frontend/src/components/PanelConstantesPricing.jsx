@@ -137,7 +137,7 @@ export default function PanelConstantesPricing() {
           <h3>Valores Vigentes</h3>
           <div className="constantes-grid">
             <div className="constante-item">
-              <label>Monto Tier 1 (< este monto):</label>
+              <label>Monto Tier 1 (&lt; este monto):</label>
               <span>${constanteActual.monto_tier1?.toLocaleString('es-AR')}</span>
             </div>
             <div className="constante-item">
