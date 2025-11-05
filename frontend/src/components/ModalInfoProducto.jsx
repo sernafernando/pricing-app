@@ -119,39 +119,13 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                     <span className="info-label">IVA:</span>
                     <span className="info-value">{detalle.producto.iva}%</span>
                   </div>
+                  <div className="info-item">
+                    <span className="info-label">Costo Envío:</span>
+                    <span className="info-value">
+                      ${detalle.producto.costo_envio.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
                 </div>
-
-                {Object.keys(detalle.producto.costos_envio).length > 0 && (
-                  <>
-                    <h4 style={{ marginTop: '16px', marginBottom: '8px', color: 'var(--text-primary)' }}>Costos de Envío</h4>
-                    <div className="info-grid">
-                      {detalle.producto.costos_envio.estandar && (
-                        <div className="info-item">
-                          <span className="info-label">Estándar:</span>
-                          <span className="info-value">
-                            ${detalle.producto.costos_envio.estandar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      )}
-                      {detalle.producto.costos_envio.flex && (
-                        <div className="info-item">
-                          <span className="info-label">Flex:</span>
-                          <span className="info-value">
-                            ${detalle.producto.costos_envio.flex.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      )}
-                      {detalle.producto.costos_envio.colecta && (
-                        <div className="info-item">
-                          <span className="info-label">Colecta:</span>
-                          <span className="info-value">
-                            ${detalle.producto.costos_envio.colecta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
               </section>
 
               {/* PRICING - LISTA CLÁSICA */}

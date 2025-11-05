@@ -1713,14 +1713,8 @@ async def obtener_detalle_producto(
     grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
     comision_clasica = obtener_comision_base(db, 1, grupo_id) if grupo_id else None
 
-    # Costos de envío por tipo
-    costos_envio = {}
-    if producto.envio:
-        costos_envio['estandar'] = float(producto.envio)
-    if producto.envio_flex:
-        costos_envio['flex'] = float(producto.envio_flex)
-    if producto.envio_colecta:
-        costos_envio['colecta'] = float(producto.envio_colecta)
+    # Costo de envío
+    costo_envio = float(producto.envio) if producto.envio else 0.0
 
     return {
         "producto": {
@@ -1735,7 +1729,7 @@ async def obtener_detalle_producto(
             "costo": float(producto.costo),
             "costo_ars": float(producto.costo) * tipo_cambio if producto.moneda_costo == "USD" and tipo_cambio else float(producto.costo),
             "iva": float(producto.iva),
-            "costos_envio": costos_envio,
+            "costo_envio": costo_envio,
             "tipo_cambio_usado": tipo_cambio
         },
         "pricing": {
