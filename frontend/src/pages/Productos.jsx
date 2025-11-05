@@ -824,16 +824,40 @@ export default function Productos() {
   // Sistema de navegación por teclado
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Si estamos editando una celda
-      if (editandoPrecio || editandoRebate || editandoWebTransf) {
-        // Interceptar Escape para salir de edición
-        if (e.key === 'Escape') {
-          e.preventDefault();
+      // Permitir ESC siempre para cerrar modales y salir de estados
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // Cerrar modales
+        if (mostrarShortcutsHelp) {
+          setMostrarShortcutsHelp(false);
+          return;
+        }
+        if (mostrarExportModal || mostrarCalcularWebModal || mostrarModalConfig || mostrarModalInfo) {
+          // Los modales manejan su propio cierre, solo retornamos
+          return;
+        }
+        // Si estamos editando, salir de edición
+        if (editandoPrecio || editandoRebate || editandoWebTransf) {
           setEditandoPrecio(null);
           setEditandoRebate(null);
           setEditandoWebTransf(null);
           return;
         }
+        // Salir del modo navegación
+        setModoNavegacion(false);
+        setPanelFiltroActivo(null);
+        setColorDropdownAbierto(null);
+        return;
+      }
+
+      // Bloquear todos los demás shortcuts si hay algún modal abierto
+      const hayModalAbierto = mostrarExportModal || mostrarCalcularWebModal || mostrarModalConfig || mostrarModalInfo;
+      if (hayModalAbierto) {
+        return; // No procesar shortcuts si hay un modal abierto
+      }
+
+      // Si estamos editando una celda
+      if (editandoPrecio || editandoRebate || editandoWebTransf) {
         // Interceptar Tab para evitar que escape del formulario
         if (e.key === 'Tab') {
           e.preventDefault();
@@ -880,17 +904,6 @@ export default function Productos() {
       if (e.key === '?' && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         setMostrarShortcutsHelp(!mostrarShortcutsHelp);
-        return;
-      }
-
-      // Escape: Salir de modo navegación o cerrar paneles
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setCeldaActiva(null);
-        setModoNavegacion(false);
-        setPanelFiltroActivo(null);
-        setColorDropdownAbierto(null);
-        setMostrarShortcutsHelp(false);
         return;
       }
 
@@ -1147,7 +1160,7 @@ export default function Productos() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, mostrarFiltrosAvanzados, vistaModoCuotas, recalcularCuotasAuto]);
+  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, mostrarFiltrosAvanzados, vistaModoCuotas, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarModalConfig, mostrarModalInfo]);
 
   // Scroll automático para seguir la celda activa
   useEffect(() => {
