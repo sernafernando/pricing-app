@@ -25,10 +25,12 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
   const [guardando, setGuardando] = useState(false);
   const [descripcion, setDescripcion] = useState('');
   const [ean, setEan] = useState('');
+  const [constantes, setConstantes] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
       cargarTipoCambio();
+      cargarConstantes();
     }
   }, [isOpen]);
 
@@ -44,6 +46,28 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     }
   };
 
+  const cargarConstantes = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('https://pricing.gaussonline.com.ar/api/configuracion/pricing-constants', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setConstantes(response.data);
+    } catch (error) {
+      console.error('Error cargando constantes:', error);
+      // Usar valores por defecto si falla
+      setConstantes({
+        monto_tier1: 15000,
+        monto_tier2: 24000,
+        monto_tier3: 33000,
+        comision_tier1: 1115,
+        comision_tier2: 2300,
+        comision_tier3: 2810,
+        varios_porcentaje: 6.5
+      });
+    }
+  };
+
   const calcular = () => {
     const costo = parseFloat(formData.costo) || 0;
     const comisionML = parseFloat(formData.comisionML) || 0;
@@ -52,7 +76,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     const iva = parseFloat(formData.iva);
     const tipoCambio = parseFloat(formData.tipoCambio) || 1;
 
-    if (costo === 0 || precioFinal === 0 || comisionML === 0) {
+    if (costo === 0 || precioFinal === 0 || comisionML === 0 || !constantes) {
       return;
     }
 
@@ -67,27 +91,27 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     // Calcular comisión base ML (dividido por 1.21)
     const comisionBase = (precioFinal * (comisionML / 100)) / 1.21;
 
-    // Calcular tier según el monto (valores actualizados Nov 2024)
+    // Calcular tier según el monto (usando valores de la BD)
     let tier = 0;
-    if (precioFinal < 15000) {
-      tier = 1115 / 1.21;
-    } else if (precioFinal < 24000) {
-      tier = 2300 / 1.21;
-    } else if (precioFinal < 33000) {
-      tier = 2810 / 1.21;
+    if (precioFinal < constantes.monto_tier1) {
+      tier = constantes.comision_tier1 / 1.21;
+    } else if (precioFinal < constantes.monto_tier2) {
+      tier = constantes.comision_tier2 / 1.21;
+    } else if (precioFinal < constantes.monto_tier3) {
+      tier = constantes.comision_tier3 / 1.21;
     }
 
-    // Comisión con tier (si el precio >= 33000 no hay tier)
-    const comisionConTier = precioFinal >= 33000 ? comisionBase : comisionBase + tier;
+    // Comisión con tier (si el precio >= MONTOT3 no hay tier)
+    const comisionConTier = precioFinal >= constantes.monto_tier3 ? comisionBase : comisionBase + tier;
 
-    // Calcular varios (6.5% sobre precio sin IVA)
-    const comisionVarios = precioSinIva * 0.065;
+    // Calcular varios (usando porcentaje de la BD sobre precio sin IVA)
+    const comisionVarios = precioSinIva * (constantes.varios_porcentaje / 100);
 
     // Comisión total
     const comisionTotal = comisionConTier + comisionVarios;
 
-    // Calcular envío sin IVA (solo si el precio es >= 33000)
-    const envioSinIva = precioFinal >= 33000 ? (costoEnvio / 1.21) : 0;
+    // Calcular envío sin IVA (solo si el precio es >= MONTOT3)
+    const envioSinIva = precioFinal >= constantes.monto_tier3 ? (costoEnvio / 1.21) : 0;
 
     // Calcular limpio
     const limpio = precioSinIva - envioSinIva - comisionTotal;
