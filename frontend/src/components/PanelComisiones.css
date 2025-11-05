@@ -222,21 +222,29 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  box-sizing: border-box;
 }
 
 .adicional-item label {
   font-weight: 500;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .adicional-item input {
   flex: 1;
+  min-width: 0;
   padding: 8px;
   border: 1px solid var(--border-primary);
   border-radius: 4px;
   background: var(--bg-primary);
   color: var(--text-primary);
   text-align: right;
+  box-sizing: border-box;
+}
+
+.adicional-item span {
+  flex-shrink: 0;
 }
 
 .tabla-edicion-wrapper {
