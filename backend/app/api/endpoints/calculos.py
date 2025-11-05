@@ -16,8 +16,8 @@ class CalculoRequest(BaseModel):
     descripcion: str = Field(..., min_length=1, max_length=500)
     ean: Optional[str] = Field(None, max_length=50)
     costo: float = Field(..., gt=0)
-    moneda_costo: str = Field(..., regex="^(ARS|USD)$")
-    iva: float = Field(..., regex="^(10.5|21|10.50)$")
+    moneda_costo: str = Field(..., pattern="^(ARS|USD)$")
+    iva: float
     comision_ml: float = Field(..., ge=0, le=100)
     costo_envio: float = Field(default=0, ge=0)
     precio_final: float = Field(..., gt=0)
