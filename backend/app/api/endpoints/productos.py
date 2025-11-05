@@ -395,7 +395,8 @@ async def listar_productos(
                         producto_erp.iva,
                         producto_erp.envio or 0,
                         comisiones["comision_total"],
-                        db=db
+                        db=db,
+                        grupo_id=grupo_id
                     )
                     mejor_oferta_markup = calcular_markup(limpio, costo_calc)
 
@@ -428,7 +429,8 @@ async def listar_productos(
                     producto_erp.iva,
                     producto_erp.envio or 0,
                     comisiones_rebate["comision_total"],
-                    db=db
+                    db=db,
+                    grupo_id=grupo_id_rebate
                 )
                 markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
 
@@ -480,7 +482,8 @@ async def listar_productos(
                                 producto_erp.iva,
                                 producto_erp.envio or 0,
                                 comisiones_cuota["comision_total"],
-                                db=db
+                                db=db,
+                                grupo_id=grupo_id_cuota
                             )
                             markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
 
@@ -885,7 +888,9 @@ async def obtener_ofertas_vigentes(item_id: int, db: Session = Depends(get_db)):
                     oferta.pvp_seller,
                     producto.iva,
                     producto.envio or 0,
-                    comisiones["comision_total"]
+                    comisiones["comision_total"],
+                    db=db,
+                    grupo_id=grupo_id
                 )
                 markup_oferta = round(calcular_markup(limpio, costo_ars) * 100, 2)
         

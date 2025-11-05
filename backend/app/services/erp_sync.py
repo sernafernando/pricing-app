@@ -188,7 +188,7 @@ async def sincronizar_erp(db: Session) -> Dict:
                             markup_calculado = None
                             if comision_base:
                                 comisiones = calcular_comision_ml_total(precio_publicado, comision_base, iva, VARIOS_DEFAULT)
-                                limpio = calcular_limpio(precio_publicado, iva, envio or 0, comisiones["comision_total"])
+                                limpio = calcular_limpio(precio_publicado, iva, envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
                                 markup = calcular_markup(limpio, costo_ars)
                                 markup_calculado = round(markup * 100, 2)
                     

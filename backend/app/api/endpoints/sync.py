@@ -127,7 +127,8 @@ async def recalcular_markups_endpoint(db: Session = Depends(get_db)):
                     producto.iva,
                     producto.envio or 0,
                     comisiones["comision_total"],
-                    db=db
+                    db=db,
+                    grupo_id=grupo_id
                 )
                 markup = calcular_markup(limpio, costo_ars)
                 

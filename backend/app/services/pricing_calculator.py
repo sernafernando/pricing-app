@@ -87,6 +87,38 @@ def obtener_grupo_subcategoria(db: Session, subcategoria_id: int) -> int:
     ).first()
     return mapping.grupo_id if mapping else GRUPO_DEFAULT
 
+def obtener_envio_promedio_grupo(db: Session, grupo_id: int) -> float:
+    """Obtiene el costo de envío promedio para productos activos de un grupo
+
+    Args:
+        db: Sesión de base de datos
+        grupo_id: ID del grupo de comisión
+
+    Returns:
+        Costo de envío promedio del grupo, o 0 si no hay datos
+    """
+    from app.models.producto import ProductoERP
+    from sqlalchemy import func
+
+    # Obtener subcategorías del grupo
+    subcategorias = db.query(SubcategoriaGrupo.subcat_id).filter(
+        SubcategoriaGrupo.grupo_id == grupo_id
+    ).all()
+
+    if not subcategorias:
+        return 0.0
+
+    subcat_ids = [s[0] for s in subcategorias]
+
+    # Calcular promedio de envío para productos activos con envío > 0
+    resultado = db.query(func.avg(ProductoERP.envio)).filter(
+        ProductoERP.subcategoria_id.in_(subcat_ids),
+        ProductoERP.activo == True,
+        ProductoERP.envio > 0
+    ).scalar()
+
+    return float(resultado) if resultado else 0.0
+
 def obtener_comision_versionada(db: Session, grupo_id: int, pricelist_id: int, fecha: Optional[date] = None) -> Optional[float]:
     """
     Obtiene la comisión para un grupo y pricelist en una fecha específica.
@@ -238,9 +270,23 @@ def calcular_limpio(
     costo_envio: float,
     comision_total: float,
     db: Optional[Session] = None,
-    constantes: Optional[Dict] = None
+    constantes: Optional[Dict] = None,
+    grupo_id: Optional[int] = None
 ) -> float:
-    """Calcula limpio"""
+    """Calcula limpio
+
+    Args:
+        precio: Precio de venta
+        iva: IVA en porcentaje (ej: 21)
+        costo_envio: Costo de envío del producto
+        comision_total: Comisión total calculada
+        db: Sesión de base de datos (opcional)
+        constantes: Constantes de pricing (opcional)
+        grupo_id: ID del grupo para obtener envío promedio si costo_envio = 0 (opcional)
+
+    Returns:
+        Limpio (ganancia neta antes de markup)
+    """
     # Obtener constantes de pricing (de BD si está disponible)
     if constantes is None and db is not None:
         constantes = obtener_constantes_pricing(db)
@@ -248,7 +294,18 @@ def calcular_limpio(
     MONTOT3_val = constantes["monto_tier3"] if constantes else MONTOT3
 
     precio_sin_iva = precio / (1 + iva / 100)
-    envio_sin_iva = (costo_envio / 1.21) if precio >= MONTOT3_val else 0
+
+    # Si el precio >= MONTOT3 (envío gratis), restar el costo de envío
+    if precio >= MONTOT3_val:
+        # Si el producto no tiene costo de envío asignado pero tenemos grupo_id,
+        # usar el envío promedio del grupo
+        if costo_envio == 0 and grupo_id is not None and db is not None:
+            costo_envio = obtener_envio_promedio_grupo(db, grupo_id)
+
+        envio_sin_iva = costo_envio / 1.21
+    else:
+        envio_sin_iva = 0
+
     return precio_sin_iva - envio_sin_iva - comision_total
 
 def calcular_markup(limpio: float, costo: float) -> float:
@@ -263,7 +320,9 @@ def precio_por_markup_goalseek(
     iva: float,
     comision_ml: float,
     varios: float,
-    costo_envio: float
+    costo_envio: float,
+    db: Optional[Session] = None,
+    grupo_id: Optional[int] = None
 ) -> float:
     """Goal seek: dado un markup objetivo, encuentra el precio necesario
 
@@ -285,10 +344,10 @@ def precio_por_markup_goalseek(
         precio_max = costo * 10
 
     precio = (precio_min + precio_max) / 2
-    
+
     for iteracion in range(50):
         comisiones = calcular_comision_ml_total(precio, comision_ml, iva, varios)
-        limpio = calcular_limpio(precio, iva, costo_envio, comisiones["comision_total"])
+        limpio = calcular_limpio(precio, iva, costo_envio, comisiones["comision_total"], db=db, grupo_id=grupo_id)
         markup_actual = calcular_markup(limpio, costo)
         
         diferencia = markup_objetivo_decimal - markup_actual
@@ -344,11 +403,13 @@ def calcular_precio_producto(
         iva=iva,
         comision_ml=comision_base,
         varios=VARIOS_DEFAULT,
-        costo_envio=envio
+        costo_envio=envio,
+        db=db,
+        grupo_id=grupo_id
     )
 
     comisiones = calcular_comision_ml_total(precio, comision_base, iva, VARIOS_DEFAULT)
-    limpio = calcular_limpio(precio, iva, envio, comisiones["comision_total"])
+    limpio = calcular_limpio(precio, iva, envio, comisiones["comision_total"], db=db, grupo_id=grupo_id)
     markup_real = calcular_markup(limpio, costo_ars)
 
     return {
