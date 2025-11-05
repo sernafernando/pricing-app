@@ -1,7 +1,9 @@
 from typing import Dict, Optional, Tuple
 from app.models.tipo_cambio import TipoCambio
 from app.models.comision_config import SubcategoriaGrupo, ComisionListaGrupo
+from app.models.comision_versionada import ComisionVersion, ComisionBase, ComisionAdicionalCuota
 from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_
 from datetime import date
 import math
 
@@ -46,13 +48,98 @@ def obtener_grupo_subcategoria(db: Session, subcategoria_id: int) -> int:
     ).first()
     return mapping.grupo_id if mapping else GRUPO_DEFAULT
 
-def obtener_comision_base(db: Session, pricelist_id: int, grupo_id: int) -> Optional[float]:
-    """Obtiene la comisión base para una lista y grupo específicos"""
+def obtener_comision_versionada(db: Session, grupo_id: int, pricelist_id: int, fecha: Optional[date] = None) -> Optional[float]:
+    """
+    Obtiene la comisión para un grupo y pricelist en una fecha específica.
+    Usa el sistema versionado de comisiones.
+
+    Args:
+        db: Sesión de base de datos
+        grupo_id: ID del grupo de comisión
+        pricelist_id: ID de la lista de precios (4=clasica, 17=3c, 14=6c, 13=9c, 23=12c)
+        fecha: Fecha para la cual obtener comisión (por defecto hoy)
+
+    Returns:
+        Comisión en porcentaje (ej: 15.5 para 15.5%) o None si no se encuentra
+    """
+    if fecha is None:
+        fecha = date.today()
+
+    # Obtener versión vigente para la fecha
+    version = db.query(ComisionVersion).filter(
+        and_(
+            ComisionVersion.fecha_desde <= fecha,
+            or_(
+                ComisionVersion.fecha_hasta.is_(None),
+                ComisionVersion.fecha_hasta >= fecha
+            ),
+            ComisionVersion.activo == True
+        )
+    ).first()
+
+    if not version:
+        # Fallback al sistema antiguo si no hay versión
+        return obtener_comision_base_legacy(db, pricelist_id, grupo_id)
+
+    # Obtener comisión base para este grupo
+    comision_base_obj = db.query(ComisionBase).filter(
+        and_(
+            ComisionBase.version_id == version.id,
+            ComisionBase.grupo_id == grupo_id
+        )
+    ).first()
+
+    if not comision_base_obj:
+        return None
+
+    comision_base = float(comision_base_obj.comision_base)
+
+    # Si es lista 4 (clásica), retornar solo la base
+    if pricelist_id == 4:
+        return comision_base
+
+    # Mapeo de pricelist_id a cantidad de cuotas
+    pricelist_to_cuotas = {
+        17: 3,   # ML PREMIUM 3C
+        14: 6,   # ML PREMIUM 6C
+        13: 9,   # ML PREMIUM 9C
+        23: 12   # ML PREMIUM 12C
+    }
+
+    cuotas = pricelist_to_cuotas.get(pricelist_id)
+    if cuotas is None:
+        # Si no es una lista de cuotas conocida, retornar la base
+        return comision_base
+
+    # Obtener adicional para estas cuotas
+    adicional_obj = db.query(ComisionAdicionalCuota).filter(
+        and_(
+            ComisionAdicionalCuota.version_id == version.id,
+            ComisionAdicionalCuota.cuotas == cuotas
+        )
+    ).first()
+
+    if not adicional_obj:
+        return comision_base
+
+    adicional = float(adicional_obj.adicional)
+    return comision_base + adicional
+
+def obtener_comision_base_legacy(db: Session, pricelist_id: int, grupo_id: int) -> Optional[float]:
+    """Función legacy para obtener comisiones del sistema antiguo (fallback)"""
     comision = db.query(ComisionListaGrupo).filter(
         ComisionListaGrupo.pricelist_id == pricelist_id,
-        ComisionListaGrupo.grupo_id == grupo_id
+        ComisionListaGrupo.grupo_id == grupo_id,
+        ComisionListaGrupo.activo == True
     ).first()
-    return comision.comision_porcentaje if comision else None
+    return float(comision.comision_porcentaje) if comision else None
+
+def obtener_comision_base(db: Session, pricelist_id: int, grupo_id: int, fecha: Optional[date] = None) -> Optional[float]:
+    """
+    Obtiene la comisión base para una lista y grupo específicos.
+    Ahora usa el sistema versionado con fallback al legacy.
+    """
+    return obtener_comision_versionada(db, grupo_id, pricelist_id, fecha)
 
 def calcular_comision_ml_total(
     precio: float,

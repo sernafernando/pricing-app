@@ -1,0 +1,346 @@
+.panel-comisiones {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.panel-header h2 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.btn-primary {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  padding: 10px 20px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
+}
+
+.version-actual {
+  background: var(--bg-secondary);
+  border: 2px solid #667eea;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.version-actual h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  color: #667eea;
+}
+
+.version-info {
+  display: flex;
+  gap: 16px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.tabla-comisiones-wrapper {
+  background: var(--bg-primary);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.tabla-comisiones-wrapper h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+}
+
+.tabla-comisiones {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tabla-comisiones th,
+.tabla-comisiones td {
+  padding: 12px;
+  text-align: right;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.tabla-comisiones th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.tabla-comisiones .grupo-cell {
+  text-align: left;
+  font-weight: 500;
+}
+
+.tabla-comisiones tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-comisiones {
+  background: var(--bg-primary);
+  border-radius: 16px;
+  width: 90%;
+  max-width: 1200px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.form-group input[type="text"],
+.form-group input[type="date"],
+.form-group textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.form-group textarea {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.adicionales-section {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.adicionales-section h4 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+}
+
+.adicionales-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+}
+
+.adicional-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.adicional-item label {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.adicional-item input {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.tabla-edicion-wrapper {
+  margin-top: 24px;
+}
+
+.tabla-edicion-wrapper h4 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+}
+
+.tabla-edicion {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tabla-edicion th,
+.tabla-edicion td {
+  padding: 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.tabla-edicion th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.tabla-edicion .input-comision {
+  width: 80px;
+  padding: 6px;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  text-align: right;
+  margin-right: 4px;
+}
+
+.tabla-edicion .calc-cell {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 20px 24px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.historial-versiones {
+  background: var(--bg-primary);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.historial-versiones h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+}
+
+.versiones-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.version-item {
+  padding: 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  transition: all 0.2s;
+}
+
+.version-item.activa {
+  border-color: #667eea;
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.version-item:hover {
+  transform: translateX(4px);
+}
+
+.version-nombre {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.version-fechas {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.version-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-style: italic;
+}

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './Admin.module.css';
+import PanelComisiones from '../components/PanelComisiones';
 
 export default function Admin() {
+  const [tabActiva, setTabActiva] = useState('general');
   const [sincronizando, setSincronizando] = useState(false);
   const [logSync, setLogSync] = useState([]);
   const [comisiones, setComisiones] = useState([]);
@@ -253,6 +255,24 @@ export default function Admin() {
     <div className={styles.container}>
       <h1 className={styles.title}>Panel de Administración</h1>
 
+      {/* Tabs */}
+      <div className={styles.tabs}>
+        <button
+          className={`${styles.tab} ${tabActiva === 'general' ? styles.tabActive : ''}`}
+          onClick={() => setTabActiva('general')}
+        >
+          General
+        </button>
+        <button
+          className={`${styles.tab} ${tabActiva === 'comisiones' ? styles.tabActive : ''}`}
+          onClick={() => setTabActiva('comisiones')}
+        >
+          Comisiones
+        </button>
+      </div>
+
+      {tabActiva === 'general' && (
+        <>
       {/* Sección Sincronización */}
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Sincronización de Datos</h2>
@@ -703,6 +723,12 @@ export default function Admin() {
           </tbody>
         </table>
       </div>
+      </>
+      )}
+
+      {tabActiva === 'comisiones' && (
+        <PanelComisiones />
+      )}
     </div>
   );
 }
