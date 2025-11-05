@@ -30,3 +30,7 @@ CREATE INDEX idx_calculos_usuario ON calculos_pricing(usuario_id);
 CREATE INDEX idx_calculos_fecha ON calculos_pricing(fecha_creacion DESC);
 
 COMMENT ON TABLE calculos_pricing IS 'Cálculos de pricing guardados por los usuarios';
+
+-- Permisos
+GRANT ALL PRIVILEGES ON TABLE calculos_pricing TO pricing_user;
+GRANT USAGE, SELECT ON SEQUENCE calculos_pricing_id_seq TO pricing_user;
