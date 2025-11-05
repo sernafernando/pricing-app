@@ -48,6 +48,10 @@ class ProductoResponse(BaseModel):
     mejor_oferta_fecha_hasta: Optional[date] = None
     out_of_cards: Optional[bool] = False
     color_marcado: Optional[str] = None
+    precio_3_cuotas: Optional[float] = None
+    precio_6_cuotas: Optional[float] = None
+    precio_9_cuotas: Optional[float] = None
+    precio_12_cuotas: Optional[float] = None
 
     class Config:
         from_attributes = True
