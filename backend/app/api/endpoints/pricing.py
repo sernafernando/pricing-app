@@ -515,34 +515,65 @@ async def setear_precio_rapido(
         markup_adicional = obtener_markup_adicional_cuotas(db)
         print(f"DEBUG: markup_adicional = {markup_adicional}")
 
+        # Si el markup es negativo, usar cálculo proporcional en lugar de goalseek
+        usar_calculo_proporcional = markup_porcentaje < 0
+        print(f"DEBUG: usar_calculo_proporcional = {usar_calculo_proporcional}")
+
         for nombre_campo, pricelist_id in cuotas_config.items():
             print(f"DEBUG: Calculando {nombre_campo} con pricelist_id={pricelist_id}")
             try:
-                # Usar calcular_precio_producto con adicional_markup desde configuración
-                resultado = calcular_precio_producto(
-                    db=db,
-                    costo=producto.costo,
-                    moneda_costo=producto.moneda_costo,
-                    iva=producto.iva,
-                    envio=producto.envio or 0,
-                    subcategoria_id=producto.subcategoria_id,
-                    pricelist_id=pricelist_id,
-                    markup_objetivo=markup_porcentaje,
-                    tipo_cambio=tipo_cambio,
-                    adicional_markup=markup_adicional
-                )
+                if usar_calculo_proporcional:
+                    # Para markups muy negativos, calcular proporcionalmente
+                    # Basado en la diferencia de comisiones entre clásica y cuotas
+                    grupo_id_calc = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+                    comision_clasica = obtener_comision_base(db, 4, grupo_id_calc)  # Lista clásica
+                    comision_cuota = obtener_comision_base(db, pricelist_id, grupo_id_calc)
 
-                print(f"DEBUG: resultado para {nombre_campo} = {resultado}")
-                if "error" not in resultado:
-                    precio_calculado = round(resultado["precio"], 2)
-                    # Solo guardar si el precio es válido (mayor a 0), el markup puede ser negativo
-                    if precio_calculado > 0:
-                        precios_cuotas[nombre_campo] = precio_calculado
-                        print(f"DEBUG: Precio calculado para {nombre_campo}: {precios_cuotas[nombre_campo]}")
+                    if comision_clasica and comision_cuota:
+                        # Calcular factor de ajuste basado en diferencia de comisiones
+                        # A mayor comisión en cuotas, mayor debe ser el precio
+                        diferencia_comision = comision_cuota - comision_clasica
+                        # Factor aproximado: por cada 1% de diferencia en comisión, subir ~1.5% el precio
+                        factor_ajuste = 1 + (diferencia_comision / 100) * 1.5
+                        precio_calculado = round(precio * factor_ajuste)
+
+                        print(f"DEBUG: Cálculo proporcional para {nombre_campo}")
+                        print(f"  comision_clasica={comision_clasica}%, comision_cuota={comision_cuota}%")
+                        print(f"  diferencia={diferencia_comision}%, factor={factor_ajuste}")
+                        print(f"  precio_base={precio}, precio_calculado={precio_calculado}")
+
+                        if precio_calculado > 0:
+                            precios_cuotas[nombre_campo] = precio_calculado
+                        else:
+                            print(f"DEBUG: Precio proporcional <= 0, no se guardará")
                     else:
-                        print(f"DEBUG: Precio inválido para {nombre_campo}: {precio_calculado} (<=0) - no se guardará")
+                        print(f"DEBUG: No se pudo obtener comisiones para cálculo proporcional")
                 else:
-                    print(f"DEBUG: Error en resultado para {nombre_campo}: {resultado['error']}")
+                    # Usar calcular_precio_producto con adicional_markup desde configuración
+                    resultado = calcular_precio_producto(
+                        db=db,
+                        costo=producto.costo,
+                        moneda_costo=producto.moneda_costo,
+                        iva=producto.iva,
+                        envio=producto.envio or 0,
+                        subcategoria_id=producto.subcategoria_id,
+                        pricelist_id=pricelist_id,
+                        markup_objetivo=markup_porcentaje,
+                        tipo_cambio=tipo_cambio,
+                        adicional_markup=markup_adicional
+                    )
+
+                    print(f"DEBUG: resultado para {nombre_campo} = {resultado}")
+                    if "error" not in resultado:
+                        precio_calculado = round(resultado["precio"], 2)
+                        # Solo guardar si el precio es válido (mayor a 0), el markup puede ser negativo
+                        if precio_calculado > 0:
+                            precios_cuotas[nombre_campo] = precio_calculado
+                            print(f"DEBUG: Precio calculado para {nombre_campo}: {precios_cuotas[nombre_campo]}")
+                        else:
+                            print(f"DEBUG: Precio inválido para {nombre_campo}: {precio_calculado} (<=0) - no se guardará")
+                    else:
+                        print(f"DEBUG: Error en resultado para {nombre_campo}: {resultado['error']}")
             except Exception as e:
                 print(f"Error calculando {nombre_campo}: {str(e)}")
                 import traceback

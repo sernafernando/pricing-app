@@ -253,8 +253,6 @@ def calcular_precio_producto(
     
     markup_total = markup_objetivo + adicional_markup
 
-
-
     precio = precio_por_markup_goalseek(
         costo=costo_ars,
         markup_objetivo=markup_total,
