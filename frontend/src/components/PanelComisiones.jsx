@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './PanelComisiones.css';
+import { useModalClickOutside } from '../hooks/useModalClickOutside';
 
 export default function PanelComisiones() {
+  const modalNuevaVersion = useModalClickOutside(() => setMostrarFormNuevaVersion(false));
+  const modalDetalleVersion = useModalClickOutside(() => setMostrarDetalleVersion(false));
   const [versionActual, setVersionActual] = useState(null);
   const [comisionesCalculadas, setComisionesCalculadas] = useState([]);
   const [versiones, setVersiones] = useState([]);
@@ -295,7 +298,12 @@ export default function PanelComisiones() {
       )}
 
       {mostrarFormNuevaVersion && (
-        <div className="modal-overlay" onClick={() => setMostrarFormNuevaVersion(false)}>
+        <div
+          ref={modalNuevaVersion.overlayRef}
+          className="modal-overlay"
+          onMouseDown={modalNuevaVersion.handleOverlayMouseDown}
+          onClick={modalNuevaVersion.handleOverlayClick}
+        >
           <div className="modal-comisiones" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{versionSeleccionada && versionSeleccionada.activo ? 'Editar Versión de Comisiones' : 'Nueva Versión de Comisiones'}</h2>
@@ -424,7 +432,12 @@ export default function PanelComisiones() {
 
       {/* Modal para ver detalle de versión histórica */}
       {mostrarDetalleVersion && versionSeleccionada && (
-        <div className="modal-overlay" onClick={() => setMostrarDetalleVersion(false)}>
+        <div
+          ref={modalDetalleVersion.overlayRef}
+          className="modal-overlay"
+          onMouseDown={modalDetalleVersion.handleOverlayMouseDown}
+          onClick={modalDetalleVersion.handleOverlayClick}
+        >
           <div className="modal-comisiones" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{versionSeleccionada.nombre}</h2>

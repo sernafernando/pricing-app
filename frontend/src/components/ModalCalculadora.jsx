@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import '../styles/ModalCalculadora.css';
+import { useModalClickOutside } from '../hooks/useModalClickOutside';
 
 const ModalCalculadora = ({ isOpen, onClose }) => {
+  const { overlayRef, handleOverlayMouseDown, handleOverlayClick } = useModalClickOutside(onClose);
   const [formData, setFormData] = useState({
     costo: '',
     monedaCosto: 'USD',
@@ -182,7 +184,13 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
                       '#ef4444';
 
   return (
-    <div className="modal-overlay" onClick={onClose} onKeyDown={handleKeyDown}>
+    <div
+      ref={overlayRef}
+      className="modal-overlay"
+      onMouseDown={handleOverlayMouseDown}
+      onClick={handleOverlayClick}
+      onKeyDown={handleKeyDown}
+    >
       <div className="modal-calculadora" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Calculadora de Pricing</h2>

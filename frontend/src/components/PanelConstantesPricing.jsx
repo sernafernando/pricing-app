@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './PanelConstantesPricing.css';
+import { useModalClickOutside } from '../hooks/useModalClickOutside';
 
 export default function PanelConstantesPricing() {
+  const modalNuevaVersion = useModalClickOutside(() => setMostrarFormNuevaVersion(false));
   const [constanteActual, setConstanteActual] = useState(null);
   const [versiones, setVersiones] = useState([]);
   const [mostrarFormNuevaVersion, setMostrarFormNuevaVersion] = useState(false);
@@ -191,7 +193,12 @@ export default function PanelConstantesPricing() {
 
       {/* Formulario Nueva Versión */}
       {mostrarFormNuevaVersion && (
-        <div className="modal-overlay" onClick={() => setMostrarFormNuevaVersion(false)}>
+        <div
+          ref={modalNuevaVersion.overlayRef}
+          className="modal-overlay"
+          onMouseDown={modalNuevaVersion.handleOverlayMouseDown}
+          onClick={modalNuevaVersion.handleOverlayClick}
+        >
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h3>Nueva Versión de Constantes</h3>
 
