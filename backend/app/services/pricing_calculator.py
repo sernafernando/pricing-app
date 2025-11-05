@@ -2,12 +2,13 @@ from typing import Dict, Optional, Tuple
 from app.models.tipo_cambio import TipoCambio
 from app.models.comision_config import SubcategoriaGrupo, ComisionListaGrupo
 from app.models.comision_versionada import ComisionVersion, ComisionBase, ComisionAdicionalCuota
+from app.models.pricing_constants import PricingConstants
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from datetime import date
 import math
 
-# Constantes de tiers de ML
+# Constantes de tiers de ML (valores por defecto si no hay en BD)
 MONTOT1 = 15000
 MONTOT2 = 24000
 MONTOT3 = 33000
@@ -16,6 +17,44 @@ TIER2 = 2190
 TIER3 = 2628
 VARIOS_DEFAULT = 6.5
 GRUPO_DEFAULT = 1  # Grupo por defecto si la subcategoría no está asignada
+
+def obtener_constantes_pricing(db: Session) -> Dict[str, float]:
+    """Obtiene las constantes de pricing vigentes desde la base de datos"""
+    constants = db.query(PricingConstants).filter(
+        and_(
+            PricingConstants.fecha_desde <= date.today(),
+            or_(
+                PricingConstants.fecha_hasta.is_(None),
+                PricingConstants.fecha_hasta >= date.today()
+            )
+        )
+    ).first()
+
+    if constants:
+        return {
+            "monto_tier1": float(constants.monto_tier1),
+            "monto_tier2": float(constants.monto_tier2),
+            "monto_tier3": float(constants.monto_tier3),
+            "tier1": float(constants.comision_tier1),
+            "tier2": float(constants.comision_tier2),
+            "tier3": float(constants.comision_tier3),
+            "varios": float(constants.varios_porcentaje),
+            "grupo_default": constants.grupo_comision_default,
+            "markup_adicional_cuotas": float(constants.markup_adicional_cuotas)
+        }
+
+    # Valores por defecto si no hay constantes en BD
+    return {
+        "monto_tier1": MONTOT1,
+        "monto_tier2": MONTOT2,
+        "monto_tier3": MONTOT3,
+        "tier1": TIER1,
+        "tier2": TIER2,
+        "tier3": TIER3,
+        "varios": VARIOS_DEFAULT,
+        "grupo_default": GRUPO_DEFAULT,
+        "markup_adicional_cuotas": 4.0
+    }
 
 def obtener_tipo_cambio_actual(db: Session, moneda: str = "USD") -> Optional[float]:
     """Obtiene el tipo de cambio de venta actual"""

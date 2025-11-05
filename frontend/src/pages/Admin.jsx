@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './Admin.module.css';
 import PanelComisiones from '../components/PanelComisiones';
+import PanelConstantesPricing from '../components/PanelConstantesPricing';
 
 export default function Admin() {
   const [tabActiva, setTabActiva] = useState('general');
@@ -268,6 +269,12 @@ export default function Admin() {
           onClick={() => setTabActiva('comisiones')}
         >
           Comisiones
+        </button>
+        <button
+          className={`${styles.tab} ${tabActiva === 'constantes' ? styles.tabActive : ''}`}
+          onClick={() => setTabActiva('constantes')}
+        >
+          Constantes Pricing
         </button>
       </div>
 
@@ -717,6 +724,10 @@ export default function Admin() {
 
       {tabActiva === 'comisiones' && (
         <PanelComisiones />
+      )}
+
+      {tabActiva === 'constantes' && (
+        <PanelConstantesPricing />
       )}
     </div>
   );
