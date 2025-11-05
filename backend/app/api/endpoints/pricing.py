@@ -464,8 +464,6 @@ async def setear_precio_rapido(
 ):
     """Setea precio clásica y calcula markup al instante. Opcionalmente recalcula cuotas."""
 
-    print(f"set-rapido llamado: item_id={item_id}, precio={precio}, recalcular_cuotas={recalcular_cuotas}")
-
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
         raise HTTPException(404, "Producto no encontrado")
@@ -535,13 +533,9 @@ async def setear_precio_rapido(
                     # Solo guardar si el precio es válido (mayor a 0), el markup puede ser negativo
                     if precio_calculado > 0:
                         precios_cuotas[nombre_campo] = precio_calculado
-                else:
-                    print(f"Error calculando {nombre_campo}: {resultado.get('error')}")
             except Exception as e:
                 # Si falla el cálculo, continuar con el siguiente
-                print(f"Excepción calculando {nombre_campo}: {str(e)}")
-                import traceback
-                traceback.print_exc()
+                pass
 
     # Guardar precio
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
@@ -591,12 +585,10 @@ async def setear_precio_rapido(
         pricing.fecha_modificacion = datetime.now()
         # Actualizar precios de cuotas si se recalcularon
         if recalcular_cuotas:
-            print(f"Guardando cuotas para item {item_id}: {precios_cuotas}")
             pricing.precio_3_cuotas = precios_cuotas['precio_3_cuotas']
             pricing.precio_6_cuotas = precios_cuotas['precio_6_cuotas']
             pricing.precio_9_cuotas = precios_cuotas['precio_9_cuotas']
             pricing.precio_12_cuotas = precios_cuotas['precio_12_cuotas']
-            print(f"DESPUÉS de asignar - cuotas en objeto: 3c={pricing.precio_3_cuotas}, 6c={pricing.precio_6_cuotas}, 9c={pricing.precio_9_cuotas}, 12c={pricing.precio_12_cuotas}")
     else:
         pricing = ProductoPricing(
             item_id=item_id,
@@ -625,11 +617,8 @@ async def setear_precio_rapido(
         pricing.precio_web_transferencia = resultado_web["precio"]
         pricing.markup_web_real = resultado_web["markup_real"]
 
-    print(f"Antes de commit - cuotas en objeto: 3c={pricing.precio_3_cuotas}, 6c={pricing.precio_6_cuotas}, 9c={pricing.precio_9_cuotas}, 12c={pricing.precio_12_cuotas}")
     db.commit()
-    print(f"Después de commit")
     db.refresh(pricing)
-    print(f"Después de refresh - cuotas en objeto: 3c={pricing.precio_3_cuotas}, 6c={pricing.precio_6_cuotas}, 9c={pricing.precio_9_cuotas}, 12c={pricing.precio_12_cuotas}")
 
     # Calcular precio rebate si está activo (solo para respuesta, no se guarda)
     precio_rebate = None
