@@ -33,3 +33,4 @@ class Usuario(Base):
     # Relaciones
     precios_modificados = relationship("ProductoPricing", back_populates="usuario")
     auditorias = relationship("Auditoria", back_populates="usuario")
+    calculos_pricing = relationship("CalculoPricing", back_populates="usuario")

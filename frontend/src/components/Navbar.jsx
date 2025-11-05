@@ -71,6 +71,13 @@ export default function Navbar() {
             📊 Dashboard Ventas
           </Link>
 
+          <Link
+            to="/calculos"
+            className={`${styles.link} ${isActive('/calculos') ? styles.active : ''}`}
+          >
+            🧮 Cálculos
+          </Link>
+
           {puedeVerHistorial && (
           <Link
             to="/ultimos-cambios"
@@ -157,6 +164,14 @@ export default function Navbar() {
             onClick={handleLinkClick}
           >
             📊 Dashboard Ventas
+          </Link>
+
+          <Link
+            to="/calculos"
+            className={`${styles.mobileLink} ${isActive('/calculos') ? styles.active : ''}`}
+            onClick={handleLinkClick}
+          >
+            🧮 Cálculos
           </Link>
 
           {puedeVerHistorial && (

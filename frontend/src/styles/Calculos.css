@@ -1,0 +1,180 @@
+.calculos-container {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.calculos-container * {
+  box-sizing: border-box;
+}
+
+.calculos-header {
+  margin-bottom: 24px;
+}
+
+.calculos-header h1 {
+  margin: 0 0 8px 0;
+  font-size: 28px;
+  color: #1f2937;
+}
+
+.calculos-header .subtitle {
+  margin: 0;
+  color: #6b7280;
+  font-size: 16px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  background-color: #f9fafb;
+  border-radius: 8px;
+}
+
+.empty-state p {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+  color: #6b7280;
+}
+
+.empty-state .hint {
+  font-size: 14px;
+}
+
+.empty-state kbd {
+  background-color: white;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: monospace;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.calculos-table-wrapper {
+  overflow-x: auto;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.calculos-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.calculos-table thead {
+  background-color: #f9fafb;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.calculos-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+}
+
+.calculos-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  color: #1f2937;
+}
+
+.calculos-table tbody tr:hover {
+  background-color: #f9fafb;
+}
+
+.calculos-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.edit-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.edit-input.small {
+  width: 100px;
+}
+
+.edit-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.btn-edit,
+.btn-delete,
+.btn-save,
+.btn-cancel {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.btn-edit:hover {
+  background-color: #dbeafe;
+}
+
+.btn-delete:hover {
+  background-color: #fee2e2;
+}
+
+.btn-save {
+  color: #22c55e;
+  font-weight: bold;
+}
+
+.btn-save:hover {
+  background-color: #dcfce7;
+}
+
+.btn-cancel {
+  color: #ef4444;
+  font-weight: bold;
+}
+
+.btn-cancel:hover {
+  background-color: #fee2e2;
+}
+
+@media (max-width: 1200px) {
+  .calculos-table {
+    font-size: 12px;
+  }
+
+  .calculos-table th,
+  .calculos-table td {
+    padding: 8px 12px;
+  }
+}
+
+@media (max-width: 768px) {
+  .calculos-container {
+    padding: 16px;
+  }
+
+  .calculos-table-wrapper {
+    overflow-x: scroll;
+  }
+
+  .calculos-table {
+    min-width: 1000px;
+  }
+}

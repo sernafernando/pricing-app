@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuthStore } from './store/authStore';
 import { ThemeProvider } from './contexts/ThemeContext';
 import Login from './pages/Login';
@@ -12,7 +12,9 @@ import PreciosListas from './pages/PreciosListas';
 import GestionPM from './pages/GestionPM';
 import MLABanlist from './pages/MLABanlist';
 import DashboardVentas from './pages/DashboardVentas';
+import Calculos from './pages/Calculos';
 import ProtectedRoute from './components/ProtectedRoute';
+import ModalCalculadora from './components/ModalCalculadora';
 import './styles/theme.css';
 
 function PrivateRoute({ children }) {
@@ -23,13 +25,28 @@ function PrivateRoute({ children }) {
 function App() {
   const checkAuth = useAuthStore((state) => state.checkAuth);
   const token = useAuthStore((state) => state.token);
-  
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const [mostrarCalculadora, setMostrarCalculadora] = useState(false);
+
   useEffect(() => {
     if (token) {
       checkAuth();
     }
   }, []);
-  
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ctrl+K o Cmd+K para abrir calculadora
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k' && isAuthenticated) {
+        e.preventDefault();
+        setMostrarCalculadora(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isAuthenticated]);
+
   return (
     <ThemeProvider>
       <BrowserRouter>
@@ -39,6 +56,10 @@ function App() {
           <Route path="*" element={
             <ProtectedRoute>
               <Navbar />
+              <ModalCalculadora
+                isOpen={mostrarCalculadora}
+                onClose={() => setMostrarCalculadora(false)}
+              />
               <Routes>
                 <Route path="/productos" element={
                   <ProtectedRoute>
@@ -73,6 +94,11 @@ function App() {
                 <Route path="/dashboard-ventas" element={
                   <ProtectedRoute>
                     <DashboardVentas />
+                  </ProtectedRoute>
+                } />
+                <Route path="/calculos" element={
+                  <ProtectedRoute>
+                    <Calculos />
                   </ProtectedRoute>
                 } />
               </Routes>
