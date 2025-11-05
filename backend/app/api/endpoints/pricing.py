@@ -260,8 +260,6 @@ async def setear_precio(
                             precios_cuotas_calculados[nombre_campo] = precio_calculado
                         else:
                             precios_cuotas_calculados[nombre_campo] = None
-                    else:
-                        precios_cuotas_calculados[nombre_campo] = None
                 except:
                     # Si falla el cálculo, dejar en None
                     precios_cuotas_calculados[nombre_campo] = None
@@ -537,12 +535,12 @@ async def setear_precio_rapido(
                 print(f"DEBUG: resultado para {nombre_campo} = {resultado}")
                 if "error" not in resultado:
                     precio_calculado = round(resultado["precio"], 2)
-                    # Solo guardar si el precio es válido (mayor a 0)
+                    # Solo guardar si el precio es válido (mayor a 0), el markup puede ser negativo
                     if precio_calculado > 0:
                         precios_cuotas[nombre_campo] = precio_calculado
                         print(f"DEBUG: Precio calculado para {nombre_campo}: {precios_cuotas[nombre_campo]}")
                     else:
-                        print(f"DEBUG: Precio inválido para {nombre_campo}: {precio_calculado} - no se guardará")
+                        print(f"DEBUG: Precio inválido para {nombre_campo}: {precio_calculado} (<=0) - no se guardará")
                 else:
                     print(f"DEBUG: Error en resultado para {nombre_campo}: {resultado['error']}")
             except Exception as e:
@@ -633,5 +631,43 @@ async def setear_precio_rapido(
         response["precio_6_cuotas"] = precios_cuotas['precio_6_cuotas']
         response["precio_9_cuotas"] = precios_cuotas['precio_9_cuotas']
         response["precio_12_cuotas"] = precios_cuotas['precio_12_cuotas']
+
+        # Calcular markups de cuotas si los precios fueron calculados
+        cuotas_pricelists = [
+            (precios_cuotas['precio_3_cuotas'], 17, 'markup_3_cuotas'),
+            (precios_cuotas['precio_6_cuotas'], 14, 'markup_6_cuotas'),
+            (precios_cuotas['precio_9_cuotas'], 13, 'markup_9_cuotas'),
+            (precios_cuotas['precio_12_cuotas'], 23, 'markup_12_cuotas')
+        ]
+
+        for precio_cuota, pricelist_id, nombre_markup in cuotas_pricelists:
+            if precio_cuota and float(precio_cuota) > 0:
+                try:
+                    tipo_cambio_cuota = None
+                    if producto.moneda_costo == "USD":
+                        tipo_cambio_cuota = obtener_tipo_cambio_actual(db, "USD")
+
+                    costo_cuota = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio_cuota)
+                    grupo_id_cuota = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+                    comision_base_cuota = obtener_comision_base(db, pricelist_id, grupo_id_cuota)
+
+                    if comision_base_cuota:
+                        comisiones_cuota = calcular_comision_ml_total(
+                            float(precio_cuota),
+                            comision_base_cuota,
+                            producto.iva,
+                            VARIOS_DEFAULT
+                        )
+                        limpio_cuota = calcular_limpio(
+                            float(precio_cuota),
+                            producto.iva,
+                            producto.envio or 0,
+                            comisiones_cuota["comision_total"]
+                        )
+                        markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
+                        response[nombre_markup] = round(markup_calculado, 2)
+                except Exception as e:
+                    print(f"Error calculando {nombre_markup}: {str(e)}")
+                    response[nombre_markup] = None
 
     return response

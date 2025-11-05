@@ -541,7 +541,12 @@ export default function Productos() {
               precio_3_cuotas: response.data.precio_3_cuotas || p.precio_3_cuotas,
               precio_6_cuotas: response.data.precio_6_cuotas || p.precio_6_cuotas,
               precio_9_cuotas: response.data.precio_9_cuotas || p.precio_9_cuotas,
-              precio_12_cuotas: response.data.precio_12_cuotas || p.precio_12_cuotas
+              precio_12_cuotas: response.data.precio_12_cuotas || p.precio_12_cuotas,
+              // Actualizar markups de cuotas si vienen en la respuesta
+              markup_3_cuotas: response.data.markup_3_cuotas !== undefined ? response.data.markup_3_cuotas : p.markup_3_cuotas,
+              markup_6_cuotas: response.data.markup_6_cuotas !== undefined ? response.data.markup_6_cuotas : p.markup_6_cuotas,
+              markup_9_cuotas: response.data.markup_9_cuotas !== undefined ? response.data.markup_9_cuotas : p.markup_9_cuotas,
+              markup_12_cuotas: response.data.markup_12_cuotas !== undefined ? response.data.markup_12_cuotas : p.markup_12_cuotas
             }
           : p
       ));
