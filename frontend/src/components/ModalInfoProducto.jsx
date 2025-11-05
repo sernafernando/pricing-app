@@ -37,18 +37,24 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
     }
   };
 
-  // Agregar listener global cuando el modal está abierto para capturar ESC
+  // Agregar listener global cuando el modal está abierto
   useEffect(() => {
     if (!isOpen) return;
 
     const handleGlobalKeyDown = (e) => {
+      // ESC: cerrar modal
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         onClose();
+        return;
       }
+
+      // BLOQUEAR todas las teclas para que no lleguen a la página de fondo
+      e.stopPropagation();
     };
 
+    // Usar capture phase (true) para capturar ANTES que el listener de la página
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
