@@ -600,11 +600,8 @@ async def setear_precio_rapido(
         )
         db.add(pricing)
     
-    # Recalcular rebate y web transferencia si están activos
+    # Recalcular web transferencia si está activo
     db.refresh(pricing)
-
-    if pricing.participa_rebate and pricing.porcentaje_rebate:
-        pricing.precio_rebate = precio / (1 - float(pricing.porcentaje_rebate) / 100)
 
     if pricing.participa_web_transferencia and pricing.porcentaje_markup_web:
         from app.services.pricing_calculator import calcular_precio_web_transferencia
@@ -621,13 +618,18 @@ async def setear_precio_rapido(
     db.commit()
     db.refresh(pricing)
 
+    # Calcular precio rebate si está activo (solo para respuesta, no se guarda)
+    precio_rebate = None
+    if pricing.participa_rebate and pricing.porcentaje_rebate:
+        precio_rebate = precio / (1 - float(pricing.porcentaje_rebate) / 100)
+
     response = {
         "item_id": item_id,
         "precio": precio,
         "markup": round(markup * 100, 2),
         "limpio": round(limpio, 2),
         "costo_ars": round(costo_ars, 2),
-        "precio_rebate": float(pricing.precio_rebate) if pricing.precio_rebate else None,
+        "precio_rebate": round(precio_rebate, 2) if precio_rebate else None,
         "precio_web_transferencia": float(pricing.precio_web_transferencia) if pricing.precio_web_transferencia else None,
         "markup_web_real": float(pricing.markup_web_real) if pricing.markup_web_real else None
     }
