@@ -490,6 +490,9 @@ async def listar_productos(
                             )
                             markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
 
+                            if producto_erp.item_id == 30 and nombre_cuota == '3_cuotas':
+                                print(f"DEBUG item 30, 3 cuotas cálculo: precio={precio_cuota}, costo={costo_cuota}, comision_total={comisiones_cuota['comision_total']:.2f}, limpio={limpio_cuota:.2f}, markup={markup_calculado:.2f}%")
+
                             if nombre_cuota == '3_cuotas':
                                 markup_3_cuotas = markup_calculado
                             elif nombre_cuota == '6_cuotas':
