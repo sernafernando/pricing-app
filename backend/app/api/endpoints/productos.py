@@ -1703,9 +1703,6 @@ async def obtener_detalle_producto(
     # Pricing
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
 
-    # Publicaciones ML
-    publicaciones = db.query(PublicacionML).filter(PublicacionML.item_id == item_id).all()
-
     # Obtener tipo de cambio
     tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
 
@@ -1719,13 +1716,35 @@ async def obtener_detalle_producto(
     # Costo de envío
     costo_envio = float(producto.envio) if producto.envio else 0.0
 
-    # Obtener todos los precios de ML (incluye rebate, cuotas, etc)
-    precios_ml = db.execute(
-        text("SELECT pricelist_id, precio FROM precios_ml WHERE item_id = :item_id"),
+    # Obtener todos los precios de ML con datos de publicaciones
+    precios_ml_data = db.execute(
+        text("""
+            SELECT pm.pricelist_id, pm.precio, pm.mla, pub.item_title, pub.lista_nombre
+            FROM precios_ml pm
+            LEFT JOIN publicaciones_ml pub ON pm.mla = pub.mla
+            WHERE pm.item_id = :item_id
+        """),
         {"item_id": item_id}
     ).fetchall()
 
-    precios_dict = {row[0]: float(row[1]) if row[1] else None for row in precios_ml}
+    precios_dict = {row[0]: float(row[1]) if row[1] else None for row in precios_ml_data}
+
+    # Agrupar publicaciones por MLA
+    publicaciones_dict = {}
+    for row in precios_ml_data:
+        pricelist_id, precio, mla, titulo, lista_nombre = row
+        if mla and mla not in publicaciones_dict:
+            publicaciones_dict[mla] = {
+                "mla": mla,
+                "titulo": titulo,
+                "lista_nombre": lista_nombre,
+                "precios": []
+            }
+        if mla:
+            publicaciones_dict[mla]["precios"].append({
+                "pricelist_id": pricelist_id,
+                "precio": float(precio) if precio else None
+            })
 
     return {
         "producto": {
@@ -1763,19 +1782,7 @@ async def obtener_detalle_producto(
             "fecha_modificacion": pricing.fecha_modificacion if pricing else None
         },
         "precios_ml": precios_dict,
-        "publicaciones_ml": [
-            {
-                "mla": pub.mla,
-                "titulo": pub.titulo,
-                "precio": float(pub.precio) if pub.precio else None,
-                "stock": pub.stock,
-                "pricelist_id": pub.pricelist_id,
-                "tipo_publicacion": "Clásica" if pub.pricelist_id == 1 else
-                                  f"{pub.pricelist_id} cuotas" if pub.pricelist_id in [17, 14, 13, 23] else
-                                  "Otro"
-            }
-            for pub in publicaciones
-        ]
+        "publicaciones_ml": list(publicaciones_dict.values())
     }
 
 @router.get("/subcategorias")
