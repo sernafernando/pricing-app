@@ -10,8 +10,13 @@ export default function Navbar() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(null);
   const puedeVerAdmin = ['SUPERADMIN', 'ADMIN'].includes(user?.rol);
   const puedeVerHistorial = ['SUPERADMIN', 'ADMIN', 'GERENTE'].includes(user?.rol);
+
+  const isDropdownActive = (paths) => {
+    return paths.some(path => location.pathname === path);
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -61,47 +66,76 @@ export default function Navbar() {
             to="/mla-banlist"
             className={`${styles.link} ${isActive('/mla-banlist') ? styles.active : ''}`}
           >
-            🚫 Banlist MLAs
+            🚫 Banlist
           </Link>
 
-          <Link
-            to="/dashboard-ventas"
-            className={`${styles.link} ${isActive('/dashboard-ventas') ? styles.active : ''}`}
+          {/* Dropdown Reportes */}
+          <div
+            className={styles.dropdown}
+            onMouseEnter={() => setDropdownOpen('reportes')}
+            onMouseLeave={() => setDropdownOpen(null)}
           >
-            📊 Dashboard Ventas
-          </Link>
+            <div className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-ventas', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}>
+              📊 Reportes ▾
+            </div>
+            {dropdownOpen === 'reportes' && (
+              <div className={styles.dropdownMenu}>
+                <Link
+                  to="/dashboard-ventas"
+                  className={`${styles.dropdownItem} ${isActive('/dashboard-ventas') ? styles.activeDropdown : ''}`}
+                  onClick={() => setDropdownOpen(null)}
+                >
+                  📊 Dashboard Ventas
+                </Link>
+                <Link
+                  to="/calculos"
+                  className={`${styles.dropdownItem} ${isActive('/calculos') ? styles.activeDropdown : ''}`}
+                  onClick={() => setDropdownOpen(null)}
+                >
+                  🧮 Cálculos
+                </Link>
+                {puedeVerHistorial && (
+                  <Link
+                    to="/ultimos-cambios"
+                    className={`${styles.dropdownItem} ${isActive('/ultimos-cambios') ? styles.activeDropdown : ''}`}
+                    onClick={() => setDropdownOpen(null)}
+                  >
+                    📋 Últimos Cambios
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
 
-          <Link
-            to="/calculos"
-            className={`${styles.link} ${isActive('/calculos') ? styles.active : ''}`}
-          >
-            🧮 Cálculos
-          </Link>
-
-          {puedeVerHistorial && (
-          <Link
-            to="/ultimos-cambios"
-            className={`${styles.link} ${isActive('/ultimos-cambios') ? styles.active : ''}`}
-          >
-            📋 Últimos Cambios
-          </Link>
-          )}
-
+          {/* Dropdown Gestión (solo para admins) */}
           {puedeVerAdmin && (
-          <>
-          <Link
-            to="/gestion-pm"
-            className={`${styles.link} ${isActive('/gestion-pm') ? styles.active : ''}`}
-          >
-            👤 Gestión PMs
-          </Link>
-          <Link
-            to="/admin"
-            className={`${styles.link} ${isActive('/admin') ? styles.active : ''}`}
-          >
-            ⚙️ Admin
-          </Link>
-          </>
+            <div
+              className={styles.dropdown}
+              onMouseEnter={() => setDropdownOpen('gestion')}
+              onMouseLeave={() => setDropdownOpen(null)}
+            >
+              <div className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/gestion-pm', '/admin']) ? styles.active : ''}`}>
+                ⚙️ Gestión ▾
+              </div>
+              {dropdownOpen === 'gestion' && (
+                <div className={styles.dropdownMenu}>
+                  <Link
+                    to="/gestion-pm"
+                    className={`${styles.dropdownItem} ${isActive('/gestion-pm') ? styles.activeDropdown : ''}`}
+                    onClick={() => setDropdownOpen(null)}
+                  >
+                    👤 Gestión PMs
+                  </Link>
+                  <Link
+                    to="/admin"
+                    className={`${styles.dropdownItem} ${isActive('/admin') ? styles.activeDropdown : ''}`}
+                    onClick={() => setDropdownOpen(null)}
+                  >
+                    ⚙️ Admin
+                  </Link>
+                </div>
+              )}
+            </div>
           )}
         </div>
 
