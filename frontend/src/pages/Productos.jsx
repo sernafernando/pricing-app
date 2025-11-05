@@ -8,6 +8,7 @@ import { useAuthStore } from '../store/authStore';
 import ExportModal from '../components/ExportModal';
 import xlsIcon from '../assets/xls.svg';
 import CalcularWebModal from '../components/CalcularWebModal';
+import ModalInfoProducto from '../components/ModalInfoProducto';
 import './Productos.css';
 
 export default function Productos() {
@@ -89,6 +90,10 @@ export default function Productos() {
     recalcular_cuotas_auto: null,
     markup_adicional_cuotas_custom: null
   });
+
+  // Modal de información
+  const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
+  const [productoInfo, setProductoInfo] = useState(null);
 
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
@@ -886,6 +891,17 @@ export default function Productos() {
       if (e.ctrlKey && e.key === 'f') {
         e.preventDefault();
         document.querySelector('.search-bar input')?.focus();
+        return;
+      }
+
+      // Ctrl+I: Abrir info del producto seleccionado
+      if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+        e.preventDefault();
+        if (celdaActiva && productos[celdaActiva.rowIndex]) {
+          const producto = productos[celdaActiva.rowIndex];
+          setProductoInfo(producto.item_id);
+          setMostrarModalInfo(true);
+        }
         return;
       }
 
@@ -2506,6 +2522,16 @@ export default function Productos() {
 
                     <td className="table-actions">
                       <div className="table-actions-group">
+                        <button
+                          onClick={() => {
+                            setProductoInfo(p.item_id);
+                            setMostrarModalInfo(true);
+                          }}
+                          className="icon-button info"
+                          title="Información detallada (Ctrl+I)"
+                        >
+                          ℹ️
+                        </button>
                         {puedeEditar && (
                           <button
                             onClick={() => setProductoSeleccionado(p)}
@@ -2670,6 +2696,17 @@ export default function Productos() {
             cargarProductos();
             cargarStats();
           }}
+        />
+      )}
+
+      {mostrarModalInfo && (
+        <ModalInfoProducto
+          isOpen={mostrarModalInfo}
+          onClose={() => {
+            setMostrarModalInfo(false);
+            setProductoInfo(null);
+          }}
+          itemId={productoInfo}
         />
       )}
 
@@ -2940,6 +2977,10 @@ export default function Productos() {
 
               <div className="shortcuts-section">
                 <h3>Acciones Rápidas (en fila activa)</h3>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd>+<kbd>I</kbd>
+                  <span>Ver información detallada del producto</span>
+                </div>
                 <div className="shortcut-item">
                   <kbd>0</kbd>-<kbd>7</kbd>
                   <span>Asignar color (0=Sin color, 1=Rojo, 2=Naranja, 3=Amarillo, 4=Verde, 5=Azul, 6=Púrpura, 7=Gris)</span>

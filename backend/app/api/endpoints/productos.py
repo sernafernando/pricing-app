@@ -1684,6 +1684,98 @@ async def actualizar_color_productos_lote(
 
     return {"mensaje": f"{count} productos actualizados", "count": count}
 
+@router.get("/productos/{item_id}/detalle")
+async def obtener_detalle_producto(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene información detallada completa de un producto"""
+    from app.models.publicacion_ml import PublicacionML
+
+    # Producto base
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+    if not producto:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    # Pricing
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+
+    # Publicaciones ML
+    publicaciones = db.query(PublicacionML).filter(PublicacionML.item_id == item_id).all()
+
+    # Obtener tipo de cambio
+    from app.services.pricing_calculator import obtener_tipo_cambio_actual
+    tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+
+    # Obtener comisión ML para lista clásica
+    from app.services.pricing_calculator import obtener_comision_base, obtener_grupo_subcategoria
+    grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+    comision_clasica = obtener_comision_base(db, 1, grupo_id) if grupo_id else None
+
+    # Costos de envío por tipo
+    costos_envio = {}
+    if producto.envio:
+        costos_envio['estandar'] = float(producto.envio)
+    if producto.envio_flex:
+        costos_envio['flex'] = float(producto.envio_flex)
+    if producto.envio_colecta:
+        costos_envio['colecta'] = float(producto.envio_colecta)
+
+    return {
+        "producto": {
+            "item_id": producto.item_id,
+            "codigo": producto.codigo,
+            "descripcion": producto.descripcion,
+            "marca": producto.marca,
+            "categoria": producto.categoria,
+            "subcategoria_id": producto.subcategoria_id,
+            "stock": producto.stock,
+            "moneda_costo": producto.moneda_costo,
+            "costo": float(producto.costo),
+            "costo_ars": float(producto.costo) * tipo_cambio if producto.moneda_costo == "USD" and tipo_cambio else float(producto.costo),
+            "iva": float(producto.iva),
+            "costos_envio": costos_envio,
+            "tipo_cambio_usado": tipo_cambio
+        },
+        "pricing": {
+            "precio_lista_ml": float(pricing.precio_lista_ml) if pricing and pricing.precio_lista_ml else None,
+            "markup": float(pricing.markup) if pricing and pricing.markup else None,
+            "comision_ml_porcentaje": comision_clasica,
+            "participa_rebate": pricing.participa_rebate if pricing else False,
+            "porcentaje_rebate": float(pricing.porcentaje_rebate) if pricing and pricing.porcentaje_rebate else None,
+            "precio_rebate": float(pricing.precio_rebate) if pricing and pricing.precio_rebate else None,
+            "markup_rebate": float(pricing.markup_rebate) if pricing and pricing.markup_rebate else None,
+            "participa_web_transferencia": pricing.participa_web_transferencia if pricing else False,
+            "porcentaje_markup_web": float(pricing.porcentaje_markup_web) if pricing and pricing.porcentaje_markup_web else None,
+            "precio_web_transferencia": float(pricing.precio_web_transferencia) if pricing and pricing.precio_web_transferencia else None,
+            "markup_web_real": float(pricing.markup_web_real) if pricing and pricing.markup_web_real else None,
+            "precio_3_cuotas": float(pricing.precio_3_cuotas) if pricing and pricing.precio_3_cuotas else None,
+            "markup_3_cuotas": float(pricing.markup_3_cuotas) if pricing and pricing.markup_3_cuotas else None,
+            "precio_6_cuotas": float(pricing.precio_6_cuotas) if pricing and pricing.precio_6_cuotas else None,
+            "markup_6_cuotas": float(pricing.markup_6_cuotas) if pricing and pricing.markup_6_cuotas else None,
+            "precio_9_cuotas": float(pricing.precio_9_cuotas) if pricing and pricing.precio_9_cuotas else None,
+            "markup_9_cuotas": float(pricing.markup_9_cuotas) if pricing and pricing.markup_9_cuotas else None,
+            "precio_12_cuotas": float(pricing.precio_12_cuotas) if pricing and pricing.precio_12_cuotas else None,
+            "markup_12_cuotas": float(pricing.markup_12_cuotas) if pricing and pricing.markup_12_cuotas else None,
+            "usuario_modifico": pricing.usuario.nombre if pricing and pricing.usuario else None,
+            "fecha_modificacion": pricing.fecha_modificacion if pricing else None
+        },
+        "publicaciones_ml": [
+            {
+                "mla": pub.mla,
+                "titulo": pub.titulo,
+                "precio": float(pub.precio) if pub.precio else None,
+                "stock": pub.stock,
+                "pricelist_id": pub.pricelist_id,
+                "tipo_publicacion": "Clásica" if pub.pricelist_id == 1 else
+                                  f"{pub.pricelist_id} cuotas" if pub.pricelist_id in [17, 14, 13, 23] else
+                                  "Otro"
+            }
+            for pub in publicaciones
+        ]
+    }
+
 @router.get("/subcategorias")
 async def listar_subcategorias(
     search: Optional[str] = None,
