@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from typing import Optional, List
@@ -1663,11 +1663,28 @@ class ActualizarColorLoteRequest(BaseModel):
 
 @router.patch("/productos/lote/color")
 async def actualizar_color_lote(
-    body: ActualizarColorLoteRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el color de marcado de múltiples productos en lote"""
+
+    # Debug: Ver el raw body
+    raw_body = await request.body()
+    print(f"DEBUG - Raw body: {raw_body}")
+
+    try:
+        import json
+        body_json = json.loads(raw_body)
+        print(f"DEBUG - Parsed JSON: {body_json}")
+
+        # Manual validation
+        body = ActualizarColorLoteRequest(**body_json)
+        print(f"DEBUG - Body validado: {body}")
+        print(f"DEBUG - item_ids: {body.item_ids}, color: {body.color}")
+    except Exception as e:
+        print(f"DEBUG - Error al parsear: {type(e).__name__}: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Error de validación: {str(e)}")
 
     item_ids = body.item_ids
     color = body.color
