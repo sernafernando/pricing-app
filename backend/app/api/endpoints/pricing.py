@@ -462,8 +462,6 @@ async def setear_precio_rapido(
 ):
     """Setea precio clásica y calcula markup al instante. Opcionalmente recalcula cuotas."""
 
-    print(f"DEBUG set-rapido: item_id={item_id}, precio={precio}, recalcular_cuotas={recalcular_cuotas}, type={type(recalcular_cuotas)}")
-
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
         raise HTTPException(404, "Producto no encontrado")
@@ -499,10 +497,8 @@ async def setear_precio_rapido(
     precios_cuotas = {'precio_3_cuotas': None, 'precio_6_cuotas': None, 'precio_9_cuotas': None, 'precio_12_cuotas': None}
 
     if recalcular_cuotas:
-        print(f"DEBUG: Entrando al bloque recalcular_cuotas")
         # markup está en decimal (ej: 0.355 para 35.5%), convertir a porcentaje
         markup_porcentaje = round(markup * 100, 2)
-        print(f"DEBUG: markup_porcentaje = {markup_porcentaje}")
 
         cuotas_config = {
             'precio_3_cuotas': 17,
@@ -513,17 +509,14 @@ async def setear_precio_rapido(
 
         # Obtener markup adicional desde configuración
         markup_adicional = obtener_markup_adicional_cuotas(db)
-        print(f"DEBUG: markup_adicional = {markup_adicional}")
 
         # Si el markup es negativo, usar cálculo proporcional en lugar de goalseek
         usar_calculo_proporcional = markup_porcentaje < 0
-        print(f"DEBUG: usar_calculo_proporcional = {usar_calculo_proporcional}")
 
         for nombre_campo, pricelist_id in cuotas_config.items():
-            print(f"DEBUG: Calculando {nombre_campo} con pricelist_id={pricelist_id}")
             try:
                 if usar_calculo_proporcional:
-                    # Para markups muy negativos, calcular proporcionalmente
+                    # Para markups negativos, calcular proporcionalmente
                     # Basado en la diferencia de comisiones entre clásica y cuotas
                     grupo_id_calc = obtener_grupo_subcategoria(db, producto.subcategoria_id)
                     comision_clasica = obtener_comision_base(db, 4, grupo_id_calc)  # Lista clásica
@@ -537,17 +530,8 @@ async def setear_precio_rapido(
                         factor_ajuste = 1 + (diferencia_comision / 100) * 1.5
                         precio_calculado = round(precio * factor_ajuste)
 
-                        print(f"DEBUG: Cálculo proporcional para {nombre_campo}")
-                        print(f"  comision_clasica={comision_clasica}%, comision_cuota={comision_cuota}%")
-                        print(f"  diferencia={diferencia_comision}%, factor={factor_ajuste}")
-                        print(f"  precio_base={precio}, precio_calculado={precio_calculado}")
-
                         if precio_calculado > 0:
                             precios_cuotas[nombre_campo] = precio_calculado
-                        else:
-                            print(f"DEBUG: Precio proporcional <= 0, no se guardará")
-                    else:
-                        print(f"DEBUG: No se pudo obtener comisiones para cálculo proporcional")
                 else:
                     # Usar calcular_precio_producto con adicional_markup desde configuración
                     resultado = calcular_precio_producto(
@@ -563,23 +547,14 @@ async def setear_precio_rapido(
                         adicional_markup=markup_adicional
                     )
 
-                    print(f"DEBUG: resultado para {nombre_campo} = {resultado}")
                     if "error" not in resultado:
                         precio_calculado = round(resultado["precio"], 2)
                         # Solo guardar si el precio es válido (mayor a 0), el markup puede ser negativo
                         if precio_calculado > 0:
                             precios_cuotas[nombre_campo] = precio_calculado
-                            print(f"DEBUG: Precio calculado para {nombre_campo}: {precios_cuotas[nombre_campo]}")
-                        else:
-                            print(f"DEBUG: Precio inválido para {nombre_campo}: {precio_calculado} (<=0) - no se guardará")
-                    else:
-                        print(f"DEBUG: Error en resultado para {nombre_campo}: {resultado['error']}")
             except Exception as e:
-                print(f"Error calculando {nombre_campo}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-
-        print(f"DEBUG: precios_cuotas final = {precios_cuotas}")
+                # Si falla el cálculo, continuar con el siguiente
+                pass
 
     # Guardar precio
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
@@ -697,8 +672,7 @@ async def setear_precio_rapido(
                         )
                         markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
                         response[nombre_markup] = round(markup_calculado, 2)
-                except Exception as e:
-                    print(f"Error calculando {nombre_markup}: {str(e)}")
+                except Exception:
                     response[nombre_markup] = None
 
     return response
