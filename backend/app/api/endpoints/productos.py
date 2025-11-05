@@ -386,13 +386,15 @@ async def listar_productos(
                         mejor_oferta_pvp,
                         comision_base,
                         producto_erp.iva,
-                        VARIOS_DEFAULT
+                        VARIOS_DEFAULT,
+                        db=db
                     )
                     limpio = calcular_limpio(
                         mejor_oferta_pvp,
                         producto_erp.iva,
                         producto_erp.envio or 0,
-                        comisiones["comision_total"]
+                        comisiones["comision_total"],
+                        db=db
                     )
                     mejor_oferta_markup = calcular_markup(limpio, costo_calc)
 
@@ -417,13 +419,15 @@ async def listar_productos(
                     precio_rebate,
                     comision_base_rebate,
                     producto_erp.iva,
-                    VARIOS_DEFAULT
+                    VARIOS_DEFAULT,
+                    db=db
                 )
                 limpio_rebate = calcular_limpio(
                     precio_rebate,
                     producto_erp.iva,
                     producto_erp.envio or 0,
-                    comisiones_rebate["comision_total"]
+                    comisiones_rebate["comision_total"],
+                    db=db
                 )
                 markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
 
@@ -467,13 +471,15 @@ async def listar_productos(
                                 float(precio_cuota),
                                 comision_base_cuota,
                                 producto_erp.iva,
-                                VARIOS_DEFAULT
+                                VARIOS_DEFAULT,
+                                db=db
                             )
                             limpio_cuota = calcular_limpio(
                                 float(precio_cuota),
                                 producto_erp.iva,
                                 producto_erp.envio or 0,
-                                comisiones_cuota["comision_total"]
+                                comisiones_cuota["comision_total"],
+                                db=db
                             )
                             markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
 

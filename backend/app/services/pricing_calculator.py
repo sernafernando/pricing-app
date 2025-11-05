@@ -184,24 +184,47 @@ def calcular_comision_ml_total(
     precio: float,
     comision_base_pct: float,
     iva: float,
-    varios_pct: float = VARIOS_DEFAULT
+    varios_pct: float = VARIOS_DEFAULT,
+    db: Optional[Session] = None,
+    constantes: Optional[Dict] = None
 ) -> Dict[str, float]:
     """Calcula comisión ML + tiers + varios"""
-    
+
+    # Obtener constantes de pricing (de BD si está disponible)
+    if constantes is None and db is not None:
+        constantes = obtener_constantes_pricing(db)
+
+    # Usar valores de constantes o defaults
+    if constantes:
+        MONTOT1_val = constantes["monto_tier1"]
+        MONTOT2_val = constantes["monto_tier2"]
+        MONTOT3_val = constantes["monto_tier3"]
+        TIER1_val = constantes["tier1"]
+        TIER2_val = constantes["tier2"]
+        TIER3_val = constantes["tier3"]
+        varios_pct = constantes["varios"]
+    else:
+        MONTOT1_val = MONTOT1
+        MONTOT2_val = MONTOT2
+        MONTOT3_val = MONTOT3
+        TIER1_val = TIER1
+        TIER2_val = TIER2
+        TIER3_val = TIER3
+
     comision_base = precio * (comision_base_pct / 100) / 1.21
-    
+
     tier = 0
-    if precio < MONTOT1:
-        tier = TIER1 / 1.21
-    elif precio < MONTOT2:
-        tier = TIER2 / 1.21
-    elif precio < MONTOT3:
-        tier = TIER3 / 1.21
-    
-    comision_con_tier = comision_base if precio >= MONTOT3 else comision_base + tier
+    if precio < MONTOT1_val:
+        tier = TIER1_val / 1.21
+    elif precio < MONTOT2_val:
+        tier = TIER2_val / 1.21
+    elif precio < MONTOT3_val:
+        tier = TIER3_val / 1.21
+
+    comision_con_tier = comision_base if precio >= MONTOT3_val else comision_base + tier
     comision_varios = (precio / (1 + iva / 100)) * (varios_pct / 100)
     comision_total = comision_con_tier + comision_varios
-    
+
     return {
         "comision_base": comision_base,
         "tier": tier,
@@ -209,10 +232,23 @@ def calcular_comision_ml_total(
         "comision_total": comision_total
     }
 
-def calcular_limpio(precio: float, iva: float, costo_envio: float, comision_total: float) -> float:
+def calcular_limpio(
+    precio: float,
+    iva: float,
+    costo_envio: float,
+    comision_total: float,
+    db: Optional[Session] = None,
+    constantes: Optional[Dict] = None
+) -> float:
     """Calcula limpio"""
+    # Obtener constantes de pricing (de BD si está disponible)
+    if constantes is None and db is not None:
+        constantes = obtener_constantes_pricing(db)
+
+    MONTOT3_val = constantes["monto_tier3"] if constantes else MONTOT3
+
     precio_sin_iva = precio / (1 + iva / 100)
-    envio_sin_iva = (costo_envio / 1.21) if precio >= MONTOT3 else 0
+    envio_sin_iva = (costo_envio / 1.21) if precio >= MONTOT3_val else 0
     return precio_sin_iva - envio_sin_iva - comision_total
 
 def calcular_markup(limpio: float, costo: float) -> float:
