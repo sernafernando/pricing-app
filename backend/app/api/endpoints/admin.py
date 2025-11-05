@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from datetime import date
 
 from app.core.database import get_db
 from app.models.comision_config import GrupoComision, SubcategoriaGrupo, ComisionListaGrupo
+from app.models.configuracion import Configuracion
 
 router = APIRouter()
 
@@ -73,12 +75,70 @@ async def obtener_tc_actual(db: Session = Depends(get_db)):
     """Obtiene el tipo de cambio actual"""
     from app.services.pricing_calculator import obtener_tipo_cambio_actual
     tc = obtener_tipo_cambio_actual(db, "USD")
-    
+
     if not tc:
         raise HTTPException(404, "No hay tipo de cambio disponible")
-    
+
     return {
         "moneda": "USD",
         "venta": tc,
         "fecha": date.today().isoformat()
+    }
+
+# Endpoints de configuración
+class ConfiguracionUpdate(BaseModel):
+    valor: str
+
+@router.get("/admin/configuracion")
+async def obtener_configuraciones(db: Session = Depends(get_db)):
+    """Obtiene todas las configuraciones"""
+    configs = db.query(Configuracion).all()
+    return {
+        "configuraciones": [
+            {
+                "clave": c.clave,
+                "valor": c.valor,
+                "descripcion": c.descripcion,
+                "tipo": c.tipo
+            }
+            for c in configs
+        ]
+    }
+
+@router.get("/admin/configuracion/{clave}")
+async def obtener_configuracion(clave: str, db: Session = Depends(get_db)):
+    """Obtiene una configuración específica"""
+    config = db.query(Configuracion).filter(Configuracion.clave == clave).first()
+
+    if not config:
+        raise HTTPException(404, f"Configuración '{clave}' no encontrada")
+
+    return {
+        "clave": config.clave,
+        "valor": config.valor,
+        "descripcion": config.descripcion,
+        "tipo": config.tipo
+    }
+
+@router.patch("/admin/configuracion/{clave}")
+async def actualizar_configuracion(
+    clave: str,
+    update: ConfiguracionUpdate,
+    db: Session = Depends(get_db)
+):
+    """Actualiza una configuración"""
+    config = db.query(Configuracion).filter(Configuracion.clave == clave).first()
+
+    if not config:
+        raise HTTPException(404, f"Configuración '{clave}' no encontrada")
+
+    config.valor = update.valor
+    db.commit()
+    db.refresh(config)
+
+    return {
+        "clave": config.clave,
+        "valor": config.valor,
+        "descripcion": config.descripcion,
+        "tipo": config.tipo
     }

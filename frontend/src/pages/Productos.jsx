@@ -754,6 +754,22 @@ export default function Productos() {
         return;
       }
 
+      // Alt+V: Toggle Vista Normal / Vista Cuotas
+      if (e.altKey && e.key === 'v') {
+        e.preventDefault();
+        setVistaModoCuotas(!vistaModoCuotas);
+        return;
+      }
+
+      // Alt+R: Toggle Auto-recalcular cuotas
+      if (e.altKey && e.key === 'r') {
+        e.preventDefault();
+        const nuevoValor = !recalcularCuotasAuto;
+        setRecalcularCuotasAuto(nuevoValor);
+        localStorage.setItem('recalcularCuotasAuto', JSON.stringify(nuevoValor));
+        return;
+      }
+
       // Ctrl+E: Abrir modal de export
       if (e.ctrlKey && e.key === 'e') {
         e.preventDefault();
@@ -2524,6 +2540,14 @@ export default function Productos() {
                 <div className="shortcut-item">
                   <kbd>Ctrl</kbd> + <kbd>K</kbd>
                   <span>Calcular Web Transferencia masivo</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Alt</kbd> + <kbd>V</kbd>
+                  <span>Toggle Vista Normal / Vista Cuotas</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Alt</kbd> + <kbd>R</kbd>
+                  <span>Toggle Auto-recalcular cuotas</span>
                 </div>
                 <div className="shortcut-item">
                   <kbd>?</kbd>

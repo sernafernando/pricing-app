@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.models.usuario import Usuario
+from app.models.configuracion import Configuracion
 from app.services.pricing_calculator import (
     calcular_precio_producto,
     calcular_comision_ml_total,
@@ -23,6 +24,19 @@ from app.services.pricing_calculator import (
 
 
 router = APIRouter()
+
+def obtener_markup_adicional_cuotas(db: Session) -> float:
+    """Obtiene el valor de markup adicional para cuotas desde la configuración"""
+    config = db.query(Configuracion).filter(
+        Configuracion.clave == 'markup_adicional_cuotas'
+    ).first()
+
+    if config:
+        try:
+            return float(config.valor)
+        except ValueError:
+            return 4.0  # Valor por defecto
+    return 4.0  # Valor por defecto si no existe la configuración
 
 class CalcularPorMarkupRequest(BaseModel):
     item_id: int
@@ -220,9 +234,12 @@ async def setear_precio(
                 'precio_12_cuotas': 23   # Lista ML PREMIUM 12C
             }
 
+            # Obtener markup adicional desde configuración
+            markup_adicional = obtener_markup_adicional_cuotas(db)
+
             for nombre_campo, pricelist_id in cuotas_config.items():
                 try:
-                    # Usar calcular_precio_producto con adicional_markup = 4.0
+                    # Usar calcular_precio_producto con adicional_markup desde configuración
                     resultado = calcular_precio_producto(
                         db=db,
                         costo=producto.costo,
@@ -233,7 +250,7 @@ async def setear_precio(
                         pricelist_id=pricelist_id,
                         markup_objetivo=markup_calculado,
                         tipo_cambio=tipo_cambio,
-                        adicional_markup=4.0  # 4% adicional como en el modal
+                        adicional_markup=markup_adicional
                     )
 
                     if "error" not in resultado:
@@ -485,9 +502,12 @@ async def setear_precio_rapido(
             'precio_12_cuotas': 23
         }
 
+        # Obtener markup adicional desde configuración
+        markup_adicional = obtener_markup_adicional_cuotas(db)
+
         for nombre_campo, pricelist_id in cuotas_config.items():
             try:
-                # Usar calcular_precio_producto con adicional_markup = 4.0 (como en el modal)
+                # Usar calcular_precio_producto con adicional_markup desde configuración
                 resultado = calcular_precio_producto(
                     db=db,
                     costo=producto.costo,
@@ -498,7 +518,7 @@ async def setear_precio_rapido(
                     pricelist_id=pricelist_id,
                     markup_objetivo=markup_porcentaje,
                     tipo_cambio=tipo_cambio,
-                    adicional_markup=4.0  # 4% adicional como en el modal
+                    adicional_markup=markup_adicional
                 )
 
                 if "error" not in resultado:
