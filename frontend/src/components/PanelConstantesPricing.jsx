@@ -120,15 +120,28 @@ export default function PanelConstantesPricing() {
     <div className="panel-constantes-pricing">
       <div className="constantes-header">
         <h2>Constantes de Pricing</h2>
-        <button
-          className="btn-primary"
-          onClick={() => {
-            copiarDatosActuales();
-            setMostrarFormNuevaVersion(true);
-          }}
-        >
-          + Nueva Versión
-        </button>
+        <div className="header-buttons">
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              copiarDatosActuales();
+              setMostrarFormNuevaVersion(true);
+            }}
+            disabled={!constanteActual}
+          >
+            ✏️ Editar Valores Actuales
+          </button>
+          <button
+            className="btn-primary"
+            onClick={() => {
+              copiarDatosActuales();
+              setMostrarFormNuevaVersion(true);
+            }}
+            disabled={!constanteActual}
+          >
+            + Nueva Versión (Futuro)
+          </button>
+        </div>
       </div>
 
       {/* Constantes Actuales */}
