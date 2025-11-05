@@ -5,8 +5,8 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import date
 from app.core.database import get_db
-from app.core.security import get_current_user, require_role
-from app.models.usuario import Usuario
+from app.api.deps import get_current_user, require_role
+from app.models.usuario import Usuario, RolUsuario
 from app.models.pricing_constants import PricingConstants
 
 router = APIRouter()
@@ -40,7 +40,7 @@ class PricingConstantsCreate(BaseModel):
 @router.get("/pricing-constants", response_model=List[PricingConstantsResponse])
 async def listar_pricing_constants(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(lambda: require_role(["admin"]))
+    current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN]))
 ):
     """Lista todas las versiones de constantes de pricing"""
     constants = db.query(PricingConstants).order_by(PricingConstants.fecha_desde.desc()).all()
@@ -81,7 +81,7 @@ async def obtener_pricing_constants_actual(
 async def crear_pricing_constants(
     data: PricingConstantsCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(lambda: require_role(["admin"]))
+    current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN]))
 ):
     """Crea una nueva versión de constantes de pricing"""
 
@@ -132,7 +132,7 @@ async def crear_pricing_constants(
 async def eliminar_pricing_constants(
     id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(lambda: require_role(["admin"]))
+    current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN]))
 ):
     """Elimina una versión de constantes de pricing"""
     constants = db.query(PricingConstants).filter(PricingConstants.id == id).first()
