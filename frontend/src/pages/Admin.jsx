@@ -23,8 +23,6 @@ export default function Admin() {
   const [datosEdicion, setDatosEdicion] = useState({});
   const [cambiandoPassword, setCambiandoPassword] = useState(null);
   const [nuevaPassword, setNuevaPassword] = useState('');
-  const [markupAdicionalCuotas, setMarkupAdicionalCuotas] = useState('4.0');
-  const [editandoMarkup, setEditandoMarkup] = useState(false);
 
   useEffect(() => {
     cargarDatos();
@@ -58,17 +56,6 @@ export default function Admin() {
 	   
 	  setUsuarios(usuariosFiltrados);
 	  setUsuarioActual(currentUser);
-
-      // Cargar configuración de markup adicional cuotas
-      try {
-        const configRes = await axios.get(
-          'https://pricing.gaussonline.com.ar/api/admin/configuracion/markup_adicional_cuotas',
-          { headers: { Authorization: `Bearer ${token}` }}
-        );
-        setMarkupAdicionalCuotas(configRes.data.valor);
-      } catch (error) {
-        console.log('No se pudo cargar configuración de markup, usando valor por defecto');
-      }
 
       // TODO: Cargar comisiones cuando esté el endpoint
     } catch (error) {
@@ -228,29 +215,6 @@ export default function Admin() {
     }
   };
 
-  const guardarMarkupCuotas = async () => {
-    const valor = parseFloat(markupAdicionalCuotas);
-
-    if (isNaN(valor) || valor < 0 || valor > 100) {
-      alert('❌ El valor debe ser un número entre 0 y 100');
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem('token');
-      await axios.patch(
-        'https://pricing.gaussonline.com.ar/api/admin/configuracion/markup_adicional_cuotas',
-        { valor: valor.toString() },
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
-
-      alert('✅ Configuración actualizada correctamente');
-      setEditandoMarkup(false);
-      cargarDatos();
-    } catch (error) {
-      alert('❌ Error: ' + (error.response?.data?.detail || error.message));
-    }
-  };
 
   return (
     <div className={styles.container}>
@@ -330,63 +294,6 @@ export default function Admin() {
         ) : (
           <p>Cargando...</p>
         )}
-      </div>
-
-      {/* Sección Configuración de Precios */}
-      <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Configuración de Precios</h2>
-        <p className={styles.description}>
-          Configura el porcentaje de markup adicional que se aplica al calcular precios en cuotas.
-        </p>
-
-        <div className={styles.infoCard} style={{ maxWidth: '400px', marginTop: '16px' }}>
-          <div className={styles.infoLabel}>Markup Adicional Cuotas (%)</div>
-          {editandoMarkup ? (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px' }}>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.1"
-                value={markupAdicionalCuotas}
-                onChange={(e) => setMarkupAdicionalCuotas(e.target.value)}
-                style={{
-                  padding: '8px',
-                  fontSize: '16px',
-                  border: '1px solid #ccc',
-                  borderRadius: '4px',
-                  width: '100px'
-                }}
-              />
-              <button
-                onClick={guardarMarkupCuotas}
-                className={styles.secondaryButton}
-                style={{ background: '#10b981', color: 'white' }}
-              >
-                ✓ Guardar
-              </button>
-              <button
-                onClick={() => {
-                  setEditandoMarkup(false);
-                  cargarDatos();
-                }}
-                className={styles.secondaryButton}
-              >
-                ✗ Cancelar
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px' }}>
-              <div className={styles.infoValue}>{markupAdicionalCuotas}%</div>
-              <button
-                onClick={() => setEditandoMarkup(true)}
-                className={styles.secondaryButton}
-              >
-                ✏️ Editar
-              </button>
-            </div>
-          )}
-        </div>
       </div>
 
 	  {/* Sección Limpieza Masiva */}
