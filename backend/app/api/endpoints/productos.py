@@ -40,6 +40,7 @@ class ProductoResponse(BaseModel):
     porcentaje_markup_web: Optional[float] = 6.0
     precio_web_transferencia: Optional[float] = None
     markup_web_real: Optional[float] = None
+    preservar_porcentaje_web: Optional[bool] = False
     mejor_oferta_precio: Optional[float] = None
     mejor_oferta_monto_rebate: Optional[float] = None
     mejor_oferta_pvp_seller: Optional[float] = None
@@ -521,6 +522,7 @@ async def listar_productos(
             porcentaje_markup_web=float(producto_pricing.porcentaje_markup_web) if producto_pricing and producto_pricing.porcentaje_markup_web else 6.0,
             precio_web_transferencia=float(producto_pricing.precio_web_transferencia) if producto_pricing and producto_pricing.precio_web_transferencia else None,
             markup_web_real=float(producto_pricing.markup_web_real) if producto_pricing and producto_pricing.markup_web_real else None,
+            preservar_porcentaje_web=producto_pricing.preservar_porcentaje_web if producto_pricing else False,
             mejor_oferta_precio=mejor_oferta_precio,
             mejor_oferta_monto_rebate=mejor_oferta_monto,
             mejor_oferta_pvp_seller=mejor_oferta_pvp,
