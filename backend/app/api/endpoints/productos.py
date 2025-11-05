@@ -1657,44 +1657,32 @@ async def actualizar_config_cuotas_producto(
         "markup_adicional_cuotas_custom": float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing.markup_adicional_cuotas_custom else None
     }
 
-@router.patch("/productos/lote/color")
-async def actualizar_color_lote(
-    payload: dict,
+class ColorLoteRequest(BaseModel):
+    item_ids: List[int]
+    color: Optional[str] = None
+
+@router.post("/productos/actualizar-color-lote")
+async def actualizar_color_productos_lote(
+    request: ColorLoteRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Actualiza el color de marcado de múltiples productos en lote"""
+    """Actualiza el color de marcado de múltiples productos"""
 
-    print(f"DEBUG - Payload recibido: {payload}")
-
-    item_ids = payload.get("item_ids", [])
-    color = payload.get("color")
-
-    print(f"DEBUG - item_ids: {item_ids}, color: {color}")
-
-    if not item_ids:
+    if not request.item_ids:
         raise HTTPException(status_code=400, detail="Debe proporcionar al menos un item_id")
 
-    # Validar color
     colores_validos = ['rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris', None]
-    if color not in colores_validos:
-        raise HTTPException(status_code=400, detail=f"Color inválido: {color}. Válidos: {colores_validos}")
+    if request.color not in colores_validos:
+        raise HTTPException(status_code=400, detail=f"Color inválido")
 
-    # Actualizar todos los productos
     count = db.query(ProductoPricing).filter(
-        ProductoPricing.item_id.in_(item_ids)
-    ).update(
-        {'color_marcado': color},
-        synchronize_session=False
-    )
+        ProductoPricing.item_id.in_(request.item_ids)
+    ).update({'color_marcado': request.color}, synchronize_session=False)
 
     db.commit()
 
-    return {
-        "mensaje": f"{count} productos actualizados",
-        "productos_actualizados": count,
-        "color": color
-    }
+    return {"mensaje": f"{count} productos actualizados", "count": count}
 
 @router.get("/subcategorias")
 async def listar_subcategorias(

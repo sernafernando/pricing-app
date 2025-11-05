@@ -613,22 +613,16 @@ export default function Productos() {
   const pintarLote = async (color) => {
     try {
       const token = localStorage.getItem('token');
-      const payload = {
-        item_ids: Array.from(productosSeleccionados),
-        color: color
-      };
 
-      console.log('DEBUG Frontend - Enviando:', payload);
-      console.log('DEBUG Frontend - item_ids type:', typeof payload.item_ids, 'is array:', Array.isArray(payload.item_ids));
-      console.log('DEBUG Frontend - color type:', typeof payload.color, 'value:', payload.color);
-
-      await axios.patch(
-        'https://pricing.gaussonline.com.ar/api/productos/lote/color',
-        payload,
+      await axios.post(
+        'https://pricing.gaussonline.com.ar/api/productos/actualizar-color-lote',
+        {
+          item_ids: Array.from(productosSeleccionados),
+          color: color
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      // Actualizar productos en el estado
       setProductos(prods => prods.map(p =>
         productosSeleccionados.has(p.item_id)
           ? { ...p, color_marcado: color }
@@ -638,6 +632,7 @@ export default function Productos() {
       limpiarSeleccion();
       cargarStats();
     } catch (error) {
+      console.error(error);
       alert('Error al actualizar colores en lote');
     }
   };
