@@ -1,3 +1,7 @@
+* {
+  box-sizing: border-box;
+}
+
 .panel-comisiones {
   padding: 24px;
   max-width: 1400px;
