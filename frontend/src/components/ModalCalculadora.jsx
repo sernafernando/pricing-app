@@ -177,6 +177,23 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     }
   };
 
+  // Agregar listener global cuando el modal está abierto para capturar ESC
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleGlobalKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+
+    // Usar capture phase (true) para capturar antes que otros listeners
+    window.addEventListener('keydown', handleGlobalKeyDown, true);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const markupColor = parseFloat(resultados.markupPorcentaje) >= 30 ? '#22c55e' :

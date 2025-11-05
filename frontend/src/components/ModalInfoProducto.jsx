@@ -37,6 +37,22 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
     }
   };
 
+  // Agregar listener global cuando el modal está abierto para capturar ESC
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleGlobalKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown, true);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const getMarkupColor = (markup) => {

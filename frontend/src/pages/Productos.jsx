@@ -824,22 +824,12 @@ export default function Productos() {
   // Sistema de navegación por teclado
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Detectar si el evento viene de dentro de un modal
-      const estaDentroDeModal = e.target.closest('.modal-overlay, .modal-calculadora, .modal-info-producto, .modal-comisiones, .modal-content, .shortcuts-modal, .export-modal, .pricing-modal');
-
-      // Si hay un modal abierto
+      // Si hay un modal abierto, NO procesar shortcuts de la página
       const hayModalAbierto = mostrarExportModal || mostrarCalcularWebModal || mostrarModalConfig || mostrarModalInfo || mostrarShortcutsHelp;
 
-      if (hayModalAbierto || estaDentroDeModal) {
-        // Permitir solo ESC para cerrar modales (sin preventDefault para que el modal lo maneje)
-        if (e.key === 'Escape' && hayModalAbierto) {
-          if (mostrarShortcutsHelp) {
-            e.preventDefault();
-            setMostrarShortcutsHelp(false);
-          }
-          // Para otros modales, no hacer preventDefault para que el modal pueda capturarlo
-        }
-        // Bloquear todos los demás shortcuts cuando hay un modal abierto
+      if (hayModalAbierto) {
+        // NO hacer preventDefault - dejar que el modal maneje sus eventos
+        // Solo ignorar el evento en este handler
         return;
       }
 
