@@ -464,6 +464,8 @@ async def setear_precio_rapido(
 ):
     """Setea precio clásica y calcula markup al instante. Opcionalmente recalcula cuotas."""
 
+    print(f"set-rapido llamado: item_id={item_id}, precio={precio}, recalcular_cuotas={recalcular_cuotas}")
+
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
         raise HTTPException(404, "Producto no encontrado")
@@ -533,9 +535,13 @@ async def setear_precio_rapido(
                     # Solo guardar si el precio es válido (mayor a 0), el markup puede ser negativo
                     if precio_calculado > 0:
                         precios_cuotas[nombre_campo] = precio_calculado
+                else:
+                    print(f"Error calculando {nombre_campo}: {resultado.get('error')}")
             except Exception as e:
                 # Si falla el cálculo, continuar con el siguiente
-                pass
+                print(f"Excepción calculando {nombre_campo}: {str(e)}")
+                import traceback
+                traceback.print_exc()
 
     # Guardar precio
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
@@ -585,6 +591,7 @@ async def setear_precio_rapido(
         pricing.fecha_modificacion = datetime.now()
         # Actualizar precios de cuotas si se recalcularon
         if recalcular_cuotas:
+            print(f"Guardando cuotas para item {item_id}: {precios_cuotas}")
             pricing.precio_3_cuotas = precios_cuotas['precio_3_cuotas']
             pricing.precio_6_cuotas = precios_cuotas['precio_6_cuotas']
             pricing.precio_9_cuotas = precios_cuotas['precio_9_cuotas']
