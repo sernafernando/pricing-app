@@ -254,7 +254,14 @@ async def setear_precio(
                     )
 
                     if "error" not in resultado:
-                        precios_cuotas_calculados[nombre_campo] = round(resultado["precio"], 2)
+                        precio_calculado = round(resultado["precio"], 2)
+                        # Solo guardar si el precio es válido (mayor a 0)
+                        if precio_calculado > 0:
+                            precios_cuotas_calculados[nombre_campo] = precio_calculado
+                        else:
+                            precios_cuotas_calculados[nombre_campo] = None
+                    else:
+                        precios_cuotas_calculados[nombre_campo] = None
                 except:
                     # Si falla el cálculo, dejar en None
                     precios_cuotas_calculados[nombre_campo] = None
@@ -529,8 +536,13 @@ async def setear_precio_rapido(
 
                 print(f"DEBUG: resultado para {nombre_campo} = {resultado}")
                 if "error" not in resultado:
-                    precios_cuotas[nombre_campo] = round(resultado["precio"], 2)
-                    print(f"DEBUG: Precio calculado para {nombre_campo}: {precios_cuotas[nombre_campo]}")
+                    precio_calculado = round(resultado["precio"], 2)
+                    # Solo guardar si el precio es válido (mayor a 0)
+                    if precio_calculado > 0:
+                        precios_cuotas[nombre_campo] = precio_calculado
+                        print(f"DEBUG: Precio calculado para {nombre_campo}: {precios_cuotas[nombre_campo]}")
+                    else:
+                        print(f"DEBUG: Precio inválido para {nombre_campo}: {precio_calculado} - no se guardará")
                 else:
                     print(f"DEBUG: Error en resultado para {nombre_campo}: {resultado['error']}")
             except Exception as e:
