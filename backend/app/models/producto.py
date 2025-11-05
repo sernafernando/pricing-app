@@ -64,6 +64,10 @@ class ProductoPricing(Base):
 
     color_marcado = Column(String(20), default=None)  # rojo, naranja, amarillo, verde, azul, purpura, gris, NULL
 
+    # Configuración individual de recálculo de cuotas y markup adicional
+    recalcular_cuotas_auto = Column(Boolean, default=None)  # NULL = usar global, TRUE/FALSE = override
+    markup_adicional_cuotas_custom = Column(Numeric(5, 2), default=None)  # NULL = usar global, número = override
+
     producto = relationship("ProductoERP", back_populates="pricing")
     usuario = relationship("Usuario", back_populates="precios_modificados")
     historial = relationship("HistorialPrecio", back_populates="producto_pricing")

@@ -78,6 +78,18 @@ export default function Productos() {
   const [editandoCuota, setEditandoCuota] = useState(null); // {item_id, tipo: '3'|'6'|'9'|'12'}
   const [cuotaTemp, setCuotaTemp] = useState('');
 
+  // Selección múltiple
+  const [productosSeleccionados, setProductosSeleccionados] = useState(new Set());
+  const [ultimoSeleccionado, setUltimoSeleccionado] = useState(null);
+
+  // Modal de configuración individual
+  const [mostrarModalConfig, setMostrarModalConfig] = useState(false);
+  const [productoConfig, setProductoConfig] = useState(null);
+  const [configTemp, setConfigTemp] = useState({
+    recalcular_cuotas_auto: null,
+    markup_adicional_cuotas_custom: null
+  });
+
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
 

@@ -57,6 +57,10 @@ class ProductoResponse(BaseModel):
     markup_9_cuotas: Optional[float] = None
     markup_12_cuotas: Optional[float] = None
 
+    # Configuración individual
+    recalcular_cuotas_auto: Optional[bool] = None
+    markup_adicional_cuotas_custom: Optional[float] = None
+
     class Config:
         from_attributes = True
 
@@ -1598,6 +1602,90 @@ async def actualizar_color_producto(
         "mensaje": "Color actualizado",
         "color_anterior": color_anterior,
         "color_nuevo": color
+    }
+
+@router.patch("/productos/{item_id}/config-cuotas")
+async def actualizar_config_cuotas_producto(
+    item_id: int,
+    request: dict,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Actualiza la configuración individual de recálculo de cuotas y markup adicional de un producto"""
+
+    recalcular_cuotas_auto = request.get('recalcular_cuotas_auto')  # None, True, False
+    markup_adicional_cuotas_custom = request.get('markup_adicional_cuotas_custom')  # None o número
+
+    # Validar markup si se proporciona
+    if markup_adicional_cuotas_custom is not None:
+        try:
+            markup_valor = float(markup_adicional_cuotas_custom)
+            if markup_valor < 0 or markup_valor > 100:
+                raise ValueError("Markup debe estar entre 0 y 100")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # Buscar producto pricing
+    producto_pricing = db.query(ProductoPricing).filter(
+        ProductoPricing.item_id == item_id
+    ).first()
+
+    if not producto_pricing:
+        # Crear registro si no existe
+        producto_pricing = ProductoPricing(
+            item_id=item_id,
+            usuario_id=current_user.id
+        )
+        db.add(producto_pricing)
+
+    # Actualizar configuración
+    producto_pricing.recalcular_cuotas_auto = recalcular_cuotas_auto
+    producto_pricing.markup_adicional_cuotas_custom = markup_adicional_cuotas_custom
+    producto_pricing.usuario_id = current_user.id
+    producto_pricing.fecha_modificacion = datetime.now()
+
+    db.commit()
+    db.refresh(producto_pricing)
+
+    return {
+        "mensaje": "Configuración actualizada",
+        "recalcular_cuotas_auto": producto_pricing.recalcular_cuotas_auto,
+        "markup_adicional_cuotas_custom": float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing.markup_adicional_cuotas_custom else None
+    }
+
+@router.patch("/productos/lote/color")
+async def actualizar_color_lote(
+    request: dict,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Actualiza el color de marcado de múltiples productos en lote"""
+
+    item_ids = request.get('item_ids', [])
+    color = request.get('color')
+
+    if not item_ids:
+        raise HTTPException(status_code=400, detail="Debe proporcionar al menos un item_id")
+
+    # Validar color
+    colores_validos = ['rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris', None]
+    if color not in colores_validos:
+        raise HTTPException(status_code=400, detail=f"Color inválido: {color}. Válidos: {colores_validos}")
+
+    # Actualizar todos los productos
+    count = db.query(ProductoPricing).filter(
+        ProductoPricing.item_id.in_(item_ids)
+    ).update(
+        {'color_marcado': color},
+        synchronize_session=False
+    )
+
+    db.commit()
+
+    return {
+        "mensaje": f"{count} productos actualizados",
+        "productos_actualizados": count,
+        "color": color
     }
 
 @router.get("/subcategorias")
