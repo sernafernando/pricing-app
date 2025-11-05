@@ -667,7 +667,8 @@ async def setear_precio_rapido(
                             float(precio_cuota),
                             comision_base_cuota,
                             producto.iva,
-                            VARIOS_DEFAULT
+                            VARIOS_DEFAULT,
+                            db=db
                         )
                         limpio_cuota = calcular_limpio(
                             float(precio_cuota),
@@ -675,7 +676,7 @@ async def setear_precio_rapido(
                             producto.envio or 0,
                             comisiones_cuota["comision_total"],
                             db=db,
-                            grupo_id=grupo_id
+                            grupo_id=grupo_id_cuota
                         )
                         markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
                         response[nombre_markup] = round(markup_calculado, 2)

@@ -469,9 +469,6 @@ async def listar_productos(
                         grupo_id_cuota = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
                         comision_base_cuota = obtener_comision_base(db, pricelist_id, grupo_id_cuota)
 
-                        if producto_erp.item_id == 30 and nombre_cuota == '3_cuotas':
-                            print(f"DEBUG item 30, 3 cuotas: pricelist_id={pricelist_id}, grupo_id={grupo_id_cuota}, comision={comision_base_cuota}")
-
                         if comision_base_cuota:
                             comisiones_cuota = calcular_comision_ml_total(
                                 float(precio_cuota),
@@ -480,10 +477,6 @@ async def listar_productos(
                                 VARIOS_DEFAULT,
                                 db=db
                             )
-
-                            if producto_erp.item_id == 30 and nombre_cuota == '3_cuotas':
-                                print(f"DEBUG item 30, comisiones desglose: base={comisiones_cuota['comision_base']:.2f}, tier={comisiones_cuota['tier']:.2f}, varios={comisiones_cuota['comision_varios']:.2f}, total={comisiones_cuota['comision_total']:.2f}")
-
                             limpio_cuota = calcular_limpio(
                                 float(precio_cuota),
                                 producto_erp.iva,
@@ -493,9 +486,6 @@ async def listar_productos(
                                 grupo_id=grupo_id_cuota
                             )
                             markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
-
-                            if producto_erp.item_id == 30 and nombre_cuota == '3_cuotas':
-                                print(f"DEBUG item 30, 3 cuotas cálculo: precio={precio_cuota}, costo={costo_cuota}, comision_total={comisiones_cuota['comision_total']:.2f}, limpio={limpio_cuota:.2f}, markup={markup_calculado:.2f}%")
 
                             if nombre_cuota == '3_cuotas':
                                 markup_3_cuotas = markup_calculado
