@@ -596,6 +596,7 @@ async def setear_precio_rapido(
             pricing.precio_6_cuotas = precios_cuotas['precio_6_cuotas']
             pricing.precio_9_cuotas = precios_cuotas['precio_9_cuotas']
             pricing.precio_12_cuotas = precios_cuotas['precio_12_cuotas']
+            print(f"DESPUÉS de asignar - cuotas en objeto: 3c={pricing.precio_3_cuotas}, 6c={pricing.precio_6_cuotas}, 9c={pricing.precio_9_cuotas}, 12c={pricing.precio_12_cuotas}")
     else:
         pricing = ProductoPricing(
             item_id=item_id,
@@ -608,9 +609,9 @@ async def setear_precio_rapido(
             precio_12_cuotas=precios_cuotas['precio_12_cuotas'] if recalcular_cuotas else None
         )
         db.add(pricing)
-    
+
     # Recalcular web transferencia si está activo
-    db.refresh(pricing)
+    # NO hacer refresh aquí porque sobrescribe los valores asignados antes del commit
 
     if pricing.participa_web_transferencia and pricing.porcentaje_markup_web:
         from app.services.pricing_calculator import calcular_precio_web_transferencia
