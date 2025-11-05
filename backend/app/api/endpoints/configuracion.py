@@ -1,116 +1,154 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import text
-from typing import List, Dict
+from sqlalchemy import and_, or_
+from typing import List, Optional
 from pydantic import BaseModel
+from datetime import date
 from app.core.database import get_db
 from app.core.security import get_current_user, require_role
 from app.models.usuario import Usuario
+from app.models.pricing_constants import PricingConstants
 
 router = APIRouter()
 
-class ConfiguracionItem(BaseModel):
-    clave: str
-    valor: str
-    descripcion: str
-    tipo: str
+class PricingConstantsResponse(BaseModel):
+    id: int
+    monto_tier1: float
+    monto_tier2: float
+    monto_tier3: float
+    comision_tier1: float
+    comision_tier2: float
+    comision_tier3: float
+    varios_porcentaje: float
+    grupo_comision_default: int
+    markup_adicional_cuotas: float
+    fecha_desde: date
+    fecha_hasta: Optional[date]
 
-class ConfiguracionUpdate(BaseModel):
-    valor: str
+class PricingConstantsCreate(BaseModel):
+    monto_tier1: float
+    monto_tier2: float
+    monto_tier3: float
+    comision_tier1: float
+    comision_tier2: float
+    comision_tier3: float
+    varios_porcentaje: float
+    grupo_comision_default: int
+    markup_adicional_cuotas: float
+    fecha_desde: date
 
-@router.get("/configuracion", response_model=List[ConfiguracionItem])
-async def listar_configuracion(
+@router.get("/pricing-constants", response_model=List[PricingConstantsResponse])
+async def listar_pricing_constants(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(lambda: require_role(["admin"]))
 ):
-    """Lista todas las configuraciones del sistema"""
-    result = db.execute(
-        text("SELECT clave, valor, descripcion, tipo FROM configuracion ORDER BY clave")
-    ).fetchall()
+    """Lista todas las versiones de constantes de pricing"""
+    constants = db.query(PricingConstants).order_by(PricingConstants.fecha_desde.desc()).all()
+    return constants
 
-    return [
-        {
-            "clave": row[0],
-            "valor": row[1],
-            "descripcion": row[2],
-            "tipo": row[3]
-        }
-        for row in result
-    ]
-
-@router.get("/configuracion/{clave}")
-async def obtener_configuracion(
-    clave: str,
+@router.get("/pricing-constants/actual")
+async def obtener_pricing_constants_actual(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Obtiene una configuración específica"""
-    result = db.execute(
-        text("SELECT clave, valor, descripcion, tipo FROM configuracion WHERE clave = :clave"),
-        {"clave": clave}
-    ).fetchone()
+    """Obtiene las constantes de pricing vigentes para hoy"""
+    constants = db.query(PricingConstants).filter(
+        and_(
+            PricingConstants.fecha_desde <= date.today(),
+            or_(
+                PricingConstants.fecha_hasta.is_(None),
+                PricingConstants.fecha_hasta >= date.today()
+            )
+        )
+    ).first()
 
-    if not result:
-        raise HTTPException(status_code=404, detail="Configuración no encontrada")
+    if not constants:
+        raise HTTPException(status_code=404, detail="No se encontraron constantes de pricing vigentes")
 
     return {
-        "clave": result[0],
-        "valor": result[1],
-        "descripcion": result[2],
-        "tipo": result[3]
+        "monto_tier1": float(constants.monto_tier1),
+        "monto_tier2": float(constants.monto_tier2),
+        "monto_tier3": float(constants.monto_tier3),
+        "comision_tier1": float(constants.comision_tier1),
+        "comision_tier2": float(constants.comision_tier2),
+        "comision_tier3": float(constants.comision_tier3),
+        "varios_porcentaje": float(constants.varios_porcentaje),
+        "grupo_comision_default": constants.grupo_comision_default,
+        "markup_adicional_cuotas": float(constants.markup_adicional_cuotas)
     }
 
-@router.put("/configuracion/{clave}")
-async def actualizar_configuracion(
-    clave: str,
-    config: ConfiguracionUpdate,
+@router.post("/pricing-constants")
+async def crear_pricing_constants(
+    data: PricingConstantsCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(lambda: require_role(["admin"]))
 ):
-    """Actualiza el valor de una configuración"""
-    # Verificar que la configuración existe
-    result = db.execute(
-        text("SELECT clave FROM configuracion WHERE clave = :clave"),
-        {"clave": clave}
-    ).fetchone()
+    """Crea una nueva versión de constantes de pricing"""
 
-    if not result:
-        raise HTTPException(status_code=404, detail="Configuración no encontrada")
+    # Verificar que no exista ya una versión para esa fecha
+    existing = db.query(PricingConstants).filter(
+        PricingConstants.fecha_desde == data.fecha_desde
+    ).first()
 
-    # Actualizar el valor
-    db.execute(
-        text("""
-            UPDATE configuracion
-            SET valor = :valor, fecha_modificacion = CURRENT_TIMESTAMP
-            WHERE clave = :clave
-        """),
-        {"clave": clave, "valor": config.valor}
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ya existe una versión de constantes para la fecha {data.fecha_desde}"
+        )
+
+    # Si hay versiones vigentes, cerrarlas
+    versiones_vigentes = db.query(PricingConstants).filter(
+        and_(
+            PricingConstants.fecha_desde < data.fecha_desde,
+            PricingConstants.fecha_hasta.is_(None)
+        )
+    ).all()
+
+    for version in versiones_vigentes:
+        version.fecha_hasta = data.fecha_desde
+
+    # Crear nueva versión
+    nueva_version = PricingConstants(
+        monto_tier1=data.monto_tier1,
+        monto_tier2=data.monto_tier2,
+        monto_tier3=data.monto_tier3,
+        comision_tier1=data.comision_tier1,
+        comision_tier2=data.comision_tier2,
+        comision_tier3=data.comision_tier3,
+        varios_porcentaje=data.varios_porcentaje,
+        grupo_comision_default=data.grupo_comision_default,
+        markup_adicional_cuotas=data.markup_adicional_cuotas,
+        fecha_desde=data.fecha_desde,
+        creado_por=current_user.id
     )
+
+    db.add(nueva_version)
+    db.commit()
+    db.refresh(nueva_version)
+
+    return {"mensaje": "Constantes de pricing creadas correctamente", "id": nueva_version.id}
+
+@router.delete("/pricing-constants/{id}")
+async def eliminar_pricing_constants(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(lambda: require_role(["admin"]))
+):
+    """Elimina una versión de constantes de pricing"""
+    constants = db.query(PricingConstants).filter(PricingConstants.id == id).first()
+
+    if not constants:
+        raise HTTPException(status_code=404, detail="Constantes no encontradas")
+
+    # No permitir eliminar si es la única versión
+    total_versiones = db.query(PricingConstants).count()
+    if total_versiones <= 1:
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede eliminar la última versión de constantes"
+        )
+
+    db.delete(constants)
     db.commit()
 
-    return {"mensaje": "Configuración actualizada correctamente"}
-
-@router.get("/configuracion/grupo/pricing")
-async def obtener_configuracion_pricing(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
-    """Obtiene todas las configuraciones de pricing en un solo objeto"""
-    result = db.execute(
-        text("""
-            SELECT clave, valor
-            FROM configuracion
-            WHERE clave IN (
-                'monto_tier1', 'monto_tier2', 'monto_tier3',
-                'comision_tier1', 'comision_tier2', 'comision_tier3',
-                'varios_porcentaje', 'grupo_comision_default',
-                'markup_adicional_cuotas'
-            )
-        """)
-    ).fetchall()
-
-    config = {}
-    for row in result:
-        config[row[0]] = float(row[1]) if row[1] else None
-
-    return config
+    return {"mensaje": "Constantes eliminadas correctamente"}
