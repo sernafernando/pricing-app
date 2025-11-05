@@ -1659,16 +1659,18 @@ async def actualizar_config_cuotas_producto(
 
 @router.patch("/productos/lote/color")
 async def actualizar_color_lote(
-    item_ids: List[int] = Body(..., embed=True),
-    color: Optional[str] = Body(None, embed=True),
+    payload: dict,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el color de marcado de múltiples productos en lote"""
 
-    print(f"DEBUG - Endpoint alcanzado!")
-    print(f"DEBUG - item_ids recibidos: {item_ids}")
-    print(f"DEBUG - color recibido: {color}")
+    print(f"DEBUG - Payload recibido: {payload}")
+
+    item_ids = payload.get("item_ids", [])
+    color = payload.get("color")
+
+    print(f"DEBUG - item_ids: {item_ids}, color: {color}")
 
     if not item_ids:
         raise HTTPException(status_code=400, detail="Debe proporcionar al menos un item_id")
