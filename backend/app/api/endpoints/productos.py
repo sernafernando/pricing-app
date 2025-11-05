@@ -469,6 +469,9 @@ async def listar_productos(
                         grupo_id_cuota = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
                         comision_base_cuota = obtener_comision_base(db, pricelist_id, grupo_id_cuota)
 
+                        if producto_erp.item_id == 30 and nombre_cuota == '3_cuotas':
+                            print(f"DEBUG item 30, 3 cuotas: pricelist_id={pricelist_id}, grupo_id={grupo_id_cuota}, comision={comision_base_cuota}")
+
                         if comision_base_cuota:
                             comisiones_cuota = calcular_comision_ml_total(
                                 float(precio_cuota),
