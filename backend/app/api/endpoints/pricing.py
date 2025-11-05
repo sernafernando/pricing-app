@@ -494,8 +494,10 @@ async def setear_precio_rapido(
     precios_cuotas = {'precio_3_cuotas': None, 'precio_6_cuotas': None, 'precio_9_cuotas': None, 'precio_12_cuotas': None}
 
     if recalcular_cuotas:
+        print(f"DEBUG: Entrando al bloque recalcular_cuotas")
         # markup está en decimal (ej: 0.355 para 35.5%), convertir a porcentaje
         markup_porcentaje = round(markup * 100, 2)
+        print(f"DEBUG: markup_porcentaje = {markup_porcentaje}")
 
         cuotas_config = {
             'precio_3_cuotas': 17,
@@ -506,8 +508,10 @@ async def setear_precio_rapido(
 
         # Obtener markup adicional desde configuración
         markup_adicional = obtener_markup_adicional_cuotas(db)
+        print(f"DEBUG: markup_adicional = {markup_adicional}")
 
         for nombre_campo, pricelist_id in cuotas_config.items():
+            print(f"DEBUG: Calculando {nombre_campo} con pricelist_id={pricelist_id}")
             try:
                 # Usar calcular_precio_producto con adicional_markup desde configuración
                 resultado = calcular_precio_producto(
@@ -523,12 +527,18 @@ async def setear_precio_rapido(
                     adicional_markup=markup_adicional
                 )
 
+                print(f"DEBUG: resultado para {nombre_campo} = {resultado}")
                 if "error" not in resultado:
                     precios_cuotas[nombre_campo] = round(resultado["precio"], 2)
+                    print(f"DEBUG: Precio calculado para {nombre_campo}: {precios_cuotas[nombre_campo]}")
+                else:
+                    print(f"DEBUG: Error en resultado para {nombre_campo}: {resultado['error']}")
             except Exception as e:
                 print(f"Error calculando {nombre_campo}: {str(e)}")
                 import traceback
                 traceback.print_exc()
+
+        print(f"DEBUG: precios_cuotas final = {precios_cuotas}")
 
     # Guardar precio
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
