@@ -520,7 +520,7 @@ export default function Productos() {
 
       const response = await axios.post(
         'https://pricing.gaussonline.com.ar/api/precios/set-rapido',
-        { item_id: itemId, precio: precioNormalizado },
+        null,  // No body needed, all params go in URL
         {
           headers: { Authorization: `Bearer ${token}` },
           params: {
