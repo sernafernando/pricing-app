@@ -75,11 +75,17 @@ export default function Navbar() {
             onMouseEnter={() => setDropdownOpen('reportes')}
             onMouseLeave={() => setDropdownOpen(null)}
           >
-            <div className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-ventas', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}>
+            <div
+              className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-ventas', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
+              onClick={() => setDropdownOpen(dropdownOpen === 'reportes' ? null : 'reportes')}
+            >
               📊 Reportes ▾
             </div>
             {dropdownOpen === 'reportes' && (
-              <div className={styles.dropdownMenu}>
+              <div
+                className={styles.dropdownMenu}
+                onMouseEnter={() => setDropdownOpen('reportes')}
+              >
                 <Link
                   to="/dashboard-ventas"
                   className={`${styles.dropdownItem} ${isActive('/dashboard-ventas') ? styles.activeDropdown : ''}`}
@@ -114,11 +120,17 @@ export default function Navbar() {
               onMouseEnter={() => setDropdownOpen('gestion')}
               onMouseLeave={() => setDropdownOpen(null)}
             >
-              <div className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/gestion-pm', '/admin']) ? styles.active : ''}`}>
+              <div
+                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/gestion-pm', '/admin']) ? styles.active : ''}`}
+                onClick={() => setDropdownOpen(dropdownOpen === 'gestion' ? null : 'gestion')}
+              >
                 ⚙️ Gestión ▾
               </div>
               {dropdownOpen === 'gestion' && (
-                <div className={styles.dropdownMenu}>
+                <div
+                  className={styles.dropdownMenu}
+                  onMouseEnter={() => setDropdownOpen('gestion')}
+                >
                   <Link
                     to="/gestion-pm"
                     className={`${styles.dropdownItem} ${isActive('/gestion-pm') ? styles.activeDropdown : ''}`}

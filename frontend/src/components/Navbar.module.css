@@ -92,7 +92,7 @@
 
 .dropdownMenu {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 2px);
   left: 0;
   min-width: 200px;
   background: var(--bg-secondary);
@@ -102,6 +102,16 @@
   padding: 8px 0;
   z-index: 1000;
   animation: dropdownFadeIn 0.2s ease-out;
+}
+
+.dropdownMenu::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  left: 0;
+  right: 0;
+  height: 10px;
+  background: transparent;
 }
 
 @keyframes dropdownFadeIn {
