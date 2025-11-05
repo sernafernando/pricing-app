@@ -9,7 +9,8 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     iva: '21',
     comisionML: '',
     costoEnvio: '0',
-    precioFinal: ''
+    precioFinal: '',
+    tipoCambio: ''
   });
 
   const [resultados, setResultados] = useState({
@@ -22,7 +23,6 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
   const [guardando, setGuardando] = useState(false);
   const [descripcion, setDescripcion] = useState('');
   const [ean, setEan] = useState('');
-  const [tipoCambio, setTipoCambio] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -36,7 +36,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
       const response = await axios.get('https://pricing.gaussonline.com.ar/api/tipo-cambio', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setTipoCambio(response.data.tipo_cambio);
+      setFormData(prev => ({ ...prev, tipoCambio: response.data.tipo_cambio.toString() }));
     } catch (error) {
       console.error('Error cargando tipo de cambio:', error);
     }
@@ -48,13 +48,14 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     const costoEnvio = parseFloat(formData.costoEnvio) || 0;
     const precioFinal = parseFloat(formData.precioFinal) || 0;
     const iva = parseFloat(formData.iva);
+    const tipoCambio = parseFloat(formData.tipoCambio) || 1;
 
     if (costo === 0 || precioFinal === 0 || comisionML === 0) {
       return;
     }
 
     // Convertir costo a ARS si es necesario
-    const costoARS = formData.monedaCosto === 'USD' && tipoCambio
+    const costoARS = formData.monedaCosto === 'USD'
       ? costo * tipoCambio
       : costo;
 
@@ -79,7 +80,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
 
   useEffect(() => {
     calcular();
-  }, [formData, tipoCambio]);
+  }, [formData]);
 
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -209,6 +210,17 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
                 step="0.01"
                 value={formData.precioFinal}
                 onChange={(e) => handleChange('precioFinal', e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Tipo de Cambio (USD)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.tipoCambio}
+                onChange={(e) => handleChange('tipoCambio', e.target.value)}
                 placeholder="0.00"
               />
             </div>

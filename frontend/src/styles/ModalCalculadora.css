@@ -13,10 +13,10 @@
 }
 
 .modal-calculadora {
-  background-color: white;
+  background-color: var(--bg-primary);
   border-radius: 12px;
   width: 90%;
-  max-width: 700px;
+  max-width: 750px;
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
@@ -32,13 +32,13 @@
   justify-content: space-between;
   align-items: center;
   padding: 20px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .modal-header h2 {
   margin: 0;
   font-size: 24px;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .close-btn {
@@ -46,7 +46,7 @@
   border: none;
   font-size: 24px;
   cursor: pointer;
-  color: #6b7280;
+  color: var(--text-secondary);
   padding: 0;
   width: 32px;
   height: 32px;
@@ -58,8 +58,8 @@
 }
 
 .close-btn:hover {
-  background-color: #f3f4f6;
-  color: #1f2937;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .modal-body {
@@ -68,7 +68,7 @@
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -81,17 +81,19 @@
 .form-group label {
   font-weight: 600;
   margin-bottom: 6px;
-  color: #374151;
+  color: var(--text-primary);
   font-size: 14px;
 }
 
 .form-group input,
 .form-group select {
   padding: 10px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 14px;
   transition: border-color 0.2s;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .form-group input:focus,
@@ -102,7 +104,7 @@
 }
 
 .resultados-section {
-  background-color: #f9fafb;
+  background-color: var(--bg-secondary);
   padding: 20px;
   border-radius: 8px;
   margin-bottom: 20px;
@@ -111,7 +113,7 @@
 .resultados-section h3 {
   margin: 0 0 16px 0;
   font-size: 18px;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .resultados-grid {
@@ -125,40 +127,41 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px;
-  background-color: white;
+  background-color: var(--bg-primary);
   border-radius: 6px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
 }
 
 .resultado-item.destacado {
   grid-column: 1 / -1;
   border: 2px solid #3b82f6;
-  background-color: #eff6ff;
+  background-color: var(--bg-primary);
 }
 
 .resultado-label {
   font-weight: 600;
-  color: #6b7280;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
 .resultado-valor {
   font-weight: 700;
-  color: #1f2937;
+  color: var(--text-primary);
   font-size: 16px;
 }
 
 .guardar-section {
-  background-color: #fef3c7;
+  background-color: rgba(251, 191, 36, 0.1);
   padding: 20px;
   border-radius: 8px;
   margin-top: 20px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
 }
 
 .guardar-section h3 {
   margin: 0 0 16px 0;
   font-size: 18px;
-  color: #92400e;
+  color: var(--text-primary);
 }
 
 .guardar-section .form-group {
@@ -167,7 +170,7 @@
 
 .form-hint {
   font-size: 12px;
-  color: #92400e;
+  color: var(--text-secondary);
   margin: 8px 0 0 0;
   font-style: italic;
 }
@@ -177,7 +180,7 @@
   justify-content: flex-end;
   gap: 12px;
   padding: 20px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border-color);
 }
 
 .btn-primary,
@@ -201,12 +204,13 @@
 }
 
 .btn-secondary {
-  background-color: #f3f4f6;
-  color: #374151;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
 }
 
 .btn-secondary:hover {
-  background-color: #e5e7eb;
+  background-color: var(--bg-tertiary);
 }
 
 @media (max-width: 640px) {
