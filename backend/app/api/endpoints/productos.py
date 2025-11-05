@@ -1604,15 +1604,21 @@ async def actualizar_color_producto(
         "color_nuevo": color
     }
 
+class ConfigCuotasRequest(BaseModel):
+    recalcular_cuotas_auto: Optional[bool] = None
+    markup_adicional_cuotas_custom: Optional[float] = None
+
 @router.patch("/productos/{item_id}/config-cuotas")
 async def actualizar_config_cuotas_producto(
     item_id: int,
-    recalcular_cuotas_auto: Optional[bool] = Body(None),
-    markup_adicional_cuotas_custom: Optional[float] = Body(None),
+    body: ConfigCuotasRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza la configuración individual de recálculo de cuotas y markup adicional de un producto"""
+
+    recalcular_cuotas_auto = body.recalcular_cuotas_auto
+    markup_adicional_cuotas_custom = body.markup_adicional_cuotas_custom
 
     # Validar markup si se proporciona
     if markup_adicional_cuotas_custom is not None:
@@ -1651,14 +1657,20 @@ async def actualizar_config_cuotas_producto(
         "markup_adicional_cuotas_custom": float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing.markup_adicional_cuotas_custom else None
     }
 
+class ActualizarColorLoteRequest(BaseModel):
+    item_ids: List[int]
+    color: Optional[str] = None
+
 @router.patch("/productos/lote/color")
 async def actualizar_color_lote(
-    item_ids: List[int] = Body(...),
-    color: Optional[str] = Body(None),
+    body: ActualizarColorLoteRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el color de marcado de múltiples productos en lote"""
+
+    item_ids = body.item_ids
+    color = body.color
 
     if not item_ids:
         raise HTTPException(status_code=400, detail="Debe proporcionar al menos un item_id")
