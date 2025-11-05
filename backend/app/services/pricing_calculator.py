@@ -346,7 +346,7 @@ def precio_por_markup_goalseek(
     precio = (precio_min + precio_max) / 2
 
     for iteracion in range(50):
-        comisiones = calcular_comision_ml_total(precio, comision_ml, iva, varios)
+        comisiones = calcular_comision_ml_total(precio, comision_ml, iva, varios, db=db)
         limpio = calcular_limpio(precio, iva, costo_envio, comisiones["comision_total"], db=db, grupo_id=grupo_id)
         markup_actual = calcular_markup(limpio, costo)
         
