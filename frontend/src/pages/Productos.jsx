@@ -568,6 +568,121 @@ export default function Productos() {
     }
   };
 
+  // Funciones de selección múltiple
+  const toggleSeleccion = (itemId, shiftKey) => {
+    const nuevaSeleccion = new Set(productosSeleccionados);
+
+    if (shiftKey && ultimoSeleccionado !== null) {
+      // Selección con Shift: seleccionar rango
+      const indices = productos.map(p => p.item_id);
+      const indiceActual = indices.indexOf(itemId);
+      const indiceUltimo = indices.indexOf(ultimoSeleccionado);
+
+      const inicio = Math.min(indiceActual, indiceUltimo);
+      const fin = Math.max(indiceActual, indiceUltimo);
+
+      for (let i = inicio; i <= fin; i++) {
+        nuevaSeleccion.add(indices[i]);
+      }
+    } else {
+      // Toggle individual
+      if (nuevaSeleccion.has(itemId)) {
+        nuevaSeleccion.delete(itemId);
+      } else {
+        nuevaSeleccion.add(itemId);
+      }
+    }
+
+    setProductosSeleccionados(nuevaSeleccion);
+    setUltimoSeleccionado(itemId);
+  };
+
+  const seleccionarTodos = () => {
+    if (productosSeleccionados.size === productos.length) {
+      setProductosSeleccionados(new Set());
+    } else {
+      setProductosSeleccionados(new Set(productos.map(p => p.item_id)));
+    }
+  };
+
+  const limpiarSeleccion = () => {
+    setProductosSeleccionados(new Set());
+    setUltimoSeleccionado(null);
+  };
+
+  const pintarLote = async (color) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.patch(
+        'https://pricing.gaussonline.com.ar/api/productos/lote/color',
+        {
+          item_ids: Array.from(productosSeleccionados),
+          color: color
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      // Actualizar productos en el estado
+      setProductos(prods => prods.map(p =>
+        productosSeleccionados.has(p.item_id)
+          ? { ...p, color_marcado: color }
+          : p
+      ));
+
+      limpiarSeleccion();
+      cargarStats();
+    } catch (error) {
+      alert('Error al actualizar colores en lote');
+    }
+  };
+
+  // Modal de configuración individual
+  const abrirModalConfig = (producto) => {
+    setProductoConfig(producto);
+    setConfigTemp({
+      recalcular_cuotas_auto: producto.recalcular_cuotas_auto,
+      markup_adicional_cuotas_custom: producto.markup_adicional_cuotas_custom || ''
+    });
+    setMostrarModalConfig(true);
+  };
+
+  const guardarConfigIndividual = async () => {
+    try {
+      const token = localStorage.getItem('token');
+
+      // Preparar datos: null significa usar global
+      const data = {
+        recalcular_cuotas_auto: configTemp.recalcular_cuotas_auto === 'null' ? null :
+                                configTemp.recalcular_cuotas_auto === 'true' ? true :
+                                configTemp.recalcular_cuotas_auto === 'false' ? false : null,
+        markup_adicional_cuotas_custom: configTemp.markup_adicional_cuotas_custom === '' ? null :
+                                        parseFloat(configTemp.markup_adicional_cuotas_custom)
+      };
+
+      await axios.patch(
+        `https://pricing.gaussonline.com.ar/api/productos/${productoConfig.item_id}/config-cuotas`,
+        data,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      // Actualizar producto en el estado
+      setProductos(prods => prods.map(p =>
+        p.item_id === productoConfig.item_id
+          ? {
+              ...p,
+              recalcular_cuotas_auto: data.recalcular_cuotas_auto,
+              markup_adicional_cuotas_custom: data.markup_adicional_cuotas_custom
+            }
+          : p
+      ));
+
+      setMostrarModalConfig(false);
+      alert('Configuración actualizada correctamente');
+    } catch (error) {
+      alert('Error al guardar configuración: ' + (error.response?.data?.detail || error.message));
+    }
+  };
+
   const guardarPrecio = async (itemId) => {
     try {
       const token = localStorage.getItem('token');
@@ -886,8 +1001,17 @@ export default function Productos() {
         if (e.key === 'ArrowDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
           e.preventDefault();
           if (e.shiftKey) {
-            // Shift+ArrowDown: Ir al final de la tabla
-            setCeldaActiva({ rowIndex: productos.length - 1, colIndex });
+            // Shift+ArrowDown: Seleccionar siguiente fila
+            if (rowIndex < productos.length - 1) {
+              const siguienteItemId = productos[rowIndex + 1].item_id;
+              toggleSeleccion(siguienteItemId, true);
+              setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
+            }
+          } else if (e.ctrlKey || e.metaKey) {
+            // Ctrl+ArrowDown: Navegar sin perder selección
+            if (rowIndex < productos.length - 1) {
+              setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
+            }
           } else if (rowIndex < productos.length - 1) {
             setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
           }
@@ -897,8 +1021,17 @@ export default function Productos() {
         if (e.key === 'ArrowUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
           e.preventDefault();
           if (e.shiftKey) {
-            // Shift+ArrowUp: Ir al inicio de la tabla
-            setCeldaActiva({ rowIndex: 0, colIndex });
+            // Shift+ArrowUp: Seleccionar fila anterior
+            if (rowIndex > 0) {
+              const anteriorItemId = productos[rowIndex - 1].item_id;
+              toggleSeleccion(anteriorItemId, true);
+              setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
+            }
+          } else if (e.ctrlKey || e.metaKey) {
+            // Ctrl+ArrowUp: Navegar sin perder selección
+            if (rowIndex > 0) {
+              setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
+            }
           } else if (rowIndex > 0) {
             setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
           }
@@ -1906,6 +2039,14 @@ export default function Productos() {
             <table className="table">
               <thead className="table-head">
                 <tr>
+                  <th style={{ width: '40px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={productosSeleccionados.size === productos.length && productos.length > 0}
+                      onChange={seleccionarTodos}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </th>
                   <th onClick={(e) => handleOrdenar('codigo', e)}>
                     Código {getIconoOrden('codigo')} {getNumeroOrden('codigo') && <span>{getNumeroOrden('codigo')}</span>}
                   </th>
@@ -1968,6 +2109,15 @@ export default function Productos() {
                     style={rowStyle}
                     className={`${p.color_marcado ? 'row-colored' : ''} ${isRowActive ? 'keyboard-row-active' : ''}`}
                   >
+                    <td style={{ textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={productosSeleccionados.has(p.item_id)}
+                        onChange={(e) => toggleSeleccion(p.item_id, e.shiftKey)}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </td>
                     <td>{p.codigo}</td>
                     <td>{p.descripcion}</td>
                     <td>{p.marca}</td>
@@ -2371,6 +2521,15 @@ export default function Productos() {
                         >
                           📋
                         </button>
+                        {puedeEditar && (
+                          <button
+                            onClick={() => abrirModalConfig(p)}
+                            className="icon-button config"
+                            title="Configuración de cuotas"
+                          >
+                            ⚙️
+                          </button>
+                        )}
                         <div style={{ position: 'relative', display: 'inline-block' }}>
                           <button
                             onClick={() => setColorDropdownAbierto(colorDropdownAbierto === p.item_id ? null : p.item_id)}
@@ -2569,6 +2728,156 @@ export default function Productos() {
             audit_fecha_hasta: filtrosAuditoria.fecha_hasta
           }}
         />
+      )}
+
+      {/* Barra de acciones flotante para selección múltiple */}
+      {productosSeleccionados.size > 0 && (
+        <div style={{
+          position: 'fixed',
+          bottom: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: '#2563eb',
+          color: 'white',
+          padding: '15px 25px',
+          borderRadius: '8px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '15px'
+        }}>
+          <span style={{ fontWeight: 'bold' }}>
+            {productosSeleccionados.size} producto{productosSeleccionados.size !== 1 ? 's' : ''} seleccionado{productosSeleccionados.size !== 1 ? 's' : ''}
+          </span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {COLORES_DISPONIBLES.map(c => (
+              <button
+                key={c.id}
+                onClick={() => pintarLote(c.id)}
+                style={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '4px',
+                  border: '2px solid white',
+                  backgroundColor: c.color || '#f3f4f6',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                title={c.nombre}
+              >
+                {!c.id && '✕'}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={limpiarSeleccion}
+            style={{
+              backgroundColor: '#dc2626',
+              color: 'white',
+              border: 'none',
+              padding: '8px 15px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontWeight: 'bold'
+            }}
+          >
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {/* Modal de configuración individual */}
+      {mostrarModalConfig && productoConfig && (
+        <div className="shortcuts-modal-overlay" onClick={() => setMostrarModalConfig(false)}>
+          <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="shortcuts-header">
+              <h2>⚙️ Configuración de Cuotas</h2>
+              <button onClick={() => setMostrarModalConfig(false)} className="close-btn">✕</button>
+            </div>
+            <div style={{ padding: '20px' }}>
+              <h3 style={{ marginBottom: '10px' }}>{productoConfig.descripcion}</h3>
+              <p style={{ color: '#666', marginBottom: '20px', fontSize: '14px' }}>
+                Código: {productoConfig.codigo} | Marca: {productoConfig.marca}
+              </p>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>
+                  Recalcular cuotas automáticamente:
+                </label>
+                <select
+                  value={configTemp.recalcular_cuotas_auto === null ? 'null' : configTemp.recalcular_cuotas_auto.toString()}
+                  onChange={(e) => setConfigTemp({ ...configTemp, recalcular_cuotas_auto: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    border: '1px solid #d1d5db'
+                  }}
+                >
+                  <option value="null">Usar configuración global ({recalcularCuotasAuto ? 'Sí' : 'No'})</option>
+                  <option value="true">Siempre recalcular</option>
+                  <option value="false">Nunca recalcular</option>
+                </select>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>
+                  Markup adicional para cuotas (%):
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={configTemp.markup_adicional_cuotas_custom}
+                  onChange={(e) => setConfigTemp({ ...configTemp, markup_adicional_cuotas_custom: e.target.value })}
+                  placeholder="Dejar vacío para usar global (4%)"
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    border: '1px solid #d1d5db'
+                  }}
+                />
+                <p style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                  Dejar vacío para usar la configuración global
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setMostrarModalConfig(false)}
+                  style={{
+                    padding: '10px 20px',
+                    borderRadius: '4px',
+                    border: '1px solid #d1d5db',
+                    backgroundColor: 'white',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={guardarConfigIndividual}
+                  style={{
+                    padding: '10px 20px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: '#2563eb',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  Guardar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal de ayuda de shortcuts */}
