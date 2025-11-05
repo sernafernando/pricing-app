@@ -36,7 +36,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
       const response = await axios.get('https://pricing.gaussonline.com.ar/api/tipo-cambio/actual', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setFormData(prev => ({ ...prev, tipoCambio: response.data.compra.toString() }));
+      setFormData(prev => ({ ...prev, tipoCambio: response.data.venta.toString() }));
     } catch (error) {
       console.error('Error cargando tipo de cambio:', error);
     }
