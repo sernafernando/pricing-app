@@ -1659,8 +1659,8 @@ async def actualizar_config_cuotas_producto(
 
 @router.patch("/productos/lote/color")
 async def actualizar_color_lote(
-    item_ids: List[int],
-    color: Optional[str] = None,
+    item_ids: List[int] = Body(..., embed=True),
+    color: Optional[str] = Body(None, embed=True),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
