@@ -7,6 +7,8 @@ export default function PanelComisiones() {
   const [comisionesCalculadas, setComisionesCalculadas] = useState([]);
   const [versiones, setVersiones] = useState([]);
   const [mostrarFormNuevaVersion, setMostrarFormNuevaVersion] = useState(false);
+  const [versionSeleccionada, setVersionSeleccionada] = useState(null);
+  const [mostrarDetalleVersion, setMostrarDetalleVersion] = useState(false);
   const [cargando, setCargando] = useState(false);
 
   // Estado para nueva versión
@@ -107,30 +109,125 @@ export default function PanelComisiones() {
     return (base + adicional).toFixed(2);
   };
 
-  const guardarNuevaVersion = async () => {
-    if (!nuevaVersion.nombre.trim()) {
-      alert('Debe ingresar un nombre para la nueva versión');
+  const verDetalleVersion = async (version) => {
+    setVersionSeleccionada(version);
+    setMostrarDetalleVersion(true);
+  };
+
+  const calcularMatrizVersion = (version) => {
+    const adicionales = {};
+    version.adicionales_cuota.forEach(ac => {
+      adicionales[ac.cuotas] = ac.adicional;
+    });
+
+    return version.comisiones_base.map(cb => ({
+      grupo_id: cb.grupo_id,
+      lista_4: cb.comision_base,
+      lista_3_cuotas: cb.comision_base + (adicionales[3] || 0),
+      lista_6_cuotas: cb.comision_base + (adicionales[6] || 0),
+      lista_9_cuotas: cb.comision_base + (adicionales[9] || 0),
+      lista_12_cuotas: cb.comision_base + (adicionales[12] || 0)
+    }));
+  };
+
+  const editarVersion = (version) => {
+    // Cargar datos de la versión en el formulario
+    setNuevaVersion({
+      nombre: version.nombre,
+      descripcion: version.descripcion || '',
+      fecha_desde: version.fecha_desde,
+      comisiones_base: version.comisiones_base.map(cb => ({
+        grupo_id: cb.grupo_id,
+        comision_base: cb.comision_base
+      })),
+      adicionales_cuota: version.adicionales_cuota.map(ac => ({
+        cuotas: ac.cuotas,
+        adicional: ac.adicional
+      }))
+    });
+    setMostrarDetalleVersion(false);
+    setMostrarFormNuevaVersion(true);
+    // Guardar el ID para actualizar en lugar de crear
+    setVersionSeleccionada(version);
+  };
+
+  const eliminarVersion = async (version) => {
+    const motivo = prompt('Ingrese el motivo de la eliminación (mínimo 10 caracteres):');
+
+    if (!motivo || motivo.trim().length < 10) {
+      alert('El motivo debe tener al menos 10 caracteres');
       return;
     }
 
-    if (!confirm('¿Confirmar creación de nueva versión de comisiones?\n\nEsto cerrará la versión actual y activará la nueva.')) {
+    if (!confirm(`¿Confirmar eliminación de la versión "${version.nombre}"?\n\nEsto reactivará la versión anterior.`)) {
       return;
     }
 
     setCargando(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.post(
-        'https://pricing.gaussonline.com.ar/api/comisiones/nueva-version',
-        nuevaVersion,
-        { headers: { Authorization: `Bearer ${token}` } }
+      await axios.delete(
+        `https://pricing.gaussonline.com.ar/api/comisiones/version/${version.id}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { motivo: motivo.trim() }
+        }
       );
 
-      alert('✅ Nueva versión de comisiones creada exitosamente');
-      setMostrarFormNuevaVersion(false);
+      alert('✅ Versión eliminada correctamente');
+      setMostrarDetalleVersion(false);
       cargarDatos();
     } catch (error) {
-      console.error('Error al crear versión:', error);
+      console.error('Error al eliminar versión:', error);
+      alert('❌ Error: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const guardarNuevaVersion = async () => {
+    if (!nuevaVersion.nombre.trim()) {
+      alert('Debe ingresar un nombre para la nueva versión');
+      return;
+    }
+
+    const esEdicion = versionSeleccionada && versionSeleccionada.activo;
+
+    if (!esEdicion && !confirm('¿Confirmar creación de nueva versión de comisiones?\n\nEsto cerrará la versión actual y activará la nueva.')) {
+      return;
+    }
+
+    if (esEdicion && !confirm('¿Confirmar actualización de la versión actual?')) {
+      return;
+    }
+
+    setCargando(true);
+    try {
+      const token = localStorage.getItem('token');
+
+      if (esEdicion) {
+        // Actualizar versión existente
+        await axios.patch(
+          `https://pricing.gaussonline.com.ar/api/comisiones/version/${versionSeleccionada.id}`,
+          nuevaVersion,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        alert('✅ Versión actualizada exitosamente');
+      } else {
+        // Crear nueva versión
+        await axios.post(
+          'https://pricing.gaussonline.com.ar/api/comisiones/nueva-version',
+          nuevaVersion,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        alert('✅ Nueva versión de comisiones creada exitosamente');
+      }
+
+      setMostrarFormNuevaVersion(false);
+      setVersionSeleccionada(null);
+      cargarDatos();
+    } catch (error) {
+      console.error('Error al guardar versión:', error);
       alert('❌ Error: ' + (error.response?.data?.detail || error.message));
     } finally {
       setCargando(false);
@@ -201,7 +298,7 @@ export default function PanelComisiones() {
         <div className="modal-overlay" onClick={() => setMostrarFormNuevaVersion(false)}>
           <div className="modal-comisiones" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Nueva Versión de Comisiones</h2>
+              <h2>{versionSeleccionada && versionSeleccionada.activo ? 'Editar Versión de Comisiones' : 'Nueva Versión de Comisiones'}</h2>
               <button onClick={() => setMostrarFormNuevaVersion(false)} className="close-btn">✕</button>
             </div>
 
@@ -308,7 +405,11 @@ export default function PanelComisiones() {
           <h3>Historial de Versiones</h3>
           <div className="versiones-list">
             {versiones.map(v => (
-              <div key={v.id} className={`version-item ${v.activo ? 'activa' : ''}`}>
+              <div
+                key={v.id}
+                className={`version-item ${v.activo ? 'activa' : ''}`}
+                onClick={() => verDetalleVersion(v)}
+              >
                 <div className="version-nombre">{v.nombre}</div>
                 <div className="version-fechas">
                   {new Date(v.fecha_desde).toLocaleDateString('es-AR')} -
@@ -317,6 +418,88 @@ export default function PanelComisiones() {
                 {v.descripcion && <div className="version-desc">{v.descripcion}</div>}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Modal para ver detalle de versión histórica */}
+      {mostrarDetalleVersion && versionSeleccionada && (
+        <div className="modal-overlay" onClick={() => setMostrarDetalleVersion(false)}>
+          <div className="modal-comisiones" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{versionSeleccionada.nombre}</h2>
+              <button onClick={() => setMostrarDetalleVersion(false)} className="close-btn">✕</button>
+            </div>
+
+            <div className="modal-body">
+              <div className="version-info" style={{ marginBottom: '24px' }}>
+                <div><strong>Vigencia:</strong> {new Date(versionSeleccionada.fecha_desde).toLocaleDateString('es-AR')} - {versionSeleccionada.fecha_hasta ? new Date(versionSeleccionada.fecha_hasta).toLocaleDateString('es-AR') : 'Actualidad'}</div>
+                {versionSeleccionada.descripcion && <div><strong>Descripción:</strong> {versionSeleccionada.descripcion}</div>}
+              </div>
+
+              <div className="adicionales-section">
+                <h4>Adicionales por Cuota</h4>
+                <div className="adicionales-grid">
+                  {versionSeleccionada.adicionales_cuota.map(ac => (
+                    <div key={ac.cuotas} className="adicional-readonly">
+                      <strong>{ac.cuotas} Cuotas:</strong> <span>{ac.adicional}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="tabla-comisiones-wrapper">
+                <h4>Matriz de Comisiones</h4>
+                <table className="tabla-comisiones">
+                  <thead>
+                    <tr>
+                      <th>Grupo</th>
+                      <th>Lista 4 (Base)</th>
+                      <th>3 Cuotas</th>
+                      <th>6 Cuotas</th>
+                      <th>9 Cuotas</th>
+                      <th>12 Cuotas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calcularMatrizVersion(versionSeleccionada).map(row => (
+                      <tr key={row.grupo_id}>
+                        <td className="grupo-cell">Grupo {row.grupo_id}</td>
+                        <td>{row.lista_4.toFixed(2)}%</td>
+                        <td>{row.lista_3_cuotas.toFixed(2)}%</td>
+                        <td>{row.lista_6_cuotas.toFixed(2)}%</td>
+                        <td>{row.lista_9_cuotas.toFixed(2)}%</td>
+                        <td>{row.lista_12_cuotas.toFixed(2)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              {versionSeleccionada.activo && (
+                <>
+                  <button
+                    onClick={() => editarVersion(versionSeleccionada)}
+                    className="btn-primary"
+                    disabled={cargando}
+                  >
+                    ✏️ Editar
+                  </button>
+                  <button
+                    onClick={() => eliminarVersion(versionSeleccionada)}
+                    className="btn-danger"
+                    disabled={cargando}
+                  >
+                    🗑️ Eliminar
+                  </button>
+                </>
+              )}
+              <button onClick={() => setMostrarDetalleVersion(false)} className="btn-secondary">
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

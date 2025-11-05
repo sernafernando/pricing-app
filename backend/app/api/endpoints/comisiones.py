@@ -306,6 +306,161 @@ async def crear_nueva_version_comisiones(
     )
 
 
+@router.patch("/comisiones/version/{version_id}")
+async def actualizar_version_comisiones(
+    version_id: int,
+    data: ComisionVersionCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Actualiza una versión existente de comisiones.
+    Solo se puede editar si es la versión activa actual.
+    """
+    # Verificar permisos
+    if current_user.rol not in ['ADMIN', 'SUPERADMIN']:
+        raise HTTPException(403, "No tienes permisos para editar versiones de comisiones")
+
+    # Obtener versión
+    version = db.query(ComisionVersion).filter(ComisionVersion.id == version_id).first()
+    if not version:
+        raise HTTPException(404, "Versión no encontrada")
+
+    # Solo se puede editar si es la versión activa
+    if not version.activo or version.fecha_hasta is not None:
+        raise HTTPException(400, "Solo se puede editar la versión activa actual")
+
+    # Validar datos
+    if len(data.comisiones_base) != 13:
+        raise HTTPException(400, "Deben especificarse comisiones base para los 13 grupos")
+
+    if len(data.adicionales_cuota) != 4:
+        raise HTTPException(400, "Deben especificarse 4 adicionales (3, 6, 9, 12 cuotas)")
+
+    cuotas_especificadas = {ac.cuotas for ac in data.adicionales_cuota}
+    if cuotas_especificadas != {3, 6, 9, 12}:
+        raise HTTPException(400, "Los adicionales deben ser para 3, 6, 9 y 12 cuotas")
+
+    # Actualizar metadatos
+    version.nombre = data.nombre
+    version.descripcion = data.descripcion
+    version.fecha_desde = data.fecha_desde
+
+    # Eliminar comisiones antiguas
+    db.query(ComisionBase).filter(ComisionBase.version_id == version_id).delete()
+    db.query(ComisionAdicionalCuota).filter(ComisionAdicionalCuota.version_id == version_id).delete()
+
+    # Crear nuevas comisiones
+    for cb_data in data.comisiones_base:
+        cb = ComisionBase(
+            version_id=version_id,
+            grupo_id=cb_data.grupo_id,
+            comision_base=cb_data.comision_base
+        )
+        db.add(cb)
+
+    for ac_data in data.adicionales_cuota:
+        ac = ComisionAdicionalCuota(
+            version_id=version_id,
+            cuotas=ac_data.cuotas,
+            adicional=ac_data.adicional
+        )
+        db.add(ac)
+
+    db.commit()
+    db.refresh(version)
+
+    # Preparar respuesta
+    comisiones_base = [
+        ComisionBaseResponse(grupo_id=cb.grupo_id, comision_base=float(cb.comision_base))
+        for cb in version.comisiones_base
+    ]
+    adicionales = [
+        ComisionAdicionalResponse(cuotas=ac.cuotas, adicional=float(ac.adicional))
+        for ac in version.adicionales_cuota
+    ]
+
+    return ComisionVersionResponse(
+        id=version.id,
+        nombre=version.nombre,
+        descripcion=version.descripcion,
+        fecha_desde=version.fecha_desde,
+        fecha_hasta=version.fecha_hasta,
+        activo=version.activo,
+        comisiones_base=comisiones_base,
+        adicionales_cuota=adicionales
+    )
+
+
+class EliminarVersionRequest(BaseModel):
+    motivo: str = Field(min_length=10, max_length=500)
+
+
+@router.delete("/comisiones/version/{version_id}")
+async def eliminar_version_comisiones(
+    version_id: int,
+    request: EliminarVersionRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Elimina una versión de comisiones.
+    Solo se puede eliminar si es la última versión creada y está activa.
+    Requiere motivo para auditoría.
+    """
+    # Verificar permisos
+    if current_user.rol not in ['ADMIN', 'SUPERADMIN']:
+        raise HTTPException(403, "No tienes permisos para eliminar versiones de comisiones")
+
+    # Obtener versión
+    version = db.query(ComisionVersion).filter(ComisionVersion.id == version_id).first()
+    if not version:
+        raise HTTPException(404, "Versión no encontrada")
+
+    # Verificar que sea la última versión creada
+    ultima_version = db.query(ComisionVersion).order_by(
+        ComisionVersion.fecha_creacion.desc()
+    ).first()
+
+    if version.id != ultima_version.id:
+        raise HTTPException(400, "Solo se puede eliminar la última versión creada")
+
+    # Verificar que esté activa
+    if not version.activo:
+        raise HTTPException(400, "Solo se puede eliminar una versión activa")
+
+    # Obtener versión anterior para reactivarla
+    version_anterior = db.query(ComisionVersion).filter(
+        ComisionVersion.id != version_id,
+        ComisionVersion.fecha_hasta.isnot(None)
+    ).order_by(ComisionVersion.fecha_desde.desc()).first()
+
+    # Registrar en auditoría (usando el campo de descripción como log)
+    from datetime import datetime
+    log_eliminacion = f"[ELIMINADA {datetime.now().isoformat()}] Usuario: {current_user.email} | Motivo: {request.motivo}"
+    version.descripcion = (version.descripcion or "") + "\n" + log_eliminacion
+
+    # Guardar antes de eliminar (para tener el log)
+    db.commit()
+
+    # Reactivar versión anterior
+    if version_anterior:
+        version_anterior.fecha_hasta = None
+        version_anterior.activo = True
+
+    # Eliminar versión (cascade eliminará comisiones_base y adicionales_cuota)
+    db.delete(version)
+    db.commit()
+
+    return {
+        "mensaje": "Versión eliminada correctamente",
+        "version_reactivada": {
+            "id": version_anterior.id,
+            "nombre": version_anterior.nombre
+        } if version_anterior else None
+    }
+
+
 @router.get("/comisiones/grupos")
 async def listar_grupos(
     db: Session = Depends(get_db),
