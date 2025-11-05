@@ -1692,6 +1692,8 @@ async def obtener_detalle_producto(
 ):
     """Obtiene información detallada completa de un producto"""
     from app.models.publicacion_ml import PublicacionML
+    from app.services.pricing_calculator import obtener_tipo_cambio_actual, obtener_comision_base, obtener_grupo_subcategoria
+    from sqlalchemy import text
 
     # Producto base
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
@@ -1705,16 +1707,25 @@ async def obtener_detalle_producto(
     publicaciones = db.query(PublicacionML).filter(PublicacionML.item_id == item_id).all()
 
     # Obtener tipo de cambio
-    from app.services.pricing_calculator import obtener_tipo_cambio_actual
     tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
 
+    # Costo en ARS
+    costo_ars = float(producto.costo) * tipo_cambio if producto.moneda_costo == "USD" and tipo_cambio else float(producto.costo)
+
     # Obtener comisión ML para lista clásica
-    from app.services.pricing_calculator import obtener_comision_base, obtener_grupo_subcategoria
     grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
     comision_clasica = obtener_comision_base(db, 1, grupo_id) if grupo_id else None
 
     # Costo de envío
     costo_envio = float(producto.envio) if producto.envio else 0.0
+
+    # Obtener todos los precios de ML (incluye rebate, cuotas, etc)
+    precios_ml = db.execute(
+        text("SELECT pricelist_id, precio FROM precios_ml WHERE item_id = :item_id"),
+        {"item_id": item_id}
+    ).fetchall()
+
+    precios_dict = {row[0]: float(row[1]) if row[1] else None for row in precios_ml}
 
     return {
         "producto": {
@@ -1727,34 +1738,31 @@ async def obtener_detalle_producto(
             "stock": producto.stock,
             "moneda_costo": producto.moneda_costo,
             "costo": float(producto.costo),
-            "costo_ars": float(producto.costo) * tipo_cambio if producto.moneda_costo == "USD" and tipo_cambio else float(producto.costo),
+            "costo_ars": costo_ars,
             "iva": float(producto.iva),
             "costo_envio": costo_envio,
             "tipo_cambio_usado": tipo_cambio
         },
         "pricing": {
             "precio_lista_ml": float(pricing.precio_lista_ml) if pricing and pricing.precio_lista_ml else None,
-            "markup": float(pricing.markup) if pricing and pricing.markup else None,
+            "markup": float(pricing.markup_calculado) if pricing and pricing.markup_calculado else None,
             "comision_ml_porcentaje": comision_clasica,
             "participa_rebate": pricing.participa_rebate if pricing else False,
             "porcentaje_rebate": float(pricing.porcentaje_rebate) if pricing and pricing.porcentaje_rebate else None,
-            "precio_rebate": float(pricing.precio_rebate) if pricing and pricing.precio_rebate else None,
-            "markup_rebate": float(pricing.markup_rebate) if pricing and pricing.markup_rebate else None,
+            "precio_rebate": precios_dict.get(4),  # pricelist_id 4 = rebate
+            "out_of_cards": pricing.out_of_cards if pricing else False,
             "participa_web_transferencia": pricing.participa_web_transferencia if pricing else False,
             "porcentaje_markup_web": float(pricing.porcentaje_markup_web) if pricing and pricing.porcentaje_markup_web else None,
             "precio_web_transferencia": float(pricing.precio_web_transferencia) if pricing and pricing.precio_web_transferencia else None,
             "markup_web_real": float(pricing.markup_web_real) if pricing and pricing.markup_web_real else None,
             "precio_3_cuotas": float(pricing.precio_3_cuotas) if pricing and pricing.precio_3_cuotas else None,
-            "markup_3_cuotas": float(pricing.markup_3_cuotas) if pricing and pricing.markup_3_cuotas else None,
             "precio_6_cuotas": float(pricing.precio_6_cuotas) if pricing and pricing.precio_6_cuotas else None,
-            "markup_6_cuotas": float(pricing.markup_6_cuotas) if pricing and pricing.markup_6_cuotas else None,
             "precio_9_cuotas": float(pricing.precio_9_cuotas) if pricing and pricing.precio_9_cuotas else None,
-            "markup_9_cuotas": float(pricing.markup_9_cuotas) if pricing and pricing.markup_9_cuotas else None,
             "precio_12_cuotas": float(pricing.precio_12_cuotas) if pricing and pricing.precio_12_cuotas else None,
-            "markup_12_cuotas": float(pricing.markup_12_cuotas) if pricing and pricing.markup_12_cuotas else None,
             "usuario_modifico": pricing.usuario.nombre if pricing and pricing.usuario else None,
             "fecha_modificacion": pricing.fecha_modificacion if pricing else None
         },
+        "precios_ml": precios_dict,
         "publicaciones_ml": [
             {
                 "mla": pub.mla,
