@@ -1657,37 +1657,18 @@ async def actualizar_config_cuotas_producto(
         "markup_adicional_cuotas_custom": float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing.markup_adicional_cuotas_custom else None
     }
 
-class ActualizarColorLoteRequest(BaseModel):
-    item_ids: List[int]
-    color: Optional[str] = None
-
 @router.patch("/productos/lote/color")
 async def actualizar_color_lote(
-    request: Request,
+    item_ids: List[int],
+    color: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el color de marcado de múltiples productos en lote"""
 
-    # Debug: Ver el raw body
-    raw_body = await request.body()
-    print(f"DEBUG - Raw body: {raw_body}")
-
-    try:
-        import json
-        body_json = json.loads(raw_body)
-        print(f"DEBUG - Parsed JSON: {body_json}")
-
-        # Manual validation
-        body = ActualizarColorLoteRequest(**body_json)
-        print(f"DEBUG - Body validado: {body}")
-        print(f"DEBUG - item_ids: {body.item_ids}, color: {body.color}")
-    except Exception as e:
-        print(f"DEBUG - Error al parsear: {type(e).__name__}: {str(e)}")
-        raise HTTPException(status_code=422, detail=f"Error de validación: {str(e)}")
-
-    item_ids = body.item_ids
-    color = body.color
+    print(f"DEBUG - Endpoint alcanzado!")
+    print(f"DEBUG - item_ids recibidos: {item_ids}")
+    print(f"DEBUG - color recibido: {color}")
 
     if not item_ids:
         raise HTTPException(status_code=400, detail="Debe proporcionar al menos un item_id")
