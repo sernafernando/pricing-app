@@ -67,14 +67,14 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     // Calcular comisión base ML (dividido por 1.21)
     const comisionBase = (precioFinal * (comisionML / 100)) / 1.21;
 
-    // Calcular tier según el monto
+    // Calcular tier según el monto (valores actualizados Nov 2024)
     let tier = 0;
     if (precioFinal < 15000) {
-      tier = 1095 / 1.21;
+      tier = 1115 / 1.21;
     } else if (precioFinal < 24000) {
-      tier = 2190 / 1.21;
+      tier = 2300 / 1.21;
     } else if (precioFinal < 33000) {
-      tier = 2628 / 1.21;
+      tier = 2810 / 1.21;
     }
 
     // Comisión con tier (si el precio >= 33000 no hay tier)
