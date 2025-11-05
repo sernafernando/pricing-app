@@ -437,17 +437,6 @@ export default function Admin() {
 	  	</div>	
     	  
 
-      {/* Sección Comisiones */}
-      <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Comisiones y Tiers</h2>
-        <p className={styles.description}>
-          Configuración de comisiones por lista y grupo de productos (próximamente).
-        </p>
-        <button className={styles.secondaryButton} disabled>
-          Gestionar Comisiones
-        </button>
-      </div>
-
      {/* Sección Usuarios */}
       <div className={styles.section}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
