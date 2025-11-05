@@ -149,6 +149,26 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     }
   };
 
+  const limpiarFormulario = () => {
+    setFormData({
+      costo: '',
+      monedaCosto: 'USD',
+      iva: '21',
+      comisionML: '',
+      costoEnvio: '0',
+      precioFinal: '',
+      tipoCambio: formData.tipoCambio // Mantener el tipo de cambio
+    });
+    setResultados({
+      costoARS: '0.00',
+      comisionTotal: '0.00',
+      limpio: '0.00',
+      markupPorcentaje: '0.00'
+    });
+    setDescripcion('');
+    setEan('');
+  };
+
   const handleKeyDown = (e) => {
     if (e.key === 'Escape') {
       onClose();
@@ -166,7 +186,12 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
       <div className="modal-calculadora" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Calculadora de Pricing</h2>
-          <button onClick={onClose} className="close-btn">✕</button>
+          <div className="header-buttons">
+            <button onClick={limpiarFormulario} className="clear-btn" title="Limpiar campos">
+              🗑️ Limpiar
+            </button>
+            <button onClick={onClose} className="close-btn">✕</button>
+          </div>
         </div>
 
         <div className="modal-body">
