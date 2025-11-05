@@ -480,6 +480,10 @@ async def listar_productos(
                                 VARIOS_DEFAULT,
                                 db=db
                             )
+
+                            if producto_erp.item_id == 30 and nombre_cuota == '3_cuotas':
+                                print(f"DEBUG item 30, comisiones desglose: base={comisiones_cuota['comision_base']:.2f}, tier={comisiones_cuota['tier']:.2f}, varios={comisiones_cuota['comision_varios']:.2f}, total={comisiones_cuota['comision_total']:.2f}")
+
                             limpio_cuota = calcular_limpio(
                                 float(precio_cuota),
                                 producto_erp.iva,
