@@ -463,6 +463,10 @@ async def listar_productos(
             mejor_oferta_fecha_hasta=mejor_oferta_fecha_hasta,
             out_of_cards=producto_pricing.out_of_cards if producto_pricing else False,
             color_marcado=producto_pricing.color_marcado if producto_pricing else None,
+            precio_3_cuotas=float(producto_pricing.precio_3_cuotas) if producto_pricing and producto_pricing.precio_3_cuotas else None,
+            precio_6_cuotas=float(producto_pricing.precio_6_cuotas) if producto_pricing and producto_pricing.precio_6_cuotas else None,
+            precio_9_cuotas=float(producto_pricing.precio_9_cuotas) if producto_pricing and producto_pricing.precio_9_cuotas else None,
+            precio_12_cuotas=float(producto_pricing.precio_12_cuotas) if producto_pricing and producto_pricing.precio_12_cuotas else None,
         )
 
         # Aplicar filtros dinámicos
