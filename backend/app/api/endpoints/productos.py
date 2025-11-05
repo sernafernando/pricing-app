@@ -52,6 +52,10 @@ class ProductoResponse(BaseModel):
     precio_6_cuotas: Optional[float] = None
     precio_9_cuotas: Optional[float] = None
     precio_12_cuotas: Optional[float] = None
+    markup_3_cuotas: Optional[float] = None
+    markup_6_cuotas: Optional[float] = None
+    markup_9_cuotas: Optional[float] = None
+    markup_12_cuotas: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -429,6 +433,53 @@ async def listar_productos(
             mejor_oferta_monto = None  # No hay monto de rebate en este caso
             mejor_oferta_fecha_hasta = None  # No aplica fecha para rebate
 
+        # Calcular markups para precios de cuotas
+        markup_3_cuotas = None
+        markup_6_cuotas = None
+        markup_9_cuotas = None
+        markup_12_cuotas = None
+
+        cuotas_config = {
+            '3_cuotas': (producto_pricing.precio_3_cuotas if producto_pricing else None, 17),
+            '6_cuotas': (producto_pricing.precio_6_cuotas if producto_pricing else None, 14),
+            '9_cuotas': (producto_pricing.precio_9_cuotas if producto_pricing else None, 13),
+            '12_cuotas': (producto_pricing.precio_12_cuotas if producto_pricing else None, 23)
+        }
+
+        for nombre_cuota, (precio_cuota, pricelist_id) in cuotas_config.items():
+            if precio_cuota and precio_cuota > 0:
+                tipo_cambio_cuota = None
+                if producto_erp.moneda_costo == "USD":
+                    tipo_cambio_cuota = obtener_tipo_cambio_actual(db, "USD")
+
+                costo_cuota = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota)
+                grupo_id_cuota = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+                comision_base_cuota = obtener_comision_base(db, pricelist_id, grupo_id_cuota)
+
+                if comision_base_cuota:
+                    comisiones_cuota = calcular_comision_ml_total(
+                        precio_cuota,
+                        comision_base_cuota,
+                        producto_erp.iva,
+                        VARIOS_DEFAULT
+                    )
+                    limpio_cuota = calcular_limpio(
+                        precio_cuota,
+                        producto_erp.iva,
+                        producto_erp.envio or 0,
+                        comisiones_cuota["comision_total"]
+                    )
+                    markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
+
+                    if nombre_cuota == '3_cuotas':
+                        markup_3_cuotas = markup_calculado
+                    elif nombre_cuota == '6_cuotas':
+                        markup_6_cuotas = markup_calculado
+                    elif nombre_cuota == '9_cuotas':
+                        markup_9_cuotas = markup_calculado
+                    elif nombre_cuota == '12_cuotas':
+                        markup_12_cuotas = markup_calculado
+
         producto_obj = ProductoResponse(
             item_id=producto_erp.item_id,
             codigo=producto_erp.codigo,
@@ -467,6 +518,10 @@ async def listar_productos(
             precio_6_cuotas=float(producto_pricing.precio_6_cuotas) if producto_pricing and producto_pricing.precio_6_cuotas else None,
             precio_9_cuotas=float(producto_pricing.precio_9_cuotas) if producto_pricing and producto_pricing.precio_9_cuotas else None,
             precio_12_cuotas=float(producto_pricing.precio_12_cuotas) if producto_pricing and producto_pricing.precio_12_cuotas else None,
+            markup_3_cuotas=markup_3_cuotas,
+            markup_6_cuotas=markup_6_cuotas,
+            markup_9_cuotas=markup_9_cuotas,
+            markup_12_cuotas=markup_12_cuotas,
         )
 
         # Aplicar filtros dinámicos

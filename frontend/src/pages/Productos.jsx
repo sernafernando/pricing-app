@@ -2145,10 +2145,46 @@ export default function Productos() {
                     ) : (
                       /* Vista Cuotas: 3, 6, 9, 12 cuotas */
                       <>
-                        <td>{p.precio_3_cuotas ? `$${p.precio_3_cuotas.toLocaleString('es-AR')}` : '-'}</td>
-                        <td>{p.precio_6_cuotas ? `$${p.precio_6_cuotas.toLocaleString('es-AR')}` : '-'}</td>
-                        <td>{p.precio_9_cuotas ? `$${p.precio_9_cuotas.toLocaleString('es-AR')}` : '-'}</td>
-                        <td>{p.precio_12_cuotas ? `$${p.precio_12_cuotas.toLocaleString('es-AR')}` : '-'}</td>
+                        <td>
+                          <div>
+                            <div>{p.precio_3_cuotas ? `$${p.precio_3_cuotas.toLocaleString('es-AR')}` : '-'}</div>
+                            {p.markup_3_cuotas !== null && p.markup_3_cuotas !== undefined && (
+                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_3_cuotas) }}>
+                                {p.markup_3_cuotas.toFixed(2)}%
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div>
+                            <div>{p.precio_6_cuotas ? `$${p.precio_6_cuotas.toLocaleString('es-AR')}` : '-'}</div>
+                            {p.markup_6_cuotas !== null && p.markup_6_cuotas !== undefined && (
+                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_6_cuotas) }}>
+                                {p.markup_6_cuotas.toFixed(2)}%
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div>
+                            <div>{p.precio_9_cuotas ? `$${p.precio_9_cuotas.toLocaleString('es-AR')}` : '-'}</div>
+                            {p.markup_9_cuotas !== null && p.markup_9_cuotas !== undefined && (
+                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_9_cuotas) }}>
+                                {p.markup_9_cuotas.toFixed(2)}%
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div>
+                            <div>{p.precio_12_cuotas ? `$${p.precio_12_cuotas.toLocaleString('es-AR')}` : '-'}</div>
+                            {p.markup_12_cuotas !== null && p.markup_12_cuotas !== undefined && (
+                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_12_cuotas) }}>
+                                {p.markup_12_cuotas.toFixed(2)}%
+                              </div>
+                            )}
+                          </div>
+                        </td>
                       </>
                     )}
 
