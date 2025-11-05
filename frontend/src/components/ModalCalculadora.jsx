@@ -62,10 +62,27 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     // Calcular precio sin IVA
     const precioSinIva = precioFinal / (1 + iva / 100);
 
-    // Calcular comisión total de ML (sobre precio sin IVA)
-    const baseComision = precioSinIva * (comisionML / 100);
-    const ivaComision = baseComision * (iva / 100);
-    const comisionTotal = baseComision + ivaComision;
+    // Calcular comisión base ML (dividido por 1.21)
+    const comisionBase = (precioFinal * (comisionML / 100)) / 1.21;
+
+    // Calcular tier según el monto
+    let tier = 0;
+    if (precioFinal < 15000) {
+      tier = 1095 / 1.21;
+    } else if (precioFinal < 24000) {
+      tier = 2190 / 1.21;
+    } else if (precioFinal < 33000) {
+      tier = 2628 / 1.21;
+    }
+
+    // Comisión con tier (si el precio >= 33000 no hay tier)
+    const comisionConTier = precioFinal >= 33000 ? comisionBase : comisionBase + tier;
+
+    // Calcular varios (6.5% sobre precio sin IVA)
+    const comisionVarios = precioSinIva * 0.065;
+
+    // Comisión total
+    const comisionTotal = comisionConTier + comisionVarios;
 
     // Calcular envío sin IVA (solo si el precio es >= 33000)
     const envioSinIva = precioFinal >= 33000 ? (costoEnvio / 1.21) : 0;
