@@ -676,3 +676,78 @@ async def setear_precio_rapido(
                     response[nombre_markup] = None
 
     return response
+
+@router.post("/precios/set-cuota")
+async def setear_precio_cuota(
+    item_id: int,
+    tipo_cuota: str = Query(regex="^(3|6|9|12)$"),  # Solo acepta 3, 6, 9 o 12
+    precio: float = Query(gt=0, le=999999999.99),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Setea el precio de un tipo de cuota específico y calcula su markup."""
+
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+    if not producto:
+        raise HTTPException(404, "Producto no encontrado")
+
+    # Mapeo de tipo_cuota a campo en la base de datos
+    campo_precio = f"precio_{tipo_cuota}_cuotas"
+    campo_markup = f"markup_{tipo_cuota}_cuotas"
+
+    # Mapeo de tipo_cuota a pricelist_id
+    pricelist_map = {
+        '3': 17,
+        '6': 14,
+        '9': 13,
+        '12': 23
+    }
+    pricelist_id = pricelist_map[tipo_cuota]
+
+    # Obtener TC si es USD
+    tipo_cambio = None
+    if producto.moneda_costo == "USD":
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+
+    # Calcular markup del precio ingresado
+    costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+    grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+    comision_base = obtener_comision_base(db, pricelist_id, grupo_id)
+
+    if not comision_base:
+        raise HTTPException(400, "No hay comisión configurada")
+
+    comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, VARIOS_DEFAULT)
+    limpio = calcular_limpio(precio, producto.iva, producto.envio or 0, comisiones["comision_total"])
+    markup = calcular_markup(limpio, costo_ars)
+    markup_porcentaje = round(markup * 100, 2)
+
+    # Guardar en la base de datos
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+
+    if pricing:
+        # Actualizar el campo correspondiente
+        setattr(pricing, campo_precio, precio)
+        pricing.usuario_id = current_user.id
+        pricing.fecha_modificacion = datetime.now()
+    else:
+        # Crear nuevo registro
+        pricing = ProductoPricing(
+            item_id=item_id,
+            usuario_id=current_user.id,
+            motivo_cambio=f"Edición cuota {tipo_cuota}"
+        )
+        setattr(pricing, campo_precio, precio)
+        db.add(pricing)
+
+    db.commit()
+    db.refresh(pricing)
+
+    return {
+        "item_id": item_id,
+        "tipo_cuota": tipo_cuota,
+        campo_precio: precio,
+        campo_markup: markup_porcentaje,
+        "limpio": round(limpio, 2),
+        "costo_ars": round(costo_ars, 2)
+    }
