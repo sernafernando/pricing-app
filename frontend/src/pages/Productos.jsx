@@ -1150,15 +1150,15 @@ export default function Productos() {
         </div>
         {/* Botones de Acción */}
         <div className="action-buttons-card">
-          {/* Toggle Vista Cuotas */}
+          {/* Toggle Vista Cuotas y Auto-recalcular */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
             gap: '12px',
             padding: '8px 16px',
-            background: vistaModoCuotas ? '#e0f2fe' : '#f3f4f6',
+            background: '#f3f4f6',
             borderRadius: '8px',
-            border: vistaModoCuotas ? '2px solid #0284c7' : '2px solid #d1d5db'
+            border: '2px solid #d1d5db'
           }}>
             <label style={{
               display: 'flex',
@@ -1178,26 +1178,24 @@ export default function Productos() {
               {vistaModoCuotas ? '📊 Vista Cuotas' : '📋 Vista Normal'}
             </label>
 
-            {vistaModoCuotas && (
-              <label style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                cursor: 'pointer',
-                fontSize: '13px',
-                color: '#6b7280',
-                borderLeft: '1px solid #cbd5e1',
-                paddingLeft: '12px'
-              }}>
-                <input
-                  type="checkbox"
-                  checked={recalcularCuotasAuto}
-                  onChange={(e) => setRecalcularCuotasAuto(e.target.checked)}
-                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                />
-                ♻️ Auto-recalcular cuotas
-              </label>
-            )}
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              color: '#6b7280',
+              borderLeft: '1px solid #cbd5e1',
+              paddingLeft: '12px'
+            }}>
+              <input
+                type="checkbox"
+                checked={recalcularCuotasAuto}
+                onChange={(e) => setRecalcularCuotasAuto(e.target.checked)}
+                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              />
+              ♻️ Auto-recalcular
+            </label>
           </div>
 
           <button
@@ -1849,15 +1847,36 @@ export default function Productos() {
                   <th onClick={(e) => handleOrdenar('precio_clasica', e)}>
                     Precio Clásica {getIconoOrden('precio_clasica')} {getNumeroOrden('precio_clasica') && <span>{getNumeroOrden('precio_clasica')}</span>}
                   </th>
-                  <th onClick={(e) => handleOrdenar('precio_rebate', e)}>
-                    Precio Rebate {getIconoOrden('precio_rebate')} {getNumeroOrden('precio_rebate') && <span>{getNumeroOrden('precio_rebate')}</span>}
-                  </th>
-                  <th onClick={(e) => handleOrdenar('mejor_oferta', e)}>
-                    Mejor Oferta {getIconoOrden('mejor_oferta')} {getNumeroOrden('mejor_oferta') && <span>{getNumeroOrden('mejor_oferta')}</span>}
-                  </th>
-                  <th onClick={(e) => handleOrdenar('web_transf', e)}>
-                    Web Transf. {getIconoOrden('web_transf')} {getNumeroOrden('web_transf') && <span>{getNumeroOrden('web_transf')}</span>}
-                  </th>
+
+                  {!vistaModoCuotas ? (
+                    <>
+                      <th onClick={(e) => handleOrdenar('precio_rebate', e)}>
+                        Precio Rebate {getIconoOrden('precio_rebate')} {getNumeroOrden('precio_rebate') && <span>{getNumeroOrden('precio_rebate')}</span>}
+                      </th>
+                      <th onClick={(e) => handleOrdenar('mejor_oferta', e)}>
+                        Mejor Oferta {getIconoOrden('mejor_oferta')} {getNumeroOrden('mejor_oferta') && <span>{getNumeroOrden('mejor_oferta')}</span>}
+                      </th>
+                      <th onClick={(e) => handleOrdenar('web_transf', e)}>
+                        Web Transf. {getIconoOrden('web_transf')} {getNumeroOrden('web_transf') && <span>{getNumeroOrden('web_transf')}</span>}
+                      </th>
+                    </>
+                  ) : (
+                    <>
+                      <th onClick={(e) => handleOrdenar('precio_3_cuotas', e)}>
+                        3 Cuotas {getIconoOrden('precio_3_cuotas')} {getNumeroOrden('precio_3_cuotas') && <span>{getNumeroOrden('precio_3_cuotas')}</span>}
+                      </th>
+                      <th onClick={(e) => handleOrdenar('precio_6_cuotas', e)}>
+                        6 Cuotas {getIconoOrden('precio_6_cuotas')} {getNumeroOrden('precio_6_cuotas') && <span>{getNumeroOrden('precio_6_cuotas')}</span>}
+                      </th>
+                      <th onClick={(e) => handleOrdenar('precio_9_cuotas', e)}>
+                        9 Cuotas {getIconoOrden('precio_9_cuotas')} {getNumeroOrden('precio_9_cuotas') && <span>{getNumeroOrden('precio_9_cuotas')}</span>}
+                      </th>
+                      <th onClick={(e) => handleOrdenar('precio_12_cuotas', e)}>
+                        12 Cuotas {getIconoOrden('precio_12_cuotas')} {getNumeroOrden('precio_12_cuotas') && <span>{getNumeroOrden('precio_12_cuotas')}</span>}
+                      </th>
+                    </>
+                  )}
+
                   <th>Acciones</th>
                 </tr>
               </thead>
