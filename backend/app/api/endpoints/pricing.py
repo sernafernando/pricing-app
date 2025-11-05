@@ -510,48 +510,27 @@ async def setear_precio_rapido(
         # Obtener markup adicional desde configuración
         markup_adicional = obtener_markup_adicional_cuotas(db)
 
-        # Si el markup es negativo, usar cálculo proporcional en lugar de goalseek
-        usar_calculo_proporcional = markup_porcentaje < 0
-
         for nombre_campo, pricelist_id in cuotas_config.items():
             try:
-                if usar_calculo_proporcional:
-                    # Para markups negativos, calcular proporcionalmente
-                    # Basado en la diferencia de comisiones entre clásica y cuotas
-                    grupo_id_calc = obtener_grupo_subcategoria(db, producto.subcategoria_id)
-                    comision_clasica = obtener_comision_base(db, 4, grupo_id_calc)  # Lista clásica
-                    comision_cuota = obtener_comision_base(db, pricelist_id, grupo_id_calc)
+                # Usar calcular_precio_producto con goalseek (funciona con markup positivo o negativo)
+                resultado = calcular_precio_producto(
+                    db=db,
+                    costo=producto.costo,
+                    moneda_costo=producto.moneda_costo,
+                    iva=producto.iva,
+                    envio=producto.envio or 0,
+                    subcategoria_id=producto.subcategoria_id,
+                    pricelist_id=pricelist_id,
+                    markup_objetivo=markup_porcentaje,
+                    tipo_cambio=tipo_cambio,
+                    adicional_markup=markup_adicional
+                )
 
-                    if comision_clasica and comision_cuota:
-                        # Calcular factor de ajuste basado en diferencia de comisiones
-                        # A mayor comisión en cuotas, mayor debe ser el precio
-                        diferencia_comision = comision_cuota - comision_clasica
-                        # Factor aproximado: por cada 1% de diferencia en comisión, subir ~1.5% el precio
-                        factor_ajuste = 1 + (diferencia_comision / 100) * 1.5
-                        precio_calculado = round(precio * factor_ajuste)
-
-                        if precio_calculado > 0:
-                            precios_cuotas[nombre_campo] = precio_calculado
-                else:
-                    # Usar calcular_precio_producto con adicional_markup desde configuración
-                    resultado = calcular_precio_producto(
-                        db=db,
-                        costo=producto.costo,
-                        moneda_costo=producto.moneda_costo,
-                        iva=producto.iva,
-                        envio=producto.envio or 0,
-                        subcategoria_id=producto.subcategoria_id,
-                        pricelist_id=pricelist_id,
-                        markup_objetivo=markup_porcentaje,
-                        tipo_cambio=tipo_cambio,
-                        adicional_markup=markup_adicional
-                    )
-
-                    if "error" not in resultado:
-                        precio_calculado = round(resultado["precio"], 2)
-                        # Solo guardar si el precio es válido (mayor a 0), el markup puede ser negativo
-                        if precio_calculado > 0:
-                            precios_cuotas[nombre_campo] = precio_calculado
+                if "error" not in resultado:
+                    precio_calculado = round(resultado["precio"], 2)
+                    # Solo guardar si el precio es válido (mayor a 0), el markup puede ser negativo
+                    if precio_calculado > 0:
+                        precios_cuotas[nombre_campo] = precio_calculado
             except Exception as e:
                 # Si falla el cálculo, continuar con el siguiente
                 pass
@@ -621,14 +600,36 @@ async def setear_precio_rapido(
         )
         db.add(pricing)
     
+    # Recalcular rebate y web transferencia si están activos
+    db.refresh(pricing)
+
+    if pricing.participa_rebate and pricing.porcentaje_rebate:
+        pricing.precio_rebate = precio / (1 - float(pricing.porcentaje_rebate) / 100)
+
+    if pricing.participa_web_transferencia and pricing.porcentaje_markup_web:
+        from app.services.pricing_calculator import calcular_precio_web_transferencia
+        markup_base = markup
+        markup_objetivo = markup_base + (float(pricing.porcentaje_markup_web) / 100)
+        resultado_web = calcular_precio_web_transferencia(
+            costo_ars=costo_ars,
+            iva=producto.iva,
+            markup_objetivo=markup_objetivo
+        )
+        pricing.precio_web_transferencia = resultado_web["precio"]
+        pricing.markup_web_real = resultado_web["markup_real"]
+
     db.commit()
+    db.refresh(pricing)
 
     response = {
         "item_id": item_id,
         "precio": precio,
         "markup": round(markup * 100, 2),
         "limpio": round(limpio, 2),
-        "costo_ars": round(costo_ars, 2)
+        "costo_ars": round(costo_ars, 2),
+        "precio_rebate": float(pricing.precio_rebate) if pricing.precio_rebate else None,
+        "precio_web_transferencia": float(pricing.precio_web_transferencia) if pricing.precio_web_transferencia else None,
+        "markup_web_real": float(pricing.markup_web_real) if pricing.markup_web_real else None
     }
 
     # Agregar precios de cuotas si se recalcularon

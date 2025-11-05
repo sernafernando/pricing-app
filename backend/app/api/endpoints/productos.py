@@ -1283,6 +1283,7 @@ async def actualizar_web_transferencia(
     item_id: int,
     participa: bool,
     porcentaje_markup: float = 6.0,
+    preservar_porcentaje: bool = False,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -1313,12 +1314,14 @@ async def actualizar_web_transferencia(
             item_id=item_id,
             participa_web_transferencia=participa,
             porcentaje_markup_web=porcentaje_markup,
+            preservar_porcentaje_web=preservar_porcentaje,
             usuario_id=current_user.id
         )
         db.add(pricing)
     else:
         pricing.participa_web_transferencia = participa
         pricing.porcentaje_markup_web = porcentaje_markup
+        pricing.preservar_porcentaje_web = preservar_porcentaje
         pricing.fecha_modificacion = datetime.now()
 
     precio_web = None
@@ -1437,6 +1440,10 @@ async def calcular_web_masivo(
     procesados = 0
 
     for producto_erp, producto_pricing in productos:
+        # Si el producto tiene preservar_porcentaje_web=True, saltar
+        if producto_pricing and producto_pricing.preservar_porcentaje_web:
+            continue
+
         # Determinar markup a usar
         if producto_pricing and producto_pricing.precio_lista_ml:
             # Tiene precio: sumar porcentaje

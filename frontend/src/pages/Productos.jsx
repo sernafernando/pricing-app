@@ -30,7 +30,7 @@ export default function Productos() {
   const [rebateTemp, setRebateTemp] = useState({ participa: false, porcentaje: 3.8 });
   const [mostrarExportModal, setMostrarExportModal] = useState(false);
   const [editandoWebTransf, setEditandoWebTransf] = useState(null);
-  const [webTransfTemp, setWebTransfTemp] = useState({ participa: false, porcentaje: 6.0 });
+  const [webTransfTemp, setWebTransfTemp] = useState({ participa: false, porcentaje: 6.0, preservar: false });
   const [mostrarCalcularWebModal, setMostrarCalcularWebModal] = useState(false);
   const [marcas, setMarcas] = useState([]);
   const [marcasSeleccionadas, setMarcasSeleccionadas] = useState([]);
@@ -256,7 +256,8 @@ export default function Productos() {
     setEditandoWebTransf(producto.item_id);
     setWebTransfTemp({
       participa: producto.participa_web_transferencia || false,
-      porcentaje: producto.porcentaje_markup_web || 6.0
+      porcentaje: producto.porcentaje_markup_web || 6.0,
+      preservar: producto.preservar_porcentaje_web || false
     });
   };
 
@@ -272,7 +273,8 @@ export default function Productos() {
         {
           params: {
             participa: webTransfTemp.participa,
-            porcentaje_markup: porcentajeNumerico
+            porcentaje_markup: porcentajeNumerico,
+            preservar_porcentaje: webTransfTemp.preservar
           },
           headers: { Authorization: `Bearer ${token}` }
         }
@@ -284,6 +286,7 @@ export default function Productos() {
               ...p,
               participa_web_transferencia: webTransfTemp.participa,
               porcentaje_markup_web: porcentajeNumerico,
+              preservar_porcentaje_web: webTransfTemp.preservar,
               precio_web_transferencia: response.data.precio_web_transferencia,
               markup_web_real: response.data.markup_web_real
             }
@@ -723,7 +726,11 @@ export default function Productos() {
               markup_3_cuotas: response.data.markup_3_cuotas !== undefined ? response.data.markup_3_cuotas : p.markup_3_cuotas,
               markup_6_cuotas: response.data.markup_6_cuotas !== undefined ? response.data.markup_6_cuotas : p.markup_6_cuotas,
               markup_9_cuotas: response.data.markup_9_cuotas !== undefined ? response.data.markup_9_cuotas : p.markup_9_cuotas,
-              markup_12_cuotas: response.data.markup_12_cuotas !== undefined ? response.data.markup_12_cuotas : p.markup_12_cuotas
+              markup_12_cuotas: response.data.markup_12_cuotas !== undefined ? response.data.markup_12_cuotas : p.markup_12_cuotas,
+              // Actualizar rebate y web transferencia si vienen en la respuesta
+              precio_rebate: response.data.precio_rebate !== null && response.data.precio_rebate !== undefined ? response.data.precio_rebate : p.precio_rebate,
+              precio_web_transferencia: response.data.precio_web_transferencia !== null && response.data.precio_web_transferencia !== undefined ? response.data.precio_web_transferencia : p.precio_web_transferencia,
+              markup_web_real: response.data.markup_web_real !== null && response.data.markup_web_real !== undefined ? response.data.markup_web_real : p.markup_web_real
             }
           : p
       ));
@@ -2348,6 +2355,15 @@ export default function Productos() {
                             placeholder="%"
                             style={{ width: '60px', padding: '4px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                           />
+                          <label className="web-transf-checkbox" style={{ fontSize: '11px', marginLeft: '8px' }}>
+                            <input
+                              type="checkbox"
+                              checked={webTransfTemp.preservar}
+                              onChange={(e) => setWebTransfTemp({...webTransfTemp, preservar: e.target.checked})}
+                              title="Preservar porcentaje en cambios masivos"
+                            />
+                            🔒
+                          </label>
                           <div className="inline-edit">
                             <button onClick={() => guardarWebTransf(p.item_id)} onKeyDown={(e) => {
                               if (e.key === 'Enter') {
@@ -2369,6 +2385,7 @@ export default function Productos() {
                             <div>
                               <div className="web-transf-markup" style={{ color: getMarkupColor(p.markup_web_real) }}>
                                 ✓ {p.markup_web_real ? `${p.markup_web_real.toFixed(2)}%` : '-'}
+                                {p.preservar_porcentaje_web && <span style={{ marginLeft: '4px', fontSize: '10px' }}>🔒</span>}
                               </div>
                               <div className="web-transf-porcentaje">
                                 (+{p.porcentaje_markup_web}%)
