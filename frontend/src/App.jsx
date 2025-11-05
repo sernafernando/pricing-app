@@ -36,8 +36,8 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Ctrl+K o Cmd+K para abrir calculadora
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k' && isAuthenticated) {
+      // Ctrl+P o Cmd+P para abrir calculadora
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p' && isAuthenticated) {
         e.preventDefault();
         setMostrarCalculadora(true);
       }

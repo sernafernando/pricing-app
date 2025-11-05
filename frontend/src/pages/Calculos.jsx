@@ -154,7 +154,7 @@ const Calculos = () => {
       {calculos.length === 0 ? (
         <div className="empty-state">
           <p>No hay cálculos guardados</p>
-          <p className="hint">Presiona <kbd>Ctrl</kbd> + <kbd>K</kbd> para abrir la calculadora</p>
+          <p className="hint">Presiona <kbd>Ctrl</kbd> + <kbd>P</kbd> para abrir la calculadora</p>
         </div>
       ) : (
         <div className="calculos-table-wrapper">
