@@ -624,8 +624,11 @@ async def setear_precio_rapido(
         pricing.precio_web_transferencia = resultado_web["precio"]
         pricing.markup_web_real = resultado_web["markup_real"]
 
+    print(f"Antes de commit - cuotas en objeto: 3c={pricing.precio_3_cuotas}, 6c={pricing.precio_6_cuotas}, 9c={pricing.precio_9_cuotas}, 12c={pricing.precio_12_cuotas}")
     db.commit()
+    print(f"Después de commit")
     db.refresh(pricing)
+    print(f"Después de refresh - cuotas en objeto: 3c={pricing.precio_3_cuotas}, 6c={pricing.precio_6_cuotas}, 9c={pricing.precio_9_cuotas}, 12c={pricing.precio_12_cuotas}")
 
     # Calcular precio rebate si está activo (solo para respuesta, no se guarda)
     precio_rebate = None
