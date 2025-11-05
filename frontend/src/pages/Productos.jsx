@@ -1938,6 +1938,10 @@ export default function Productos() {
                         </div>
                       )}
                     </td>
+
+                    {/* Vista Normal: Rebate, Oferta, Web Transf */}
+                    {!vistaModoCuotas ? (
+                      <>
                     <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
                       {editandoRebate === p.item_id ? (
                         <div className="rebate-edit">
@@ -2137,6 +2141,17 @@ export default function Productos() {
                         </div>
                       )}
                     </td>
+                    </>
+                    ) : (
+                      /* Vista Cuotas: 3, 6, 9, 12 cuotas */
+                      <>
+                        <td>{p.precio_3_cuotas ? `$${p.precio_3_cuotas.toLocaleString('es-AR')}` : '-'}</td>
+                        <td>{p.precio_6_cuotas ? `$${p.precio_6_cuotas.toLocaleString('es-AR')}` : '-'}</td>
+                        <td>{p.precio_9_cuotas ? `$${p.precio_9_cuotas.toLocaleString('es-AR')}` : '-'}</td>
+                        <td>{p.precio_12_cuotas ? `$${p.precio_12_cuotas.toLocaleString('es-AR')}` : '-'}</td>
+                      </>
+                    )}
+
                     <td className="table-actions">
                       <div className="table-actions-group">
                         {puedeEditar && (
