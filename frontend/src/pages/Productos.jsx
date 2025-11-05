@@ -73,7 +73,7 @@ export default function Productos() {
   const [recalcularCuotasAuto, setRecalcularCuotasAuto] = useState(() => {
     // Leer del localStorage, por defecto true
     const saved = localStorage.getItem('recalcularCuotasAuto');
-    return saved === null ? true : saved === 'true';
+    return saved === null ? true : JSON.parse(saved);
   });
   const [editandoCuota, setEditandoCuota] = useState(null); // {item_id, tipo: '3'|'6'|'9'|'12'}
   const [cuotaTemp, setCuotaTemp] = useState('');
@@ -136,7 +136,7 @@ export default function Productos() {
 
   // Guardar preferencia de recalcular cuotas en localStorage
   useEffect(() => {
-    localStorage.setItem('recalcularCuotasAuto', recalcularCuotasAuto);
+    localStorage.setItem('recalcularCuotasAuto', JSON.stringify(recalcularCuotasAuto));
   }, [recalcularCuotasAuto]);
 
   const handleOrdenar = (columna, event) => {

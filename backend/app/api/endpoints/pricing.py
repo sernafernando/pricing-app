@@ -456,7 +456,9 @@ async def setear_precio_rapido(
     current_user = Depends(get_current_user)
 ):
     """Setea precio clásica y calcula markup al instante. Opcionalmente recalcula cuotas."""
-    
+
+    print(f"DEBUG set-rapido: item_id={item_id}, precio={precio}, recalcular_cuotas={recalcular_cuotas}, type={type(recalcular_cuotas)}")
+
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
         raise HTTPException(404, "Producto no encontrado")
@@ -523,8 +525,10 @@ async def setear_precio_rapido(
 
                 if "error" not in resultado:
                     precios_cuotas[nombre_campo] = round(resultado["precio"], 2)
-            except:
-                pass
+            except Exception as e:
+                print(f"Error calculando {nombre_campo}: {str(e)}")
+                import traceback
+                traceback.print_exc()
 
     # Guardar precio
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
