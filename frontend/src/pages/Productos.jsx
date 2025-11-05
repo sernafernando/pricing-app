@@ -824,18 +824,16 @@ export default function Productos() {
   // Sistema de navegación por teclado
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Permitir ESC siempre para cerrar modales y salir de estados
+      // Bloquear TODOS los shortcuts (incluyendo ESC, Enter, etc) si hay algún modal abierto
+      // Los modales manejan sus propios eventos de teclado
+      const hayModalAbierto = mostrarExportModal || mostrarCalcularWebModal || mostrarModalConfig || mostrarModalInfo || mostrarShortcutsHelp;
+      if (hayModalAbierto) {
+        return; // No procesar ningún shortcut si hay un modal abierto
+      }
+
+      // ESC: Salir de edición o modo navegación
       if (e.key === 'Escape') {
         e.preventDefault();
-        // Cerrar modales
-        if (mostrarShortcutsHelp) {
-          setMostrarShortcutsHelp(false);
-          return;
-        }
-        if (mostrarExportModal || mostrarCalcularWebModal || mostrarModalConfig || mostrarModalInfo) {
-          // Los modales manejan su propio cierre, solo retornamos
-          return;
-        }
         // Si estamos editando, salir de edición
         if (editandoPrecio || editandoRebate || editandoWebTransf) {
           setEditandoPrecio(null);
@@ -844,16 +842,11 @@ export default function Productos() {
           return;
         }
         // Salir del modo navegación
+        setCeldaActiva(null);
         setModoNavegacion(false);
         setPanelFiltroActivo(null);
         setColorDropdownAbierto(null);
         return;
-      }
-
-      // Bloquear todos los demás shortcuts si hay algún modal abierto
-      const hayModalAbierto = mostrarExportModal || mostrarCalcularWebModal || mostrarModalConfig || mostrarModalInfo;
-      if (hayModalAbierto) {
-        return; // No procesar shortcuts si hay un modal abierto
       }
 
       // Si estamos editando una celda
