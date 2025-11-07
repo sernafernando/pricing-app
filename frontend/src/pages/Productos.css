@@ -949,64 +949,78 @@
 }
 
 .icon-button {
-  padding: 6px 8px;
-  color: white;
-  border: none;
-  border-radius: 4px;
+  padding: 6px 10px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 16px;
   transition: all 0.2s;
+  border: 1.5px solid;
+  background: var(--bg-primary);
 }
 
-.icon-button.detail {
-  background: var(--gradient-primary);
-}
-
-.icon-button.detail:hover {
+.icon-button:hover {
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
-.icon-button.audit {
-  background: var(--gradient-info);
-}
-
-.icon-button.audit:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.icon-button.color {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.icon-button.color:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
+/* Botón Info - Azul */
 .icon-button.info {
-  background: white;
   color: #3b82f6;
-  border: 1px solid #e5e7eb;
+  border-color: #dbeafe;
+  background: #eff6ff;
 }
 
 .icon-button.info:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
   border-color: #3b82f6;
+  background: #dbeafe;
 }
 
+/* Botón Detail - Cyan */
+.icon-button.detail {
+  color: #0891b2;
+  border-color: #cffafe;
+  background: #ecfeff;
+}
+
+.icon-button.detail:hover {
+  border-color: #0891b2;
+  background: #cffafe;
+}
+
+/* Botón Audit - Morado */
+.icon-button.audit {
+  color: #7c3aed;
+  border-color: #ede9fe;
+  background: #f5f3ff;
+}
+
+.icon-button.audit:hover {
+  border-color: #7c3aed;
+  background: #ede9fe;
+}
+
+/* Botón Config - Gris */
 .icon-button.config {
-  background: white;
   color: #6b7280;
-  border: 1px solid #e5e7eb;
+  border-color: #e5e7eb;
+  background: #f9fafb;
 }
 
 .icon-button.config:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
   border-color: #6b7280;
+  background: #e5e7eb;
+}
+
+/* Botón Color - Rosa */
+.icon-button.color {
+  color: #ec4899;
+  border-color: #fce7f3;
+  background: #fdf2f8;
+}
+
+.icon-button.color:hover {
+  border-color: #ec4899;
+  background: #fce7f3;
 }
 
 /* Dropdown de colores */
