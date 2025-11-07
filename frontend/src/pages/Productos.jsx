@@ -63,6 +63,8 @@ export default function Productos() {
   const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
   const [pms, setPms] = useState([]);
   const [pmsSeleccionados, setPmsSeleccionados] = useState([]);
+  const [marcasPorPM, setMarcasPorPM] = useState([]); // Marcas filtradas por PMs seleccionados
+  const [subcategoriasPorPM, setSubcategoriasPorPM] = useState([]); // Subcategorías filtradas por PMs seleccionados
 
   // Estados para navegación por teclado
   const [celdaActiva, setCeldaActiva] = useState(null); // { rowIndex, colIndex }
@@ -112,6 +114,30 @@ export default function Productos() {
   useEffect(() => {
     cargarProductos();
   }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados]);
+
+  // Cargar marcas y subcategorías cuando se seleccionan PMs
+  useEffect(() => {
+    const cargarDatosPorPM = async () => {
+      if (pmsSeleccionados.length > 0) {
+        try {
+          const [marcasRes, subcatsRes] = await Promise.all([
+            productosAPI.obtenerMarcasPorPMs(pmsSeleccionados.join(',')),
+            productosAPI.obtenerSubcategoriasPorPMs(pmsSeleccionados.join(','))
+          ]);
+          setMarcasPorPM(marcasRes.data.marcas);
+          setSubcategoriasPorPM(subcatsRes.data.subcategorias.map(s => s.id));
+        } catch (error) {
+          console.error('Error cargando datos por PM:', error);
+          setMarcasPorPM([]);
+          setSubcategoriasPorPM([]);
+        }
+      } else {
+        setMarcasPorPM([]);
+        setSubcategoriasPorPM([]);
+      }
+    };
+    cargarDatosPorPM();
+  }, [pmsSeleccionados]);
 
   const cargarStats = async () => {
     try {
@@ -209,9 +235,18 @@ export default function Productos() {
   // Los productos ya vienen ordenados desde el backend
   const productosOrdenados = productos;
 
-  const marcasFiltradas = marcas.filter(m =>
-    m.toLowerCase().includes(busquedaMarca.toLowerCase())
-  );
+  // Filtrar marcas por búsqueda y por PM seleccionado
+  const marcasFiltradas = marcas.filter(m => {
+    // Filtrar por búsqueda
+    const matchBusqueda = m.toLowerCase().includes(busquedaMarca.toLowerCase());
+
+    // Si hay PMs seleccionados, solo mostrar marcas de esos PMs
+    if (marcasPorPM.length > 0) {
+      return matchBusqueda && marcasPorPM.includes(m);
+    }
+
+    return matchBusqueda;
+  });
 
   const cargarMarcas = async () => {
     try {
@@ -1574,11 +1609,18 @@ export default function Productos() {
                       const categoriaCoincide = !busquedaSubcategoria ||
                         categoria.nombre.toLowerCase().includes(busquedaSubcategoria.toLowerCase());
 
-                      const subcatsDeCategoria = categoriaCoincide
+                      let subcatsDeCategoria = categoriaCoincide
                         ? categoria.subcategorias
                         : categoria.subcategorias.filter(sub =>
                             sub.nombre.toLowerCase().includes(busquedaSubcategoria.toLowerCase())
                           );
+
+                      // Si hay PMs seleccionados, filtrar también por subcategorías del PM
+                      if (subcategoriasPorPM.length > 0) {
+                        subcatsDeCategoria = subcatsDeCategoria.filter(sub =>
+                          subcategoriasPorPM.includes(sub.id)
+                        );
+                      }
 
                       const todasSeleccionadas = subcatsDeCategoria.length > 0 && subcatsDeCategoria.every(sub =>
                         subcategoriasSeleccionadas.includes(sub.id.toString())

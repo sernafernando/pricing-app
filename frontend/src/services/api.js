@@ -23,6 +23,8 @@ export const productosAPI = {
   marcas: (params) => api.get('/marcas', { params }),
   subcategorias: (params) => api.get('/subcategorias', { params }),
   categorias: () => api.get('/categorias'),
+  obtenerMarcasPorPMs: (pm_ids) => api.get(`/pms/marcas?pm_ids=${pm_ids}`),
+  obtenerSubcategoriasPorPMs: (pm_ids) => api.get(`/pms/subcategorias?pm_ids=${pm_ids}`),
 };
 
 export const pricingAPI = {

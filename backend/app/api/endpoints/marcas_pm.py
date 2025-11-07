@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.models.usuario import Usuario, RolUsuario
 from app.models.marca_pm import MarcaPM
 from app.models.producto import ProductoERP
+from app.models.subcategoria import Subcategoria
 
 router = APIRouter()
 
@@ -110,15 +111,84 @@ async def sincronizar_marcas(
         "marcas_nuevas": marcas_nuevas
     }
 
+@router.get("/pms/marcas")
+async def obtener_marcas_por_pms(
+    pm_ids: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene las marcas asignadas a uno o más PMs (todos los usuarios)"""
+    try:
+        pm_ids_list = [int(pm.strip()) for pm in pm_ids.split(',')]
+    except ValueError:
+        raise HTTPException(400, "IDs de PM inválidos")
+
+    # Obtener marcas asignadas a esos PMs
+    marcas = db.query(MarcaPM.marca).filter(
+        MarcaPM.usuario_id.in_(pm_ids_list)
+    ).all()
+
+    marcas_list = [m[0] for m in marcas]
+
+    return {
+        "marcas": marcas_list,
+        "total": len(marcas_list)
+    }
+
+@router.get("/pms/subcategorias")
+async def obtener_subcategorias_por_pms(
+    pm_ids: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene las subcategorías de productos de marcas asignadas a uno o más PMs (todos los usuarios)"""
+    try:
+        pm_ids_list = [int(pm.strip()) for pm in pm_ids.split(',')]
+    except ValueError:
+        raise HTTPException(400, "IDs de PM inválidos")
+
+    # Obtener marcas asignadas a esos PMs
+    marcas = db.query(MarcaPM.marca).filter(
+        MarcaPM.usuario_id.in_(pm_ids_list)
+    ).all()
+
+    marcas_list = [m[0] for m in marcas]
+
+    if not marcas_list:
+        return {
+            "subcategorias": [],
+            "total": 0
+        }
+
+    # Obtener subcategorías de productos con esas marcas
+    subcategorias = db.query(
+        Subcategoria.id,
+        Subcategoria.nombre
+    ).join(
+        ProductoERP,
+        ProductoERP.subcategoria_id == Subcategoria.id
+    ).filter(
+        func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_list])
+    ).distinct().all()
+
+    subcategorias_list = [
+        {"id": s[0], "nombre": s[1]}
+        for s in subcategorias
+    ]
+
+    return {
+        "subcategorias": subcategorias_list,
+        "total": len(subcategorias_list)
+    }
+
 @router.get("/usuarios/pms", response_model=List[dict])
 async def listar_usuarios_pm(
     solo_con_marcas: bool = False,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Lista usuarios disponibles para asignar como PMs"""
-    if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
-        raise HTTPException(403, "No tienes permisos")
+    """Lista usuarios disponibles para filtrar como PMs (todos los usuarios)"""
+    # Removido el check de permisos - ahora todos pueden ver los PMs para filtrar
 
     if solo_con_marcas:
         # Obtener solo usuarios que tienen al menos una marca asignada
