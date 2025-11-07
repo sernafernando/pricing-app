@@ -1053,9 +1053,9 @@
   background: var(--bg-primary);
   border-radius: 12px;
   padding: 24px;
-  max-width: 800px;
-  width: 90%;
-  max-height: 80vh;
+  max-width: 1200px;
+  width: 95%;
+  max-height: 85vh;
   overflow: auto;
 }
 
