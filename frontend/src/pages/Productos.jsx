@@ -1325,100 +1325,86 @@ export default function Productos() {
       </div>
 
       <div className="filters-container-modern">
-        {/* Filtros Básicos */}
-        <div className="filters-basic-group">
-          <div className="filter-item-inline">
-            <label className="filter-label">📦 Stock</label>
-            <select
-              value={filtroStock}
-              onChange={(e) => { setFiltroStock(e.target.value); setPage(1); }}
-              className="filter-select-modern"
-            >
-              <option value="todos">Todos</option>
-              <option value="con_stock">Con stock</option>
-              <option value="sin_stock">Sin stock</option>
-            </select>
-          </div>
+        {/* Todos los filtros en una sola línea compacta */}
+        <div className="filters-unified">
+          {/* Selectores compactos de Stock y Precio */}
+          <select
+            value={filtroStock}
+            onChange={(e) => { setFiltroStock(e.target.value); setPage(1); }}
+            className="filter-select-compact"
+            title="Filtrar por stock"
+          >
+            <option value="todos">📦 Stock</option>
+            <option value="con_stock">Con stock</option>
+            <option value="sin_stock">Sin stock</option>
+          </select>
 
-          <div className="filter-item-inline">
-            <label className="filter-label">💰 Precio</label>
-            <select
-              value={filtroPrecio}
-              onChange={(e) => { setFiltroPrecio(e.target.value); setPage(1); }}
-              className="filter-select-modern"
-            >
-              <option value="todos">Todos</option>
-              <option value="con_precio">Con precio</option>
-              <option value="sin_precio">Sin precio</option>
-            </select>
-          </div>
-        </div>
+          <select
+            value={filtroPrecio}
+            onChange={(e) => { setFiltroPrecio(e.target.value); setPage(1); }}
+            className="filter-select-compact"
+            title="Filtrar por precio"
+          >
+            <option value="todos">💰 Precio</option>
+            <option value="con_precio">Con precio</option>
+            <option value="sin_precio">Sin precio</option>
+          </select>
 
-        {/* Filtros de Dropdown */}
-        <div className="filters-wrapper">
-          <div className="filters-dropdown-card">
-            {/* Filtro de Marcas */}
-            <button
-              onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'marcas' ? null : 'marcas')}
-              className={`filter-button marcas ${marcasSeleccionadas.length > 0 ? 'active' : ''}`}
-            >
-              🏷️ Marcas {marcasSeleccionadas.length > 0 && `(${marcasSeleccionadas.length})`}
-            </button>
+          {/* Botones de filtro */}
+          <button
+            onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'marcas' ? null : 'marcas')}
+            className={`filter-button marcas ${marcasSeleccionadas.length > 0 ? 'active' : ''}`}
+          >
+            🏷️ Marcas
+            {marcasSeleccionadas.length > 0 && (
+              <span className="filter-badge">{marcasSeleccionadas.length}</span>
+            )}
+          </button>
 
-            {/* Filtro de Subcategorías */}
-            <button
-              onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias')}
-              className={`filter-button subcategorias ${subcategoriasSeleccionadas.length > 0 ? 'active' : ''}`}
-            >
-              📋 Subcategorías
-              {subcategoriasSeleccionadas.length > 0 && (
-                <span className="filter-badge">
-                  {subcategoriasSeleccionadas.length}
-                </span>
-              )}
-            </button>
+          <button
+            onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias')}
+            className={`filter-button subcategorias ${subcategoriasSeleccionadas.length > 0 ? 'active' : ''}`}
+          >
+            📋 Subcategorías
+            {subcategoriasSeleccionadas.length > 0 && (
+              <span className="filter-badge">{subcategoriasSeleccionadas.length}</span>
+            )}
+          </button>
 
-            {/* Filtro de PMs */}
-            <button
-              onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'pms' ? null : 'pms')}
-              className={`filter-button pms ${pmsSeleccionados.length > 0 ? 'active' : ''}`}
-            >
-              👤 PM
-              {pmsSeleccionados.length > 0 && (
-                <span className="filter-badge">
-                  {pmsSeleccionados.length}
-                </span>
-              )}
-            </button>
+          <button
+            onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'pms' ? null : 'pms')}
+            className={`filter-button pms ${pmsSeleccionados.length > 0 ? 'active' : ''}`}
+          >
+            👤 PM
+            {pmsSeleccionados.length > 0 && (
+              <span className="filter-badge">{pmsSeleccionados.length}</span>
+            )}
+          </button>
 
-            {/* Filtros de Auditoría */}
-            <button
-              onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'auditoria' ? null : 'auditoria')}
-              className={`filter-button auditoria ${(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0 || filtrosAuditoria.fecha_desde || filtrosAuditoria.fecha_hasta) ? 'active' : ''}`}
-            >
-              🔍 Filtros de Auditoría
-              {(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0) && (
-                <span className="filter-badge">
-                  {filtrosAuditoria.usuarios.length + filtrosAuditoria.tipos_accion.length}
-                </span>
-              )}
-            </button>
+          <button
+            onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'auditoria' ? null : 'auditoria')}
+            className={`filter-button auditoria ${(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0 || filtrosAuditoria.fecha_desde || filtrosAuditoria.fecha_hasta) ? 'active' : ''}`}
+          >
+            🔍 Auditoría
+            {(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0) && (
+              <span className="filter-badge">
+                {filtrosAuditoria.usuarios.length + filtrosAuditoria.tipos_accion.length}
+              </span>
+            )}
+          </button>
 
-            {/* Botón de filtros avanzados */}
-            <button
-              onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
-              className={`filter-button advanced ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
-            >
-              🎯 Filtros Avanzados
-              {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) && (
-                <span className="filter-badge">
-                  {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length}
-                </span>
-              )}
-            </button>
-          </div>
+          <button
+            onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
+            className={`filter-button advanced ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
+          >
+            🎯 Avanzados
+            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) && (
+              <span className="filter-badge">
+                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length}
+              </span>
+            )}
+          </button>
 
-          {/* Botón limpiar todos los filtros - fuera del card para que siempre esté visible */}
           <button
             onClick={limpiarTodosFiltros}
             className="filter-button clear-all"
