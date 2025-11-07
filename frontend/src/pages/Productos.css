@@ -985,6 +985,30 @@
   box-shadow: var(--shadow-md);
 }
 
+.icon-button.info {
+  background: white;
+  color: #3b82f6;
+  border: 1px solid #e5e7eb;
+}
+
+.icon-button.info:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: #3b82f6;
+}
+
+.icon-button.config {
+  background: white;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+}
+
+.icon-button.config:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: #6b7280;
+}
+
 /* Dropdown de colores */
 .color-dropdown {
   position: absolute;
