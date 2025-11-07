@@ -1059,6 +1059,12 @@
   overflow: auto;
 }
 
+/* Modal de auditoría específico - más ancho */
+.modal-auditoria {
+  max-width: 1400px !important;
+  width: 96% !important;
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;

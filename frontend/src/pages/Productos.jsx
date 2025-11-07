@@ -2631,7 +2631,7 @@ export default function Productos() {
 
 {auditoriaVisible && (
               <div className="modal-overlay">
-                <div className="modal-content">
+                <div className="modal-content modal-auditoria">
                   <div className="modal-header">
                     <h2>📋 Historial de Cambios</h2>
                     <button onClick={() => setAuditoriaVisible(false)} className="modal-close">
