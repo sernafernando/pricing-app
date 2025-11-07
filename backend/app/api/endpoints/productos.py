@@ -1999,7 +1999,7 @@ async def exportar_web_transferencia(
     if currency_id == 2:
         tipo_cambio = db.query(TipoCambio).order_by(TipoCambio.id.desc()).first()
         if tipo_cambio:
-            dolar_ajustado = float(tipo_cambio.dolar_venta) + offset_dolar
+            dolar_ajustado = float(tipo_cambio.venta) + offset_dolar
 
     # Crear Excel
     wb = Workbook()
@@ -2121,7 +2121,7 @@ async def exportar_clasica(
     if currency_id == 2:
         tipo_cambio = db.query(TipoCambio).order_by(TipoCambio.id.desc()).first()
         if tipo_cambio:
-            dolar_ajustado = float(tipo_cambio.dolar_venta) + offset_dolar
+            dolar_ajustado = float(tipo_cambio.venta) + offset_dolar
 
     # Crear Excel
     wb = Workbook()
