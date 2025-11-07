@@ -8,6 +8,10 @@ export default function ExportModal({ onClose, filtrosActivos }) {
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
   const [porcentajeClasica, setPorcentajeClasica] = useState('0');
   const [tipoCuotas, setTipoCuotas] = useState('clasica'); // clasica, 3, 6, 9, 12
+  const [monedaClasica, setMonedaClasica] = useState('ARS'); // ARS o USD
+  const [monedaWebTransf, setMonedaWebTransf] = useState('ARS'); // ARS o USD
+  const [dolarVenta, setDolarVenta] = useState(null);
+  const [offsetDolar, setOffsetDolar] = useState('0');
 
   // Auto-focus en primer input al abrir modal
   useEffect(() => {
@@ -153,6 +157,22 @@ export default function ExportModal({ onClose, filtrosActivos }) {
 
   const [porcentajeWebTransf, setPorcentajeWebTransf] = useState('0');
 
+  // Cargar dólar venta al abrir el modal
+  useEffect(() => {
+    const cargarDolarVenta = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await axios.get('https://pricing.gaussonline.com.ar/api/configuracion/tipo-cambio', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setDolarVenta(response.data.dolar_venta);
+      } catch (error) {
+        console.error('Error cargando dólar venta:', error);
+      }
+    };
+    cargarDolarVenta();
+  }, []);
+
   const convertirFechaParaAPI = (fechaDD_MM_YYYY) => {
     const [d, m, y] = fechaDD_MM_YYYY.split('/');
     return `${y}-${m}-${d}`;
@@ -211,6 +231,14 @@ export default function ExportModal({ onClose, filtrosActivos }) {
     try {
       const token = localStorage.getItem('token');
       let params = `porcentaje_adicional=${parseFloat(porcentajeClasica.toString().replace(',', '.')) || 0}&tipo_cuotas=${tipoCuotas}`;
+
+      // Agregar currency_id y offset_dolar
+      const currencyId = monedaClasica === 'USD' ? 2 : 1;
+      params += `&currency_id=${currencyId}`;
+      if (monedaClasica === 'USD') {
+        const offset = parseFloat(offsetDolar.toString().replace(',', '.')) || 0;
+        params += `&offset_dolar=${offset}`;
+      }
 
       if (aplicarFiltros) {
         if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
@@ -282,6 +310,14 @@ export default function ExportModal({ onClose, filtrosActivos }) {
     try {
       const token = localStorage.getItem('token');
       let params = `porcentaje_adicional=${parseFloat(porcentajeWebTransf.toString().replace(',', '.')) || 0}`;
+
+      // Agregar currency_id y offset_dolar
+      const currencyId = monedaWebTransf === 'USD' ? 2 : 1;
+      params += `&currency_id=${currencyId}`;
+      if (monedaWebTransf === 'USD') {
+        const offset = parseFloat(offsetDolar.toString().replace(',', '.')) || 0;
+        params += `&offset_dolar=${offset}`;
+      }
 
       if (aplicarFiltros) {
         if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
@@ -439,8 +475,49 @@ export default function ExportModal({ onClose, filtrosActivos }) {
               <p className={styles.description}>
                 Exporta los precios de Web Transferencia activos en formato Excel.
                 <br />
-                <strong>Formato:</strong> Código/EAN | Precio | ID Moneda (1=ARS)
+                <strong>Formato:</strong> Código/EAN | Precio | ID Moneda (1=ARS, 2=USD)
               </p>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Moneda:</label>
+                <select
+                  value={monedaWebTransf}
+                  onChange={(e) => setMonedaWebTransf(e.target.value)}
+                  className={styles.input}
+                >
+                  <option value="ARS">Pesos (ARS)</option>
+                  <option value="USD">Dólares (USD)</option>
+                </select>
+              </div>
+
+              {monedaWebTransf === 'USD' && dolarVenta && (
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>
+                    Dólar venta: ${dolarVenta.toFixed(2)}
+                  </label>
+                  <label className={styles.label}>Offset (±):</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Ej: 10 o -10"
+                    value={offsetDolar}
+                    onChange={(e) => setOffsetDolar(e.target.value)}
+                    onBlur={(e) => {
+                      const valor = e.target.value.replace(',', '.');
+                      const numero = parseFloat(valor);
+                      if (!isNaN(numero)) {
+                        setOffsetDolar(numero.toString());
+                      } else {
+                        setOffsetDolar('0');
+                      }
+                    }}
+                    className={styles.input}
+                  />
+                  <small className={styles.filterInfo}>
+                    Dólar ajustado: ${(dolarVenta + (parseFloat(offsetDolar.replace(',', '.')) || 0)).toFixed(2)}
+                  </small>
+                </div>
+              )}
 
               <div className={styles.formGroup}>
                 <label className={styles.label}>Porcentaje adicional (%):</label>
@@ -515,6 +592,47 @@ export default function ExportModal({ onClose, filtrosActivos }) {
                   <option value="12">12 Cuotas</option>
                 </select>
               </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Moneda:</label>
+                <select
+                  value={monedaClasica}
+                  onChange={(e) => setMonedaClasica(e.target.value)}
+                  className={styles.input}
+                >
+                  <option value="ARS">Pesos (ARS)</option>
+                  <option value="USD">Dólares (USD)</option>
+                </select>
+              </div>
+
+              {monedaClasica === 'USD' && dolarVenta && (
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>
+                    Dólar venta: ${dolarVenta.toFixed(2)}
+                  </label>
+                  <label className={styles.label}>Offset (±):</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Ej: 10 o -10"
+                    value={offsetDolar}
+                    onChange={(e) => setOffsetDolar(e.target.value)}
+                    onBlur={(e) => {
+                      const valor = e.target.value.replace(',', '.');
+                      const numero = parseFloat(valor);
+                      if (!isNaN(numero)) {
+                        setOffsetDolar(numero.toString());
+                      } else {
+                        setOffsetDolar('0');
+                      }
+                    }}
+                    className={styles.input}
+                  />
+                  <small className={styles.filterInfo}>
+                    Dólar ajustado: ${(dolarVenta + (parseFloat(offsetDolar.replace(',', '.')) || 0)).toFixed(2)}
+                  </small>
+                </div>
+              )}
 
               <div className={styles.formGroup}>
                 <label className={styles.label}>Porcentaje adicional sobre rebate (%):</label>

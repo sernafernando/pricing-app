@@ -1930,6 +1930,8 @@ async def sincronizar_subcategorias_endpoint():
 @router.get("/exportar-web-transferencia")
 async def exportar_web_transferencia(
     porcentaje_adicional: float = Query(0, description="Porcentaje adicional a sumar"),
+    currency_id: int = Query(1, description="ID de moneda: 1=ARS, 2=USD"),
+    offset_dolar: float = Query(0, description="Offset en pesos para ajustar el dólar"),
     search: Optional[str] = None,
     con_stock: Optional[bool] = None,
     con_precio: Optional[bool] = None,
@@ -1940,6 +1942,7 @@ async def exportar_web_transferencia(
     """Exporta precios de Web Transferencia en formato Excel con filtros opcionales"""
     from io import BytesIO
     from openpyxl import Workbook
+    from app.models.tipo_cambio import TipoCambio
     
     # Obtener productos con precio web transferencia
     query = db.query(
@@ -1976,27 +1979,41 @@ async def exportar_web_transferencia(
         query = query.filter(ProductoERP.subcategoria_id.in_(subcats_list))
     
     productos = query.all()
-    
+
+    # Obtener dólar venta si currency_id es 2
+    dolar_ajustado = None
+    if currency_id == 2:
+        tipo_cambio = db.query(TipoCambio).order_by(TipoCambio.id.desc()).first()
+        if tipo_cambio:
+            dolar_ajustado = float(tipo_cambio.dolar_venta) + offset_dolar
+
     # Crear Excel
     wb = Workbook()
     ws = wb.active
     ws.title = "Web Transferencia"
-    
+
     # Header
     ws.append(['Código/EAN', 'Precio', 'ID Moneda'])
-    
+
     # Datos - todo como texto
     for codigo, precio_base in productos:
         # Aplicar porcentaje adicional
         precio_final = float(precio_base) * (1 + porcentaje_adicional / 100)
-        
-        # Redondear a múltiplo de 10
-        precio_final = round(precio_final / 10) * 10
-        
+
+        # Si es USD, dividir por dólar ajustado
+        if currency_id == 2 and dolar_ajustado:
+            precio_final = precio_final / dolar_ajustado
+            # Para USD, redondear a 2 decimales
+            precio_str = f"{precio_final:.2f}"
+        else:
+            # Para ARS, redondear a múltiplo de 10
+            precio_final = round(precio_final / 10) * 10
+            precio_str = str(int(precio_final))
+
         ws.append([
             str(codigo),
-            str(int(precio_final)),
-            '1'
+            precio_str,
+            str(currency_id)
         ])
     
     # Guardar en memoria
@@ -2016,6 +2033,8 @@ async def exportar_web_transferencia(
 async def exportar_clasica(
     porcentaje_adicional: float = Query(0, description="Porcentaje adicional sobre rebate"),
     tipo_cuotas: str = Query("clasica", description="Tipo de cuotas: clasica, 3, 6, 9, 12"),
+    currency_id: int = Query(1, description="ID de moneda: 1=ARS, 2=USD"),
+    offset_dolar: float = Query(0, description="Offset en pesos para ajustar el dólar"),
     search: Optional[str] = None,
     con_stock: Optional[bool] = None,
     con_precio: Optional[bool] = None,
@@ -2026,6 +2045,7 @@ async def exportar_clasica(
     """Exporta precios de Clásica. Si tiene rebate activo, aplica % sobre precio rebate."""
     from io import BytesIO
     from openpyxl import Workbook
+    from app.models.tipo_cambio import TipoCambio
     
     # Obtener productos con precio clásica y precios con cuotas
     query = db.query(
@@ -2067,7 +2087,14 @@ async def exportar_clasica(
         query = query.filter(ProductoERP.subcategoria_id.in_(subcats_list))
     
     productos = query.all()
-    
+
+    # Obtener dólar venta si currency_id es 2
+    dolar_ajustado = None
+    if currency_id == 2:
+        tipo_cambio = db.query(TipoCambio).order_by(TipoCambio.id.desc()).first()
+        if tipo_cambio:
+            dolar_ajustado = float(tipo_cambio.dolar_venta) + offset_dolar
+
     # Crear Excel
     wb = Workbook()
     ws = wb.active
@@ -2110,13 +2137,20 @@ async def exportar_clasica(
         else:
             precio_exportar = precio_clasica
 
-        # Redondear a múltiplo de 10
-        precio_final = round(precio_exportar / 10) * 10
+        # Si es USD, dividir por dólar ajustado
+        if currency_id == 2 and dolar_ajustado:
+            precio_final = precio_exportar / dolar_ajustado
+            # Para USD, redondear a 2 decimales
+            precio_str = f"{precio_final:.2f}"
+        else:
+            # Para ARS, redondear a múltiplo de 10
+            precio_final = round(precio_exportar / 10) * 10
+            precio_str = str(int(precio_final))
 
         ws.append([
             str(codigo),
-            str(int(precio_final)),
-            '1'
+            precio_str,
+            str(currency_id)
         ])
     
     # Guardar en memoria
