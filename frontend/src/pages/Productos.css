@@ -95,7 +95,8 @@
   border-radius: 8px;
   border: 1px solid var(--border-primary);
   box-shadow: var(--shadow-sm);
-  height: fit-content;
+  align-items: center;
+  min-height: 52px;
 }
 
 .filters-dropdown-group {
@@ -238,6 +239,8 @@
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: white;
   border-color: transparent;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .filter-button.clear-all:hover {
