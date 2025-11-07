@@ -209,22 +209,29 @@
 }
 
 .filter-button.active {
-  color: #ffffff !important;
   border-color: transparent;
   box-shadow: var(--shadow-md);
 }
 
 .filter-button.marcas.active {
   background: var(--gradient-primary);
+  color: #ffffff;
 }
 .filter-button.subcategorias.active {
   background: var(--gradient-success);
+  color: #ffffff;
 }
 .filter-button.auditoria.active {
   background: var(--gradient-info);
+  color: #ffffff;
 }
 .filter-button.pms.active {
   background: var(--gradient-info);
+  color: #ffffff;
+}
+.filter-button.advanced.active {
+  background: var(--gradient-warning);
+  color: #ffffff;
 }
 
 .filter-button.clear-all {
@@ -237,10 +244,6 @@
   background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
-}
-
-.filter-button.advanced.active {
-  background: var(--gradient-warning);
 }
 
 .filter-badge {
