@@ -209,7 +209,7 @@
 }
 
 .filter-button.active {
-  color: var(--text-inverse);
+  color: #ffffff !important;
   border-color: transparent;
   box-shadow: var(--shadow-md);
 }
@@ -221,6 +221,9 @@
   background: var(--gradient-success);
 }
 .filter-button.auditoria.active {
+  background: var(--gradient-info);
+}
+.filter-button.pms.active {
   background: var(--gradient-info);
 }
 
