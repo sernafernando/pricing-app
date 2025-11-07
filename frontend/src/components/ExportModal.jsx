@@ -162,10 +162,10 @@ export default function ExportModal({ onClose, filtrosActivos }) {
     const cargarDolarVenta = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await axios.get('https://pricing.gaussonline.com.ar/api/configuracion/tipo-cambio', {
+        const response = await axios.get('https://pricing.gaussonline.com.ar/api/tipo-cambio/actual', {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setDolarVenta(response.data.dolar_venta);
+        setDolarVenta(response.data.venta);
       } catch (error) {
         console.error('Error cargando dólar venta:', error);
       }
