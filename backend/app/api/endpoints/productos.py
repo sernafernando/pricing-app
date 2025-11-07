@@ -1937,6 +1937,20 @@ async def exportar_web_transferencia(
     con_precio: Optional[bool] = None,
     marcas: Optional[str] = None,
     subcategorias: Optional[str] = None,
+    con_rebate: Optional[bool] = None,
+    con_oferta: Optional[bool] = None,
+    con_web_transf: Optional[bool] = None,
+    markup_clasica_positivo: Optional[bool] = None,
+    markup_rebate_positivo: Optional[bool] = None,
+    markup_oferta_positivo: Optional[bool] = None,
+    markup_web_transf_positivo: Optional[bool] = None,
+    out_of_cards: Optional[bool] = None,
+    colores: Optional[str] = None,
+    pms: Optional[str] = None,
+    audit_usuarios: Optional[str] = None,
+    audit_tipos_accion: Optional[str] = None,
+    audit_fecha_desde: Optional[str] = None,
+    audit_fecha_hasta: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Exporta precios de Web Transferencia en formato Excel con filtros opcionales"""
@@ -2040,6 +2054,20 @@ async def exportar_clasica(
     con_precio: Optional[bool] = None,
     marcas: Optional[str] = None,
     subcategorias: Optional[str] = None,
+    con_rebate: Optional[bool] = None,
+    con_oferta: Optional[bool] = None,
+    con_web_transf: Optional[bool] = None,
+    markup_clasica_positivo: Optional[bool] = None,
+    markup_rebate_positivo: Optional[bool] = None,
+    markup_oferta_positivo: Optional[bool] = None,
+    markup_web_transf_positivo: Optional[bool] = None,
+    out_of_cards: Optional[bool] = None,
+    colores: Optional[str] = None,
+    pms: Optional[str] = None,
+    audit_usuarios: Optional[str] = None,
+    audit_tipos_accion: Optional[str] = None,
+    audit_fecha_desde: Optional[str] = None,
+    audit_fecha_hasta: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Exporta precios de Clásica. Si tiene rebate activo, aplica % sobre precio rebate."""

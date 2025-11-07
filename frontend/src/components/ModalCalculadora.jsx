@@ -49,7 +49,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
   const cargarConstantes = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get('https://pricing.gaussonline.com.ar/api/configuracion/pricing-constants', {
+      const response = await axios.get('https://pricing.gaussonline.com.ar/api/pricing-constants/actual', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setConstantes(response.data);
