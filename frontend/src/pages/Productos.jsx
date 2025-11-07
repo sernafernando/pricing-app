@@ -1412,57 +1412,38 @@ export default function Productos() {
           >
             🧹
           </button>
-        </div>
-        {/* Botones de Acción */}
-        <div className="action-buttons-card">
-          {/* Toggle Vista Cuotas y Auto-recalcular */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            padding: '8px 16px',
-            background: '#f3f4f6',
-            borderRadius: '8px',
-            border: '2px solid #d1d5db'
-          }}>
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '14px',
-              color: vistaModoCuotas ? '#0369a1' : '#374151'
-            }}>
-              <input
-                type="checkbox"
-                checked={vistaModoCuotas}
-                onChange={(e) => setVistaModoCuotas(e.target.checked)}
-                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-              />
-              {vistaModoCuotas ? '📊 Vista Cuotas' : '📋 Vista Normal'}
-            </label>
 
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              cursor: 'pointer',
-              fontSize: '13px',
-              color: '#6b7280',
-              borderLeft: '1px solid #cbd5e1',
-              paddingLeft: '12px'
-            }}>
-              <input
-                type="checkbox"
-                checked={recalcularCuotasAuto}
-                onChange={(e) => setRecalcularCuotasAuto(e.target.checked)}
-                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-              />
-              ♻️ Auto-recalcular
-            </label>
-          </div>
+          {/* Separador visual */}
+          <div className="filter-separator"></div>
 
+          {/* Vista Normal/Cuotas */}
+          <label className="filter-checkbox-label">
+            <input
+              type="checkbox"
+              checked={vistaModoCuotas}
+              onChange={(e) => setVistaModoCuotas(e.target.checked)}
+              className="filter-checkbox"
+            />
+            <span className="filter-checkbox-text">
+              {vistaModoCuotas ? '📊 Cuotas' : '📋 Normal'}
+            </span>
+          </label>
+
+          {/* Auto-recalcular */}
+          <label className="filter-checkbox-label">
+            <input
+              type="checkbox"
+              checked={recalcularCuotasAuto}
+              onChange={(e) => setRecalcularCuotasAuto(e.target.checked)}
+              className="filter-checkbox"
+            />
+            <span className="filter-checkbox-text">♻️ Auto-recalcular</span>
+          </label>
+
+          {/* Separador visual */}
+          <div className="filter-separator"></div>
+
+          {/* Botones de Exportar y Calcular */}
           <button
             onClick={() => setMostrarExportModal(true)}
             className="btn-action export"
