@@ -20,6 +20,8 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import SessionLocal
+# Importar todos los modelos para evitar problemas de dependencias circulares
+import app.models  # noqa
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 
 async def sync_ml_orders_incremental(db: Session):
