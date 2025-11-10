@@ -9,6 +9,7 @@ from app.models.precio_ml import PrecioML
 from app.models.auditoria import Auditoria
 from app.models.marca_pm import MarcaPM
 from app.models.mla_banlist import MLABanlist
+from app.models.calculo_pricing import CalculoPricing
 
 __all__ = [
     "ProductoERP",
@@ -25,5 +26,6 @@ __all__ = [
     "PrecioML",
     "Auditoria",
     "MarcaPM",
-    "MLABanlist"
+    "MLABanlist",
+    "CalculoPricing"
 ]

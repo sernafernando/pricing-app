@@ -31,6 +31,6 @@ class Usuario(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relaciones
-    precios_modificados = relationship("ProductoPricing", back_populates="usuario")
-    auditorias = relationship("Auditoria", back_populates="usuario")
-    calculos_pricing = relationship("CalculoPricing", back_populates="usuario")
+    precios_modificados = relationship("ProductoPricing", back_populates="usuario", lazy="dynamic")
+    auditorias = relationship("Auditoria", back_populates="usuario", lazy="dynamic")
+    calculos_pricing = relationship("CalculoPricing", back_populates="usuario", lazy="dynamic")
