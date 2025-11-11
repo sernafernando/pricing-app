@@ -25,6 +25,7 @@ from app.scripts.sync_item_transaction_details_incremental import sync_details_i
 from app.scripts.sync_ml_orders_incremental import sync_ml_orders_incremental
 from app.scripts.sync_ml_orders_detail_incremental import sync_ml_orders_detail_incremental
 from app.scripts.sync_ml_orders_shipping_incremental import sync_ml_orders_shipping_incremental
+from app.scripts.sync_ml_items_publicados_incremental import sync_items_publicados_incremental
 
 
 async def ejecutar_todas_sincronizaciones():
@@ -77,6 +78,12 @@ async def ejecutar_todas_sincronizaciones():
             "nombre": "ML Orders Shipping",
             "emoji": "🚚",
             "funcion": sync_ml_orders_shipping_incremental,
+            "args_batch": False
+        },
+        {
+            "nombre": "ML Items Publicados",
+            "emoji": "📢",
+            "funcion": sync_items_publicados_incremental,
             "args_batch": False
         }
     ]
