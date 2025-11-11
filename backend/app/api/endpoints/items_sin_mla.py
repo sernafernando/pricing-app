@@ -19,15 +19,15 @@ router = APIRouter()
 # Mapeo de IDs de listas a nombres
 LISTAS_PRECIOS = {
     4: "Clásica",
-    12: "Clásica PVP",
-    17: "Web 3 Cuotas",
-    18: "Web 3 Cuotas PVP",
-    14: "Web 6 Cuotas",
-    19: "Web 6 Cuotas PVP",
-    13: "Web 9 Cuotas",
-    20: "Web 9 Cuotas PVP",
-    23: "Web 12 Cuotas",
-    21: "Web 12 Cuotas PVP"
+    12: "Clásica",  # PVP pero se muestra igual
+    17: "3 Cuotas",
+    18: "3 Cuotas",  # PVP pero se muestra igual
+    14: "6 Cuotas",
+    19: "6 Cuotas",  # PVP pero se muestra igual
+    13: "9 Cuotas",
+    20: "9 Cuotas",  # PVP pero se muestra igual
+    23: "12 Cuotas",
+    21: "12 Cuotas"  # PVP pero se muestra igual
 }
 
 # Mapeo de listas Web a sus pares PVP
