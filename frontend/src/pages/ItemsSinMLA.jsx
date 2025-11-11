@@ -3,7 +3,7 @@ import axios from 'axios';
 import './ItemsSinMLA.css';
 
 const ItemsSinMLA = () => {
-  const [activeTab, setActiveTab] = useState('sin-mla'); // 'sin-mla' | 'banlist'
+  const [activeTab, setActiveTab] = useState('sin-mla'); // 'sin-mla' | 'banlist' | 'comparacion'
 
   // Estado para items sin MLA
   const [itemsSinMLA, setItemsSinMLA] = useState([]);
@@ -49,6 +49,12 @@ const ItemsSinMLA = () => {
   const [itemsBaneadosOriginales, setItemsBaneadosOriginales] = useState([]);
   const [soloNuevosBanlist, setSoloNuevosBanlist] = useState(false);
 
+  // Estado para comparación de listas
+  const [itemsComparacion, setItemsComparacion] = useState([]);
+  const [loadingComparacion, setLoadingComparacion] = useState(false);
+  const [busquedaComparacion, setBusquedaComparacion] = useState('');
+  const [marcaComparacion, setMarcaComparacion] = useState('');
+
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
   const token = localStorage.getItem('token');
 
@@ -60,6 +66,8 @@ const ItemsSinMLA = () => {
   useEffect(() => {
     if (activeTab === 'banlist') {
       cargarItemsBaneados();
+    } else if (activeTab === 'comparacion') {
+      cargarComparacionListas();
     }
   }, [activeTab]);
 
@@ -176,6 +184,27 @@ const ItemsSinMLA = () => {
     setSoloNuevosBanlist(false);
     setPanelMarcasAbiertoBanlist(false);
     aplicarFiltrosBanlist(itemsBaneadosOriginales);
+  };
+
+  const cargarComparacionListas = async () => {
+    setLoadingComparacion(true);
+    try {
+      const params = {};
+      if (busquedaComparacion) params.buscar = busquedaComparacion;
+      if (marcaComparacion) params.marca = marcaComparacion;
+
+      const response = await axios.get(`${API_URL}/items-sin-mla/comparacion-listas`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params
+      });
+
+      setItemsComparacion(response.data);
+    } catch (error) {
+      console.error('Error al cargar comparación de listas:', error);
+      alert('Error al cargar la comparación de listas');
+    } finally {
+      setLoadingComparacion(false);
+    }
   };
 
   const handleBanear = (item) => {
@@ -504,6 +533,12 @@ const ItemsSinMLA = () => {
           onClick={() => setActiveTab('banlist')}
         >
           🚫 Banlist ({itemsBaneados.length})
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'comparacion' ? 'active' : ''}`}
+          onClick={() => setActiveTab('comparacion')}
+        >
+          📊 Comparación Listas ({itemsComparacion.length})
         </button>
       </div>
 
@@ -941,6 +976,110 @@ const ItemsSinMLA = () => {
                           >
                             ✅ Desbanear
                           </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Contenido del Tab 3: Comparación de Listas */}
+      {activeTab === 'comparacion' && (
+        <div className="tab-content">
+          {/* Filtros */}
+          <div className="filters-section">
+            <div className="filter-group">
+              <label>🔎 Buscar:</label>
+              <input
+                type="text"
+                placeholder="Código o descripción"
+                value={busquedaComparacion}
+                onChange={(e) => setBusquedaComparacion(e.target.value)}
+                className="filter-input"
+              />
+            </div>
+
+            <div className="filter-group">
+              <label>🏷️ Marca:</label>
+              <input
+                type="text"
+                placeholder="Filtrar por marca"
+                value={marcaComparacion}
+                onChange={(e) => setMarcaComparacion(e.target.value)}
+                className="filter-input"
+              />
+            </div>
+
+            <button onClick={cargarComparacionListas} className="btn-aplicar-filtros">
+              Aplicar Filtros
+            </button>
+          </div>
+
+          {/* Tabla de comparación */}
+          {loadingComparacion ? (
+            <div className="loading">Cargando comparación...</div>
+          ) : (
+            <div className="table-container">
+              <table className="items-table">
+                <thead>
+                  <tr>
+                    <th>Item ID</th>
+                    <th>Código</th>
+                    <th>Descripción</th>
+                    <th>Marca</th>
+                    <th>MLA ID</th>
+                    <th>Lista Sistema</th>
+                    <th>Campaña ML</th>
+                    <th>Precio Sistema</th>
+                    <th>Precio ML</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemsComparacion.length === 0 ? (
+                    <tr>
+                      <td colSpan="10" style={{textAlign: 'center', padding: '20px'}}>
+                        {loadingComparacion ? 'Cargando...' : 'No hay diferencias encontradas entre listas del sistema y campañas de ML'}
+                      </td>
+                    </tr>
+                  ) : (
+                    itemsComparacion.map((item) => (
+                      <tr key={`${item.mla_id}-${item.item_id}`}>
+                        <td>{item.item_id}</td>
+                        <td>{item.codigo}</td>
+                        <td className="descripcion-cell">{item.descripcion}</td>
+                        <td>{item.marca}</td>
+                        <td>
+                          <a
+                            href={item.permalink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mla-link"
+                          >
+                            {item.mla_id}
+                          </a>
+                        </td>
+                        <td>
+                          <span className="badge-lista">{item.lista_sistema}</span>
+                        </td>
+                        <td>
+                          <span className="badge-campana">{item.campana_ml}</span>
+                        </td>
+                        <td>${item.precio_sistema?.toFixed(2)}</td>
+                        <td>${item.precio_ml?.toFixed(2)}</td>
+                        <td>
+                          <a
+                            href={item.permalink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn-ver-ml"
+                          >
+                            Ver en ML
+                          </a>
                         </td>
                       </tr>
                     ))

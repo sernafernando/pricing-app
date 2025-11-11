@@ -13,6 +13,7 @@ from app.models.producto import ProductoERP
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.item_sin_mla_banlist import ItemSinMLABanlist
 from app.models.usuario import Usuario
+from app.models.ml_publication_snapshot import MLPublicationSnapshot
 
 router = APIRouter()
 
@@ -89,6 +90,21 @@ class BanItemRequest(BaseModel):
 
 class UnbanItemRequest(BaseModel):
     banlist_id: int
+
+class ComparacionListaResponse(BaseModel):
+    item_id: int
+    codigo: str
+    descripcion: str
+    marca: str
+    mla_id: str
+    lista_sistema: str  # Lista que tiene en nuestro sistema
+    campana_ml: str  # Campaña que tiene en MercadoLibre
+    precio_sistema: Optional[float]
+    precio_ml: Optional[float]
+    permalink: Optional[str]
+
+    class Config:
+        from_attributes = True
 
 
 @router.get("/items-sin-mla", response_model=List[ItemSinMLAResponse])
@@ -361,3 +377,112 @@ async def get_marcas_sin_mla(
     ).order_by(ProductoERP.marca).all()
 
     return [{"marca": m[0]} for m in marcas if m[0]]
+
+
+# Mapeo de campañas ML a listas del sistema
+CAMPANA_ML_A_LISTA_SISTEMA = {
+    "Clásica": ["Clásica"],
+    "6x_campaign": ["6 Cuotas"],
+    "3x_campaign": ["3 Cuotas"],
+    "9x_campaign": ["9 Cuotas"],
+    "12x_campaign": ["12 Cuotas"],
+    "-": []  # Sin campaña
+}
+
+# Mapeo de listas del sistema a campañas ML esperadas
+LISTA_SISTEMA_A_CAMPANA_ML = {
+    "Clásica": "Clásica",
+    "3 Cuotas": "3x_campaign",
+    "6 Cuotas": "6x_campaign",
+    "9 Cuotas": "9x_campaign",
+    "12 Cuotas": "12x_campaign"
+}
+
+
+@router.get("/comparacion-listas", response_model=List[ComparacionListaResponse])
+async def get_comparacion_listas(
+    buscar: Optional[str] = Query(None, description="Buscar en código o descripción"),
+    marca: Optional[str] = Query(None, description="Filtrar por marca"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Compara las listas/campañas del sistema con las campañas de MercadoLibre
+    Devuelve solo los items donde HAY DIFERENCIAS (no coinciden)
+    """
+    from datetime import datetime
+
+    # Obtener el snapshot más reciente
+    today = datetime.now().date()
+
+    # Subquery para obtener los snapshots más recientes de cada publicación
+    latest_snapshots = db.query(
+        MLPublicationSnapshot.mla_id,
+        func.max(MLPublicationSnapshot.snapshot_date).label('max_date')
+    ).filter(
+        func.date(MLPublicationSnapshot.snapshot_date) == today
+    ).group_by(MLPublicationSnapshot.mla_id).subquery()
+
+    # Query principal: obtener snapshots con sus publicaciones
+    query = db.query(
+        MLPublicationSnapshot,
+        MercadoLibreItemPublicado,
+        ProductoERP
+    ).join(
+        latest_snapshots,
+        and_(
+            MLPublicationSnapshot.mla_id == latest_snapshots.c.mla_id,
+            MLPublicationSnapshot.snapshot_date == latest_snapshots.c.max_date
+        )
+    ).join(
+        MercadoLibreItemPublicado,
+        MercadoLibreItemPublicado.mla_id == MLPublicationSnapshot.mla_id
+    ).join(
+        ProductoERP,
+        ProductoERP.item_id == MercadoLibreItemPublicado.item_id
+    )
+
+    # Aplicar filtros opcionales
+    if buscar:
+        search_term = f"%{buscar}%"
+        query = query.filter(
+            or_(
+                ProductoERP.codigo.ilike(search_term),
+                ProductoERP.descripcion.ilike(search_term)
+            )
+        )
+
+    if marca:
+        query = query.filter(ProductoERP.marca == marca)
+
+    resultados_query = query.all()
+
+    # Filtrar solo las diferencias
+    diferencias = []
+    for snapshot, publicacion, producto in resultados_query:
+        # Obtener la lista del sistema
+        prli_id = publicacion.prli_id
+        lista_sistema = LISTAS_PRECIOS.get(prli_id, "Desconocida")
+
+        # Obtener la campaña de ML
+        campana_ml = snapshot.installments_campaign or "-"
+
+        # Verificar si coinciden
+        campana_esperada = LISTA_SISTEMA_A_CAMPANA_ML.get(lista_sistema)
+
+        # Si NO coinciden, agregar a diferencias
+        if campana_esperada != campana_ml:
+            diferencias.append(ComparacionListaResponse(
+                item_id=producto.item_id,
+                codigo=producto.codigo or "",
+                descripcion=producto.descripcion or "",
+                marca=producto.marca or "",
+                mla_id=snapshot.mla_id,
+                lista_sistema=lista_sistema,
+                campana_ml=campana_ml,
+                precio_sistema=float(publicacion.price) if publicacion.price else None,
+                precio_ml=float(snapshot.price) if snapshot.price else None,
+                permalink=snapshot.permalink
+            ))
+
+    return diferencias
