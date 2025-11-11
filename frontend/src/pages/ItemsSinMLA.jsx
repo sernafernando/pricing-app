@@ -39,6 +39,14 @@ const ItemsSinMLA = () => {
   const [baneadosSeleccionados, setBaneadosSeleccionados] = useState(new Set());
   const [ultimoBaneadoSeleccionado, setUltimoBaneadoSeleccionado] = useState(null);
 
+  // Filtros para banlist
+  const [marcasBanlist, setMarcasBanlist] = useState([]);
+  const [marcasSeleccionadasBanlist, setMarcasSeleccionadasBanlist] = useState([]);
+  const [busquedaMarcaBanlist, setBusquedaMarcaBanlist] = useState('');
+  const [panelMarcasAbiertoBanlist, setPanelMarcasAbiertoBanlist] = useState(false);
+  const [busquedaBanlist, setBusquedaBanlist] = useState('');
+  const [itemsBaneadosOriginales, setItemsBaneadosOriginales] = useState([]);
+
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
   const token = localStorage.getItem('token');
 
@@ -103,13 +111,52 @@ const ItemsSinMLA = () => {
       const response = await axios.get(`${API_URL}/items-sin-mla/items-baneados`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setItemsBaneados(response.data);
+
+      const data = response.data;
+      setItemsBaneadosOriginales(data);
+
+      // Calcular marcas disponibles
+      const marcasUnicas = [...new Set(data.map(item => item.marca).filter(Boolean))].sort();
+      setMarcasBanlist(marcasUnicas);
+
+      // Aplicar filtros
+      aplicarFiltrosBanlist(data);
     } catch (error) {
       console.error('Error al cargar items baneados:', error);
       alert('Error al cargar items baneados');
     } finally {
       setLoadingBaneados(false);
     }
+  };
+
+  const aplicarFiltrosBanlist = (items = itemsBaneadosOriginales) => {
+    let itemsFiltrados = [...items];
+
+    // Filtro de búsqueda
+    if (busquedaBanlist) {
+      const busquedaLower = busquedaBanlist.toLowerCase();
+      itemsFiltrados = itemsFiltrados.filter(item =>
+        item.codigo?.toLowerCase().includes(busquedaLower) ||
+        item.descripcion?.toLowerCase().includes(busquedaLower) ||
+        item.item_id?.toString().includes(busquedaLower)
+      );
+    }
+
+    // Filtro de marcas
+    if (marcasSeleccionadasBanlist.length > 0) {
+      itemsFiltrados = itemsFiltrados.filter(item =>
+        marcasSeleccionadasBanlist.includes(item.marca)
+      );
+    }
+
+    setItemsBaneados(itemsFiltrados);
+  };
+
+  const limpiarFiltrosBanlist = () => {
+    setMarcasSeleccionadasBanlist([]);
+    setBusquedaBanlist('');
+    setPanelMarcasAbiertoBanlist(false);
+    aplicarFiltrosBanlist(itemsBaneadosOriginales);
   };
 
   const handleBanear = (item) => {
@@ -401,6 +448,12 @@ const ItemsSinMLA = () => {
     cargarItemsSinMLA();
   }, [marcasSeleccionadas, busqueda, listaPrecioFiltro, conStock]);
 
+  useEffect(() => {
+    if (itemsBaneadosOriginales.length > 0) {
+      aplicarFiltrosBanlist();
+    }
+  }, [marcasSeleccionadasBanlist, busquedaBanlist]);
+
   return (
     <div className="items-sin-mla-container">
       <div className="page-header">
@@ -663,6 +716,84 @@ const ItemsSinMLA = () => {
           <p className="tab-description">
             Items que no deben aparecer en el reporte de sin MLA
           </p>
+
+          {/* Filtros */}
+          <div className="filters-section">
+            <div className="filter-group">
+              <label>🔎 Buscar:</label>
+              <input
+                type="text"
+                placeholder="Código o descripción"
+                value={busquedaBanlist}
+                onChange={(e) => setBusquedaBanlist(e.target.value)}
+                className="filter-input"
+              />
+            </div>
+
+            <div className="filter-group marcas-filter-container" style={{position: 'relative'}}>
+              <label>🏷️ Marca:</label>
+              <button
+                onClick={() => setPanelMarcasAbiertoBanlist(!panelMarcasAbiertoBanlist)}
+                className={`filter-button-dropdown ${marcasSeleccionadasBanlist.length > 0 ? 'active' : ''}`}
+              >
+                {marcasSeleccionadasBanlist.length > 0
+                  ? `${marcasSeleccionadasBanlist.length} marcas`
+                  : 'Todas las marcas'}
+                {marcasSeleccionadasBanlist.length > 0 && (
+                  <span className="filter-badge-inline">{marcasSeleccionadasBanlist.length}</span>
+                )}
+              </button>
+
+              {panelMarcasAbiertoBanlist && (
+                <div className="dropdown-panel">
+                  <div className="dropdown-header">
+                    <input
+                      type="text"
+                      placeholder="Buscar marca..."
+                      value={busquedaMarcaBanlist}
+                      onChange={(e) => setBusquedaMarcaBanlist(e.target.value)}
+                      className="dropdown-search"
+                    />
+                    {marcasSeleccionadasBanlist.length > 0 && (
+                      <button
+                        onClick={() => setMarcasSeleccionadasBanlist([])}
+                        className="btn-clear-dropdown"
+                      >
+                        Limpiar ({marcasSeleccionadasBanlist.length})
+                      </button>
+                    )}
+                  </div>
+                  <div className="dropdown-list">
+                    {marcasBanlist
+                      .filter(marca => !busquedaMarcaBanlist || marca.toLowerCase().includes(busquedaMarcaBanlist.toLowerCase()))
+                      .map(marca => (
+                        <label
+                          key={marca}
+                          className={`dropdown-item ${marcasSeleccionadasBanlist.includes(marca) ? 'selected' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={marcasSeleccionadasBanlist.includes(marca)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setMarcasSeleccionadasBanlist([...marcasSeleccionadasBanlist, marca]);
+                              } else {
+                                setMarcasSeleccionadasBanlist(marcasSeleccionadasBanlist.filter(m => m !== marca));
+                              }
+                            }}
+                          />
+                          <span>{marca}</span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button onClick={limpiarFiltrosBanlist} className="btn-limpiar">
+              🗑️ Limpiar
+            </button>
+          </div>
 
           {/* Barra de acciones para multi-selección */}
           {baneadosSeleccionados.size > 0 && (
