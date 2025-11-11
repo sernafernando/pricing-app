@@ -3,7 +3,7 @@ Endpoints para gestión de items sin MLA asociado
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func, distinct
+from sqlalchemy import and_, or_, func
 from typing import List, Optional
 from pydantic import BaseModel
 
@@ -67,8 +67,8 @@ async def get_items_sin_mla(
 
     # Subquery: items que SÍ tienen MLA (cualquier mlp_Active)
     items_con_mla_subq = db.query(
-        distinct(MercadoLibreItemPublicado.item_id)
-    ).filter(
+        MercadoLibreItemPublicado.item_id
+    ).distinct().filter(
         MercadoLibreItemPublicado.item_id.isnot(None)
     ).subquery()
 
@@ -108,7 +108,7 @@ async def get_items_sin_mla(
     resultados = []
     for producto in productos:
         # Obtener todas las listas donde este item tiene publicación
-        listas_con_mla = db.query(distinct(MercadoLibreItemPublicado.prli_id)).filter(
+        listas_con_mla = db.query(MercadoLibreItemPublicado.prli_id).distinct().filter(
             MercadoLibreItemPublicado.item_id == producto.item_id
         ).all()
 
@@ -259,8 +259,8 @@ async def get_listas_precios(
     """
 
     listas = db.query(
-        distinct(MercadoLibreItemPublicado.prli_id)
-    ).filter(
+        MercadoLibreItemPublicado.prli_id
+    ).distinct().filter(
         MercadoLibreItemPublicado.prli_id.isnot(None)
     ).order_by(MercadoLibreItemPublicado.prli_id).all()
 
@@ -278,8 +278,8 @@ async def get_marcas_sin_mla(
 
     # Items con MLA
     items_con_mla_subq = db.query(
-        distinct(MercadoLibreItemPublicado.item_id)
-    ).filter(
+        MercadoLibreItemPublicado.item_id
+    ).distinct().filter(
         MercadoLibreItemPublicado.item_id.isnot(None)
     ).subquery()
 
@@ -290,8 +290,8 @@ async def get_marcas_sin_mla(
 
     # Marcas de productos sin MLA y no baneados
     marcas = db.query(
-        distinct(ProductoERP.marca)
-    ).filter(
+        ProductoERP.marca
+    ).distinct().filter(
         and_(
             ProductoERP.activo == True,
             ProductoERP.marca.isnot(None),
