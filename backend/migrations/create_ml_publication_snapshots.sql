@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS ml_publication_snapshots (
     seller_sku VARCHAR(100),
 
     -- Item ID del ERP (si lo podemos obtener del SKU)
-    item_id INTEGER,
+    item_id BIGINT,
 
     -- Metadata del snapshot
     snapshot_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

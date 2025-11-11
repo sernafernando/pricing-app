@@ -125,11 +125,16 @@ async def traer_detalles_batch(ids: list, db: Session):
                         campaign = term.get("value_name")
                         break
 
-                # Lógica condicional de campaña (como en el script original)
-                if not campaign and item.get("listing_type_id") == "gold_pro":
-                    campaign = "6x_campaign"
-                elif item.get("listing_type_id") == "gold_special":
+                # Lógica condicional de campaña según las especificaciones:
+                # - gold_special → Clásica (también aplica para su PVP correspondiente)
+                # - gold_pro → 6 cuotas (6x_campaign)
+                # - 3x_campaign → 3 cuotas
+                # - 9x_campaign → 9 cuotas
+                # - 12x_campaign → 12 cuotas
+                if item.get("listing_type_id") == "gold_special":
                     campaign = "Clásica"
+                elif not campaign and item.get("listing_type_id") == "gold_pro":
+                    campaign = "6x_campaign"
                 elif not campaign:
                     campaign = "-"
 

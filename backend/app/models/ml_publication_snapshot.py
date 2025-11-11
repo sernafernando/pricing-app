@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, Text, Boolean
+from sqlalchemy import Column, Integer, BigInteger, String, Numeric, DateTime, Text, Boolean
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -29,7 +29,7 @@ class MLPublicationSnapshot(Base):
     seller_sku = Column(String(100), index=True)
 
     # Item ID del ERP (si lo podemos obtener del SKU)
-    item_id = Column(Integer, index=True)
+    item_id = Column(BigInteger, index=True)
 
     # Metadata del snapshot
     snapshot_date = Column(DateTime(timezone=True), server_default=func.now(), index=True)
