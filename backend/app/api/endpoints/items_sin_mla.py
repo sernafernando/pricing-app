@@ -19,11 +19,28 @@ router = APIRouter()
 # Mapeo de IDs de listas a nombres
 LISTAS_PRECIOS = {
     4: "Clásica",
+    12: "Clásica PVP",
     17: "Web 3 Cuotas",
+    18: "Web 3 Cuotas PVP",
     14: "Web 6 Cuotas",
+    19: "Web 6 Cuotas PVP",
     13: "Web 9 Cuotas",
-    23: "Web 12 Cuotas"
+    20: "Web 9 Cuotas PVP",
+    23: "Web 12 Cuotas",
+    21: "Web 12 Cuotas PVP"
 }
+
+# Mapeo de listas Web a sus pares PVP
+LISTAS_WEB_A_PVP = {
+    4: 12,   # Clásica -> Clásica PVP
+    17: 18,  # 3C -> 3C PVP
+    14: 19,  # 6C -> 6C PVP
+    13: 20,  # 9C -> 9C PVP
+    23: 21   # 12C -> 12C PVP
+}
+
+# Mapeo inverso: PVP a Web
+LISTAS_PVP_A_WEB = {v: k for k, v in LISTAS_WEB_A_PVP.items()}
 
 # Schemas
 class ItemSinMLAResponse(BaseModel):
@@ -126,22 +143,46 @@ async def get_items_sin_mla(
             )
         ).all()
 
-        listas_con_mla_ids = [l[0] for l in listas_con_mla if l[0] is not None]
+        listas_con_mla_ids = set([l[0] for l in listas_con_mla if l[0] is not None])
 
-        # Determinar listas donde NO está
-        listas_sin_mla_ids = [lid for lid in listas_relevantes if lid not in listas_con_mla_ids]
+        # Determinar pares completos (Web + PVP)
+        # Un par está completo si tiene tanto la lista Web como la PVP
+        pares_completos = set()
+        pares_incompletos = set()
+
+        for web_id, pvp_id in LISTAS_WEB_A_PVP.items():
+            tiene_web = web_id in listas_con_mla_ids
+            tiene_pvp = pvp_id in listas_con_mla_ids
+
+            if tiene_web and tiene_pvp:
+                # Par completo
+                pares_completos.add(web_id)
+                pares_completos.add(pvp_id)
+            elif tiene_web or tiene_pvp:
+                # Par incompleto: tiene una pero no la otra
+                if not tiene_web:
+                    pares_incompletos.add(web_id)
+                if not tiene_pvp:
+                    pares_incompletos.add(pvp_id)
+            else:
+                # No tiene ninguna del par
+                pares_incompletos.add(web_id)
+                pares_incompletos.add(pvp_id)
 
         # Si no le falta ninguna lista, no lo incluimos en los resultados
-        if not listas_sin_mla_ids:
+        if not pares_incompletos:
             continue
 
         # Si se filtra por prli_id específico, verificar que le falte esa lista
-        if prli_id and prli_id not in listas_sin_mla_ids:
-            continue
+        # También incluir si le falta su par (Web o PVP)
+        if prli_id:
+            par_del_filtro = LISTAS_WEB_A_PVP.get(prli_id, LISTAS_PVP_A_WEB.get(prli_id))
+            if prli_id not in pares_incompletos and par_del_filtro not in pares_incompletos:
+                continue
 
         # Convertir IDs a nombres
-        listas_sin_mla_nombres = [LISTAS_PRECIOS[lid] for lid in listas_sin_mla_ids]
-        listas_con_mla_nombres = [LISTAS_PRECIOS[lid] for lid in listas_con_mla_ids]
+        listas_sin_mla_nombres = sorted([LISTAS_PRECIOS[lid] for lid in pares_incompletos])
+        listas_con_mla_nombres = sorted([LISTAS_PRECIOS[lid] for lid in pares_completos])
 
         resultados.append(ItemSinMLAResponse(
             item_id=producto.item_id,
