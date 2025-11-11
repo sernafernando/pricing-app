@@ -990,35 +990,6 @@ const ItemsSinMLA = () => {
       {/* Contenido del Tab 3: Comparación de Listas */}
       {activeTab === 'comparacion' && (
         <div className="tab-content">
-          {/* Filtros */}
-          <div className="filters-section">
-            <div className="filter-group">
-              <label>🔎 Buscar:</label>
-              <input
-                type="text"
-                placeholder="Código o descripción"
-                value={busquedaComparacion}
-                onChange={(e) => setBusquedaComparacion(e.target.value)}
-                className="filter-input"
-              />
-            </div>
-
-            <div className="filter-group">
-              <label>🏷️ Marca:</label>
-              <input
-                type="text"
-                placeholder="Filtrar por marca"
-                value={marcaComparacion}
-                onChange={(e) => setMarcaComparacion(e.target.value)}
-                className="filter-input"
-              />
-            </div>
-
-            <button onClick={cargarComparacionListas} className="btn-aplicar-filtros">
-              Aplicar Filtros
-            </button>
-          </div>
-
           {/* Tabla de comparación */}
           {loadingComparacion ? (
             <div className="loading">Cargando comparación...</div>
@@ -1036,13 +1007,12 @@ const ItemsSinMLA = () => {
                     <th>Campaña ML</th>
                     <th>Precio Sistema</th>
                     <th>Precio ML</th>
-                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {itemsComparacion.length === 0 ? (
                     <tr>
-                      <td colSpan="10" style={{textAlign: 'center', padding: '20px'}}>
+                      <td colSpan="9" style={{textAlign: 'center', padding: '20px'}}>
                         {loadingComparacion ? 'Cargando...' : 'No hay diferencias encontradas entre listas del sistema y campañas de ML'}
                       </td>
                     </tr>
@@ -1071,16 +1041,6 @@ const ItemsSinMLA = () => {
                         </td>
                         <td>${item.precio_sistema?.toFixed(2)}</td>
                         <td>${item.precio_ml?.toFixed(2)}</td>
-                        <td>
-                          <a
-                            href={item.permalink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="btn-ver-ml"
-                          >
-                            Ver en ML
-                          </a>
-                        </td>
                       </tr>
                     ))
                   )}

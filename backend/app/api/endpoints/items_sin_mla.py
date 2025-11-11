@@ -471,9 +471,20 @@ async def get_comparacion_listas(
         # Obtener la campaña de ML
         campana_ml_raw = snapshot.installments_campaign or "-"
 
-        # Limpiar la campaña ML: si tiene pipe, tomar la primera parte
-        # Ejemplo: "9x_campaign|mshops_9x_campaign" -> "9x_campaign"
-        campana_ml = campana_ml_raw.split('|')[0] if '|' in campana_ml_raw else campana_ml_raw
+        # Limpiar la campaña ML:
+        # 1. Si tiene pipe (|), dividir y filtrar
+        # 2. Omitir cualquier campaña que sea de mshops_ (ya no existen)
+        # 3. Tomar la primera campaña válida
+        if '|' in campana_ml_raw:
+            campanas = campana_ml_raw.split('|')
+            # Filtrar las que NO son mshops_
+            campanas_validas = [c for c in campanas if not c.startswith('mshops_')]
+            campana_ml = campanas_validas[0] if campanas_validas else "-"
+        elif campana_ml_raw.startswith('mshops_'):
+            # Si es solo mshops_, omitirla (no comparar)
+            continue
+        else:
+            campana_ml = campana_ml_raw
 
         # Verificar si coinciden
         campana_esperada = LISTA_SISTEMA_A_CAMPANA_ML.get(lista_sistema)
