@@ -37,7 +37,6 @@ const ItemsSinMLA = () => {
   const token = localStorage.getItem('token');
 
   useEffect(() => {
-    cargarMarcas();
     cargarListasPrecio();
     cargarItemsSinMLA();
   }, []);
@@ -47,17 +46,6 @@ const ItemsSinMLA = () => {
       cargarItemsBaneados();
     }
   }, [activeTab]);
-
-  const cargarMarcas = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/items-sin-mla/marcas`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setMarcas(response.data);
-    } catch (error) {
-      console.error('Error al cargar marcas:', error);
-    }
-  };
 
   const cargarListasPrecio = async () => {
     try {
@@ -73,17 +61,28 @@ const ItemsSinMLA = () => {
   const cargarItemsSinMLA = async () => {
     setLoadingItems(true);
     try {
-      const params = {};
-      if (marcaFiltro) params.marca = marcaFiltro;
-      if (busqueda) params.buscar = busqueda;
-      if (listaPrecioFiltro) params.prli_id = listaPrecioFiltro;
-      if (conStock !== null) params.con_stock = conStock;
+      // Primero cargar items sin filtro de marca para obtener marcas disponibles
+      const paramsBase = {};
+      if (busqueda) paramsBase.buscar = busqueda;
+      if (listaPrecioFiltro) paramsBase.prli_id = listaPrecioFiltro;
+      if (conStock !== null) paramsBase.con_stock = conStock;
 
-      const response = await axios.get(`${API_URL}/items-sin-mla/items-sin-mla`, {
+      const responseBase = await axios.get(`${API_URL}/items-sin-mla/items-sin-mla`, {
         headers: { Authorization: `Bearer ${token}` },
-        params
+        params: paramsBase
       });
-      setItemsSinMLA(response.data);
+
+      // Calcular marcas disponibles desde todos los items (sin filtro de marca)
+      const marcasUnicas = [...new Set(responseBase.data.map(item => item.marca).filter(Boolean))].sort();
+      setMarcas(marcasUnicas.map(marca => ({ marca })));
+
+      // Si hay filtro de marca, filtrar los items
+      if (marcaFiltro) {
+        const itemsFiltrados = responseBase.data.filter(item => item.marca === marcaFiltro);
+        setItemsSinMLA(itemsFiltrados);
+      } else {
+        setItemsSinMLA(responseBase.data);
+      }
     } catch (error) {
       console.error('Error al cargar items sin MLA:', error);
       alert('Error al cargar items sin MLA');
