@@ -145,44 +145,36 @@ async def get_items_sin_mla(
 
         listas_con_mla_ids = set([l[0] for l in listas_con_mla if l[0] is not None])
 
-        # Determinar pares completos (Web + PVP)
-        # Un par está completo si tiene tanto la lista Web como la PVP
-        pares_completos = set()
-        pares_incompletos = set()
+        # Determinar qué pares están presentes
+        # Si tiene Web O PVP, se considera que tiene el par completo
+        pares_presentes = set()  # Solo usamos las listas Web para representar el par
+        pares_faltantes = set()  # Las listas Web que no tienen ni Web ni PVP
 
         for web_id, pvp_id in LISTAS_WEB_A_PVP.items():
             tiene_web = web_id in listas_con_mla_ids
             tiene_pvp = pvp_id in listas_con_mla_ids
 
-            if tiene_web and tiene_pvp:
-                # Par completo
-                pares_completos.add(web_id)
-                pares_completos.add(pvp_id)
-            elif tiene_web or tiene_pvp:
-                # Par incompleto: tiene una pero no la otra
-                if not tiene_web:
-                    pares_incompletos.add(web_id)
-                if not tiene_pvp:
-                    pares_incompletos.add(pvp_id)
+            if tiene_web or tiene_pvp:
+                # Tiene al menos una del par, se considera presente
+                pares_presentes.add(web_id)
             else:
                 # No tiene ninguna del par
-                pares_incompletos.add(web_id)
-                pares_incompletos.add(pvp_id)
+                pares_faltantes.add(web_id)
 
-        # Si no le falta ninguna lista, no lo incluimos en los resultados
-        if not pares_incompletos:
+        # Si no le falta ningún par, no lo incluimos en los resultados
+        if not pares_faltantes:
             continue
 
-        # Si se filtra por prli_id específico, verificar que le falte esa lista
-        # También incluir si le falta su par (Web o PVP)
+        # Si se filtra por prli_id específico, verificar que le falte ese par
         if prli_id:
-            par_del_filtro = LISTAS_WEB_A_PVP.get(prli_id, LISTAS_PVP_A_WEB.get(prli_id))
-            if prli_id not in pares_incompletos and par_del_filtro not in pares_incompletos:
+            # Obtener el ID Web del par (si es PVP, obtener su Web)
+            web_del_filtro = LISTAS_PVP_A_WEB.get(prli_id, prli_id)
+            if web_del_filtro not in pares_faltantes:
                 continue
 
-        # Convertir IDs a nombres
-        listas_sin_mla_nombres = sorted([LISTAS_PRECIOS[lid] for lid in pares_incompletos])
-        listas_con_mla_nombres = sorted([LISTAS_PRECIOS[lid] for lid in pares_completos])
+        # Convertir IDs a nombres (solo mostramos las listas Web, no duplicar con PVP)
+        listas_sin_mla_nombres = sorted([LISTAS_PRECIOS[lid] for lid in pares_faltantes])
+        listas_con_mla_nombres = sorted([LISTAS_PRECIOS[lid] for lid in pares_presentes])
 
         resultados.append(ItemSinMLAResponse(
             item_id=producto.item_id,
@@ -310,12 +302,13 @@ async def get_listas_precios(
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Obtiene las listas de precios relevantes (Clásica, Web 3, 6, 9, 12)
+    Obtiene las listas de precios relevantes (solo Web, sin PVP duplicado)
     """
 
+    # Solo devolver las listas Web (las claves de LISTAS_WEB_A_PVP)
     return [
-        {"prli_id": prli_id, "nombre": nombre}
-        for prli_id, nombre in LISTAS_PRECIOS.items()
+        {"prli_id": web_id, "nombre": LISTAS_PRECIOS[web_id]}
+        for web_id in sorted(LISTAS_WEB_A_PVP.keys())
     ]
 
 
