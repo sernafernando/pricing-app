@@ -22,6 +22,7 @@ const ItemsSinMLA = () => {
   const [listaPrecioFiltro, setListaPrecioFiltro] = useState('');
   const [listasPrecio, setListasPrecio] = useState([]);
   const [conStock, setConStock] = useState(null); // null = todos, true = con stock, false = sin stock
+  const [soloNuevos, setSoloNuevos] = useState(false); // Filtro para mostrar solo items nuevos
 
   // Estado para agregar motivo al banear
   const [itemSeleccionado, setItemSeleccionado] = useState(null);
@@ -46,6 +47,7 @@ const ItemsSinMLA = () => {
   const [panelMarcasAbiertoBanlist, setPanelMarcasAbiertoBanlist] = useState(false);
   const [busquedaBanlist, setBusquedaBanlist] = useState('');
   const [itemsBaneadosOriginales, setItemsBaneadosOriginales] = useState([]);
+  const [soloNuevosBanlist, setSoloNuevosBanlist] = useState(false);
 
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
   const token = localStorage.getItem('token');
@@ -90,13 +92,22 @@ const ItemsSinMLA = () => {
       const marcasUnicas = [...new Set(responseBase.data.map(item => item.marca).filter(Boolean))].sort();
       setMarcas(marcasUnicas);
 
-      // Si hay filtros de marca, filtrar los items
+      // Aplicar filtros
+      let itemsFiltrados = responseBase.data;
+
+      // Filtro de marca
       if (marcasSeleccionadas.length > 0) {
-        const itemsFiltrados = responseBase.data.filter(item => marcasSeleccionadas.includes(item.marca));
-        setItemsSinMLA(itemsFiltrados);
-      } else {
-        setItemsSinMLA(responseBase.data);
+        itemsFiltrados = itemsFiltrados.filter(item => marcasSeleccionadas.includes(item.marca));
       }
+
+      // Filtro de solo nuevos
+      if (soloNuevos) {
+        const maxId = Math.max(...itemsFiltrados.map(i => i.item_id));
+        const umbral = maxId * 0.95;
+        itemsFiltrados = itemsFiltrados.filter(item => item.item_id >= umbral);
+      }
+
+      setItemsSinMLA(itemsFiltrados);
     } catch (error) {
       console.error('Error al cargar items sin MLA:', error);
       alert('Error al cargar items sin MLA');
@@ -149,12 +160,20 @@ const ItemsSinMLA = () => {
       );
     }
 
+    // Filtro de solo nuevos
+    if (soloNuevosBanlist) {
+      const maxId = Math.max(...itemsFiltrados.map(i => i.item_id));
+      const umbral = maxId * 0.95;
+      itemsFiltrados = itemsFiltrados.filter(item => item.item_id >= umbral);
+    }
+
     setItemsBaneados(itemsFiltrados);
   };
 
   const limpiarFiltrosBanlist = () => {
     setMarcasSeleccionadasBanlist([]);
     setBusquedaBanlist('');
+    setSoloNuevosBanlist(false);
     setPanelMarcasAbiertoBanlist(false);
     aplicarFiltrosBanlist(itemsBaneadosOriginales);
   };
@@ -223,12 +242,13 @@ const ItemsSinMLA = () => {
     setBusqueda('');
     setListaPrecioFiltro('');
     setConStock(null);
+    setSoloNuevos(false);
     setPanelMarcasAbierto(false);
   };
 
   useEffect(() => {
     cargarItemsSinMLA();
-  }, [marcasSeleccionadas, busqueda, listaPrecioFiltro, conStock]);
+  }, [marcasSeleccionadas, busqueda, listaPrecioFiltro, conStock, soloNuevos]);
 
   const handleSort = (columna, event) => {
     const shiftPressed = event?.shiftKey;
@@ -457,14 +477,10 @@ const ItemsSinMLA = () => {
   };
 
   useEffect(() => {
-    cargarItemsSinMLA();
-  }, [marcasSeleccionadas, busqueda, listaPrecioFiltro, conStock]);
-
-  useEffect(() => {
     if (itemsBaneadosOriginales.length > 0) {
       aplicarFiltrosBanlist();
     }
-  }, [marcasSeleccionadasBanlist, busquedaBanlist]);
+  }, [marcasSeleccionadasBanlist, busquedaBanlist, soloNuevosBanlist]);
 
   return (
     <div className="items-sin-mla-container">
@@ -599,6 +615,18 @@ const ItemsSinMLA = () => {
               </select>
             </div>
 
+            <div className="filter-group">
+              <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
+                <input
+                  type="checkbox"
+                  checked={soloNuevos}
+                  onChange={(e) => setSoloNuevos(e.target.checked)}
+                  style={{marginRight: '6px', cursor: 'pointer'}}
+                />
+                ✨ Solo nuevos
+              </label>
+            </div>
+
             <button onClick={limpiarFiltros} className="btn-limpiar">
               🗑️ Limpiar
             </button>
@@ -678,12 +706,12 @@ const ItemsSinMLA = () => {
                             onChange={(e) => handleSeleccionarItem(item.item_id, e)}
                           />
                         </td>
-                        <td>
-                          {item.item_id}
-                          {esItemNuevo(item.item_id) && <span className="badge-nuevo">NUEVO</span>}
-                        </td>
+                        <td>{item.item_id}</td>
                         <td>{item.codigo}</td>
-                        <td className="descripcion-cell">{item.descripcion}</td>
+                        <td className="descripcion-cell">
+                          {esItemNuevo(item.item_id) && <span className="badge-nuevo">NUEVO</span>}
+                          {item.descripcion}
+                        </td>
                         <td>{item.marca}</td>
                         <td className={item.stock > 0 ? 'stock-positive' : 'stock-zero'}>
                           {item.stock}
@@ -805,6 +833,18 @@ const ItemsSinMLA = () => {
               )}
             </div>
 
+            <div className="filter-group">
+              <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
+                <input
+                  type="checkbox"
+                  checked={soloNuevosBanlist}
+                  onChange={(e) => setSoloNuevosBanlist(e.target.checked)}
+                  style={{marginRight: '6px', cursor: 'pointer'}}
+                />
+                ✨ Solo nuevos
+              </label>
+            </div>
+
             <button onClick={limpiarFiltrosBanlist} className="btn-limpiar">
               🗑️ Limpiar
             </button>
@@ -883,12 +923,12 @@ const ItemsSinMLA = () => {
                             onChange={(e) => handleSeleccionarBaneado(item.id, e)}
                           />
                         </td>
-                        <td>
-                          {item.item_id}
-                          {esItemNuevo(item.item_id) && <span className="badge-nuevo">NUEVO</span>}
-                        </td>
+                        <td>{item.item_id}</td>
                         <td>{item.codigo}</td>
-                        <td className="descripcion-cell">{item.descripcion}</td>
+                        <td className="descripcion-cell">
+                          {esItemNuevo(item.item_id) && <span className="badge-nuevo">NUEVO</span>}
+                          {item.descripcion}
+                        </td>
                         <td>{item.marca}</td>
                         <td className="motivo-cell">{item.motivo || '-'}</td>
                         <td>{item.usuario_nombre}</td>
