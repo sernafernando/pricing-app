@@ -436,7 +436,7 @@ async def get_comparacion_listas(
         )
     ).join(
         MercadoLibreItemPublicado,
-        MercadoLibreItemPublicado.mla_id == MLPublicationSnapshot.mla_id
+        MercadoLibreItemPublicado.mlp_publicationID == MLPublicationSnapshot.mla_id
     ).join(
         ProductoERP,
         ProductoERP.item_id == MercadoLibreItemPublicado.item_id
@@ -480,7 +480,7 @@ async def get_comparacion_listas(
                 mla_id=snapshot.mla_id,
                 lista_sistema=lista_sistema,
                 campana_ml=campana_ml,
-                precio_sistema=float(publicacion.price) if publicacion.price else None,
+                precio_sistema=float(publicacion.mlp_price) if publicacion.mlp_price else None,
                 precio_ml=float(snapshot.price) if snapshot.price else None,
                 permalink=snapshot.permalink
             ))
