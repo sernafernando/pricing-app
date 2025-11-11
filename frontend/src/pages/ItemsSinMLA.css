@@ -180,6 +180,18 @@
   color: var(--primary-color);
 }
 
+.orden-numero {
+  display: inline-block;
+  background: var(--primary-color);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
 .items-table td {
   padding: 12px;
   border-bottom: 1px solid var(--border-primary);

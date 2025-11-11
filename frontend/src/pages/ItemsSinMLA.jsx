@@ -26,9 +26,8 @@ const ItemsSinMLA = () => {
   const [showMotivoModal, setShowMotivoModal] = useState(false);
   const [motivo, setMotivo] = useState('');
 
-  // Estado para ordenamiento
-  const [sortColumn, setSortColumn] = useState(null);
-  const [sortDirection, setSortDirection] = useState('asc'); // 'asc' | 'desc'
+  // Estado para ordenamiento (multi-sort con shift)
+  const [ordenColumnas, setOrdenColumnas] = useState([]); // [{columna: 'item_id', direccion: 'asc'}, ...]
 
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
   const token = localStorage.getItem('token');
@@ -174,49 +173,87 @@ const ItemsSinMLA = () => {
     cargarItemsSinMLA();
   }, [marcaFiltro, busqueda, listaPrecioFiltro, conStock]);
 
-  const handleSort = (column) => {
-    if (sortColumn === column) {
-      // Cambiar dirección si es la misma columna
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+  const handleSort = (columna, event) => {
+    const shiftPressed = event?.shiftKey;
+
+    if (!shiftPressed) {
+      // Sin Shift: ordenamiento simple
+      const existente = ordenColumnas.find(o => o.columna === columna);
+
+      if (existente) {
+        if (existente.direccion === 'asc') {
+          setOrdenColumnas([{ columna, direccion: 'desc' }]);
+        } else {
+          setOrdenColumnas([]);
+        }
+      } else {
+        setOrdenColumnas([{ columna, direccion: 'asc' }]);
+      }
     } else {
-      // Nueva columna, ordenar ascendente
-      setSortColumn(column);
-      setSortDirection('asc');
+      // Con Shift: ordenamiento múltiple
+      const existente = ordenColumnas.find(o => o.columna === columna);
+
+      if (existente) {
+        if (existente.direccion === 'asc') {
+          // Cambiar a descendente
+          setOrdenColumnas(
+            ordenColumnas.map(o =>
+              o.columna === columna ? { ...o, direccion: 'desc' } : o
+            )
+          );
+        } else {
+          // Quitar esta columna del ordenamiento
+          setOrdenColumnas(ordenColumnas.filter(o => o.columna !== columna));
+        }
+      } else {
+        // Agregar nueva columna al ordenamiento
+        setOrdenColumnas([...ordenColumnas, { columna, direccion: 'asc' }]);
+      }
     }
   };
 
   const sortedItems = (items) => {
-    if (!sortColumn) return items;
+    if (ordenColumnas.length === 0) return items;
 
     return [...items].sort((a, b) => {
-      let aVal = a[sortColumn];
-      let bVal = b[sortColumn];
+      // Comparar por cada columna en orden
+      for (const { columna, direccion } of ordenColumnas) {
+        let aVal = a[columna];
+        let bVal = b[columna];
 
-      // Manejo especial para arrays (listas)
-      if (Array.isArray(aVal) && Array.isArray(bVal)) {
-        aVal = aVal.length;
-        bVal = bVal.length;
+        // Manejo especial para arrays (listas)
+        if (Array.isArray(aVal) && Array.isArray(bVal)) {
+          aVal = aVal.length;
+          bVal = bVal.length;
+        }
+
+        // Manejo para valores null/undefined
+        if (aVal === null || aVal === undefined) aVal = '';
+        if (bVal === null || bVal === undefined) bVal = '';
+
+        // Comparación
+        if (typeof aVal === 'string' && typeof bVal === 'string') {
+          aVal = aVal.toLowerCase();
+          bVal = bVal.toLowerCase();
+        }
+
+        if (aVal < bVal) return direccion === 'asc' ? -1 : 1;
+        if (aVal > bVal) return direccion === 'asc' ? 1 : -1;
+        // Si son iguales, continuar con la siguiente columna
       }
-
-      // Manejo para valores null/undefined
-      if (aVal === null || aVal === undefined) aVal = '';
-      if (bVal === null || bVal === undefined) bVal = '';
-
-      // Comparación
-      if (typeof aVal === 'string') {
-        aVal = aVal.toLowerCase();
-        bVal = bVal.toLowerCase();
-      }
-
-      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
       return 0;
     });
   };
 
-  const renderSortIcon = (column) => {
-    if (sortColumn !== column) return ' ⇅';
-    return sortDirection === 'asc' ? ' ↑' : ' ↓';
+  const getIconoOrden = (columna) => {
+    const orden = ordenColumnas.find(o => o.columna === columna);
+    if (!orden) return '↕';
+    return orden.direccion === 'asc' ? '▲' : '▼';
+  };
+
+  const getNumeroOrden = (columna) => {
+    const index = ordenColumnas.findIndex(o => o.columna === columna);
+    return index >= 0 ? index + 1 : null;
   };
 
   useEffect(() => {
@@ -325,26 +362,26 @@ const ItemsSinMLA = () => {
               <table className="items-table">
                 <thead>
                   <tr>
-                    <th className="sortable" onClick={() => handleSort('item_id')}>
-                      Item ID{renderSortIcon('item_id')}
+                    <th className="sortable" onClick={(e) => handleSort('item_id', e)}>
+                      Item ID {getIconoOrden('item_id')} {getNumeroOrden('item_id') && <span className="orden-numero">{getNumeroOrden('item_id')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('codigo')}>
-                      Código{renderSortIcon('codigo')}
+                    <th className="sortable" onClick={(e) => handleSort('codigo', e)}>
+                      Código {getIconoOrden('codigo')} {getNumeroOrden('codigo') && <span className="orden-numero">{getNumeroOrden('codigo')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('descripcion')}>
-                      Descripción{renderSortIcon('descripcion')}
+                    <th className="sortable" onClick={(e) => handleSort('descripcion', e)}>
+                      Descripción {getIconoOrden('descripcion')} {getNumeroOrden('descripcion') && <span className="orden-numero">{getNumeroOrden('descripcion')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('marca')}>
-                      Marca{renderSortIcon('marca')}
+                    <th className="sortable" onClick={(e) => handleSort('marca', e)}>
+                      Marca {getIconoOrden('marca')} {getNumeroOrden('marca') && <span className="orden-numero">{getNumeroOrden('marca')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('stock')}>
-                      Stock{renderSortIcon('stock')}
+                    <th className="sortable" onClick={(e) => handleSort('stock', e)}>
+                      Stock {getIconoOrden('stock')} {getNumeroOrden('stock') && <span className="orden-numero">{getNumeroOrden('stock')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('listas_sin_mla')}>
-                      Le falta en{renderSortIcon('listas_sin_mla')}
+                    <th className="sortable" onClick={(e) => handleSort('listas_sin_mla', e)}>
+                      Le falta en {getIconoOrden('listas_sin_mla')} {getNumeroOrden('listas_sin_mla') && <span className="orden-numero">{getNumeroOrden('listas_sin_mla')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('listas_con_mla')}>
-                      Tiene en{renderSortIcon('listas_con_mla')}
+                    <th className="sortable" onClick={(e) => handleSort('listas_con_mla', e)}>
+                      Tiene en {getIconoOrden('listas_con_mla')} {getNumeroOrden('listas_con_mla') && <span className="orden-numero">{getNumeroOrden('listas_con_mla')}</span>}
                     </th>
                     <th>Acciones</th>
                   </tr>
@@ -417,26 +454,26 @@ const ItemsSinMLA = () => {
               <table className="items-table">
                 <thead>
                   <tr>
-                    <th className="sortable" onClick={() => handleSort('item_id')}>
-                      Item ID{renderSortIcon('item_id')}
+                    <th className="sortable" onClick={(e) => handleSort('item_id', e)}>
+                      Item ID {getIconoOrden('item_id')} {getNumeroOrden('item_id') && <span className="orden-numero">{getNumeroOrden('item_id')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('codigo')}>
-                      Código{renderSortIcon('codigo')}
+                    <th className="sortable" onClick={(e) => handleSort('codigo', e)}>
+                      Código {getIconoOrden('codigo')} {getNumeroOrden('codigo') && <span className="orden-numero">{getNumeroOrden('codigo')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('descripcion')}>
-                      Descripción{renderSortIcon('descripcion')}
+                    <th className="sortable" onClick={(e) => handleSort('descripcion', e)}>
+                      Descripción {getIconoOrden('descripcion')} {getNumeroOrden('descripcion') && <span className="orden-numero">{getNumeroOrden('descripcion')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('marca')}>
-                      Marca{renderSortIcon('marca')}
+                    <th className="sortable" onClick={(e) => handleSort('marca', e)}>
+                      Marca {getIconoOrden('marca')} {getNumeroOrden('marca') && <span className="orden-numero">{getNumeroOrden('marca')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('motivo')}>
-                      Motivo{renderSortIcon('motivo')}
+                    <th className="sortable" onClick={(e) => handleSort('motivo', e)}>
+                      Motivo {getIconoOrden('motivo')} {getNumeroOrden('motivo') && <span className="orden-numero">{getNumeroOrden('motivo')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('usuario_nombre')}>
-                      Usuario{renderSortIcon('usuario_nombre')}
+                    <th className="sortable" onClick={(e) => handleSort('usuario_nombre', e)}>
+                      Usuario {getIconoOrden('usuario_nombre')} {getNumeroOrden('usuario_nombre') && <span className="orden-numero">{getNumeroOrden('usuario_nombre')}</span>}
                     </th>
-                    <th className="sortable" onClick={() => handleSort('fecha_creacion')}>
-                      Fecha{renderSortIcon('fecha_creacion')}
+                    <th className="sortable" onClick={(e) => handleSort('fecha_creacion', e)}>
+                      Fecha {getIconoOrden('fecha_creacion')} {getNumeroOrden('fecha_creacion') && <span className="orden-numero">{getNumeroOrden('fecha_creacion')}</span>}
                     </th>
                     <th>Acciones</th>
                   </tr>
