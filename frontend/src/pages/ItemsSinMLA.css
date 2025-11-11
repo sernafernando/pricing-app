@@ -292,15 +292,16 @@
 
 /* Buttons */
 .btn-banear {
-  padding: 6px 12px;
+  padding: 4px 8px;
   background: #fee;
   border: 1px solid #fcc;
   border-radius: 4px;
   color: #c33;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .btn-banear:hover {
@@ -311,15 +312,16 @@
 }
 
 .btn-desbanear {
-  padding: 6px 12px;
+  padding: 4px 8px;
   background: #efe;
   border: 1px solid #cfc;
   border-radius: 4px;
   color: #3c3;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .btn-desbanear:hover {
