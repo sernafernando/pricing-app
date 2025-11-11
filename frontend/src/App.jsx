@@ -11,6 +11,7 @@ import UltimosCambios from './pages/UltimosCambios';
 import PreciosListas from './pages/PreciosListas';
 import GestionPM from './pages/GestionPM';
 import MLABanlist from './pages/MLABanlist';
+import ItemsSinMLA from './pages/ItemsSinMLA';
 import DashboardVentas from './pages/DashboardVentas';
 import Calculos from './pages/Calculos';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -99,6 +100,11 @@ function App() {
                 <Route path="/calculos" element={
                   <ProtectedRoute>
                     <Calculos />
+                  </ProtectedRoute>
+                } />
+                <Route path="/items-sin-mla" element={
+                  <ProtectedRoute>
+                    <ItemsSinMLA />
                   </ProtectedRoute>
                 } />
               </Routes>

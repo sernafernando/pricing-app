@@ -69,6 +69,13 @@ export default function Navbar() {
             🚫 Banlist
           </Link>
 
+          <Link
+            to="/items-sin-mla"
+            className={`${styles.link} ${isActive('/items-sin-mla') ? styles.active : ''}`}
+          >
+            📋 Items sin MLA
+          </Link>
+
           {/* Dropdown Reportes */}
           <div
             className={styles.dropdown}

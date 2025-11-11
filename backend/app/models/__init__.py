@@ -9,6 +9,7 @@ from app.models.precio_ml import PrecioML
 from app.models.auditoria import Auditoria
 from app.models.marca_pm import MarcaPM
 from app.models.mla_banlist import MLABanlist
+from app.models.item_sin_mla_banlist import ItemSinMLABanlist
 from app.models.calculo_pricing import CalculoPricing
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
@@ -28,6 +29,7 @@ __all__ = [
     "Auditoria",
     "MarcaPM",
     "MLABanlist",
+    "ItemSinMLABanlist",
     "CalculoPricing",
     "MercadoLibreItemPublicado"
 ]
