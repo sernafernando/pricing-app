@@ -42,6 +42,20 @@ LISTAS_WEB_A_PVP = {
 # Mapeo inverso: PVP a Web
 LISTAS_PVP_A_WEB = {v: k for k, v in LISTAS_WEB_A_PVP.items()}
 
+# Orden de las listas para ordenamiento correcto
+ORDEN_LISTAS = {
+    4: 1,   # Clásica
+    12: 1,  # Clásica PVP
+    17: 2,  # 3 Cuotas
+    18: 2,  # 3 Cuotas PVP
+    14: 3,  # 6 Cuotas
+    19: 3,  # 6 Cuotas PVP
+    13: 4,  # 9 Cuotas
+    20: 4,  # 9 Cuotas PVP
+    23: 5,  # 12 Cuotas
+    21: 5   # 12 Cuotas PVP
+}
+
 # Schemas
 class ItemSinMLAResponse(BaseModel):
     item_id: int
@@ -173,8 +187,9 @@ async def get_items_sin_mla(
                 continue
 
         # Convertir IDs a nombres (solo mostramos las listas Web, no duplicar con PVP)
-        listas_sin_mla_nombres = sorted([LISTAS_PRECIOS[lid] for lid in pares_faltantes])
-        listas_con_mla_nombres = sorted([LISTAS_PRECIOS[lid] for lid in pares_presentes])
+        # Ordenar por el orden definido
+        listas_sin_mla_nombres = [LISTAS_PRECIOS[lid] for lid in sorted(pares_faltantes, key=lambda x: ORDEN_LISTAS[x])]
+        listas_con_mla_nombres = [LISTAS_PRECIOS[lid] for lid in sorted(pares_presentes, key=lambda x: ORDEN_LISTAS[x])]
 
         resultados.append(ItemSinMLAResponse(
             item_id=producto.item_id,
