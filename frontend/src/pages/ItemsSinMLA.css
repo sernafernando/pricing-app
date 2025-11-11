@@ -365,6 +365,25 @@
   box-shadow: 0 2px 4px rgba(204, 51, 51, 0.2);
 }
 
+.btn-desbanear-seleccionados {
+  padding: 8px 16px;
+  background: #efe;
+  border: 1px solid #cfc;
+  border-radius: 6px;
+  color: #3c3;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-desbanear-seleccionados:hover {
+  background: #dfd;
+  border-color: #bfb;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(51, 204, 51, 0.2);
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;

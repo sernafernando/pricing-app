@@ -29,9 +29,13 @@ const ItemsSinMLA = () => {
   // Estado para ordenamiento (multi-sort con shift)
   const [ordenColumnas, setOrdenColumnas] = useState([]); // [{columna: 'item_id', direccion: 'asc'}, ...]
 
-  // Estado para multi-selección
+  // Estado para multi-selección (tab sin MLA)
   const [itemsSeleccionados, setItemsSeleccionados] = useState(new Set());
   const [ultimoSeleccionado, setUltimoSeleccionado] = useState(null);
+
+  // Estado para multi-selección (tab banlist)
+  const [baneadosSeleccionados, setBaneadosSeleccionados] = useState(new Set());
+  const [ultimoBaneadoSeleccionado, setUltimoBaneadoSeleccionado] = useState(null);
 
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
   const token = localStorage.getItem('token');
@@ -332,6 +336,80 @@ const ItemsSinMLA = () => {
     }
   };
 
+  // Funciones para multi-selección en banlist
+  const handleSeleccionarBaneado = (banlistId, event) => {
+    const shiftPressed = event?.shiftKey;
+    const ctrlPressed = event?.ctrlKey || event?.metaKey;
+
+    const nuevaSeleccion = new Set(baneadosSeleccionados);
+
+    if (shiftPressed && ultimoBaneadoSeleccionado !== null) {
+      // Selección por rango
+      const itemsActuales = sortedItems(itemsBaneados);
+      const indices = [
+        itemsActuales.findIndex(i => i.id === ultimoBaneadoSeleccionado),
+        itemsActuales.findIndex(i => i.id === banlistId)
+      ].sort((a, b) => a - b);
+
+      for (let i = indices[0]; i <= indices[1]; i++) {
+        if (itemsActuales[i]) {
+          nuevaSeleccion.add(itemsActuales[i].id);
+        }
+      }
+    } else if (ctrlPressed) {
+      // Toggle individual
+      if (nuevaSeleccion.has(banlistId)) {
+        nuevaSeleccion.delete(banlistId);
+      } else {
+        nuevaSeleccion.add(banlistId);
+      }
+    } else {
+      // Selección simple
+      if (nuevaSeleccion.has(banlistId) && nuevaSeleccion.size === 1) {
+        nuevaSeleccion.clear();
+      } else {
+        nuevaSeleccion.clear();
+        nuevaSeleccion.add(banlistId);
+      }
+    }
+
+    setBaneadosSeleccionados(nuevaSeleccion);
+    setUltimoBaneadoSeleccionado(banlistId);
+  };
+
+  const handleSeleccionarTodosBaneados = () => {
+    if (baneadosSeleccionados.size === itemsBaneados.length) {
+      setBaneadosSeleccionados(new Set());
+    } else {
+      setBaneadosSeleccionados(new Set(itemsBaneados.map(item => item.id)));
+    }
+  };
+
+  const desbanearSeleccionados = async () => {
+    if (baneadosSeleccionados.size === 0) return;
+
+    if (!window.confirm(`¿Desbanear ${baneadosSeleccionados.size} items?`)) return;
+
+    try {
+      for (const banlistId of baneadosSeleccionados) {
+        await axios.post(
+          `${API_URL}/items-sin-mla/desbanear-item`,
+          { banlist_id: banlistId },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+
+      alert(`${baneadosSeleccionados.size} items desbaneados exitosamente`);
+      setBaneadosSeleccionados(new Set());
+      setUltimoBaneadoSeleccionado(null);
+      cargarItemsBaneados();
+      cargarItemsSinMLA();
+    } catch (error) {
+      console.error('Error desbaneando items:', error);
+      alert('Error al desbanear items masivamente');
+    }
+  };
+
   useEffect(() => {
     cargarItemsSinMLA();
   }, [marcaFiltro, busqueda, listaPrecioFiltro, conStock]);
@@ -555,6 +633,16 @@ const ItemsSinMLA = () => {
             Items que no deben aparecer en el reporte de sin MLA
           </p>
 
+          {/* Barra de acciones para multi-selección */}
+          {baneadosSeleccionados.size > 0 && (
+            <div className="seleccion-bar">
+              <span>{baneadosSeleccionados.size} item(s) seleccionado(s)</span>
+              <button onClick={desbanearSeleccionados} className="btn-desbanear-seleccionados">
+                ✅ Desbanear seleccionados
+              </button>
+            </div>
+          )}
+
           {loadingBaneados ? (
             <div className="loading">Cargando banlist...</div>
           ) : (
@@ -562,6 +650,13 @@ const ItemsSinMLA = () => {
               <table className="items-table">
                 <thead>
                   <tr>
+                    <th className="checkbox-col">
+                      <input
+                        type="checkbox"
+                        checked={baneadosSeleccionados.size === itemsBaneados.length && itemsBaneados.length > 0}
+                        onChange={handleSeleccionarTodosBaneados}
+                      />
+                    </th>
                     <th className="sortable" onClick={(e) => handleSort('item_id', e)}>
                       Item ID {getIconoOrden('item_id')} {getNumeroOrden('item_id') && <span className="orden-numero">{getNumeroOrden('item_id')}</span>}
                     </th>
@@ -589,13 +684,28 @@ const ItemsSinMLA = () => {
                 <tbody>
                   {itemsBaneados.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="no-data">
+                      <td colSpan="9" className="no-data">
                         No hay items en la banlist
                       </td>
                     </tr>
                   ) : (
                     sortedItems(itemsBaneados).map((item) => (
-                      <tr key={item.id}>
+                      <tr
+                        key={item.id}
+                        className={baneadosSeleccionados.has(item.id) ? 'fila-seleccionada' : ''}
+                        onClick={(e) => {
+                          if (e.target.type !== 'checkbox' && e.target.tagName !== 'BUTTON') {
+                            handleSeleccionarBaneado(item.id, e);
+                          }
+                        }}
+                      >
+                        <td className="checkbox-col" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={baneadosSeleccionados.has(item.id)}
+                            onChange={(e) => handleSeleccionarBaneado(item.id, e)}
+                          />
+                        </td>
                         <td>{item.item_id}</td>
                         <td>{item.codigo}</td>
                         <td className="descripcion-cell">{item.descripcion}</td>
