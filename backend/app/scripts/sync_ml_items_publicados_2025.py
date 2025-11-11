@@ -1,6 +1,6 @@
 """
-Script para sincronizar items publicados de MercadoLibre del año 2025
-Trae la data mes por mes para evitar timeouts
+Script para sincronizar items publicados de MercadoLibre históricos
+Trae la data desde 2020 mes por mes para evitar timeouts
 
 Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
@@ -275,10 +275,7 @@ async def sync_items_publicados_mes(db: Session, from_date: str, to_date: str):
             print(f"   ❌ Error en commit final: {str(e)}")
             db.rollback()
 
-        print(f"\n✅ Sincronización completada!")
-        print(f"   Insertados: {insertados}")
-        print(f"   Actualizados: {actualizados}")
-        print(f"   Errores: {errores}")
+        print(f"   ✅ Periodo completado - Insertados: {insertados} | Actualizados: {actualizados} | Errores: {errores}")
 
         return insertados, actualizados
 
@@ -288,49 +285,83 @@ async def sync_items_publicados_mes(db: Session, from_date: str, to_date: str):
         return 0, 0
 
 
+def generar_meses_historicos():
+    """
+    Genera lista de todos los meses desde 2020 hasta el mes actual
+    """
+    meses = []
+    año_inicio = 2020
+    año_actual = datetime.now().year
+    mes_actual = datetime.now().month
+
+    for año in range(año_inicio, año_actual + 1):
+        mes_final = 12 if año < año_actual else mes_actual
+
+        for mes in range(1, mes_final + 1):
+            # Primer día del mes
+            primer_dia = datetime(año, mes, 1)
+
+            # Último día del mes
+            if mes == 12:
+                ultimo_dia = datetime(año, 12, 31)
+            else:
+                ultimo_dia = datetime(año, mes + 1, 1) - timedelta(days=1)
+
+            from_date = primer_dia.strftime('%Y-%m-%d')
+            to_date = ultimo_dia.strftime('%Y-%m-%d')
+
+            meses.append((from_date, to_date))
+
+    return meses
+
+
 async def main():
     """
-    Sincroniza todos los items publicados de ML del 2025 mes por mes
+    Sincroniza todos los items publicados de ML históricos desde 2020
     """
     print("="*60)
-    print("📦 Sincronización de Items Publicados ML - 2025")
+    print("📦 Sincronización HISTÓRICA de Items Publicados ML")
+    print("📅 Desde 2020 hasta hoy")
     print("="*60)
 
     db = SessionLocal()
 
     try:
-        # Definir meses de 2025
-        meses = [
-            ("2025-01-01", "2025-01-31"),
-            ("2025-02-01", "2025-02-28"),
-            ("2025-03-01", "2025-03-31"),
-            ("2025-04-01", "2025-04-30"),
-            ("2025-05-01", "2025-05-31"),
-            ("2025-06-01", "2025-06-30"),
-            ("2025-07-01", "2025-07-31"),
-            ("2025-08-01", "2025-08-31"),
-            ("2025-09-01", "2025-09-30"),
-            ("2025-10-01", "2025-10-31"),
-            ("2025-11-01", "2025-11-30"),
-            ("2025-12-01", "2025-12-31"),
-        ]
+        # Generar todos los meses desde 2020
+        meses = generar_meses_historicos()
+
+        print(f"\n📊 Total de periodos a procesar: {len(meses)}")
+        print(f"   Desde: {meses[0][0]}")
+        print(f"   Hasta: {meses[-1][1]}")
 
         total_insertados = 0
         total_actualizados = 0
+        timestamp_inicio = datetime.now()
 
-        for from_date, to_date in meses:
+        for i, (from_date, to_date) in enumerate(meses, 1):
+            print(f"\n[{i}/{len(meses)}] Procesando {from_date} a {to_date}")
             insertados, actualizados = await sync_items_publicados_mes(db, from_date, to_date)
             total_insertados += insertados
             total_actualizados += actualizados
 
-            # Pequeña pausa entre meses
-            await asyncio.sleep(1)
+            # Pausa pequeña entre periodos
+            await asyncio.sleep(0.5)
+
+            # Mostrar progreso cada 12 meses
+            if i % 12 == 0:
+                duracion = (datetime.now() - timestamp_inicio).total_seconds()
+                progreso = (i / len(meses)) * 100
+                print(f"\n📊 PROGRESO: {progreso:.1f}% | Duración: {duracion:.0f}s | Insertados: {total_insertados} | Actualizados: {total_actualizados}")
+
+        timestamp_fin = datetime.now()
+        duracion_total = (timestamp_fin - timestamp_inicio).total_seconds()
 
         print("\n" + "="*60)
         print("✨ RESUMEN FINAL")
         print("="*60)
         print(f"Total insertados: {total_insertados}")
         print(f"Total actualizados: {total_actualizados}")
+        print(f"Duración total: {duracion_total:.0f} segundos ({duracion_total/60:.1f} minutos)")
         print("="*60)
 
     finally:
