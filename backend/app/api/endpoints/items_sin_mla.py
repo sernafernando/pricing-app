@@ -462,10 +462,18 @@ async def get_comparacion_listas(
     for snapshot, publicacion, producto in resultados_query:
         # Obtener la lista del sistema
         prli_id = publicacion.prli_id
-        lista_sistema = LISTAS_PRECIOS.get(prli_id, "Desconocida")
+        lista_sistema = LISTAS_PRECIOS.get(prli_id)
+
+        # Si no está en las listas relevantes, saltar
+        if not lista_sistema:
+            continue
 
         # Obtener la campaña de ML
-        campana_ml = snapshot.installments_campaign or "-"
+        campana_ml_raw = snapshot.installments_campaign or "-"
+
+        # Limpiar la campaña ML: si tiene pipe, tomar la primera parte
+        # Ejemplo: "9x_campaign|mshops_9x_campaign" -> "9x_campaign"
+        campana_ml = campana_ml_raw.split('|')[0] if '|' in campana_ml_raw else campana_ml_raw
 
         # Verificar si coinciden
         campana_esperada = LISTA_SISTEMA_A_CAMPANA_ML.get(lista_sistema)
