@@ -30,6 +30,9 @@ def convertir_a_numero(valor, default=None):
     try:
         if valor is None or valor == '' or valor == ' ':
             return default
+        if isinstance(valor, bool):
+            # Si es boolean, convertir a 0 o devolver default
+            return default
         if isinstance(valor, (int, float)):
             return valor
         # Limpiar y convertir
@@ -58,6 +61,8 @@ def convertir_a_boolean(valor):
         return False
     if isinstance(valor, str):
         return valor.lower() in ('true', '1', 't', 'yes', 'y')
+    if isinstance(valor, (int, float)):
+        return valor != 0
     return bool(valor)
 
 def convertir_fecha(valor):
