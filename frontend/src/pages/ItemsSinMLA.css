@@ -277,6 +277,33 @@
   border: 1px solid #cfc;
 }
 
+.badge-nuevo {
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+  animation: pulse-nuevo 2s ease-in-out infinite;
+}
+
+@keyframes pulse-nuevo {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(0.98);
+  }
+}
+
 .stock-positive {
   color: var(--text-primary);
   font-weight: 500;

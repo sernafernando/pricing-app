@@ -313,6 +313,18 @@ const ItemsSinMLA = () => {
     return index >= 0 ? index + 1 : null;
   };
 
+  // Función para determinar si un item es nuevo
+  // Un item se considera "nuevo" si su item_id está en el top 5% de todos los item_ids
+  const esItemNuevo = (itemId) => {
+    const todosLosIds = [...itemsSinMLA.map(i => i.item_id), ...itemsBaneados.map(i => i.item_id)];
+    if (todosLosIds.length === 0) return false;
+
+    const maxId = Math.max(...todosLosIds);
+    const umbral = maxId * 0.95; // Top 5% de IDs más altos
+
+    return itemId >= umbral;
+  };
+
   const handleSeleccionarItem = (itemId, event) => {
     const shiftPressed = event?.shiftKey;
     const ctrlPressed = event?.ctrlKey || event?.metaKey;
@@ -666,7 +678,10 @@ const ItemsSinMLA = () => {
                             onChange={(e) => handleSeleccionarItem(item.item_id, e)}
                           />
                         </td>
-                        <td>{item.item_id}</td>
+                        <td>
+                          {item.item_id}
+                          {esItemNuevo(item.item_id) && <span className="badge-nuevo">NUEVO</span>}
+                        </td>
                         <td>{item.codigo}</td>
                         <td className="descripcion-cell">{item.descripcion}</td>
                         <td>{item.marca}</td>
@@ -868,7 +883,10 @@ const ItemsSinMLA = () => {
                             onChange={(e) => handleSeleccionarBaneado(item.id, e)}
                           />
                         </td>
-                        <td>{item.item_id}</td>
+                        <td>
+                          {item.item_id}
+                          {esItemNuevo(item.item_id) && <span className="badge-nuevo">NUEVO</span>}
+                        </td>
                         <td>{item.codigo}</td>
                         <td className="descripcion-cell">{item.descripcion}</td>
                         <td>{item.marca}</td>
