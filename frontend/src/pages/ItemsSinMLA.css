@@ -192,6 +192,47 @@
   font-style: italic;
 }
 
+.listas-cell {
+  max-width: 250px;
+}
+
+.listas-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.badge-error {
+  background: #fee;
+  color: #c33;
+  border: 1px solid #fcc;
+}
+
+.badge-success {
+  background: #efe;
+  color: #3c3;
+  border: 1px solid #cfc;
+}
+
+.stock-positive {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.stock-zero {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
 .no-data {
   text-align: center;
   padding: 40px !important;

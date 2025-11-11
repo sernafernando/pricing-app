@@ -19,6 +19,7 @@ const ItemsSinMLA = () => {
   const [busqueda, setBusqueda] = useState('');
   const [listaPrecioFiltro, setListaPrecioFiltro] = useState('');
   const [listasPrecio, setListasPrecio] = useState([]);
+  const [conStock, setConStock] = useState(null); // null = todos, true = con stock, false = sin stock
 
   // Estado para agregar motivo al banear
   const [itemSeleccionado, setItemSeleccionado] = useState(null);
@@ -69,6 +70,7 @@ const ItemsSinMLA = () => {
       if (marcaFiltro) params.marca = marcaFiltro;
       if (busqueda) params.buscar = busqueda;
       if (listaPrecioFiltro) params.prli_id = listaPrecioFiltro;
+      if (conStock !== null) params.con_stock = conStock;
 
       const response = await axios.get(`${API_URL}/items-sin-mla/items-sin-mla`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -161,11 +163,12 @@ const ItemsSinMLA = () => {
     setMarcaFiltro('');
     setBusqueda('');
     setListaPrecioFiltro('');
+    setConStock(null);
   };
 
   useEffect(() => {
     cargarItemsSinMLA();
-  }, [marcaFiltro, busqueda, listaPrecioFiltro]);
+  }, [marcaFiltro, busqueda, listaPrecioFiltro, conStock]);
 
   return (
     <div className="items-sin-mla-container">
@@ -225,7 +228,7 @@ const ItemsSinMLA = () => {
             </div>
 
             <div className="filter-group">
-              <label>💰 Lista de Precios:</label>
+              <label>💰 Lista faltante:</label>
               <select
                 value={listaPrecioFiltro}
                 onChange={(e) => setListaPrecioFiltro(e.target.value)}
@@ -234,9 +237,25 @@ const ItemsSinMLA = () => {
                 <option value="">Todas las listas</option>
                 {listasPrecio.map((l) => (
                   <option key={l.prli_id} value={l.prli_id}>
-                    Lista {l.prli_id}
+                    {l.nombre}
                   </option>
                 ))}
+              </select>
+            </div>
+
+            <div className="filter-group">
+              <label>📦 Stock:</label>
+              <select
+                value={conStock === null ? '' : conStock.toString()}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setConStock(val === '' ? null : val === 'true');
+                }}
+                className="filter-select"
+              >
+                <option value="">Todos</option>
+                <option value="true">Con stock</option>
+                <option value="false">Sin stock</option>
               </select>
             </div>
 
@@ -257,9 +276,9 @@ const ItemsSinMLA = () => {
                     <th>Código</th>
                     <th>Descripción</th>
                     <th>Marca</th>
-                    <th>Categoría</th>
                     <th>Stock</th>
-                    <th>Listas con MLA</th>
+                    <th>Le falta en</th>
+                    <th>Tiene en</th>
                     <th>Acciones</th>
                   </tr>
                 </thead>
@@ -277,9 +296,27 @@ const ItemsSinMLA = () => {
                         <td>{item.codigo}</td>
                         <td className="descripcion-cell">{item.descripcion}</td>
                         <td>{item.marca}</td>
-                        <td>{item.categoria || '-'}</td>
-                        <td>{item.stock}</td>
-                        <td>{item.total_listas_con_mla}</td>
+                        <td className={item.stock > 0 ? 'stock-positive' : 'stock-zero'}>
+                          {item.stock}
+                        </td>
+                        <td className="listas-cell">
+                          {item.listas_sin_mla && item.listas_sin_mla.length > 0 ? (
+                            <div className="listas-badges">
+                              {item.listas_sin_mla.map((lista, idx) => (
+                                <span key={idx} className="badge badge-error">{lista}</span>
+                              ))}
+                            </div>
+                          ) : '-'}
+                        </td>
+                        <td className="listas-cell">
+                          {item.listas_con_mla && item.listas_con_mla.length > 0 ? (
+                            <div className="listas-badges">
+                              {item.listas_con_mla.map((lista, idx) => (
+                                <span key={idx} className="badge badge-success">{lista}</span>
+                              ))}
+                            </div>
+                          ) : '-'}
+                        </td>
                         <td>
                           <button
                             onClick={() => handleBanear(item)}
