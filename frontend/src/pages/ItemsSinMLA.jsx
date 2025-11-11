@@ -25,7 +25,7 @@ const ItemsSinMLA = () => {
   const [showMotivoModal, setShowMotivoModal] = useState(false);
   const [motivo, setMotivo] = useState('');
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+  const API_URL = 'https://pricing.gaussonline.com.ar/api';
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -42,7 +42,7 @@ const ItemsSinMLA = () => {
 
   const cargarMarcas = async () => {
     try {
-      const response = await axios.get(`${API_URL}/marcas`, {
+      const response = await axios.get(`${API_URL}/items-sin-mla/marcas`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMarcas(response.data);
@@ -53,7 +53,7 @@ const ItemsSinMLA = () => {
 
   const cargarListasPrecio = async () => {
     try {
-      const response = await axios.get(`${API_URL}/listas-precios`, {
+      const response = await axios.get(`${API_URL}/items-sin-mla/listas-precios`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setListasPrecio(response.data);
@@ -70,7 +70,7 @@ const ItemsSinMLA = () => {
       if (busqueda) params.buscar = busqueda;
       if (listaPrecioFiltro) params.prli_id = listaPrecioFiltro;
 
-      const response = await axios.get(`${API_URL}/items-sin-mla`, {
+      const response = await axios.get(`${API_URL}/items-sin-mla/items-sin-mla`, {
         headers: { Authorization: `Bearer ${token}` },
         params
       });
@@ -86,7 +86,7 @@ const ItemsSinMLA = () => {
   const cargarItemsBaneados = async () => {
     setLoadingBaneados(true);
     try {
-      const response = await axios.get(`${API_URL}/items-baneados`, {
+      const response = await axios.get(`${API_URL}/items-sin-mla/items-baneados`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setItemsBaneados(response.data);
@@ -109,7 +109,7 @@ const ItemsSinMLA = () => {
 
     try {
       await axios.post(
-        `${API_URL}/banear-item`,
+        `${API_URL}/items-sin-mla/banear-item`,
         { item_id: itemSeleccionado.item_id, motivo: motivo || null },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -137,7 +137,7 @@ const ItemsSinMLA = () => {
 
     try {
       await axios.post(
-        `${API_URL}/desbanear-item`,
+        `${API_URL}/items-sin-mla/desbanear-item`,
         { banlist_id: banlistId },
         { headers: { Authorization: `Bearer ${token}` } }
       );

@@ -36,7 +36,7 @@ app.include_router(commercial_transactions.router, prefix="/api", tags=["commerc
 app.include_router(comisiones.router, prefix="/api", tags=["comisiones"])
 app.include_router(calculos.router, prefix="/api", tags=["calculos"])
 app.include_router(configuracion.router, prefix="/api", tags=["configuracion"])
-app.include_router(items_sin_mla.router, prefix="/api", tags=["items-sin-mla"])
+app.include_router(items_sin_mla.router, prefix="/api/items-sin-mla", tags=["items-sin-mla"])
 
 @app.get("/")
 async def root():
