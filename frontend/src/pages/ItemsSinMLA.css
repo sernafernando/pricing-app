@@ -580,6 +580,7 @@
   background: var(--bg-secondary);
   color: var(--text-primary);
   font-size: 14px;
+  box-sizing: border-box;
 }
 
 .dropdown-search:focus {
