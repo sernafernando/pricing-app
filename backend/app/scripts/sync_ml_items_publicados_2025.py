@@ -250,16 +250,25 @@ async def sync_items_publicados_mes(db: Session, from_date: str, to_date: str):
 
                 # Commit cada 50 items
                 if i % 50 == 0:
-                    db.commit()
-                    print(f"   ✓ {i} items procesados...")
+                    try:
+                        db.commit()
+                        print(f"   ✓ {i} items procesados...")
+                    except Exception as e:
+                        print(f"   ⚠️  Error en commit: {str(e)}")
+                        db.rollback()
 
             except Exception as e:
                 errores += 1
                 print(f"   ⚠️  Error procesando item {mlp_id}: {str(e)}")
+                db.rollback()  # Rollback para limpiar la transacción
                 continue
 
         # Commit final
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            print(f"   ❌ Error en commit final: {str(e)}")
+            db.rollback()
 
         print(f"\n✅ Sincronización completada!")
         print(f"   Insertados: {insertados}")
