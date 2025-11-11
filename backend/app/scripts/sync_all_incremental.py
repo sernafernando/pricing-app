@@ -26,7 +26,7 @@ from app.scripts.sync_ml_orders_incremental import sync_ml_orders_incremental
 from app.scripts.sync_ml_orders_detail_incremental import sync_ml_orders_detail_incremental
 from app.scripts.sync_ml_orders_shipping_incremental import sync_ml_orders_shipping_incremental
 from app.scripts.sync_ml_items_publicados_incremental import sync_items_publicados_incremental
-from app.scripts.sync_ml_publications import sync_ml_publications
+from app.scripts.sync_ml_publications_incremental import sync_ml_publications_incremental
 
 
 async def ejecutar_todas_sincronizaciones():
@@ -90,7 +90,7 @@ async def ejecutar_todas_sincronizaciones():
         {
             "nombre": "ML Publications Snapshot",
             "emoji": "📸",
-            "funcion": sync_ml_publications,
+            "funcion": sync_ml_publications_incremental,
             "args_batch": False
         }
     ]
