@@ -23,7 +23,13 @@ class Settings(BaseSettings):
     # Google Sheets
     GOOGLE_SHEETS_ID: str = ""
     GOOGLE_SERVICE_ACCOUNT_FILE: str = "app/credentials/service-account.json"
-    
+
+    # MercadoLibre API
+    ML_CLIENT_ID: Optional[str] = None
+    ML_CLIENT_SECRET: Optional[str] = None
+    ML_USER_ID: Optional[str] = None
+    ML_REFRESH_TOKEN: Optional[str] = None
+
     class Config:
         env_file = ".env"
         case_sensitive = True
