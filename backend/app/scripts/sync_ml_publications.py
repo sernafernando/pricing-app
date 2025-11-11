@@ -187,7 +187,7 @@ async def traer_detalles_batch(ids: list, db: Session):
     return total_saved
 
 
-async def sync_ml_publications():
+async def sync_ml_publications(db: Session = None):
     """Función principal de sincronización"""
     print("=" * 60)
     print("SINCRONIZACIÓN DE PUBLICACIONES DE MERCADOLIBRE")
@@ -195,7 +195,11 @@ async def sync_ml_publications():
     print(f"Inicio: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print()
 
-    db = SessionLocal()
+    # Si no se proporciona una sesión, crear una nueva
+    db_was_provided = db is not None
+    if not db:
+        db = SessionLocal()
+
     try:
         # 1. Obtener todos los IDs
         ids = await traer_todos_los_ids()
@@ -222,7 +226,9 @@ async def sync_ml_publications():
         print(f"❌ Error durante la sincronización: {str(e)}")
         raise
     finally:
-        db.close()
+        # Solo cerrar la sesión si fue creada internamente
+        if not db_was_provided:
+            db.close()
 
     print()
     print(f"Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
