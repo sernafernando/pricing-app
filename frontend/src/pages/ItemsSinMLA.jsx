@@ -26,6 +26,10 @@ const ItemsSinMLA = () => {
   const [showMotivoModal, setShowMotivoModal] = useState(false);
   const [motivo, setMotivo] = useState('');
 
+  // Estado para ordenamiento
+  const [sortColumn, setSortColumn] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc'); // 'asc' | 'desc'
+
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
   const token = localStorage.getItem('token');
 
@@ -170,6 +174,55 @@ const ItemsSinMLA = () => {
     cargarItemsSinMLA();
   }, [marcaFiltro, busqueda, listaPrecioFiltro, conStock]);
 
+  const handleSort = (column) => {
+    if (sortColumn === column) {
+      // Cambiar dirección si es la misma columna
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Nueva columna, ordenar ascendente
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedItems = (items) => {
+    if (!sortColumn) return items;
+
+    return [...items].sort((a, b) => {
+      let aVal = a[sortColumn];
+      let bVal = b[sortColumn];
+
+      // Manejo especial para arrays (listas)
+      if (Array.isArray(aVal) && Array.isArray(bVal)) {
+        aVal = aVal.length;
+        bVal = bVal.length;
+      }
+
+      // Manejo para valores null/undefined
+      if (aVal === null || aVal === undefined) aVal = '';
+      if (bVal === null || bVal === undefined) bVal = '';
+
+      // Comparación
+      if (typeof aVal === 'string') {
+        aVal = aVal.toLowerCase();
+        bVal = bVal.toLowerCase();
+      }
+
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  const renderSortIcon = (column) => {
+    if (sortColumn !== column) return ' ⇅';
+    return sortDirection === 'asc' ? ' ↑' : ' ↓';
+  };
+
+  useEffect(() => {
+    cargarItemsSinMLA();
+  }, [marcaFiltro, busqueda, listaPrecioFiltro, conStock]);
+
   return (
     <div className="items-sin-mla-container">
       <div className="page-header">
@@ -272,13 +325,27 @@ const ItemsSinMLA = () => {
               <table className="items-table">
                 <thead>
                   <tr>
-                    <th>Item ID</th>
-                    <th>Código</th>
-                    <th>Descripción</th>
-                    <th>Marca</th>
-                    <th>Stock</th>
-                    <th>Le falta en</th>
-                    <th>Tiene en</th>
+                    <th className="sortable" onClick={() => handleSort('item_id')}>
+                      Item ID{renderSortIcon('item_id')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('codigo')}>
+                      Código{renderSortIcon('codigo')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('descripcion')}>
+                      Descripción{renderSortIcon('descripcion')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('marca')}>
+                      Marca{renderSortIcon('marca')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('stock')}>
+                      Stock{renderSortIcon('stock')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('listas_sin_mla')}>
+                      Le falta en{renderSortIcon('listas_sin_mla')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('listas_con_mla')}>
+                      Tiene en{renderSortIcon('listas_con_mla')}
+                    </th>
                     <th>Acciones</th>
                   </tr>
                 </thead>
@@ -290,7 +357,7 @@ const ItemsSinMLA = () => {
                       </td>
                     </tr>
                   ) : (
-                    itemsSinMLA.map((item) => (
+                    sortedItems(itemsSinMLA).map((item) => (
                       <tr key={item.item_id}>
                         <td>{item.item_id}</td>
                         <td>{item.codigo}</td>
@@ -350,13 +417,27 @@ const ItemsSinMLA = () => {
               <table className="items-table">
                 <thead>
                   <tr>
-                    <th>Item ID</th>
-                    <th>Código</th>
-                    <th>Descripción</th>
-                    <th>Marca</th>
-                    <th>Motivo</th>
-                    <th>Usuario</th>
-                    <th>Fecha</th>
+                    <th className="sortable" onClick={() => handleSort('item_id')}>
+                      Item ID{renderSortIcon('item_id')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('codigo')}>
+                      Código{renderSortIcon('codigo')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('descripcion')}>
+                      Descripción{renderSortIcon('descripcion')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('marca')}>
+                      Marca{renderSortIcon('marca')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('motivo')}>
+                      Motivo{renderSortIcon('motivo')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('usuario_nombre')}>
+                      Usuario{renderSortIcon('usuario_nombre')}
+                    </th>
+                    <th className="sortable" onClick={() => handleSort('fecha_creacion')}>
+                      Fecha{renderSortIcon('fecha_creacion')}
+                    </th>
                     <th>Acciones</th>
                   </tr>
                 </thead>
@@ -368,7 +449,7 @@ const ItemsSinMLA = () => {
                       </td>
                     </tr>
                   ) : (
-                    itemsBaneados.map((item) => (
+                    sortedItems(itemsBaneados).map((item) => (
                       <tr key={item.id}>
                         <td>{item.item_id}</td>
                         <td>{item.codigo}</td>

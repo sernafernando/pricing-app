@@ -169,6 +169,17 @@
   white-space: nowrap;
 }
 
+.items-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+}
+
+.items-table th.sortable:hover {
+  background: var(--bg-hover);
+  color: var(--primary-color);
+}
+
 .items-table td {
   padding: 12px;
   border-bottom: 1px solid var(--border-primary);
