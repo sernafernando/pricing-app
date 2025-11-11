@@ -8,7 +8,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.core.auth import get_current_user
+from app.api.deps import get_current_user
 from app.models.producto import ProductoERP
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.item_sin_mla_banlist import ItemSinMLABanlist
