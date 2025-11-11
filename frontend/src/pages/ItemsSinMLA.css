@@ -80,6 +80,8 @@
   background: var(--bg-secondary);
   border-radius: 8px;
   align-items: flex-end;
+  position: relative;
+  z-index: 100;
 }
 
 .filter-group {
@@ -144,6 +146,8 @@
   overflow-x: auto;
   border-radius: 8px;
   border: 1px solid var(--border-primary);
+  position: relative;
+  z-index: 1;
 }
 
 .items-table {
@@ -558,10 +562,11 @@
   border: 1px solid var(--border-primary);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 100;
+  z-index: 1000;
   max-height: 400px;
   display: flex;
   flex-direction: column;
+  min-width: 250px;
 }
 
 .dropdown-header {
