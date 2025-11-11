@@ -29,6 +29,10 @@ const ItemsSinMLA = () => {
   // Estado para ordenamiento (multi-sort con shift)
   const [ordenColumnas, setOrdenColumnas] = useState([]); // [{columna: 'item_id', direccion: 'asc'}, ...]
 
+  // Estado para multi-selección
+  const [itemsSeleccionados, setItemsSeleccionados] = useState(new Set());
+  const [ultimoSeleccionado, setUltimoSeleccionado] = useState(null);
+
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
   const token = localStorage.getItem('token');
 
@@ -256,6 +260,79 @@ const ItemsSinMLA = () => {
     return index >= 0 ? index + 1 : null;
   };
 
+  const handleSeleccionarItem = (itemId, event) => {
+    const shiftPressed = event?.shiftKey;
+    const ctrlPressed = event?.ctrlKey || event?.metaKey;
+
+    const nuevaSeleccion = new Set(itemsSeleccionados);
+
+    if (shiftPressed && ultimoSeleccionado !== null) {
+      // Selección por rango
+      const itemsActuales = sortedItems(itemsSinMLA);
+      const indices = [
+        itemsActuales.findIndex(i => i.item_id === ultimoSeleccionado),
+        itemsActuales.findIndex(i => i.item_id === itemId)
+      ].sort((a, b) => a - b);
+
+      for (let i = indices[0]; i <= indices[1]; i++) {
+        if (itemsActuales[i]) {
+          nuevaSeleccion.add(itemsActuales[i].item_id);
+        }
+      }
+    } else if (ctrlPressed) {
+      // Toggle individual
+      if (nuevaSeleccion.has(itemId)) {
+        nuevaSeleccion.delete(itemId);
+      } else {
+        nuevaSeleccion.add(itemId);
+      }
+    } else {
+      // Selección simple
+      if (nuevaSeleccion.has(itemId) && nuevaSeleccion.size === 1) {
+        nuevaSeleccion.clear();
+      } else {
+        nuevaSeleccion.clear();
+        nuevaSeleccion.add(itemId);
+      }
+    }
+
+    setItemsSeleccionados(nuevaSeleccion);
+    setUltimoSeleccionado(itemId);
+  };
+
+  const handleSeleccionarTodos = () => {
+    if (itemsSeleccionados.size === itemsSinMLA.length) {
+      setItemsSeleccionados(new Set());
+    } else {
+      setItemsSeleccionados(new Set(itemsSinMLA.map(item => item.item_id)));
+    }
+  };
+
+  const banearSeleccionados = async () => {
+    if (itemsSeleccionados.size === 0) return;
+
+    if (!window.confirm(`¿Banear ${itemsSeleccionados.size} items?`)) return;
+
+    try {
+      for (const itemId of itemsSeleccionados) {
+        await axios.post(
+          `${API_URL}/items-sin-mla/banear-item`,
+          { item_id: itemId, motivo: 'Baneado masivamente' },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+
+      alert(`${itemsSeleccionados.size} items baneados exitosamente`);
+      setItemsSeleccionados(new Set());
+      setUltimoSeleccionado(null);
+      cargarItemsSinMLA();
+      cargarItemsBaneados();
+    } catch (error) {
+      console.error('Error baneando items:', error);
+      alert('Error al banear items masivamente');
+    }
+  };
+
   useEffect(() => {
     cargarItemsSinMLA();
   }, [marcaFiltro, busqueda, listaPrecioFiltro, conStock]);
@@ -354,6 +431,16 @@ const ItemsSinMLA = () => {
             </button>
           </div>
 
+          {/* Barra de acciones para multi-selección */}
+          {itemsSeleccionados.size > 0 && (
+            <div className="seleccion-bar">
+              <span>{itemsSeleccionados.size} item(s) seleccionado(s)</span>
+              <button onClick={banearSeleccionados} className="btn-banear-seleccionados">
+                🚫 Banear seleccionados
+              </button>
+            </div>
+          )}
+
           {/* Tabla de items sin MLA */}
           {loadingItems ? (
             <div className="loading">Cargando items sin MLA...</div>
@@ -362,6 +449,13 @@ const ItemsSinMLA = () => {
               <table className="items-table">
                 <thead>
                   <tr>
+                    <th className="checkbox-col">
+                      <input
+                        type="checkbox"
+                        checked={itemsSeleccionados.size === itemsSinMLA.length && itemsSinMLA.length > 0}
+                        onChange={handleSeleccionarTodos}
+                      />
+                    </th>
                     <th className="sortable" onClick={(e) => handleSort('item_id', e)}>
                       Item ID {getIconoOrden('item_id')} {getNumeroOrden('item_id') && <span className="orden-numero">{getNumeroOrden('item_id')}</span>}
                     </th>
@@ -389,13 +483,28 @@ const ItemsSinMLA = () => {
                 <tbody>
                   {itemsSinMLA.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="no-data">
+                      <td colSpan="9" className="no-data">
                         No hay items sin MLA con los filtros aplicados
                       </td>
                     </tr>
                   ) : (
                     sortedItems(itemsSinMLA).map((item) => (
-                      <tr key={item.item_id}>
+                      <tr
+                        key={item.item_id}
+                        className={itemsSeleccionados.has(item.item_id) ? 'fila-seleccionada' : ''}
+                        onClick={(e) => {
+                          if (e.target.type !== 'checkbox' && e.target.tagName !== 'BUTTON') {
+                            handleSeleccionarItem(item.item_id, e);
+                          }
+                        }}
+                      >
+                        <td className="checkbox-col" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={itemsSeleccionados.has(item.item_id)}
+                            onChange={(e) => handleSeleccionarItem(item.item_id, e)}
+                          />
+                        </td>
                         <td>{item.item_id}</td>
                         <td>{item.codigo}</td>
                         <td className="descripcion-cell">{item.descripcion}</td>
