@@ -282,19 +282,11 @@ const ItemsSinMLA = () => {
           nuevaSeleccion.add(itemsActuales[i].item_id);
         }
       }
-    } else if (ctrlPressed) {
-      // Toggle individual
+    } else {
+      // Toggle individual (sin Ctrl también funciona)
       if (nuevaSeleccion.has(itemId)) {
         nuevaSeleccion.delete(itemId);
       } else {
-        nuevaSeleccion.add(itemId);
-      }
-    } else {
-      // Selección simple
-      if (nuevaSeleccion.has(itemId) && nuevaSeleccion.size === 1) {
-        nuevaSeleccion.clear();
-      } else {
-        nuevaSeleccion.clear();
         nuevaSeleccion.add(itemId);
       }
     }
@@ -356,19 +348,11 @@ const ItemsSinMLA = () => {
           nuevaSeleccion.add(itemsActuales[i].id);
         }
       }
-    } else if (ctrlPressed) {
-      // Toggle individual
+    } else {
+      // Toggle individual (sin Ctrl también funciona)
       if (nuevaSeleccion.has(banlistId)) {
         nuevaSeleccion.delete(banlistId);
       } else {
-        nuevaSeleccion.add(banlistId);
-      }
-    } else {
-      // Selección simple
-      if (nuevaSeleccion.has(banlistId) && nuevaSeleccion.size === 1) {
-        nuevaSeleccion.clear();
-      } else {
-        nuevaSeleccion.clear();
         nuevaSeleccion.add(banlistId);
       }
     }
