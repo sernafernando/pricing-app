@@ -15,7 +15,9 @@ const ItemsSinMLA = () => {
 
   // Filtros
   const [marcas, setMarcas] = useState([]);
-  const [marcaFiltro, setMarcaFiltro] = useState('');
+  const [marcasSeleccionadas, setMarcasSeleccionadas] = useState([]);
+  const [busquedaMarca, setBusquedaMarca] = useState('');
+  const [panelMarcasAbierto, setPanelMarcasAbierto] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [listaPrecioFiltro, setListaPrecioFiltro] = useState('');
   const [listasPrecio, setListasPrecio] = useState([]);
@@ -78,11 +80,11 @@ const ItemsSinMLA = () => {
 
       // Calcular marcas disponibles desde todos los items (sin filtro de marca)
       const marcasUnicas = [...new Set(responseBase.data.map(item => item.marca).filter(Boolean))].sort();
-      setMarcas(marcasUnicas.map(marca => ({ marca })));
+      setMarcas(marcasUnicas);
 
-      // Si hay filtro de marca, filtrar los items
-      if (marcaFiltro) {
-        const itemsFiltrados = responseBase.data.filter(item => item.marca === marcaFiltro);
+      // Si hay filtros de marca, filtrar los items
+      if (marcasSeleccionadas.length > 0) {
+        const itemsFiltrados = responseBase.data.filter(item => marcasSeleccionadas.includes(item.marca));
         setItemsSinMLA(itemsFiltrados);
       } else {
         setItemsSinMLA(responseBase.data);
@@ -170,15 +172,16 @@ const ItemsSinMLA = () => {
   };
 
   const limpiarFiltros = () => {
-    setMarcaFiltro('');
+    setMarcasSeleccionadas([]);
     setBusqueda('');
     setListaPrecioFiltro('');
     setConStock(null);
+    setPanelMarcasAbierto(false);
   };
 
   useEffect(() => {
     cargarItemsSinMLA();
-  }, [marcaFiltro, busqueda, listaPrecioFiltro, conStock]);
+  }, [marcasSeleccionadas, busqueda, listaPrecioFiltro, conStock]);
 
   const handleSort = (columna, event) => {
     const shiftPressed = event?.shiftKey;
@@ -396,7 +399,7 @@ const ItemsSinMLA = () => {
 
   useEffect(() => {
     cargarItemsSinMLA();
-  }, [marcaFiltro, busqueda, listaPrecioFiltro, conStock]);
+  }, [marcasSeleccionadas, busqueda, listaPrecioFiltro, conStock]);
 
   return (
     <div className="items-sin-mla-container">
@@ -439,20 +442,64 @@ const ItemsSinMLA = () => {
               />
             </div>
 
-            <div className="filter-group">
+            <div className="filter-group marcas-filter-container" style={{position: 'relative'}}>
               <label>🏷️ Marca:</label>
-              <select
-                value={marcaFiltro}
-                onChange={(e) => setMarcaFiltro(e.target.value)}
-                className="filter-select"
+              <button
+                onClick={() => setPanelMarcasAbierto(!panelMarcasAbierto)}
+                className={`filter-button-dropdown ${marcasSeleccionadas.length > 0 ? 'active' : ''}`}
               >
-                <option value="">Todas las marcas</option>
-                {marcas.map((m) => (
-                  <option key={m.marca} value={m.marca}>
-                    {m.marca}
-                  </option>
-                ))}
-              </select>
+                {marcasSeleccionadas.length > 0
+                  ? `${marcasSeleccionadas.length} marcas`
+                  : 'Todas las marcas'}
+                {marcasSeleccionadas.length > 0 && (
+                  <span className="filter-badge-inline">{marcasSeleccionadas.length}</span>
+                )}
+              </button>
+
+              {panelMarcasAbierto && (
+                <div className="dropdown-panel">
+                  <div className="dropdown-header">
+                    <input
+                      type="text"
+                      placeholder="Buscar marca..."
+                      value={busquedaMarca}
+                      onChange={(e) => setBusquedaMarca(e.target.value)}
+                      className="dropdown-search"
+                    />
+                    {marcasSeleccionadas.length > 0 && (
+                      <button
+                        onClick={() => setMarcasSeleccionadas([])}
+                        className="btn-clear-dropdown"
+                      >
+                        Limpiar ({marcasSeleccionadas.length})
+                      </button>
+                    )}
+                  </div>
+                  <div className="dropdown-list">
+                    {marcas
+                      .filter(marca => !busquedaMarca || marca.toLowerCase().includes(busquedaMarca.toLowerCase()))
+                      .map(marca => (
+                        <label
+                          key={marca}
+                          className={`dropdown-item ${marcasSeleccionadas.includes(marca) ? 'selected' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={marcasSeleccionadas.includes(marca)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setMarcasSeleccionadas([...marcasSeleccionadas, marca]);
+                              } else {
+                                setMarcasSeleccionadas(marcasSeleccionadas.filter(m => m !== marca));
+                              }
+                            }}
+                          />
+                          <span>{marca}</span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="filter-group">
