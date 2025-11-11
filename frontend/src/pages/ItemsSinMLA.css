@@ -372,7 +372,26 @@
 .modal-actions {
   display: flex;
   gap: 12px;
-  justify-content: flex-end;
+  justify-content: flex-start;
+}
+
+.btn-confirmar {
+  padding: 10px 20px;
+  background: #3b82f6;
+  border: 1px solid #3b82f6;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-confirmar:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
 }
 
 .btn-cancelar {
@@ -389,24 +408,6 @@
 
 .btn-cancelar:hover {
   background: var(--bg-hover);
-}
-
-.btn-confirmar {
-  padding: 10px 20px;
-  background: var(--primary-color);
-  border: none;
-  border-radius: 6px;
-  color: white;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.btn-confirmar:hover {
-  background: var(--primary-dark);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
 }
 
 .loading {

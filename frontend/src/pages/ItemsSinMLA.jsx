@@ -496,11 +496,11 @@ const ItemsSinMLA = () => {
               />
             </div>
             <div className="modal-actions">
-              <button onClick={() => setShowMotivoModal(false)} className="btn-cancelar">
-                Cancelar
-              </button>
               <button onClick={confirmarBanear} className="btn-confirmar">
                 Confirmar
+              </button>
+              <button onClick={() => setShowMotivoModal(false)} className="btn-cancelar">
+                Cancelar
               </button>
             </div>
           </div>
