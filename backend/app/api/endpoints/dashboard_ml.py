@@ -23,7 +23,7 @@ class MetricasGeneralesResponse(BaseModel):
     total_limpio: Decimal     # Monto después de comisiones y envío
     total_ganancia: Decimal   # Ganancia total
     total_costo: Decimal      # Costo total
-    markup_promedio: Decimal  # Markup promedio ponderado
+    markup_porcentaje: Decimal  # Markup calculado sobre totales (ganancia/costo)
     cantidad_operaciones: int # Cantidad de operaciones
     cantidad_unidades: int    # Cantidad de unidades vendidas
     total_comisiones: Decimal # Total pagado en comisiones ML
@@ -36,7 +36,7 @@ class VentaPorMarcaResponse(BaseModel):
     total_ventas: Decimal
     total_limpio: Decimal
     total_ganancia: Decimal
-    markup_promedio: Decimal
+    markup_porcentaje: Decimal
     cantidad_operaciones: int
     cantidad_unidades: int
 
@@ -47,7 +47,7 @@ class VentaPorCategoriaResponse(BaseModel):
     total_ventas: Decimal
     total_limpio: Decimal
     total_ganancia: Decimal
-    markup_promedio: Decimal
+    markup_porcentaje: Decimal
     cantidad_operaciones: int
 
 
@@ -76,7 +76,7 @@ class TopProductoResponse(BaseModel):
     marca: Optional[str]
     total_ventas: Decimal
     total_ganancia: Decimal
-    markup_promedio: Decimal
+    markup_porcentaje: Decimal
     cantidad_operaciones: int
     cantidad_unidades: int
 
@@ -127,28 +127,28 @@ async def get_metricas_generales(
             total_limpio=Decimal('0'),
             total_ganancia=Decimal('0'),
             total_costo=Decimal('0'),
-            markup_promedio=Decimal('0'),
+            markup_porcentaje=Decimal('0'),
             cantidad_operaciones=0,
             cantidad_unidades=0,
             total_comisiones=Decimal('0'),
             total_envios=Decimal('0')
         )
 
-    # Calcular markup promedio ponderado
-    # markup_promedio = (ganancia_total / costo_total) * 100
+    # Calcular markup sobre totales
+    # markup = (ganancia_total / costo_total_sin_iva) * 100
     total_costo = result.total_costo or Decimal('0')
     total_ganancia = result.total_ganancia or Decimal('0')
 
-    markup_promedio = Decimal('0')
+    markup_porcentaje = Decimal('0')
     if total_costo > 0:
-        markup_promedio = (total_ganancia / total_costo) * Decimal('100')
+        markup_porcentaje = (total_ganancia / total_costo) * Decimal('100')
 
     return MetricasGeneralesResponse(
         total_ventas_ml=result.total_ventas_ml or Decimal('0'),
         total_limpio=result.total_limpio or Decimal('0'),
         total_ganancia=total_ganancia,
         total_costo=total_costo,
-        markup_promedio=markup_promedio,
+        markup_porcentaje=markup_porcentaje,
         cantidad_operaciones=result.cantidad_operaciones or 0,
         cantidad_unidades=int(result.cantidad_unidades or 0),
         total_comisiones=result.total_comisiones or Decimal('0'),
@@ -192,7 +192,7 @@ async def get_ventas_por_marca(
             total_ventas=r.total_ventas or Decimal('0'),
             total_limpio=r.total_limpio or Decimal('0'),
             total_ganancia=r.total_ganancia or Decimal('0'),
-            markup_promedio=((r.total_ganancia / r.total_costo) * Decimal('100')) if r.total_costo and r.total_costo > 0 else Decimal('0'),
+            markup_porcentaje=((r.total_ganancia / r.total_costo) * Decimal('100')) if r.total_costo and r.total_costo > 0 else Decimal('0'),
             cantidad_operaciones=r.cantidad_operaciones or 0,
             cantidad_unidades=int(r.cantidad_unidades or 0)
         )
@@ -234,7 +234,7 @@ async def get_ventas_por_categoria(
             total_ventas=r.total_ventas or Decimal('0'),
             total_limpio=r.total_limpio or Decimal('0'),
             total_ganancia=r.total_ganancia or Decimal('0'),
-            markup_promedio=((r.total_ganancia / r.total_costo) * Decimal('100')) if r.total_costo and r.total_costo > 0 else Decimal('0'),
+            markup_porcentaje=((r.total_ganancia / r.total_costo) * Decimal('100')) if r.total_costo and r.total_costo > 0 else Decimal('0'),
             cantidad_operaciones=r.cantidad_operaciones or 0
         )
         for r in resultados
@@ -359,7 +359,7 @@ async def get_top_productos(
             marca=r.marca,
             total_ventas=r.total_ventas or Decimal('0'),
             total_ganancia=r.total_ganancia or Decimal('0'),
-            markup_promedio=((r.total_ganancia / r.total_costo) * Decimal('100')) if r.total_costo and r.total_costo > 0 else Decimal('0'),
+            markup_porcentaje=((r.total_ganancia / r.total_costo) * Decimal('100')) if r.total_costo and r.total_costo > 0 else Decimal('0'),
             cantidad_operaciones=r.cantidad_operaciones or 0,
             cantidad_unidades=int(r.cantidad_unidades or 0)
         )

@@ -234,9 +234,9 @@ export default function DashboardMetricasML() {
             </div>
 
             <div className={styles.metricaCard}>
-              <div className={styles.metricaLabel}>📊 Markup Promedio</div>
+              <div className={styles.metricaLabel}>📊 Markup %</div>
               <div className={styles.metricaValue}>
-                {formatearPorcentaje(metricasGenerales.markup_promedio)}
+                {formatearPorcentaje(metricasGenerales.markup_porcentaje)}
               </div>
               <div className={styles.metricaSubtext}>
                 Costo Total: {formatearMoneda(metricasGenerales.total_costo)}
@@ -286,7 +286,7 @@ export default function DashboardMetricasML() {
                         <td>{item.marca}</td>
                         <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
                         <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>
-                        <td className={styles.centrado}>{formatearPorcentaje(item.markup_promedio)}</td>
+                        <td className={styles.centrado}>{formatearPorcentaje(item.markup_porcentaje)}</td>
                         <td className={styles.centrado}>{item.cantidad_operaciones}</td>
                       </tr>
                     ))}
@@ -314,7 +314,7 @@ export default function DashboardMetricasML() {
                         <td>{item.categoria}</td>
                         <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
                         <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>
-                        <td className={styles.centrado}>{formatearPorcentaje(item.markup_promedio)}</td>
+                        <td className={styles.centrado}>{formatearPorcentaje(item.markup_porcentaje)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -373,7 +373,7 @@ export default function DashboardMetricasML() {
                         <td>{item.marca}</td>
                         <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
                         <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>
-                        <td className={styles.centrado}>{formatearPorcentaje(item.markup_promedio)}</td>
+                        <td className={styles.centrado}>{formatearPorcentaje(item.markup_porcentaje)}</td>
                         <td className={styles.centrado}>{item.cantidad_unidades}</td>
                       </tr>
                     ))}
