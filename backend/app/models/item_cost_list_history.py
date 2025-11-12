@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, Numeric, DateTime
+from sqlalchemy import Column, Integer, BigInteger, Numeric, DateTime, String
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -14,16 +14,21 @@ class ItemCostListHistory(Base):
     iclh_id = Column(BigInteger, primary_key=True, index=True)
 
     # IDs de referencia
-    comp_id = Column(Integer, index=True)
-    item_id = Column(Integer, index=True)
+    comp_id = Column(Integer)
     coslis_id = Column(Integer, index=True)  # ID de lista de costos (1 = principal)
+    item_id = Column(Integer, index=True)
+
+    # Lote
+    iclh_lote = Column(String(50))
 
     # Datos del costo
     iclh_price = Column(Numeric(18, 6))  # Costo sin IVA
+    iclh_price_aw = Column(Numeric(18, 6))  # Costo promedio ponderado
     curr_id = Column(Integer)  # ID de moneda (1=ARS, 2=USD, etc.)
 
-    # Fecha de creación del registro
-    iclh_cd = Column(DateTime, index=True)
+    # Fechas
+    iclh_cd = Column(DateTime, index=True)  # Fecha de creación
+    user_id_lastUpdate = Column(Integer)  # Usuario que actualizó
 
     def __repr__(self):
-        return f"<ItemCostListHistory(iclh_id={self.iclh_id}, item_id={self.item_id}, price={self.iclh_price})>"
+        return f"<ItemCostListHistory(iclh_id={self.iclh_id}, item_id={self.item_id}, price={self.iclh_price}, date={self.iclh_cd})>"
