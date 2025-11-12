@@ -12,6 +12,7 @@ sys.path.insert(0, str(backend_dir))
 from datetime import datetime
 import requests
 import json
+from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.item_cost_list_history import ItemCostListHistory
 import logging
