@@ -99,7 +99,7 @@ async def get_metricas_generales(
         func.sum(MLVentaMetrica.monto_total).label('total_ventas_ml'),
         func.sum(MLVentaMetrica.monto_limpio).label('total_limpio'),
         func.sum(MLVentaMetrica.ganancia).label('total_ganancia'),
-        func.sum(MLVentaMetrica.costo_total_sin_iva).label('total_costo'),
+        func.sum(MLVentaMetrica.costo_total).label('total_costo'),
         func.count(MLVentaMetrica.id).label('cantidad_operaciones'),
         func.sum(MLVentaMetrica.cantidad).label('cantidad_unidades'),
         func.sum(MLVentaMetrica.comision_ml).label('total_comisiones'),
