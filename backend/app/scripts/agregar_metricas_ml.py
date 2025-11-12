@@ -66,17 +66,16 @@ def obtener_costo_item(
     """
     Obtiene el costo sin IVA del item al momento de la venta.
 
-    Usa la misma lógica que Streamlit dashboard:
-    1. Intenta obtener el precio más reciente de item_cost_list_history (coslis_id=1)
-       antes o igual a la fecha de venta.
-    2. Si no hay costo histórico, usa el costo actual más reciente disponible.
+    Prioridad:
+    1. Historial de costos (item_cost_list_history) antes de la fecha de venta
+    2. Costo actual del historial (sin filtro de fecha)
+    3. Costo actual del producto (productos_erp.costo)
 
     Returns:
         (costo_total_sin_iva, moneda)
     """
 
-    # 1. Obtener de historial de costos (mismo método que Streamlit)
-    # SELECT TOP 1 iclh_price WHERE item_id = X AND iclh_cd <= fecha AND coslis_id = 1 ORDER BY iclh_id DESC
+    # 1. Obtener de historial de costos antes de la fecha de venta
     cost_history = db.query(ItemCostListHistory).filter(
         and_(
             ItemCostListHistory.item_id == item_id,
@@ -92,7 +91,7 @@ def obtener_costo_item(
         moneda = "USD" if cost_history.curr_id == 2 else "ARS"
         return (costo_total, moneda)
 
-    # 2. Fallback: Si no hay costo histórico, usar el costo actual más reciente
+    # 2. Fallback: costo actual más reciente del historial
     cost_actual = db.query(ItemCostListHistory).filter(
         and_(
             ItemCostListHistory.item_id == item_id,
@@ -104,6 +103,15 @@ def obtener_costo_item(
         costo_unitario = float(cost_actual.iclh_price)
         costo_total = costo_unitario * cantidad
         moneda = "USD" if cost_actual.curr_id == 2 else "ARS"
+        return (costo_total, moneda)
+
+    # 3. Último fallback: costo actual del producto
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+
+    if producto and producto.costo and float(producto.costo) > 0:
+        costo_unitario = float(producto.costo)
+        costo_total = costo_unitario * cantidad
+        moneda = "USD" if producto.moneda_costo and producto.moneda_costo.value == "USD" else "ARS"
         return (costo_total, moneda)
 
     # Si no hay datos, retornar 0
