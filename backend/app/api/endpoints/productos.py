@@ -2077,6 +2077,7 @@ async def exportar_clasica(
     
     # Obtener productos con precio clásica y precios con cuotas
     query = db.query(
+        ProductoERP.item_id,
         ProductoERP.codigo,
         ProductoPricing.precio_lista_ml,
         ProductoPricing.participa_rebate,
@@ -2123,16 +2124,59 @@ async def exportar_clasica(
         if tipo_cambio:
             dolar_ajustado = float(tipo_cambio.venta) + offset_dolar
 
+    # Determinar qué prli_ids corresponden al tipo de cuotas seleccionado
+    # Cada tipo tiene una lista Web y una PVP (ambas representan el mismo precio)
+    # Mapeo tipo_cuotas -> [prli_id_web, prli_id_pvp]
+    tipo_cuotas_to_prli = {
+        "clasica": [4, 12],   # Clásica Web + PVP
+        "3": [17, 18],        # 3 Cuotas Web + PVP
+        "6": [14, 19],        # 6 Cuotas Web + PVP
+        "9": [13, 20],        # 9 Cuotas Web + PVP
+        "12": [23, 21]        # 12 Cuotas Web + PVP
+    }
+
+    prli_ids_seleccionados = tipo_cuotas_to_prli.get(tipo_cuotas, [])
+
+    # Obtener MLA IDs para cada producto de la lista seleccionada
+    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+    # Crear diccionario: item_id -> [mla_ids]
+    mla_por_item = {}
+
+    if prli_ids_seleccionados:
+        # Consultar publicaciones de AMBAS listas (Web y PVP) para el tipo seleccionado
+        item_ids = [p[0] for p in productos]
+        publicaciones = db.query(
+            MercadoLibreItemPublicado.item_id,
+            MercadoLibreItemPublicado.mlp_publicationID
+        ).filter(
+            MercadoLibreItemPublicado.item_id.in_(item_ids),
+            MercadoLibreItemPublicado.prli_id.in_(prli_ids_seleccionados),
+            MercadoLibreItemPublicado.mlp_Active == True
+        ).all()
+
+        # Agrupar MLAs por item_id
+        for item_id, mla_id in publicaciones:
+            if item_id not in mla_por_item:
+                mla_por_item[item_id] = []
+            mla_por_item[item_id].append(mla_id)
+
+    # Determinar el número máximo de MLAs que tiene cualquier producto
+    max_mlas = max([len(mlas) for mlas in mla_por_item.values()]) if mla_por_item else 0
+
     # Crear Excel
     wb = Workbook()
     ws = wb.active
-    ws.title = "Clasica"
+    ws.title = tipo_cuotas.title()
 
-    # Header - Solo 3 columnas
-    ws.append(['Código/EAN', 'Precio', 'ID Moneda'])
+    # Header - Columnas base + una columna por cada MLA
+    header = ['Código/EAN', 'Precio', 'ID Moneda']
+    for i in range(max_mlas):
+        header.append(f'MLA {i+1}')
+    ws.append(header)
 
     # Datos
-    for codigo, precio_clasica, participa_rebate, porcentaje_rebate, precio_3, precio_6, precio_9, precio_12 in productos:
+    for item_id, codigo, precio_clasica, participa_rebate, porcentaje_rebate, precio_3, precio_6, precio_9, precio_12 in productos:
         # Determinar qué precio usar según tipo_cuotas
         if tipo_cuotas == "clasica":
             # Si tiene rebate activo, calcular precio rebate y aplicar % adicional
@@ -2175,11 +2219,24 @@ async def exportar_clasica(
             precio_final = round(precio_exportar / 10) * 10
             precio_str = str(int(precio_final))
 
-        ws.append([
+        # Obtener MLAs de la lista seleccionada para este item
+        mlas = mla_por_item.get(item_id, [])
+
+        # Crear fila con columnas base
+        fila = [
             str(codigo),
             precio_str,
             str(currency_id)
-        ])
+        ]
+
+        # Agregar cada MLA en su propia columna
+        for i in range(max_mlas):
+            if i < len(mlas):
+                fila.append(mlas[i])
+            else:
+                fila.append('')  # Columna vacía si no hay MLA
+
+        ws.append(fila)
     
     # Guardar en memoria
     output = BytesIO()
