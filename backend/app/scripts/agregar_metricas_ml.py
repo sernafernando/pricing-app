@@ -135,9 +135,6 @@ async def agregar_metricas_venta(
             MLVentaMetrica.id_operacion == order_detail.mlod_id
         ).first()
 
-        if existente:
-            return "existe"
-
         # Obtener información del shipping
         shipping = db.query(MercadoLibreOrderShipping).filter(
             MercadoLibreOrderShipping.mlo_id == order_header.mlo_id
@@ -220,41 +217,73 @@ async def agregar_metricas_venta(
 
         mla_id = publicacion_ml.mlp_publicationID if publicacion_ml else None
 
-        # Crear métrica
-        metrica = MLVentaMetrica(
-            id_operacion=order_detail.mlod_id,
-            ml_order_id=order_header.mlo_id,
-            pack_id=int(order_header.ml_pack_id) if order_header.ml_pack_id and order_header.ml_pack_id.isdigit() else None,
-            item_id=order_detail.item_id,
-            codigo=producto.codigo if producto else None,
-            descripcion=order_detail.mlo_title,
-            marca=producto.marca if producto else None,
-            categoria=producto.categoria if producto else None,
-            subcategoria=producto.subcategoria_id if producto else None,
-            fecha_venta=fecha_venta,
-            fecha_calculo=date.today(),
-            cantidad=int(cantidad),
-            monto_unitario=Decimal(str(round(monto_unitario, 2))),
-            monto_total=Decimal(str(round(monto_total, 2))),
-            cotizacion_dolar=Decimal(str(round(cotizacion, 4))),
-            costo_unitario_sin_iva=Decimal(str(round(costo_sin_iva_total / cantidad if cantidad > 0 else 0, 6))),
-            costo_total_sin_iva=Decimal(str(round(costo_sin_iva_total_ars, 2))),
-            moneda_costo=moneda_costo,
-            tipo_lista=tipo_lista,
-            porcentaje_comision_ml=Decimal(str(round(comision_pct, 2))),
-            comision_ml=Decimal(str(round(comision_ml, 2))),
-            costo_envio_ml=Decimal(str(round(costo_envio_ml, 2))),
-            tipo_logistica=tipo_logistica,
-            monto_limpio=Decimal(str(round(monto_limpio, 2))),
-            costo_total=Decimal(str(round(costo_total, 2))),
-            ganancia=Decimal(str(round(ganancia, 2))),
-            markup_porcentaje=Decimal(str(round(markup_porcentaje, 2))),
-            prli_id=prli_id,
-            mla_id=mla_id
-        )
-
-        db.add(metrica)
-        return "insertado"
+        # Crear o actualizar métrica
+        if existente:
+            # Actualizar existente
+            existente.ml_order_id = order_header.mlo_id
+            existente.pack_id = int(order_header.ml_pack_id) if order_header.ml_pack_id and order_header.ml_pack_id.isdigit() else None
+            existente.item_id = order_detail.item_id
+            existente.codigo = producto.codigo if producto else None
+            existente.descripcion = order_detail.mlo_title
+            existente.marca = producto.marca if producto else None
+            existente.categoria = producto.categoria if producto else None
+            existente.subcategoria = producto.subcategoria_id if producto else None
+            existente.fecha_venta = fecha_venta
+            existente.fecha_calculo = date.today()
+            existente.cantidad = int(cantidad)
+            existente.monto_unitario = Decimal(str(round(monto_unitario, 2)))
+            existente.monto_total = Decimal(str(round(monto_total, 2)))
+            existente.cotizacion_dolar = Decimal(str(round(cotizacion, 4)))
+            existente.costo_unitario_sin_iva = Decimal(str(round(costo_sin_iva_total / cantidad if cantidad > 0 else 0, 6)))
+            existente.costo_total_sin_iva = Decimal(str(round(costo_sin_iva_total_ars, 2)))
+            existente.moneda_costo = moneda_costo
+            existente.tipo_lista = tipo_lista
+            existente.porcentaje_comision_ml = Decimal(str(round(comision_pct, 2)))
+            existente.comision_ml = Decimal(str(round(comision_ml, 2)))
+            existente.costo_envio_ml = Decimal(str(round(costo_envio_ml, 2)))
+            existente.tipo_logistica = tipo_logistica
+            existente.monto_limpio = Decimal(str(round(monto_limpio, 2)))
+            existente.costo_total = Decimal(str(round(costo_total, 2)))
+            existente.ganancia = Decimal(str(round(ganancia, 2)))
+            existente.markup_porcentaje = Decimal(str(round(markup_porcentaje, 2)))
+            existente.prli_id = prli_id
+            existente.mla_id = mla_id
+            return "actualizado"
+        else:
+            # Crear nuevo
+            metrica = MLVentaMetrica(
+                id_operacion=order_detail.mlod_id,
+                ml_order_id=order_header.mlo_id,
+                pack_id=int(order_header.ml_pack_id) if order_header.ml_pack_id and order_header.ml_pack_id.isdigit() else None,
+                item_id=order_detail.item_id,
+                codigo=producto.codigo if producto else None,
+                descripcion=order_detail.mlo_title,
+                marca=producto.marca if producto else None,
+                categoria=producto.categoria if producto else None,
+                subcategoria=producto.subcategoria_id if producto else None,
+                fecha_venta=fecha_venta,
+                fecha_calculo=date.today(),
+                cantidad=int(cantidad),
+                monto_unitario=Decimal(str(round(monto_unitario, 2))),
+                monto_total=Decimal(str(round(monto_total, 2))),
+                cotizacion_dolar=Decimal(str(round(cotizacion, 4))),
+                costo_unitario_sin_iva=Decimal(str(round(costo_sin_iva_total / cantidad if cantidad > 0 else 0, 6))),
+                costo_total_sin_iva=Decimal(str(round(costo_sin_iva_total_ars, 2))),
+                moneda_costo=moneda_costo,
+                tipo_lista=tipo_lista,
+                porcentaje_comision_ml=Decimal(str(round(comision_pct, 2))),
+                comision_ml=Decimal(str(round(comision_ml, 2))),
+                costo_envio_ml=Decimal(str(round(costo_envio_ml, 2))),
+                tipo_logistica=tipo_logistica,
+                monto_limpio=Decimal(str(round(monto_limpio, 2))),
+                costo_total=Decimal(str(round(costo_total, 2))),
+                ganancia=Decimal(str(round(ganancia, 2))),
+                markup_porcentaje=Decimal(str(round(markup_porcentaje, 2))),
+                prli_id=prli_id,
+                mla_id=mla_id
+            )
+            db.add(metrica)
+            return "insertado"
 
     except Exception as e:
         print(f"  ❌ Error procesando {order_detail.mlod_id}: {str(e)}")
@@ -290,7 +319,7 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
         print()
 
         total_insertados = 0
-        total_existentes = 0
+        total_actualizados = 0
         total_errores = 0
 
         for order in orders:
@@ -303,9 +332,9 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
 
                 if resultado == "insertado":
                     total_insertados += 1
-                elif resultado == "existe":
-                    total_existentes += 1
-                else:
+                elif resultado == "actualizado":
+                    total_actualizados += 1
+                elif resultado == "error":
                     total_errores += 1
 
             try:
@@ -314,15 +343,15 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
                 print(f"  ❌ Error commit orden {order.mlo_id}: {str(e)}")
                 db.rollback()
 
-            if (total_insertados + total_existentes) % batch_size == 0:
-                print(f"  Procesados: {total_insertados + total_existentes} | Nuevos: {total_insertados}")
+            if (total_insertados + total_actualizados) % batch_size == 0:
+                print(f"  Procesados: {total_insertados + total_actualizados} | Nuevos: {total_insertados} | Actualizados: {total_actualizados}")
 
         print()
         print(f"{'='*60}")
         print(f"✅ COMPLETADO")
         print(f"{'='*60}")
         print(f"Insertados: {total_insertados}")
-        print(f"Existentes: {total_existentes}")
+        print(f"Actualizados: {total_actualizados}")
         print(f"Errores: {total_errores}")
 
     finally:
