@@ -18,8 +18,7 @@ from app.services.pricing_calculator import (
     obtener_tipo_cambio_actual,
     obtener_grupo_subcategoria,
     obtener_comision_base,
-    precio_por_markup_goalseek,
-    VARIOS_DEFAULT
+    precio_por_markup_goalseek
 )
 
 
@@ -132,7 +131,7 @@ async def calcular_por_precio(
         request.precio_manual,
         comision_base,
         producto.iva,
-        VARIOS_DEFAULT
+        db=db
     )
 
     limpio = calcular_limpio(
@@ -209,7 +208,7 @@ async def setear_precio(
 
     markup_calculado = None
     if comision_base:
-        comisiones = calcular_comision_ml_total(request.precio_lista_ml, comision_base, producto.iva, VARIOS_DEFAULT)
+        comisiones = calcular_comision_ml_total(request.precio_lista_ml, comision_base, producto.iva, db=db)
         limpio = calcular_limpio(request.precio_lista_ml, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
         markup = calcular_markup(limpio, costo_ars)
         markup_calculado = round(markup * 100, 2)
@@ -480,8 +479,7 @@ async def setear_precio_rapido(
         obtener_comision_base,
         calcular_comision_ml_total,
         calcular_limpio,
-        calcular_markup,
-        VARIOS_DEFAULT
+        calcular_markup
     )
     
     costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
@@ -491,7 +489,7 @@ async def setear_precio_rapido(
     if not comision_base:
         raise HTTPException(400, "No hay comisión configurada")
 
-    comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, VARIOS_DEFAULT)
+    comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, db=db)
     limpio = calcular_limpio(precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
     markup = calcular_markup(limpio, costo_ars)
 
@@ -667,7 +665,6 @@ async def setear_precio_rapido(
                             float(precio_cuota),
                             comision_base_cuota,
                             producto.iva,
-                            VARIOS_DEFAULT,
                             db=db
                         )
                         limpio_cuota = calcular_limpio(
@@ -725,7 +722,7 @@ async def setear_precio_cuota(
     if not comision_base:
         raise HTTPException(400, "No hay comisión configurada")
 
-    comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, VARIOS_DEFAULT)
+    comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, db=db)
     limpio = calcular_limpio(precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
     markup = calcular_markup(limpio, costo_ars)
     markup_porcentaje = round(markup * 100, 2)
