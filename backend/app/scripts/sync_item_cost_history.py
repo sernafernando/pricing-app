@@ -44,7 +44,7 @@ def fetch_cost_history_from_erp(fecha_desde: datetime = None, iclh_id: int = Non
         params['fromDate'] = fecha_desde.isoformat()
 
     if iclh_id:
-        params['iclh_id'] = iclh_id
+        params['iclhID'] = iclh_id
 
     # El worker espera los parámetros en formato JSON
     # según el script SQL: JSON_VALUE(@strParamOUT, '$.fromDate')
