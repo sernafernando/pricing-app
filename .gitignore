@@ -49,3 +49,6 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+
+# Streamlit app
+st_app.py

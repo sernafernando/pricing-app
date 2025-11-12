@@ -26,8 +26,6 @@ from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-from app.models.commercial_transaction import CommercialTransaction
-from app.models.item_transaction import ItemTransaction
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.producto import ProductoERP
 from app.models.tipo_cambio import TipoCambio
@@ -68,41 +66,17 @@ def obtener_costo_item(
     """
     Obtiene el costo sin IVA del item al momento de la venta.
 
-    Prioridad:
-    1. Costo de item_transaction si existe commercial_transaction
-    2. Costo de item_cost_list_history (más reciente antes de fecha_venta)
+    Usa la misma lógica que Streamlit dashboard:
+    1. Intenta obtener el precio más reciente de item_cost_list_history (coslis_id=1)
+       antes o igual a la fecha de venta.
+    2. Si no hay costo histórico, usa el costo actual más reciente disponible.
 
     Returns:
         (costo_total_sin_iva, moneda)
     """
 
-    # 1. Intentar obtener de item_transaction (costo real de la operación)
-    commercial_tx = db.query(CommercialTransaction).filter(
-        CommercialTransaction.mlo_id == mlo_id
-    ).first()
-
-    if commercial_tx:
-        item_tx = db.query(ItemTransaction).filter(
-            and_(
-                ItemTransaction.ct_transaction == commercial_tx.ct_transaction,
-                ItemTransaction.item_id == item_id
-            )
-        ).first()
-
-        if item_tx:
-            # Usar el costo de mercadería (it_mecost es el costo sin IVA)
-            # Prioridad: it_mecost (costo mercadería sin IVA)
-            costo_unitario = None
-            if item_tx.it_mecost and float(item_tx.it_mecost) > 0:
-                costo_unitario = float(item_tx.it_mecost)
-
-            if costo_unitario and costo_unitario > 0:
-                costo_total = costo_unitario * cantidad
-                # curr_id: 1=ARS, 2=USD
-                moneda = "USD" if item_tx.curr_id == 2 else "ARS"
-                return (costo_total, moneda)
-
-    # 2. Fallback: obtener de historial de costos (más reciente antes de la venta)
+    # 1. Obtener de historial de costos (mismo método que Streamlit)
+    # SELECT TOP 1 iclh_price WHERE item_id = X AND iclh_cd <= fecha AND coslis_id = 1 ORDER BY iclh_id DESC
     cost_history = db.query(ItemCostListHistory).filter(
         and_(
             ItemCostListHistory.item_id == item_id,
@@ -111,11 +85,25 @@ def obtener_costo_item(
         )
     ).order_by(desc(ItemCostListHistory.iclh_cd)).first()
 
-    if cost_history and cost_history.iclh_price:
+    if cost_history and cost_history.iclh_price and float(cost_history.iclh_price) > 0:
         costo_unitario = float(cost_history.iclh_price)
         costo_total = costo_unitario * cantidad
         # Mapeo de curr_id: 1=ARS, 2=USD (según estándar ERP)
         moneda = "USD" if cost_history.curr_id == 2 else "ARS"
+        return (costo_total, moneda)
+
+    # 2. Fallback: Si no hay costo histórico, usar el costo actual más reciente
+    cost_actual = db.query(ItemCostListHistory).filter(
+        and_(
+            ItemCostListHistory.item_id == item_id,
+            ItemCostListHistory.coslis_id == 1
+        )
+    ).order_by(desc(ItemCostListHistory.iclh_cd)).first()
+
+    if cost_actual and cost_actual.iclh_price and float(cost_actual.iclh_price) > 0:
+        costo_unitario = float(cost_actual.iclh_price)
+        costo_total = costo_unitario * cantidad
+        moneda = "USD" if cost_actual.curr_id == 2 else "ARS"
         return (costo_total, moneda)
 
     # Si no hay datos, retornar 0
@@ -210,9 +198,21 @@ async def agregar_metricas_venta(
         tipo_logistica = shipping.mllogistic_type if shipping and shipping.mllogistic_type else "unknown"
 
         # Cálculos finales
-        monto_limpio = monto_total - comision_ml - costo_envio_ml
-        costo_total = costo_sin_iva_total_ars + costo_envio_ml
-        ganancia = monto_limpio - costo_total  # Descontar costo total (producto + envío)
+        # Trabajamos todo sin IVA para ser consistentes
+        monto_total_sin_iva = monto_total / 1.21
+        comision_ml_sin_iva = comision_ml / 1.21
+        costo_envio_ml_sin_iva = costo_envio_ml / 1.21
+
+        # Limpio = lo que queda después de restar comisiones y envío ML (todo sin IVA)
+        monto_limpio = monto_total_sin_iva - comision_ml_sin_iva - costo_envio_ml_sin_iva
+
+        # Costo total = costo producto + costo envío ML (para tracking)
+        costo_total = costo_sin_iva_total_ars + costo_envio_ml_sin_iva
+
+        # Ganancia = limpio - costo del producto (el envío ya se restó en limpio)
+        ganancia = monto_limpio - costo_sin_iva_total_ars
+
+        # Markup = ganancia sobre costo del producto
         markup_porcentaje = (ganancia / costo_sin_iva_total_ars * 100) if costo_sin_iva_total_ars > 0 else 0.0
 
         mla_id = publicacion_ml.mlp_publicationID if publicacion_ml else None
