@@ -13,6 +13,7 @@ import GestionPM from './pages/GestionPM';
 import MLABanlist from './pages/MLABanlist';
 import ItemsSinMLA from './pages/ItemsSinMLA';
 import DashboardVentas from './pages/DashboardVentas';
+import DashboardMetricasML from './pages/DashboardMetricasML';
 import Calculos from './pages/Calculos';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
@@ -95,6 +96,11 @@ function App() {
                 <Route path="/dashboard-ventas" element={
                   <ProtectedRoute>
                     <DashboardVentas />
+                  </ProtectedRoute>
+                } />
+                <Route path="/dashboard-metricas-ml" element={
+                  <ProtectedRoute>
+                    <DashboardMetricasML />
                   </ProtectedRoute>
                 } />
                 <Route path="/calculos" element={
