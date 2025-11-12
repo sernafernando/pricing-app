@@ -215,7 +215,7 @@ async def agregar_metricas_venta(
         # Cálculos finales
         monto_limpio = monto_total - comision_ml - costo_envio_ml
         costo_total = costo_sin_iva_total_ars + costo_envio_ml
-        ganancia = monto_limpio - costo_sin_iva_total_ars
+        ganancia = monto_limpio - costo_total  # Descontar costo total (producto + envío)
         markup_porcentaje = (ganancia / costo_sin_iva_total_ars * 100) if costo_sin_iva_total_ars > 0 else 0.0
 
         mla_id = publicacion_ml.mlp_publicationID if publicacion_ml else None
