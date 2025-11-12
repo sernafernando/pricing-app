@@ -2133,7 +2133,7 @@ async def exportar_clasica(
     prli_ids_seleccionados = tipo_cuotas_to_prli.get(tipo_cuotas, [])
 
     # Obtener MLA IDs para cada producto de la lista seleccionada
-    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+    from app.models.publicacion_ml import PublicacionML
 
     # Crear diccionario: item_id -> [mla_ids]
     mla_por_item = {}
@@ -2142,12 +2142,12 @@ async def exportar_clasica(
         # Consultar publicaciones de AMBAS listas (Web y PVP) para el tipo seleccionado
         item_ids = [p[0] for p in productos]
         publicaciones = db.query(
-            MercadoLibreItemPublicado.item_id,
-            MercadoLibreItemPublicado.mlp_publicationID
+            PublicacionML.item_id,
+            PublicacionML.mla
         ).filter(
-            MercadoLibreItemPublicado.item_id.in_(item_ids),
-            MercadoLibreItemPublicado.prli_id.in_(prli_ids_seleccionados),
-            MercadoLibreItemPublicado.mlp_Active == True
+            PublicacionML.item_id.in_(item_ids),
+            PublicacionML.pricelist_id.in_(prli_ids_seleccionados),
+            PublicacionML.activo == True
         ).all()
 
         # Agrupar MLAs por item_id
