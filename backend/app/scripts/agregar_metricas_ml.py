@@ -1,6 +1,6 @@
 """
 Script para agregar métricas de ventas ML
-Lee de ml_orders_header, ml_orders_detail, ml_orders_shipping, commercial_transactions
+Lee de ml_orders + item_transactions (costo real) o item_cost_list_history (fallback)
 Calcula markup, comisiones, costos y guarda en ml_ventas_metricas
 
 Ejecutar:
@@ -10,7 +10,7 @@ import asyncio
 import argparse
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, desc
 from decimal import Decimal
 
 from app.core.database import SessionLocal
@@ -20,6 +20,8 @@ from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.commercial_transaction import CommercialTransaction
+from app.models.item_transaction import ItemTransaction
+from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.producto import ProductoERP
 from app.models.tipo_cambio import TipoCambio
 from app.services.pricing_calculator import (
@@ -47,6 +49,62 @@ async def obtener_cotizacion_fecha(db: Session, fecha: date) -> float:
     ).order_by(TipoCambio.fecha.desc()).first()
 
     return float(tc.venta) if tc else 1000.0
+
+
+def obtener_costo_item(
+    db: Session,
+    item_id: int,
+    fecha_venta: datetime,
+    cantidad: float,
+    mlo_id: int
+) -> tuple[float, str]:
+    """
+    Obtiene el costo sin IVA del item al momento de la venta.
+
+    Prioridad:
+    1. Costo de item_transaction si existe commercial_transaction
+    2. Costo de item_cost_list_history (más reciente antes de fecha_venta)
+
+    Returns:
+        (costo_total_sin_iva, moneda)
+    """
+
+    # 1. Intentar obtener de item_transaction (costo real de la operación)
+    commercial_tx = db.query(CommercialTransaction).filter(
+        CommercialTransaction.mlo_id == mlo_id
+    ).first()
+
+    if commercial_tx:
+        item_tx = db.query(ItemTransaction).filter(
+            and_(
+                ItemTransaction.ct_transaction == commercial_tx.ct_transaction,
+                ItemTransaction.item_id == item_id
+            )
+        ).first()
+
+        if item_tx and item_tx.cost is not None:
+            costo_total = float(item_tx.cost)
+            moneda = item_tx.currency or "ARS"
+            return (costo_total, moneda)
+
+    # 2. Fallback: obtener de historial de costos (más reciente antes de la venta)
+    cost_history = db.query(ItemCostListHistory).filter(
+        and_(
+            ItemCostListHistory.item_id == item_id,
+            ItemCostListHistory.coslis_id == 1,  # Lista de costos principal
+            ItemCostListHistory.iclh_cd <= fecha_venta
+        )
+    ).order_by(desc(ItemCostListHistory.iclh_cd)).first()
+
+    if cost_history and cost_history.iclh_price:
+        costo_unitario = float(cost_history.iclh_price)
+        costo_total = costo_unitario * cantidad
+        # Mapeo de curr_id: 1=ARS, 2=USD (según estándar ERP)
+        moneda = "USD" if cost_history.curr_id == 2 else "ARS"
+        return (costo_total, moneda)
+
+    # Si no hay datos, retornar 0
+    return (0.0, "ARS")
 
 
 async def agregar_metricas_venta(
@@ -84,25 +142,24 @@ async def agregar_metricas_venta(
                 MercadoLibreItemPublicado.mlp_id == order_detail.mlp_id
             ).first()
 
-        # Obtener commercial_transaction
-        commercial_tx = db.query(CommercialTransaction).filter(
-            CommercialTransaction.mlo_id == order_header.mlo_id
-        ).first()
-
-        if not commercial_tx:
-            return "sin_commercial_tx"
-
         # Calcular métricas
-        fecha_venta = order_header.ml_date_created.date() if order_header.ml_date_created else date.today()
-        cotizacion = await obtener_cotizacion_fecha(db, fecha_venta)
+        fecha_venta = order_header.ml_date_created if order_header.ml_date_created else datetime.now()
+        cotizacion = await obtener_cotizacion_fecha(db, fecha_venta.date())
 
         cantidad = float(order_detail.mlo_quantity) if order_detail.mlo_quantity else 1.0
         monto_unitario = float(order_detail.mlo_unit_price) if order_detail.mlo_unit_price else 0.0
         monto_total = monto_unitario * cantidad
 
-        costo_sin_iva_total = float(commercial_tx.cost) if commercial_tx.cost else 0.0
-        moneda_costo = commercial_tx.currency or "ARS"
+        # Obtener costo (prioridad: item_transaction > cost_history)
+        costo_sin_iva_total, moneda_costo = obtener_costo_item(
+            db,
+            order_detail.item_id,
+            fecha_venta,
+            cantidad,
+            order_header.mlo_id
+        )
 
+        # Convertir costo a ARS si está en USD
         if moneda_costo == "USD":
             costo_sin_iva_total_ars = costo_sin_iva_total * cotizacion
         else:
@@ -116,7 +173,7 @@ async def agregar_metricas_venta(
         prli_id = publicacion_ml.prli_id if publicacion_ml else 4
         tipo_lista = publicacion_ml.mlp_listing_type_id if publicacion_ml and publicacion_ml.mlp_listing_type_id else "unknown"
 
-        comision_pct = obtener_comision_versionada(db, grupo_id, prli_id, fecha_venta) or 15.0
+        comision_pct = obtener_comision_versionada(db, grupo_id, prli_id, fecha_venta.date()) or 15.0
 
         comision_ml_detalle = calcular_comision_ml_total(
             precio=monto_total,
@@ -128,7 +185,7 @@ async def agregar_metricas_venta(
 
         comision_ml = comision_ml_detalle["comision_total"]
 
-        # Costo de envío
+        # Costo de envío: para productos < 33k usar mlp_price4FreeShipping
         MONTOT3 = constantes.get("monto_tier3", 33000)
 
         if monto_total < MONTOT3 and publicacion_ml and publicacion_ml.mlp_price4FreeShipping:
@@ -159,7 +216,7 @@ async def agregar_metricas_venta(
             marca=producto.marca if producto else None,
             categoria=producto.categoria if producto else None,
             subcategoria=producto.subcategoria if producto else None,
-            fecha_venta=order_header.ml_date_created,
+            fecha_venta=fecha_venta,
             fecha_calculo=date.today(),
             cantidad=int(cantidad),
             monto_unitario=Decimal(str(round(monto_unitario, 2))),
@@ -186,6 +243,8 @@ async def agregar_metricas_venta(
 
     except Exception as e:
         print(f"  ❌ Error procesando {order_detail.mlod_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return "error"
 
 
@@ -218,7 +277,6 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
         total_insertados = 0
         total_existentes = 0
         total_errores = 0
-        total_sin_commercial = 0
 
         for order in orders:
             details = db.query(MercadoLibreOrderDetail).filter(
@@ -232,8 +290,6 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
                     total_insertados += 1
                 elif resultado == "existe":
                     total_existentes += 1
-                elif resultado == "sin_commercial_tx":
-                    total_sin_commercial += 1
                 else:
                     total_errores += 1
 
@@ -252,7 +308,6 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
         print(f"{'='*60}")
         print(f"Insertados: {total_insertados}")
         print(f"Existentes: {total_existentes}")
-        print(f"Sin CommTx: {total_sin_commercial}")
         print(f"Errores: {total_errores}")
 
     finally:
