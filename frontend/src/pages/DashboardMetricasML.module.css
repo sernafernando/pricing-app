@@ -11,7 +11,7 @@
 .title {
   font-size: 28px;
   font-weight: 700;
-  color: var(--text-primary, #1a1a1a);
+  color: var(--text-primary);
   margin: 0 0 20px 0;
 }
 
@@ -20,7 +20,7 @@
   gap: 15px;
   align-items: flex-end;
   flex-wrap: wrap;
-  background: var(--surface-secondary, #f8f9fa);
+  background: var(--bg-tertiary);
   padding: 15px;
   border-radius: 8px;
 }
@@ -36,19 +36,19 @@
 .filtroSelect label {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
   text-transform: uppercase;
 }
 
 .dateInput,
 .select {
   padding: 8px 12px;
-  border: 1px solid var(--border-color, #ddd);
+  border: 1px solid var(--border-primary);
   border-radius: 4px;
   font-size: 14px;
   min-width: 150px;
-  background: var(--input-bg, white);
-  color: var(--text-primary, #1a1a1a);
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .select {
@@ -58,8 +58,8 @@
 
 .btnRecargar {
   padding: 8px 16px;
-  background: #007bff;
-  color: white;
+  background: var(--brand-primary);
+  color: var(--text-inverse);
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -68,21 +68,21 @@
 }
 
 .btnRecargar:hover {
-  background: #0056b3;
+  background: var(--brand-primary-hover);
 }
 
 .loading {
   text-align: center;
   padding: 60px 20px;
   font-size: 18px;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
 }
 
 .noData {
   text-align: center;
   padding: 60px 20px;
   font-size: 16px;
-  color: var(--text-tertiary, #999);
+  color: var(--text-tertiary);
 }
 
 /* Métricas Generales */
@@ -150,27 +150,29 @@
 }
 
 .chartCard {
-  background: var(--surface-primary, white);
+  background: var(--bg-primary);
   border-radius: 12px;
   padding: 20px;
-  box-shadow: 0 2px 8px var(--shadow-color, rgba(0, 0, 0, 0.1));
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-primary);
 }
 
 .timelineCard {
-  background: var(--surface-primary, white);
+  background: var(--bg-primary);
   border-radius: 12px;
   padding: 20px;
-  box-shadow: 0 2px 8px var(--shadow-color, rgba(0, 0, 0, 0.1));
+  box-shadow: var(--shadow-md);
   margin-bottom: 30px;
+  border: 1px solid var(--border-primary);
 }
 
 .chartTitle {
   font-size: 18px;
   font-weight: 700;
-  color: var(--text-primary, #1a1a1a);
+  color: var(--text-primary);
   margin: 0 0 15px 0;
   padding-bottom: 10px;
-  border-bottom: 2px solid var(--border-light, #f0f0f0);
+  border-bottom: 2px solid var(--border-primary);
 }
 
 .tableWrapper {
@@ -186,7 +188,7 @@
 }
 
 .table thead {
-  background: var(--surface-secondary, #f8f9fa);
+  background: var(--bg-tertiary);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -196,27 +198,27 @@
   padding: 10px;
   text-align: left;
   font-weight: 600;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
   text-transform: uppercase;
   font-size: 11px;
   letter-spacing: 0.5px;
-  border-bottom: 2px solid var(--border-color, #dee2e6);
+  border-bottom: 2px solid var(--border-primary);
 }
 
 .table td {
   padding: 10px;
-  border-bottom: 1px solid var(--border-light, #f0f0f0);
-  color: var(--text-primary, #1a1a1a);
+  border-bottom: 1px solid var(--border-primary);
+  color: var(--text-primary);
 }
 
 .table tbody tr:hover {
-  background: var(--surface-hover, #f8f9fa);
+  background: var(--bg-hover);
 }
 
 .monto {
   text-align: right;
   font-weight: 600;
-  color: var(--text-primary, #2c3e50);
+  color: var(--text-primary);
 }
 
 .centrado {
