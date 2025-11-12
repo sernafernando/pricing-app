@@ -222,7 +222,7 @@ async def agregar_metricas_venta(
             descripcion=order_detail.mlo_title,
             marca=producto.marca if producto else None,
             categoria=producto.categoria if producto else None,
-            subcategoria=producto.subcategoria if producto else None,
+            subcategoria=producto.subcategoria_id if producto else None,
             fecha_venta=fecha_venta,
             fecha_calculo=date.today(),
             cantidad=int(cantidad),
