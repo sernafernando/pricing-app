@@ -305,7 +305,7 @@ async def get_ventas_por_dia(
 
     return [
         VentaDiariaResponse(
-            fecha=r.fecha_venta,
+            fecha=r.fecha_venta.date() if isinstance(r.fecha_venta, datetime) else r.fecha_venta,
             total_ventas=r.total_ventas or Decimal('0'),
             total_limpio=r.total_limpio or Decimal('0'),
             total_ganancia=r.total_ganancia or Decimal('0'),
