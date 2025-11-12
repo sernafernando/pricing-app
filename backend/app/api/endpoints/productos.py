@@ -322,8 +322,7 @@ async def listar_productos(
         obtener_comision_base,
         calcular_comision_ml_total,
         calcular_limpio,
-        calcular_markup,
-        VARIOS_DEFAULT
+        calcular_markup
     )
     from datetime import date
     
@@ -387,7 +386,6 @@ async def listar_productos(
                         mejor_oferta_pvp,
                         comision_base,
                         producto_erp.iva,
-                        VARIOS_DEFAULT,
                         db=db
                     )
                     limpio = calcular_limpio(
@@ -421,7 +419,6 @@ async def listar_productos(
                     precio_rebate,
                     comision_base_rebate,
                     producto_erp.iva,
-                    VARIOS_DEFAULT,
                     db=db
                 )
                 limpio_rebate = calcular_limpio(
@@ -474,7 +471,6 @@ async def listar_productos(
                                 float(precio_cuota),
                                 comision_base_cuota,
                                 producto_erp.iva,
-                                VARIOS_DEFAULT,
                                 db=db
                             )
                             limpio_cuota = calcular_limpio(
@@ -839,14 +835,13 @@ async def obtener_ofertas_vigentes(item_id: int, db: Session = Depends(get_db)):
     from app.models.publicacion_ml import PublicacionML
     from app.models.oferta_ml import OfertaML
     from app.services.pricing_calculator import (
-        obtener_tipo_cambio_actual, 
+        obtener_tipo_cambio_actual,
         convertir_a_pesos,
         obtener_grupo_subcategoria,
         obtener_comision_base,
         calcular_comision_ml_total,
         calcular_limpio,
-        calcular_markup,
-        VARIOS_DEFAULT
+        calcular_markup
     )
     
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
@@ -882,7 +877,7 @@ async def obtener_ofertas_vigentes(item_id: int, db: Session = Depends(get_db)):
                     oferta.pvp_seller,
                     comision_base,
                     producto.iva,
-                    VARIOS_DEFAULT
+                    db=db
                 )
                 limpio = calcular_limpio(
                     oferta.pvp_seller,
