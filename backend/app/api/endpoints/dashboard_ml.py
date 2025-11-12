@@ -136,12 +136,15 @@ async def get_metricas_generales(
 
     # Calcular markup sobre totales
     # markup = (ganancia_total / costo_total_sin_iva) * 100
-    total_costo = result.total_costo or Decimal('0')
-    total_ganancia = result.total_ganancia or Decimal('0')
+    total_costo = Decimal(str(result.total_costo)) if result.total_costo else Decimal('0')
+    total_ganancia = Decimal(str(result.total_ganancia)) if result.total_ganancia else Decimal('0')
+
+    print(f"DEBUG: total_costo={total_costo}, total_ganancia={total_ganancia}")
 
     markup_porcentaje = Decimal('0')
     if total_costo > 0:
-        markup_porcentaje = (total_ganancia / total_costo) * Decimal('100')
+        markup_porcentaje = round((total_ganancia / total_costo) * Decimal('100'), 2)
+        print(f"DEBUG: markup_porcentaje={markup_porcentaje}")
 
     return MetricasGeneralesResponse(
         total_ventas_ml=result.total_ventas_ml or Decimal('0'),

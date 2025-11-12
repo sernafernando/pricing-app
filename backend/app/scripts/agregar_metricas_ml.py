@@ -198,13 +198,13 @@ async def agregar_metricas_venta(
         tipo_logistica = shipping.mllogistic_type if shipping and shipping.mllogistic_type else "unknown"
 
         # Cálculos finales
-        # Trabajamos todo sin IVA para ser consistentes
+        # Nota: calcular_comision_ml_total YA retorna comisiones sin IVA
+        # (divide internamente por 1.21), así que NO dividimos comision_ml otra vez
         monto_total_sin_iva = monto_total / 1.21
-        comision_ml_sin_iva = comision_ml / 1.21
         costo_envio_ml_sin_iva = costo_envio_ml / 1.21
 
         # Limpio = lo que queda después de restar comisiones y envío ML (todo sin IVA)
-        monto_limpio = monto_total_sin_iva - comision_ml_sin_iva - costo_envio_ml_sin_iva
+        monto_limpio = monto_total_sin_iva - comision_ml - costo_envio_ml_sin_iva
 
         # Costo total = costo producto + costo envío ML (para tracking)
         costo_total = costo_sin_iva_total_ars + costo_envio_ml_sin_iva
