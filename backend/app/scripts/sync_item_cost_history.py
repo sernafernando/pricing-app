@@ -164,7 +164,7 @@ def sync_item_cost_history(
                         'iclh_price_aw': record.get('iclh_price_aw'),
                         'curr_id': record.get('curr_id'),
                         'iclh_cd': iclh_cd,
-                        'user_id_lastUpdate': record.get('user_id_lastUpdate')
+                        'user_id_lastupdate': record.get('user_id_lastUpdate')
                     })
                     actualizados += 1
                 else:
@@ -179,7 +179,7 @@ def sync_item_cost_history(
                         iclh_price_aw=record.get('iclh_price_aw'),
                         curr_id=record.get('curr_id'),
                         iclh_cd=iclh_cd,
-                        user_id_lastUpdate=record.get('user_id_lastUpdate')
+                        user_id_lastupdate=record.get('user_id_lastUpdate')
                     )
                     db_local.add(nuevo_registro)
                     nuevos += 1

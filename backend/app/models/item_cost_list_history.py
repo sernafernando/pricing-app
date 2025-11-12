@@ -28,7 +28,7 @@ class ItemCostListHistory(Base):
 
     # Fechas
     iclh_cd = Column(DateTime, index=True)  # Fecha de creación
-    user_id_lastUpdate = Column(Integer)  # Usuario que actualizó
+    user_id_lastupdate = Column(Integer)  # Usuario que actualizó
 
     def __repr__(self):
         return f"<ItemCostListHistory(iclh_id={self.iclh_id}, item_id={self.item_id}, price={self.iclh_price}, date={self.iclh_cd})>"
