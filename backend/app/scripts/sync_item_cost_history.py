@@ -200,6 +200,11 @@ def sync_item_cost_history(
                 logger.info("Modo test: deteniendo después de un batch")
                 break
 
+            # Si no hay nuevos registros en este batch, ya terminamos (estamos en loop)
+            if nuevos == 0:
+                logger.info("No hay registros nuevos en este batch, sync completo")
+                break
+
             # Si recibimos menos registros que batch_size, terminamos
             if len(registros_erp) < batch_size:
                 logger.info("Recibidos menos registros que batch_size, sync completo")
