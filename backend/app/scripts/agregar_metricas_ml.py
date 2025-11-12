@@ -89,10 +89,18 @@ def obtener_costo_item(
             )
         ).first()
 
-        if item_tx and item_tx.cost is not None:
-            costo_total = float(item_tx.cost)
-            moneda = item_tx.currency or "ARS"
-            return (costo_total, moneda)
+        if item_tx:
+            # Usar el costo de mercadería (it_mecost es el costo sin IVA)
+            # Prioridad: it_mecost (costo mercadería sin IVA)
+            costo_unitario = None
+            if item_tx.it_mecost and float(item_tx.it_mecost) > 0:
+                costo_unitario = float(item_tx.it_mecost)
+
+            if costo_unitario and costo_unitario > 0:
+                costo_total = costo_unitario * cantidad
+                # curr_id: 1=ARS, 2=USD
+                moneda = "USD" if item_tx.curr_id == 2 else "ARS"
+                return (costo_total, moneda)
 
     # 2. Fallback: obtener de historial de costos (más reciente antes de la venta)
     cost_history = db.query(ItemCostListHistory).filter(
