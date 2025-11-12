@@ -4,8 +4,15 @@ Lee de ml_orders + item_transactions (costo real) o item_cost_list_history (fall
 Calcula markup, comisiones, costos y guarda en ml_ventas_metricas
 
 Ejecutar:
-    python -m app.scripts.agregar_metricas_ml --from-date 2025-11-01 --to-date 2025-11-12
+    python app/scripts/agregar_metricas_ml.py --fecha-desde 2025-11-01 --fecha-hasta 2025-11-12
 """
+import sys
+from pathlib import Path
+
+# Add backend directory to path
+backend_dir = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(backend_dir))
+
 import asyncio
 import argparse
 from datetime import datetime, date, timedelta
