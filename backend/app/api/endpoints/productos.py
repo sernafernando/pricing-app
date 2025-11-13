@@ -129,26 +129,38 @@ async def listar_productos(
         
         if audit_fecha_desde:
             try:
+                # Intentar con segundos
                 fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d %H:%M:%S')
             except ValueError:
                 try:
-                    fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d')
+                    # Intentar sin segundos (formato datetime-local de HTML5)
+                    fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d %H:%M')
                 except ValueError:
-                    # Si falla todo, usar fecha de hoy
-                    from datetime import date
-                    fecha_desde_dt = datetime.combine(date.today(), datetime.min.time())
+                    try:
+                        # Intentar solo fecha (poner hora en 00:00:00)
+                        fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d')
+                    except ValueError:
+                        # Si falla todo, usar fecha de hoy
+                        from datetime import date
+                        fecha_desde_dt = datetime.combine(date.today(), datetime.min.time())
             audit_query = audit_query.filter(Auditoria.fecha >= fecha_desde_dt)
-        
+
         if audit_fecha_hasta:
             try:
+                # Intentar con segundos
                 fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d %H:%M:%S')
             except ValueError:
                 try:
-                    fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d')
-                    fecha_hasta_dt = fecha_hasta_dt.replace(hour=23, minute=59, second=59)
+                    # Intentar sin segundos (formato datetime-local de HTML5)
+                    fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d %H:%M')
                 except ValueError:
-                    from datetime import date
-                    fecha_hasta_dt = datetime.combine(date.today(), datetime.max.time())
+                    try:
+                        # Solo fecha: poner hora al final del día
+                        fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d')
+                        fecha_hasta_dt = fecha_hasta_dt.replace(hour=23, minute=59, second=59)
+                    except ValueError:
+                        from datetime import date
+                        fecha_hasta_dt = datetime.combine(date.today(), datetime.max.time())
             audit_query = audit_query.filter(Auditoria.fecha <= fecha_hasta_dt)
         
         item_ids = [item_id for (item_id,) in audit_query.distinct().all()]
