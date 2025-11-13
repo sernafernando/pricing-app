@@ -177,6 +177,10 @@ async def listar_productos(
         audit_query = db.query(Auditoria.item_id).filter(and_(*filtros_audit))
         item_ids = [item_id for (item_id,) in audit_query.distinct().all()]
 
+        # DEBUG: Log primeros item_ids
+        import logging
+        logging.warning(f"AUDIT FILTER DEBUG - Found {len(item_ids)} item_ids, first 5: {item_ids[:5] if item_ids else []}")
+
         if item_ids:
             query = query.filter(ProductoERP.item_id.in_(item_ids))
         else:
