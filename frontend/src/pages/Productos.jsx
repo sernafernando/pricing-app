@@ -2010,13 +2010,13 @@ export default function Productos() {
             <div className="filter-group">
               <div className="filter-group-title">🎨 Marcado por Color</div>
               <div className="filter-group-content" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {COLORES_DISPONIBLES.filter(c => c.id !== null).map(c => (
+                {COLORES_DISPONIBLES.map(c => (
                   <label
-                    key={c.id}
+                    key={c.id || 'sin_color'}
                     className="color-checkbox"
                     style={{
-                      backgroundColor: c.color,
-                      border: coloresSeleccionados.includes(c.id) ? '3px solid #000' : '2px solid #ccc',
+                      backgroundColor: c.color || '#ffffff',
+                      border: coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) ? '3px solid #000' : '2px solid #ccc',
                       cursor: 'pointer',
                       width: '40px',
                       height: '40px',
@@ -2030,18 +2030,20 @@ export default function Productos() {
                   >
                     <input
                       type="checkbox"
-                      checked={coloresSeleccionados.includes(c.id)}
+                      checked={coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id)}
                       onChange={(e) => {
+                        const colorValue = c.id === null ? 'sin_color' : c.id;
                         if (e.target.checked) {
-                          setColoresSeleccionados([...coloresSeleccionados, c.id]);
+                          setColoresSeleccionados([...coloresSeleccionados, colorValue]);
                         } else {
-                          setColoresSeleccionados(coloresSeleccionados.filter(color => color !== c.id));
+                          setColoresSeleccionados(coloresSeleccionados.filter(color => color !== colorValue));
                         }
                         setPage(1);
                       }}
                       style={{ display: 'none' }}
                     />
-                    {coloresSeleccionados.includes(c.id) && <span style={{ fontSize: '20px' }}>✓</span>}
+                    {coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) && <span style={{ fontSize: '20px' }}>✓</span>}
+                    {c.id === null && <span style={{ fontSize: '16px', color: '#666' }}>∅</span>}
                   </label>
                 ))}
               </div>

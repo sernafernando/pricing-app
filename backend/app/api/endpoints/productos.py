@@ -283,7 +283,26 @@ async def listar_productos(
     # Filtro de colores
     if colores:
         colores_list = colores.split(',')
-        query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+
+        # Verificar si se está filtrando por "sin color"
+        if 'sin_color' in colores_list:
+            # Remover 'sin_color' de la lista
+            colores_con_valor = [c for c in colores_list if c != 'sin_color']
+
+            if colores_con_valor:
+                # Si hay otros colores además de sin_color, buscar ambos
+                query = query.filter(
+                    or_(
+                        ProductoPricing.color_marcado.in_(colores_con_valor),
+                        ProductoPricing.color_marcado.is_(None)
+                    )
+                )
+            else:
+                # Solo sin_color: productos sin color asignado
+                query = query.filter(ProductoPricing.color_marcado.is_(None))
+        else:
+            # Filtro normal por colores específicos
+            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
 
     # Ordenamiento
     orden_requiere_calculo = False
@@ -2125,7 +2144,26 @@ async def exportar_web_transferencia(
     # Filtro por colores
     if colores:
         colores_list = [c.strip() for c in colores.split(',')]
-        query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+
+        # Verificar si se está filtrando por "sin color"
+        if 'sin_color' in colores_list:
+            # Remover 'sin_color' de la lista
+            colores_con_valor = [c for c in colores_list if c != 'sin_color']
+
+            if colores_con_valor:
+                # Si hay otros colores además de sin_color, buscar ambos
+                query = query.filter(
+                    or_(
+                        ProductoPricing.color_marcado.in_(colores_con_valor),
+                        ProductoPricing.color_marcado.is_(None)
+                    )
+                )
+            else:
+                # Solo sin_color: productos sin color asignado
+                query = query.filter(ProductoPricing.color_marcado.is_(None))
+        else:
+            # Filtro normal por colores específicos
+            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
 
     # Filtros booleanos avanzados
     if con_rebate is not None:
@@ -2455,7 +2493,26 @@ async def exportar_clasica(
     # Filtro por colores
     if colores:
         colores_list = [c.strip() for c in colores.split(',')]
-        query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+
+        # Verificar si se está filtrando por "sin color"
+        if 'sin_color' in colores_list:
+            # Remover 'sin_color' de la lista
+            colores_con_valor = [c for c in colores_list if c != 'sin_color']
+
+            if colores_con_valor:
+                # Si hay otros colores además de sin_color, buscar ambos
+                query = query.filter(
+                    or_(
+                        ProductoPricing.color_marcado.in_(colores_con_valor),
+                        ProductoPricing.color_marcado.is_(None)
+                    )
+                )
+            else:
+                # Solo sin_color: productos sin color asignado
+                query = query.filter(ProductoPricing.color_marcado.is_(None))
+        else:
+            # Filtro normal por colores específicos
+            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
 
     # Filtros booleanos avanzados
     if con_rebate is not None:
