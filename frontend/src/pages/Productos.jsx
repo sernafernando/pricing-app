@@ -2042,8 +2042,8 @@ export default function Productos() {
                       }}
                       style={{ display: 'none' }}
                     />
-                    {coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) && <span style={{ fontSize: '20px' }}>✓</span>}
-                    {c.id === null && !coloresSeleccionados.includes('sin_color') && <span style={{ fontSize: '20px' }}>🚫</span>}
+                    {coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) && <span style={{ fontSize: '20px', lineHeight: 1, display: 'block' }}>✓</span>}
+                    {c.id === null && !coloresSeleccionados.includes('sin_color') && <span style={{ fontSize: '20px', lineHeight: 1, display: 'block' }}>🚫</span>}
                   </label>
                 ))}
               </div>
