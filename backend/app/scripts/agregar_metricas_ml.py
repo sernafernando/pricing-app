@@ -253,7 +253,7 @@ async def agregar_metricas_venta(
             existente.monto_unitario = Decimal(str(round(monto_unitario, 2)))
             existente.monto_total = Decimal(str(round(monto_total, 2)))
             existente.cotizacion_dolar = Decimal(str(round(cotizacion, 4)))
-            existente.costo_unitario_sin_iva = Decimal(str(round(costo_sin_iva_total / cantidad if cantidad > 0 else 0, 6)))
+            existente.costo_unitario_sin_iva = Decimal(str(round(costo_sin_iva_total_ars / cantidad if cantidad > 0 else 0, 6)))
             existente.costo_total_sin_iva = Decimal(str(round(costo_sin_iva_total_ars, 2)))
             existente.moneda_costo = moneda_costo
             existente.tipo_lista = tipo_lista
@@ -286,7 +286,7 @@ async def agregar_metricas_venta(
                 monto_unitario=Decimal(str(round(monto_unitario, 2))),
                 monto_total=Decimal(str(round(monto_total, 2))),
                 cotizacion_dolar=Decimal(str(round(cotizacion, 4))),
-                costo_unitario_sin_iva=Decimal(str(round(costo_sin_iva_total / cantidad if cantidad > 0 else 0, 6))),
+                costo_unitario_sin_iva=Decimal(str(round(costo_sin_iva_total_ars / cantidad if cantidad > 0 else 0, 6))),
                 costo_total_sin_iva=Decimal(str(round(costo_sin_iva_total_ars, 2))),
                 moneda_costo=moneda_costo,
                 tipo_lista=tipo_lista,
