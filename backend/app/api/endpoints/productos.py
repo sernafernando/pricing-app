@@ -184,12 +184,14 @@ async def listar_productos(
         # Verificar si el item problemático 1611 está en la lista
         if 1611 in item_ids:
             logging.warning(f"AUDIT FILTER DEBUG - Item 1611 ESTÁ en la lista de item_ids filtrados")
-            # Ver TODAS las auditorías de "Activar Rebate" del item 1611
-            audits_1611 = db.query(Auditoria.fecha, Auditoria.tipo_accion, Auditoria.id).filter(
-                Auditoria.item_id == 1611,
-                Auditoria.tipo_accion == 'Activar Rebate'
-            ).order_by(Auditoria.fecha.desc()).all()
-            logging.warning(f"AUDIT FILTER DEBUG - Auditorías 'Activar Rebate' del item 1611: {[(str(a[0]), a[1], a[2]) for a in audits_1611]}")
+            # Ver TODAS las auditorías del item 1611 (sin filtrar por tipo)
+            all_audits_1611 = db.query(Auditoria.fecha, Auditoria.tipo_accion, Auditoria.id).filter(
+                Auditoria.item_id == 1611
+            ).order_by(Auditoria.fecha.desc()).limit(20).all()
+            logging.warning(f"AUDIT FILTER DEBUG - TODAS las auditorías del item 1611 (últimas 20): {[(str(a[0]), a[1], a[2]) for a in all_audits_1611]}")
+
+            # Ver cuál es el tipo_accion exacto que el filtro está buscando
+            logging.warning(f"AUDIT FILTER DEBUG - Filtro tipo_accion: {audit_tipos_accion}, tipos_list: {tipos_list if audit_tipos_accion else 'None'}")
         else:
             logging.warning(f"AUDIT FILTER DEBUG - Item 1611 NO está en la lista de item_ids filtrados")
 
