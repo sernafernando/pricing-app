@@ -17,7 +17,7 @@ import asyncio
 import argparse
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, desc
+from sqlalchemy import and_, desc, func
 from decimal import Decimal
 
 from app.core.database import SessionLocal
@@ -196,14 +196,21 @@ async def agregar_metricas_venta(
         # Costo de envío: para productos < 33k usar mlp_price4FreeShipping
         MONTOT3 = constantes.get("monto_tier3", 33000)
 
+        costo_envio_ml = 0.0
         if monto_total < MONTOT3 and publicacion_ml and publicacion_ml.mlp_price4FreeShipping:
             costo_envio_ml = float(publicacion_ml.mlp_price4FreeShipping)
         elif shipping and shipping.mlshippmentcost4seller:
             costo_envio_ml = float(shipping.mlshippmentcost4seller)
-        else:
-            costo_envio_ml = 0.0
 
         tipo_logistica = shipping.mllogistic_type if shipping and shipping.mllogistic_type else "unknown"
+
+        # Prorratear envío entre items del mismo shipping (igual que Streamlit)
+        # contar_si = cantidad de items en el mismo MLShippingID
+        items_en_shipping = 1  # Default
+        if shipping and shipping.mlship_id:
+            items_en_shipping = db.query(func.count(MercadoLibreOrderDetail.mlod_id)).filter(
+                MercadoLibreOrderDetail.mlship_id == shipping.mlship_id
+            ).scalar() or 1
 
         # Cálculos finales
         # Nota: calcular_comision_ml_total YA retorna comisiones sin IVA
@@ -211,11 +218,15 @@ async def agregar_metricas_venta(
         monto_total_sin_iva = monto_total / 1.21
         costo_envio_ml_sin_iva = costo_envio_ml / 1.21
 
-        # Limpio = lo que queda después de restar comisiones y envío ML (todo sin IVA)
-        monto_limpio = monto_total_sin_iva - comision_ml - costo_envio_ml_sin_iva
+        # Envío prorrateado: (costo_envio * cantidad del item) / items en el pack
+        costo_envio_ml_prorrateado = (costo_envio_ml_sin_iva * cantidad) / items_en_shipping
 
-        # Costo total = costo producto + costo envío ML (para tracking)
-        costo_total = costo_sin_iva_total_ars + costo_envio_ml_sin_iva
+        # Limpio = lo que queda después de restar comisiones y envío ML prorrateado (todo sin IVA)
+        monto_limpio = monto_total_sin_iva - comision_ml - costo_envio_ml_prorrateado
+
+        # Costo total = solo costo del producto (igual que Streamlit)
+        # El envío ya se restó del limpio, no lo sumamos acá
+        costo_total = costo_sin_iva_total_ars
 
         # Ganancia = limpio - costo del producto (el envío ya se restó en limpio)
         ganancia = monto_limpio - costo_sin_iva_total_ars
