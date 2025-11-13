@@ -147,6 +147,11 @@ async def listar_productos(
                         # Si falla todo, usar fecha de hoy
                         from datetime import date
                         fecha_desde_dt = datetime.combine(date.today(), datetime.min.time())
+
+            # DEBUG: Log para verificar qué fecha se está usando
+            import logging
+            logging.warning(f"AUDIT FILTER DEBUG - fecha_desde input: '{audit_fecha_desde}', parsed: {fecha_desde_dt}")
+
             filtros_audit.append(Auditoria.fecha >= fecha_desde_dt)
 
         fecha_hasta_dt = None
