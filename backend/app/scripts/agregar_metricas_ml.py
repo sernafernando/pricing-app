@@ -168,8 +168,12 @@ async def agregar_metricas_venta(
         )
 
         # Convertir costo a ARS si está en USD
+        # Guardar moneda original para referencia
+        moneda_costo_original = moneda_costo
         if moneda_costo == "USD":
             costo_sin_iva_total_ars = costo_sin_iva_total * cotizacion
+            # Después de pesificar, la moneda es ARS
+            moneda_costo = "ARS"
         else:
             costo_sin_iva_total_ars = costo_sin_iva_total
 
