@@ -207,9 +207,9 @@ async def agregar_metricas_venta(
         # Prorratear envío entre items del mismo shipping (igual que Streamlit)
         # contar_si = cantidad de items en el mismo MLShippingID
         items_en_shipping = 1  # Default
-        if shipping and shipping.mlship_id:
+        if shipping and shipping.mlshippingid:
             items_en_shipping = db.query(func.count(MercadoLibreOrderDetail.mlod_id)).filter(
-                MercadoLibreOrderDetail.mlship_id == shipping.mlship_id
+                MercadoLibreOrderDetail.mlshippingid == shipping.mlshippingid
             ).scalar() or 1
 
         # Cálculos finales
