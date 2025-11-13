@@ -240,6 +240,7 @@ async def procesar_items(db: Session, items: list, tipo: str):
                 'mlp_free_shipping': convertir_a_boolean(item_data.get('mlp_free_shipping')),
                 'mlp_catalog_product_id': item_data.get('mlp_catalog_product_id'),
                 'health': convertir_a_numero(item_data.get('health')),
+                'optval_statusId': convertir_a_entero(item_data.get('optval_statusId')),
             }
 
             if not item_existente:

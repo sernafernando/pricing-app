@@ -2616,31 +2616,17 @@ async def exportar_clasica(
         # optval_statusId: 2 = Publicada, 3 = Pausada, 5 = Finalizada, 6 = Pausada Forzada, 10 = Des-Enlazada
         item_ids = [p[0] for p in productos]
 
-        # DEBUG: Ver qué publicaciones tienen los productos problemáticos
-        import logging
-        codigos_debug = ['198990785394', '095205863048+TONE']
-        for codigo in codigos_debug:
-            prod_debug = db.query(ProductoERP).filter(ProductoERP.codigo == codigo).first()
-            if prod_debug and prod_debug.item_id in item_ids:
-                pubs_debug = db.query(
-                    MercadoLibreItemPublicado.mlp_publicationID,
-                    MercadoLibreItemPublicado.prli_id,
-                    MercadoLibreItemPublicado.optval_statusId
-                ).filter(
-                    MercadoLibreItemPublicado.item_id == prod_debug.item_id
-                ).all()
-                logging.warning(f"DEBUG EXPORT - Producto {codigo} (item_id: {prod_debug.item_id}) tiene {len(pubs_debug)} publicaciones:")
-                for mla, prli, status in pubs_debug:
-                    logging.warning(f"  - MLA: {mla}, prli_id: {prli}, status: {status}")
-                logging.warning(f"DEBUG EXPORT - Buscando prli_ids: {prli_ids_seleccionados}")
-
         publicaciones = db.query(
             MercadoLibreItemPublicado.item_id,
             MercadoLibreItemPublicado.mlp_publicationID
         ).filter(
             MercadoLibreItemPublicado.item_id.in_(item_ids),
             MercadoLibreItemPublicado.prli_id.in_(prli_ids_seleccionados),
-            MercadoLibreItemPublicado.optval_statusId == 2  # Solo publicadas
+            # Publicadas (2) o None (por falta de sync del optval_statusId)
+            or_(
+                MercadoLibreItemPublicado.optval_statusId == 2,
+                MercadoLibreItemPublicado.optval_statusId.is_(None)
+            )
         ).all()
 
         # Agrupar MLAs por item_id
