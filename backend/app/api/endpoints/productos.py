@@ -177,9 +177,21 @@ async def listar_productos(
         audit_query = db.query(Auditoria.item_id).filter(and_(*filtros_audit))
         item_ids = [item_id for (item_id,) in audit_query.distinct().all()]
 
-        # DEBUG: Log primeros item_ids
+        # DEBUG: Log primeros item_ids y sus auditorías
         import logging
         logging.warning(f"AUDIT FILTER DEBUG - Found {len(item_ids)} item_ids, first 5: {item_ids[:5] if item_ids else []}")
+
+        # Verificar si el item problemático 1611 está en la lista
+        if 1611 in item_ids:
+            logging.warning(f"AUDIT FILTER DEBUG - Item 1611 ESTÁ en la lista de item_ids filtrados")
+            # Ver TODAS las auditorías de "Activar Rebate" del item 1611
+            audits_1611 = db.query(Auditoria.fecha, Auditoria.tipo_accion, Auditoria.id).filter(
+                Auditoria.item_id == 1611,
+                Auditoria.tipo_accion == 'Activar Rebate'
+            ).order_by(Auditoria.fecha.desc()).all()
+            logging.warning(f"AUDIT FILTER DEBUG - Auditorías 'Activar Rebate' del item 1611: {[(str(a[0]), a[1], a[2]) for a in audits_1611]}")
+        else:
+            logging.warning(f"AUDIT FILTER DEBUG - Item 1611 NO está en la lista de item_ids filtrados")
 
         if item_ids:
             query = query.filter(ProductoERP.item_id.in_(item_ids))
