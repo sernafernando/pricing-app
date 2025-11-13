@@ -153,10 +153,6 @@ async def listar_productos(
             from datetime import timedelta
             fecha_desde_dt = fecha_desde_dt + timedelta(hours=3)
 
-            # DEBUG: Log para verificar qué fecha se está usando
-            import logging
-            logging.warning(f"AUDIT FILTER DEBUG - fecha_desde input: '{audit_fecha_desde}', parsed+UTC: {fecha_desde_dt}")
-
             filtros_audit.append(Auditoria.fecha >= fecha_desde_dt)
 
         fecha_hasta_dt = None
@@ -186,24 +182,6 @@ async def listar_productos(
         # Obtener productos que tienen auditorías cumpliendo los criterios
         audit_query = db.query(Auditoria.item_id).filter(and_(*filtros_audit))
         item_ids = [item_id for (item_id,) in audit_query.distinct().all()]
-
-        # DEBUG: Log primeros item_ids y sus auditorías
-        import logging
-        logging.warning(f"AUDIT FILTER DEBUG - Found {len(item_ids)} item_ids, first 5: {item_ids[:5] if item_ids else []}")
-
-        # Verificar si el item problemático 1611 está en la lista
-        if 1611 in item_ids:
-            logging.warning(f"AUDIT FILTER DEBUG - Item 1611 ESTÁ en la lista de item_ids filtrados")
-            # Ver TODAS las auditorías del item 1611 (sin filtrar por tipo)
-            all_audits_1611 = db.query(Auditoria.fecha, Auditoria.tipo_accion, Auditoria.id).filter(
-                Auditoria.item_id == 1611
-            ).order_by(Auditoria.fecha.desc()).limit(20).all()
-            logging.warning(f"AUDIT FILTER DEBUG - TODAS las auditorías del item 1611 (últimas 20): {[(str(a[0]), a[1], a[2]) for a in all_audits_1611]}")
-
-            # Ver cuál es el tipo_accion exacto que el filtro está buscando
-            logging.warning(f"AUDIT FILTER DEBUG - Filtro tipo_accion: {audit_tipos_accion}, tipos_list: {tipos_list if audit_tipos_accion else 'None'}")
-        else:
-            logging.warning(f"AUDIT FILTER DEBUG - Item 1611 NO está en la lista de item_ids filtrados")
 
         if item_ids:
             query = query.filter(ProductoERP.item_id.in_(item_ids))
@@ -2047,6 +2025,11 @@ async def exportar_web_transferencia(
                     except ValueError:
                         from datetime import date
                         fecha_desde_dt = datetime.combine(date.today(), datetime.min.time())
+
+            # Convertir de hora local (ART = UTC-3) a UTC sumando 3 horas
+            from datetime import timedelta
+            fecha_desde_dt = fecha_desde_dt + timedelta(hours=3)
+
             filtros_audit.append(Auditoria.fecha >= fecha_desde_dt)
 
         if audit_fecha_hasta:
@@ -2062,6 +2045,11 @@ async def exportar_web_transferencia(
                     except ValueError:
                         from datetime import date
                         fecha_hasta_dt = datetime.combine(date.today(), datetime.max.time())
+
+            # Convertir de hora local (ART = UTC-3) a UTC sumando 3 horas
+            from datetime import timedelta
+            fecha_hasta_dt = fecha_hasta_dt + timedelta(hours=3)
+
             filtros_audit.append(Auditoria.fecha <= fecha_hasta_dt)
 
         # Obtener productos que tienen auditorías cumpliendo los criterios
@@ -2363,6 +2351,11 @@ async def exportar_clasica(
                     except ValueError:
                         from datetime import date
                         fecha_desde_dt = datetime.combine(date.today(), datetime.min.time())
+
+            # Convertir de hora local (ART = UTC-3) a UTC sumando 3 horas
+            from datetime import timedelta
+            fecha_desde_dt = fecha_desde_dt + timedelta(hours=3)
+
             filtros_audit.append(Auditoria.fecha >= fecha_desde_dt)
 
         if audit_fecha_hasta:
@@ -2378,6 +2371,11 @@ async def exportar_clasica(
                     except ValueError:
                         from datetime import date
                         fecha_hasta_dt = datetime.combine(date.today(), datetime.max.time())
+
+            # Convertir de hora local (ART = UTC-3) a UTC sumando 3 horas
+            from datetime import timedelta
+            fecha_hasta_dt = fecha_hasta_dt + timedelta(hours=3)
+
             filtros_audit.append(Auditoria.fecha <= fecha_hasta_dt)
 
         # Obtener productos que tienen auditorías cumpliendo los criterios
