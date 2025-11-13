@@ -148,9 +148,14 @@ async def listar_productos(
                         from datetime import date
                         fecha_desde_dt = datetime.combine(date.today(), datetime.min.time())
 
+            # Convertir de hora local (ART = UTC-3) a UTC sumando 3 horas
+            # porque la base de datos guarda fechas en UTC
+            from datetime import timedelta
+            fecha_desde_dt = fecha_desde_dt + timedelta(hours=3)
+
             # DEBUG: Log para verificar qué fecha se está usando
             import logging
-            logging.warning(f"AUDIT FILTER DEBUG - fecha_desde input: '{audit_fecha_desde}', parsed: {fecha_desde_dt}")
+            logging.warning(f"AUDIT FILTER DEBUG - fecha_desde input: '{audit_fecha_desde}', parsed+UTC: {fecha_desde_dt}")
 
             filtros_audit.append(Auditoria.fecha >= fecha_desde_dt)
 
@@ -171,6 +176,11 @@ async def listar_productos(
                     except ValueError:
                         from datetime import date
                         fecha_hasta_dt = datetime.combine(date.today(), datetime.max.time())
+
+            # Convertir de hora local (ART = UTC-3) a UTC sumando 3 horas
+            from datetime import timedelta
+            fecha_hasta_dt = fecha_hasta_dt + timedelta(hours=3)
+
             filtros_audit.append(Auditoria.fecha <= fecha_hasta_dt)
 
         # Obtener productos que tienen auditorías cumpliendo los criterios
