@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, and_
 from typing import Optional, List
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
