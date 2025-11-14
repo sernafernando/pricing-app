@@ -122,7 +122,9 @@ async def agregar_metricas_venta(
     db: Session,
     order_header: MercadoLibreOrderHeader,
     order_detail: MercadoLibreOrderDetail,
-    constantes: dict
+    constantes: dict,
+    pack_item_counts: dict = None,
+    order_item_counts: dict = None
 ):
     """Procesa una venta individual y calcula todas las métricas"""
     try:
@@ -211,19 +213,28 @@ async def agregar_metricas_venta(
         # Prorratear envío entre items del mismo pack
         # Si hay ml_pack_id, contar items en el pack; sino, contar items en la orden
         items_en_shipping = 1  # Default
+
         if order_header.ml_pack_id and order_header.ml_pack_id.strip():
-            # Contar todos los items en todas las órdenes del mismo pack
-            items_en_shipping = db.query(func.count(MercadoLibreOrderDetail.mlod_id)).join(
-                MercadoLibreOrderHeader,
-                MercadoLibreOrderDetail.mlo_id == MercadoLibreOrderHeader.mlo_id
-            ).filter(
-                MercadoLibreOrderHeader.ml_pack_id == order_header.ml_pack_id
-            ).scalar() or 1
+            # Usar pre-calculado si está disponible, sino consultar
+            if pack_item_counts is not None:
+                items_en_shipping = pack_item_counts.get(order_header.ml_pack_id, 1)
+            else:
+                # Fallback a consulta directa (modo legacy)
+                items_en_shipping = db.query(func.count(MercadoLibreOrderDetail.mlod_id)).join(
+                    MercadoLibreOrderHeader,
+                    MercadoLibreOrderDetail.mlo_id == MercadoLibreOrderHeader.mlo_id
+                ).filter(
+                    MercadoLibreOrderHeader.ml_pack_id == order_header.ml_pack_id
+                ).scalar() or 1
         elif shipping:
-            # Si no hay pack, contar items de la orden
-            items_en_shipping = db.query(func.count(MercadoLibreOrderDetail.mlod_id)).filter(
-                MercadoLibreOrderDetail.mlo_id == order_header.mlo_id
-            ).scalar() or 1
+            # Usar pre-calculado si está disponible, sino consultar
+            if order_item_counts is not None:
+                items_en_shipping = order_item_counts.get(order_header.mlo_id, 1)
+            else:
+                # Fallback a consulta directa (modo legacy)
+                items_en_shipping = db.query(func.count(MercadoLibreOrderDetail.mlod_id)).filter(
+                    MercadoLibreOrderDetail.mlo_id == order_header.mlo_id
+                ).scalar() or 1
 
         # Cálculos finales
         # Nota: calcular_comision_ml_total YA retorna comisiones sin IVA
@@ -353,6 +364,47 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
         print(f"📦 Órdenes encontradas: {len(orders)}")
         print()
 
+        # Pre-calcular conteos de items por pack y orden para optimización
+        print("🔍 Pre-calculando conteos de items por pack/orden...")
+
+        # Conteo de items por pack_id
+        pack_counts_query = db.query(
+            MercadoLibreOrderHeader.ml_pack_id,
+            func.count(MercadoLibreOrderDetail.mlod_id).label('count')
+        ).join(
+            MercadoLibreOrderDetail,
+            MercadoLibreOrderHeader.mlo_id == MercadoLibreOrderDetail.mlo_id
+        ).filter(
+            and_(
+                MercadoLibreOrderHeader.ml_date_created >= from_date,
+                MercadoLibreOrderHeader.ml_date_created < to_date_inclusive,
+                MercadoLibreOrderHeader.ml_pack_id.isnot(None),
+                MercadoLibreOrderHeader.ml_pack_id != ''
+            )
+        ).group_by(MercadoLibreOrderHeader.ml_pack_id).all()
+
+        pack_item_counts = {pack_id: count for pack_id, count in pack_counts_query}
+
+        # Conteo de items por orden (mlo_id)
+        order_counts_query = db.query(
+            MercadoLibreOrderDetail.mlo_id,
+            func.count(MercadoLibreOrderDetail.mlod_id).label('count')
+        ).join(
+            MercadoLibreOrderHeader,
+            MercadoLibreOrderDetail.mlo_id == MercadoLibreOrderHeader.mlo_id
+        ).filter(
+            and_(
+                MercadoLibreOrderHeader.ml_date_created >= from_date,
+                MercadoLibreOrderHeader.ml_date_created < to_date_inclusive
+            )
+        ).group_by(MercadoLibreOrderDetail.mlo_id).all()
+
+        order_item_counts = {mlo_id: count for mlo_id, count in order_counts_query}
+
+        print(f"  ✓ {len(pack_item_counts)} packs únicos")
+        print(f"  ✓ {len(order_item_counts)} órdenes con items")
+        print()
+
         total_insertados = 0
         total_actualizados = 0
         total_errores = 0
@@ -370,7 +422,11 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
                 continue
 
             for detail in details:
-                resultado = await agregar_metricas_venta(db, order, detail, constantes)
+                resultado = await agregar_metricas_venta(
+                    db, order, detail, constantes,
+                    pack_item_counts=pack_item_counts,
+                    order_item_counts=order_item_counts
+                )
 
                 if resultado == "insertado":
                     total_insertados += 1
