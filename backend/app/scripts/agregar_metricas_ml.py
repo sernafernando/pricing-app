@@ -354,14 +354,15 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
         print(f"Constantes: MONTOT3={constantes['monto_tier3']}")
         print()
 
-        orders = db.query(MercadoLibreOrderHeader).filter(
+        # Contar órdenes total
+        total_orders = db.query(func.count(MercadoLibreOrderHeader.mlo_id)).filter(
             and_(
                 MercadoLibreOrderHeader.ml_date_created >= from_date,
                 MercadoLibreOrderHeader.ml_date_created < to_date_inclusive
             )
-        ).all()
+        ).scalar()
 
-        print(f"📦 Órdenes encontradas: {len(orders)}")
+        print(f"📦 Órdenes encontradas: {total_orders}")
         print()
 
         # Pre-calcular conteos de items por pack y orden para optimización
@@ -408,9 +409,26 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
         total_insertados = 0
         total_actualizados = 0
         total_errores = 0
-
         orden_count = 0
-        for order in orders:
+
+        # Procesar por lotes para no cargar todo en memoria
+        CHUNK_SIZE = 1000
+        offset = 0
+        ordenes_sin_detalles = 0
+
+        while True:
+            # Query por chunk
+            orders_chunk = db.query(MercadoLibreOrderHeader).filter(
+                and_(
+                    MercadoLibreOrderHeader.ml_date_created >= from_date,
+                    MercadoLibreOrderHeader.ml_date_created < to_date_inclusive
+                )
+            ).order_by(MercadoLibreOrderHeader.mlo_id).limit(CHUNK_SIZE).offset(offset).all()
+
+            if not orders_chunk:
+                break
+
+            for order in orders_chunk:
             orden_count += 1
             details = db.query(MercadoLibreOrderDetail).filter(
                 MercadoLibreOrderDetail.mlo_id == order.mlo_id
