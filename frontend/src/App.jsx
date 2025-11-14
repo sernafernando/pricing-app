@@ -15,6 +15,7 @@ import ItemsSinMLA from './pages/ItemsSinMLA';
 import DashboardVentas from './pages/DashboardVentas';
 import DashboardMetricasML from './pages/DashboardMetricasML';
 import Calculos from './pages/Calculos';
+import TestStatsDinamicos from './pages/TestStatsDinamicos';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import './styles/theme.css';
@@ -111,6 +112,11 @@ function App() {
                 <Route path="/items-sin-mla" element={
                   <ProtectedRoute>
                     <ItemsSinMLA />
+                  </ProtectedRoute>
+                } />
+                <Route path="/test-stats-dinamicos" element={
+                  <ProtectedRoute allowedRoles={['SUPERADMIN', 'ADMIN']}>
+                    <TestStatsDinamicos />
                   </ProtectedRoute>
                 } />
               </Routes>
