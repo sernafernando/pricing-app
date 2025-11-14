@@ -1562,15 +1562,15 @@ export default function Productos() {
               <span className="stat-sub-label">Clásica:</span>
               <span className="stat-sub-value red">{stats?.markup_negativo_clasica || 0}</span>
             </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ rebate: 'con_rebate', markupRebate: 'negativo' })}>
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ markupRebate: 'negativo' })}>
               <span className="stat-sub-label">Rebate:</span>
               <span className="stat-sub-value red">{stats?.markup_negativo_rebate || 0}</span>
             </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ oferta: 'con_oferta', markupOferta: 'negativo' })}>
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ markupOferta: 'negativo' })}>
               <span className="stat-sub-label">Oferta:</span>
               <span className="stat-sub-value red">{stats?.markup_negativo_oferta || 0}</span>
             </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ webTransf: 'con_web_transf', markupWebTransf: 'negativo' })}>
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ markupWebTransf: 'negativo' })}>
               <span className="stat-sub-label">Web:</span>
               <span className="stat-sub-value red">{stats?.markup_negativo_web || 0}</span>
             </div>
