@@ -110,6 +110,8 @@ async def listar_productos(
     nuevos_ultimos_7_dias: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
+    print(f"🔍 Backend recibió - con_mla: {con_mla}, nuevos_ultimos_7_dias: {nuevos_ultimos_7_dias}")
+
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )

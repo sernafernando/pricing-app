@@ -393,6 +393,13 @@ export default function Productos() {
     try {
       const params = { page, page_size: pageSize };
       if (debouncedSearch) params.search = debouncedSearch;
+
+      console.log('🔍 Filtros actuales:', {
+        filtroMLA,
+        filtroNuevos,
+        filtroStock,
+        filtroPrecio
+      });
       if (filtroStock === 'con_stock') params.con_stock = true;
       if (filtroStock === 'sin_stock') params.con_stock = false;
       if (filtroPrecio === 'con_precio') params.con_precio = true;
@@ -444,6 +451,8 @@ export default function Productos() {
         params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
         params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
       }
+
+      console.log('📤 Parámetros enviados al backend:', params);
 
       /*const productosRes = await productosAPI.listar(params);
       setTotalProductos(productosRes.data.total || productosRes.data.productos.length);*/
