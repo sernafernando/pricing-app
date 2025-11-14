@@ -208,10 +208,19 @@ async def agregar_metricas_venta(
 
         tipo_logistica = shipping.mllogistic_type if shipping and shipping.mllogistic_type else "unknown"
 
-        # Prorratear envío entre items de la misma orden (igual que Streamlit)
-        # contar_si = cantidad de items en la misma orden (mismo mlo_id)
+        # Prorratear envío entre items del mismo pack
+        # Si hay ml_pack_id, contar items en el pack; sino, contar items en la orden
         items_en_shipping = 1  # Default
-        if shipping:
+        if order_header.ml_pack_id and order_header.ml_pack_id.strip():
+            # Contar todos los items en todas las órdenes del mismo pack
+            items_en_shipping = db.query(func.count(MercadoLibreOrderDetail.mlod_id)).join(
+                MercadoLibreOrderHeader,
+                MercadoLibreOrderDetail.mlo_id == MercadoLibreOrderHeader.mlo_id
+            ).filter(
+                MercadoLibreOrderHeader.ml_pack_id == order_header.ml_pack_id
+            ).scalar() or 1
+        elif shipping:
+            # Si no hay pack, contar items de la orden
             items_en_shipping = db.query(func.count(MercadoLibreOrderDetail.mlod_id)).filter(
                 MercadoLibreOrderDetail.mlo_id == order_header.mlo_id
             ).scalar() or 1
