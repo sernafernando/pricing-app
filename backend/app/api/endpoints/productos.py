@@ -106,6 +106,8 @@ async def listar_productos(
     out_of_cards: Optional[bool] = None,
     colores: Optional[str] = None,
     pms: Optional[str] = None,
+    con_mla: Optional[bool] = None,
+    nuevos_ultimos_7_dias: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
@@ -303,6 +305,46 @@ async def listar_productos(
         else:
             # Filtro normal por colores específicos
             query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+
+    # Filtro de MLA (con/sin publicación)
+    if con_mla is not None:
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+        from app.models.item_sin_mla_banlist import ItemSinMLABanlist
+
+        if con_mla:
+            # Con MLA: tienen publicación activa
+            query = query.join(
+                MercadoLibreItemPublicado,
+                and_(
+                    ProductoERP.item_id == MercadoLibreItemPublicado.item_id,
+                    or_(
+                        MercadoLibreItemPublicado.optval_statusId == 2,
+                        MercadoLibreItemPublicado.optval_statusId.is_(None)
+                    )
+                )
+            ).filter(MercadoLibreItemPublicado.mlp_id.isnot(None))
+        else:
+            # Sin MLA: no tienen publicación (excluye banlist)
+            items_en_banlist = db.query(ItemSinMLABanlist.item_id).subquery()
+            query = query.outerjoin(
+                MercadoLibreItemPublicado,
+                and_(
+                    ProductoERP.item_id == MercadoLibreItemPublicado.item_id,
+                    or_(
+                        MercadoLibreItemPublicado.optval_statusId == 2,
+                        MercadoLibreItemPublicado.optval_statusId.is_(None)
+                    )
+                )
+            ).filter(
+                MercadoLibreItemPublicado.mlp_id.is_(None),
+                ~ProductoERP.item_id.in_(items_en_banlist)
+            )
+
+    # Filtro de productos nuevos (últimos 7 días)
+    if nuevos_ultimos_7_dias:
+        from datetime import datetime, timedelta
+        fecha_limite = datetime.now() - timedelta(days=7)
+        query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
     # Ordenamiento
     orden_requiere_calculo = False

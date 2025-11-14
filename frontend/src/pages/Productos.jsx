@@ -58,6 +58,8 @@ export default function Productos() {
   const [filtroMarkupOferta, setFiltroMarkupOferta] = useState(null);
   const [filtroMarkupWebTransf, setFiltroMarkupWebTransf] = useState(null);
   const [filtroOutOfCards, setFiltroOutOfCards] = useState(null);
+  const [filtroMLA, setFiltroMLA] = useState(null); // con_mla, sin_mla
+  const [filtroNuevos, setFiltroNuevos] = useState(null); // ultimos_7_dias
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
   const [colorDropdownAbierto, setColorDropdownAbierto] = useState(null); // item_id del producto
   const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
@@ -109,11 +111,11 @@ export default function Productos() {
 
   useEffect(() => {
     cargarStats();
-  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados]);
+  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroNuevos]);
 
   useEffect(() => {
     cargarProductos();
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados]);
+  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroNuevos]);
 
   // Cargar marcas y subcategorías cuando se seleccionan PMs
   useEffect(() => {
@@ -170,6 +172,9 @@ export default function Productos() {
       if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
       if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
       if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
+      if (filtroMLA === 'con_mla') params.con_mla = true;
+      if (filtroMLA === 'sin_mla') params.con_mla = false;
+      if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
       if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
       if (pmsSeleccionados.length > 0) params.product_managers = pmsSeleccionados.join(',');
 
@@ -425,6 +430,11 @@ export default function Productos() {
 
       if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
       if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
+
+      if (filtroMLA === 'con_mla') params.con_mla = true;
+      if (filtroMLA === 'sin_mla') params.con_mla = false;
+
+      if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
 
       if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
 
@@ -1332,6 +1342,8 @@ export default function Productos() {
     if (filtros.rebate !== undefined) setFiltroRebate(filtros.rebate);
     if (filtros.oferta !== undefined) setFiltroOferta(filtros.oferta);
     if (filtros.markupClasica !== undefined) setFiltroMarkupClasica(filtros.markupClasica);
+    if (filtros.mla !== undefined) setFiltroMLA(filtros.mla);
+    if (filtros.nuevos !== undefined) setFiltroNuevos(filtros.nuevos);
     setPage(1);
   };
 
@@ -1345,6 +1357,8 @@ export default function Productos() {
     setFiltroMarkupRebate(null);
     setFiltroMarkupOferta(null);
     setFiltroMarkupWebTransf(null);
+    setFiltroMLA(null);
+    setFiltroNuevos(null);
     setPage(1);
   };
 
@@ -1377,14 +1391,11 @@ export default function Productos() {
         <div className="stat-card clickable" title="Productos cargados en los últimos 7 días">
           <div className="stat-label">✨ Nuevos (7 días)</div>
           <div className="stat-value-group">
-            <div className="stat-sub-item clickable-sub" onClick={() => {
-              // Filtrar por fecha de los últimos 7 días - no tenemos este filtro en UI, así que mostramos todos los nuevos
-              limpiarFiltros();
-            }}>
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ nuevos: 'ultimos_7_dias' })}>
               <span className="stat-sub-label">Total:</span>
               <span className="stat-sub-value blue">{stats?.nuevos_ultimos_7_dias?.toLocaleString('es-AR') || 0}</span>
             </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ precio: 'sin_precio' })}>
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ nuevos: 'ultimos_7_dias', precio: 'sin_precio' })}>
               <span className="stat-sub-label">Sin Precio:</span>
               <span className="stat-sub-value red">{stats?.nuevos_sin_precio?.toLocaleString('es-AR') || 0}</span>
             </div>
@@ -1394,22 +1405,19 @@ export default function Productos() {
         <div className="stat-card clickable" title="Productos sin publicación en MercadoLibre (excluye banlist)">
           <div className="stat-label">🔍 Sin MLA</div>
           <div className="stat-value-group">
-            <div className="stat-sub-item clickable-sub" onClick={() => {
-              // No tenemos filtro para "sin MLA" en UI, solo mostramos la info
-              limpiarFiltros();
-            }}>
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ mla: 'sin_mla' })}>
               <span className="stat-sub-label">Total:</span>
               <span className="stat-sub-value orange">{stats?.sin_mla_no_banlist?.toLocaleString('es-AR') || 0}</span>
             </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ stock: 'con_stock' })}>
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ mla: 'sin_mla', stock: 'con_stock' })}>
               <span className="stat-sub-label">Con Stock:</span>
               <span className="stat-sub-value green">{stats?.sin_mla_con_stock?.toLocaleString('es-AR') || 0}</span>
             </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ stock: 'sin_stock' })}>
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ mla: 'sin_mla', stock: 'sin_stock' })}>
               <span className="stat-sub-label">Sin Stock:</span>
               <span className="stat-sub-value">{stats?.sin_mla_sin_stock?.toLocaleString('es-AR') || 0}</span>
             </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => limpiarFiltros()}>
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ mla: 'sin_mla', nuevos: 'ultimos_7_dias' })}>
               <span className="stat-sub-label">Nuevos:</span>
               <span className="stat-sub-value blue">{stats?.sin_mla_nuevos?.toLocaleString('es-AR') || 0}</span>
             </div>
@@ -2013,6 +2021,8 @@ export default function Productos() {
                 setFiltroMarkupOferta(null);
                 setFiltroMarkupWebTransf(null);
                 setFiltroOutOfCards(null);
+                setFiltroMLA(null);
+                setFiltroNuevos(null);
                 setColoresSeleccionados([]);
                 setPage(1);
               }}
@@ -2134,6 +2144,37 @@ export default function Productos() {
                     <option value="todos">Todos</option>
                     <option value="positivo">✅ Positivo</option>
                     <option value="negativo">❌ Negativo</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Filtros de Estado */}
+            <div className="filter-group">
+              <div className="filter-group-title">📋 Filtros de Estado</div>
+              <div className="filter-group-content">
+                <div className="filter-item">
+                  <label>🔍 MercadoLibre</label>
+                  <select
+                    value={filtroMLA || 'todos'}
+                    onChange={(e) => { setFiltroMLA(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="con_mla">Con MLA</option>
+                    <option value="sin_mla">Sin MLA</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>✨ Productos Nuevos</label>
+                  <select
+                    value={filtroNuevos || 'todos'}
+                    onChange={(e) => { setFiltroNuevos(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="ultimos_7_dias">Últimos 7 días</option>
                   </select>
                 </div>
               </div>
