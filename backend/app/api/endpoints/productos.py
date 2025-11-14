@@ -839,6 +839,8 @@ async def obtener_estadisticas(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    con_mla: Optional[bool] = None,
+    nuevos_ultimos_7_dias: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -1011,6 +1013,42 @@ async def obtener_estadisticas(
             subquery_auditoria = subquery_auditoria.filter(AuditoriaPrecio.fecha_accion <= fecha_hasta_dt)
 
         query = query.filter(ProductoERP.item_id.in_(subquery_auditoria))
+
+    # Filtro de MLA (con/sin publicación)
+    if con_mla is not None:
+        if con_mla:
+            # Con MLA: tienen publicación activa
+            query = query.join(
+                MercadoLibreItemPublicado,
+                and_(
+                    ProductoERP.item_id == MercadoLibreItemPublicado.item_id,
+                    or_(
+                        MercadoLibreItemPublicado.optval_statusId == 2,
+                        MercadoLibreItemPublicado.optval_statusId.is_(None)
+                    )
+                )
+            ).filter(MercadoLibreItemPublicado.mlp_id.isnot(None))
+        else:
+            # Sin MLA: no tienen publicación (excluye banlist)
+            items_en_banlist = db.query(ItemSinMLABanlist.item_id).subquery()
+            query = query.outerjoin(
+                MercadoLibreItemPublicado,
+                and_(
+                    ProductoERP.item_id == MercadoLibreItemPublicado.item_id,
+                    or_(
+                        MercadoLibreItemPublicado.optval_statusId == 2,
+                        MercadoLibreItemPublicado.optval_statusId.is_(None)
+                    )
+                )
+            ).filter(
+                MercadoLibreItemPublicado.mlp_id.is_(None),
+                ~ProductoERP.item_id.in_(items_en_banlist)
+            )
+
+    # Filtro de productos nuevos (últimos 7 días)
+    if nuevos_ultimos_7_dias:
+        fecha_limite = datetime.now() - timedelta(days=7)
+        query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
     # ESTADÍSTICAS CALCULADAS
 
