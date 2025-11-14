@@ -541,6 +541,8 @@ export default function Productos() {
     setFiltroMarkupOferta(null);
     setFiltroMarkupWebTransf(null);
     setFiltroOutOfCards(null);
+    setFiltroMLA(null);
+    setFiltroNuevos(null);
     setColoresSeleccionados([]);
     setOrdenColumnas([]);
     setPage(1);
