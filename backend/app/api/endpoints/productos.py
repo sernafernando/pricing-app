@@ -861,8 +861,6 @@ async def obtener_estadisticas(
     Obtiene estadísticas de productos según filtros aplicados.
     Si no se aplican filtros, devuelve estadísticas globales.
     """
-    print(f"🔍 /stats recibió: con_rebate={con_rebate}, con_oferta={con_oferta}, con_mla={con_mla}, search={search}")
-
     from datetime import datetime, timedelta
     from app.models.auditoria_precio import AuditoriaPrecio
     from app.models.item_sin_mla_banlist import ItemSinMLABanlist
@@ -1162,10 +1160,11 @@ async def obtener_estadisticas(
             if producto_erp.fecha_sync and producto_erp.fecha_sync >= fecha_limite_nuevos:
                 sin_mla_nuevos += 1
 
-        # Mejor oferta sin rebate
-        if producto_erp.item_id in items_con_oferta_vigente:
-            if not producto_pricing or not producto_pricing.participa_rebate:
-                mejor_oferta_sin_rebate += 1
+        # Mejor oferta sin rebate (tienen oferta vigente y no participan en rebate)
+        tiene_oferta = producto_erp.item_id in items_con_oferta_vigente
+        no_tiene_rebate = not producto_pricing or not producto_pricing.participa_rebate
+        if tiene_oferta and no_tiene_rebate:
+            mejor_oferta_sin_rebate += 1
 
         # Markup negativo clásica
         if producto_pricing and producto_pricing.markup_calculado is not None and producto_pricing.markup_calculado < 0:
