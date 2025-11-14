@@ -79,19 +79,24 @@
   padding: 4px 8px;
   background: var(--bg-secondary);
   border-radius: 4px;
+  gap: 12px;
 }
 
 .stat-sub-label {
   font-weight: 500;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .stat-sub-value {
   font-weight: 700;
   font-size: 15px;
+  margin-left: auto;
 }
 
 .stat-sub-value.red { color: var(--error); }
+.stat-sub-value.green { color: var(--success); }
+.stat-sub-value.blue { color: var(--brand-primary); }
 
 /* Barra de búsqueda */
 .search-bar {
