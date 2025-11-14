@@ -1078,6 +1078,8 @@ async def obtener_estadisticas(
     # Total según filtros
     total_filtrado = len(productos_filtrados)
 
+    print(f"📊 /stats procesando {total_filtrado} productos")
+
     # Contadores
     from datetime import timezone
     fecha_limite_nuevos = datetime.now(timezone.utc) - timedelta(days=7)
