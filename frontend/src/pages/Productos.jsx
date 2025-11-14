@@ -182,6 +182,44 @@ export default function Productos() {
       };
 
       // Hacer llamadas paralelas usando el endpoint /productos para cada stat
+      // IMPORTANTE: No combinar filtros incompatibles (con_oferta requiere publicación ML, pero con_mla=false la excluye)
+      const baseHasOferta = buildParams().con_oferta !== undefined;
+
+      const requests = [
+        productosAPI.listar(buildParams()),  // total
+        productosAPI.listar({...buildParams(), con_stock: true}),  // con stock
+        productosAPI.listar({...buildParams(), con_precio: true}),  // con precio
+        productosAPI.listar({...buildParams(), con_stock: true, con_precio: false}),  // stock sin precio
+        productosAPI.listar({...buildParams(), nuevos_ultimos_7_dias: true}),  // nuevos
+        productosAPI.listar({...buildParams(), nuevos_ultimos_7_dias: true, con_precio: false}),  // nuevos sin precio
+      ];
+
+      // Solo agregar stats de "sin MLA" si NO hay filtro de oferta activo (son incompatibles)
+      if (!baseHasOferta) {
+        requests.push(
+          productosAPI.listar({...buildParams(), con_mla: false}),  // sin MLA
+          productosAPI.listar({...buildParams(), con_mla: false, con_stock: true}),  // sin MLA con stock
+          productosAPI.listar({...buildParams(), con_mla: false, con_stock: false}),  // sin MLA sin stock
+          productosAPI.listar({...buildParams(), con_mla: false, nuevos_ultimos_7_dias: true})  // sin MLA nuevos
+        );
+      } else {
+        // Agregar valores dummy para mantener el orden del array
+        requests.push(
+          Promise.resolve({ data: { total: 0 } }),
+          Promise.resolve({ data: { total: 0 } }),
+          Promise.resolve({ data: { total: 0 } }),
+          Promise.resolve({ data: { total: 0 } })
+        );
+      }
+
+      requests.push(
+        productosAPI.listar({...buildParams(), con_oferta: true, con_rebate: false}),  // oferta sin rebate
+        productosAPI.listar({...buildParams(), markup_clasica_positivo: false}),  // markup neg clásica
+        productosAPI.listar({...buildParams(), markup_rebate_positivo: false}),  // markup neg rebate
+        productosAPI.listar({...buildParams(), markup_oferta_positivo: false}),  // markup neg oferta
+        productosAPI.listar({...buildParams(), markup_web_transf_positivo: false})  // markup neg web
+      );
+
       const [
         totalRes,
         conStockRes,
@@ -198,23 +236,7 @@ export default function Productos() {
         markupNegRebateRes,
         markupNegOfertaRes,
         markupNegWebRes
-      ] = await Promise.all([
-        productosAPI.listar(buildParams()),
-        productosAPI.listar({...buildParams(), con_stock: true}),
-        productosAPI.listar({...buildParams(), con_precio: true}),
-        productosAPI.listar({...buildParams(), con_stock: true, con_precio: false}),
-        productosAPI.listar({...buildParams(), nuevos_ultimos_7_dias: true}),
-        productosAPI.listar({...buildParams(), nuevos_ultimos_7_dias: true, con_precio: false}),
-        productosAPI.listar({...buildParams(), con_mla: false}),
-        productosAPI.listar({...buildParams(), con_mla: false, con_stock: true}),
-        productosAPI.listar({...buildParams(), con_mla: false, con_stock: false}),
-        productosAPI.listar({...buildParams(), con_mla: false, nuevos_ultimos_7_dias: true}),
-        productosAPI.listar({...buildParams(), con_oferta: true, con_rebate: false}),
-        productosAPI.listar({...buildParams(), markup_clasica_positivo: false}),
-        productosAPI.listar({...buildParams(), markup_rebate_positivo: false}),
-        productosAPI.listar({...buildParams(), markup_oferta_positivo: false}),
-        productosAPI.listar({...buildParams(), markup_web_transf_positivo: false})
-      ]);
+      ] = await Promise.all(requests);
 
       setStats({
         total_productos: totalRes.data.total,
