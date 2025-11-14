@@ -80,6 +80,16 @@
   background: var(--bg-secondary);
   border-radius: 4px;
   gap: 12px;
+  transition: all 0.2s ease;
+}
+
+.stat-sub-item.clickable-sub {
+  cursor: pointer;
+}
+
+.stat-sub-item.clickable-sub:hover {
+  background: var(--bg-tertiary);
+  transform: translateX(2px);
 }
 
 .stat-sub-label {

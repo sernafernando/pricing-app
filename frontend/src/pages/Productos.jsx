@@ -1325,10 +1325,33 @@ export default function Productos() {
     }
   };
 
+  // Funciones para aplicar filtros desde las stats
+  const aplicarFiltroStat = (filtros) => {
+    if (filtros.stock !== undefined) setFiltroStock(filtros.stock);
+    if (filtros.precio !== undefined) setFiltroPrecio(filtros.precio);
+    if (filtros.rebate !== undefined) setFiltroRebate(filtros.rebate);
+    if (filtros.oferta !== undefined) setFiltroOferta(filtros.oferta);
+    if (filtros.markupClasica !== undefined) setFiltroMarkupClasica(filtros.markupClasica);
+    setPage(1);
+  };
+
+  const limpiarFiltros = () => {
+    setFiltroStock("todos");
+    setFiltroPrecio("todos");
+    setFiltroRebate(null);
+    setFiltroOferta(null);
+    setFiltroWebTransf(null);
+    setFiltroMarkupClasica(null);
+    setFiltroMarkupRebate(null);
+    setFiltroMarkupOferta(null);
+    setFiltroMarkupWebTransf(null);
+    setPage(1);
+  };
+
   return (
     <div className="productos-container">
       <div className="stats-grid">
-        <div className="stat-card clickable" title="Total de productos según filtros aplicados">
+        <div className="stat-card clickable" title="Click para limpiar todos los filtros" onClick={limpiarFiltros}>
           <div className="stat-label">📦 Total Productos</div>
           <div className="stat-value">{stats?.total_productos?.toLocaleString('es-AR') || 0}</div>
         </div>
@@ -1336,15 +1359,15 @@ export default function Productos() {
         <div className="stat-card clickable" title="Desglose de stock y precios">
           <div className="stat-label">📊 Stock & Precio</div>
           <div className="stat-value-group">
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ stock: 'con_stock' })}>
               <span className="stat-sub-label">Con Stock:</span>
               <span className="stat-sub-value green">{stats?.con_stock?.toLocaleString('es-AR') || 0}</span>
             </div>
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ precio: 'con_precio' })}>
               <span className="stat-sub-label">Con Precio:</span>
               <span className="stat-sub-value blue">{stats?.con_precio?.toLocaleString('es-AR') || 0}</span>
             </div>
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ stock: 'con_stock', precio: 'sin_precio' })}>
               <span className="stat-sub-label">Stock sin $:</span>
               <span className="stat-sub-value red">{stats?.con_stock_sin_precio?.toLocaleString('es-AR') || 0}</span>
             </div>
@@ -1354,11 +1377,14 @@ export default function Productos() {
         <div className="stat-card clickable" title="Productos cargados en los últimos 7 días">
           <div className="stat-label">✨ Nuevos (7 días)</div>
           <div className="stat-value-group">
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => {
+              // Filtrar por fecha de los últimos 7 días - no tenemos este filtro en UI, así que mostramos todos los nuevos
+              limpiarFiltros();
+            }}>
               <span className="stat-sub-label">Total:</span>
               <span className="stat-sub-value blue">{stats?.nuevos_ultimos_7_dias?.toLocaleString('es-AR') || 0}</span>
             </div>
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ precio: 'sin_precio' })}>
               <span className="stat-sub-label">Sin Precio:</span>
               <span className="stat-sub-value red">{stats?.nuevos_sin_precio?.toLocaleString('es-AR') || 0}</span>
             </div>
@@ -1368,26 +1394,29 @@ export default function Productos() {
         <div className="stat-card clickable" title="Productos sin publicación en MercadoLibre (excluye banlist)">
           <div className="stat-label">🔍 Sin MLA</div>
           <div className="stat-value-group">
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => {
+              // No tenemos filtro para "sin MLA" en UI, solo mostramos la info
+              limpiarFiltros();
+            }}>
               <span className="stat-sub-label">Total:</span>
               <span className="stat-sub-value orange">{stats?.sin_mla_no_banlist?.toLocaleString('es-AR') || 0}</span>
             </div>
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ stock: 'con_stock' })}>
               <span className="stat-sub-label">Con Stock:</span>
               <span className="stat-sub-value green">{stats?.sin_mla_con_stock?.toLocaleString('es-AR') || 0}</span>
             </div>
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ stock: 'sin_stock' })}>
               <span className="stat-sub-label">Sin Stock:</span>
               <span className="stat-sub-value">{stats?.sin_mla_sin_stock?.toLocaleString('es-AR') || 0}</span>
             </div>
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => limpiarFiltros()}>
               <span className="stat-sub-label">Nuevos:</span>
               <span className="stat-sub-value blue">{stats?.sin_mla_nuevos?.toLocaleString('es-AR') || 0}</span>
             </div>
           </div>
         </div>
 
-        <div className="stat-card clickable" title="Productos con mejor oferta activa que no participan en rebate">
+        <div className="stat-card clickable" title="Click para filtrar productos con oferta sin rebate" onClick={() => aplicarFiltroStat({ oferta: 'con_oferta', rebate: 'sin_rebate' })}>
           <div className="stat-label">💎 Oferta sin Rebate</div>
           <div className="stat-value purple">{stats?.mejor_oferta_sin_rebate?.toLocaleString('es-AR') || 0}</div>
         </div>
@@ -1395,19 +1424,22 @@ export default function Productos() {
         <div className="stat-card clickable" title="Productos con markup negativo en diferentes modalidades">
           <div className="stat-label">📉 Markup Negativo</div>
           <div className="stat-value-group">
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ markupClasica: 'negativo' })}>
               <span className="stat-sub-label">Clásica:</span>
               <span className="stat-sub-value red">{stats?.markup_negativo_clasica || 0}</span>
             </div>
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ rebate: 'con_rebate', markupClasica: 'negativo' })}>
               <span className="stat-sub-label">Rebate:</span>
               <span className="stat-sub-value red">{stats?.markup_negativo_rebate || 0}</span>
             </div>
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ oferta: 'con_oferta', markupClasica: 'negativo' })}>
               <span className="stat-sub-label">Oferta:</span>
               <span className="stat-sub-value red">{stats?.markup_negativo_oferta || 0}</span>
             </div>
-            <div className="stat-sub-item">
+            <div className="stat-sub-item clickable-sub" onClick={() => {
+              limpiarFiltros();
+              setFiltroWebTransf('con_web_transf');
+            }}>
               <span className="stat-sub-label">Web:</span>
               <span className="stat-sub-value red">{stats?.markup_negativo_web || 0}</span>
             </div>
