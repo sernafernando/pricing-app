@@ -1174,21 +1174,17 @@ async def obtener_estadisticas(
         if producto_pricing and producto_pricing.markup_calculado is not None and producto_pricing.markup_calculado < 0:
             markup_negativo_clasica += 1
 
-        # Markup negativo rebate
-        if producto_pricing and producto_pricing.participa_rebate and producto_pricing.precio_lista_ml and producto_erp.costo:
-            precio_rebate = float(producto_pricing.precio_lista_ml) * (1 - float(producto_pricing.porcentaje_rebate or 0) / 100)
-            if precio_rebate < float(producto_erp.costo):
-                markup_negativo_rebate += 1
+        # Markup negativo rebate - leer directamente del campo calculado
+        if producto_pricing and producto_pricing.markup_rebate is not None and producto_pricing.markup_rebate < 0:
+            markup_negativo_rebate += 1
 
-        # Markup negativo oferta
-        if producto_pricing and producto_pricing.precio_3_cuotas and producto_erp.costo:
-            if float(producto_pricing.precio_3_cuotas) < float(producto_erp.costo):
-                markup_negativo_oferta += 1
+        # Markup negativo oferta - leer directamente del campo calculado
+        if producto_pricing and producto_pricing.markup_oferta is not None and producto_pricing.markup_oferta < 0:
+            markup_negativo_oferta += 1
 
-        # Markup negativo web
-        if producto_pricing and producto_pricing.participa_web_transferencia and producto_pricing.precio_web_transferencia and producto_erp.costo:
-            if float(producto_pricing.precio_web_transferencia) < float(producto_erp.costo):
-                markup_negativo_web += 1
+        # Markup negativo web - leer directamente del campo calculado
+        if producto_pricing and producto_pricing.markup_web_real is not None and float(producto_pricing.markup_web_real) < 0:
+            markup_negativo_web += 1
 
     return {
         "total_productos": total_filtrado,

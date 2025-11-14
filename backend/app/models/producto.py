@@ -43,6 +43,8 @@ class ProductoPricing(Base):
     
     precio_lista_ml = Column(Float)
     markup_calculado = Column(Float)
+    markup_rebate = Column(Float)
+    markup_oferta = Column(Float)
     usuario_id = Column(Integer, ForeignKey('usuarios.id'))
     motivo_cambio = Column(String(255))
     markup_web_real = Column(Numeric(10, 2))
