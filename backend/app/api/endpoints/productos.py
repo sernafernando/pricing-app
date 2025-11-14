@@ -329,38 +329,37 @@ async def listar_productos(
             # Filtro normal por colores específicos
             query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
 
-    # Filtro de MLA (con/sin publicación)
+    # Filtro de MLA (con/sin publicación) - usar subconsultas para evitar conflictos de join
     if con_mla is not None:
         from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
         from app.models.item_sin_mla_banlist import ItemSinMLABanlist
 
         if con_mla:
             # Con MLA: tienen publicación activa
-            query = query.join(
-                MercadoLibreItemPublicado,
-                and_(
-                    ProductoERP.item_id == MercadoLibreItemPublicado.item_id,
-                    or_(
-                        MercadoLibreItemPublicado.optval_statusId == 2,
-                        MercadoLibreItemPublicado.optval_statusId.is_(None)
-                    )
+            items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
                 )
-            ).filter(MercadoLibreItemPublicado.mlp_id.isnot(None))
+            ).distinct().subquery()
+
+            query = query.filter(ProductoERP.item_id.in_(items_con_mla_subquery))
         else:
             # Sin MLA: no tienen publicación (excluye banlist)
-            items_en_banlist = db.query(ItemSinMLABanlist.item_id).subquery()
-            query = query.outerjoin(
-                MercadoLibreItemPublicado,
-                and_(
-                    ProductoERP.item_id == MercadoLibreItemPublicado.item_id,
-                    or_(
-                        MercadoLibreItemPublicado.optval_statusId == 2,
-                        MercadoLibreItemPublicado.optval_statusId.is_(None)
-                    )
+            items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
                 )
-            ).filter(
-                MercadoLibreItemPublicado.mlp_id.is_(None),
-                ~ProductoERP.item_id.in_(items_en_banlist)
+            ).distinct().subquery()
+
+            items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
+
+            query = query.filter(
+                ~ProductoERP.item_id.in_(items_con_mla_subquery),
+                ~ProductoERP.item_id.in_(items_en_banlist_subquery)
             )
 
     # Filtro de productos nuevos (últimos 7 días)
