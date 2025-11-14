@@ -1055,6 +1055,10 @@ async def obtener_estadisticas(
     # Total según filtros
     total_filtrado = query.count()
 
+    # Variable para fecha actual (usada en varias estadísticas)
+    from datetime import date
+    hoy = date.today()
+
     # Productos nuevos (últimos 7 días)
     fecha_limite_nuevos = datetime.now() - timedelta(days=7)
     nuevos = query.filter(ProductoERP.fecha_sync >= fecha_limite_nuevos).count()
@@ -1102,13 +1106,42 @@ async def obtener_estadisticas(
     ).count()
 
     # Mejor oferta activa SIN rebate
-    mejor_oferta_sin_rebate = query.filter(
-        ProductoPricing.precio_3_cuotas.isnot(None),
-        or_(
-            ProductoPricing.participa_rebate == False,
-            ProductoPricing.participa_rebate.is_(None)
-        )
-    ).count()
+    # Necesitamos contar productos que tienen ofertas vigentes en ML SIN rebate
+    from app.models.oferta_ml import OfertaML
+    from app.models.publicacion_ml import PublicacionML
+
+    # Obtener item_ids base del query filtrado
+    item_ids_base = [item_id for item_id, in query.with_entities(ProductoERP.item_id).all()]
+
+    # Ahora buscar cuántos de estos tienen ofertas vigentes sin rebate
+    mejor_oferta_sin_rebate = 0
+    if item_ids_base:
+        # Query para obtener productos con oferta vigente
+        productos_con_oferta = db.query(ProductoERP.item_id).join(
+            PublicacionML, ProductoERP.item_id == PublicacionML.item_id
+        ).join(
+            OfertaML, PublicacionML.mla == OfertaML.mla
+        ).filter(
+            ProductoERP.item_id.in_(item_ids_base),
+            OfertaML.fecha_desde <= hoy,
+            OfertaML.fecha_hasta >= hoy,
+            OfertaML.pvp_seller.isnot(None)
+        ).distinct()
+
+        # Filtrar solo los que NO tienen rebate
+        productos_oferta_item_ids = [item_id for item_id, in productos_con_oferta.all()]
+
+        if productos_oferta_item_ids:
+            # Contar cuántos NO tienen rebate
+            mejor_oferta_sin_rebate = db.query(ProductoERP.item_id).outerjoin(
+                ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
+            ).filter(
+                ProductoERP.item_id.in_(productos_oferta_item_ids),
+                or_(
+                    ProductoPricing.participa_rebate == False,
+                    ProductoPricing.participa_rebate.is_(None)
+                )
+            ).count()
 
     # Markup negativo por modalidad
     markup_negativo_clasica = query.filter(ProductoPricing.markup_calculado < 0).count()
