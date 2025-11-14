@@ -1078,7 +1078,9 @@ async def obtener_estadisticas(
     # Total según filtros
     total_filtrado = len(productos_filtrados)
 
-    print(f"📊 /stats procesando {total_filtrado} productos")
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(f"📊 STATS: Procesando {total_filtrado} productos para estadísticas")
 
     # Contadores
     from datetime import timezone
