@@ -265,6 +265,18 @@ async def listar_productos(
         else:
             query = query.filter(ProductoPricing.markup_calculado < 0)
 
+    if markup_rebate_positivo is not None:
+        if markup_rebate_positivo:
+            query = query.filter(ProductoPricing.markup_rebate > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_rebate < 0)
+
+    if markup_oferta_positivo is not None:
+        if markup_oferta_positivo:
+            query = query.filter(ProductoPricing.markup_oferta > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_oferta < 0)
+
     if markup_web_transf_positivo is not None:
         if markup_web_transf_positivo:
             query = query.filter(ProductoPricing.markup_web_real > 0)
@@ -410,17 +422,15 @@ async def listar_productos(
             else:
                 query = query.order_by(col.desc().nullslast())
 
-    # Para markup rebate/oferta, necesitamos procesar después
-    # ya que estos valores se calculan dinámicamente
-
-    # Contar total antes de aplicar filtros complejos y ordenamientos dinámicos
+    # Contar total y paginar
+    # Los filtros de markup ahora se aplican en SQL, no necesitamos traer todo
     total_productos = None
-    if markup_rebate_positivo is None and markup_oferta_positivo is None and not orden_requiere_calculo:
+    if not orden_requiere_calculo:
         total_productos = query.count()
         offset = (page - 1) * page_size
         results = query.offset(offset).limit(page_size).all()
     else:
-        # Obtener todos los resultados para filtrar/ordenar después
+        # Solo si hay ordenamiento que requiere cálculo dinámico
         results = query.all()
         total_antes_filtro = len(results)
 
@@ -651,36 +661,12 @@ async def listar_productos(
             markup_12_cuotas=markup_12_cuotas,
         )
 
-        # Aplicar filtros dinámicos
-        incluir = True
+        # Los filtros de markup ahora se aplican en SQL
+        # Solo agregamos el producto a la lista
+        productos.append(producto_obj)
 
-        # El filtro de con_oferta ahora se aplica en el query SQL (líneas 287-306)
-        # por lo que no necesitamos filtrarlo aquí
-
-        if markup_rebate_positivo is not None and incluir:
-            if markup_rebate is not None:
-                if markup_rebate_positivo and markup_rebate < 0:
-                    incluir = False
-                elif not markup_rebate_positivo and markup_rebate >= 0:
-                    incluir = False
-            else:
-                incluir = False
-
-        if markup_oferta_positivo is not None and incluir:
-            if mejor_oferta_markup is not None:
-                markup_oferta_pct = mejor_oferta_markup * 100
-                if markup_oferta_positivo and markup_oferta_pct < 0:
-                    incluir = False
-                elif not markup_oferta_positivo and markup_oferta_pct >= 0:
-                    incluir = False
-            else:
-                incluir = False
-
-        if incluir:
-            productos.append(producto_obj)
-
-    # Si aplicamos filtros dinámicos o ordenamiento dinámico, necesitamos paginar manualmente
-    if markup_rebate_positivo is not None or markup_oferta_positivo is not None or orden_requiere_calculo:
+    # Si aplicamos ordenamiento dinámico, necesitamos paginar manualmente
+    if orden_requiere_calculo:
         # Ordenamiento dinámico si es necesario
         if orden_requiere_calculo and orden_campos and orden_direcciones:
             campos = orden_campos.split(',')
