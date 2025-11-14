@@ -110,12 +110,13 @@ export default function Productos() {
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
   useEffect(() => {
-    cargarStats();
-  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroNuevos]);
-
-  useEffect(() => {
     cargarProductos();
   }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroNuevos]);
+
+  // Recalcular stats cuando cambien los productos visibles
+  useEffect(() => {
+    cargarStats();
+  }, [productos]);
 
   // Cargar marcas y subcategorías cuando se seleccionan PMs
   useEffect(() => {
@@ -141,48 +142,110 @@ export default function Productos() {
     cargarDatosPorPM();
   }, [pmsSeleccionados]);
 
-  const cargarStats = async () => {
-    try {
-      // Construir params con los mismos filtros que cargarProductos
-      const params = {};
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (filtroStock === 'con_stock') params.con_stock = true;
-      if (filtroStock === 'sin_stock') params.con_stock = false;
-      if (filtroPrecio === 'con_precio') params.con_precio = true;
-      if (filtroPrecio === 'sin_precio') params.con_precio = false;
-      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
-      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
-      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-      if (filtroRebate === 'con_rebate') params.con_rebate = true;
-      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-      if (filtroOferta === 'con_oferta') params.con_oferta = true;
-      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-      if (filtroMLA === 'con_mla') params.con_mla = true;
-      if (filtroMLA === 'sin_mla') params.con_mla = false;
-      if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
-      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-      if (pmsSeleccionados.length > 0) params.product_managers = pmsSeleccionados.join(',');
-
-      const statsRes = await productosAPI.stats(params);
-      setStats(statsRes.data);
-    } catch (error) {
-      console.error('Error:', error);
+  const cargarStats = () => {
+    // Calcular estadísticas sobre los productos actualmente visibles en la tabla
+    if (productos.length === 0) {
+      setStats({
+        total_productos: 0,
+        nuevos_ultimos_7_dias: 0,
+        nuevos_sin_precio: 0,
+        con_stock_sin_precio: 0,
+        sin_mla_no_banlist: 0,
+        sin_mla_con_stock: 0,
+        sin_mla_sin_stock: 0,
+        sin_mla_nuevos: 0,
+        mejor_oferta_sin_rebate: 0,
+        markup_negativo_clasica: 0,
+        markup_negativo_rebate: 0,
+        markup_negativo_oferta: 0,
+        markup_negativo_web: 0,
+        con_stock: 0,
+        con_precio: 0
+      });
+      return;
     }
+
+    const fechaLimiteNuevos = new Date();
+    fechaLimiteNuevos.setDate(fechaLimiteNuevos.getDate() - 7);
+
+    let nuevos = 0;
+    let nuevos_sin_precio = 0;
+    let stock_sin_precio = 0;
+    let sin_mla = 0;
+    let sin_mla_con_stock = 0;
+    let sin_mla_sin_stock = 0;
+    let sin_mla_nuevos = 0;
+    let oferta_sin_rebate = 0;
+    let markup_neg_clasica = 0;
+    let markup_neg_rebate = 0;
+    let markup_neg_oferta = 0;
+    let markup_neg_web = 0;
+    let con_stock = 0;
+    let con_precio = 0;
+
+    productos.forEach(p => {
+      // Con stock
+      if (p.stock > 0) con_stock++;
+
+      // Con precio
+      if (p.precio_lista_ml) con_precio++;
+
+      // Nuevos (últimos 7 días)
+      const esNuevo = p.fecha_sync && new Date(p.fecha_sync) >= fechaLimiteNuevos;
+      if (esNuevo) {
+        nuevos++;
+        if (!p.precio_lista_ml) nuevos_sin_precio++;
+      }
+
+      // Stock sin precio
+      if (p.stock > 0 && !p.precio_lista_ml) stock_sin_precio++;
+
+      // Sin MLA
+      if (!p.tiene_mla) {
+        sin_mla++;
+        if (p.stock > 0) sin_mla_con_stock++;
+        else sin_mla_sin_stock++;
+        if (esNuevo) sin_mla_nuevos++;
+      }
+
+      // Oferta sin rebate
+      if (p.tiene_oferta && !p.participa_rebate) oferta_sin_rebate++;
+
+      // Markup negativo clásica
+      if (p.markup_calculado < 0) markup_neg_clasica++;
+
+      // Markup negativo rebate
+      if (p.participa_rebate && p.precio_lista_ml && p.costo) {
+        const precioRebate = p.precio_lista_ml * (1 - (p.porcentaje_rebate || 0) / 100);
+        if (precioRebate < p.costo) markup_neg_rebate++;
+      }
+
+      // Markup negativo oferta
+      if (p.precio_3_cuotas && p.costo && p.precio_3_cuotas < p.costo) markup_neg_oferta++;
+
+      // Markup negativo web
+      if (p.participa_web_transferencia && p.precio_web_transferencia && p.costo && p.precio_web_transferencia < p.costo) {
+        markup_neg_web++;
+      }
+    });
+
+    setStats({
+      total_productos: productos.length,
+      nuevos_ultimos_7_dias: nuevos,
+      nuevos_sin_precio: nuevos_sin_precio,
+      con_stock_sin_precio: stock_sin_precio,
+      sin_mla_no_banlist: sin_mla,
+      sin_mla_con_stock: sin_mla_con_stock,
+      sin_mla_sin_stock: sin_mla_sin_stock,
+      sin_mla_nuevos: sin_mla_nuevos,
+      mejor_oferta_sin_rebate: oferta_sin_rebate,
+      markup_negativo_clasica: markup_neg_clasica,
+      markup_negativo_rebate: markup_neg_rebate,
+      markup_negativo_oferta: markup_neg_oferta,
+      markup_negativo_web: markup_neg_web,
+      con_stock: con_stock,
+      con_precio: con_precio
+    });
   };
 
   useEffect(() => {
