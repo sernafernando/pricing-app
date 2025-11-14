@@ -78,3 +78,11 @@ CREATE TABLE IF NOT EXISTS tb_item_taxes (
 
 CREATE INDEX IF NOT EXISTS idx_tb_item_taxes_item_id ON tb_item_taxes(item_id);
 CREATE INDEX IF NOT EXISTS idx_tb_item_taxes_tax_id ON tb_item_taxes(tax_id);
+
+-- Permisos para el usuario de la aplicación
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_brand TO pricing_app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_category TO pricing_app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_subcategory TO pricing_app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_item TO pricing_app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_tax_name TO pricing_app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_item_taxes TO pricing_app_user;
