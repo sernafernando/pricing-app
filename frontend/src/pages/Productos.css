@@ -22,6 +22,16 @@
   border-radius: 8px;
   box-shadow: var(--shadow-sm);
   text-align: center;
+  transition: all 0.2s ease;
+}
+
+.stat-card.clickable {
+  cursor: pointer;
+}
+
+.stat-card.clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 
 .stat-label {
@@ -42,6 +52,38 @@
 .stat-value.green { color: var(--success); }
 .stat-value.red { color: var(--error); }
 .stat-value.blue { color: var(--brand-primary); }
+.stat-value.orange { color: #ff9800; }
+.stat-value.purple { color: #9c27b0; }
+
+/* Estilos para stat-value-group (markup negativo) */
+.stat-value-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.stat-sub-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.stat-sub-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.stat-sub-value {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.stat-sub-value.red { color: var(--error); }
 
 /* Barra de búsqueda */
 .search-bar {

@@ -774,20 +774,290 @@ async def obtener_producto(item_id: int, db: Session = Depends(get_db)):
     )
 
 @router.get("/stats")
-async def obtener_estadisticas(db: Session = Depends(get_db)):
-    total_productos = db.query(ProductoERP).count()
-    con_stock = db.query(ProductoERP).filter(ProductoERP.stock > 0).count()
-    
-    total_con_pricing = db.query(ProductoPricing).count()
-    con_precio = db.query(ProductoPricing).filter(ProductoPricing.precio_lista_ml.isnot(None)).count()
-    sin_precio = total_productos - con_precio
+async def obtener_estadisticas(
+    # Filtros de búsqueda
+    search: Optional[str] = None,
+    con_stock: Optional[bool] = None,
+    con_precio: Optional[bool] = None,
+    marcas: Optional[str] = None,
+    subcategorias: Optional[str] = None,
+    con_rebate: Optional[bool] = None,
+    con_oferta: Optional[bool] = None,
+    con_web_transf: Optional[bool] = None,
+    markup_clasica_positivo: Optional[bool] = None,
+    markup_rebate_positivo: Optional[bool] = None,
+    markup_oferta_positivo: Optional[bool] = None,
+    markup_web_transf_positivo: Optional[bool] = None,
+    out_of_cards: Optional[bool] = None,
+    colores: Optional[str] = None,
+    product_managers: Optional[str] = None,
+    audit_usuarios: Optional[str] = None,
+    audit_tipos_accion: Optional[str] = None,
+    audit_fecha_desde: Optional[str] = None,
+    audit_fecha_hasta: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene estadísticas de productos según filtros aplicados.
+    Si no se aplican filtros, devuelve estadísticas globales.
+    """
+    from datetime import datetime, timedelta
+    from app.models.auditoria_precio import AuditoriaPrecio
+    from app.models.item_sin_mla_banlist import ItemSinMLABanlist
+    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+    # Query base
+    query = db.query(ProductoERP).join(
+        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id, isouter=True
+    )
+
+    # Aplicar filtros de búsqueda
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            or_(
+                ProductoERP.codigo.ilike(search_pattern),
+                ProductoERP.descripcion.ilike(search_pattern),
+                ProductoERP.marca.ilike(search_pattern)
+            )
+        )
+
+    # Filtro de stock
+    if con_stock is not None:
+        if con_stock:
+            query = query.filter(ProductoERP.stock > 0)
+        else:
+            query = query.filter(ProductoERP.stock == 0)
+
+    # Filtro de precio
+    if con_precio is not None:
+        if con_precio:
+            query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.precio_lista_ml.is_(None),
+                    ProductoPricing.id.is_(None)
+                )
+            )
+
+    # Filtro de marcas
+    if marcas:
+        marcas_list = marcas.split(',')
+        query = query.filter(ProductoERP.marca.in_(marcas_list))
+
+    # Filtro de subcategorías
+    if subcategorias:
+        subcategorias_list = [int(s) for s in subcategorias.split(',')]
+        query = query.filter(ProductoERP.subcategoria_id.in_(subcategorias_list))
+
+    # Filtro de rebate
+    if con_rebate is not None:
+        if con_rebate:
+            query = query.filter(
+                ProductoPricing.participa_rebate == True,
+                ProductoPricing.precio_lista_ml.isnot(None)
+            )
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.participa_rebate == False,
+                    ProductoPricing.participa_rebate.is_(None)
+                )
+            )
+
+    # Filtro de mejor oferta
+    if con_oferta is not None:
+        if con_oferta:
+            query = query.filter(
+                ProductoPricing.precio_3_cuotas.isnot(None)
+            )
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.precio_3_cuotas.is_(None),
+                    ProductoPricing.id.is_(None)
+                )
+            )
+
+    # Filtro de web transferencia
+    if con_web_transf is not None:
+        if con_web_transf:
+            query = query.filter(
+                ProductoPricing.participa_web_transferencia == True,
+                ProductoPricing.precio_web_transferencia.isnot(None)
+            )
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.participa_web_transferencia == False,
+                    ProductoPricing.participa_web_transferencia.is_(None)
+                )
+            )
+
+    # Filtros de markup
+    if markup_clasica_positivo is not None:
+        if markup_clasica_positivo:
+            query = query.filter(ProductoPricing.markup_calculado > 0)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.markup_calculado <= 0,
+                    ProductoPricing.markup_calculado.is_(None)
+                )
+            )
+
+    # Filtro out of cards
+    if out_of_cards is not None:
+        if out_of_cards:
+            query = query.filter(ProductoPricing.out_of_cards == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.out_of_cards == False,
+                    ProductoPricing.out_of_cards.is_(None)
+                )
+            )
+
+    # Filtro de colores
+    if colores:
+        colores_list = colores.split(',')
+        if 'sin_color' in colores_list:
+            colores_con_valor = [c for c in colores_list if c != 'sin_color']
+            if colores_con_valor:
+                query = query.filter(
+                    or_(
+                        ProductoPricing.color_marcado.in_(colores_con_valor),
+                        ProductoPricing.color_marcado.is_(None)
+                    )
+                )
+            else:
+                query = query.filter(ProductoPricing.color_marcado.is_(None))
+        else:
+            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+
+    # Filtro de Product Managers
+    if product_managers:
+        pm_list = product_managers.split(',')
+        pm_ints = [int(pm) for pm in pm_list]
+        query = query.filter(ProductoERP.subcategoria_id.in_(
+            db.query(Subcategoria.id).filter(Subcategoria.pm_id.in_(pm_ints))
+        ))
+
+    # Filtros de auditoría
+    if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
+        subquery_auditoria = db.query(AuditoriaPrecio.item_id).distinct()
+
+        if audit_usuarios:
+            usuarios_list = [int(u) for u in audit_usuarios.split(',')]
+            subquery_auditoria = subquery_auditoria.filter(AuditoriaPrecio.usuario_id.in_(usuarios_list))
+
+        if audit_tipos_accion:
+            tipos_list = audit_tipos_accion.split(',')
+            subquery_auditoria = subquery_auditoria.filter(AuditoriaPrecio.tipo_accion.in_(tipos_list))
+
+        if audit_fecha_desde:
+            fecha_desde_dt = datetime.fromisoformat(audit_fecha_desde)
+            fecha_desde_dt = fecha_desde_dt + timedelta(hours=3)
+            subquery_auditoria = subquery_auditoria.filter(AuditoriaPrecio.fecha_accion >= fecha_desde_dt)
+
+        if audit_fecha_hasta:
+            fecha_hasta_dt = datetime.fromisoformat(audit_fecha_hasta)
+            fecha_hasta_dt = fecha_hasta_dt + timedelta(hours=3)
+            subquery_auditoria = subquery_auditoria.filter(AuditoriaPrecio.fecha_accion <= fecha_hasta_dt)
+
+        query = query.filter(ProductoERP.item_id.in_(subquery_auditoria))
+
+    # ESTADÍSTICAS CALCULADAS
+
+    # Total según filtros
+    total_filtrado = query.count()
+
+    # Productos nuevos (últimos 7 días)
+    fecha_limite_nuevos = datetime.now() - timedelta(days=7)
+    nuevos = query.filter(ProductoERP.fecha_sync >= fecha_limite_nuevos).count()
+
+    # Con stock sin precio
+    stock_sin_precio = query.filter(
+        ProductoERP.stock > 0,
+        or_(
+            ProductoPricing.precio_lista_ml.is_(None),
+            ProductoPricing.id.is_(None)
+        )
+    ).count()
+
+    # Sin MLA (no en banlist)
+    items_en_banlist = db.query(ItemSinMLABanlist.item_id).subquery()
+    sin_mla_query = query.outerjoin(
+        MercadoLibreItemPublicado,
+        and_(
+            ProductoERP.item_id == MercadoLibreItemPublicado.item_id,
+            or_(
+                MercadoLibreItemPublicado.optval_statusId == 2,
+                MercadoLibreItemPublicado.optval_statusId.is_(None)
+            )
+        )
+    ).filter(
+        MercadoLibreItemPublicado.mlp_id.is_(None),
+        ~ProductoERP.item_id.in_(items_en_banlist)
+    )
+    sin_mla_count = sin_mla_query.count()
+
+    # Mejor oferta activa SIN rebate
+    mejor_oferta_sin_rebate = query.filter(
+        ProductoPricing.precio_3_cuotas.isnot(None),
+        or_(
+            ProductoPricing.participa_rebate == False,
+            ProductoPricing.participa_rebate.is_(None)
+        )
+    ).count()
+
+    # Markup negativo por modalidad
+    markup_negativo_clasica = query.filter(ProductoPricing.markup_calculado < 0).count()
+
+    # Para rebate, calcular markup: ((precio_rebate / costo_final) - 1) * 100
+    # Precio rebate = precio_lista_ml * (1 - porcentaje_rebate/100)
+    markup_negativo_rebate = query.filter(
+        ProductoPricing.participa_rebate == True,
+        ProductoPricing.precio_lista_ml.isnot(None),
+        ProductoERP.costo.isnot(None),
+        # (precio_lista_ml * (1 - porcentaje_rebate/100) / costo) < 1
+        (ProductoPricing.precio_lista_ml * (1 - ProductoPricing.porcentaje_rebate / 100)) < ProductoERP.costo
+    ).count()
+
+    # Para mejor oferta (3 cuotas)
+    markup_negativo_oferta = query.filter(
+        ProductoPricing.precio_3_cuotas.isnot(None),
+        ProductoERP.costo.isnot(None),
+        ProductoPricing.precio_3_cuotas < ProductoERP.costo
+    ).count()
+
+    # Para web transferencia
+    markup_negativo_web = query.filter(
+        ProductoPricing.participa_web_transferencia == True,
+        ProductoPricing.precio_web_transferencia.isnot(None),
+        ProductoERP.costo.isnot(None),
+        ProductoPricing.precio_web_transferencia < ProductoERP.costo
+    ).count()
+
+    # Total con stock
+    total_con_stock = query.filter(ProductoERP.stock > 0).count()
+
+    # Total con precio
+    total_con_precio = query.filter(ProductoPricing.precio_lista_ml.isnot(None)).count()
 
     return {
-        "total_productos": total_productos,
-        "con_stock": con_stock,
-        "sin_stock": total_productos - con_stock,
-        "sin_precio": sin_precio,
-        "con_precio": con_precio
+        "total_productos": total_filtrado,
+        "nuevos_ultimos_7_dias": nuevos,
+        "con_stock_sin_precio": stock_sin_precio,
+        "sin_mla_no_banlist": sin_mla_count,
+        "mejor_oferta_sin_rebate": mejor_oferta_sin_rebate,
+        "markup_negativo_clasica": markup_negativo_clasica,
+        "markup_negativo_rebate": markup_negativo_rebate,
+        "markup_negativo_oferta": markup_negativo_oferta,
+        "markup_negativo_web": markup_negativo_web,
+        "con_stock": total_con_stock,
+        "con_precio": total_con_precio
     }
 
 @router.get("/categorias")
