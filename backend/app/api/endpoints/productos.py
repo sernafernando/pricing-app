@@ -1003,6 +1003,22 @@ async def obtener_estadisticas(
     )
     sin_mla_count = sin_mla_query.count()
 
+    # Sin MLA desglosado por stock
+    sin_mla_con_stock = sin_mla_query.filter(ProductoERP.stock > 0).count()
+    sin_mla_sin_stock = sin_mla_count - sin_mla_con_stock
+
+    # Sin MLA nuevos (últimos 7 días)
+    sin_mla_nuevos = sin_mla_query.filter(ProductoERP.fecha_sync >= fecha_limite_nuevos).count()
+
+    # Nuevos sin precio
+    nuevos_sin_precio = query.filter(
+        ProductoERP.fecha_sync >= fecha_limite_nuevos,
+        or_(
+            ProductoPricing.precio_lista_ml.is_(None),
+            ProductoPricing.id.is_(None)
+        )
+    ).count()
+
     # Mejor oferta activa SIN rebate
     mejor_oferta_sin_rebate = query.filter(
         ProductoPricing.precio_3_cuotas.isnot(None),
@@ -1049,8 +1065,12 @@ async def obtener_estadisticas(
     return {
         "total_productos": total_filtrado,
         "nuevos_ultimos_7_dias": nuevos,
+        "nuevos_sin_precio": nuevos_sin_precio,
         "con_stock_sin_precio": stock_sin_precio,
         "sin_mla_no_banlist": sin_mla_count,
+        "sin_mla_con_stock": sin_mla_con_stock,
+        "sin_mla_sin_stock": sin_mla_sin_stock,
+        "sin_mla_nuevos": sin_mla_nuevos,
         "mejor_oferta_sin_rebate": mejor_oferta_sin_rebate,
         "markup_negativo_clasica": markup_negativo_clasica,
         "markup_negativo_rebate": markup_negativo_rebate,

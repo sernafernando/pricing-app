@@ -1353,12 +1353,38 @@ export default function Productos() {
 
         <div className="stat-card clickable" title="Productos cargados en los últimos 7 días">
           <div className="stat-label">✨ Nuevos (7 días)</div>
-          <div className="stat-value blue">{stats?.nuevos_ultimos_7_dias?.toLocaleString('es-AR') || 0}</div>
+          <div className="stat-value-group">
+            <div className="stat-sub-item">
+              <span className="stat-sub-label">Total:</span>
+              <span className="stat-sub-value blue">{stats?.nuevos_ultimos_7_dias?.toLocaleString('es-AR') || 0}</span>
+            </div>
+            <div className="stat-sub-item">
+              <span className="stat-sub-label">Sin Precio:</span>
+              <span className="stat-sub-value red">{stats?.nuevos_sin_precio?.toLocaleString('es-AR') || 0}</span>
+            </div>
+          </div>
         </div>
 
         <div className="stat-card clickable" title="Productos sin publicación en MercadoLibre (excluye banlist)">
           <div className="stat-label">🔍 Sin MLA</div>
-          <div className="stat-value orange">{stats?.sin_mla_no_banlist?.toLocaleString('es-AR') || 0}</div>
+          <div className="stat-value-group">
+            <div className="stat-sub-item">
+              <span className="stat-sub-label">Total:</span>
+              <span className="stat-sub-value orange">{stats?.sin_mla_no_banlist?.toLocaleString('es-AR') || 0}</span>
+            </div>
+            <div className="stat-sub-item">
+              <span className="stat-sub-label">Con Stock:</span>
+              <span className="stat-sub-value green">{stats?.sin_mla_con_stock?.toLocaleString('es-AR') || 0}</span>
+            </div>
+            <div className="stat-sub-item">
+              <span className="stat-sub-label">Sin Stock:</span>
+              <span className="stat-sub-value">{stats?.sin_mla_sin_stock?.toLocaleString('es-AR') || 0}</span>
+            </div>
+            <div className="stat-sub-item">
+              <span className="stat-sub-label">Nuevos:</span>
+              <span className="stat-sub-value blue">{stats?.sin_mla_nuevos?.toLocaleString('es-AR') || 0}</span>
+            </div>
+          </div>
         </div>
 
         <div className="stat-card clickable" title="Productos con mejor oferta activa que no participan en rebate">
