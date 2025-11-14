@@ -144,7 +144,7 @@ def calcular_markups(db: Session):
                                     db=db,
                                     grupo_id=grupo_id_oferta
                                 )
-                                markup_oferta_val = calcular_markup(limpio_oferta, costo_oferta)
+                                markup_oferta_val = calcular_markup(limpio_oferta, costo_oferta) * 100
                                 actualizados_oferta += 1
                 except Exception as e:
                     pass

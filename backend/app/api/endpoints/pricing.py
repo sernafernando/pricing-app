@@ -24,6 +24,104 @@ from app.services.pricing_calculator import (
 
 router = APIRouter()
 
+def calcular_markup_rebate(db: Session, producto: ProductoERP, pricing: ProductoPricing, tipo_cambio=None) -> Optional[float]:
+    """Calcula el markup de rebate para un producto"""
+    if not pricing or not pricing.participa_rebate or not pricing.precio_lista_ml or not producto.costo:
+        return None
+
+    try:
+        porcentaje_rebate_val = float(pricing.porcentaje_rebate if pricing.porcentaje_rebate is not None else 3.8)
+        precio_rebate = float(pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
+
+        costo_rebate = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+        grupo_id_rebate = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+        comision_base_rebate = obtener_comision_base(db, 4, grupo_id_rebate)
+
+        if comision_base_rebate and precio_rebate > 0:
+            comisiones_rebate = calcular_comision_ml_total(
+                precio_rebate,
+                comision_base_rebate,
+                producto.iva,
+                db=db
+            )
+            limpio_rebate = calcular_limpio(
+                precio_rebate,
+                producto.iva,
+                producto.envio or 0,
+                comisiones_rebate["comision_total"],
+                db=db,
+                grupo_id=grupo_id_rebate
+            )
+            markup_rebate_val = calcular_markup(limpio_rebate, costo_rebate) * 100
+            return markup_rebate_val
+    except:
+        pass
+
+    return None
+
+
+def calcular_markup_oferta(db: Session, producto: ProductoERP, tipo_cambio=None) -> Optional[float]:
+    """Calcula el markup de oferta vigente para un producto"""
+    if not producto.costo:
+        return None
+
+    try:
+        from app.models.publicacion_ml import PublicacionML
+        from app.models.oferta_ml import OfertaML
+        from datetime import date
+
+        hoy = date.today()
+
+        # Buscar publicación del producto
+        pubs = db.query(PublicacionML).filter(PublicacionML.item_id == producto.item_id).all()
+
+        mejor_oferta = None
+        mejor_pub = None
+
+        for pub in pubs:
+            oferta = db.query(OfertaML).filter(
+                OfertaML.mla == pub.mla,
+                OfertaML.fecha_desde <= hoy,
+                OfertaML.fecha_hasta >= hoy,
+                OfertaML.pvp_seller.isnot(None)
+            ).order_by(OfertaML.fecha_desde.desc()).first()
+
+            if oferta:
+                if not mejor_oferta:
+                    mejor_oferta = oferta
+                    mejor_pub = pub
+
+        if mejor_oferta and mejor_pub:
+            mejor_oferta_pvp = float(mejor_oferta.pvp_seller) if mejor_oferta.pvp_seller else None
+
+            if mejor_oferta_pvp and mejor_oferta_pvp > 0:
+                costo_oferta = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+                grupo_id_oferta = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+                comision_base_oferta = obtener_comision_base(db, mejor_pub.pricelist_id, grupo_id_oferta)
+
+                if comision_base_oferta:
+                    comisiones_oferta = calcular_comision_ml_total(
+                        mejor_oferta_pvp,
+                        comision_base_oferta,
+                        producto.iva,
+                        db=db
+                    )
+                    limpio_oferta = calcular_limpio(
+                        mejor_oferta_pvp,
+                        producto.iva,
+                        producto.envio or 0,
+                        comisiones_oferta["comision_total"],
+                        db=db,
+                        grupo_id=grupo_id_oferta
+                    )
+                    markup_oferta_val = calcular_markup(limpio_oferta, costo_oferta) * 100
+                    return markup_oferta_val
+    except:
+        pass
+
+    return None
+
+
 def obtener_markup_adicional_cuotas(db: Session) -> float:
     """Obtiene el valor de markup adicional para cuotas desde la configuración"""
     config = db.query(Configuracion).filter(
@@ -299,6 +397,10 @@ async def setear_precio(
         pricing.precio_6_cuotas = precios_cuotas_calculados['precio_6_cuotas']
         pricing.precio_9_cuotas = precios_cuotas_calculados['precio_9_cuotas']
         pricing.precio_12_cuotas = precios_cuotas_calculados['precio_12_cuotas']
+
+        # Calcular y actualizar markup_rebate y markup_oferta
+        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
+        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
     else:
         pricing = ProductoPricing(
             item_id=request.item_id,
@@ -314,6 +416,11 @@ async def setear_precio(
             precio_12_cuotas=precios_cuotas_calculados['precio_12_cuotas']
         )
         db.add(pricing)
+        db.flush()  # Para obtener el ID antes de calcular markups
+
+        # Calcular y actualizar markup_rebate y markup_oferta
+        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
+        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
 
     db.commit()
     db.refresh(pricing)
@@ -587,6 +694,10 @@ async def setear_precio_rapido(
             pricing.precio_6_cuotas = precios_cuotas['precio_6_cuotas']
             pricing.precio_9_cuotas = precios_cuotas['precio_9_cuotas']
             pricing.precio_12_cuotas = precios_cuotas['precio_12_cuotas']
+
+        # Calcular y actualizar markup_rebate y markup_oferta
+        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
+        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
     else:
         pricing = ProductoPricing(
             item_id=item_id,
@@ -599,6 +710,11 @@ async def setear_precio_rapido(
             precio_12_cuotas=precios_cuotas['precio_12_cuotas'] if recalcular_cuotas else None
         )
         db.add(pricing)
+        db.flush()
+
+        # Calcular y actualizar markup_rebate y markup_oferta
+        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
+        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
 
     # Recalcular web transferencia si está activo
     # NO hacer refresh aquí porque sobrescribe los valores asignados antes del commit
@@ -735,6 +851,10 @@ async def setear_precio_cuota(
         setattr(pricing, campo_precio, precio)
         pricing.usuario_id = current_user.id
         pricing.fecha_modificacion = datetime.now()
+
+        # Calcular y actualizar markup_rebate y markup_oferta
+        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
+        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
     else:
         # Crear nuevo registro
         pricing = ProductoPricing(
@@ -744,6 +864,11 @@ async def setear_precio_cuota(
         )
         setattr(pricing, campo_precio, precio)
         db.add(pricing)
+        db.flush()
+
+        # Calcular y actualizar markup_rebate y markup_oferta
+        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
+        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
 
     db.commit()
     db.refresh(pricing)
