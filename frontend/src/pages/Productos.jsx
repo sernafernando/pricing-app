@@ -113,10 +113,10 @@ export default function Productos() {
     cargarProductos();
   }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroNuevos]);
 
-  // Recalcular stats cuando cambien los filtros
+  // Cargar stats globales solo una vez al inicio
   useEffect(() => {
     cargarStats();
-  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroNuevos]);
+  }, []);
 
   // Cargar marcas y subcategorías cuando se seleccionan PMs
   useEffect(() => {
@@ -144,7 +144,17 @@ export default function Productos() {
 
   const cargarStats = async () => {
     try {
-      // Traer TODOS los productos filtrados (sin paginación) para calcular stats
+      // Cargar estadísticas globales (sin filtros)
+      const statsRes = await productosAPI.stats({});
+      setStats(statsRes.data);
+    } catch (error) {
+      console.error('Error cargando stats:', error);
+    }
+  };
+
+  const cargarStatsOLD = async () => {
+    try {
+      // VERSIÓN ANTERIOR - Traer TODOS los productos filtrados (sin paginación) para calcular stats
       const params = {};
       if (debouncedSearch) params.search = debouncedSearch;
       if (filtroStock === 'con_stock') params.con_stock = true;
