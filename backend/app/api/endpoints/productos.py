@@ -1187,6 +1187,315 @@ async def obtener_estadisticas(
         "con_precio": total_con_precio
     }
 
+@router.get("/stats-dinamicos")
+async def obtener_stats_dinamicos(
+    search: Optional[str] = None,
+    categoria: Optional[str] = None,
+    marcas: Optional[str] = None,
+    subcategorias: Optional[str] = None,
+    con_stock: Optional[bool] = None,
+    con_precio: Optional[bool] = None,
+    con_rebate: Optional[bool] = None,
+    con_oferta: Optional[bool] = None,
+    con_web_transf: Optional[bool] = None,
+    markup_clasica_positivo: Optional[bool] = None,
+    markup_rebate_positivo: Optional[bool] = None,
+    markup_oferta_positivo: Optional[bool] = None,
+    markup_web_transf_positivo: Optional[bool] = None,
+    out_of_cards: Optional[bool] = None,
+    colores: Optional[str] = None,
+    pms: Optional[str] = None,
+    con_mla: Optional[bool] = None,
+    nuevos_ultimos_7_dias: Optional[bool] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene estadísticas dinámicas de productos según filtros aplicados.
+    Las estadísticas se calculan SOLO sobre los productos que cumplen con los filtros.
+    """
+    from datetime import datetime, timedelta, date, timezone
+    from app.models.oferta_ml import OfertaML
+    from app.models.publicacion_ml import PublicacionML
+    from app.models.item_sin_mla_banlist import ItemSinMLABanlist
+    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+    from app.models.subcategoria import Subcategoria
+
+    # Query base - igual que en /productos
+    query = db.query(ProductoERP, ProductoPricing).outerjoin(
+        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
+    )
+
+    # APLICAR TODOS LOS FILTROS (copiado del endpoint /productos)
+
+    # Filtro de búsqueda
+    if search:
+        search_normalized = search.replace('-', '').replace(' ', '').upper()
+        query = query.filter(
+            or_(
+                func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
+            )
+        )
+
+    # Filtros básicos
+    if categoria:
+        query = query.filter(ProductoERP.categoria == categoria)
+
+    if marcas:
+        marcas_list = marcas.split(',')
+        query = query.filter(ProductoERP.marca.in_(marcas_list))
+
+    if subcategorias:
+        subcat_list = [int(s) for s in subcategorias.split(',')]
+        query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
+
+    if con_stock is not None:
+        if con_stock:
+            query = query.filter(ProductoERP.stock > 0)
+        else:
+            query = query.filter(ProductoERP.stock == 0)
+
+    if con_precio is not None:
+        if con_precio:
+            query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.precio_lista_ml.is_(None),
+                    ProductoPricing.item_id.is_(None)
+                )
+            )
+
+    # Filtros de participación
+    if con_rebate is not None:
+        if con_rebate:
+            query = query.filter(ProductoPricing.participa_rebate == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.participa_rebate == False,
+                    ProductoPricing.participa_rebate.is_(None),
+                    ProductoPricing.item_id.is_(None)
+                )
+            )
+
+    if con_web_transf is not None:
+        if con_web_transf:
+            query = query.filter(ProductoPricing.participa_web_transferencia == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.participa_web_transferencia == False,
+                    ProductoPricing.participa_web_transferencia.is_(None),
+                    ProductoPricing.item_id.is_(None)
+                )
+            )
+
+    # Filtros de markup
+    if markup_clasica_positivo is not None:
+        if markup_clasica_positivo:
+            query = query.filter(ProductoPricing.markup_calculado > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_calculado < 0)
+
+    if markup_rebate_positivo is not None:
+        if markup_rebate_positivo:
+            query = query.filter(ProductoPricing.markup_rebate > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_rebate < 0)
+
+    if markup_oferta_positivo is not None:
+        if markup_oferta_positivo:
+            query = query.filter(ProductoPricing.markup_oferta > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_oferta < 0)
+
+    if markup_web_transf_positivo is not None:
+        if markup_web_transf_positivo:
+            query = query.filter(ProductoPricing.markup_web_real > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_web_real < 0)
+
+    if out_of_cards is not None:
+        if out_of_cards:
+            query = query.filter(ProductoPricing.out_of_cards == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.out_of_cards == False,
+                    ProductoPricing.out_of_cards.is_(None)
+                )
+            )
+
+    # Filtro de oferta
+    if con_oferta is not None:
+        from datetime import date
+        hoy = date.today()
+
+        items_con_oferta_subquery = db.query(PublicacionML.item_id).join(
+            OfertaML, PublicacionML.mla == OfertaML.mla
+        ).filter(
+            OfertaML.fecha_desde <= hoy,
+            OfertaML.fecha_hasta >= hoy,
+            OfertaML.pvp_seller.isnot(None)
+        ).distinct().subquery()
+
+        if con_oferta:
+            query = query.filter(ProductoERP.item_id.in_(items_con_oferta_subquery))
+        else:
+            query = query.filter(~ProductoERP.item_id.in_(items_con_oferta_subquery))
+
+    # Filtro de colores
+    if colores:
+        colores_list = colores.split(',')
+        query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+
+    # Filtro de PMs
+    if pms:
+        pm_list = pms.split(',')
+        pm_ints = [int(pm) for pm in pm_list]
+        query = query.filter(ProductoERP.subcategoria_id.in_(
+            db.query(Subcategoria.id).filter(Subcategoria.pm_id.in_(pm_ints))
+        ))
+
+    # Filtro de MLA
+    if con_mla is not None:
+        if con_mla:
+            items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            query = query.filter(ProductoERP.item_id.in_(items_con_mla_subquery))
+        else:
+            items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
+
+            query = query.filter(
+                ~ProductoERP.item_id.in_(items_con_mla_subquery),
+                ~ProductoERP.item_id.in_(items_en_banlist_subquery)
+            )
+
+    # Filtro de productos nuevos
+    if nuevos_ultimos_7_dias:
+        fecha_limite = datetime.now(timezone.utc) - timedelta(days=7)
+        query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
+
+    # CALCULAR ESTADÍSTICAS SOBRE PRODUCTOS FILTRADOS
+
+    hoy = date.today()
+    fecha_limite_nuevos = datetime.now(timezone.utc) - timedelta(days=7)
+
+    # Subqueries para cálculos
+    items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+        MercadoLibreItemPublicado.mlp_id.isnot(None),
+        or_(
+            MercadoLibreItemPublicado.optval_statusId == 2,
+            MercadoLibreItemPublicado.optval_statusId.is_(None)
+        )
+    ).distinct().subquery()
+
+    items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
+
+    items_con_oferta_subquery = db.query(PublicacionML.item_id).join(
+        OfertaML, PublicacionML.mla == OfertaML.mla
+    ).filter(
+        OfertaML.fecha_desde <= hoy,
+        OfertaML.fecha_hasta >= hoy,
+        OfertaML.pvp_seller.isnot(None)
+    ).distinct().subquery()
+
+    # Total según filtros
+    total_filtrado = query.count()
+
+    # Estadísticas con COUNT SQL
+    total_con_stock = query.filter(ProductoERP.stock > 0).count()
+    total_con_precio = query.filter(ProductoPricing.precio_lista_ml.isnot(None)).count()
+    nuevos = query.filter(ProductoERP.fecha_sync >= fecha_limite_nuevos).count()
+
+    nuevos_sin_precio = query.filter(
+        ProductoERP.fecha_sync >= fecha_limite_nuevos,
+        or_(
+            ProductoPricing.precio_lista_ml.is_(None),
+            ProductoPricing.item_id.is_(None)
+        )
+    ).count()
+
+    stock_sin_precio = query.filter(
+        ProductoERP.stock > 0,
+        or_(
+            ProductoPricing.precio_lista_ml.is_(None),
+            ProductoPricing.item_id.is_(None)
+        )
+    ).count()
+
+    sin_mla_count = query.filter(
+        ~ProductoERP.item_id.in_(items_con_mla_subquery),
+        ~ProductoERP.item_id.in_(items_en_banlist_subquery)
+    ).count()
+
+    sin_mla_con_stock = query.filter(
+        ~ProductoERP.item_id.in_(items_con_mla_subquery),
+        ~ProductoERP.item_id.in_(items_en_banlist_subquery),
+        ProductoERP.stock > 0
+    ).count()
+
+    sin_mla_sin_stock = query.filter(
+        ~ProductoERP.item_id.in_(items_con_mla_subquery),
+        ~ProductoERP.item_id.in_(items_en_banlist_subquery),
+        ProductoERP.stock == 0
+    ).count()
+
+    sin_mla_nuevos = query.filter(
+        ~ProductoERP.item_id.in_(items_con_mla_subquery),
+        ~ProductoERP.item_id.in_(items_en_banlist_subquery),
+        ProductoERP.fecha_sync >= fecha_limite_nuevos
+    ).count()
+
+    mejor_oferta_sin_rebate = query.filter(
+        ProductoERP.item_id.in_(items_con_oferta_subquery),
+        or_(
+            ProductoPricing.participa_rebate.is_(False),
+            ProductoPricing.participa_rebate.is_(None),
+            ProductoPricing.item_id.is_(None)
+        )
+    ).count()
+
+    markup_negativo_clasica = query.filter(ProductoPricing.markup_calculado < 0).count()
+    markup_negativo_rebate = query.filter(ProductoPricing.markup_rebate < 0).count()
+    markup_negativo_oferta = query.filter(ProductoPricing.markup_oferta < 0).count()
+    markup_negativo_web = query.filter(ProductoPricing.markup_web_real < 0).count()
+
+    return {
+        "total_productos": total_filtrado,
+        "nuevos_ultimos_7_dias": nuevos,
+        "nuevos_sin_precio": nuevos_sin_precio,
+        "con_stock_sin_precio": stock_sin_precio,
+        "sin_mla_no_banlist": sin_mla_count,
+        "sin_mla_con_stock": sin_mla_con_stock,
+        "sin_mla_sin_stock": sin_mla_sin_stock,
+        "sin_mla_nuevos": sin_mla_nuevos,
+        "mejor_oferta_sin_rebate": mejor_oferta_sin_rebate,
+        "markup_negativo_clasica": markup_negativo_clasica,
+        "markup_negativo_rebate": markup_negativo_rebate,
+        "markup_negativo_oferta": markup_negativo_oferta,
+        "markup_negativo_web": markup_negativo_web,
+        "con_stock": total_con_stock,
+        "con_precio": total_con_precio
+    }
+
+
 @router.get("/categorias")
 async def listar_categorias(db: Session = Depends(get_db)):
     categorias = db.query(ProductoERP.categoria).distinct().order_by(ProductoERP.categoria).all()
