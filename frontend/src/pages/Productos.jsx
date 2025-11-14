@@ -1333,14 +1333,27 @@ export default function Productos() {
           <div className="stat-value">{stats?.total_productos?.toLocaleString('es-AR') || 0}</div>
         </div>
 
+        <div className="stat-card clickable" title="Desglose de stock y precios">
+          <div className="stat-label">📊 Stock & Precio</div>
+          <div className="stat-value-group">
+            <div className="stat-sub-item">
+              <span className="stat-sub-label">Con Stock:</span>
+              <span className="stat-sub-value green">{stats?.con_stock?.toLocaleString('es-AR') || 0}</span>
+            </div>
+            <div className="stat-sub-item">
+              <span className="stat-sub-label">Con Precio:</span>
+              <span className="stat-sub-value blue">{stats?.con_precio?.toLocaleString('es-AR') || 0}</span>
+            </div>
+            <div className="stat-sub-item">
+              <span className="stat-sub-label">Stock sin $:</span>
+              <span className="stat-sub-value red">{stats?.con_stock_sin_precio?.toLocaleString('es-AR') || 0}</span>
+            </div>
+          </div>
+        </div>
+
         <div className="stat-card clickable" title="Productos cargados en los últimos 7 días">
           <div className="stat-label">✨ Nuevos (7 días)</div>
           <div className="stat-value blue">{stats?.nuevos_ultimos_7_dias?.toLocaleString('es-AR') || 0}</div>
-        </div>
-
-        <div className="stat-card clickable" title="Productos con stock disponible pero sin precio asignado">
-          <div className="stat-label">⚠️ Stock sin Precio</div>
-          <div className="stat-value red">{stats?.con_stock_sin_precio?.toLocaleString('es-AR') || 0}</div>
         </div>
 
         <div className="stat-card clickable" title="Productos sin publicación en MercadoLibre (excluye banlist)">

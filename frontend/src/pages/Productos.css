@@ -23,6 +23,10 @@
   box-shadow: var(--shadow-sm);
   text-align: center;
   transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }
 
 .stat-card.clickable {
@@ -47,6 +51,10 @@
   font-weight: 700;
   color: var(--text-primary);
   text-align: center;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .stat-value.green { color: var(--success); }
