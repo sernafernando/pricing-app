@@ -1457,6 +1457,15 @@ export default function Productos() {
     if (filtros.markupClasica === undefined) setFiltroMarkupClasica(null);
     else setFiltroMarkupClasica(filtros.markupClasica);
 
+    if (filtros.markupRebate === undefined) setFiltroMarkupRebate(null);
+    else setFiltroMarkupRebate(filtros.markupRebate);
+
+    if (filtros.markupOferta === undefined) setFiltroMarkupOferta(null);
+    else setFiltroMarkupOferta(filtros.markupOferta);
+
+    if (filtros.markupWebTransf === undefined) setFiltroMarkupWebTransf(null);
+    else setFiltroMarkupWebTransf(filtros.markupWebTransf);
+
     if (filtros.mla === undefined) setFiltroMLA(null);
     else setFiltroMLA(filtros.mla);
 
@@ -1464,10 +1473,9 @@ export default function Productos() {
     else setFiltroNuevos(filtros.nuevos);
 
     // Limpiar otros filtros avanzados
-    setFiltroWebTransf(null);
-    setFiltroMarkupRebate(null);
-    setFiltroMarkupOferta(null);
-    setFiltroMarkupWebTransf(null);
+    if (filtros.webTransf === undefined) setFiltroWebTransf(null);
+    else setFiltroWebTransf(filtros.webTransf);
+
     setFiltroOutOfCards(null);
 
     setPage(1);
