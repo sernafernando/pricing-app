@@ -1060,7 +1060,8 @@ async def obtener_estadisticas(
 
     # Filtro de productos nuevos (últimos 7 días)
     if nuevos_ultimos_7_dias:
-        fecha_limite = datetime.now() - timedelta(days=7)
+        from datetime import timezone
+        fecha_limite = datetime.now(timezone.utc) - timedelta(days=7)
         query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
     # ESTADÍSTICAS CALCULADAS
@@ -1078,7 +1079,8 @@ async def obtener_estadisticas(
     total_filtrado = len(productos_filtrados)
 
     # Contadores
-    fecha_limite_nuevos = datetime.now() - timedelta(days=7)
+    from datetime import timezone
+    fecha_limite_nuevos = datetime.now(timezone.utc) - timedelta(days=7)
     hoy = date.today()
 
     # Obtener item_ids de productos con ofertas vigentes
