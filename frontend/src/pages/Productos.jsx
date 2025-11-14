@@ -113,10 +113,10 @@ export default function Productos() {
     cargarProductos();
   }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroNuevos]);
 
-  // Cargar stats globales solo una vez al inicio
+  // Cargar stats dinámicos cada vez que cambian los filtros
   useEffect(() => {
     cargarStats();
-  }, []);
+  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroNuevos]);
 
   // Cargar marcas y subcategorías cuando se seleccionan PMs
   useEffect(() => {
@@ -144,8 +144,43 @@ export default function Productos() {
 
   const cargarStats = async () => {
     try {
-      // Cargar estadísticas globales (sin filtros)
-      const statsRes = await productosAPI.stats({});
+      // Construir parámetros con todos los filtros activos (igual que cargarProductos)
+      const params = {};
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (filtroStock === 'con_stock') params.con_stock = true;
+      if (filtroStock === 'sin_stock') params.con_stock = false;
+      if (filtroPrecio === 'con_precio') params.con_precio = true;
+      if (filtroPrecio === 'sin_precio') params.con_precio = false;
+      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
+      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
+      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
+      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
+      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
+      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
+      if (filtroRebate === 'con_rebate') params.con_rebate = true;
+      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
+      if (filtroOferta === 'con_oferta') params.con_oferta = true;
+      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
+      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
+      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
+      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
+      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
+      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
+      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
+      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
+      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
+      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
+      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
+      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
+      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
+      if (filtroMLA === 'con_mla') params.con_mla = true;
+      if (filtroMLA === 'sin_mla') params.con_mla = false;
+      if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
+      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
+      if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
+
+      // Cargar estadísticas dinámicas según filtros aplicados
+      const statsRes = await productosAPI.statsDinamicos(params);
       setStats(statsRes.data);
     } catch (error) {
       console.error('Error cargando stats:', error);
