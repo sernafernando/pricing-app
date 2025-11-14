@@ -861,6 +861,8 @@ async def obtener_estadisticas(
     Obtiene estadísticas de productos según filtros aplicados.
     Si no se aplican filtros, devuelve estadísticas globales.
     """
+    print(f"🔍 /stats recibió: con_rebate={con_rebate}, con_oferta={con_oferta}, con_mla={con_mla}, search={search}")
+
     from datetime import datetime, timedelta
     from app.models.auditoria_precio import AuditoriaPrecio
     from app.models.item_sin_mla_banlist import ItemSinMLABanlist
