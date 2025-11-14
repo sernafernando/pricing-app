@@ -11,8 +11,8 @@ class TBBrand(Base):
 
     comp_id = Column(Integer, primary_key=True)
     brand_id = Column(Integer, primary_key=True)
+    bra_id = Column(Integer)
     brand_desc = Column(String(255), nullable=False)
-    brand_code = Column(String(50))
 
     def __repr__(self):
         return f"<TBBrand(brand_id={self.brand_id}, brand_desc='{self.brand_desc}')>"

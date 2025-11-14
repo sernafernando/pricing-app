@@ -53,12 +53,12 @@ def sync_brands(db_pg: Session):
     conn_sql = get_sql_server_connection()
     cursor = conn_sql.cursor()
 
-    query = "SELECT comp_id, brand_id, brand_desc, brand_code FROM tbBrand"
+    query = "SELECT comp_id, brand_id, bra_id, brand_desc FROM tbBrand"
     cursor.execute(query)
 
     total = 0
     for row in cursor:
-        comp_id, brand_id, brand_desc, brand_code = row
+        comp_id, brand_id, bra_id, brand_desc = row
 
         # Verificar si existe
         existente = db_pg.query(TBBrand).filter(
@@ -68,13 +68,13 @@ def sync_brands(db_pg: Session):
 
         if existente:
             existente.brand_desc = brand_desc
-            existente.brand_code = brand_code
+            existente.bra_id = bra_id
         else:
             nueva = TBBrand(
                 comp_id=comp_id,
                 brand_id=brand_id,
-                brand_desc=brand_desc,
-                brand_code=brand_code
+                bra_id=bra_id,
+                brand_desc=brand_desc
             )
             db_pg.add(nueva)
 
@@ -96,12 +96,12 @@ def sync_categories(db_pg: Session):
     conn_sql = get_sql_server_connection()
     cursor = conn_sql.cursor()
 
-    query = "SELECT comp_id, cat_id, cat_desc, cat_code FROM tbCategory"
+    query = "SELECT comp_id, cat_id, cat_desc FROM tbCategory"
     cursor.execute(query)
 
     total = 0
     for row in cursor:
-        comp_id, cat_id, cat_desc, cat_code = row
+        comp_id, cat_id, cat_desc = row
 
         existente = db_pg.query(TBCategory).filter(
             TBCategory.comp_id == comp_id,
@@ -110,13 +110,11 @@ def sync_categories(db_pg: Session):
 
         if existente:
             existente.cat_desc = cat_desc
-            existente.cat_code = cat_code
         else:
             nueva = TBCategory(
                 comp_id=comp_id,
                 cat_id=cat_id,
-                cat_desc=cat_desc,
-                cat_code=cat_code
+                cat_desc=cat_desc
             )
             db_pg.add(nueva)
 
@@ -138,12 +136,12 @@ def sync_subcategories(db_pg: Session):
     conn_sql = get_sql_server_connection()
     cursor = conn_sql.cursor()
 
-    query = "SELECT comp_id, cat_id, subcat_id, subcat_desc, subcat_code FROM tbSubCategory"
+    query = "SELECT comp_id, cat_id, subcat_id, subcat_desc FROM tbSubCategory"
     cursor.execute(query)
 
     total = 0
     for row in cursor:
-        comp_id, cat_id, subcat_id, subcat_desc, subcat_code = row
+        comp_id, cat_id, subcat_id, subcat_desc = row
 
         existente = db_pg.query(TBSubCategory).filter(
             TBSubCategory.comp_id == comp_id,
@@ -153,14 +151,12 @@ def sync_subcategories(db_pg: Session):
 
         if existente:
             existente.subcat_desc = subcat_desc
-            existente.subcat_code = subcat_code
         else:
             nueva = TBSubCategory(
                 comp_id=comp_id,
                 cat_id=cat_id,
                 subcat_id=subcat_id,
-                subcat_desc=subcat_desc,
-                subcat_code=subcat_code
+                subcat_desc=subcat_desc
             )
             db_pg.add(nueva)
 
@@ -185,7 +181,7 @@ def sync_items(db_pg: Session):
     query = """
         SELECT comp_id, item_id, item_code, item_desc,
                cat_id, subcat_id, brand_id, item_liquidation,
-               item_active, item_cd, item_chd
+               item_cd, item_LastUpdate
         FROM tbItem
     """
     cursor.execute(query)
@@ -193,7 +189,7 @@ def sync_items(db_pg: Session):
     total = 0
     for row in cursor:
         (comp_id, item_id, item_code, item_desc, cat_id, subcat_id,
-         brand_id, item_liquidation, item_active, created_at, updated_at) = row
+         brand_id, item_liquidation, item_cd, item_LastUpdate) = row
 
         existente = db_pg.query(TBItem).filter(
             TBItem.comp_id == comp_id,
@@ -207,8 +203,7 @@ def sync_items(db_pg: Session):
             existente.subcat_id = subcat_id
             existente.brand_id = brand_id
             existente.item_liquidation = item_liquidation
-            existente.item_active = item_active
-            existente.updated_at = updated_at
+            existente.item_LastUpdate = item_LastUpdate
         else:
             nuevo = TBItem(
                 comp_id=comp_id,
@@ -219,9 +214,8 @@ def sync_items(db_pg: Session):
                 subcat_id=subcat_id,
                 brand_id=brand_id,
                 item_liquidation=item_liquidation,
-                item_active=item_active,
-                created_at=created_at,
-                updated_at=updated_at
+                item_cd=item_cd,
+                item_LastUpdate=item_LastUpdate
             )
             db_pg.add(nuevo)
 
@@ -243,12 +237,12 @@ def sync_tax_names(db_pg: Session):
     conn_sql = get_sql_server_connection()
     cursor = conn_sql.cursor()
 
-    query = "SELECT comp_id, tax_id, tax_name, tax_desc FROM tbTaxName"
+    query = "SELECT comp_id, tax_id, tax_desc, tax_percentage FROM tbTaxName"
     cursor.execute(query)
 
     total = 0
     for row in cursor:
-        comp_id, tax_id, tax_name, tax_desc = row
+        comp_id, tax_id, tax_desc, tax_percentage = row
 
         existente = db_pg.query(TBTaxName).filter(
             TBTaxName.comp_id == comp_id,
@@ -256,14 +250,14 @@ def sync_tax_names(db_pg: Session):
         ).first()
 
         if existente:
-            existente.tax_name = tax_name
             existente.tax_desc = tax_desc
+            existente.tax_percentage = tax_percentage
         else:
             nuevo = TBTaxName(
                 comp_id=comp_id,
                 tax_id=tax_id,
-                tax_name=tax_name,
-                tax_desc=tax_desc
+                tax_desc=tax_desc,
+                tax_percentage=tax_percentage
             )
             db_pg.add(nuevo)
 
@@ -282,12 +276,12 @@ def sync_item_taxes(db_pg: Session):
     conn_sql = get_sql_server_connection()
     cursor = conn_sql.cursor()
 
-    query = "SELECT comp_id, item_id, tax_id, tax_percentage FROM tbItemTaxes"
+    query = "SELECT comp_id, item_id, tax_id, tax_class FROM tbItemTaxes"
     cursor.execute(query)
 
     total = 0
     for row in cursor:
-        comp_id, item_id, tax_id, tax_percentage = row
+        comp_id, item_id, tax_id, tax_class = row
 
         existente = db_pg.query(TBItemTaxes).filter(
             TBItemTaxes.comp_id == comp_id,
@@ -296,13 +290,13 @@ def sync_item_taxes(db_pg: Session):
         ).first()
 
         if existente:
-            existente.tax_percentage = tax_percentage
+            existente.tax_class = tax_class
         else:
             nuevo = TBItemTaxes(
                 comp_id=comp_id,
                 item_id=item_id,
                 tax_id=tax_id,
-                tax_percentage=tax_percentage
+                tax_class=tax_class
             )
             db_pg.add(nuevo)
 

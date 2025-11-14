@@ -12,7 +12,6 @@ class TBCategory(Base):
     comp_id = Column(Integer, primary_key=True)
     cat_id = Column(Integer, primary_key=True)
     cat_desc = Column(String(255), nullable=False)
-    cat_code = Column(String(50))
 
     def __repr__(self):
         return f"<TBCategory(cat_id={self.cat_id}, cat_desc='{self.cat_desc}')>"

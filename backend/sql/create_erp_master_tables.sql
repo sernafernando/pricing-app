@@ -4,8 +4,8 @@
 CREATE TABLE IF NOT EXISTS tb_brand (
     comp_id INTEGER NOT NULL,
     brand_id INTEGER NOT NULL,
+    bra_id INTEGER,
     brand_desc VARCHAR(255) NOT NULL,
-    brand_code VARCHAR(50),
     PRIMARY KEY (comp_id, brand_id)
 );
 
@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS tb_category (
     comp_id INTEGER NOT NULL,
     cat_id INTEGER NOT NULL,
     cat_desc VARCHAR(255) NOT NULL,
-    cat_code VARCHAR(50),
     PRIMARY KEY (comp_id, cat_id)
 );
 
@@ -28,7 +27,6 @@ CREATE TABLE IF NOT EXISTS tb_subcategory (
     cat_id INTEGER NOT NULL,
     subcat_id INTEGER NOT NULL,
     subcat_desc VARCHAR(255) NOT NULL,
-    subcat_code VARCHAR(50),
     PRIMARY KEY (comp_id, cat_id, subcat_id)
 );
 
@@ -45,9 +43,8 @@ CREATE TABLE IF NOT EXISTS tb_item (
     subcat_id INTEGER,
     brand_id INTEGER,
     item_liquidation VARCHAR(50),
-    item_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP,
-    updated_at TIMESTAMP,
+    item_cd TIMESTAMP,
+    item_lastupdate TIMESTAMP,
     PRIMARY KEY (comp_id, item_id)
 );
 
@@ -60,8 +57,8 @@ CREATE INDEX IF NOT EXISTS idx_tb_item_subcat_id ON tb_item(subcat_id);
 CREATE TABLE IF NOT EXISTS tb_tax_name (
     comp_id INTEGER NOT NULL,
     tax_id INTEGER NOT NULL,
-    tax_name VARCHAR(100) NOT NULL,
-    tax_desc VARCHAR(255),
+    tax_desc VARCHAR(255) NOT NULL,
+    tax_percentage NUMERIC(10, 2),
     PRIMARY KEY (comp_id, tax_id)
 );
 
@@ -72,7 +69,7 @@ CREATE TABLE IF NOT EXISTS tb_item_taxes (
     comp_id INTEGER NOT NULL,
     item_id INTEGER NOT NULL,
     tax_id INTEGER NOT NULL,
-    tax_percentage NUMERIC(10, 2),
+    tax_class VARCHAR(50),
     PRIMARY KEY (comp_id, item_id, tax_id)
 );
 
@@ -80,9 +77,9 @@ CREATE INDEX IF NOT EXISTS idx_tb_item_taxes_item_id ON tb_item_taxes(item_id);
 CREATE INDEX IF NOT EXISTS idx_tb_item_taxes_tax_id ON tb_item_taxes(tax_id);
 
 -- Permisos para el usuario de la aplicación
-GRANT SELECT, INSERT, UPDATE, DELETE ON tb_brand TO pricing_app_user;
-GRANT SELECT, INSERT, UPDATE, DELETE ON tb_category TO pricing_app_user;
-GRANT SELECT, INSERT, UPDATE, DELETE ON tb_subcategory TO pricing_app_user;
-GRANT SELECT, INSERT, UPDATE, DELETE ON tb_item TO pricing_app_user;
-GRANT SELECT, INSERT, UPDATE, DELETE ON tb_tax_name TO pricing_app_user;
-GRANT SELECT, INSERT, UPDATE, DELETE ON tb_item_taxes TO pricing_app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_brand TO pricing_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_category TO pricing_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_subcategory TO pricing_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_item TO pricing_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_tax_name TO pricing_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tb_item_taxes TO pricing_user;

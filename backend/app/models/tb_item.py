@@ -1,7 +1,7 @@
 """
 Modelo para tbItem - Items/Productos
 """
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, DateTime
 from app.core.database import Base
 
 
@@ -17,9 +17,8 @@ class TBItem(Base):
     subcat_id = Column(Integer)
     brand_id = Column(Integer)
     item_liquidation = Column(String(50))
-    item_active = Column(Boolean, default=True)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
+    item_cd = Column(DateTime)  # created date
+    item_LastUpdate = Column(DateTime)  # last update
 
     def __repr__(self):
         return f"<TBItem(item_id={self.item_id}, item_code='{self.item_code}', item_desc='{self.item_desc}')>"
