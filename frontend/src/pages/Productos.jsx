@@ -1337,13 +1337,35 @@ export default function Productos() {
 
   // Funciones para aplicar filtros desde las stats
   const aplicarFiltroStat = (filtros) => {
-    if (filtros.stock !== undefined) setFiltroStock(filtros.stock);
-    if (filtros.precio !== undefined) setFiltroPrecio(filtros.precio);
-    if (filtros.rebate !== undefined) setFiltroRebate(filtros.rebate);
-    if (filtros.oferta !== undefined) setFiltroOferta(filtros.oferta);
-    if (filtros.markupClasica !== undefined) setFiltroMarkupClasica(filtros.markupClasica);
-    if (filtros.mla !== undefined) setFiltroMLA(filtros.mla);
-    if (filtros.nuevos !== undefined) setFiltroNuevos(filtros.nuevos);
+    // Limpiar los filtros que no están siendo aplicados
+    if (filtros.stock === undefined) setFiltroStock("todos");
+    else setFiltroStock(filtros.stock);
+
+    if (filtros.precio === undefined) setFiltroPrecio("todos");
+    else setFiltroPrecio(filtros.precio);
+
+    if (filtros.rebate === undefined) setFiltroRebate(null);
+    else setFiltroRebate(filtros.rebate);
+
+    if (filtros.oferta === undefined) setFiltroOferta(null);
+    else setFiltroOferta(filtros.oferta);
+
+    if (filtros.markupClasica === undefined) setFiltroMarkupClasica(null);
+    else setFiltroMarkupClasica(filtros.markupClasica);
+
+    if (filtros.mla === undefined) setFiltroMLA(null);
+    else setFiltroMLA(filtros.mla);
+
+    if (filtros.nuevos === undefined) setFiltroNuevos(null);
+    else setFiltroNuevos(filtros.nuevos);
+
+    // Limpiar otros filtros avanzados
+    setFiltroWebTransf(null);
+    setFiltroMarkupRebate(null);
+    setFiltroMarkupOferta(null);
+    setFiltroMarkupWebTransf(null);
+    setFiltroOutOfCards(null);
+
     setPage(1);
   };
 
