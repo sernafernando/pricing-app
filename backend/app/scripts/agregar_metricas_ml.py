@@ -332,18 +332,21 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
         print(f"\n{'='*60}")
         print(f"AGREGACIÓN DE MÉTRICAS ML")
         print(f"{'='*60}")
-        print(f"Rango: {from_date} a {to_date}")
+
+        # Sumar 1 día al to_date para incluir todo el día
+        to_date_inclusive = to_date + timedelta(days=1)
+        print(f"Rango: {from_date} a {to_date} (inclusive)")
+        print(f"Query: {from_date} <= fecha < {to_date_inclusive}")
         print()
 
         constantes = obtener_constantes_pricing(db)
         print(f"Constantes: MONTOT3={constantes['monto_tier3']}")
         print()
 
-        to_date_plus_one = to_date + timedelta(days=1)
         orders = db.query(MercadoLibreOrderHeader).filter(
             and_(
                 MercadoLibreOrderHeader.ml_date_created >= from_date,
-                MercadoLibreOrderHeader.ml_date_created < to_date_plus_one
+                MercadoLibreOrderHeader.ml_date_created < to_date_inclusive
             )
         ).all()
 
