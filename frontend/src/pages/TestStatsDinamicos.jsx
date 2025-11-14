@@ -75,6 +75,15 @@ const TestStatsDinamicos = () => {
           <button onClick={() => agregarFiltro('con_oferta', true)} className="btn-filtro">
             Con Oferta
           </button>
+          <button
+            onClick={() => {
+              setFiltros({ con_oferta: true, con_rebate: false });
+            }}
+            className="btn-filtro"
+            style={{ background: '#ff6b6b', color: 'white' }}
+          >
+            Con Oferta SIN Rebate
+          </button>
           <button onClick={() => agregarFiltro('markup_clasica_positivo', false)} className="btn-filtro">
             Markup Negativo Clásica
           </button>
