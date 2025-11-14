@@ -284,6 +284,27 @@ async def listar_productos(
                 )
             )
 
+    # Filtro de oferta (ofertas vigentes en MercadoLibre)
+    if con_oferta is not None:
+        from app.models.oferta_ml import OfertaML
+        from app.models.publicacion_ml import PublicacionML
+        from datetime import date
+
+        hoy_date = date.today()
+
+        items_con_oferta_vigente_subquery = db.query(PublicacionML.item_id).join(
+            OfertaML, PublicacionML.mla == OfertaML.mla
+        ).filter(
+            OfertaML.fecha_desde <= hoy_date,
+            OfertaML.fecha_hasta >= hoy_date,
+            OfertaML.pvp_seller.isnot(None)
+        ).distinct().subquery()
+
+        if con_oferta:
+            query = query.filter(ProductoERP.item_id.in_(items_con_oferta_vigente_subquery))
+        else:
+            query = query.filter(~ProductoERP.item_id.in_(items_con_oferta_vigente_subquery))
+
     # Filtro de colores
     if colores:
         colores_list = colores.split(',')
@@ -392,12 +413,12 @@ async def listar_productos(
             else:
                 query = query.order_by(col.desc().nullslast())
 
-    # Para filtros de oferta y markup rebate/oferta, necesitamos procesar después
+    # Para markup rebate/oferta, necesitamos procesar después
     # ya que estos valores se calculan dinámicamente
 
     # Contar total antes de aplicar filtros complejos y ordenamientos dinámicos
     total_productos = None
-    if con_oferta is None and markup_rebate_positivo is None and markup_oferta_positivo is None and not orden_requiere_calculo:
+    if markup_rebate_positivo is None and markup_oferta_positivo is None and not orden_requiere_calculo:
         total_productos = query.count()
         offset = (page - 1) * page_size
         results = query.offset(offset).limit(page_size).all()
@@ -636,12 +657,8 @@ async def listar_productos(
         # Aplicar filtros dinámicos
         incluir = True
 
-        if con_oferta is not None:
-            tiene_oferta = mejor_oferta_precio is not None
-            if con_oferta and not tiene_oferta:
-                incluir = False
-            elif not con_oferta and tiene_oferta:
-                incluir = False
+        # El filtro de con_oferta ahora se aplica en el query SQL (líneas 287-306)
+        # por lo que no necesitamos filtrarlo aquí
 
         if markup_rebate_positivo is not None and incluir:
             if markup_rebate is not None:
@@ -666,7 +683,7 @@ async def listar_productos(
             productos.append(producto_obj)
 
     # Si aplicamos filtros dinámicos o ordenamiento dinámico, necesitamos paginar manualmente
-    if con_oferta is not None or markup_rebate_positivo is not None or markup_oferta_positivo is not None or orden_requiere_calculo:
+    if markup_rebate_positivo is not None or markup_oferta_positivo is not None or orden_requiere_calculo:
         # Ordenamiento dinámico si es necesario
         if orden_requiere_calculo and orden_campos and orden_direcciones:
             campos = orden_campos.split(',')
