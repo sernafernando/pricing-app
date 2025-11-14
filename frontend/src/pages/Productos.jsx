@@ -143,118 +143,43 @@ export default function Productos() {
 
   const cargarStats = async () => {
     try {
-      // Función helper para construir params base
-      const buildParams = () => {
-        const params = { page: 1, page_size: 1 };
-        if (debouncedSearch) params.search = debouncedSearch;
-        if (filtroStock === 'con_stock') params.con_stock = true;
-        if (filtroStock === 'sin_stock') params.con_stock = false;
-        if (filtroPrecio === 'con_precio') params.con_precio = true;
-        if (filtroPrecio === 'sin_precio') params.con_precio = false;
-        if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
-        if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
-        if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-        if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-        if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-        if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-        if (filtroRebate === 'con_rebate') params.con_rebate = true;
-        if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-        if (filtroOferta === 'con_oferta') params.con_oferta = true;
-        if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-        if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-        if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-        if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-        if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-        if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-        if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-        if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-        if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-        if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-        if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-        if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-        if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-        if (filtroMLA === 'con_mla') params.con_mla = true;
-        if (filtroMLA === 'sin_mla') params.con_mla = false;
-        if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
-        if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-        if (pmsSeleccionados.length > 0) params.product_managers = pmsSeleccionados.join(',');
-        return params;
-      };
+      // Construir params con los mismos filtros que cargarProductos
+      const params = {};
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (filtroStock === 'con_stock') params.con_stock = true;
+      if (filtroStock === 'sin_stock') params.con_stock = false;
+      if (filtroPrecio === 'con_precio') params.con_precio = true;
+      if (filtroPrecio === 'sin_precio') params.con_precio = false;
+      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
+      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
+      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
+      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
+      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
+      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
+      if (filtroRebate === 'con_rebate') params.con_rebate = true;
+      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
+      if (filtroOferta === 'con_oferta') params.con_oferta = true;
+      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
+      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
+      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
+      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
+      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
+      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
+      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
+      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
+      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
+      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
+      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
+      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
+      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
+      if (filtroMLA === 'con_mla') params.con_mla = true;
+      if (filtroMLA === 'sin_mla') params.con_mla = false;
+      if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
+      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
+      if (pmsSeleccionados.length > 0) params.product_managers = pmsSeleccionados.join(',');
 
-      // Hacer llamadas paralelas usando el endpoint /productos para cada stat
-      // IMPORTANTE: No combinar filtros incompatibles (con_oferta requiere publicación ML, pero con_mla=false la excluye)
-      const baseHasOferta = buildParams().con_oferta !== undefined;
-
-      const requests = [
-        productosAPI.listar(buildParams()),  // total
-        productosAPI.listar({...buildParams(), con_stock: true}),  // con stock
-        productosAPI.listar({...buildParams(), con_precio: true}),  // con precio
-        productosAPI.listar({...buildParams(), con_stock: true, con_precio: false}),  // stock sin precio
-        productosAPI.listar({...buildParams(), nuevos_ultimos_7_dias: true}),  // nuevos
-        productosAPI.listar({...buildParams(), nuevos_ultimos_7_dias: true, con_precio: false}),  // nuevos sin precio
-      ];
-
-      // Solo agregar stats de "sin MLA" si NO hay filtro de oferta activo (son incompatibles)
-      if (!baseHasOferta) {
-        requests.push(
-          productosAPI.listar({...buildParams(), con_mla: false}),  // sin MLA
-          productosAPI.listar({...buildParams(), con_mla: false, con_stock: true}),  // sin MLA con stock
-          productosAPI.listar({...buildParams(), con_mla: false, con_stock: false}),  // sin MLA sin stock
-          productosAPI.listar({...buildParams(), con_mla: false, nuevos_ultimos_7_dias: true})  // sin MLA nuevos
-        );
-      } else {
-        // Agregar valores dummy para mantener el orden del array
-        requests.push(
-          Promise.resolve({ data: { total: 0 } }),
-          Promise.resolve({ data: { total: 0 } }),
-          Promise.resolve({ data: { total: 0 } }),
-          Promise.resolve({ data: { total: 0 } })
-        );
-      }
-
-      requests.push(
-        productosAPI.listar({...buildParams(), con_oferta: true, con_rebate: false}),  // oferta sin rebate
-        productosAPI.listar({...buildParams(), markup_clasica_positivo: false}),  // markup neg clásica
-        productosAPI.listar({...buildParams(), markup_rebate_positivo: false}),  // markup neg rebate
-        productosAPI.listar({...buildParams(), markup_oferta_positivo: false}),  // markup neg oferta
-        productosAPI.listar({...buildParams(), markup_web_transf_positivo: false})  // markup neg web
-      );
-
-      const [
-        totalRes,
-        conStockRes,
-        conPrecioRes,
-        stockSinPrecioRes,
-        nuevosRes,
-        nuevosSinPrecioRes,
-        sinMLARes,
-        sinMLAConStockRes,
-        sinMLASinStockRes,
-        sinMLANuevosRes,
-        ofertaSinRebateRes,
-        markupNegClasicaRes,
-        markupNegRebateRes,
-        markupNegOfertaRes,
-        markupNegWebRes
-      ] = await Promise.all(requests);
-
-      setStats({
-        total_productos: totalRes.data.total,
-        con_stock: conStockRes.data.total,
-        con_precio: conPrecioRes.data.total,
-        con_stock_sin_precio: stockSinPrecioRes.data.total,
-        nuevos_ultimos_7_dias: nuevosRes.data.total,
-        nuevos_sin_precio: nuevosSinPrecioRes.data.total,
-        sin_mla_no_banlist: sinMLARes.data.total,
-        sin_mla_con_stock: sinMLAConStockRes.data.total,
-        sin_mla_sin_stock: sinMLASinStockRes.data.total,
-        sin_mla_nuevos: sinMLANuevosRes.data.total,
-        mejor_oferta_sin_rebate: ofertaSinRebateRes.data.total,
-        markup_negativo_clasica: markupNegClasicaRes.data.total,
-        markup_negativo_rebate: markupNegRebateRes.data.total,
-        markup_negativo_oferta: markupNegOfertaRes.data.total,
-        markup_negativo_web: markupNegWebRes.data.total
-      });
+      const statsRes = await productosAPI.stats(params);
+      setStats(statsRes.data);
     } catch (error) {
       console.error('Error:', error);
     }

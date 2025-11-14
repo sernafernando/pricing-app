@@ -110,8 +110,6 @@ async def listar_productos(
     nuevos_ultimos_7_dias: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
-    print(f"🔍 Backend recibió - con_mla: {con_mla}, nuevos_ultimos_7_dias: {nuevos_ultimos_7_dias}")
-
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
@@ -1030,35 +1028,34 @@ async def obtener_estadisticas(
 
         query = query.filter(ProductoERP.item_id.in_(subquery_auditoria))
 
-    # Filtro de MLA (con/sin publicación)
+    # Filtro de MLA (con/sin publicación) - usar subconsultas para evitar conflictos de join
     if con_mla is not None:
         if con_mla:
             # Con MLA: tienen publicación activa
-            query = query.join(
-                MercadoLibreItemPublicado,
-                and_(
-                    ProductoERP.item_id == MercadoLibreItemPublicado.item_id,
-                    or_(
-                        MercadoLibreItemPublicado.optval_statusId == 2,
-                        MercadoLibreItemPublicado.optval_statusId.is_(None)
-                    )
+            items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
                 )
-            ).filter(MercadoLibreItemPublicado.mlp_id.isnot(None))
+            ).distinct().subquery()
+
+            query = query.filter(ProductoERP.item_id.in_(items_con_mla_subquery))
         else:
             # Sin MLA: no tienen publicación (excluye banlist)
-            items_en_banlist = db.query(ItemSinMLABanlist.item_id).subquery()
-            query = query.outerjoin(
-                MercadoLibreItemPublicado,
-                and_(
-                    ProductoERP.item_id == MercadoLibreItemPublicado.item_id,
-                    or_(
-                        MercadoLibreItemPublicado.optval_statusId == 2,
-                        MercadoLibreItemPublicado.optval_statusId.is_(None)
-                    )
+            items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
                 )
-            ).filter(
-                MercadoLibreItemPublicado.mlp_id.is_(None),
-                ~ProductoERP.item_id.in_(items_en_banlist)
+            ).distinct().subquery()
+
+            items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
+
+            query = query.filter(
+                ~ProductoERP.item_id.in_(items_con_mla_subquery),
+                ~ProductoERP.item_id.in_(items_en_banlist_subquery)
             )
 
     # Filtro de productos nuevos (últimos 7 días)
@@ -1088,20 +1085,20 @@ async def obtener_estadisticas(
         )
     ).count()
 
-    # Sin MLA (no en banlist)
-    items_en_banlist = db.query(ItemSinMLABanlist.item_id).subquery()
-    sin_mla_query = query.outerjoin(
-        MercadoLibreItemPublicado,
-        and_(
-            ProductoERP.item_id == MercadoLibreItemPublicado.item_id,
-            or_(
-                MercadoLibreItemPublicado.optval_statusId == 2,
-                MercadoLibreItemPublicado.optval_statusId.is_(None)
-            )
+    # Sin MLA (no en banlist) - usar subconsultas
+    items_con_mla_subquery_stats = db.query(MercadoLibreItemPublicado.item_id).filter(
+        MercadoLibreItemPublicado.mlp_id.isnot(None),
+        or_(
+            MercadoLibreItemPublicado.optval_statusId == 2,
+            MercadoLibreItemPublicado.optval_statusId.is_(None)
         )
-    ).filter(
-        MercadoLibreItemPublicado.mlp_id.is_(None),
-        ~ProductoERP.item_id.in_(items_en_banlist)
+    ).distinct().subquery()
+
+    items_en_banlist_subquery_stats = db.query(ItemSinMLABanlist.item_id).subquery()
+
+    sin_mla_query = query.filter(
+        ~ProductoERP.item_id.in_(items_con_mla_subquery_stats),
+        ~ProductoERP.item_id.in_(items_en_banlist_subquery_stats)
     )
     sin_mla_count = sin_mla_query.count()
 
