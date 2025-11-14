@@ -1064,115 +1064,124 @@ async def obtener_estadisticas(
         query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
     # ESTADÍSTICAS CALCULADAS
+    # Las estadísticas son un desglose de los productos YA filtrados
+    # No se aplican filtros adicionales, solo se cuentan características de los productos filtrados
 
-    # Total según filtros
-    total_filtrado = query.count()
-
-    # Variable para fecha actual (usada en varias estadísticas)
     from datetime import date
-    hoy = date.today()
-
-    # Productos nuevos (últimos 7 días)
-    fecha_limite_nuevos = datetime.now() - timedelta(days=7)
-    nuevos = query.filter(ProductoERP.fecha_sync >= fecha_limite_nuevos).count()
-
-    # Con stock sin precio
-    stock_sin_precio = query.filter(
-        ProductoERP.stock > 0,
-        or_(
-            ProductoPricing.precio_lista_ml.is_(None),
-            ProductoPricing.id.is_(None)
-        )
-    ).count()
-
-    # Sin MLA (no en banlist) - usar subconsultas
-    items_con_mla_subquery_stats = db.query(MercadoLibreItemPublicado.item_id).filter(
-        MercadoLibreItemPublicado.mlp_id.isnot(None),
-        or_(
-            MercadoLibreItemPublicado.optval_statusId == 2,
-            MercadoLibreItemPublicado.optval_statusId.is_(None)
-        )
-    ).distinct().subquery()
-
-    items_en_banlist_subquery_stats = db.query(ItemSinMLABanlist.item_id).subquery()
-
-    sin_mla_query = query.filter(
-        ~ProductoERP.item_id.in_(items_con_mla_subquery_stats),
-        ~ProductoERP.item_id.in_(items_en_banlist_subquery_stats)
-    )
-    sin_mla_count = sin_mla_query.count()
-
-    # Sin MLA desglosado por stock
-    sin_mla_con_stock = sin_mla_query.filter(ProductoERP.stock > 0).count()
-    sin_mla_sin_stock = sin_mla_count - sin_mla_con_stock
-
-    # Sin MLA nuevos (últimos 7 días)
-    sin_mla_nuevos = sin_mla_query.filter(ProductoERP.fecha_sync >= fecha_limite_nuevos).count()
-
-    # Nuevos sin precio
-    nuevos_sin_precio = query.filter(
-        ProductoERP.fecha_sync >= fecha_limite_nuevos,
-        or_(
-            ProductoPricing.precio_lista_ml.is_(None),
-            ProductoPricing.id.is_(None)
-        )
-    ).count()
-
-    # Mejor oferta activa SIN rebate
-    # Subconsulta para item_ids con ofertas vigentes
     from app.models.oferta_ml import OfertaML
     from app.models.publicacion_ml import PublicacionML
 
-    items_con_oferta_vigente = db.query(PublicacionML.item_id).join(
-        OfertaML, PublicacionML.mla == OfertaML.mla
-    ).filter(
-        OfertaML.fecha_desde <= hoy,
-        OfertaML.fecha_hasta >= hoy,
-        OfertaML.pvp_seller.isnot(None)
-    ).distinct().subquery()
+    # Traer todos los productos filtrados con sus datos de pricing
+    productos_filtrados = query.all()
 
-    # Contar productos del query base que tienen oferta vigente Y NO tienen rebate
-    mejor_oferta_sin_rebate = query.filter(
-        ProductoERP.item_id.in_(items_con_oferta_vigente),
-        or_(
-            ProductoPricing.participa_rebate == False,
-            ProductoPricing.participa_rebate.is_(None)
-        )
-    ).count()
+    # Total según filtros
+    total_filtrado = len(productos_filtrados)
 
-    # Markup negativo por modalidad
-    markup_negativo_clasica = query.filter(ProductoPricing.markup_calculado < 0).count()
+    # Contadores
+    fecha_limite_nuevos = datetime.now() - timedelta(days=7)
+    hoy = date.today()
 
-    # Para rebate, calcular markup: ((precio_rebate / costo_final) - 1) * 100
-    # Precio rebate = precio_lista_ml * (1 - porcentaje_rebate/100)
-    markup_negativo_rebate = query.filter(
-        ProductoPricing.participa_rebate == True,
-        ProductoPricing.precio_lista_ml.isnot(None),
-        ProductoERP.costo.isnot(None),
-        # (precio_lista_ml * (1 - porcentaje_rebate/100) / costo) < 1
-        (ProductoPricing.precio_lista_ml * (1 - ProductoPricing.porcentaje_rebate / 100)) < ProductoERP.costo
-    ).count()
+    # Obtener item_ids de productos con ofertas vigentes
+    items_con_oferta_vigente = set(
+        item_id for (item_id,) in db.query(PublicacionML.item_id).join(
+            OfertaML, PublicacionML.mla == OfertaML.mla
+        ).filter(
+            OfertaML.fecha_desde <= hoy,
+            OfertaML.fecha_hasta >= hoy,
+            OfertaML.pvp_seller.isnot(None)
+        ).distinct().all()
+    )
 
-    # Para mejor oferta (3 cuotas)
-    markup_negativo_oferta = query.filter(
-        ProductoPricing.precio_3_cuotas.isnot(None),
-        ProductoERP.costo.isnot(None),
-        ProductoPricing.precio_3_cuotas < ProductoERP.costo
-    ).count()
+    # Obtener item_ids de productos con MLA
+    items_con_mla = set(
+        item_id for (item_id,) in db.query(MercadoLibreItemPublicado.item_id).filter(
+            MercadoLibreItemPublicado.mlp_id.isnot(None),
+            or_(
+                MercadoLibreItemPublicado.optval_statusId == 2,
+                MercadoLibreItemPublicado.optval_statusId.is_(None)
+            )
+        ).distinct().all()
+    )
 
-    # Para web transferencia
-    markup_negativo_web = query.filter(
-        ProductoPricing.participa_web_transferencia == True,
-        ProductoPricing.precio_web_transferencia.isnot(None),
-        ProductoERP.costo.isnot(None),
-        ProductoPricing.precio_web_transferencia < ProductoERP.costo
-    ).count()
+    # Obtener item_ids en banlist
+    items_en_banlist = set(
+        item_id for (item_id,) in db.query(ItemSinMLABanlist.item_id).all()
+    )
 
-    # Total con stock
-    total_con_stock = query.filter(ProductoERP.stock > 0).count()
+    # Inicializar contadores
+    nuevos = 0
+    nuevos_sin_precio = 0
+    stock_sin_precio = 0
+    sin_mla_count = 0
+    sin_mla_con_stock = 0
+    sin_mla_sin_stock = 0
+    sin_mla_nuevos = 0
+    mejor_oferta_sin_rebate = 0
+    markup_negativo_clasica = 0
+    markup_negativo_rebate = 0
+    markup_negativo_oferta = 0
+    markup_negativo_web = 0
+    total_con_stock = 0
+    total_con_precio = 0
 
-    # Total con precio
-    total_con_precio = query.filter(ProductoPricing.precio_lista_ml.isnot(None)).count()
+    # Iterar sobre los productos filtrados y contar
+    for producto_erp, producto_pricing in productos_filtrados:
+        # Con stock
+        if producto_erp.stock > 0:
+            total_con_stock += 1
+
+        # Con precio
+        if producto_pricing and producto_pricing.precio_lista_ml is not None:
+            total_con_precio += 1
+
+        # Nuevos (últimos 7 días)
+        if producto_erp.fecha_sync and producto_erp.fecha_sync >= fecha_limite_nuevos:
+            nuevos += 1
+
+            # Nuevos sin precio
+            if not producto_pricing or producto_pricing.precio_lista_ml is None:
+                nuevos_sin_precio += 1
+
+        # Con stock sin precio
+        if producto_erp.stock > 0 and (not producto_pricing or producto_pricing.precio_lista_ml is None):
+            stock_sin_precio += 1
+
+        # Sin MLA (no en banlist)
+        if producto_erp.item_id not in items_con_mla and producto_erp.item_id not in items_en_banlist:
+            sin_mla_count += 1
+
+            if producto_erp.stock > 0:
+                sin_mla_con_stock += 1
+            else:
+                sin_mla_sin_stock += 1
+
+            if producto_erp.fecha_sync and producto_erp.fecha_sync >= fecha_limite_nuevos:
+                sin_mla_nuevos += 1
+
+        # Mejor oferta sin rebate
+        if producto_erp.item_id in items_con_oferta_vigente:
+            if not producto_pricing or not producto_pricing.participa_rebate:
+                mejor_oferta_sin_rebate += 1
+
+        # Markup negativo clásica
+        if producto_pricing and producto_pricing.markup_calculado is not None and producto_pricing.markup_calculado < 0:
+            markup_negativo_clasica += 1
+
+        # Markup negativo rebate
+        if producto_pricing and producto_pricing.participa_rebate and producto_pricing.precio_lista_ml and producto_erp.costo:
+            precio_rebate = producto_pricing.precio_lista_ml * (1 - (producto_pricing.porcentaje_rebate or 0) / 100)
+            if precio_rebate < producto_erp.costo:
+                markup_negativo_rebate += 1
+
+        # Markup negativo oferta
+        if producto_pricing and producto_pricing.precio_3_cuotas and producto_erp.costo:
+            if producto_pricing.precio_3_cuotas < producto_erp.costo:
+                markup_negativo_oferta += 1
+
+        # Markup negativo web
+        if producto_pricing and producto_pricing.participa_web_transferencia and producto_pricing.precio_web_transferencia and producto_erp.costo:
+            if producto_pricing.precio_web_transferencia < producto_erp.costo:
+                markup_negativo_web += 1
 
     return {
         "total_productos": total_filtrado,
