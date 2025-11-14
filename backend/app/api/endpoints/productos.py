@@ -866,9 +866,9 @@ async def obtener_estadisticas(
     from app.models.item_sin_mla_banlist import ItemSinMLABanlist
     from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
-    # Query base
-    query = db.query(ProductoERP).join(
-        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id, isouter=True
+    # Query base - seleccionar ambos ProductoERP y ProductoPricing
+    query = db.query(ProductoERP, ProductoPricing).outerjoin(
+        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
 
     # Aplicar filtros de búsqueda
