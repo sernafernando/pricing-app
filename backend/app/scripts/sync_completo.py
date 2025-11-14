@@ -24,7 +24,7 @@ def sync_all():
     # 2. ERP
     log("Sincronizando productos ERP...")
     try:
-        r = requests.post(f"{BASE_URL}/sync-erp", timeout=300)
+        r = requests.post(f"{BASE_URL}/sync", timeout=300)
         log(f"ERP: {r.json()}")
     except Exception as e:
         log(f"Error ERP: {e}")
