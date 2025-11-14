@@ -354,10 +354,17 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
         total_actualizados = 0
         total_errores = 0
 
+        orden_count = 0
         for order in orders:
+            orden_count += 1
             details = db.query(MercadoLibreOrderDetail).filter(
                 MercadoLibreOrderDetail.mlo_id == order.mlo_id
             ).all()
+
+            if not details:
+                if orden_count <= 5:  # Solo mostrar las primeras 5
+                    print(f"  ⚠️  Orden {order.mlo_id} sin detalles")
+                continue
 
             for detail in details:
                 resultado = await agregar_metricas_venta(db, order, detail, constantes)
@@ -375,7 +382,7 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
                 print(f"  ❌ Error commit orden {order.mlo_id}: {str(e)}")
                 db.rollback()
 
-            if (total_insertados + total_actualizados) % batch_size == 0:
+            if (total_insertados + total_actualizados) % batch_size == 0 and (total_insertados + total_actualizados) > 0:
                 print(f"  Procesados: {total_insertados + total_actualizados} | Nuevos: {total_insertados} | Actualizados: {total_actualizados}")
 
         print()
