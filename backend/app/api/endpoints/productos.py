@@ -2534,6 +2534,19 @@ async def obtener_detalle_producto(
                 if mla_id in publicaciones_dict:
                     # Extraer datos del preview (solo tiene price, title, thumbnail, brand, catalog_product_id)
                     publicaciones_dict[mla_id]["precio_ml"] = float(ml_data.get("price", 0)) if ml_data.get("price") else None
+                    publicaciones_dict[mla_id]["catalog_product_id"] = ml_data.get("catalog_product_id")
+
+                    # Si tiene catálogo, consultar price_to_win para obtener status
+                    if ml_data.get("catalog_product_id"):
+                        try:
+                            ptw_data = await ml_webhook_client.get_item_preview(mla_id, include_price_to_win=True)
+                            if ptw_data:
+                                publicaciones_dict[mla_id]["catalog_status"] = ptw_data.get("status")
+                                publicaciones_dict[mla_id]["price_to_win"] = float(ptw_data.get("price_to_win", 0)) if ptw_data.get("price_to_win") else None
+                                publicaciones_dict[mla_id]["winner_mla"] = ptw_data.get("winner")
+                                publicaciones_dict[mla_id]["winner_price"] = float(ptw_data.get("winner_price", 0)) if ptw_data.get("winner_price") else None
+                        except Exception as e:
+                            logger.error(f"Error consultando price_to_win para {mla_id}: {e}")
         except Exception as e:
             # Si falla el servicio de webhooks, continuamos sin esos datos
             logger.error(f"Error consultando ml-webhook: {e}")

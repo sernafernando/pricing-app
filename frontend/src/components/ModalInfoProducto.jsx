@@ -344,6 +344,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                           <th>MLA</th>
                           <th>Lista</th>
                           <th>Precio ML</th>
+                          <th>Catálogo</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -362,6 +363,33 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                             <td>{pub.lista_nombre || '-'}</td>
                             <td>
                               {pub.precio_ml ? `$${pub.precio_ml.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-'}
+                            </td>
+                            <td>
+                              {pub.catalog_product_id && pub.catalog_status && (
+                                <span
+                                  style={{
+                                    padding: '4px 8px',
+                                    borderRadius: '4px',
+                                    fontSize: '11px',
+                                    fontWeight: '600',
+                                    backgroundColor:
+                                      pub.catalog_status === 'winning' ? '#22c55e' :
+                                      pub.catalog_status === 'sharing_first_place' ? '#3b82f6' :
+                                      pub.catalog_status === 'competing' ? '#f59e0b' :
+                                      '#6b7280',
+                                    color: '#fff',
+                                    textTransform: 'uppercase'
+                                  }}
+                                >
+                                  {pub.catalog_status === 'winning' ? '🏆 Ganando' :
+                                   pub.catalog_status === 'sharing_first_place' ? '🤝 Empatando' :
+                                   pub.catalog_status === 'competing' ? '⚠️ Perdiendo' :
+                                   pub.catalog_status}
+                                </span>
+                              )}
+                              {pub.catalog_product_id && !pub.catalog_status && (
+                                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Catálogo</span>
+                              )}
                             </td>
                           </tr>
                         ))}
