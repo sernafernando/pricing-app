@@ -1,97 +1,123 @@
 #!/usr/bin/env python
 """
 Script para sincronizar el estado de competencia en catálogos de MercadoLibre
+Consulta directamente la BD del ml-webhook para obtener los status actualizados
 """
-import asyncio
 import sys
 import os
 
 # Agregar el directorio backend al path para imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
-from app.models.publicacion_ml import PublicacionML
+from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_catalog_status import MLCatalogStatus
-from app.services.ml_webhook_client import ml_webhook_client
 from datetime import datetime
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Configuración de la BD del ml-webhook
+ML_WEBHOOK_DB_URL = os.getenv("ML_WEBHOOK_DB_URL", "postgresql://ml_webhook_user:ml_webhook_pass@localhost:5432/ml_webhook")
 
-async def sync_catalog_status(mla_id: str = None):
+
+def sync_catalog_status(mla_id: str = None):
     """
     Sincroniza el estado de competencia en catálogos para publicaciones de ML
+    Consulta la tabla ml_previews del ml-webhook para obtener los status
 
     Args:
         mla_id: Si se proporciona, sincroniza solo ese item. Si no, sincroniza todos.
     """
-    db = SessionLocal()
+    db_pricing = SessionLocal()
+    engine_webhook = create_engine(ML_WEBHOOK_DB_URL)
 
     try:
-        # Obtener publicaciones a sincronizar
-        query = db.query(PublicacionML)
+        # Obtener publicaciones de catálogo desde itempublicados
+        query = db_pricing.query(MercadoLibreItemPublicado).filter(
+            MercadoLibreItemPublicado.mlp_catalog_listing == True,
+            MercadoLibreItemPublicado.mlp_catalog_product_id.isnot(None)
+        )
 
         if mla_id:
-            query = query.filter(PublicacionML.mla == mla_id)
+            query = query.filter(MercadoLibreItemPublicado.mlp_publicationID == mla_id)
 
         publicaciones = query.all()
 
-        logger.info(f"Sincronizando {len(publicaciones)} publicaciones...")
+        logger.info(f"Encontradas {len(publicaciones)} publicaciones de catálogo...")
 
         sincronizadas = 0
+        sin_datos = 0
         errores = []
 
-        for pub in publicaciones:
-            try:
-                logger.info(f"Procesando {pub.mla}...")
+        with engine_webhook.connect() as conn_webhook:
+            for pub in publicaciones:
+                try:
+                    mla = pub.mlp_publicationID
+                    logger.info(f"Procesando {mla}...")
 
-                # Obtener preview básico primero para ver si tiene catálogo
-                preview = await ml_webhook_client.get_item_preview(pub.mla)
+                    # Consultar ml_previews del webhook
+                    # Buscar el resource que tenga price_to_win
+                    resource_ptw = f"/items/{mla}/price_to_win?version=v2"
 
-                if not preview or not preview.get("catalog_product_id"):
-                    logger.debug(f"{pub.mla} no tiene catalog_product_id, saltando...")
-                    continue
+                    result = conn_webhook.execute(
+                        text("""
+                            SELECT
+                                title, price, currency_id, thumbnail,
+                                winner, winner_price, status, brand
+                            FROM ml_previews
+                            WHERE resource = :resource
+                        """),
+                        {"resource": resource_ptw}
+                    ).fetchone()
 
-                # Tiene catálogo, obtener price_to_win
-                ptw_data = await ml_webhook_client.get_item_preview(pub.mla, include_price_to_win=True)
+                    if not result:
+                        logger.debug(f"{mla} no tiene datos en ml_previews, saltando...")
+                        sin_datos += 1
+                        continue
 
-                if not ptw_data:
-                    logger.warning(f"No se pudo obtener price_to_win para {pub.mla}")
-                    continue
+                    # Extraer datos
+                    title, price, currency_id, thumbnail, winner, winner_price, status, brand = result
 
-                # Guardar en base de datos
-                catalog_status = MLCatalogStatus(
-                    mla=pub.mla,
-                    catalog_product_id=ptw_data.get("catalog_product_id"),
-                    status=ptw_data.get("status"),
-                    current_price=float(ptw_data.get("price", 0)) if ptw_data.get("price") else None,
-                    price_to_win=float(ptw_data.get("price_to_win", 0)) if ptw_data.get("price_to_win") else None,
-                    visit_share=ptw_data.get("visit_share"),
-                    consistent=ptw_data.get("consistent"),
-                    competitors_sharing_first_place=ptw_data.get("competitors_sharing_first_place"),
-                    winner_mla=ptw_data.get("winner"),
-                    winner_price=float(ptw_data.get("winner_price", 0)) if ptw_data.get("winner_price") else None,
-                    fecha_consulta=datetime.now()
-                )
+                    if not status:
+                        logger.debug(f"{mla} no tiene status en ml_previews")
+                        sin_datos += 1
+                        continue
 
-                db.add(catalog_status)
-                sincronizadas += 1
+                    # Guardar en base de datos pricing
+                    catalog_status = MLCatalogStatus(
+                        mla=mla,
+                        catalog_product_id=pub.mlp_catalog_product_id,
+                        status=status,
+                        current_price=float(price) if price else None,
+                        price_to_win=None,  # Este dato no está en ml_previews
+                        visit_share=None,
+                        consistent=None,
+                        competitors_sharing_first_place=None,
+                        winner_mla=winner,
+                        winner_price=float(winner_price) if winner_price else None,
+                        fecha_consulta=datetime.now()
+                    )
 
-                logger.info(f"✓ {pub.mla} - Status: {catalog_status.status}")
+                    db_pricing.add(catalog_status)
+                    sincronizadas += 1
 
-            except Exception as e:
-                logger.error(f"Error sincronizando {pub.mla}: {e}")
-                errores.append(f"{pub.mla}: {str(e)}")
+                    logger.info(f"✓ {mla} - Status: {status}")
 
-        db.commit()
+                except Exception as e:
+                    logger.error(f"Error sincronizando {pub.mlp_publicationID}: {e}")
+                    errores.append(f"{pub.mlp_publicationID}: {str(e)}")
+
+        db_pricing.commit()
 
         logger.info(f"\n{'='*60}")
         logger.info(f"Sincronización completada:")
-        logger.info(f"  - Total publicaciones: {len(publicaciones)}")
+        logger.info(f"  - Total publicaciones de catálogo: {len(publicaciones)}")
         logger.info(f"  - Sincronizadas: {sincronizadas}")
+        logger.info(f"  - Sin datos en webhook: {sin_datos}")
         logger.info(f"  - Errores: {len(errores)}")
 
         if errores[:5]:  # Mostrar primeros 5 errores
@@ -102,7 +128,8 @@ async def sync_catalog_status(mla_id: str = None):
         logger.info(f"{'='*60}\n")
 
     finally:
-        db.close()
+        db_pricing.close()
+        engine_webhook.dispose()
 
 
 if __name__ == "__main__":
@@ -113,4 +140,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    asyncio.run(sync_catalog_status(args.mla))
+    sync_catalog_status(args.mla)
