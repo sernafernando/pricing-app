@@ -163,24 +163,28 @@
   white-space: nowrap;
 }
 
-.stat-value {
-  font-size: 1.1vh;
+.modal-info-producto .stat-value {
+  font-size: 1.1vh !important;
   color: var(--text-primary);
   font-weight: 600;
-  text-align: right;
+  text-align: right !important;
   white-space: nowrap;
   direction: rtl;
   max-width: 100%;
+  display: block !important;
+  line-height: 1.2 !important;
 }
 
-.stat-value.highlight {
-  font-size: 18px;
+.modal-info-producto .stat-value.highlight {
+  font-size: 1.8vh !important;
   font-weight: 700;
   color: #22c55e;
-  text-align: right;
+  text-align: right !important;
   white-space: nowrap;
   direction: rtl;
   max-width: 100%;
+  display: block !important;
+  line-height: 1.2 !important;
 }
 
 @media (max-width: 768px) {
