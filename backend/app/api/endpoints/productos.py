@@ -65,6 +65,10 @@ class ProductoResponse(BaseModel):
     recalcular_cuotas_auto: Optional[bool] = None
     markup_adicional_cuotas_custom: Optional[float] = None
 
+    # Estado de catálogo ML
+    catalog_status: Optional[str] = None
+    has_catalog: Optional[bool] = None
+
     class Config:
         from_attributes = True
 
@@ -662,11 +666,58 @@ async def listar_productos(
             markup_6_cuotas=markup_6_cuotas,
             markup_9_cuotas=markup_9_cuotas,
             markup_12_cuotas=markup_12_cuotas,
+            recalcular_cuotas_auto=producto_pricing.recalcular_cuotas_auto if producto_pricing else None,
+            markup_adicional_cuotas_custom=float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing and producto_pricing.markup_adicional_cuotas_custom else None,
+            catalog_status=None,  # Se llenará después
+            has_catalog=None,  # Se llenará después
         )
 
         # Los filtros de markup ahora se aplican en SQL
         # Solo agregamos el producto a la lista
         productos.append(producto_obj)
+
+    # Obtener catalog status de los productos con publicaciones ML
+    if productos:
+        from sqlalchemy import text
+        item_ids = [p.item_id for p in productos]
+
+        # Obtener MLAs de estos items
+        mla_query = db.query(PublicacionML.item_id, PublicacionML.mla).filter(
+            PublicacionML.item_id.in_(item_ids)
+        ).all()
+
+        # Crear diccionario item_id -> [mla_ids]
+        item_to_mlas = {}
+        all_mlas = []
+        for item_id, mla in mla_query:
+            if item_id not in item_to_mlas:
+                item_to_mlas[item_id] = []
+            item_to_mlas[item_id].append(mla)
+            all_mlas.append(mla)
+
+        # Consultar catalog status de estos MLAs
+        if all_mlas:
+            catalog_statuses = db.execute(text("""
+                SELECT mla, catalog_product_id, status
+                FROM v_ml_catalog_status_latest
+                WHERE mla = ANY(:mla_ids)
+            """), {"mla_ids": all_mlas}).fetchall()
+
+            # Crear diccionario mla -> status
+            mla_to_status = {}
+            for mla, catalog_id, status in catalog_statuses:
+                mla_to_status[mla] = status
+
+            # Asignar status a productos
+            for producto in productos:
+                if producto.item_id in item_to_mlas:
+                    mlas = item_to_mlas[producto.item_id]
+                    # Si tiene catálogo, tomar el primer status encontrado
+                    for mla in mlas:
+                        if mla in mla_to_status:
+                            producto.catalog_status = mla_to_status[mla]
+                            producto.has_catalog = True
+                            break
 
     # Si aplicamos ordenamiento dinámico, necesitamos paginar manualmente
     if orden_requiere_calculo:
@@ -2535,22 +2586,26 @@ async def obtener_detalle_producto(
                     # Extraer datos del preview (solo tiene price, title, thumbnail, brand, catalog_product_id)
                     publicaciones_dict[mla_id]["precio_ml"] = float(ml_data.get("price", 0)) if ml_data.get("price") else None
                     publicaciones_dict[mla_id]["catalog_product_id"] = ml_data.get("catalog_product_id")
-
-                    # Si tiene catálogo, consultar price_to_win para obtener status
-                    if ml_data.get("catalog_product_id"):
-                        try:
-                            ptw_data = await ml_webhook_client.get_item_preview(mla_id, include_price_to_win=True)
-                            if ptw_data:
-                                publicaciones_dict[mla_id]["catalog_status"] = ptw_data.get("status")
-                                publicaciones_dict[mla_id]["price_to_win"] = float(ptw_data.get("price_to_win", 0)) if ptw_data.get("price_to_win") else None
-                                publicaciones_dict[mla_id]["winner_mla"] = ptw_data.get("winner")
-                                publicaciones_dict[mla_id]["winner_price"] = float(ptw_data.get("winner_price", 0)) if ptw_data.get("winner_price") else None
-                        except Exception as e:
-                            logger.error(f"Error consultando price_to_win para {mla_id}: {e}")
         except Exception as e:
             # Si falla el servicio de webhooks, continuamos sin esos datos
             logger.error(f"Error consultando ml-webhook: {e}")
             pass
+
+    # Obtener status de catálogo desde la BD (más rápido que consultar API)
+    if mla_ids:
+        catalog_statuses = db.execute(text("""
+            SELECT mla, catalog_product_id, status, price_to_win, winner_mla, winner_price
+            FROM v_ml_catalog_status_latest
+            WHERE mla = ANY(:mla_ids)
+        """), {"mla_ids": mla_ids}).fetchall()
+
+        for row in catalog_statuses:
+            mla, catalog_id, status, ptw, winner, winner_price = row
+            if mla in publicaciones_dict:
+                publicaciones_dict[mla]["catalog_status"] = status
+                publicaciones_dict[mla]["price_to_win"] = float(ptw) if ptw else None
+                publicaciones_dict[mla]["winner_mla"] = winner
+                publicaciones_dict[mla]["winner_price"] = float(winner_price) if winner_price else None
 
     # Calcular ventas de los últimos 7, 15 y 30 días
     fecha_actual = datetime.now()

@@ -2441,6 +2441,7 @@ export default function Productos() {
                   <th onClick={(e) => handleOrdenar('marca', e)}>
                     Marca {getIconoOrden('marca')} {getNumeroOrden('marca') && <span>{getNumeroOrden('marca')}</span>}
                   </th>
+                  <th>Catálogo</th>
                   <th onClick={(e) => handleOrdenar('stock', e)}>
                     Stock {getIconoOrden('stock')} {getNumeroOrden('stock') && <span>{getNumeroOrden('stock')}</span>}
                   </th>
@@ -2506,6 +2507,28 @@ export default function Productos() {
                     <td>{p.codigo}</td>
                     <td>{p.descripcion}</td>
                     <td>{p.marca}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      {p.has_catalog && p.catalog_status && (
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: '3px',
+                          fontSize: '10px',
+                          fontWeight: '600',
+                          backgroundColor:
+                            p.catalog_status === 'winning' ? '#22c55e' :
+                            p.catalog_status === 'sharing_first_place' ? '#3b82f6' :
+                            p.catalog_status === 'competing' ? '#f59e0b' :
+                            '#6b7280',
+                          color: '#fff',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {p.catalog_status === 'winning' ? '🏆' :
+                           p.catalog_status === 'sharing_first_place' ? '🤝' :
+                           p.catalog_status === 'competing' ? '⚠️' :
+                           ''}
+                        </span>
+                      )}
+                    </td>
                     <td>{p.stock}</td>
                     <td>{p.moneda_costo} ${p.costo?.toFixed(2)}</td>
                     <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
