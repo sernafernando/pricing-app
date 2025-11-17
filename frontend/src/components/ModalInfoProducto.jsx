@@ -366,7 +366,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                               {pub.precio_ml ? `$${pub.precio_ml.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-'}
                             </td>
                             <td>
-                              {pub.catalog_product_id && pub.catalog_status && (
+                              {pub.catalog_product_id && pub.catalog_status ? (
                                 <span
                                   style={{
                                     padding: '4px 8px',
@@ -387,9 +387,10 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                                    pub.catalog_status === 'competing' ? '⚠️ Perdiendo' :
                                    pub.catalog_status}
                                 </span>
-                              )}
-                              {pub.catalog_product_id && !pub.catalog_status && (
+                              ) : pub.catalog_product_id ? (
                                 <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Catálogo</span>
+                              ) : (
+                                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Tradicional</span>
                               )}
                             </td>
                             <td style={{ fontSize: '11px' }}>
