@@ -371,6 +371,86 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                 </section>
               )}
 
+              {/* VENTAS */}
+              {detalle.ventas && (
+                <section className="info-section">
+                  <h3>📊 Ventas en MercadoLibre</h3>
+                  <div className="ventas-grid">
+                    <div className="venta-periodo">
+                      <div className="periodo-header">Últimos 7 días</div>
+                      <div className="periodo-stats">
+                        <div className="stat-item">
+                          <span className="stat-label">Unidades:</span>
+                          <span className="stat-value highlight">
+                            {detalle.ventas.ultimos_7_dias.cantidad_vendida}
+                          </span>
+                        </div>
+                        <div className="stat-item">
+                          <span className="stat-label">Ventas:</span>
+                          <span className="stat-value">
+                            {detalle.ventas.ultimos_7_dias.numero_ventas}
+                          </span>
+                        </div>
+                        <div className="stat-item">
+                          <span className="stat-label">Monto:</span>
+                          <span className="stat-value">
+                            ${detalle.ventas.ultimos_7_dias.monto_total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="venta-periodo">
+                      <div className="periodo-header">Últimos 15 días</div>
+                      <div className="periodo-stats">
+                        <div className="stat-item">
+                          <span className="stat-label">Unidades:</span>
+                          <span className="stat-value highlight">
+                            {detalle.ventas.ultimos_15_dias.cantidad_vendida}
+                          </span>
+                        </div>
+                        <div className="stat-item">
+                          <span className="stat-label">Ventas:</span>
+                          <span className="stat-value">
+                            {detalle.ventas.ultimos_15_dias.numero_ventas}
+                          </span>
+                        </div>
+                        <div className="stat-item">
+                          <span className="stat-label">Monto:</span>
+                          <span className="stat-value">
+                            ${detalle.ventas.ultimos_15_dias.monto_total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="venta-periodo">
+                      <div className="periodo-header">Últimos 30 días</div>
+                      <div className="periodo-stats">
+                        <div className="stat-item">
+                          <span className="stat-label">Unidades:</span>
+                          <span className="stat-value highlight">
+                            {detalle.ventas.ultimos_30_dias.cantidad_vendida}
+                          </span>
+                        </div>
+                        <div className="stat-item">
+                          <span className="stat-label">Ventas:</span>
+                          <span className="stat-value">
+                            {detalle.ventas.ultimos_30_dias.numero_ventas}
+                          </span>
+                        </div>
+                        <div className="stat-item">
+                          <span className="stat-label">Monto:</span>
+                          <span className="stat-value">
+                            ${detalle.ventas.ultimos_30_dias.monto_total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              )}
+
               {/* AUDITORÍA */}
               {detalle.pricing.usuario_modifico && (
                 <section className="info-section">

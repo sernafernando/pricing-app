@@ -170,6 +170,22 @@ class ERPWorkerClient:
 
         return await self._fetch("scriptItemTaxes", params)
 
+    async def get_suppliers(self, supp_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Obtiene proveedores del ERP
+
+        Args:
+            supp_id: ID de proveedor específico (opcional)
+
+        Returns:
+            Lista de proveedores: [{"comp_id": 1, "supp_id": 11, "supp_name": "...", "supp_taxNumber": "..."}]
+        """
+        params = {}
+        if supp_id:
+            params["suppID"] = supp_id
+
+        return await self._fetch("scriptSupplier", params)
+
 
 # Instancia singleton del cliente
 erp_worker_client = ERPWorkerClient()

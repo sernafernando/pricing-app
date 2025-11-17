@@ -6,6 +6,12 @@ from datetime import datetime, date, timedelta
 import httpx
 from app.core.database import get_db
 from app.models.venta_ml import VentaML, MetricasVentasDiarias, MetricasVentasPorMarca, MetricasVentasPorCategoria
+from app.models.tb_brand import TBBrand
+from app.models.tb_category import TBCategory
+from app.models.tb_subcategory import TBSubCategory
+from app.models.tb_item import TBItem
+from app.models.tb_tax_name import TBTaxName
+from app.models.tb_item_taxes import TBItemTaxes
 from app.api.deps import get_current_user
 from pydantic import BaseModel
 from decimal import Decimal
@@ -328,3 +334,123 @@ async def get_ventas_por_marca(
         }
         for m in por_marca
     ]
+
+
+class VentaDetalladaResponse(BaseModel):
+    codigo_item: Optional[str]
+    marca: Optional[str]
+    descripcion: Optional[str]
+    cantidad: int
+    monto_total: Decimal
+    costo_sin_iva: Optional[Decimal]
+    iva: Optional[Decimal]
+    subcat_id: Optional[int]
+    proveedor: Optional[str]
+    ufc: Optional[datetime]  # Última fecha de compra
+    envio: Optional[Decimal]  # Precio para envío gratis
+    upv: Optional[Decimal]  # Último precio de venta
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/ventas-ml/detalladas", response_model=List[VentaDetalladaResponse])
+async def get_ventas_detalladas(
+    from_date: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    to_date: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    item_id: Optional[int] = Query(None, description="ID de item específico"),
+    dias: Optional[int] = Query(30, description="Últimos N días (si no se especifica from_date/to_date)"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtiene ventas detalladas por producto con información completa del ERP.
+    Replica la query SQL del dashboard de ventas.
+
+    Incluye: cantidad vendida, monto total, costo s/IVA, IVA, proveedor,
+    última fecha de compra, precio envío gratis, último precio de venta.
+    """
+
+    # Si no se especifican fechas, usar últimos N días
+    if not from_date and not to_date:
+        fecha_hasta = datetime.now()
+        fecha_desde = fecha_hasta - timedelta(days=dias)
+    else:
+        fecha_desde = datetime.fromisoformat(from_date) if from_date else datetime.now() - timedelta(days=30)
+        fecha_hasta = datetime.fromisoformat(to_date) if to_date else datetime.now()
+
+    # Agregar un día a fecha_hasta para incluir todo el día
+    fecha_hasta = fecha_hasta + timedelta(days=1)
+
+    # Query principal: agrupar ventas por item_id
+    query = db.query(
+        VentaML.item_id,
+        VentaML.codigo_item,
+        VentaML.marca,
+        VentaML.descripcion,
+        func.sum(VentaML.cantidad).label('cantidad_total'),
+        func.sum(VentaML.monto_total).label('monto_total'),
+        VentaML.costo_sin_iva,
+        VentaML.iva,
+        VentaML.subcat_id
+    ).filter(
+        and_(
+            VentaML.fecha >= fecha_desde,
+            VentaML.fecha < fecha_hasta,
+            VentaML.item_id.isnot(None),
+            VentaML.item_id != 460  # Excluir item_id 460 como en la query original
+        )
+    )
+
+    # Filtro por item_id específico si se proporciona
+    if item_id:
+        query = query.filter(VentaML.item_id == item_id)
+
+    # Agrupar y ordenar por cantidad vendida descendente
+    ventas_agrupadas = query.group_by(
+        VentaML.item_id,
+        VentaML.codigo_item,
+        VentaML.marca,
+        VentaML.descripcion,
+        VentaML.costo_sin_iva,
+        VentaML.iva,
+        VentaML.subcat_id
+    ).order_by(desc('cantidad_total')).all()
+
+    # Construir respuesta con datos adicionales
+    resultados = []
+    for venta in ventas_agrupadas:
+        # Obtener proveedor (última venta con ese item_id)
+        # Nota: Esto requeriría acceso a tbSupplier, tbCommercialTransactions, tbItemTransactions
+        # que no están en los modelos actuales. Por ahora lo dejamos en None.
+        proveedor = None
+        ufc = None
+
+        # Obtener precio de envío gratis (ml_price_free_shipping)
+        envio_query = db.query(VentaML.ml_price_free_shipping).filter(
+            VentaML.item_id == venta.item_id
+        ).order_by(desc(VentaML.fecha)).first()
+        envio = envio_query[0] if envio_query else None
+
+        # Obtener último precio de venta
+        upv_query = db.query(VentaML.monto_unitario).filter(
+            VentaML.item_id == venta.item_id
+        ).order_by(desc(VentaML.fecha)).first()
+        upv = upv_query[0] if upv_query else None
+
+        resultados.append({
+            "codigo_item": venta.codigo_item,
+            "marca": venta.marca,
+            "descripcion": venta.descripcion,
+            "cantidad": int(venta.cantidad_total or 0),
+            "monto_total": venta.monto_total or Decimal(0),
+            "costo_sin_iva": venta.costo_sin_iva,
+            "iva": venta.iva,
+            "subcat_id": venta.subcat_id,
+            "proveedor": proveedor,
+            "ufc": ufc,
+            "envio": envio,
+            "upv": upv
+        })
+
+    return resultados

@@ -14,6 +14,7 @@ from app.models.tb_subcategory import TBSubCategory
 from app.models.tb_item import TBItem
 from app.models.tb_tax_name import TBTaxName
 from app.models.tb_item_taxes import TBItemTaxes
+from app.models.tb_supplier import TBSupplier
 
 
 router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"])
@@ -409,6 +410,63 @@ async def sync_item_taxes(
         raise HTTPException(status_code=500, detail=f"Error al sincronizar impuestos de items: {str(e)}")
 
 
+@router.post("/suppliers")
+async def sync_suppliers(
+    supp_id: Optional[int] = Query(None, description="ID de proveedor específico a sincronizar"),
+    db: Session = Depends(get_db)
+):
+    """
+    Sincroniza proveedores desde el ERP a PostgreSQL
+
+    - Si se proporciona supp_id, sincroniza solo ese proveedor
+    - Si no, sincroniza todos los proveedores
+    """
+    try:
+        # Obtener datos del worker
+        suppliers = await erp_worker_client.get_suppliers(supp_id=supp_id)
+
+        insertados = 0
+        actualizados = 0
+
+        for supp_data in suppliers:
+            comp_id = supp_data["comp_id"]
+            supp_id_val = supp_data["supp_id"]
+
+            # Verificar si existe
+            existente = db.query(TBSupplier).filter(
+                TBSupplier.comp_id == comp_id,
+                TBSupplier.supp_id == supp_id_val
+            ).first()
+
+            if existente:
+                existente.supp_name = supp_data["supp_name"]
+                existente.supp_tax_number = supp_data.get("supp_taxNumber")
+                actualizados += 1
+            else:
+                nuevo = TBSupplier(
+                    comp_id=comp_id,
+                    supp_id=supp_id_val,
+                    supp_name=supp_data["supp_name"],
+                    supp_tax_number=supp_data.get("supp_taxNumber")
+                )
+                db.add(nuevo)
+                insertados += 1
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Proveedores sincronizados correctamente",
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "total": insertados + actualizados
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar proveedores: {str(e)}")
+
+
 @router.post("/all")
 async def sync_all(
     db: Session = Depends(get_db)
@@ -421,8 +479,9 @@ async def sync_all(
     2. Categorías
     3. Subcategorías
     4. Nombres de impuestos
-    5. Items
-    6. Impuestos por item
+    5. Proveedores
+    6. Items
+    7. Impuestos por item
     """
     results = {}
 
@@ -443,7 +502,11 @@ async def sync_all(
         tax_names_result = await sync_tax_names(tax_id=None, db=db)
         results["tax_names"] = tax_names_result
 
-        # 5. Items
+        # 5. Suppliers
+        suppliers_result = await sync_suppliers(supp_id=None, db=db)
+        results["suppliers"] = suppliers_result
+
+        # 6. Items
         items_result = await sync_items(
             brand_id=None, cat_id=None, subcat_id=None,
             item_id=None, item_code=None, last_update=None,
@@ -451,7 +514,7 @@ async def sync_all(
         )
         results["items"] = items_result
 
-        # 6. Item Taxes
+        # 7. Item Taxes
         item_taxes_result = await sync_item_taxes(tax_id=None, item_id=None, db=db)
         results["item_taxes"] = item_taxes_result
 

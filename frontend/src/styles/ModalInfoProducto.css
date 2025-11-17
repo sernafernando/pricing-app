@@ -105,6 +105,67 @@
   background-color: var(--bg-tertiary);
 }
 
+/* Estilos para sección de ventas */
+.ventas-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.venta-periodo {
+  background-color: var(--bg-primary);
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+}
+
+.periodo-header {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #3b82f6;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.periodo-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.stat-item:last-child {
+  border-bottom: none;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.stat-value {
+  font-size: 15px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.stat-value.highlight {
+  font-size: 20px;
+  font-weight: 700;
+  color: #22c55e;
+}
+
 @media (max-width: 768px) {
   .info-grid {
     grid-template-columns: 1fr;
@@ -121,5 +182,10 @@
 
   .info-section {
     padding: 16px;
+  }
+
+  .ventas-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 }

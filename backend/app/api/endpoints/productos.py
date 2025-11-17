@@ -2462,8 +2462,10 @@ async def obtener_detalle_producto(
 ):
     """Obtiene información detallada completa de un producto"""
     from app.models.publicacion_ml import PublicacionML
+    from app.models.venta_ml import VentaML
     from app.services.pricing_calculator import obtener_tipo_cambio_actual, obtener_comision_base, obtener_grupo_subcategoria
     from sqlalchemy import text
+    from datetime import timedelta
 
     # Producto base
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
@@ -2516,6 +2518,31 @@ async def obtener_detalle_producto(
                 "precio": float(precio) if precio else None
             })
 
+    # Calcular ventas de los últimos 7, 15 y 30 días
+    fecha_actual = datetime.now()
+    ventas_stats = {}
+
+    for dias in [7, 15, 30]:
+        fecha_desde = fecha_actual - timedelta(days=dias)
+
+        ventas_query = db.query(
+            func.sum(VentaML.cantidad).label('cantidad_total'),
+            func.sum(VentaML.monto_total).label('monto_total'),
+            func.count(VentaML.id_venta).label('numero_ventas')
+        ).filter(
+            and_(
+                VentaML.item_id == item_id,
+                VentaML.fecha >= fecha_desde,
+                VentaML.fecha < fecha_actual + timedelta(days=1)
+            )
+        ).first()
+
+        ventas_stats[f"ultimos_{dias}_dias"] = {
+            "cantidad_vendida": int(ventas_query.cantidad_total or 0),
+            "monto_total": float(ventas_query.monto_total or 0),
+            "numero_ventas": int(ventas_query.numero_ventas or 0)
+        }
+
     return {
         "producto": {
             "item_id": producto.item_id,
@@ -2548,9 +2575,14 @@ async def obtener_detalle_producto(
             "precio_6_cuotas": float(pricing.precio_6_cuotas) if pricing and pricing.precio_6_cuotas else None,
             "precio_9_cuotas": float(pricing.precio_9_cuotas) if pricing and pricing.precio_9_cuotas else None,
             "precio_12_cuotas": float(pricing.precio_12_cuotas) if pricing and pricing.precio_12_cuotas else None,
+            "markup_3_cuotas": float(pricing.markup_3_cuotas) if pricing and pricing.markup_3_cuotas else None,
+            "markup_6_cuotas": float(pricing.markup_6_cuotas) if pricing and pricing.markup_6_cuotas else None,
+            "markup_9_cuotas": float(pricing.markup_9_cuotas) if pricing and pricing.markup_9_cuotas else None,
+            "markup_12_cuotas": float(pricing.markup_12_cuotas) if pricing and pricing.markup_12_cuotas else None,
             "usuario_modifico": pricing.usuario.nombre if pricing and pricing.usuario else None,
             "fecha_modificacion": pricing.fecha_modificacion if pricing else None
         },
+        "ventas": ventas_stats,
         "precios_ml": precios_dict,
         "publicaciones_ml": list(publicaciones_dict.values())
     }
