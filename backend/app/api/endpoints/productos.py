@@ -2552,39 +2552,48 @@ async def obtener_detalle_producto(
     # Costo de envío
     costo_envio = float(producto.envio) if producto.envio else 0.0
 
-    # Obtener todos los precios de ML con datos de publicaciones
-    precios_ml_data = db.execute(
-        text("""
-            SELECT pm.pricelist_id, pm.precio, pm.mla, pub.item_title, pub.lista_nombre
-            FROM precios_ml pm
-            LEFT JOIN publicaciones_ml pub ON pm.mla = pub.mla
-            WHERE pm.item_id = :item_id
-        """),
-        {"item_id": item_id}
-    ).fetchall()
+    # Primero obtener todas las publicaciones ML del item
+    from app.models.publicacion_ml import PublicacionML
+    publicaciones_ml_query = db.query(PublicacionML).filter(
+        PublicacionML.item_id == item_id,
+        PublicacionML.activo == True
+    ).all()
 
-    precios_dict = {row[0]: float(row[1]) if row[1] else None for row in precios_ml_data}
-
-    # Agrupar publicaciones por MLA
+    # Crear diccionario base de publicaciones
     publicaciones_dict = {}
     mla_ids = []
 
-    for row in precios_ml_data:
-        pricelist_id, precio, mla, titulo, lista_nombre = row
-        if mla and mla not in publicaciones_dict:
-            publicaciones_dict[mla] = {
-                "mla": mla,
-                "titulo": titulo,
-                "lista_nombre": lista_nombre,
-                "precio_ml": None,
-                "precios": []
-            }
-            mla_ids.append(mla)
-        if mla:
-            publicaciones_dict[mla]["precios"].append({
-                "pricelist_id": pricelist_id,
-                "precio": float(precio) if precio else None
-            })
+    for pub in publicaciones_ml_query:
+        publicaciones_dict[pub.mla] = {
+            "mla": pub.mla,
+            "titulo": pub.item_title,
+            "lista_nombre": pub.lista_nombre,
+            "precio_ml": None,
+            "precios": []
+        }
+        mla_ids.append(pub.mla)
+
+    # Ahora obtener precios de ML para estas publicaciones
+    if mla_ids:
+        precios_ml_data = db.execute(
+            text("""
+                SELECT pricelist_id, precio, mla
+                FROM precios_ml
+                WHERE item_id = :item_id AND mla = ANY(:mla_ids)
+            """),
+            {"item_id": item_id, "mla_ids": mla_ids}
+        ).fetchall()
+
+        precios_dict = {}
+        for pricelist_id, precio, mla in precios_ml_data:
+            precios_dict[pricelist_id] = float(precio) if precio else None
+            if mla and mla in publicaciones_dict:
+                publicaciones_dict[mla]["precios"].append({
+                    "pricelist_id": pricelist_id,
+                    "precio": float(precio) if precio else None
+                })
+    else:
+        precios_dict = {}
 
     # Obtener datos de ML via webhook service
     if mla_ids:
