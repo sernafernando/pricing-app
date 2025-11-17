@@ -462,7 +462,10 @@ async def sync_all(
         }
 
     except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
+        print(f"Error en sync_all: {error_traceback}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error durante la sincronización completa: {str(e)}"
+            detail=f"Error durante la sincronización completa: {str(e)}\n{error_traceback}"
         )
