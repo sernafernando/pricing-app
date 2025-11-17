@@ -2543,6 +2543,39 @@ async def obtener_detalle_producto(
             "numero_ventas": int(ventas_query.numero_ventas or 0)
         }
 
+    # Obtener último proveedor (última compra con puco_id = 10)
+    from app.models.tb_supplier import TBSupplier
+    from app.models.commercial_transaction import CommercialTransaction
+    from app.models.item_transaction import ItemTransaction
+
+    ultimo_proveedor_query = db.query(
+        TBSupplier.supp_name,
+        ItemTransaction.it_cd
+    ).join(
+        CommercialTransaction,
+        and_(
+            CommercialTransaction.comp_id == ItemTransaction.comp_id,
+            CommercialTransaction.ct_transaction == ItemTransaction.ct_transaction
+        )
+    ).join(
+        TBSupplier,
+        and_(
+            TBSupplier.comp_id == CommercialTransaction.comp_id,
+            TBSupplier.supp_id == CommercialTransaction.supp_id
+        )
+    ).filter(
+        and_(
+            ItemTransaction.puco_id == 10,  # Compras
+            ItemTransaction.item_id == item_id,
+            CommercialTransaction.supp_id.isnot(None)
+        )
+    ).order_by(ItemTransaction.it_cd.desc()).first()
+
+    proveedor_info = {
+        "nombre": ultimo_proveedor_query.supp_name if ultimo_proveedor_query else None,
+        "ultima_compra": ultimo_proveedor_query.it_cd.isoformat() if ultimo_proveedor_query and ultimo_proveedor_query.it_cd else None
+    }
+
     return {
         "producto": {
             "item_id": producto.item_id,
@@ -2583,6 +2616,7 @@ async def obtener_detalle_producto(
             "fecha_modificacion": pricing.fecha_modificacion if pricing else None
         },
         "ventas": ventas_stats,
+        "proveedor": proveedor_info,
         "precios_ml": precios_dict,
         "publicaciones_ml": list(publicaciones_dict.values())
     }

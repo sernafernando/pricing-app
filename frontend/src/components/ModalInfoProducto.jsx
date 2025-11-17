@@ -371,6 +371,27 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                 </section>
               )}
 
+              {/* PROVEEDOR */}
+              {detalle.proveedor && detalle.proveedor.nombre && (
+                <section className="info-section">
+                  <h3>🏭 Información de Compra</h3>
+                  <div className="info-grid">
+                    <div className="info-item">
+                      <span className="info-label">Proveedor:</span>
+                      <span className="info-value highlight">{detalle.proveedor.nombre}</span>
+                    </div>
+                    {detalle.proveedor.ultima_compra && (
+                      <div className="info-item">
+                        <span className="info-label">Última Compra:</span>
+                        <span className="info-value">
+                          {new Date(detalle.proveedor.ultima_compra).toLocaleDateString('es-AR')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
               {/* VENTAS */}
               {detalle.ventas && (
                 <section className="info-section">
