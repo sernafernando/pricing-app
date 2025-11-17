@@ -12,5 +12,8 @@ ALTER TABLE tb_tax_name DROP COLUMN IF EXISTS tax_name;
 ALTER TABLE tb_item ADD COLUMN IF NOT EXISTS item_cd TIMESTAMP;
 ALTER TABLE tb_item ADD COLUMN IF NOT EXISTS "item_LastUpdate" TIMESTAMP;
 
--- 4. Verificar que las demás tablas tengan las columnas correctas
+-- 4. tb_item_taxes: agregar tax_class si no existe
+ALTER TABLE tb_item_taxes ADD COLUMN IF NOT EXISTS tax_class INTEGER;
+
+-- 5. Verificar que las demás tablas tengan las columnas correctas
 -- (el script create_erp_master_tables.sql ya tiene la estructura correcta)
