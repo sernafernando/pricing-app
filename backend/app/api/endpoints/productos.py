@@ -2464,6 +2464,7 @@ async def obtener_detalle_producto(
     from app.models.publicacion_ml import PublicacionML
     from app.models.venta_ml import VentaML
     from app.services.pricing_calculator import obtener_tipo_cambio_actual, obtener_comision_base, obtener_grupo_subcategoria
+    from app.services.ml_api_client import ml_client
     from sqlalchemy import text
     from datetime import timedelta
 
@@ -2501,8 +2502,10 @@ async def obtener_detalle_producto(
 
     precios_dict = {row[0]: float(row[1]) if row[1] else None for row in precios_ml_data}
 
-    # Agrupar publicaciones por MLA
+    # Agrupar publicaciones por MLA y obtener datos de la API de ML
     publicaciones_dict = {}
+    mla_ids = []
+
     for row in precios_ml_data:
         pricelist_id, precio, mla, titulo, lista_nombre = row
         if mla and mla not in publicaciones_dict:
@@ -2510,13 +2513,30 @@ async def obtener_detalle_producto(
                 "mla": mla,
                 "titulo": titulo,
                 "lista_nombre": lista_nombre,
+                "tipo_publicacion": None,
+                "precio": None,
+                "stock": None,
                 "precios": []
             }
+            mla_ids.append(mla)
         if mla:
             publicaciones_dict[mla]["precios"].append({
                 "pricelist_id": pricelist_id,
                 "precio": float(precio) if precio else None
             })
+
+    # Obtener datos de ML API
+    if mla_ids:
+        try:
+            ml_items = await ml_client.get_items_batch(mla_ids)
+            for mla_id, ml_data in ml_items.items():
+                if mla_id in publicaciones_dict:
+                    publicaciones_dict[mla_id]["tipo_publicacion"] = ml_data.get("listing_type_id", "")
+                    publicaciones_dict[mla_id]["precio"] = float(ml_data.get("price", 0))
+                    publicaciones_dict[mla_id]["stock"] = ml_data.get("available_quantity", 0)
+        except Exception as e:
+            # Si falla la API de ML, continuamos sin esos datos
+            pass
 
     # Calcular ventas de los últimos 7, 15 y 30 días
     fecha_actual = datetime.now()
