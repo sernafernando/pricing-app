@@ -121,6 +121,8 @@
   border-radius: 8px;
   padding: 16px;
   border: 1px solid var(--border-color);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .periodo-header {
@@ -143,9 +145,11 @@
 .stat-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 8px 0;
   border-bottom: 1px solid var(--border-color);
+  gap: 8px;
+  min-width: 0;
 }
 
 .stat-item:last-child {
@@ -156,18 +160,24 @@
   font-size: 13px;
   color: var(--text-secondary);
   font-weight: 500;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .stat-value {
   font-size: 15px;
   color: var(--text-primary);
   font-weight: 600;
+  word-break: break-word;
+  text-align: right;
 }
 
 .stat-value.highlight {
   font-size: 20px;
   font-weight: 700;
   color: #22c55e;
+  word-break: break-word;
+  text-align: right;
 }
 
 @media (max-width: 768px) {
