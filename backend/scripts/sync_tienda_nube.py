@@ -105,10 +105,10 @@ def sync_tienda_nube():
 
             for variant in product.get('variants', []):
                 variant_id = variant.get('id')
-                variant_sku = variant.get('sku', '').strip()
+                variant_sku = (variant.get('sku') or '').strip()
 
                 # Precios
-                price = float(variant.get('price', 0))
+                price = float(variant.get('price', 0) or 0)
                 compare_at_price = variant.get('compare_at_price')
                 promotional_price = variant.get('promotional_price')
 
