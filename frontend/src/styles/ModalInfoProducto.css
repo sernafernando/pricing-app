@@ -165,7 +165,7 @@
 }
 
 .stat-value {
-  font-size: 15px;
+  font-size: 13px;
   color: var(--text-primary);
   font-weight: 600;
   word-break: break-word;
@@ -173,7 +173,7 @@
 }
 
 .stat-value.highlight {
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 700;
   color: #22c55e;
   word-break: break-word;
