@@ -77,61 +77,78 @@ def sync_catalog_status(mla_id: str = None):
         # Conectar a la BD del webhook
         engine_webhook = create_engine(ML_WEBHOOK_DB_URL)
 
-        logger.info("Consultando ml_previews...")
+        logger.info("Consultando ml_previews en batch...")
+
+        # Crear lista de MLAs
+        mla_list = [pub.mlp_publicationID for pub in publicaciones]
+
+        # Crear diccionario de catalog_product_id por MLA
+        catalog_dict = {pub.mlp_publicationID: pub.mlp_catalog_product_id for pub in publicaciones}
 
         with engine_webhook.connect() as conn_webhook:
+            # Hacer una sola query para todos los MLAs
+            results = conn_webhook.execute(
+                text("""
+                    SELECT
+                        SUBSTRING(resource FROM '/items/(.+)/price_to_win') as mla,
+                        price,
+                        status,
+                        winner,
+                        winner_price
+                    FROM ml_previews
+                    WHERE resource LIKE '/items/%/price_to_win%'
+                    AND SUBSTRING(resource FROM '/items/(.+)/price_to_win') = ANY(:mla_list)
+                """),
+                {"mla_list": mla_list}
+            ).fetchall()
+
+            logger.info(f"Encontrados {len(results)} registros con status en ml_previews")
+
+            # Crear diccionario de resultados
+            results_dict = {}
+            for row in results:
+                mla, price, status, winner, winner_price = row
+                if status:  # Solo si tiene status
+                    results_dict[mla] = {
+                        'price': price,
+                        'status': status,
+                        'winner': winner,
+                        'winner_price': winner_price
+                    }
+
+            # Procesar cada publicación
+            fecha_consulta = datetime.now()
+
             for pub in publicaciones:
                 try:
                     mla = pub.mlp_publicationID
 
-                    # Cada 100 items, mostrar progreso
-                    if (sincronizadas + sin_datos + len(errores)) % 100 == 0:
-                        total_proc = sincronizadas + sin_datos + len(errores)
-                        logger.info(f"Progreso: {total_proc}/{len(publicaciones)} procesados (✓ {sincronizadas} sync)")
-
-                    # Consultar ml_previews del webhook
-                    resource_ptw = f"/items/{mla}/price_to_win?version=v2"
-
-                    result = conn_webhook.execute(
-                        text("""
-                            SELECT price, status, winner, winner_price
-                            FROM ml_previews
-                            WHERE resource = :resource
-                        """),
-                        {"resource": resource_ptw}
-                    ).fetchone()
-
-                    if not result:
+                    if mla not in results_dict:
                         sin_datos += 1
                         continue
 
-                    # Extraer datos
-                    price, status, winner, winner_price = result
-
-                    if not status:
-                        sin_datos += 1
-                        continue
+                    data = results_dict[mla]
 
                     # Guardar en base de datos pricing
                     catalog_status = MLCatalogStatus(
                         mla=mla,
                         catalog_product_id=pub.mlp_catalog_product_id,
-                        status=status,
-                        current_price=float(price) if price else None,
+                        status=data['status'],
+                        current_price=float(data['price']) if data['price'] else None,
                         price_to_win=None,
                         visit_share=None,
                         consistent=None,
                         competitors_sharing_first_place=None,
-                        winner_mla=winner,
-                        winner_price=float(winner_price) if winner_price else None,
-                        fecha_consulta=datetime.now()
+                        winner_mla=data['winner'],
+                        winner_price=float(data['winner_price']) if data['winner_price'] else None,
+                        fecha_consulta=fecha_consulta
                     )
 
                     db_pricing.add(catalog_status)
                     sincronizadas += 1
 
-                    if sincronizadas % 100 == 0:
-                        logger.info(f"✓ {sincronizadas} sincronizadas (último: {mla} - {status})")
+                    if sincronizadas % 500 == 0:
+                        logger.info(f"✓ {sincronizadas} sincronizadas")
 
                 except Exception as e:
                     logger.error(f"Error sincronizando {pub.mlp_publicationID}: {e}")
