@@ -2608,10 +2608,6 @@ async def obtener_detalle_producto(
             "precio_6_cuotas": float(pricing.precio_6_cuotas) if pricing and pricing.precio_6_cuotas else None,
             "precio_9_cuotas": float(pricing.precio_9_cuotas) if pricing and pricing.precio_9_cuotas else None,
             "precio_12_cuotas": float(pricing.precio_12_cuotas) if pricing and pricing.precio_12_cuotas else None,
-            "markup_3_cuotas": float(pricing.markup_3_cuotas) if pricing and pricing.markup_3_cuotas else None,
-            "markup_6_cuotas": float(pricing.markup_6_cuotas) if pricing and pricing.markup_6_cuotas else None,
-            "markup_9_cuotas": float(pricing.markup_9_cuotas) if pricing and pricing.markup_9_cuotas else None,
-            "markup_12_cuotas": float(pricing.markup_12_cuotas) if pricing and pricing.markup_12_cuotas else None,
             "usuario_modifico": pricing.usuario.nombre if pricing and pricing.usuario else None,
             "fecha_modificacion": pricing.fecha_modificacion if pricing else None
         },
