@@ -165,25 +165,25 @@
 }
 
 .stat-value {
-  font-size: clamp(10px, 2vw, 13px);
+  font-size: 11px;
   color: var(--text-primary);
   font-weight: 600;
   text-align: right;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  line-height: 1.2;
 }
 
 .stat-value.highlight {
-  font-size: clamp(11px, 2.2vw, 14px);
+  font-size: 13px;
   font-weight: 700;
   color: #22c55e;
   text-align: right;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  line-height: 1.2;
 }
 
 @media (max-width: 768px) {
