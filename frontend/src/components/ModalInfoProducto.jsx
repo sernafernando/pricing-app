@@ -345,6 +345,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                           <th>Lista</th>
                           <th>Precio ML</th>
                           <th>Catálogo</th>
+                          <th>Info Competencia</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -390,6 +391,24 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                               {pub.catalog_product_id && !pub.catalog_status && (
                                 <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Catálogo</span>
                               )}
+                            </td>
+                            <td style={{ fontSize: '11px' }}>
+                              {pub.catalog_product_id && pub.catalog_status === 'winning' && pub.catalog_winner_price && (
+                                <span style={{ color: '#22c55e', fontWeight: '600' }}>
+                                  Ganando a ${pub.catalog_winner_price.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                </span>
+                              )}
+                              {pub.catalog_product_id && pub.catalog_status === 'competing' && pub.catalog_price_to_win && (
+                                <span style={{ color: '#f59e0b', fontWeight: '600' }}>
+                                  Necesita ${pub.catalog_price_to_win.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                </span>
+                              )}
+                              {pub.catalog_product_id && pub.catalog_status === 'sharing_first_place' && pub.catalog_winner_price && (
+                                <span style={{ color: '#3b82f6', fontWeight: '600' }}>
+                                  Empatando a ${pub.catalog_winner_price.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                </span>
+                              )}
+                              {(!pub.catalog_product_id || !pub.catalog_status) && '-'}
                             </td>
                           </tr>
                         ))}

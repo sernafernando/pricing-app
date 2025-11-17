@@ -68,6 +68,8 @@ class ProductoResponse(BaseModel):
     # Estado de catálogo ML
     catalog_status: Optional[str] = None
     has_catalog: Optional[bool] = None
+    catalog_price_to_win: Optional[float] = None
+    catalog_winner_price: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -698,15 +700,19 @@ async def listar_productos(
         # Consultar catalog status de estos MLAs
         if all_mlas:
             catalog_statuses = db.execute(text("""
-                SELECT mla, catalog_product_id, status
+                SELECT mla, catalog_product_id, status, price_to_win, winner_price
                 FROM v_ml_catalog_status_latest
                 WHERE mla = ANY(:mla_ids)
             """), {"mla_ids": all_mlas}).fetchall()
 
-            # Crear diccionario mla -> status
-            mla_to_status = {}
-            for mla, catalog_id, status in catalog_statuses:
-                mla_to_status[mla] = status
+            # Crear diccionario mla -> datos de catálogo
+            mla_to_catalog = {}
+            for mla, catalog_id, status, price_to_win, winner_price in catalog_statuses:
+                mla_to_catalog[mla] = {
+                    'status': status,
+                    'price_to_win': float(price_to_win) if price_to_win else None,
+                    'winner_price': float(winner_price) if winner_price else None
+                }
 
             # Asignar status a productos
             for producto in productos:
@@ -714,8 +720,11 @@ async def listar_productos(
                     mlas = item_to_mlas[producto.item_id]
                     # Si tiene catálogo, tomar el primer status encontrado
                     for mla in mlas:
-                        if mla in mla_to_status:
-                            producto.catalog_status = mla_to_status[mla]
+                        if mla in mla_to_catalog:
+                            catalog_data = mla_to_catalog[mla]
+                            producto.catalog_status = catalog_data['status']
+                            producto.catalog_price_to_win = catalog_data['price_to_win']
+                            producto.catalog_winner_price = catalog_data['winner_price']
                             producto.has_catalog = True
                             break
 
@@ -2603,9 +2612,9 @@ async def obtener_detalle_producto(
             mla, catalog_id, status, ptw, winner, winner_price = row
             if mla in publicaciones_dict:
                 publicaciones_dict[mla]["catalog_status"] = status
-                publicaciones_dict[mla]["price_to_win"] = float(ptw) if ptw else None
-                publicaciones_dict[mla]["winner_mla"] = winner
-                publicaciones_dict[mla]["winner_price"] = float(winner_price) if winner_price else None
+                publicaciones_dict[mla]["catalog_price_to_win"] = float(ptw) if ptw else None
+                publicaciones_dict[mla]["catalog_winner_mla"] = winner
+                publicaciones_dict[mla]["catalog_winner_price"] = float(winner_price) if winner_price else None
 
     # Calcular ventas de los últimos 7, 15 y 30 días
     fecha_actual = datetime.now()
