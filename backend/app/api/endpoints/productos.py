@@ -2516,9 +2516,7 @@ async def obtener_detalle_producto(
                 "mla": mla,
                 "titulo": titulo,
                 "lista_nombre": lista_nombre,
-                "tipo_publicacion": None,
                 "precio_ml": None,
-                "stock": None,
                 "precios": []
             }
             mla_ids.append(mla)
@@ -2534,10 +2532,8 @@ async def obtener_detalle_producto(
             ml_items = await ml_webhook_client.get_items_batch(mla_ids)
             for mla_id, ml_data in ml_items.items():
                 if mla_id in publicaciones_dict:
-                    # Extraer datos del preview
-                    publicaciones_dict[mla_id]["tipo_publicacion"] = ml_data.get("listing_type_id", "")
+                    # Extraer datos del preview (solo tiene price, title, thumbnail, brand, catalog_product_id)
                     publicaciones_dict[mla_id]["precio_ml"] = float(ml_data.get("price", 0)) if ml_data.get("price") else None
-                    publicaciones_dict[mla_id]["stock"] = ml_data.get("available_quantity", 0)
         except Exception as e:
             # Si falla el servicio de webhooks, continuamos sin esos datos
             logger.error(f"Error consultando ml-webhook: {e}")

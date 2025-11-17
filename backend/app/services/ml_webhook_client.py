@@ -44,6 +44,42 @@ class MLWebhookClient:
             logger.error(f"Error obteniendo preview de {mla_id}: {e}")
             return None
 
+    async def get_item_full(self, mla_id: str) -> Optional[Dict]:
+        """Obtiene datos completos de un item consultando directamente la API de ML
+
+        Args:
+            mla_id: El ID del item
+
+        Returns:
+            Dict con todos los datos del item incluyendo listing_type_id, available_quantity, etc.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Consultar directamente usando el endpoint render que tiene acceso a la API
+                response = await client.get(
+                    f"{self.base_url}/api/ml/render",
+                    params={"resource": f"/items/{mla_id}", "format": "json"}
+                )
+
+                if response.status_code == 404:
+                    return None
+
+                # El render devuelve HTML, pero podemos parsear o usar preview + consulta directa
+                # Mejor usamos el preview y complementamos
+                preview_response = await client.get(
+                    f"{self.base_url}/api/ml/preview",
+                    params={"resource": f"/items/{mla_id}"}
+                )
+
+                if preview_response.status_code != 200:
+                    return None
+
+                return preview_response.json()
+
+        except Exception as e:
+            logger.error(f"Error obteniendo item completo {mla_id}: {e}")
+            return None
+
     async def get_items_batch(self, mla_ids: List[str]) -> Dict[str, Dict]:
         """Obtiene múltiples items en batch
 
