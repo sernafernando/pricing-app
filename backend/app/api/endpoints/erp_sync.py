@@ -428,27 +428,31 @@ async def sync_all(
 
     try:
         # 1. Brands
-        brands_result = await sync_brands(db=db)
+        brands_result = await sync_brands(brand_id=None, db=db)
         results["brands"] = brands_result
 
         # 2. Categories
-        categories_result = await sync_categories(db=db)
+        categories_result = await sync_categories(cat_id=None, db=db)
         results["categories"] = categories_result
 
         # 3. Subcategories
-        subcategories_result = await sync_subcategories(db=db)
+        subcategories_result = await sync_subcategories(cat_id=None, subcat_id=None, db=db)
         results["subcategories"] = subcategories_result
 
         # 4. Tax Names
-        tax_names_result = await sync_tax_names(db=db)
+        tax_names_result = await sync_tax_names(tax_id=None, db=db)
         results["tax_names"] = tax_names_result
 
         # 5. Items
-        items_result = await sync_items(db=db)
+        items_result = await sync_items(
+            brand_id=None, cat_id=None, subcat_id=None,
+            item_id=None, item_code=None, last_update=None,
+            db=db
+        )
         results["items"] = items_result
 
         # 6. Item Taxes
-        item_taxes_result = await sync_item_taxes(db=db)
+        item_taxes_result = await sync_item_taxes(tax_id=None, item_id=None, db=db)
         results["item_taxes"] = item_taxes_result
 
         return {
