@@ -164,7 +164,7 @@
 }
 
 .stat-value {
-  font-size: 10px;
+  font-size: 1.1vh;
   color: var(--text-primary);
   font-weight: 600;
   text-align: right;
