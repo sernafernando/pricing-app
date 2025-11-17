@@ -7,6 +7,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const { overlayRef, handleOverlayMouseDown, handleOverlayClick } = useModalClickOutside(onClose);
   const [detalle, setDetalle] = useState(null);
   const [cargando, setCargando] = useState(false);
+  const [tabActiva, setTabActiva] = useState('info'); // 'info', 'ml', 'ventas', 'proveedor'
 
   useEffect(() => {
     if (isOpen && itemId) {
@@ -83,13 +84,48 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
           <button onClick={onClose} className="close-btn">✕</button>
         </div>
 
+        {/* TABS */}
+        {!cargando && detalle && (
+          <div className="modal-tabs">
+            <button
+              className={`tab-button ${tabActiva === 'info' ? 'active' : ''}`}
+              onClick={() => setTabActiva('info')}
+            >
+              📦 Información
+            </button>
+            <button
+              className={`tab-button ${tabActiva === 'ml' ? 'active' : ''}`}
+              onClick={() => setTabActiva('ml')}
+            >
+              📢 MercadoLibre {detalle.publicaciones_ml?.length > 0 && `(${detalle.publicaciones_ml.length})`}
+            </button>
+            <button
+              className={`tab-button ${tabActiva === 'ventas' ? 'active' : ''}`}
+              onClick={() => setTabActiva('ventas')}
+            >
+              📊 Ventas
+            </button>
+            {detalle.proveedor?.nombre && (
+              <button
+                className={`tab-button ${tabActiva === 'proveedor' ? 'active' : ''}`}
+                onClick={() => setTabActiva('proveedor')}
+              >
+                🏭 Proveedor
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="modal-body">
           {cargando ? (
             <p>Cargando...</p>
           ) : detalle ? (
             <>
-              {/* INFORMACIÓN BÁSICA */}
-              <section className="info-section">
+              {/* TAB: INFORMACIÓN */}
+              {tabActiva === 'info' && (
+                <>
+                  {/* INFORMACIÓN BÁSICA */}
+                  <section className="info-section">
                 <h3>📦 Información Básica</h3>
                 <div className="info-grid">
                   <div className="info-item">
@@ -332,9 +368,11 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                   </div>
                 </section>
               )}
+                </>
+              )}
 
-              {/* PUBLICACIONES ML */}
-              {detalle.publicaciones_ml && detalle.publicaciones_ml.length > 0 && (
+              {/* TAB: MERCADOLIBRE */}
+              {tabActiva === 'ml' && detalle.publicaciones_ml && detalle.publicaciones_ml.length > 0 && (
                 <section className="info-section">
                   <h3>📢 Publicaciones en Mercado Libre</h3>
                   <div className="publicaciones-table">
@@ -433,8 +471,8 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                 </section>
               )}
 
-              {/* PROVEEDOR */}
-              {detalle.proveedor && detalle.proveedor.nombre && (
+              {/* TAB: PROVEEDOR */}
+              {tabActiva === 'proveedor' && detalle.proveedor && detalle.proveedor.nombre && (
                 <section className="info-section">
                   <h3>🏭 Información de Compra</h3>
                   <div className="info-grid">
@@ -454,8 +492,8 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                 </section>
               )}
 
-              {/* VENTAS */}
-              {detalle.ventas && (
+              {/* TAB: VENTAS */}
+              {tabActiva === 'ventas' && detalle.ventas && (
                 <section className="info-section">
                   <h3>📊 Ventas en MercadoLibre</h3>
                   <div className="ventas-grid">

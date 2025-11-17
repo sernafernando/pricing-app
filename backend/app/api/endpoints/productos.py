@@ -2629,24 +2629,28 @@ async def obtener_detalle_producto(
     # Obtener estado de las publicaciones desde tb_mercadolibre_items_publicados
     if mla_ids:
         pub_statuses = db.execute(text("""
-            SELECT mlp_publicationid, mlp_laststatusid
+            SELECT mlp_publicationid, mlp_laststatusid, mlp_active
             FROM tb_mercadolibre_items_publicados
             WHERE mlp_publicationid = ANY(:mla_ids)
         """), {"mla_ids": mla_ids}).fetchall()
 
-        # Mapeo de status IDs a nombres
-        status_map = {
-            1: 'active',
-            2: 'paused',
-            3: 'closed',
-            4: 'under_review',
-            5: 'inactive',
-            6: 'payment_required'
-        }
-
-        for mla, status_id in pub_statuses:
+        # Mapeo de status IDs a nombres (según optval_statusid de MercadoLibre)
+        # Si no tiene status_id, usar mlp_active para determinar
+        for mla, status_id, is_active in pub_statuses:
             if mla in publicaciones_dict:
-                publicaciones_dict[mla]["publication_status"] = status_map.get(status_id, 'unknown')
+                if status_id:
+                    # Mapeo de IDs conocidos de MercadoLibre
+                    status_map = {
+                        153: 'active',      # Activo
+                        154: 'paused',      # Pausado
+                        155: 'closed',      # Cerrado
+                        156: 'under_review' # En revisión
+                    }
+                    publicaciones_dict[mla]["publication_status"] = status_map.get(status_id, f'status_{status_id}')
+                elif is_active is not None:
+                    publicaciones_dict[mla]["publication_status"] = 'active' if is_active else 'paused'
+                else:
+                    publicaciones_dict[mla]["publication_status"] = None
 
     # Calcular ventas de los últimos 7, 15 y 30 días
     fecha_actual = datetime.now()
