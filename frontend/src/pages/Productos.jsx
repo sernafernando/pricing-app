@@ -2716,31 +2716,35 @@ export default function Productos() {
                       )}
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
-                      {/* Mostrar precios de Tienda Nube si existen */}
-                      {p.tn_price || p.tn_promotional_price ? (
-                        <div className="web-transf-info">
-                          {p.tn_has_promotion && p.tn_promotional_price ? (
-                            <div>
-                              <div className="web-transf-precio" style={{ fontWeight: '600', color: '#22c55e' }}>
-                                ${p.tn_promotional_price.toLocaleString('es-AR')}
-                              </div>
-                              {p.tn_price && (
-                                <div className="web-transf-precio-tachado" style={{
-                                  fontSize: '11px',
-                                  color: '#6b7280',
-                                  textDecoration: 'line-through'
-                                }}>
-                                  ${p.tn_price.toLocaleString('es-AR')}
+                      <div>
+                        {/* Mostrar precios de Tienda Nube si existen */}
+                        {(p.tn_price || p.tn_promotional_price) && (
+                          <div className="web-transf-info" style={{ marginBottom: '8px', borderBottom: '1px solid #e5e7eb', paddingBottom: '6px' }}>
+                            {p.tn_has_promotion && p.tn_promotional_price ? (
+                              <div>
+                                <div style={{ fontSize: '12px', fontWeight: '600', color: '#22c55e' }}>
+                                  ${p.tn_promotional_price.toLocaleString('es-AR')}
                                 </div>
-                              )}
-                            </div>
-                          ) : p.tn_price ? (
-                            <div className="web-transf-precio">
-                              ${p.tn_price.toLocaleString('es-AR')}
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : editandoWebTransf === p.item_id ? (
+                                {p.tn_price && (
+                                  <div style={{
+                                    fontSize: '10px',
+                                    color: '#6b7280',
+                                    textDecoration: 'line-through'
+                                  }}>
+                                    ${p.tn_price.toLocaleString('es-AR')}
+                                  </div>
+                                )}
+                              </div>
+                            ) : p.tn_price ? (
+                              <div style={{ fontSize: '12px' }}>
+                                ${p.tn_price.toLocaleString('es-AR')}
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+
+                        {/* Lógica manual de Web Transf */}
+                        {editandoWebTransf === p.item_id ? (
                         <div className="web-transf-edit">
                           <label className="web-transf-checkbox">
                             <input
@@ -2819,7 +2823,8 @@ export default function Productos() {
                             <span className="text-muted">-</span>
                           )}
                         </div>
-                      )}
+                        )}
+                      </div>
                     </td>
                     </>
                     ) : (
