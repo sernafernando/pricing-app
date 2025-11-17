@@ -7,15 +7,17 @@ import sys
 import os
 
 # Agregar el directorio backend al path para imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, backend_dir)
 
-# Cargar variables de entorno del .env
+# Cargar variables de entorno del .env (buscar en el directorio backend)
 from dotenv import load_dotenv
-load_dotenv()
+dotenv_path = os.path.join(backend_dir, '.env')
+load_dotenv(dotenv_path)
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, engine
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_catalog_status import MLCatalogStatus
 from datetime import datetime
@@ -23,6 +25,25 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Obtener la URL de la BD pricing
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    logger.error("❌ No se encontró DATABASE_URL en las variables de entorno")
+    sys.exit(1)
+
+# Construir URL para ml_webhook usando la misma conexión pero diferente DB
+# Asumimos que mlwebhook está en el mismo servidor que pricing_db
+import re
+match = re.match(r'postgresql://([^:]+):([^@]+)@([^/]+)/(.+)', DATABASE_URL)
+if match:
+    user, password, host, db = match.groups()
+    # Usar el mismo usuario/password/host pero DB mlwebhook
+    ML_WEBHOOK_DB_URL = f"postgresql://{user}:{password}@{host}/mlwebhook"
+    logger.info(f"Conectando a ml-webhook en: {host}/mlwebhook")
+else:
+    logger.error("❌ No se pudo parsear DATABASE_URL")
+    sys.exit(1)
 
 
 def sync_catalog_status(mla_id: str = None):
@@ -53,74 +74,70 @@ def sync_catalog_status(mla_id: str = None):
         sin_datos = 0
         errores = []
 
-        # Usar requests para consultar el webhook API (que guarda en ml_previews)
-        import requests
+        # Conectar a la BD del webhook
+        engine_webhook = create_engine(ML_WEBHOOK_DB_URL)
 
-        ML_WEBHOOK_BASE_URL = "https://ml-webhook.gaussonline.com.ar"
+        logger.info("Consultando ml_previews...")
 
-        for pub in publicaciones:
-            try:
-                mla = pub.mlp_publicationID
-
-                # Cada 100 items, mostrar progreso
-                if (sincronizadas + sin_datos) % 100 == 0:
-                    logger.info(f"Progreso: {sincronizadas + sin_datos}/{len(publicaciones)} procesados...")
-
-                # Consultar API del webhook (esto guardará en ml_previews automáticamente)
-                resource_ptw = f"/items/{mla}/price_to_win?version=v2"
-
+        with engine_webhook.connect() as conn_webhook:
+            for pub in publicaciones:
                 try:
-                    response = requests.get(
-                        f"{ML_WEBHOOK_BASE_URL}/api/ml/preview",
-                        params={"resource": resource_ptw},
-                        timeout=5
-                    )
+                    mla = pub.mlp_publicationID
 
-                    if response.status_code == 404:
-                        logger.debug(f"{mla} no encontrado en ML")
+                    # Cada 100 items, mostrar progreso
+                    if (sincronizadas + sin_datos + len(errores)) % 100 == 0:
+                        total_proc = sincronizadas + sin_datos + len(errores)
+                        logger.info(f"Progreso: {total_proc}/{len(publicaciones)} procesados (✓ {sincronizadas} sync)")
+
+                    # Consultar ml_previews del webhook
+                    resource_ptw = f"/items/{mla}/price_to_win?version=v2"
+
+                    result = conn_webhook.execute(
+                        text("""
+                            SELECT price, status, winner, winner_price
+                            FROM ml_previews
+                            WHERE resource = :resource
+                        """),
+                        {"resource": resource_ptw}
+                    ).fetchone()
+
+                    if not result:
                         sin_datos += 1
                         continue
 
-                    response.raise_for_status()
-                    preview_data = response.json()
+                    # Extraer datos
+                    price, status, winner, winner_price = result
 
-                except requests.exceptions.RequestException as e:
-                    logger.warning(f"Error consultando webhook para {mla}: {e}")
-                    sin_datos += 1
-                    continue
+                    if not status:
+                        sin_datos += 1
+                        continue
 
-                # Extraer status del preview
-                status = preview_data.get("status")
+                    # Guardar en base de datos pricing
+                    catalog_status = MLCatalogStatus(
+                        mla=mla,
+                        catalog_product_id=pub.mlp_catalog_product_id,
+                        status=status,
+                        current_price=float(price) if price else None,
+                        price_to_win=None,
+                        visit_share=None,
+                        consistent=None,
+                        competitors_sharing_first_place=None,
+                        winner_mla=winner,
+                        winner_price=float(winner_price) if winner_price else None,
+                        fecha_consulta=datetime.now()
+                    )
 
-                if not status:
-                    logger.debug(f"{mla} no tiene status")
-                    sin_datos += 1
-                    continue
+                    db_pricing.add(catalog_status)
+                    sincronizadas += 1
 
-                # Guardar en base de datos pricing
-                catalog_status = MLCatalogStatus(
-                    mla=mla,
-                    catalog_product_id=pub.mlp_catalog_product_id,
-                    status=status,
-                    current_price=float(preview_data.get("price", 0)) if preview_data.get("price") else None,
-                    price_to_win=None,
-                    visit_share=None,
-                    consistent=None,
-                    competitors_sharing_first_place=None,
-                    winner_mla=preview_data.get("winner"),
-                    winner_price=float(preview_data.get("winner_price", 0)) if preview_data.get("winner_price") else None,
-                    fecha_consulta=datetime.now()
-                )
+                    if sincronizadas % 100 == 0:
+                        logger.info(f"✓ {sincronizadas} sincronizadas (último: {mla} - {status})")
 
-                db_pricing.add(catalog_status)
-                sincronizadas += 1
+                except Exception as e:
+                    logger.error(f"Error sincronizando {pub.mlp_publicationID}: {e}")
+                    errores.append(f"{pub.mlp_publicationID}: {str(e)}")
 
-                if sincronizadas % 10 == 0:
-                    logger.info(f"✓ {sincronizadas} sincronizadas (último: {mla} - {status})")
-
-            except Exception as e:
-                logger.error(f"Error sincronizando {pub.mlp_publicationID}: {e}")
-                errores.append(f"{pub.mlp_publicationID}: {str(e)}")
+        engine_webhook.dispose()
 
         db_pricing.commit()
 
