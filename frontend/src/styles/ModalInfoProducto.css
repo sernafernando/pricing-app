@@ -165,19 +165,25 @@
 }
 
 .stat-value {
-  font-size: 13px;
+  font-size: clamp(10px, 2vw, 13px);
   color: var(--text-primary);
   font-weight: 600;
-  word-break: break-word;
   text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .stat-value.highlight {
-  font-size: 15px;
+  font-size: clamp(11px, 2.2vw, 14px);
   font-weight: 700;
   color: #22c55e;
-  word-break: break-word;
   text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 @media (max-width: 768px) {
