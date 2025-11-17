@@ -8,9 +8,9 @@ ALTER TABLE tb_brand ADD COLUMN IF NOT EXISTS bra_id INTEGER;
 ALTER TABLE tb_tax_name ADD COLUMN IF NOT EXISTS tax_percentage NUMERIC(10, 2);
 ALTER TABLE tb_tax_name DROP COLUMN IF EXISTS tax_name;
 
--- 3. tb_item: agregar item_cd si no existe, y renombrar item_lastupdate a "item_LastUpdate"
+-- 3. tb_item: agregar item_cd y "item_LastUpdate" si no existen
 ALTER TABLE tb_item ADD COLUMN IF NOT EXISTS item_cd TIMESTAMP;
-ALTER TABLE tb_item RENAME COLUMN item_lastupdate TO "item_LastUpdate";
+ALTER TABLE tb_item ADD COLUMN IF NOT EXISTS "item_LastUpdate" TIMESTAMP;
 
 -- 4. Verificar que las demás tablas tengan las columnas correctas
 -- (el script create_erp_master_tables.sql ya tiene la estructura correcta)
