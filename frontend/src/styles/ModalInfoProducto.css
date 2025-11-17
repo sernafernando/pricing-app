@@ -119,10 +119,10 @@
 .venta-periodo {
   background-color: var(--bg-primary);
   border-radius: 8px;
-  padding: 16px;
+  padding: 12px;
   border: 1px solid var(--border-color);
   min-width: 0;
-  overflow: hidden;
+  container-type: inline-size;
 }
 
 .periodo-header {
@@ -143,13 +143,12 @@
 }
 
 .stat-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
   padding: 8px 0;
   border-bottom: 1px solid var(--border-color);
-  gap: 8px;
-  min-width: 0;
+  gap: 12px;
 }
 
 .stat-item:last-child {
@@ -165,43 +164,23 @@
 }
 
 .stat-value {
-  font-size: 0.7rem;
+  font-size: 10px;
   color: var(--text-primary);
   font-weight: 600;
   text-align: right;
   white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
+  direction: rtl;
+  max-width: 100%;
 }
 
 .stat-value.highlight {
-  font-size: 0.85rem;
+  font-size: 18px;
   font-weight: 700;
   color: #22c55e;
   text-align: right;
   white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-
-@media (max-width: 900px) {
-  .stat-value {
-    font-size: 0.65rem;
-  }
-  .stat-value.highlight {
-    font-size: 0.75rem;
-  }
-}
-
-@media (max-width: 600px) {
-  .stat-value {
-    font-size: 0.6rem;
-  }
-  .stat-value.highlight {
-    font-size: 0.7rem;
-  }
+  direction: rtl;
+  max-width: 100%;
 }
 
 @media (max-width: 768px) {
