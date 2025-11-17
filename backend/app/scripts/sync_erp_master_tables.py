@@ -11,7 +11,7 @@ from pathlib import Path
 backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
-import pyodbc
+import pymssql
 import os
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
@@ -35,15 +35,13 @@ SQL_SERVER_PASSWORD = os.getenv("SQL_SERVER_PASSWORD")
 
 def get_sql_server_connection():
     """Conectar a SQL Server"""
-    conn_str = (
-        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-        f"SERVER={SQL_SERVER_HOST};"
-        f"DATABASE={SQL_SERVER_DB};"
-        f"UID={SQL_SERVER_USER};"
-        f"PWD={SQL_SERVER_PASSWORD};"
-        f"TrustServerCertificate=yes;"
+    return pymssql.connect(
+        server=SQL_SERVER_HOST,
+        database=SQL_SERVER_DB,
+        user=SQL_SERVER_USER,
+        password=SQL_SERVER_PASSWORD,
+        timeout=30
     )
-    return pyodbc.connect(conn_str, timeout=30)
 
 
 def sync_brands(db_pg: Session):
