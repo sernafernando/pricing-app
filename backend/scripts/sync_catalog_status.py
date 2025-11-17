@@ -9,6 +9,10 @@ import os
 # Agregar el directorio backend al path para imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+# Cargar variables de entorno del .env
+from dotenv import load_dotenv
+load_dotenv()
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
@@ -21,7 +25,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuración de la BD del ml-webhook
-ML_WEBHOOK_DB_URL = os.getenv("ML_WEBHOOK_DB_URL", "postgresql://ml_webhook_user:ml_webhook_pass@localhost:5432/ml_webhook")
+ML_WEBHOOK_DB_URL = os.getenv("ML_WEBHOOK_DB_URL")
+
+if not ML_WEBHOOK_DB_URL:
+    logger.error("❌ No se encontró ML_WEBHOOK_DB_URL en las variables de entorno")
+    logger.error("Agregá esta línea al archivo .env:")
+    logger.error("ML_WEBHOOK_DB_URL=postgresql://usuario:password@host:puerto/mlwebhook")
+    sys.exit(1)
 
 
 def sync_catalog_status(mla_id: str = None):
