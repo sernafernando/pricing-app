@@ -10,21 +10,27 @@ class MLWebhookClient:
     def __init__(self):
         self.base_url = "https://ml-webhook.gaussonline.com.ar"
 
-    async def get_item_preview(self, mla_id: str) -> Optional[Dict]:
+    async def get_item_preview(self, mla_id: str, include_price_to_win: bool = False) -> Optional[Dict]:
         """Obtiene preview de un item de MercadoLibre
 
         Args:
             mla_id: El ID del item (ej: MLA2361127120)
+            include_price_to_win: Si es True, consulta también price_to_win
 
         Returns:
             Dict con: title, price, currency_id, thumbnail, brand, status, etc.
+            Si include_price_to_win=True, incluye también status, price_to_win, winner info
             None si hay error
         """
         try:
+            resource = f"/items/{mla_id}"
+            if include_price_to_win:
+                resource = f"/items/{mla_id}/price_to_win?version=v2"
+
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
                     f"{self.base_url}/api/ml/preview",
-                    params={"resource": f"/items/{mla_id}"}
+                    params={"resource": resource}
                 )
 
                 if response.status_code == 404:
