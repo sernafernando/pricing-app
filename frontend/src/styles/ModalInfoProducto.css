@@ -165,25 +165,43 @@
 }
 
 .stat-value {
-  font-size: 11px;
+  font-size: 0.7rem;
   color: var(--text-primary);
   font-weight: 600;
   text-align: right;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  hyphens: auto;
-  line-height: 1.2;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .stat-value.highlight {
-  font-size: 13px;
+  font-size: 0.85rem;
   font-weight: 700;
   color: #22c55e;
   text-align: right;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  hyphens: auto;
-  line-height: 1.2;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .stat-value {
+    font-size: 0.65rem;
+  }
+  .stat-value.highlight {
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .stat-value {
+    font-size: 0.6rem;
+  }
+  .stat-value.highlight {
+    font-size: 0.7rem;
+  }
 }
 
 @media (max-width: 768px) {
