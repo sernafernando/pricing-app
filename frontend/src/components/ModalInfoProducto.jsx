@@ -342,9 +342,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                       <thead>
                         <tr>
                           <th>MLA</th>
-                          <th>Tipo</th>
-                          <th>Precio</th>
-                          <th>Stock</th>
+                          <th>Lista</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -360,9 +358,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                                 {pub.mla}
                               </a>
                             </td>
-                            <td>{pub.tipo_publicacion}</td>
-                            <td>${pub.precio?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '-'}</td>
-                            <td>{pub.stock}</td>
+                            <td>{pub.lista_nombre || '-'}</td>
                           </tr>
                         ))}
                       </tbody>
