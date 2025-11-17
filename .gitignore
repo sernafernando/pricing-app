@@ -41,6 +41,7 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+/backend/.env.example
 
 # Logs
 *.log
@@ -52,3 +53,4 @@ Thumbs.db
 
 # Streamlit app
 st_app.py
+

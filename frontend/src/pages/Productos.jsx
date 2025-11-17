@@ -2716,7 +2716,31 @@ export default function Productos() {
                       )}
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
-                      {editandoWebTransf === p.item_id ? (
+                      {/* Mostrar precios de Tienda Nube si existen */}
+                      {p.tn_price || p.tn_promotional_price ? (
+                        <div className="web-transf-info">
+                          {p.tn_has_promotion && p.tn_promotional_price ? (
+                            <div>
+                              <div className="web-transf-precio" style={{ fontWeight: '600', color: '#22c55e' }}>
+                                ${p.tn_promotional_price.toLocaleString('es-AR')}
+                              </div>
+                              {p.tn_price && (
+                                <div className="web-transf-precio-tachado" style={{
+                                  fontSize: '11px',
+                                  color: '#6b7280',
+                                  textDecoration: 'line-through'
+                                }}>
+                                  ${p.tn_price.toLocaleString('es-AR')}
+                                </div>
+                              )}
+                            </div>
+                          ) : p.tn_price ? (
+                            <div className="web-transf-precio">
+                              ${p.tn_price.toLocaleString('es-AR')}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : editandoWebTransf === p.item_id ? (
                         <div className="web-transf-edit">
                           <label className="web-transf-checkbox">
                             <input

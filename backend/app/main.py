@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
-from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, ventas_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog
+from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, ventas_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog, tienda_nube
 
 app = FastAPI(
     title="Pricing API",
@@ -40,6 +40,7 @@ app.include_router(items_sin_mla.router, prefix="/api/items-sin-mla", tags=["ite
 app.include_router(dashboard_ml.router, prefix="/api", tags=["dashboard-ml"])
 app.include_router(erp_sync.router, prefix="/api", tags=["erp-sync"])
 app.include_router(ml_catalog.router, prefix="/api/ml-catalog", tags=["ml-catalog"])
+app.include_router(tienda_nube.router, prefix="/api/tienda-nube", tags=["tienda-nube"])
 
 @app.get("/")
 async def root():

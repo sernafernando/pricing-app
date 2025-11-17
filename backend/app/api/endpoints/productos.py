@@ -71,6 +71,11 @@ class ProductoResponse(BaseModel):
     catalog_price_to_win: Optional[float] = None
     catalog_winner_price: Optional[float] = None
 
+    # Precios Tienda Nube
+    tn_price: Optional[float] = None  # Precio normal
+    tn_promotional_price: Optional[float] = None  # Precio promocional
+    tn_has_promotion: Optional[bool] = None  # Si tiene promoción activa
+
     class Config:
         from_attributes = True
 
@@ -727,6 +732,38 @@ async def listar_productos(
                             producto.catalog_winner_price = catalog_data['winner_price']
                             producto.has_catalog = True
                             break
+
+    # Obtener precios de Tienda Nube
+    if productos:
+        item_ids = [p.item_id for p in productos]
+
+        tn_precios = db.execute(text("""
+            SELECT
+                item_id,
+                price,
+                promotional_price,
+                CASE WHEN promotional_price IS NOT NULL AND promotional_price > 0 THEN true ELSE false END as has_promotion
+            FROM tienda_nube_productos
+            WHERE item_id = ANY(:item_ids)
+            AND activo = true
+        """), {"item_ids": item_ids}).fetchall()
+
+        # Crear diccionario item_id -> precios TN
+        tn_dict = {}
+        for item_id, price, promo_price, has_promo in tn_precios:
+            tn_dict[item_id] = {
+                'price': float(price) if price else None,
+                'promotional_price': float(promo_price) if promo_price else None,
+                'has_promotion': has_promo
+            }
+
+        # Asignar precios TN a productos
+        for producto in productos:
+            if producto.item_id in tn_dict:
+                tn_data = tn_dict[producto.item_id]
+                producto.tn_price = tn_data['price']
+                producto.tn_promotional_price = tn_data['promotional_price']
+                producto.tn_has_promotion = tn_data['has_promotion']
 
     # Si aplicamos ordenamiento dinámico, necesitamos paginar manualmente
     if orden_requiere_calculo:
