@@ -2722,7 +2722,15 @@ async def obtener_detalle_producto(
         "ventas": ventas_stats,
         "proveedor": proveedor_info,
         "precios_ml": precios_dict,
-        "publicaciones_ml": sorted(publicaciones_dict.values(), key=lambda x: (x.get('pricelist_id') or 999, x.get('mla', '')))
+        "publicaciones_ml": sorted(
+            publicaciones_dict.values(),
+            key=lambda x: (
+                # Orden por tipo de lista: Clásica (2) → 3C (3) → 6C (4) → 9C (5) → 12C (6)
+                # Si no está en la lista conocida, va al final
+                {2: 0, 3: 1, 4: 2, 5: 3, 6: 4}.get(x.get('pricelist_id'), 999),
+                x.get('mla', '')
+            )
+        )
     }
 
 @router.get("/subcategorias")
