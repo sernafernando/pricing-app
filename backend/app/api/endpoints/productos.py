@@ -2626,6 +2626,28 @@ async def obtener_detalle_producto(
                 publicaciones_dict[mla]["catalog_winner_mla"] = winner
                 publicaciones_dict[mla]["catalog_winner_price"] = float(winner_price) if winner_price else None
 
+    # Obtener estado de las publicaciones desde tb_mercadolibre_items_publicados
+    if mla_ids:
+        pub_statuses = db.execute(text("""
+            SELECT mlp_publicationid, mlp_laststatusid
+            FROM tb_mercadolibre_items_publicados
+            WHERE mlp_publicationid = ANY(:mla_ids)
+        """), {"mla_ids": mla_ids}).fetchall()
+
+        # Mapeo de status IDs a nombres
+        status_map = {
+            1: 'active',
+            2: 'paused',
+            3: 'closed',
+            4: 'under_review',
+            5: 'inactive',
+            6: 'payment_required'
+        }
+
+        for mla, status_id in pub_statuses:
+            if mla in publicaciones_dict:
+                publicaciones_dict[mla]["publication_status"] = status_map.get(status_id, 'unknown')
+
     # Calcular ventas de los últimos 7, 15 y 30 días
     fecha_actual = datetime.now()
     ventas_stats = {}
@@ -2725,9 +2747,9 @@ async def obtener_detalle_producto(
         "publicaciones_ml": sorted(
             publicaciones_dict.values(),
             key=lambda x: (
-                # Orden por tipo de lista: Clásica (2) → 3C (3) → 6C (4) → 9C (5) → 12C (6)
+                # Orden por tipo de lista: Clásica (4) → 3C (17) → 6C (14) → 9C (13) → 12C (23)
                 # Si no está en la lista conocida, va al final
-                {2: 0, 3: 1, 4: 2, 5: 3, 6: 4}.get(x.get('pricelist_id'), 999),
+                {4: 0, 17: 1, 14: 2, 13: 3, 23: 4}.get(x.get('pricelist_id'), 999),
                 x.get('mla', '')
             )
         )

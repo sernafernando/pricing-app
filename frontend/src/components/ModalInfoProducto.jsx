@@ -344,6 +344,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                           <th>MLA</th>
                           <th>Lista</th>
                           <th>Precio ML</th>
+                          <th>Estado</th>
                           <th>Catálogo</th>
                           <th>Info Competencia</th>
                         </tr>
@@ -364,6 +365,19 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                             <td>{pub.lista_nombre || '-'}</td>
                             <td>
                               {pub.precio_ml ? `$${pub.precio_ml.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-'}
+                            </td>
+                            <td style={{ fontSize: '11px' }}>
+                              {pub.publication_status === 'active' ? (
+                                <span style={{ color: '#22c55e', fontWeight: '600' }}>✓ Activa</span>
+                              ) : pub.publication_status === 'paused' ? (
+                                <span style={{ color: '#f59e0b', fontWeight: '600' }}>⏸ Pausada</span>
+                              ) : pub.publication_status === 'closed' ? (
+                                <span style={{ color: '#ef4444', fontWeight: '600' }}>✕ Cerrada</span>
+                              ) : pub.publication_status === 'under_review' ? (
+                                <span style={{ color: '#3b82f6', fontWeight: '600' }}>⏳ En revisión</span>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)' }}>-</span>
+                              )}
                             </td>
                             <td>
                               {pub.catalog_product_id && pub.catalog_status ? (
