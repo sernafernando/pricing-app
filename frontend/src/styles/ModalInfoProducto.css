@@ -1,3 +1,7 @@
+* {
+  box-sizing: border-box;
+}
+
 .modal-info-producto {
   background-color: var(--bg-primary);
   border-radius: 12px;
