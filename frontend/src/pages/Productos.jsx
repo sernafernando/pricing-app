@@ -2722,8 +2722,11 @@ export default function Productos() {
                           <div className="web-transf-info" style={{ marginBottom: '8px', borderBottom: '1px solid #e5e7eb', paddingBottom: '6px' }}>
                             {p.tn_has_promotion && p.tn_promotional_price ? (
                               <div>
-                                <div style={{ fontSize: '12px', fontWeight: '600', color: '#22c55e' }}>
-                                  ${p.tn_promotional_price.toLocaleString('es-AR')}
+                                <div style={{ fontSize: '12px', fontWeight: '600', color: '#22c55e', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                  <span>${p.tn_promotional_price.toLocaleString('es-AR')}</span>
+                                  <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: '500' }}>
+                                    ${(p.tn_promotional_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
+                                  </span>
                                 </div>
                                 {p.tn_price && (
                                   <div style={{
@@ -2736,8 +2739,11 @@ export default function Productos() {
                                 )}
                               </div>
                             ) : p.tn_price ? (
-                              <div style={{ fontSize: '12px' }}>
-                                ${p.tn_price.toLocaleString('es-AR')}
+                              <div style={{ fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <span>${p.tn_price.toLocaleString('es-AR')}</span>
+                                <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: '500' }}>
+                                  ${(p.tn_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
+                                </span>
                               </div>
                             ) : null}
                           </div>
