@@ -566,6 +566,10 @@ export default function Productos() {
       if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
       if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
 
+      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
+      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
+      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
+
       if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
       if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
       if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
