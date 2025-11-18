@@ -2732,7 +2732,6 @@ async def obtener_detalle_producto(
             "comision_ml_porcentaje": comision_clasica,
             "participa_rebate": pricing.participa_rebate if pricing else False,
             "porcentaje_rebate": float(pricing.porcentaje_rebate) if pricing and pricing.porcentaje_rebate else None,
-            "precio_rebate": float(pricing.precio_rebate) if pricing and pricing.precio_rebate else None,  # De la tabla pricing
             "out_of_cards": pricing.out_of_cards if pricing else False,
             "participa_web_transferencia": pricing.participa_web_transferencia if pricing else False,
             "porcentaje_markup_web": float(pricing.porcentaje_markup_web) if pricing and pricing.porcentaje_markup_web else None,
