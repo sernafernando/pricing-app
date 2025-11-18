@@ -430,7 +430,7 @@ async def listar_productos(
 
             query = query.filter(
                 ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
-                ~ProductoERP.item_id.in_(items_en_banlist_subquery)
+                ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id))
             )
 
     # Filtro de productos nuevos (últimos 7 días)
@@ -1188,7 +1188,7 @@ async def obtener_estadisticas(
 
             query = query.filter(
                 ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
-                ~ProductoERP.item_id.in_(items_en_banlist_subquery)
+                ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id))
             )
 
     # Filtro de productos nuevos (últimos 7 días)
@@ -1262,27 +1262,27 @@ async def obtener_estadisticas(
     # Sin MLA (no en banlist)
     sin_mla_count = query.filter(
         ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
-        ~ProductoERP.item_id.in_(items_en_banlist_subquery)
+        ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id))
     ).count()
 
     # Sin MLA con stock
     sin_mla_con_stock = query.filter(
         ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
-        ~ProductoERP.item_id.in_(items_en_banlist_subquery),
+        ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id)),
         ProductoERP.stock > 0
     ).count()
 
     # Sin MLA sin stock
     sin_mla_sin_stock = query.filter(
         ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
-        ~ProductoERP.item_id.in_(items_en_banlist_subquery),
+        ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id)),
         ProductoERP.stock == 0
     ).count()
 
     # Sin MLA nuevos
     sin_mla_nuevos = query.filter(
         ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
-        ~ProductoERP.item_id.in_(items_en_banlist_subquery),
+        ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id)),
         ProductoERP.fecha_sync >= fecha_limite_nuevos
     ).count()
 
@@ -1575,7 +1575,7 @@ async def obtener_stats_dinamicos(
 
             query = query.filter(
                 ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
-                ~ProductoERP.item_id.in_(items_en_banlist_subquery)
+                ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id))
             )
 
     # Filtro de productos nuevos
