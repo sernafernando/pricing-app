@@ -6,14 +6,24 @@ import { useModalClickOutside } from '../hooks/useModalClickOutside';
 const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const { overlayRef, handleOverlayMouseDown, handleOverlayClick } = useModalClickOutside(onClose);
   const [detalle, setDetalle] = useState(null);
+  const [datosMl, setDatosMl] = useState(null);
   const [cargando, setCargando] = useState(false);
+  const [cargandoMl, setCargandoMl] = useState(false);
   const [tabActiva, setTabActiva] = useState('info'); // 'info', 'ml', 'ventas', 'proveedor'
 
   useEffect(() => {
     if (isOpen && itemId) {
       cargarDetalle();
+      setDatosMl(null); // Reset ML data when modal opens
     }
   }, [isOpen, itemId]);
+
+  // Cargar datos de ML cuando se hace clic en la pestaña de ML o Ventas
+  useEffect(() => {
+    if ((tabActiva === 'ml' || tabActiva === 'ventas') && !datosMl && !cargandoMl && itemId) {
+      cargarDatosMl();
+    }
+  }, [tabActiva, datosMl, cargandoMl, itemId]);
 
   const cargarDetalle = async () => {
     setCargando(true);
@@ -29,6 +39,23 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
       alert('Error al cargar información del producto');
     } finally {
       setCargando(false);
+    }
+  };
+
+  const cargarDatosMl = async () => {
+    setCargandoMl(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(
+        `https://pricing.gaussonline.com.ar/api/productos/${itemId}/mercadolibre`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setDatosMl(response.data);
+    } catch (error) {
+      console.error('Error cargando datos de ML:', error);
+      alert('Error al cargar datos de MercadoLibre');
+    } finally {
+      setCargandoMl(false);
     }
   };
 
@@ -97,7 +124,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
               className={`tab-button ${tabActiva === 'ml' ? 'active' : ''}`}
               onClick={() => setTabActiva('ml')}
             >
-              📢 MercadoLibre {detalle.publicaciones_ml?.length > 0 && `(${detalle.publicaciones_ml.length})`}
+              📢 MercadoLibre {datosMl?.publicaciones_ml?.length > 0 && `(${datosMl.publicaciones_ml.length})`}
             </button>
             <button
               className={`tab-button ${tabActiva === 'ventas' ? 'active' : ''}`}
@@ -372,23 +399,29 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
               )}
 
               {/* TAB: MERCADOLIBRE */}
-              {tabActiva === 'ml' && detalle.publicaciones_ml && detalle.publicaciones_ml.length > 0 && (
-                <section className="info-section">
-                  <h3>📢 Publicaciones en Mercado Libre</h3>
-                  <div className="publicaciones-table">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>MLA</th>
-                          <th>Lista</th>
-                          <th>Precio ML</th>
-                          <th>Estado</th>
-                          <th>Catálogo</th>
-                          <th>Info Competencia</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detalle.publicaciones_ml.map((pub, idx) => (
+              {tabActiva === 'ml' && (
+                <>
+                  {cargandoMl ? (
+                    <div className="cargando-ml">
+                      <p>Cargando datos de MercadoLibre...</p>
+                    </div>
+                  ) : datosMl?.publicaciones_ml && datosMl.publicaciones_ml.length > 0 ? (
+                    <section className="info-section">
+                      <h3>📢 Publicaciones en Mercado Libre</h3>
+                      <div className="publicaciones-table">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>MLA</th>
+                              <th>Lista</th>
+                              <th>Precio ML</th>
+                              <th>Estado</th>
+                              <th>Catálogo</th>
+                              <th>Info Competencia</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {datosMl.publicaciones_ml.map((pub, idx) => (
                           <tr key={idx}>
                             <td>
                               <a
@@ -464,11 +497,17 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                               {(!pub.catalog_product_id || !pub.catalog_status) && '-'}
                             </td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  ) : (
+                    <div className="no-data">
+                      <p>No hay publicaciones en MercadoLibre</p>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* TAB: PROVEEDOR */}
@@ -493,7 +532,13 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
               )}
 
               {/* TAB: VENTAS */}
-              {tabActiva === 'ventas' && detalle.ventas && (
+              {tabActiva === 'ventas' && (
+                <>
+                  {cargandoMl ? (
+                    <div className="cargando-ml">
+                      <p>Cargando datos de ventas...</p>
+                    </div>
+                  ) : datosMl?.ventas ? (
                 <section className="info-section">
                   <h3>📊 Ventas en MercadoLibre</h3>
                   <div className="ventas-grid">
@@ -503,19 +548,19 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                         <div className="stat-item">
                           <span className="stat-label">Unidades:</span>
                           <span className="stat-value highlight">
-                            {detalle.ventas.ultimos_7_dias.cantidad_vendida}
+                            {datosMl.ventas.ultimos_7_dias.cantidad_vendida}
                           </span>
                         </div>
                         <div className="stat-item">
                           <span className="stat-label">Ventas:</span>
                           <span className="stat-value">
-                            {detalle.ventas.ultimos_7_dias.numero_ventas}
+                            {datosMl.ventas.ultimos_7_dias.numero_ventas}
                           </span>
                         </div>
                         <div className="stat-item">
                           <span className="stat-label">Monto:</span>
                           <span className="stat-value">
-                            ${detalle.ventas.ultimos_7_dias.monto_total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            ${datosMl.ventas.ultimos_7_dias.monto_total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                       </div>
@@ -527,19 +572,19 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                         <div className="stat-item">
                           <span className="stat-label">Unidades:</span>
                           <span className="stat-value highlight">
-                            {detalle.ventas.ultimos_15_dias.cantidad_vendida}
+                            {datosMl.ventas.ultimos_15_dias.cantidad_vendida}
                           </span>
                         </div>
                         <div className="stat-item">
                           <span className="stat-label">Ventas:</span>
                           <span className="stat-value">
-                            {detalle.ventas.ultimos_15_dias.numero_ventas}
+                            {datosMl.ventas.ultimos_15_dias.numero_ventas}
                           </span>
                         </div>
                         <div className="stat-item">
                           <span className="stat-label">Monto:</span>
                           <span className="stat-value">
-                            ${detalle.ventas.ultimos_15_dias.monto_total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            ${datosMl.ventas.ultimos_15_dias.monto_total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                       </div>
@@ -551,25 +596,31 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                         <div className="stat-item">
                           <span className="stat-label">Unidades:</span>
                           <span className="stat-value highlight">
-                            {detalle.ventas.ultimos_30_dias.cantidad_vendida}
+                            {datosMl.ventas.ultimos_30_dias.cantidad_vendida}
                           </span>
                         </div>
                         <div className="stat-item">
                           <span className="stat-label">Ventas:</span>
                           <span className="stat-value">
-                            {detalle.ventas.ultimos_30_dias.numero_ventas}
+                            {datosMl.ventas.ultimos_30_dias.numero_ventas}
                           </span>
                         </div>
                         <div className="stat-item">
                           <span className="stat-label">Monto:</span>
                           <span className="stat-value">
-                            ${detalle.ventas.ultimos_30_dias.monto_total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            ${datosMl.ventas.ultimos_30_dias.monto_total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                       </div>
                     </div>
                   </div>
                 </section>
+                  ) : (
+                    <div className="no-data">
+                      <p>No hay datos de ventas disponibles</p>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* AUDITORÍA */}

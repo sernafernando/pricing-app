@@ -2886,6 +2886,145 @@ async def obtener_detalle_producto(
         )
     }
 
+@router.get("/productos/{item_id}/mercadolibre")
+async def obtener_datos_ml_producto(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene solo los datos de MercadoLibre de un producto (lazy loading)"""
+    from app.models.publicacion_ml import PublicacionML
+    from app.models.venta_ml import VentaML
+    from app.services.ml_webhook_client import ml_webhook_client
+    from sqlalchemy import text
+    from datetime import timedelta, datetime
+
+    # Obtener todas las publicaciones ML del item
+    publicaciones_ml_query = db.query(PublicacionML).filter(
+        PublicacionML.item_id == item_id,
+        PublicacionML.activo == True
+    ).all()
+
+    # Crear diccionario base de publicaciones
+    publicaciones_dict = {}
+    mla_ids = []
+
+    for pub in publicaciones_ml_query:
+        publicaciones_dict[pub.mla] = {
+            "mla": pub.mla,
+            "titulo": pub.item_title,
+            "lista_nombre": pub.lista_nombre,
+            "pricelist_id": pub.pricelist_id,
+            "precio_ml": None,
+            "precios": []
+        }
+        mla_ids.append(pub.mla)
+
+    # Obtener precios de ML para estas publicaciones
+    if mla_ids:
+        precios_ml_data = db.execute(
+            text("""
+                SELECT pricelist_id, precio, mla
+                FROM precios_ml
+                WHERE item_id = :item_id AND mla = ANY(:mla_ids)
+            """),
+            {"item_id": item_id, "mla_ids": mla_ids}
+        ).fetchall()
+
+        for pricelist_id, precio, mla in precios_ml_data:
+            if mla and mla in publicaciones_dict:
+                publicaciones_dict[mla]["precios"].append({
+                    "pricelist_id": pricelist_id,
+                    "precio": float(precio) if precio else None
+                })
+
+    # Obtener datos de ML via webhook service
+    if mla_ids:
+        try:
+            ml_items = await ml_webhook_client.get_items_batch(mla_ids)
+            for mla_id, ml_data in ml_items.items():
+                if mla_id in publicaciones_dict:
+                    publicaciones_dict[mla_id]["precio_ml"] = float(ml_data.get("price", 0)) if ml_data.get("price") else None
+                    publicaciones_dict[mla_id]["catalog_product_id"] = ml_data.get("catalog_product_id")
+        except Exception as e:
+            logger.error(f"Error consultando ml-webhook: {e}")
+            pass
+
+    # Obtener status de catálogo desde la BD
+    if mla_ids:
+        catalog_statuses = db.execute(text("""
+            SELECT mla, catalog_product_id, status, price_to_win, winner_mla, winner_price
+            FROM v_ml_catalog_status_latest
+            WHERE mla = ANY(:mla_ids)
+        """), {"mla_ids": mla_ids}).fetchall()
+
+        for row in catalog_statuses:
+            mla, catalog_id, status, ptw, winner, winner_price = row
+            if mla in publicaciones_dict:
+                publicaciones_dict[mla]["catalog_status"] = status
+                publicaciones_dict[mla]["catalog_price_to_win"] = float(ptw) if ptw else None
+                publicaciones_dict[mla]["catalog_winner_mla"] = winner
+                publicaciones_dict[mla]["catalog_winner_price"] = float(winner_price) if winner_price else None
+
+    # Obtener estado de las publicaciones
+    if mla_ids:
+        pub_statuses = db.execute(text("""
+            SELECT mlp_publicationid, mlp_laststatusid, mlp_active
+            FROM tb_mercadolibre_items_publicados
+            WHERE mlp_publicationid = ANY(:mla_ids)
+        """), {"mla_ids": mla_ids}).fetchall()
+
+        for mla, status_id, is_active in pub_statuses:
+            if mla in publicaciones_dict:
+                if status_id:
+                    status_map = {
+                        153: 'active',
+                        154: 'paused',
+                        155: 'closed',
+                        156: 'under_review'
+                    }
+                    publicaciones_dict[mla]["publication_status"] = status_map.get(status_id, f'status_{status_id}')
+                elif is_active is not None:
+                    publicaciones_dict[mla]["publication_status"] = 'active' if is_active else 'paused'
+                else:
+                    publicaciones_dict[mla]["publication_status"] = None
+
+    # Calcular ventas de los últimos 7, 15 y 30 días
+    fecha_actual = datetime.now()
+    ventas_stats = {}
+
+    for dias in [7, 15, 30]:
+        fecha_desde = fecha_actual - timedelta(days=dias)
+
+        ventas_query = db.query(
+            func.sum(VentaML.cantidad).label('cantidad_total'),
+            func.sum(VentaML.monto_total).label('monto_total'),
+            func.count(VentaML.id_venta).label('numero_ventas')
+        ).filter(
+            and_(
+                VentaML.item_id == item_id,
+                VentaML.fecha >= fecha_desde,
+                VentaML.fecha < fecha_actual + timedelta(days=1)
+            )
+        ).first()
+
+        ventas_stats[f"ultimos_{dias}_dias"] = {
+            "cantidad_vendida": int(ventas_query.cantidad_total or 0),
+            "monto_total": float(ventas_query.monto_total or 0),
+            "numero_ventas": int(ventas_query.numero_ventas or 0)
+        }
+
+    return {
+        "publicaciones_ml": sorted(
+            publicaciones_dict.values(),
+            key=lambda x: (
+                {4: 0, 17: 1, 14: 2, 13: 3, 23: 4}.get(x.get('pricelist_id'), 999),
+                x.get('mla', '')
+            )
+        ),
+        "ventas": ventas_stats
+    }
+
 @router.get("/subcategorias")
 async def listar_subcategorias(
     search: Optional[str] = None,
