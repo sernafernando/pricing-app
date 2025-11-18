@@ -135,7 +135,6 @@ async def listar_productos(
     if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
         from app.models.auditoria import Auditoria
         from datetime import datetime
-        from sqlalchemy import and_
         from sqlalchemy.sql import exists
 
         # Construir filtros de auditoría base
@@ -3057,7 +3056,6 @@ async def exportar_web_transferencia(
     if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
         from app.models.auditoria import Auditoria
         from datetime import datetime
-        from sqlalchemy import and_
 
         # Construir filtros de auditoría base
         filtros_audit = [Auditoria.item_id.isnot(None)]
@@ -3402,7 +3400,6 @@ async def exportar_clasica(
     if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
         from app.models.auditoria import Auditoria
         from datetime import datetime
-        from sqlalchemy import and_
 
         # Construir filtros de auditoría base
         filtros_audit = [Auditoria.item_id.isnot(None)]
