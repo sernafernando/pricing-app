@@ -415,7 +415,7 @@ async def listar_productos(
                 )
             ).distinct().subquery()
 
-            query = query.filter(ProductoERP.item_id.in_(items_con_mla_subquery))
+            query = query.filter(ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)))
         else:
             # Sin MLA: no tienen publicación (excluye banlist)
             items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
@@ -429,7 +429,7 @@ async def listar_productos(
             items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
 
             query = query.filter(
-                ~ProductoERP.item_id.in_(items_con_mla_subquery),
+                ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
                 ~ProductoERP.item_id.in_(items_en_banlist_subquery)
             )
 
@@ -1173,7 +1173,7 @@ async def obtener_estadisticas(
                 )
             ).distinct().subquery()
 
-            query = query.filter(ProductoERP.item_id.in_(items_con_mla_subquery))
+            query = query.filter(ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)))
         else:
             # Sin MLA: no tienen publicación (excluye banlist)
             items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
@@ -1187,7 +1187,7 @@ async def obtener_estadisticas(
             items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
 
             query = query.filter(
-                ~ProductoERP.item_id.in_(items_con_mla_subquery),
+                ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
                 ~ProductoERP.item_id.in_(items_en_banlist_subquery)
             )
 
@@ -1261,27 +1261,27 @@ async def obtener_estadisticas(
 
     # Sin MLA (no en banlist)
     sin_mla_count = query.filter(
-        ~ProductoERP.item_id.in_(items_con_mla_subquery),
+        ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
         ~ProductoERP.item_id.in_(items_en_banlist_subquery)
     ).count()
 
     # Sin MLA con stock
     sin_mla_con_stock = query.filter(
-        ~ProductoERP.item_id.in_(items_con_mla_subquery),
+        ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
         ~ProductoERP.item_id.in_(items_en_banlist_subquery),
         ProductoERP.stock > 0
     ).count()
 
     # Sin MLA sin stock
     sin_mla_sin_stock = query.filter(
-        ~ProductoERP.item_id.in_(items_con_mla_subquery),
+        ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
         ~ProductoERP.item_id.in_(items_en_banlist_subquery),
         ProductoERP.stock == 0
     ).count()
 
     # Sin MLA nuevos
     sin_mla_nuevos = query.filter(
-        ~ProductoERP.item_id.in_(items_con_mla_subquery),
+        ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
         ~ProductoERP.item_id.in_(items_en_banlist_subquery),
         ProductoERP.fecha_sync >= fecha_limite_nuevos
     ).count()
@@ -1561,7 +1561,7 @@ async def obtener_stats_dinamicos(
                 )
             ).distinct().subquery()
 
-            query = query.filter(ProductoERP.item_id.in_(items_con_mla_subquery))
+            query = query.filter(ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)))
         else:
             items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
                 MercadoLibreItemPublicado.mlp_id.isnot(None),
@@ -1574,7 +1574,7 @@ async def obtener_stats_dinamicos(
             items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
 
             query = query.filter(
-                ~ProductoERP.item_id.in_(items_con_mla_subquery),
+                ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
                 ~ProductoERP.item_id.in_(items_en_banlist_subquery)
             )
 
