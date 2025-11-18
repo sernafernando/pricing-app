@@ -53,6 +53,7 @@ export default function Productos() {
   const [filtroRebate, setFiltroRebate] = useState(null);
   const [filtroOferta, setFiltroOferta] = useState(null);
   const [filtroWebTransf, setFiltroWebTransf] = useState(null);
+  const [filtroTiendaNube, setFiltroTiendaNube] = useState(null); // con_descuento, sin_descuento, no_publicado
   const [filtroMarkupClasica, setFiltroMarkupClasica] = useState(null);
   const [filtroMarkupRebate, setFiltroMarkupRebate] = useState(null);
   const [filtroMarkupOferta, setFiltroMarkupOferta] = useState(null);
@@ -163,6 +164,9 @@ export default function Productos() {
       if (filtroOferta === 'sin_oferta') params.con_oferta = false;
       if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
       if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
+      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
+      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
+      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
       if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
       if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
       if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
@@ -208,6 +212,9 @@ export default function Productos() {
       if (filtroOferta === 'sin_oferta') params.con_oferta = false;
       if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
       if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
+      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
+      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
+      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
       if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
       if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
       if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
@@ -438,6 +445,9 @@ export default function Productos() {
       if (filtroOferta === 'sin_oferta') params.con_oferta = false;
       if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
       if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
+      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
+      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
+      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
       if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
       if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
       if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
@@ -634,6 +644,9 @@ export default function Productos() {
       if (filtroOferta === 'sin_oferta') params.con_oferta = false;
       if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
       if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
+      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
+      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
+      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
       if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
       if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
       if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
@@ -673,6 +686,7 @@ export default function Productos() {
     setFiltroRebate(null);
     setFiltroOferta(null);
     setFiltroWebTransf(null);
+    setFiltroTiendaNube(null);
     setFiltroMarkupClasica(null);
     setFiltroMarkupRebate(null);
     setFiltroMarkupOferta(null);
@@ -1522,6 +1536,7 @@ export default function Productos() {
     setFiltroRebate(null);
     setFiltroOferta(null);
     setFiltroWebTransf(null);
+    setFiltroTiendaNube(null);
     setFiltroMarkupClasica(null);
     setFiltroMarkupRebate(null);
     setFiltroMarkupOferta(null);
@@ -2182,6 +2197,7 @@ export default function Productos() {
                 setFiltroRebate(null);
                 setFiltroOferta(null);
                 setFiltroWebTransf(null);
+                setFiltroTiendaNube(null);
                 setFiltroMarkupClasica(null);
                 setFiltroMarkupRebate(null);
                 setFiltroMarkupOferta(null);
@@ -2239,6 +2255,20 @@ export default function Productos() {
                     <option value="todos">Todos</option>
                     <option value="con_web_transf">Con Web Transf.</option>
                     <option value="sin_web_transf">Sin Web Transf.</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>🛒 Tienda Nube</label>
+                  <select
+                    value={filtroTiendaNube || 'todos'}
+                    onChange={(e) => { setFiltroTiendaNube(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select-compact"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="con_descuento">🏷️ Con Descuento</option>
+                    <option value="sin_descuento">💵 Sin Descuento</option>
+                    <option value="no_publicado">📦 No Publicado</option>
                   </select>
                 </div>
 

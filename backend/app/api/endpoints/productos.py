@@ -113,6 +113,9 @@ async def listar_productos(
     con_rebate: Optional[bool] = None,
     con_oferta: Optional[bool] = None,
     con_web_transf: Optional[bool] = None,
+    tn_con_descuento: Optional[bool] = None,
+    tn_sin_descuento: Optional[bool] = None,
+    tn_no_publicado: Optional[bool] = None,
     markup_clasica_positivo: Optional[bool] = None,
     markup_rebate_positivo: Optional[bool] = None,
     markup_oferta_positivo: Optional[bool] = None,
@@ -269,6 +272,50 @@ async def listar_productos(
                 or_(
                     ProductoPricing.participa_web_transferencia == False,
                     ProductoPricing.participa_web_transferencia.is_(None)
+                )
+            )
+
+    # Filtros de Tienda Nube
+    if tn_con_descuento or tn_sin_descuento or tn_no_publicado:
+        from app.models.tienda_nube_producto import TiendaNubeProducto
+
+        if tn_con_descuento:
+            # Productos que tienen promotional_price (con descuento)
+            query = query.join(
+                TiendaNubeProducto,
+                and_(
+                    ProductoERP.item_id == TiendaNubeProducto.item_id,
+                    TiendaNubeProducto.activo == True,
+                    TiendaNubeProducto.promotional_price.isnot(None),
+                    TiendaNubeProducto.promotional_price > 0
+                )
+            )
+        elif tn_sin_descuento:
+            # Productos publicados pero sin promotional_price
+            query = query.join(
+                TiendaNubeProducto,
+                and_(
+                    ProductoERP.item_id == TiendaNubeProducto.item_id,
+                    TiendaNubeProducto.activo == True,
+                    or_(
+                        TiendaNubeProducto.promotional_price.is_(None),
+                        TiendaNubeProducto.promotional_price == 0
+                    )
+                )
+            )
+        elif tn_no_publicado:
+            # Productos con stock pero NO en Tienda Nube
+            from sqlalchemy.sql import exists
+            subquery = exists().where(
+                and_(
+                    TiendaNubeProducto.item_id == ProductoERP.item_id,
+                    TiendaNubeProducto.activo == True
+                )
+            )
+            query = query.filter(
+                and_(
+                    ProductoERP.stock > 0,
+                    ~subquery
                 )
             )
 
