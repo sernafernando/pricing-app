@@ -3989,17 +3989,18 @@ async def exportar_vista_actual(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Exporta la vista actual de productos a Excel con todos los datos"""
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill
-    from io import BytesIO
-    from fastapi.responses import StreamingResponse
-    from app.models.publicacion_ml import PublicacionML
-    from app.models.mla_banlist import MLABanlist
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, PatternFill
+        from io import BytesIO
+        from fastapi.responses import StreamingResponse
+        from app.models.publicacion_ml import PublicacionML
+        from app.models.mla_banlist import MLABanlist
 
-    # Usar la misma lógica de obtener_productos para filtrar
-    query = db.query(ProductoERP, ProductoPricing).outerjoin(
-        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
-    )
+        # Usar la misma lógica de obtener_productos para filtrar
+        query = db.query(ProductoERP, ProductoPricing).outerjoin(
+            ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
+        )
 
     # Aplicar todos los filtros (reutilizar la lógica del endpoint obtener_productos)
     if search:
@@ -4208,13 +4209,18 @@ async def exportar_vista_actual(
         adjusted_width = min(max_length + 2, 50)
         ws.column_dimensions[column_letter].width = adjusted_width
 
-    # Guardar en BytesIO
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
+        # Guardar en BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
 
-    return StreamingResponse(
-        output,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=vista_actual.xlsx"}
-    )
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=vista_actual.xlsx"}
+        )
+    except Exception as e:
+        import traceback
+        print(f"Error en exportar_vista_actual: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error al exportar vista actual: {str(e)}")
