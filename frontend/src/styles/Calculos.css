@@ -174,7 +174,7 @@
 
 .calculos-table th {
   padding: 12px 8px;
-  text-align: left;
+  text-align: center;
   font-weight: 600;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -268,13 +268,11 @@
 }
 
 /* Acciones */
-.calculos-table th:nth-child(13) {
-  width: 100px;
-  text-align: center;
-}
-
+.calculos-table th:nth-child(13),
 .calculos-table td:nth-child(13) {
   width: 100px;
+  text-align: center;
+  padding: 12px 4px;
 }
 
 .calculos-table td {
