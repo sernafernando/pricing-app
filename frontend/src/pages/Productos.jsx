@@ -345,6 +345,57 @@ export default function Productos() {
     cargarSubcategorias();
   }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
 
+  // Copiar enlaces al clipboard con F2 y F3
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Solo funcionar si hay algo en modo edición
+      const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
+      if (!enModoEdicion) return;
+
+      // Obtener el item_id del producto en edición
+      let itemId = null;
+      if (editandoPrecio) itemId = editandoPrecio;
+      else if (editandoRebate) itemId = editandoRebate;
+      else if (editandoWebTransf) itemId = editandoWebTransf;
+      else if (editandoCuota) itemId = editandoCuota.item_id;
+
+      if (!itemId) return;
+
+      // Buscar el producto para obtener su código
+      const producto = productos.find(p => p.item_id === itemId);
+      if (!producto || !producto.codigo) return;
+
+      const itemCode = producto.codigo;
+
+      // F2: primer enlace
+      if (e.key === 'F2') {
+        e.preventDefault();
+        const url = `https://listado.mercadolibre.com.ar/${itemCode}_OrderId_PRICE_NoIndex_True`;
+        navigator.clipboard.writeText(url).then(() => {
+          // Opcional: mostrar feedback visual
+          console.log('Enlace F2 copiado:', url);
+        }).catch(err => {
+          console.error('Error al copiar:', err);
+        });
+      }
+
+      // F3: segundo enlace
+      if (e.key === 'F3') {
+        e.preventDefault();
+        const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?filters=official_store-57997&page=1&search=${itemCode}&sort=lowest_price`;
+        navigator.clipboard.writeText(url).then(() => {
+          // Opcional: mostrar feedback visual
+          console.log('Enlace F3 copiado:', url);
+        }).catch(err => {
+          console.error('Error al copiar:', err);
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, productos]);
+
   // Auto-focus en inputs de búsqueda cuando se abren los paneles de filtro
   useEffect(() => {
     if (panelFiltroActivo === 'marcas' || panelFiltroActivo === 'subcategorias') {
