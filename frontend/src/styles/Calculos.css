@@ -268,10 +268,13 @@
 }
 
 /* Acciones */
-.calculos-table th:nth-child(13),
-.calculos-table td:nth-child(13) {
+.calculos-table th:nth-child(13) {
   width: 100px;
   text-align: center;
+}
+
+.calculos-table td:nth-child(13) {
+  width: 100px;
 }
 
 .calculos-table td {
