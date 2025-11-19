@@ -28,6 +28,7 @@ class CalculoRequest(BaseModel):
     markup_porcentaje: Optional[float] = None
     limpio: Optional[float] = None
     comision_total: Optional[float] = None
+    tipo_cambio_usado: Optional[float] = None
     cantidad: int = Field(default=0, ge=0)
 
 class CalculoResponse(BaseModel):
@@ -44,6 +45,7 @@ class CalculoResponse(BaseModel):
     markup_porcentaje: Optional[float]
     limpio: Optional[float]
     comision_total: Optional[float]
+    tipo_cambio_usado: Optional[float]
     cantidad: int
     fecha_creacion: datetime
     fecha_modificacion: datetime
@@ -78,6 +80,7 @@ async def crear_calculo(
         markup_porcentaje=calculo.markup_porcentaje,
         limpio=calculo.limpio,
         comision_total=calculo.comision_total,
+        tipo_cambio_usado=calculo.tipo_cambio_usado,
         cantidad=calculo.cantidad
     )
 
@@ -149,6 +152,7 @@ async def actualizar_calculo(
     calculo_db.markup_porcentaje = calculo.markup_porcentaje
     calculo_db.limpio = calculo.limpio
     calculo_db.comision_total = calculo.comision_total
+    calculo_db.tipo_cambio_usado = calculo.tipo_cambio_usado
     calculo_db.cantidad = calculo.cantidad
     calculo_db.fecha_modificacion = datetime.now()
 

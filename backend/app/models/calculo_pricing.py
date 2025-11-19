@@ -24,6 +24,9 @@ class CalculoPricing(Base):
     limpio = Column(Numeric(12, 2))
     comision_total = Column(Numeric(12, 2))
 
+    # Tipo de cambio usado en el cálculo
+    tipo_cambio_usado = Column(Numeric(10, 2))
+
     # Cantidad para presupuesto/pedido
     cantidad = Column(Integer, default=0)
 

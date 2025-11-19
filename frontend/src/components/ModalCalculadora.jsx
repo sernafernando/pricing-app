@@ -158,7 +158,8 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
           precio_final: parseFloat(formData.precioFinal),
           markup_porcentaje: parseFloat(resultados.markupPorcentaje),
           limpio: parseFloat(resultados.limpio),
-          comision_total: parseFloat(resultados.comisionTotal)
+          comision_total: parseFloat(resultados.comisionTotal),
+          tipo_cambio_usado: parseFloat(formData.tipoCambio)
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );

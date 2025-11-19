@@ -58,7 +58,8 @@ const Calculos = () => {
       iva: calculo.iva,
       comision_ml: calculo.comision_ml,
       costo_envio: calculo.costo_envio,
-      precio_final: calculo.precio_final
+      precio_final: calculo.precio_final,
+      tipo_cambio_usado: calculo.tipo_cambio_usado || tipoCambio
     });
   };
 
@@ -74,8 +75,12 @@ const Calculos = () => {
     const precioFinal = parseFloat(data.precio_final) || 0;
     const iva = parseFloat(data.iva);
 
-    const costoARS = data.moneda_costo === 'USD' && tipoCambio
-      ? costo * tipoCambio
+    // Usar el tipo de cambio guardado en el cálculo, si existe
+    // Si no, usar el actual, o 1425 como fallback
+    const tcActual = data.tipo_cambio_usado || tipoCambio || 1425;
+
+    const costoARS = data.moneda_costo === 'USD'
+      ? costo * tcActual
       : costo;
 
     const baseComision = precioFinal * (comisionML / 100);
@@ -83,12 +88,13 @@ const Calculos = () => {
     const comisionTotal = baseComision + ivaComision;
 
     const limpio = precioFinal - (precioFinal * (iva / 100)) - costoEnvio - comisionTotal;
-    const markup = ((limpio - costoARS) / costoARS) * 100;
+    const markup = costoARS > 0 ? ((limpio - costoARS) / costoARS) * 100 : 0;
 
     return {
       markup_porcentaje: markup.toFixed(2),
       limpio: limpio.toFixed(2),
-      comision_total: comisionTotal.toFixed(2)
+      comision_total: comisionTotal.toFixed(2),
+      tipo_cambio_usado: tcActual
     };
   };
 
@@ -392,6 +398,7 @@ const Calculos = () => {
                           value={formData.costo}
                           onChange={(e) => setFormData({ ...formData, costo: e.target.value })}
                           className="edit-input small"
+                          step="0.01"
                         />
                       </td>
                       <td>
@@ -420,6 +427,7 @@ const Calculos = () => {
                           value={formData.comision_ml}
                           onChange={(e) => setFormData({ ...formData, comision_ml: e.target.value })}
                           className="edit-input small"
+                          step="0.01"
                         />
                       </td>
                       <td>
@@ -428,6 +436,7 @@ const Calculos = () => {
                           value={formData.costo_envio}
                           onChange={(e) => setFormData({ ...formData, costo_envio: e.target.value })}
                           className="edit-input small"
+                          step="0.01"
                         />
                       </td>
                       <td>
@@ -436,6 +445,7 @@ const Calculos = () => {
                           value={formData.precio_final}
                           onChange={(e) => setFormData({ ...formData, precio_final: e.target.value })}
                           className="edit-input small"
+                          step="0.01"
                         />
                       </td>
                       <td colSpan="3" style={{ textAlign: 'center', fontStyle: 'italic', color: '#6b7280' }}>
