@@ -68,6 +68,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
     filtrosActivos?.filtroRebate !== null ||
     filtrosActivos?.filtroOferta !== null ||
     filtrosActivos?.filtroWebTransf !== null ||
+    filtrosActivos?.filtroTiendaNube !== null ||
     filtrosActivos?.filtroMarkupClasica !== null ||
     filtrosActivos?.filtroMarkupRebate !== null ||
     filtrosActivos?.filtroMarkupOferta !== null ||
@@ -95,6 +96,9 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
       {filtrosActivos.filtroOferta === 'sin_oferta' && <div>• Sin Oferta</div>}
       {filtrosActivos.filtroWebTransf === 'con_web_transf' && <div>• Con Web Transferencia</div>}
       {filtrosActivos.filtroWebTransf === 'sin_web_transf' && <div>• Sin Web Transferencia</div>}
+      {filtrosActivos.filtroTiendaNube === 'con_descuento' && <div>• Tienda Nube: Con Descuento</div>}
+      {filtrosActivos.filtroTiendaNube === 'sin_descuento' && <div>• Tienda Nube: Sin Descuento</div>}
+      {filtrosActivos.filtroTiendaNube === 'no_publicado' && <div>• Tienda Nube: No Publicado</div>}
       {filtrosActivos.filtroOutOfCards === 'con_out_of_cards' && <div>• Con Out of Cards</div>}
       {filtrosActivos.filtroOutOfCards === 'sin_out_of_cards' && <div>• Sin Out of Cards</div>}
       {filtrosActivos.filtroMarkupClasica === 'positivo' && <div>• Markup Clásica: Positivo</div>}
@@ -145,6 +149,9 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
         if (filtrosActivos.filtroOferta === 'sin_oferta') body.filtros.con_oferta = false;
         if (filtrosActivos.filtroWebTransf === 'con_web_transf') body.filtros.con_web_transf = true;
         if (filtrosActivos.filtroWebTransf === 'sin_web_transf') body.filtros.con_web_transf = false;
+        if (filtrosActivos.filtroTiendaNube === 'con_descuento') body.filtros.tiendanube_con_descuento = true;
+        if (filtrosActivos.filtroTiendaNube === 'sin_descuento') body.filtros.tiendanube_sin_descuento = true;
+        if (filtrosActivos.filtroTiendaNube === 'no_publicado') body.filtros.tiendanube_no_publicado = true;
         if (filtrosActivos.filtroMarkupClasica === 'positivo') body.filtros.markup_clasica_positivo = true;
         if (filtrosActivos.filtroMarkupClasica === 'negativo') body.filtros.markup_clasica_positivo = false;
         if (filtrosActivos.filtroMarkupRebate === 'positivo') body.filtros.markup_rebate_positivo = true;
