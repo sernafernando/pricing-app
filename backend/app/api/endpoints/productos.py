@@ -4116,7 +4116,7 @@ async def exportar_vista_actual(
     # Filtros de auditoría
     if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
         from app.models.auditoria import Auditoria
-        from sqlalchemy import exists
+        from datetime import datetime, timedelta
 
         subquery_filters = []
         if audit_usuarios:
@@ -4126,22 +4126,22 @@ async def exportar_vista_actual(
             tipos_list = audit_tipos_accion.split(',')
             subquery_filters.append(Auditoria.tipo_accion.in_(tipos_list))
         if audit_fecha_desde:
-            from datetime import datetime
             fecha_inicio = datetime.strptime(audit_fecha_desde, '%Y-%m-%d')
             subquery_filters.append(Auditoria.fecha >= fecha_inicio)
         if audit_fecha_hasta:
-            from datetime import datetime, timedelta
             fecha_fin = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d') + timedelta(days=1)
             subquery_filters.append(Auditoria.fecha < fecha_fin)
 
-        query = query.filter(
-            exists().where(
-                and_(
-                    Auditoria.item_id == ProductoERP.item_id,
-                    *subquery_filters
+        if subquery_filters:
+            from sqlalchemy import exists
+            query = query.filter(
+                exists().where(
+                    and_(
+                        Auditoria.item_id == ProductoERP.item_id,
+                        *subquery_filters
+                    )
                 )
             )
-        )
 
     # Ejecutar query
     productos = query.limit(page_size).offset((page - 1) * page_size).all()
