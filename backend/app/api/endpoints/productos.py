@@ -4030,184 +4030,184 @@ async def exportar_vista_actual(
             subcat_list = [int(s.strip()) for s in subcategorias.split(',')]
             query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
 
-    if con_rebate is not None:
-        if con_rebate:
-            query = query.filter(ProductoPricing.participa_rebate == True)
-        else:
-            query = query.filter(
-                or_(
-                    ProductoPricing.participa_rebate == False,
-                    ProductoPricing.participa_rebate.is_(None)
-                )
-            )
-
-    if con_oferta is not None:
-        if con_oferta:
-            query = query.filter(ProductoPricing.precio_3_cuotas.isnot(None))
-        else:
-            query = query.filter(ProductoPricing.precio_3_cuotas.is_(None))
-
-    if con_web_transf is not None:
-        if con_web_transf:
-            query = query.filter(ProductoPricing.participa_web_transferencia == True)
-        else:
-            query = query.filter(
-                or_(
-                    ProductoPricing.participa_web_transferencia == False,
-                    ProductoPricing.participa_web_transferencia.is_(None)
-                )
-            )
-
-    if tiendanube_con_descuento:
-        query = query.filter(ProductoPricing.descuento_tiendanube.isnot(None), ProductoPricing.descuento_tiendanube > 0)
-
-    if tiendanube_sin_descuento:
-        query = query.filter(or_(ProductoPricing.descuento_tiendanube.is_(None), ProductoPricing.descuento_tiendanube == 0))
-
-    if tiendanube_no_publicado:
-        query = query.filter(or_(ProductoPricing.publicado_tiendanube == False, ProductoPricing.publicado_tiendanube.is_(None)))
-
-    if out_of_cards is not None:
-        if out_of_cards:
-            query = query.filter(ProductoPricing.out_of_cards == True)
-        else:
-            query = query.filter(
-                or_(
-                    ProductoPricing.out_of_cards == False,
-                    ProductoPricing.out_of_cards.is_(None)
-                )
-            )
-
-    if markup_clasica_positivo is not None:
-        if markup_clasica_positivo:
-            query = query.filter(ProductoPricing.markup_calculado > 0)
-        else:
-            query = query.filter(ProductoPricing.markup_calculado <= 0)
-
-    if markup_rebate_positivo is not None:
-        if markup_rebate_positivo:
-            query = query.filter(ProductoPricing.markup_rebate > 0)
-        else:
-            query = query.filter(ProductoPricing.markup_rebate <= 0)
-
-    if markup_oferta_positivo is not None:
-        if markup_oferta_positivo:
-            query = query.filter(ProductoPricing.markup_oferta > 0)
-        else:
-            query = query.filter(ProductoPricing.markup_oferta <= 0)
-
-    if markup_web_transf_positivo is not None:
-        if markup_web_transf_positivo:
-            query = query.filter(ProductoPricing.markup_web_real > 0)
-        else:
-            query = query.filter(ProductoPricing.markup_web_real <= 0)
-
-    if colores:
-        colores_list = colores.split(',')
-        query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
-
-    if pms:
-        from app.models.marca_pm import MarcaPM
-        pms_ids = [int(pm) for pm in pms.split(',')]
-        marcas_asignadas = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pms_ids)).all()
-        marcas_list = [m[0].upper() for m in marcas_asignadas]
-        if marcas_list:
-            query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
-
-    # Filtros de auditoría
-    if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
-        from app.models.auditoria import Auditoria
-        from datetime import datetime, timedelta
-
-        subquery_filters = []
-        if audit_usuarios:
-            usuarios_list = [int(u.strip()) for u in audit_usuarios.split(',')]
-            subquery_filters.append(Auditoria.usuario_id.in_(usuarios_list))
-        if audit_tipos_accion:
-            tipos_list = audit_tipos_accion.split(',')
-            subquery_filters.append(Auditoria.tipo_accion.in_(tipos_list))
-        if audit_fecha_desde:
-            fecha_inicio = datetime.strptime(audit_fecha_desde, '%Y-%m-%d')
-            subquery_filters.append(Auditoria.fecha >= fecha_inicio)
-        if audit_fecha_hasta:
-            fecha_fin = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d') + timedelta(days=1)
-            subquery_filters.append(Auditoria.fecha < fecha_fin)
-
-        if subquery_filters:
-            from sqlalchemy import exists
-            query = query.filter(
-                exists().where(
-                    and_(
-                        Auditoria.item_id == ProductoERP.item_id,
-                        *subquery_filters
+        if con_rebate is not None:
+            if con_rebate:
+                query = query.filter(ProductoPricing.participa_rebate == True)
+            else:
+                query = query.filter(
+                    or_(
+                        ProductoPricing.participa_rebate == False,
+                        ProductoPricing.participa_rebate.is_(None)
                     )
                 )
-            )
 
-    # Ejecutar query
-    productos = query.limit(page_size).offset((page - 1) * page_size).all()
+        if con_oferta is not None:
+            if con_oferta:
+                query = query.filter(ProductoPricing.precio_3_cuotas.isnot(None))
+            else:
+                query = query.filter(ProductoPricing.precio_3_cuotas.is_(None))
 
-    # Crear Excel
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Vista Actual"
+        if con_web_transf is not None:
+            if con_web_transf:
+                query = query.filter(ProductoPricing.participa_web_transferencia == True)
+            else:
+                query = query.filter(
+                    or_(
+                        ProductoPricing.participa_web_transferencia == False,
+                        ProductoPricing.participa_web_transferencia.is_(None)
+                    )
+                )
 
-    # Encabezados
-    headers = [
-        "Código", "Descripción", "Marca", "Stock", "Costo",
-        "Precio Clásica", "Markup Clásica (%)",
-        "Precio Rebate", "Markup Rebate (%)",
-        "Precio Oferta", "Markup Oferta (%)",
-        "Precio Web Transf", "Markup Web (%)",
-        "Precio TN", "Descuento TN (%)", "Publicado TN",
-        "Out of Cards", "Color"
-    ]
+        if tiendanube_con_descuento:
+            query = query.filter(ProductoPricing.descuento_tiendanube.isnot(None), ProductoPricing.descuento_tiendanube > 0)
 
-    for col_num, header in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col_num, value=header)
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal='center')
-        cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-        cell.font = Font(bold=True, color="FFFFFF")
+        if tiendanube_sin_descuento:
+            query = query.filter(or_(ProductoPricing.descuento_tiendanube.is_(None), ProductoPricing.descuento_tiendanube == 0))
 
-    # Datos
-    row_num = 2
-    for producto_erp, producto_pricing in productos:
-        ws.cell(row=row_num, column=1, value=producto_erp.codigo or "")
-        ws.cell(row=row_num, column=2, value=producto_erp.descripcion or "")
-        ws.cell(row=row_num, column=3, value=producto_erp.marca or "")
-        ws.cell(row=row_num, column=4, value=producto_erp.stock or 0)
-        ws.cell(row=row_num, column=5, value=float(producto_erp.costo) if producto_erp.costo else 0)
+        if tiendanube_no_publicado:
+            query = query.filter(or_(ProductoPricing.publicado_tiendanube == False, ProductoPricing.publicado_tiendanube.is_(None)))
 
-        if producto_pricing:
-            ws.cell(row=row_num, column=6, value=float(producto_pricing.precio_lista_ml) if producto_pricing.precio_lista_ml else None)
-            ws.cell(row=row_num, column=7, value=float(producto_pricing.markup_calculado) if producto_pricing.markup_calculado else None)
-            ws.cell(row=row_num, column=8, value=float(producto_pricing.precio_rebate_ml) if producto_pricing.precio_rebate_ml else None)
-            ws.cell(row=row_num, column=9, value=float(producto_pricing.markup_rebate) if producto_pricing.markup_rebate else None)
-            ws.cell(row=row_num, column=10, value=float(producto_pricing.precio_3_cuotas) if producto_pricing.precio_3_cuotas else None)
-            ws.cell(row=row_num, column=11, value=float(producto_pricing.markup_oferta) if producto_pricing.markup_oferta else None)
-            ws.cell(row=row_num, column=12, value=float(producto_pricing.precio_web_transferencia) if producto_pricing.precio_web_transferencia else None)
-            ws.cell(row=row_num, column=13, value=float(producto_pricing.markup_web_real) if producto_pricing.markup_web_real else None)
-            ws.cell(row=row_num, column=14, value=float(producto_pricing.precio_tiendanube) if producto_pricing.precio_tiendanube else None)
-            ws.cell(row=row_num, column=15, value=float(producto_pricing.descuento_tiendanube) if producto_pricing.descuento_tiendanube else None)
-            ws.cell(row=row_num, column=16, value="Sí" if producto_pricing.publicado_tiendanube else "No")
-            ws.cell(row=row_num, column=17, value="Sí" if producto_pricing.out_of_cards else "No")
-            ws.cell(row=row_num, column=18, value=producto_pricing.color_marcado or "")
+        if out_of_cards is not None:
+            if out_of_cards:
+                query = query.filter(ProductoPricing.out_of_cards == True)
+            else:
+                query = query.filter(
+                    or_(
+                        ProductoPricing.out_of_cards == False,
+                        ProductoPricing.out_of_cards.is_(None)
+                    )
+                )
 
-        row_num += 1
+        if markup_clasica_positivo is not None:
+            if markup_clasica_positivo:
+                query = query.filter(ProductoPricing.markup_calculado > 0)
+            else:
+                query = query.filter(ProductoPricing.markup_calculado <= 0)
 
-    # Ajustar anchos de columna
-    for column in ws.columns:
-        max_length = 0
-        column_letter = column[0].column_letter
-        for cell in column:
-            try:
-                if cell.value:
-                    max_length = max(max_length, len(str(cell.value)))
-            except:
-                pass
-        adjusted_width = min(max_length + 2, 50)
-        ws.column_dimensions[column_letter].width = adjusted_width
+        if markup_rebate_positivo is not None:
+            if markup_rebate_positivo:
+                query = query.filter(ProductoPricing.markup_rebate > 0)
+            else:
+                query = query.filter(ProductoPricing.markup_rebate <= 0)
+
+        if markup_oferta_positivo is not None:
+            if markup_oferta_positivo:
+                query = query.filter(ProductoPricing.markup_oferta > 0)
+            else:
+                query = query.filter(ProductoPricing.markup_oferta <= 0)
+
+        if markup_web_transf_positivo is not None:
+            if markup_web_transf_positivo:
+                query = query.filter(ProductoPricing.markup_web_real > 0)
+            else:
+                query = query.filter(ProductoPricing.markup_web_real <= 0)
+
+        if colores:
+            colores_list = colores.split(',')
+            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+
+        if pms:
+            from app.models.marca_pm import MarcaPM
+            pms_ids = [int(pm) for pm in pms.split(',')]
+            marcas_asignadas = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pms_ids)).all()
+            marcas_list = [m[0].upper() for m in marcas_asignadas]
+            if marcas_list:
+                query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
+
+        # Filtros de auditoría
+        if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
+            from app.models.auditoria import Auditoria
+            from datetime import datetime, timedelta
+
+            subquery_filters = []
+            if audit_usuarios:
+                usuarios_list = [int(u.strip()) for u in audit_usuarios.split(',')]
+                subquery_filters.append(Auditoria.usuario_id.in_(usuarios_list))
+            if audit_tipos_accion:
+                tipos_list = audit_tipos_accion.split(',')
+                subquery_filters.append(Auditoria.tipo_accion.in_(tipos_list))
+            if audit_fecha_desde:
+                fecha_inicio = datetime.strptime(audit_fecha_desde, '%Y-%m-%d')
+                subquery_filters.append(Auditoria.fecha >= fecha_inicio)
+            if audit_fecha_hasta:
+                fecha_fin = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d') + timedelta(days=1)
+                subquery_filters.append(Auditoria.fecha < fecha_fin)
+
+            if subquery_filters:
+                from sqlalchemy import exists
+                query = query.filter(
+                    exists().where(
+                        and_(
+                            Auditoria.item_id == ProductoERP.item_id,
+                            *subquery_filters
+                        )
+                    )
+                )
+
+        # Ejecutar query
+        productos = query.limit(page_size).offset((page - 1) * page_size).all()
+
+        # Crear Excel
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Vista Actual"
+
+        # Encabezados
+        headers = [
+            "Código", "Descripción", "Marca", "Stock", "Costo",
+            "Precio Clásica", "Markup Clásica (%)",
+            "Precio Rebate", "Markup Rebate (%)",
+            "Precio Oferta", "Markup Oferta (%)",
+            "Precio Web Transf", "Markup Web (%)",
+            "Precio TN", "Descuento TN (%)", "Publicado TN",
+            "Out of Cards", "Color"
+        ]
+
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num, value=header)
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal='center')
+            cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+            cell.font = Font(bold=True, color="FFFFFF")
+
+        # Datos
+        row_num = 2
+        for producto_erp, producto_pricing in productos:
+            ws.cell(row=row_num, column=1, value=producto_erp.codigo or "")
+            ws.cell(row=row_num, column=2, value=producto_erp.descripcion or "")
+            ws.cell(row=row_num, column=3, value=producto_erp.marca or "")
+            ws.cell(row=row_num, column=4, value=producto_erp.stock or 0)
+            ws.cell(row=row_num, column=5, value=float(producto_erp.costo) if producto_erp.costo else 0)
+
+            if producto_pricing:
+                ws.cell(row=row_num, column=6, value=float(producto_pricing.precio_lista_ml) if producto_pricing.precio_lista_ml else None)
+                ws.cell(row=row_num, column=7, value=float(producto_pricing.markup_calculado) if producto_pricing.markup_calculado else None)
+                ws.cell(row=row_num, column=8, value=float(producto_pricing.precio_rebate_ml) if producto_pricing.precio_rebate_ml else None)
+                ws.cell(row=row_num, column=9, value=float(producto_pricing.markup_rebate) if producto_pricing.markup_rebate else None)
+                ws.cell(row=row_num, column=10, value=float(producto_pricing.precio_3_cuotas) if producto_pricing.precio_3_cuotas else None)
+                ws.cell(row=row_num, column=11, value=float(producto_pricing.markup_oferta) if producto_pricing.markup_oferta else None)
+                ws.cell(row=row_num, column=12, value=float(producto_pricing.precio_web_transferencia) if producto_pricing.precio_web_transferencia else None)
+                ws.cell(row=row_num, column=13, value=float(producto_pricing.markup_web_real) if producto_pricing.markup_web_real else None)
+                ws.cell(row=row_num, column=14, value=float(producto_pricing.precio_tiendanube) if producto_pricing.precio_tiendanube else None)
+                ws.cell(row=row_num, column=15, value=float(producto_pricing.descuento_tiendanube) if producto_pricing.descuento_tiendanube else None)
+                ws.cell(row=row_num, column=16, value="Sí" if producto_pricing.publicado_tiendanube else "No")
+                ws.cell(row=row_num, column=17, value="Sí" if producto_pricing.out_of_cards else "No")
+                ws.cell(row=row_num, column=18, value=producto_pricing.color_marcado or "")
+
+            row_num += 1
+
+        # Ajustar anchos de columna
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
 
         # Guardar en BytesIO
         output = BytesIO()
