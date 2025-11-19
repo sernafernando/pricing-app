@@ -4002,8 +4002,8 @@ async def exportar_vista_actual(
             ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
         )
 
-    # Aplicar todos los filtros (reutilizar la lógica del endpoint obtener_productos)
-    if search:
+        # Aplicar todos los filtros (reutilizar la lógica del endpoint obtener_productos)
+        if search:
         search_normalized = search.replace('-', '').replace(' ', '').upper()
         query = query.filter(
             or_(
