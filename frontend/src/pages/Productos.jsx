@@ -345,9 +345,12 @@ export default function Productos() {
     cargarSubcategorias();
   }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
 
-  // Copiar enlaces al clipboard con F2 y F3
+  // Copiar enlaces al clipboard con Ctrl+F2 y Ctrl+F3
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Verificar que se presione Ctrl junto con F2 o F3
+      if (!e.ctrlKey) return;
+
       // Solo funcionar si hay algo en modo edición
       const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
       if (!enModoEdicion) return;
@@ -367,26 +370,26 @@ export default function Productos() {
 
       const itemCode = producto.codigo;
 
-      // F2: primer enlace
+      // Ctrl+F2: primer enlace
       if (e.key === 'F2') {
         e.preventDefault();
         const url = `https://listado.mercadolibre.com.ar/${itemCode}_OrderId_PRICE_NoIndex_True`;
         navigator.clipboard.writeText(url).then(() => {
-          // Opcional: mostrar feedback visual
-          console.log('Enlace F2 copiado:', url);
+          alert(`✅ Enlace 1 copiado al portapapeles!\n\n${url}`);
         }).catch(err => {
+          alert('❌ Error al copiar al portapapeles');
           console.error('Error al copiar:', err);
         });
       }
 
-      // F3: segundo enlace
+      // Ctrl+F3: segundo enlace
       if (e.key === 'F3') {
         e.preventDefault();
         const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?filters=official_store-57997&page=1&search=${itemCode}&sort=lowest_price`;
         navigator.clipboard.writeText(url).then(() => {
-          // Opcional: mostrar feedback visual
-          console.log('Enlace F3 copiado:', url);
+          alert(`✅ Enlace 2 copiado al portapapeles!\n\n${url}`);
         }).catch(err => {
+          alert('❌ Error al copiar al portapapeles');
           console.error('Error al copiar:', err);
         });
       }
