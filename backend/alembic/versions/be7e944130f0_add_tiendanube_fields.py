@@ -1,7 +1,7 @@
 """add tiendanube fields to productos_pricing
 
 Revision ID: be7e944130f0
-Revises: d19958be66a1
+Revises: 9d2eecf696e7
 Create Date: 2024-11-19 17:40:00.000000
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = 'be7e944130f0'
-down_revision = 'd19958be66a1'
+down_revision = '9d2eecf696e7'
 branch_labels = None
 depends_on = None
 
