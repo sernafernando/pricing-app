@@ -348,55 +348,81 @@ export default function Productos() {
   // Copiar enlaces al clipboard con Ctrl+F2 y Ctrl+F3
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Verificar que se presione Ctrl junto con F2 o F3
-      if (!e.ctrlKey) return;
+      // Debug: ver qué teclas se presionan
+      console.log('Tecla presionada:', e.key, 'Ctrl:', e.ctrlKey);
 
-      // Solo funcionar si hay algo en modo edición
-      const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
-      if (!enModoEdicion) return;
+      // Solo capturar F2 o F3 con Ctrl
+      if ((e.key === 'F2' || e.key === 'F3') && e.ctrlKey) {
+        console.log('F2/F3 + Ctrl detectado');
 
-      // Obtener el item_id del producto en edición
-      let itemId = null;
-      if (editandoPrecio) itemId = editandoPrecio;
-      else if (editandoRebate) itemId = editandoRebate;
-      else if (editandoWebTransf) itemId = editandoWebTransf;
-      else if (editandoCuota) itemId = editandoCuota.item_id;
+        // Solo funcionar si hay algo en modo edición
+        const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
+        console.log('En modo edición:', enModoEdicion);
 
-      if (!itemId) return;
+        if (!enModoEdicion) {
+          alert('⚠️ Debes estar editando un producto para usar este atajo');
+          return;
+        }
 
-      // Buscar el producto para obtener su código
-      const producto = productos.find(p => p.item_id === itemId);
-      if (!producto || !producto.codigo) return;
+        // Obtener el item_id del producto en edición
+        let itemId = null;
+        if (editandoPrecio) itemId = editandoPrecio;
+        else if (editandoRebate) itemId = editandoRebate;
+        else if (editandoWebTransf) itemId = editandoWebTransf;
+        else if (editandoCuota) itemId = editandoCuota.item_id;
 
-      const itemCode = producto.codigo;
+        console.log('Item ID:', itemId);
 
-      // Ctrl+F2: primer enlace
-      if (e.key === 'F2') {
+        if (!itemId) {
+          alert('⚠️ No se pudo identificar el producto');
+          return;
+        }
+
+        // Buscar el producto para obtener su código
+        const producto = productos.find(p => p.item_id === itemId);
+        console.log('Producto encontrado:', producto);
+
+        if (!producto) {
+          alert('⚠️ Producto no encontrado');
+          return;
+        }
+
+        if (!producto.codigo) {
+          alert('⚠️ El producto no tiene código asignado');
+          return;
+        }
+
+        const itemCode = producto.codigo;
         e.preventDefault();
-        const url = `https://listado.mercadolibre.com.ar/${itemCode}_OrderId_PRICE_NoIndex_True`;
-        navigator.clipboard.writeText(url).then(() => {
-          alert(`✅ Enlace 1 copiado al portapapeles!\n\n${url}`);
-        }).catch(err => {
-          alert('❌ Error al copiar al portapapeles');
-          console.error('Error al copiar:', err);
-        });
-      }
+        e.stopPropagation();
 
-      // Ctrl+F3: segundo enlace
-      if (e.key === 'F3') {
-        e.preventDefault();
-        const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?filters=official_store-57997&page=1&search=${itemCode}&sort=lowest_price`;
-        navigator.clipboard.writeText(url).then(() => {
-          alert(`✅ Enlace 2 copiado al portapapeles!\n\n${url}`);
-        }).catch(err => {
-          alert('❌ Error al copiar al portapapeles');
-          console.error('Error al copiar:', err);
-        });
+        // Ctrl+F2: primer enlace
+        if (e.key === 'F2') {
+          const url = `https://listado.mercadolibre.com.ar/${itemCode}_OrderId_PRICE_NoIndex_True`;
+          navigator.clipboard.writeText(url).then(() => {
+            alert(`✅ Enlace 1 copiado!\n\n${url}`);
+          }).catch(err => {
+            alert('❌ Error al copiar al portapapeles');
+            console.error('Error al copiar:', err);
+          });
+        }
+
+        // Ctrl+F3: segundo enlace
+        if (e.key === 'F3') {
+          const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?filters=official_store-57997&page=1&search=${itemCode}&sort=lowest_price`;
+          navigator.clipboard.writeText(url).then(() => {
+            alert(`✅ Enlace 2 copiado!\n\n${url}`);
+          }).catch(err => {
+            alert('❌ Error al copiar al portapapeles');
+            console.error('Error al copiar:', err);
+          });
+        }
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    // Usar capture: true para interceptar el evento antes que otros listeners
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, productos]);
 
   // Auto-focus en inputs de búsqueda cuando se abren los paneles de filtro
