@@ -167,7 +167,6 @@ async def listar_productos(
                         fecha_desde_dt = datetime.combine(date.today(), datetime.min.time())
 
             # Convertir de hora local (ART = UTC-3) a UTC sumando 3 horas
-            # porque la base de datos guarda fechas en UTC
             from datetime import timedelta
             fecha_desde_dt = fecha_desde_dt + timedelta(hours=3)
 
