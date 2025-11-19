@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 from decimal import Decimal
+import csv
+import io
 
 from app.core.database import get_db
 from app.models.calculo_pricing import CalculoPricing
@@ -24,6 +27,7 @@ class CalculoRequest(BaseModel):
     markup_porcentaje: Optional[float] = None
     limpio: Optional[float] = None
     comision_total: Optional[float] = None
+    cantidad: int = Field(default=0, ge=0)
 
 class CalculoResponse(BaseModel):
     id: int
@@ -39,11 +43,15 @@ class CalculoResponse(BaseModel):
     markup_porcentaje: Optional[float]
     limpio: Optional[float]
     comision_total: Optional[float]
+    cantidad: int
     fecha_creacion: datetime
     fecha_modificacion: datetime
 
     class Config:
         from_attributes = True
+
+class CantidadUpdate(BaseModel):
+    cantidad: int = Field(..., ge=0)
 
 @router.post("/calculos", response_model=CalculoResponse)
 async def crear_calculo(
@@ -68,7 +76,8 @@ async def crear_calculo(
         precio_final=calculo.precio_final,
         markup_porcentaje=calculo.markup_porcentaje,
         limpio=calculo.limpio,
-        comision_total=calculo.comision_total
+        comision_total=calculo.comision_total,
+        cantidad=calculo.cantidad
     )
 
     db.add(nuevo_calculo)
@@ -139,12 +148,38 @@ async def actualizar_calculo(
     calculo_db.markup_porcentaje = calculo.markup_porcentaje
     calculo_db.limpio = calculo.limpio
     calculo_db.comision_total = calculo.comision_total
+    calculo_db.cantidad = calculo.cantidad
     calculo_db.fecha_modificacion = datetime.now()
 
     db.commit()
     db.refresh(calculo_db)
 
     return calculo_db
+
+@router.patch("/calculos/{calculo_id}/cantidad")
+async def actualizar_cantidad(
+    calculo_id: int,
+    cantidad_data: CantidadUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Actualiza solo la cantidad de un cálculo (endpoint rápido)"""
+
+    calculo = db.query(CalculoPricing).filter(
+        CalculoPricing.id == calculo_id,
+        CalculoPricing.usuario_id == current_user.id
+    ).first()
+
+    if not calculo:
+        raise HTTPException(status_code=404, detail="Cálculo no encontrado")
+
+    calculo.cantidad = cantidad_data.cantidad
+    calculo.fecha_modificacion = datetime.now()
+
+    db.commit()
+    db.refresh(calculo)
+
+    return {"mensaje": "Cantidad actualizada", "cantidad": calculo.cantidad}
 
 @router.delete("/calculos/{calculo_id}")
 async def eliminar_calculo(
@@ -166,3 +201,94 @@ async def eliminar_calculo(
     db.commit()
 
     return {"mensaje": "Cálculo eliminado correctamente"}
+
+class AccionMasivaRequest(BaseModel):
+    calculo_ids: List[int]
+
+@router.post("/calculos/acciones/eliminar-masivo")
+async def eliminar_calculos_masivo(
+    request: AccionMasivaRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Elimina múltiples cálculos"""
+
+    if not request.calculo_ids:
+        raise HTTPException(status_code=400, detail="No se proporcionaron IDs")
+
+    calculos = db.query(CalculoPricing).filter(
+        CalculoPricing.id.in_(request.calculo_ids),
+        CalculoPricing.usuario_id == current_user.id
+    ).all()
+
+    count = len(calculos)
+
+    for calculo in calculos:
+        db.delete(calculo)
+
+    db.commit()
+
+    return {"mensaje": f"{count} cálculos eliminados", "count": count}
+
+@router.get("/calculos/exportar/csv")
+async def exportar_calculos_csv(
+    filtro: Optional[str] = None,  # 'todos', 'con_cantidad', 'seleccionados'
+    ids: Optional[str] = None,  # comma-separated IDs for 'seleccionados'
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Exporta cálculos a CSV según el filtro seleccionado"""
+
+    query = db.query(CalculoPricing).filter(
+        CalculoPricing.usuario_id == current_user.id
+    )
+
+    # Aplicar filtros
+    if filtro == 'con_cantidad':
+        query = query.filter(CalculoPricing.cantidad > 0)
+    elif filtro == 'seleccionados' and ids:
+        id_list = [int(id.strip()) for id in ids.split(',') if id.strip()]
+        query = query.filter(CalculoPricing.id.in_(id_list))
+
+    calculos = query.order_by(CalculoPricing.fecha_creacion.desc()).all()
+
+    # Crear CSV en memoria
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Encabezados
+    writer.writerow([
+        'ID', 'Descripción', 'EAN', 'Cantidad', 'Costo', 'Moneda',
+        'IVA %', 'Comisión ML %', 'Costo Envío', 'Precio Final',
+        'Markup %', 'Limpio', 'Comisión Total', 'Fecha Creación'
+    ])
+
+    # Datos
+    for calc in calculos:
+        writer.writerow([
+            calc.id,
+            calc.descripcion,
+            calc.ean or '',
+            calc.cantidad,
+            float(calc.costo),
+            calc.moneda_costo,
+            float(calc.iva),
+            float(calc.comision_ml),
+            float(calc.costo_envio),
+            float(calc.precio_final),
+            float(calc.markup_porcentaje) if calc.markup_porcentaje else '',
+            float(calc.limpio) if calc.limpio else '',
+            float(calc.comision_total) if calc.comision_total else '',
+            calc.fecha_creacion.strftime('%Y-%m-%d %H:%M:%S')
+        ])
+
+    output.seek(0)
+
+    # Nombre de archivo según filtro
+    filename = f"calculos_{filtro or 'todos'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

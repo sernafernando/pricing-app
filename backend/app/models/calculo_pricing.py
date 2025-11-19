@@ -24,6 +24,9 @@ class CalculoPricing(Base):
     limpio = Column(Numeric(12, 2))
     comision_total = Column(Numeric(12, 2))
 
+    # Cantidad para presupuesto/pedido
+    cantidad = Column(Integer, default=0)
+
     fecha_creacion = Column(DateTime, default=datetime.now)
     fecha_modificacion = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

@@ -8,6 +8,8 @@ const Calculos = () => {
   const [formData, setFormData] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [tipoCambio, setTipoCambio] = useState(null);
+  const [seleccionados, setSeleccionados] = useState(new Set());
+  const [filtroExportar, setFiltroExportar] = useState('todos');
 
   useEffect(() => {
     cargarCalculos();
@@ -45,6 +47,7 @@ const Calculos = () => {
     setFormData({
       descripcion: calculo.descripcion,
       ean: calculo.ean || '',
+      cantidad: calculo.cantidad || 0,
       costo: calculo.costo,
       moneda_costo: calculo.moneda_costo,
       iva: calculo.iva,
@@ -111,6 +114,43 @@ const Calculos = () => {
     }
   };
 
+  const actualizarCantidad = async (id, cantidad) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.patch(
+        `https://pricing.gaussonline.com.ar/api/calculos/${id}/cantidad`,
+        { cantidad: parseInt(cantidad) || 0 },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      // Actualizar solo el cálculo específico en el estado
+      setCalculos(calculos.map(c =>
+        c.id === id ? { ...c, cantidad: parseInt(cantidad) || 0 } : c
+      ));
+    } catch (error) {
+      console.error('Error actualizando cantidad:', error);
+      alert('Error al actualizar la cantidad');
+    }
+  };
+
+  const toggleSeleccion = (id) => {
+    const nuevosSeleccionados = new Set(seleccionados);
+    if (nuevosSeleccionados.has(id)) {
+      nuevosSeleccionados.delete(id);
+    } else {
+      nuevosSeleccionados.add(id);
+    }
+    setSeleccionados(nuevosSeleccionados);
+  };
+
+  const toggleSeleccionTodos = () => {
+    if (seleccionados.size === calculos.length) {
+      setSeleccionados(new Set());
+    } else {
+      setSeleccionados(new Set(calculos.map(c => c.id)));
+    }
+  };
+
   const eliminarCalculo = async (id) => {
     if (!confirm('¿Está seguro que desea eliminar este cálculo?')) {
       return;
@@ -123,10 +163,68 @@ const Calculos = () => {
       });
 
       await cargarCalculos();
+      setSeleccionados(new Set());
     } catch (error) {
       console.error('Error eliminando cálculo:', error);
       alert('Error al eliminar el cálculo');
     }
+  };
+
+  const eliminarMasivo = async () => {
+    let idsAEliminar = [];
+
+    if (filtroExportar === 'seleccionados') {
+      if (seleccionados.size === 0) {
+        alert('No hay elementos seleccionados');
+        return;
+      }
+      idsAEliminar = Array.from(seleccionados);
+    } else if (filtroExportar === 'con_cantidad') {
+      idsAEliminar = calculos.filter(c => c.cantidad > 0).map(c => c.id);
+      if (idsAEliminar.length === 0) {
+        alert('No hay cálculos con cantidad > 0');
+        return;
+      }
+    } else {
+      idsAEliminar = calculos.map(c => c.id);
+    }
+
+    if (!confirm(`¿Está seguro que desea eliminar ${idsAEliminar.length} cálculo(s)?`)) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(
+        'https://pricing.gaussonline.com.ar/api/calculos/acciones/eliminar-masivo',
+        { calculo_ids: idsAEliminar },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      await cargarCalculos();
+      setSeleccionados(new Set());
+    } catch (error) {
+      console.error('Error eliminando cálculos:', error);
+      alert('Error al eliminar los cálculos');
+    }
+  };
+
+  const exportarCSV = () => {
+    let queryParams = `filtro=${filtroExportar}`;
+
+    if (filtroExportar === 'seleccionados') {
+      if (seleccionados.size === 0) {
+        alert('No hay elementos seleccionados');
+        return;
+      }
+      queryParams += `&ids=${Array.from(seleccionados).join(',')}`;
+    }
+
+    const token = localStorage.getItem('token');
+    window.open(
+      `https://pricing.gaussonline.com.ar/api/calculos/exportar/csv?${queryParams}`,
+      '_blank'
+    );
   };
 
   const getMarkupColor = (markup) => {
@@ -157,29 +255,73 @@ const Calculos = () => {
           <p className="hint">Presiona <kbd>Ctrl</kbd> + <kbd>P</kbd> para abrir la calculadora</p>
         </div>
       ) : (
-        <div className="calculos-table-wrapper">
-          <table className="calculos-table">
-            <thead>
-              <tr>
-                <th>Descripción</th>
-                <th>EAN</th>
-                <th>Costo</th>
-                <th>Moneda</th>
-                <th>IVA</th>
-                <th>Comisión ML</th>
-                <th>Envío</th>
-                <th>Precio Final</th>
-                <th>Markup</th>
-                <th>Limpio</th>
-                <th>Fecha</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
+        <>
+          <div className="acciones-masivas-bar">
+            <div className="acciones-left">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={seleccionados.size === calculos.length && calculos.length > 0}
+                  onChange={toggleSeleccionTodos}
+                />
+                Seleccionar todos ({seleccionados.size})
+              </label>
+            </div>
+
+            <div className="acciones-center">
+              <select
+                value={filtroExportar}
+                onChange={(e) => setFiltroExportar(e.target.value)}
+                className="filtro-select"
+              >
+                <option value="todos">Todos los cálculos</option>
+                <option value="con_cantidad">Solo con cantidad</option>
+                <option value="seleccionados">Seleccionados ({seleccionados.size})</option>
+              </select>
+            </div>
+
+            <div className="acciones-right">
+              <button onClick={exportarCSV} className="btn-exportar">
+                📥 Exportar CSV
+              </button>
+              <button onClick={eliminarMasivo} className="btn-eliminar-masivo">
+                🗑 Eliminar
+              </button>
+            </div>
+          </div>
+
+          <div className="calculos-table-wrapper">
+            <table className="calculos-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '40px' }}>✓</th>
+                  <th>Descripción</th>
+                  <th>EAN</th>
+                  <th>Cant.</th>
+                  <th>Costo</th>
+                  <th>Moneda</th>
+                  <th>IVA</th>
+                  <th>Comisión ML</th>
+                  <th>Envío</th>
+                  <th>Precio Final</th>
+                  <th>Markup</th>
+                  <th>Limpio</th>
+                  <th>Fecha</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
             <tbody>
               {calculos.map((calculo) => (
                 <tr key={calculo.id}>
                   {calculoEditando === calculo.id ? (
                     <>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={seleccionados.has(calculo.id)}
+                          onChange={() => toggleSeleccion(calculo.id)}
+                        />
+                      </td>
                       <td>
                         <input
                           type="text"
@@ -194,6 +336,15 @@ const Calculos = () => {
                           value={formData.ean}
                           onChange={(e) => setFormData({ ...formData, ean: e.target.value })}
                           className="edit-input"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          value={formData.cantidad}
+                          onChange={(e) => setFormData({ ...formData, cantidad: e.target.value })}
+                          className="edit-input small"
+                          min="0"
                         />
                       </td>
                       <td>
@@ -260,8 +411,25 @@ const Calculos = () => {
                     </>
                   ) : (
                     <>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={seleccionados.has(calculo.id)}
+                          onChange={() => toggleSeleccion(calculo.id)}
+                        />
+                      </td>
                       <td>{calculo.descripcion}</td>
                       <td>{calculo.ean || '-'}</td>
+                      <td>
+                        <input
+                          type="number"
+                          value={calculo.cantidad || 0}
+                          onChange={(e) => actualizarCantidad(calculo.id, e.target.value)}
+                          className="cantidad-input"
+                          min="0"
+                          style={{ width: '60px', textAlign: 'center' }}
+                        />
+                      </td>
                       <td>${parseFloat(calculo.costo).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td>{calculo.moneda_costo}</td>
                       <td>{calculo.iva}%</td>
