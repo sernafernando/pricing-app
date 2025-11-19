@@ -4004,31 +4004,31 @@ async def exportar_vista_actual(
 
         # Aplicar todos los filtros (reutilizar la lógica del endpoint obtener_productos)
         if search:
-        search_normalized = search.replace('-', '').replace(' ', '').upper()
-        query = query.filter(
-            or_(
-                func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
-                func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
-                func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
+            search_normalized = search.replace('-', '').replace(' ', '').upper()
+            query = query.filter(
+                or_(
+                    func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                    func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                    func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
+                )
             )
-        )
 
-    if con_stock is not None:
-        query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
+        if con_stock is not None:
+            query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
 
-    if con_precio is not None:
-        if con_precio:
-            query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
-        else:
-            query = query.filter(ProductoPricing.precio_lista_ml.is_(None))
+        if con_precio is not None:
+            if con_precio:
+                query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+            else:
+                query = query.filter(ProductoPricing.precio_lista_ml.is_(None))
 
-    if marcas:
-        marcas_list = [m.strip().upper() for m in marcas.split(',')]
-        query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
+        if marcas:
+            marcas_list = [m.strip().upper() for m in marcas.split(',')]
+            query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
 
-    if subcategorias:
-        subcat_list = [int(s.strip()) for s in subcategorias.split(',')]
-        query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
+        if subcategorias:
+            subcat_list = [int(s.strip()) for s in subcategorias.split(',')]
+            query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
 
     if con_rebate is not None:
         if con_rebate:
