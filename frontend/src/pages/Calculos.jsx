@@ -459,8 +459,11 @@ const Calculos = () => {
                           step="0.01"
                         />
                       </td>
-                      <td colSpan="4" style={{ textAlign: 'center', fontStyle: 'italic', color: '#6b7280' }}>
-                        Se recalculará al guardar
+                      <td colSpan="3" style={{ textAlign: 'center', fontStyle: 'italic', color: '#6b7280', padding: '12px 8px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
+                          <span>Markup, Limpio y Comisión Total</span>
+                          <span style={{ fontWeight: '500' }}>se recalcularán al guardar</span>
+                        </div>
                       </td>
                       <td>
                         <div className="action-buttons">
