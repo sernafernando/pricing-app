@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './CalcularWebModal.module.css';
 
-export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos }) {
+export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, showToast }) {
   const [porcentajeConPrecio, setPorcentajeConPrecio] = useState('6.0');
   const [porcentajeSinPrecio, setPorcentajeSinPrecio] = useState('10.0');
   const [calculando, setCalculando] = useState(false);
@@ -176,12 +176,12 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos })
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      alert(`Precios calculados: ${response.data.procesados} productos`);
+      showToast(`✅ Precios calculados: ${response.data.procesados} productos`);
       onSuccess();
       onClose();
     } catch (error) {
       console.error('Error:', error);
-      alert('Error al calcular precios masivos');
+      showToast('❌ Error al calcular precios masivos', 'error');
     } finally {
       setCalculando(false);
     }

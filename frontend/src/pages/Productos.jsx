@@ -100,6 +100,9 @@ export default function Productos() {
   const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
   const [productoInfo, setProductoInfo] = useState(null);
 
+  // Toast notification
+  const [toast, setToast] = useState(null);
+
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
 
@@ -107,6 +110,12 @@ export default function Productos() {
   const columnasEditables = ['precio_clasica', 'precio_rebate', 'mejor_oferta', 'precio_web_transf'];
 
   const debouncedSearch = useDebounce(searchInput, 500);
+
+  // Función para mostrar toast
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000); // Desaparece después de 3 segundos
+  };
 
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
@@ -355,7 +364,7 @@ export default function Productos() {
         const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
 
         if (!enModoEdicion && !hayProductoSeleccionado) {
-          alert('⚠️ Debes posicionarte sobre un producto para usar este atajo');
+          showToast('⚠️ Debes posicionarte sobre un producto para usar este atajo', 'error');
           return;
         }
 
@@ -379,12 +388,12 @@ export default function Productos() {
         }
 
         if (!producto) {
-          alert('⚠️ Producto no encontrado');
+          showToast('⚠️ Producto no encontrado', 'error');
           return;
         }
 
         if (!producto.codigo) {
-          alert('⚠️ El producto no tiene código asignado');
+          showToast('⚠️ El producto no tiene código asignado', 'error');
           return;
         }
 
@@ -396,9 +405,9 @@ export default function Productos() {
         if (e.key === 'F2') {
           const url = `https://listado.mercadolibre.com.ar/${itemCode}_OrderId_PRICE_NoIndex_True`;
           navigator.clipboard.writeText(url).then(() => {
-            alert(`✅ Enlace 1 copiado!\n\n${url}`);
+            showToast(`✅ Enlace 1 copiado: ${itemCode}`);
           }).catch(err => {
-            alert('❌ Error al copiar al portapapeles');
+            showToast('❌ Error al copiar al portapapeles', 'error');
             console.error('Error al copiar:', err);
           });
         }
@@ -407,9 +416,9 @@ export default function Productos() {
         if (e.key === 'F3') {
           const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?filters=official_store-57997&page=1&search=${itemCode}&sort=lowest_price`;
           navigator.clipboard.writeText(url).then(() => {
-            alert(`✅ Enlace 2 copiado!\n\n${url}`);
+            showToast(`✅ Enlace 2 copiado: ${itemCode}`);
           }).catch(err => {
-            alert('❌ Error al copiar al portapapeles');
+            showToast('❌ Error al copiar al portapapeles', 'error');
             console.error('Error al copiar:', err);
           });
         }
@@ -419,7 +428,7 @@ export default function Productos() {
     // Usar capture: true para interceptar el evento antes que otros listeners
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, productos, celdaActiva]);
+  }, [editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, productos, celdaActiva, showToast]);
 
   // Auto-focus en inputs de búsqueda cuando se abren los paneles de filtro
   useEffect(() => {
@@ -3295,6 +3304,7 @@ export default function Productos() {
             audit_fecha_desde: filtrosAuditoria.fecha_desde,
             audit_fecha_hasta: filtrosAuditoria.fecha_hasta
           }}
+          showToast={showToast}
         />
       )}
 
@@ -3322,6 +3332,7 @@ export default function Productos() {
             audit_fecha_desde: filtrosAuditoria.fecha_desde,
             audit_fecha_hasta: filtrosAuditoria.fecha_hasta
           }}
+          showToast={showToast}
         />
       )}
 
@@ -3620,6 +3631,13 @@ export default function Productos() {
       {modoNavegacion && (
         <div className="navigation-indicator">
           ⌨️ Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className={`${styles.toast} ${toast.type === 'error' ? styles.error : ''}`}>
+          {toast.message}
         </div>
       )}
     </div>

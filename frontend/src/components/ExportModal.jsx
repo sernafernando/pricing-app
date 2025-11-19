@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './ExportModal.module.css';
 
-export default function ExportModal({ onClose, filtrosActivos }) {
+export default function ExportModal({ onClose, filtrosActivos, showToast }) {
   const [tab, setTab] = useState('rebate');
   const [exportando, setExportando] = useState(false);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
@@ -223,11 +223,11 @@ export default function ExportModal({ onClose, filtrosActivos }) {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      alert('Exportación completada');
+      showToast('✅ Exportación completada');
       onClose();
     } catch (error) {
       console.error('Error exportando:', error);
-      alert('Error al exportar');
+      showToast('❌ Error al exportar', 'error');
     } finally {
       setExportando(false);
     }
@@ -305,11 +305,11 @@ export default function ExportModal({ onClose, filtrosActivos }) {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      alert('Exportación completada');
+      showToast('✅ Exportación completada');
       onClose();
     } catch (error) {
       console.error('Error exportando:', error);
-      alert('Error al exportar Clásica');
+      showToast('❌ Error al exportar Clásica', 'error');
     } finally {
       setExportando(false);
     }
@@ -379,11 +379,11 @@ export default function ExportModal({ onClose, filtrosActivos }) {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      alert('Exportación completada');
+      showToast('✅ Exportación completada');
       onClose();
     } catch (error) {
       console.error('Error exportando:', error);
-      alert('Error al exportar Web Transferencia');
+      showToast('❌ Error al exportar Web Transferencia', 'error');
     } finally {
       setExportando(false);
     }
