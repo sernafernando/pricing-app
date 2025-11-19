@@ -345,6 +345,7 @@ const Calculos = () => {
                   <th>Cant.</th>
                   <th>Costo</th>
                   <th>Moneda</th>
+                  <th>TC Usado</th>
                   <th>IVA</th>
                   <th>Comisión ML</th>
                   <th>Envío</th>
@@ -412,6 +413,16 @@ const Calculos = () => {
                         </select>
                       </td>
                       <td>
+                        <input
+                          type="number"
+                          value={formData.tipo_cambio_usado || ''}
+                          onChange={(e) => setFormData({ ...formData, tipo_cambio_usado: e.target.value })}
+                          className="edit-input small"
+                          step="0.01"
+                          placeholder="TC"
+                        />
+                      </td>
+                      <td>
                         <select
                           value={formData.iva}
                           onChange={(e) => setFormData({ ...formData, iva: e.target.value })}
@@ -448,7 +459,7 @@ const Calculos = () => {
                           step="0.01"
                         />
                       </td>
-                      <td colSpan="3" style={{ textAlign: 'center', fontStyle: 'italic', color: '#6b7280' }}>
+                      <td colSpan="4" style={{ textAlign: 'center', fontStyle: 'italic', color: '#6b7280' }}>
                         Se recalculará al guardar
                       </td>
                       <td>
@@ -481,6 +492,7 @@ const Calculos = () => {
                       </td>
                       <td>${parseFloat(calculo.costo).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td>{calculo.moneda_costo}</td>
+                      <td>{calculo.tipo_cambio_usado ? parseFloat(calculo.tipo_cambio_usado).toFixed(2) : '-'}</td>
                       <td>{calculo.iva}%</td>
                       <td>{calculo.comision_ml}%</td>
                       <td>${parseFloat(calculo.costo_envio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>

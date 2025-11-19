@@ -227,51 +227,65 @@
   text-align: center;
 }
 
-/* IVA */
+/* TC Usado */
 .calculos-table th:nth-child(7),
 .calculos-table td:nth-child(7) {
+  width: 80px;
+  text-align: center;
+}
+
+/* IVA */
+.calculos-table th:nth-child(8),
+.calculos-table td:nth-child(8) {
   width: 70px;
   text-align: center;
 }
 
 /* Comisión ML */
-.calculos-table th:nth-child(8),
-.calculos-table td:nth-child(8) {
-  width: 90px;
-  text-align: center;
-}
-
-/* Envío */
 .calculos-table th:nth-child(9),
 .calculos-table td:nth-child(9) {
   width: 90px;
   text-align: center;
 }
 
-/* Precio Final */
+/* Envío */
 .calculos-table th:nth-child(10),
 .calculos-table td:nth-child(10) {
+  width: 90px;
+  text-align: center;
+}
+
+/* Precio Final */
+.calculos-table th:nth-child(11),
+.calculos-table td:nth-child(11) {
   width: 110px;
   text-align: center;
 }
 
 /* Markup */
-.calculos-table th:nth-child(11),
-.calculos-table td:nth-child(11) {
+.calculos-table th:nth-child(12),
+.calculos-table td:nth-child(12) {
   width: 80px;
   text-align: center;
 }
 
 /* Limpio */
-.calculos-table th:nth-child(12),
-.calculos-table td:nth-child(12) {
+.calculos-table th:nth-child(13),
+.calculos-table td:nth-child(13) {
+  width: 100px;
+  text-align: center;
+}
+
+/* Fecha */
+.calculos-table th:nth-child(14),
+.calculos-table td:nth-child(14) {
   width: 100px;
   text-align: center;
 }
 
 /* Acciones */
-.calculos-table th:nth-child(13),
-.calculos-table td:nth-child(13) {
+.calculos-table th:nth-child(15),
+.calculos-table td:nth-child(15) {
   width: 100px;
   text-align: center;
   padding: 12px 4px;
@@ -281,6 +295,7 @@
   padding: 12px 8px;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-primary);
+  box-sizing: border-box;
 }
 
 .calculos-table tbody tr:hover {
@@ -301,6 +316,7 @@
   font-size: 14px;
   background-color: var(--bg-primary);
   color: var(--text-primary);
+  box-sizing: border-box;
 }
 
 .edit-input.small {
