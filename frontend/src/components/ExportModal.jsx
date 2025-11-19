@@ -227,7 +227,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
         if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
       }
 
-      const url = `https://pricing.gaussonline.com.ar/api/productos/exportar-vista-actual?${params}`;
+      const url = `https://pricing.gaussonline.com.ar/api/exportar-vista-actual?${params}`;
       const response = await axios.get(url, {
         responseType: 'blob',
         headers: { Authorization: `Bearer ${token}` }

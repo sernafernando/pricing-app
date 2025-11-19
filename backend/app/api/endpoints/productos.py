@@ -3959,7 +3959,7 @@ async def actualizar_out_of_cards(
     return {"status": "success", "out_of_cards": pricing.out_of_cards}
 
 
-@router.get("/productos/exportar-vista-actual")
+@router.get("/exportar-vista-actual")
 async def exportar_vista_actual(
     page: int = 1,
     page_size: int = 10000,
