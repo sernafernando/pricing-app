@@ -348,39 +348,35 @@ export default function Productos() {
   // Copiar enlaces al clipboard con Ctrl+F2 y Ctrl+F3
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Debug: ver qué teclas se presionan
-      console.log('Tecla presionada:', e.key, 'Ctrl:', e.ctrlKey);
-
       // Solo capturar F2 o F3 con Ctrl
       if ((e.key === 'F2' || e.key === 'F3') && e.ctrlKey) {
-        console.log('F2/F3 + Ctrl detectado');
-
-        // Solo funcionar si hay algo en modo edición
+        // Verificar si hay algo en modo edición O si hay una celda activa (navegación)
         const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
-        console.log('En modo edición:', enModoEdicion);
+        const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
 
-        if (!enModoEdicion) {
-          alert('⚠️ Debes estar editando un producto para usar este atajo');
+        if (!enModoEdicion && !hayProductoSeleccionado) {
+          alert('⚠️ Debes posicionarte sobre un producto para usar este atajo');
           return;
         }
 
-        // Obtener el item_id del producto en edición
-        let itemId = null;
-        if (editandoPrecio) itemId = editandoPrecio;
-        else if (editandoRebate) itemId = editandoRebate;
-        else if (editandoWebTransf) itemId = editandoWebTransf;
-        else if (editandoCuota) itemId = editandoCuota.item_id;
+        // Obtener el producto activo
+        let producto = null;
 
-        console.log('Item ID:', itemId);
+        if (enModoEdicion) {
+          // Si está editando, buscar por item_id
+          let itemId = null;
+          if (editandoPrecio) itemId = editandoPrecio;
+          else if (editandoRebate) itemId = editandoRebate;
+          else if (editandoWebTransf) itemId = editandoWebTransf;
+          else if (editandoCuota) itemId = editandoCuota.item_id;
 
-        if (!itemId) {
-          alert('⚠️ No se pudo identificar el producto');
-          return;
+          if (itemId) {
+            producto = productos.find(p => p.item_id === itemId);
+          }
+        } else if (hayProductoSeleccionado) {
+          // Si está navegando, buscar por índice de fila
+          producto = productos[celdaActiva.rowIndex];
         }
-
-        // Buscar el producto para obtener su código
-        const producto = productos.find(p => p.item_id === itemId);
-        console.log('Producto encontrado:', producto);
 
         if (!producto) {
           alert('⚠️ Producto no encontrado');
@@ -423,7 +419,7 @@ export default function Productos() {
     // Usar capture: true para interceptar el evento antes que otros listeners
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, productos]);
+  }, [editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, productos, celdaActiva]);
 
   // Auto-focus en inputs de búsqueda cuando se abren los paneles de filtro
   useEffect(() => {
