@@ -185,6 +185,76 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
     return `${y}-${m}-${d}`;
   };
 
+  const exportarVistaActual = async () => {
+    setExportando(true);
+    try {
+      const token = localStorage.getItem('token');
+
+      let params = `page=1&page_size=10000`;
+
+      if (aplicarFiltros) {
+        if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
+        if (filtrosActivos.con_stock === true) params += `&con_stock=true`;
+        if (filtrosActivos.con_stock === false) params += `&con_stock=false`;
+        if (filtrosActivos.con_precio === true) params += `&con_precio=true`;
+        if (filtrosActivos.con_precio === false) params += `&con_precio=false`;
+        if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
+        if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
+        if (filtrosActivos.filtroRebate === 'con_rebate') params += `&con_rebate=true`;
+        if (filtrosActivos.filtroRebate === 'sin_rebate') params += `&con_rebate=false`;
+        if (filtrosActivos.filtroOferta === 'con_oferta') params += `&con_oferta=true`;
+        if (filtrosActivos.filtroOferta === 'sin_oferta') params += `&con_oferta=false`;
+        if (filtrosActivos.filtroWebTransf === 'con_web_transf') params += `&con_web_transf=true`;
+        if (filtrosActivos.filtroWebTransf === 'sin_web_transf') params += `&con_web_transf=false`;
+        if (filtrosActivos.filtroTiendaNube === 'con_descuento') params += `&tiendanube_con_descuento=true`;
+        if (filtrosActivos.filtroTiendaNube === 'sin_descuento') params += `&tiendanube_sin_descuento=true`;
+        if (filtrosActivos.filtroTiendaNube === 'no_publicado') params += `&tiendanube_no_publicado=true`;
+        if (filtrosActivos.filtroMarkupClasica === 'positivo') params += `&markup_clasica_positivo=true`;
+        if (filtrosActivos.filtroMarkupClasica === 'negativo') params += `&markup_clasica_positivo=false`;
+        if (filtrosActivos.filtroMarkupRebate === 'positivo') params += `&markup_rebate_positivo=true`;
+        if (filtrosActivos.filtroMarkupRebate === 'negativo') params += `&markup_rebate_positivo=false`;
+        if (filtrosActivos.filtroMarkupOferta === 'positivo') params += `&markup_oferta_positivo=true`;
+        if (filtrosActivos.filtroMarkupOferta === 'negativo') params += `&markup_oferta_positivo=false`;
+        if (filtrosActivos.filtroMarkupWebTransf === 'positivo') params += `&markup_web_transf_positivo=true`;
+        if (filtrosActivos.filtroMarkupWebTransf === 'negativo') params += `&markup_web_transf_positivo=false`;
+        if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') params += `&out_of_cards=true`;
+        if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') params += `&out_of_cards=false`;
+        if (filtrosActivos.coloresSeleccionados?.length > 0) params += `&colores=${filtrosActivos.coloresSeleccionados.join(',')}`;
+        if (filtrosActivos.pmsSeleccionados?.length > 0) params += `&pms=${filtrosActivos.pmsSeleccionados.join(',')}`;
+        if (filtrosActivos.audit_usuarios?.length > 0) params += `&audit_usuarios=${filtrosActivos.audit_usuarios.join(',')}`;
+        if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
+        if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
+        if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
+      }
+
+      const url = `https://pricing.gaussonline.com.ar/api/productos/exportar-vista-actual?${params}`;
+      const response = await axios.get(url, {
+        responseType: 'blob',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const link = document.createElement('a');
+      link.href = window.URL.createObjectURL(blob);
+      const ahora = new Date();
+      const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const nombreArchivo = `vista_actual_${timestamp}.xlsx`;
+      link.setAttribute('download', nombreArchivo);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      showToast('✅ Exportación completada');
+      onClose();
+    } catch (error) {
+      console.error('Error exportando:', error);
+      showToast('❌ Error al exportar Vista Actual', 'error');
+    } finally {
+      setExportando(false);
+    }
+  };
+
   const exportarRebate = async () => {
     setExportando(true);
     try {
@@ -399,6 +469,12 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
 
         <div className={styles.tabs}>
           <button
+            onClick={() => setTab('vista_actual')}
+            className={`${styles.tab} ${tab === 'vista_actual' ? styles.active : ''}`}
+          >
+            Vista Actual
+          </button>
+          <button
             onClick={() => setTab('rebate')}
             className={`${styles.tab} ${tab === 'rebate' ? styles.active : ''}`}
           >
@@ -419,6 +495,39 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
         </div>
 
         <div className={styles.content}>
+          {tab === 'vista_actual' && (
+            <div>
+              {hayFiltros && (
+                <div className={styles.filterCheckbox}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={aplicarFiltros}
+                      onChange={(e) => setAplicarFiltros(e.target.checked)}
+                    />
+                    Exportar solo productos filtrados
+                  </label>
+                  {aplicarFiltros && <FiltrosActivosDisplay />}
+                </div>
+              )}
+
+              <p className={styles.description}>
+                Exporta todos los productos tal como se ven en la tabla actual con todos los precios y datos disponibles.
+                <br />
+                <strong>Incluye:</strong> Código, Descripción, Stock, Costo, Clásica, Rebate, Oferta, Web Transferencia, Tienda Nube y todos los markups.
+              </p>
+
+              <div className={styles.buttonGroup}>
+                <button onClick={onClose} disabled={exportando} className={`${styles.button} ${styles.buttonSecondary}`}>
+                  Cancelar
+                </button>
+                <button onClick={exportarVistaActual} disabled={exportando} className={`${styles.button} ${styles.buttonPrimary}`}>
+                  {exportando ? '⏳ Exportando...' : '📥 Exportar Vista Actual'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {tab === 'rebate' && (
             <div>
               {hayFiltros && (
