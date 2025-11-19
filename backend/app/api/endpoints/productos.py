@@ -4079,9 +4079,9 @@ async def exportar_vista_actual(
 
     if markup_clasica_positivo is not None:
         if markup_clasica_positivo:
-            query = query.filter(ProductoPricing.markup > 0)
+            query = query.filter(ProductoPricing.markup_calculado > 0)
         else:
-            query = query.filter(ProductoPricing.markup <= 0)
+            query = query.filter(ProductoPricing.markup_calculado <= 0)
 
     if markup_rebate_positivo is not None:
         if markup_rebate_positivo:
@@ -4091,9 +4091,9 @@ async def exportar_vista_actual(
 
     if markup_oferta_positivo is not None:
         if markup_oferta_positivo:
-            query = query.filter(ProductoPricing.mejor_oferta_markup > 0)
+            query = query.filter(ProductoPricing.markup_oferta > 0)
         else:
-            query = query.filter(ProductoPricing.mejor_oferta_markup <= 0)
+            query = query.filter(ProductoPricing.markup_oferta <= 0)
 
     if markup_web_transf_positivo is not None:
         if markup_web_transf_positivo:
@@ -4180,11 +4180,11 @@ async def exportar_vista_actual(
 
         if producto_pricing:
             ws.cell(row=row_num, column=6, value=float(producto_pricing.precio_lista_ml) if producto_pricing.precio_lista_ml else None)
-            ws.cell(row=row_num, column=7, value=float(producto_pricing.markup) if producto_pricing.markup else None)
+            ws.cell(row=row_num, column=7, value=float(producto_pricing.markup_calculado) if producto_pricing.markup_calculado else None)
             ws.cell(row=row_num, column=8, value=float(producto_pricing.precio_rebate_ml) if producto_pricing.precio_rebate_ml else None)
             ws.cell(row=row_num, column=9, value=float(producto_pricing.markup_rebate) if producto_pricing.markup_rebate else None)
             ws.cell(row=row_num, column=10, value=float(producto_pricing.precio_3_cuotas) if producto_pricing.precio_3_cuotas else None)
-            ws.cell(row=row_num, column=11, value=float(producto_pricing.mejor_oferta_markup) if producto_pricing.mejor_oferta_markup else None)
+            ws.cell(row=row_num, column=11, value=float(producto_pricing.markup_oferta) if producto_pricing.markup_oferta else None)
             ws.cell(row=row_num, column=12, value=float(producto_pricing.precio_web_transferencia) if producto_pricing.precio_web_transferencia else None)
             ws.cell(row=row_num, column=13, value=float(producto_pricing.markup_web_real) if producto_pricing.markup_web_real else None)
             ws.cell(row=row_num, column=14, value=float(producto_pricing.precio_tiendanube) if producto_pricing.precio_tiendanube else None)
