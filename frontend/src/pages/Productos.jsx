@@ -354,11 +354,11 @@ export default function Productos() {
     cargarSubcategorias();
   }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
 
-  // Copiar enlaces al clipboard con Ctrl+F2 y Ctrl+F3
+  // Copiar enlaces al clipboard con Ctrl+F1, Ctrl+F2 y Ctrl+F3
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Solo capturar F2 o F3 con Ctrl
-      if ((e.key === 'F2' || e.key === 'F3') && e.ctrlKey) {
+      // Solo capturar F1, F2 o F3 con Ctrl
+      if ((e.key === 'F1' || e.key === 'F2' || e.key === 'F3') && e.ctrlKey) {
         // Verificar si hay algo en modo edición O si hay una celda activa (navegación)
         const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
         const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
@@ -400,6 +400,16 @@ export default function Productos() {
         const itemCode = producto.codigo;
         e.preventDefault();
         e.stopPropagation();
+
+        // Ctrl+F1: copiar solo el código
+        if (e.key === 'F1') {
+          navigator.clipboard.writeText(itemCode).then(() => {
+            showToast(`✅ Código copiado: ${itemCode}`);
+          }).catch(err => {
+            showToast('❌ Error al copiar al portapapeles', 'error');
+            console.error('Error al copiar:', err);
+          });
+        }
 
         // Ctrl+F2: primer enlace
         if (e.key === 'F2') {
