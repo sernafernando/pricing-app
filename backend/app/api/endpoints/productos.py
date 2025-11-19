@@ -3989,6 +3989,10 @@ async def exportar_vista_actual(
 ):
     """Exporta la vista actual de productos a Excel con todos los datos"""
     try:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Exportar vista actual - Filtros TN: con_descuento={tiendanube_con_descuento}, sin_descuento={tiendanube_sin_descuento}, no_publicado={tiendanube_no_publicado}")
+
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, PatternFill
         from io import BytesIO
@@ -4058,13 +4062,29 @@ async def exportar_vista_actual(
                 )
 
         if tiendanube_con_descuento:
-            query = query.filter(ProductoPricing.descuento_tiendanube.isnot(None), ProductoPricing.descuento_tiendanube > 0)
+            logger.info("Aplicando filtro: tiendanube_con_descuento")
+            query = query.filter(
+                ProductoPricing.descuento_tiendanube.isnot(None),
+                ProductoPricing.descuento_tiendanube > 0
+            )
 
         if tiendanube_sin_descuento:
-            query = query.filter(or_(ProductoPricing.descuento_tiendanube.is_(None), ProductoPricing.descuento_tiendanube == 0))
+            logger.info("Aplicando filtro: tiendanube_sin_descuento")
+            query = query.filter(
+                or_(
+                    ProductoPricing.descuento_tiendanube.is_(None),
+                    ProductoPricing.descuento_tiendanube == 0
+                )
+            )
 
         if tiendanube_no_publicado:
-            query = query.filter(or_(ProductoPricing.publicado_tiendanube == False, ProductoPricing.publicado_tiendanube.is_(None)))
+            logger.info("Aplicando filtro: tiendanube_no_publicado")
+            query = query.filter(
+                or_(
+                    ProductoPricing.publicado_tiendanube == False,
+                    ProductoPricing.publicado_tiendanube.is_(None)
+                )
+            )
 
         if out_of_cards is not None:
             if out_of_cards:
@@ -4145,6 +4165,7 @@ async def exportar_vista_actual(
 
         # Ejecutar query
         productos = query.limit(page_size).offset((page - 1) * page_size).all()
+        logger.info(f"Se encontraron {len(productos)} productos para exportar")
 
         # Crear Excel
         wb = Workbook()
