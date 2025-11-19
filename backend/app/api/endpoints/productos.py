@@ -3985,8 +3985,7 @@ async def exportar_vista_actual(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
     """Exporta la vista actual de productos a Excel con todos los datos"""
     try:
