@@ -4064,7 +4064,7 @@ async def exportar_vista_actual(
         query = query.filter(or_(ProductoPricing.descuento_tiendanube.is_(None), ProductoPricing.descuento_tiendanube == 0))
 
     if tiendanube_no_publicado:
-        query = query.filter(ProductoPricing.publicado_tiendanube == False)
+        query = query.filter(or_(ProductoPricing.publicado_tiendanube == False, ProductoPricing.publicado_tiendanube.is_(None)))
 
     if out_of_cards is not None:
         if out_of_cards:
