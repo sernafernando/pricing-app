@@ -4181,15 +4181,25 @@ async def exportar_vista_actual(
             if producto_pricing:
                 ws.cell(row=row_num, column=6, value=float(producto_pricing.precio_lista_ml) if producto_pricing.precio_lista_ml else None)
                 ws.cell(row=row_num, column=7, value=float(producto_pricing.markup_calculado) if producto_pricing.markup_calculado else None)
-                ws.cell(row=row_num, column=8, value=float(producto_pricing.precio_rebate) if producto_pricing.precio_rebate else None)
+
+                # Calcular precio rebate dinámicamente
+                precio_rebate = None
+                if producto_pricing.participa_rebate and producto_pricing.precio_lista_ml:
+                    porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
+                    precio_rebate = float(producto_pricing.precio_lista_ml) * (1 + porcentaje_rebate / 100)
+                ws.cell(row=row_num, column=8, value=precio_rebate)
+
                 ws.cell(row=row_num, column=9, value=float(producto_pricing.markup_rebate) if producto_pricing.markup_rebate else None)
                 ws.cell(row=row_num, column=10, value=float(producto_pricing.precio_3_cuotas) if producto_pricing.precio_3_cuotas else None)
                 ws.cell(row=row_num, column=11, value=float(producto_pricing.markup_oferta) if producto_pricing.markup_oferta else None)
                 ws.cell(row=row_num, column=12, value=float(producto_pricing.precio_web_transferencia) if producto_pricing.precio_web_transferencia else None)
                 ws.cell(row=row_num, column=13, value=float(producto_pricing.markup_web_real) if producto_pricing.markup_web_real else None)
-                ws.cell(row=row_num, column=14, value=float(producto_pricing.precio_tiendanube) if producto_pricing.precio_tiendanube else None)
-                ws.cell(row=row_num, column=15, value=float(producto_pricing.descuento_tiendanube) if producto_pricing.descuento_tiendanube else None)
-                ws.cell(row=row_num, column=16, value="Sí" if producto_pricing.publicado_tiendanube else "No")
+
+                # Tienda Nube fields - usar getattr para evitar errores si no existen
+                ws.cell(row=row_num, column=14, value=float(getattr(producto_pricing, 'precio_tiendanube', None)) if getattr(producto_pricing, 'precio_tiendanube', None) else None)
+                ws.cell(row=row_num, column=15, value=float(getattr(producto_pricing, 'descuento_tiendanube', None)) if getattr(producto_pricing, 'descuento_tiendanube', None) else None)
+                ws.cell(row=row_num, column=16, value="Sí" if getattr(producto_pricing, 'publicado_tiendanube', False) else "No")
+
                 ws.cell(row=row_num, column=17, value="Sí" if producto_pricing.out_of_cards else "No")
                 ws.cell(row=row_num, column=18, value=producto_pricing.color_marcado or "")
 
