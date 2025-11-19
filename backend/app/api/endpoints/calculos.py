@@ -5,8 +5,9 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 from decimal import Decimal
-import csv
 import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
 
 from app.core.database import get_db
 from app.models.calculo_pricing import CalculoPricing
@@ -230,14 +231,14 @@ async def eliminar_calculos_masivo(
 
     return {"mensaje": f"{count} cálculos eliminados", "count": count}
 
-@router.get("/calculos/exportar/csv")
-async def exportar_calculos_csv(
+@router.get("/calculos/exportar/excel")
+async def exportar_calculos_excel(
     filtro: Optional[str] = None,  # 'todos', 'con_cantidad', 'seleccionados'
     ids: Optional[str] = None,  # comma-separated IDs for 'seleccionados'
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Exporta cálculos a CSV según el filtro seleccionado"""
+    """Exporta cálculos a Excel según el filtro seleccionado"""
 
     query = db.query(CalculoPricing).filter(
         CalculoPricing.usuario_id == current_user.id
@@ -252,43 +253,61 @@ async def exportar_calculos_csv(
 
     calculos = query.order_by(CalculoPricing.fecha_creacion.desc()).all()
 
-    # Crear CSV en memoria
-    output = io.StringIO()
-    writer = csv.writer(output)
+    # Crear workbook de Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Cálculos de Pricing"
+
+    # Estilos para encabezado
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    header_alignment = Alignment(horizontal="center", vertical="center")
 
     # Encabezados
-    writer.writerow([
+    headers = [
         'ID', 'Descripción', 'EAN', 'Cantidad', 'Costo', 'Moneda',
         'IVA %', 'Comisión ML %', 'Costo Envío', 'Precio Final',
         'Markup %', 'Limpio', 'Comisión Total', 'Fecha Creación'
-    ])
+    ]
+
+    for col, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
 
     # Datos
-    for calc in calculos:
-        writer.writerow([
-            calc.id,
-            calc.descripcion,
-            calc.ean or '',
-            calc.cantidad,
-            float(calc.costo),
-            calc.moneda_costo,
-            float(calc.iva),
-            float(calc.comision_ml),
-            float(calc.costo_envio),
-            float(calc.precio_final),
-            float(calc.markup_porcentaje) if calc.markup_porcentaje else '',
-            float(calc.limpio) if calc.limpio else '',
-            float(calc.comision_total) if calc.comision_total else '',
-            calc.fecha_creacion.strftime('%Y-%m-%d %H:%M:%S')
-        ])
+    for row_idx, calc in enumerate(calculos, start=2):
+        ws.cell(row=row_idx, column=1, value=calc.id)
+        ws.cell(row=row_idx, column=2, value=calc.descripcion)
+        ws.cell(row=row_idx, column=3, value=calc.ean or '')
+        ws.cell(row=row_idx, column=4, value=calc.cantidad)
+        ws.cell(row=row_idx, column=5, value=float(calc.costo))
+        ws.cell(row=row_idx, column=6, value=calc.moneda_costo)
+        ws.cell(row=row_idx, column=7, value=float(calc.iva))
+        ws.cell(row=row_idx, column=8, value=float(calc.comision_ml))
+        ws.cell(row=row_idx, column=9, value=float(calc.costo_envio))
+        ws.cell(row=row_idx, column=10, value=float(calc.precio_final))
+        ws.cell(row=row_idx, column=11, value=float(calc.markup_porcentaje) if calc.markup_porcentaje else '')
+        ws.cell(row=row_idx, column=12, value=float(calc.limpio) if calc.limpio else '')
+        ws.cell(row=row_idx, column=13, value=float(calc.comision_total) if calc.comision_total else '')
+        ws.cell(row=row_idx, column=14, value=calc.fecha_creacion.strftime('%Y-%m-%d %H:%M:%S'))
 
+    # Ajustar anchos de columna
+    column_widths = [8, 40, 15, 10, 12, 10, 8, 12, 12, 15, 10, 12, 15, 20]
+    for col, width in enumerate(column_widths, start=1):
+        ws.column_dimensions[chr(64 + col)].width = width
+
+    # Guardar en memoria
+    output = io.BytesIO()
+    wb.save(output)
     output.seek(0)
 
     # Nombre de archivo según filtro
-    filename = f"calculos_{filtro or 'todos'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"calculos_{filtro or 'todos'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
     return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )

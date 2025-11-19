@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import '../styles/Calculos.css';
 
+// Detectar si estamos en desarrollo o producción
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:8000/api'
+  : 'https://pricing.gaussonline.com.ar/api';
+
 const Calculos = () => {
   const [calculos, setCalculos] = useState([]);
   const [calculoEditando, setCalculoEditando] = useState(null);
@@ -209,7 +214,7 @@ const Calculos = () => {
     }
   };
 
-  const exportarCSV = () => {
+  const exportarExcel = async () => {
     let queryParams = `filtro=${filtroExportar}`;
 
     if (filtroExportar === 'seleccionados') {
@@ -220,11 +225,45 @@ const Calculos = () => {
       queryParams += `&ids=${Array.from(seleccionados).join(',')}`;
     }
 
-    const token = localStorage.getItem('token');
-    window.open(
-      `https://pricing.gaussonline.com.ar/api/calculos/exportar/csv?${queryParams}`,
-      '_blank'
-    );
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(
+        `${API_BASE_URL}/calculos/exportar/excel?${queryParams}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'blob'
+        }
+      );
+
+      // Crear link de descarga
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+
+      // Extraer nombre de archivo del header o usar default
+      const contentDisposition = response.headers['content-disposition'];
+      const filename = contentDisposition
+        ? contentDisposition.split('filename=')[1].replace(/"/g, '')
+        : `calculos_${filtroExportar}_${new Date().getTime()}.xlsx`;
+
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exportando:', error);
+      if (error.response) {
+        // El servidor respondió con un código de estado fuera del rango 2xx
+        alert(`Error al exportar: ${error.response.status} - ${error.response.data?.detail || 'Error del servidor'}`);
+      } else if (error.request) {
+        // La solicitud se hizo pero no hubo respuesta
+        alert('Error de conexión al servidor. Verifica que el backend esté corriendo.');
+      } else {
+        // Algo sucedió al configurar la solicitud
+        alert(`Error: ${error.message}`);
+      }
+    }
   };
 
   const getMarkupColor = (markup) => {
@@ -281,8 +320,8 @@ const Calculos = () => {
             </div>
 
             <div className="acciones-right">
-              <button onClick={exportarCSV} className="btn-exportar">
-                📥 Exportar CSV
+              <button onClick={exportarExcel} className="btn-exportar">
+                📥 Exportar Excel
               </button>
               <button onClick={eliminarMasivo} className="btn-eliminar-masivo">
                 🗑 Eliminar
