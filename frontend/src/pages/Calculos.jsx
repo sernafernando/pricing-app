@@ -454,6 +454,7 @@ const Calculos = () => {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
