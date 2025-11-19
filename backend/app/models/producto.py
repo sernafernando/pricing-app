@@ -65,6 +65,11 @@ class ProductoPricing(Base):
     precio_web_transferencia = Column(Numeric(15, 2))
     preservar_porcentaje_web = Column(Boolean, nullable=False, default=False)
 
+    # Tienda Nube
+    precio_tiendanube = Column(Numeric(15, 2))
+    descuento_tiendanube = Column(Numeric(5, 2))
+    publicado_tiendanube = Column(Boolean, default=False)
+
     color_marcado = Column(String(20), default=None)  # rojo, naranja, amarillo, verde, azul, purpura, gris, NULL
 
     # Configuración individual de recálculo de cuotas y markup adicional
