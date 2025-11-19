@@ -4181,7 +4181,7 @@ async def exportar_vista_actual(
             if producto_pricing:
                 ws.cell(row=row_num, column=6, value=float(producto_pricing.precio_lista_ml) if producto_pricing.precio_lista_ml else None)
                 ws.cell(row=row_num, column=7, value=float(producto_pricing.markup_calculado) if producto_pricing.markup_calculado else None)
-                ws.cell(row=row_num, column=8, value=float(producto_pricing.precio_rebate_ml) if producto_pricing.precio_rebate_ml else None)
+                ws.cell(row=row_num, column=8, value=float(producto_pricing.precio_rebate) if producto_pricing.precio_rebate else None)
                 ws.cell(row=row_num, column=9, value=float(producto_pricing.markup_rebate) if producto_pricing.markup_rebate else None)
                 ws.cell(row=row_num, column=10, value=float(producto_pricing.precio_3_cuotas) if producto_pricing.precio_3_cuotas else None)
                 ws.cell(row=row_num, column=11, value=float(producto_pricing.markup_oferta) if producto_pricing.markup_oferta else None)
