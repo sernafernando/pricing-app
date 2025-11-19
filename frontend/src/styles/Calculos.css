@@ -194,6 +194,7 @@
   width: auto;
   min-width: 200px;
   max-width: none;
+  text-align: center;
   white-space: normal;
   word-wrap: break-word;
 }
@@ -202,6 +203,7 @@
 .calculos-table th:nth-child(3),
 .calculos-table td:nth-child(3) {
   width: 110px;
+  text-align: center;
 }
 
 /* Cantidad */
@@ -215,7 +217,7 @@
 .calculos-table th:nth-child(5),
 .calculos-table td:nth-child(5) {
   width: 90px;
-  text-align: right;
+  text-align: center;
 }
 
 /* Moneda */
@@ -229,42 +231,42 @@
 .calculos-table th:nth-child(7),
 .calculos-table td:nth-child(7) {
   width: 70px;
-  text-align: right;
+  text-align: center;
 }
 
 /* Comisión ML */
 .calculos-table th:nth-child(8),
 .calculos-table td:nth-child(8) {
   width: 90px;
-  text-align: right;
+  text-align: center;
 }
 
 /* Envío */
 .calculos-table th:nth-child(9),
 .calculos-table td:nth-child(9) {
   width: 90px;
-  text-align: right;
+  text-align: center;
 }
 
 /* Precio Final */
 .calculos-table th:nth-child(10),
 .calculos-table td:nth-child(10) {
   width: 110px;
-  text-align: right;
+  text-align: center;
 }
 
 /* Markup */
 .calculos-table th:nth-child(11),
 .calculos-table td:nth-child(11) {
   width: 80px;
-  text-align: right;
+  text-align: center;
 }
 
 /* Limpio */
 .calculos-table th:nth-child(12),
 .calculos-table td:nth-child(12) {
   width: 100px;
-  text-align: right;
+  text-align: center;
 }
 
 /* Acciones */
