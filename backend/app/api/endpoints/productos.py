@@ -2127,10 +2127,41 @@ async def exportar_rebate(
                 audit_query = audit_query.filter(Auditoria.tipo_accion.in_(tipos_list))
 
             if filtros.get('audit_fecha_desde'):
-                audit_query = audit_query.filter(Auditoria.fecha >= filtros['audit_fecha_desde'])
+                from datetime import datetime, timedelta
+                try:
+                    fecha_desde_dt = datetime.strptime(filtros['audit_fecha_desde'], '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    try:
+                        fecha_desde_dt = datetime.strptime(filtros['audit_fecha_desde'], '%Y-%m-%d %H:%M')
+                    except ValueError:
+                        try:
+                            fecha_desde_dt = datetime.strptime(filtros['audit_fecha_desde'], '%Y-%m-%d')
+                        except ValueError:
+                            from datetime import date
+                            fecha_desde_dt = datetime.combine(date.today(), datetime.min.time())
+
+                # Convertir de hora local (ART = UTC-3) a UTC sumando 3 horas
+                fecha_desde_dt = fecha_desde_dt + timedelta(hours=3)
+                audit_query = audit_query.filter(Auditoria.fecha >= fecha_desde_dt)
 
             if filtros.get('audit_fecha_hasta'):
-                audit_query = audit_query.filter(Auditoria.fecha <= filtros['audit_fecha_hasta'])
+                from datetime import datetime, timedelta
+                try:
+                    fecha_hasta_dt = datetime.strptime(filtros['audit_fecha_hasta'], '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    try:
+                        fecha_hasta_dt = datetime.strptime(filtros['audit_fecha_hasta'], '%Y-%m-%d %H:%M')
+                    except ValueError:
+                        try:
+                            fecha_hasta_dt = datetime.strptime(filtros['audit_fecha_hasta'], '%Y-%m-%d')
+                            fecha_hasta_dt = fecha_hasta_dt.replace(hour=23, minute=59, second=59)
+                        except ValueError:
+                            from datetime import date
+                            fecha_hasta_dt = datetime.combine(date.today(), datetime.max.time())
+
+                # Convertir de hora local (ART = UTC-3) a UTC sumando 3 horas
+                fecha_hasta_dt = fecha_hasta_dt + timedelta(hours=3)
+                audit_query = audit_query.filter(Auditoria.fecha <= fecha_hasta_dt)
 
             item_ids_auditados = [item_id for (item_id,) in audit_query.all()]
             if item_ids_auditados:
