@@ -15,10 +15,12 @@ const Calculos = () => {
   const [tipoCambio, setTipoCambio] = useState(null);
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [filtroExportar, setFiltroExportar] = useState('todos');
+  const [constantes, setConstantes] = useState(null);
 
   useEffect(() => {
     cargarCalculos();
     cargarTipoCambio();
+    cargarConstantes();
   }, []);
 
   const cargarTipoCambio = async () => {
@@ -30,6 +32,28 @@ const Calculos = () => {
       setTipoCambio(response.data.tipo_cambio);
     } catch (error) {
       console.error('Error cargando tipo de cambio:', error);
+    }
+  };
+
+  const cargarConstantes = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('https://pricing.gaussonline.com.ar/api/pricing-constants/actual', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setConstantes(response.data);
+    } catch (error) {
+      console.error('Error cargando constantes:', error);
+      // Usar valores por defecto si falla
+      setConstantes({
+        monto_tier1: 15000,
+        monto_tier2: 24000,
+        monto_tier3: 33000,
+        comision_tier1: 1115,
+        comision_tier2: 2300,
+        comision_tier3: 2810,
+        varios_porcentaje: 6.5
+      });
     }
   };
 
@@ -76,19 +100,55 @@ const Calculos = () => {
     const iva = parseFloat(data.iva);
 
     // Usar el tipo de cambio guardado en el cálculo, si existe
-    // Si no, usar el actual, o 1425 como fallback
     const tcActual = data.tipo_cambio_usado || tipoCambio || 1425;
 
+    if (costo === 0 || precioFinal === 0 || comisionML === 0 || !constantes) {
+      return {
+        markup_porcentaje: '0.00',
+        limpio: '0.00',
+        comision_total: '0.00',
+        tipo_cambio_usado: tcActual
+      };
+    }
+
+    // Convertir costo a ARS si es necesario
     const costoARS = data.moneda_costo === 'USD'
       ? costo * tcActual
       : costo;
 
-    const baseComision = precioFinal * (comisionML / 100);
-    const ivaComision = baseComision * (iva / 100);
-    const comisionTotal = baseComision + ivaComision;
+    // Calcular precio sin IVA
+    const precioSinIva = precioFinal / (1 + iva / 100);
 
-    const limpio = precioFinal - (precioFinal * (iva / 100)) - costoEnvio - comisionTotal;
-    const markup = costoARS > 0 ? ((limpio - costoARS) / costoARS) * 100 : 0;
+    // Calcular comisión base ML (dividido por 1.21)
+    const comisionBase = (precioFinal * (comisionML / 100)) / 1.21;
+
+    // Calcular tier según el monto (usando valores de la BD)
+    let tier = 0;
+    if (precioFinal < constantes.monto_tier1) {
+      tier = constantes.comision_tier1 / 1.21;
+    } else if (precioFinal < constantes.monto_tier2) {
+      tier = constantes.comision_tier2 / 1.21;
+    } else if (precioFinal < constantes.monto_tier3) {
+      tier = constantes.comision_tier3 / 1.21;
+    }
+
+    // Comisión con tier (si el precio >= MONTOT3 no hay tier)
+    const comisionConTier = precioFinal >= constantes.monto_tier3 ? comisionBase : comisionBase + tier;
+
+    // Calcular varios (usando porcentaje de la BD sobre precio sin IVA)
+    const comisionVarios = precioSinIva * (constantes.varios_porcentaje / 100);
+
+    // Comisión total
+    const comisionTotal = comisionConTier + comisionVarios;
+
+    // Calcular envío sin IVA (solo si el precio es >= MONTOT3)
+    const envioSinIva = precioFinal >= constantes.monto_tier3 ? (costoEnvio / 1.21) : 0;
+
+    // Calcular limpio
+    const limpio = precioSinIva - envioSinIva - comisionTotal;
+
+    // Calcular markup
+    const markup = ((limpio / costoARS) - 1) * 100;
 
     return {
       markup_porcentaje: markup.toFixed(2),

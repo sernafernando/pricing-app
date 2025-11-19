@@ -292,10 +292,11 @@
 }
 
 .calculos-table td {
-  padding: 12px 8px;
+  padding: 8px 6px;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-primary);
   box-sizing: border-box;
+  vertical-align: middle;
 }
 
 .calculos-table tbody tr:hover {
