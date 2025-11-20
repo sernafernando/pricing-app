@@ -1542,11 +1542,17 @@ async def obtener_stats_dinamicos(
 
     # Filtro de PMs
     if pms:
+        from app.models.marca_pm import MarcaPM
         pm_list = pms.split(',')
         pm_ints = [int(pm) for pm in pm_list]
-        query = query.filter(ProductoERP.subcategoria_id.in_(
-            db.query(Subcategoria.id).filter(Subcategoria.pm_id.in_(pm_ints))
-        ))
+        # Obtener marcas asignadas a esos PMs
+        marcas_pm = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pm_ints)).all()
+        marcas_asignadas = [m[0] for m in marcas_pm]
+        if marcas_asignadas:
+            query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
+        else:
+            # Si el PM no tiene marcas asignadas, filtrar para que no devuelva nada
+            query = query.filter(ProductoERP.item_id == -1)
 
     # Filtro de MLA
     if con_mla is not None:
