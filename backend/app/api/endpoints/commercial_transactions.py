@@ -46,7 +46,7 @@ async def sync_commercial_transactions(
     """
     try:
         # Llamar al endpoint externo
-        url = "https://parser-worker-js.gaussonline.workers.dev/consulta"
+        url = "https://pricing.gaussonline.com.ar/api/gbp-parser"
         params = {
             "strScriptLabel": "scriptCommercial",
             "fromDate": request.from_date,

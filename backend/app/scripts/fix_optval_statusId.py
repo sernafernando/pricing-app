@@ -23,7 +23,7 @@ from app.core.database import SessionLocal
 import app.models  # noqa
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
-API_URL = "https://parser-worker-js.gaussonline.workers.dev/consulta"
+API_URL = "https://pricing.gaussonline.com.ar/api/gbp-parser"
 
 def convertir_a_entero(valor, default=None):
     """Convierte a entero, truncando decimales"""

@@ -59,7 +59,7 @@ async def sync_details_incremental(db: Session):
 
     try:
         # Llamar al endpoint externo
-        url = "https://parser-worker-js.gaussonline.workers.dev/consulta"
+        url = "https://pricing.gaussonline.com.ar/api/gbp-parser"
         params = {
             "strScriptLabel": "scriptItemTransactionDetails",
             "fromItTransaction": from_it,

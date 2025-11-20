@@ -29,7 +29,7 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
 
     try:
         # Llamar al endpoint externo
-        url = "https://parser-worker-js.gaussonline.workers.dev/consulta"
+        url = "https://pricing.gaussonline.com.ar/api/gbp-parser"
         params = {
             "strScriptLabel": "scriptMLOrdersDetail",
             "fromDate": from_date,

@@ -32,7 +32,7 @@ async def sync_item_transactions_agosto(db: Session):
 
     try:
         # Llamar al endpoint externo
-        url = "https://parser-worker-js.gaussonline.workers.dev/consulta"
+        url = "https://pricing.gaussonline.com.ar/api/gbp-parser"
         params = {
             "strScriptLabel": "scriptItemTransaction",
             "fromDate": "2025-08-01",

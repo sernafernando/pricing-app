@@ -5,8 +5,8 @@ from app.models.comision_config import SubcategoriaGrupo
 
 def sincronizar_subcategorias():
     """Sincroniza subcategorías desde el worker con categorías"""
-    url_subcats = "https://parser-worker-js.gaussonline.workers.dev/consulta?opName=SubCategory_funGetXMLData&pCategory=-1"
-    url_cats = "https://parser-worker-js.gaussonline.workers.dev/consulta?opName=Category_funGetXMLData"
+    url_subcats = "https://pricing.gaussonline.com.ar/api/gbp-parser?opName=SubCategory_funGetXMLData&pCategory=-1"
+    url_cats = "https://pricing.gaussonline.com.ar/api/gbp-parser?opName=Category_funGetXMLData"
     
     try:
         # Obtener categorías

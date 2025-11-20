@@ -43,7 +43,7 @@ async def sync_ml_orders_incremental(db: Session):
 
     try:
         # Llamar al endpoint externo usando mloId
-        url = "https://parser-worker-js.gaussonline.workers.dev/consulta"
+        url = "https://pricing.gaussonline.com.ar/api/gbp-parser"
         params = {
             "strScriptLabel": "scriptMLOrdersHeader",
             "mloId": ultimo_mlo

@@ -26,7 +26,7 @@ def sincronizar_precios_ml(db: Session, pricelist_id: int = None):
         try:
             print(f"Sincronizando lista {pl_id} - {nombre}...")
             
-            url = f"https://parser-worker-js.gaussonline.workers.dev/consulta?opName=PriceListItems_funGetXMLData&pPriceList={pl_id}&pItem=-1"
+            url = f"https://pricing.gaussonline.com.ar/api/gbp-parser?opName=PriceListItems_funGetXMLData&pPriceList={pl_id}&pItem=-1"
             response = requests.get(url, timeout=60)
             
             if response.status_code != 200:
