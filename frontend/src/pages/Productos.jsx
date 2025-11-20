@@ -1741,6 +1741,7 @@ export default function Productos() {
           placeholder="Buscar por código, descripción o marca..."
           value={searchInput}
           onChange={handleSearchChange}
+          onFocus={(e) => e.target.select()}
           className="search-input"
         />
       </div>
@@ -1910,6 +1911,7 @@ export default function Productos() {
                       placeholder="Buscar marca..."
                       value={busquedaMarca}
                       onChange={(e) => setBusquedaMarca(e.target.value)}
+                      onFocus={(e) => e.target.select()}
                     />
                     {busquedaMarca && (
                       <button
@@ -1972,6 +1974,7 @@ export default function Productos() {
                       placeholder="Buscar subcategoría..."
                       value={busquedaSubcategoria}
                       onChange={(e) => setBusquedaSubcategoria(e.target.value)}
+                      onFocus={(e) => e.target.select()}
                       onClick={(e) => e.stopPropagation()}
                     />
                     {busquedaSubcategoria && (
@@ -2685,6 +2688,7 @@ export default function Productos() {
                                 guardarPrecio(p.item_id);
                               }
                             }}
+                            onFocus={(e) => e.target.select()}
                             autoFocus
                           />
                           <button onClick={() => guardarPrecio(p.item_id)} onKeyDown={(e) => {
@@ -2747,6 +2751,7 @@ export default function Productos() {
                                   guardarRebate(p.item_id);
                                 }
                               }}
+                              onFocus={(e) => e.target.select()}
                               placeholder="%"
                             />
                           )}
@@ -2910,6 +2915,7 @@ export default function Productos() {
                                 guardarWebTransf(p.item_id);
                               }
                             }}
+                            onFocus={(e) => e.target.select()}
                             placeholder="%"
                             style={{ width: '60px', padding: '4px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                           />
@@ -2979,6 +2985,7 @@ export default function Productos() {
                                     guardarCuota(p.item_id, '3');
                                   }
                                 }}
+                                onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
                               <button onClick={() => guardarCuota(p.item_id, '3')}>✓</button>
@@ -3011,6 +3018,7 @@ export default function Productos() {
                                     guardarCuota(p.item_id, '6');
                                   }
                                 }}
+                                onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
                               <button onClick={() => guardarCuota(p.item_id, '6')}>✓</button>
@@ -3043,6 +3051,7 @@ export default function Productos() {
                                     guardarCuota(p.item_id, '9');
                                   }
                                 }}
+                                onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
                               <button onClick={() => guardarCuota(p.item_id, '9')}>✓</button>
@@ -3075,6 +3084,7 @@ export default function Productos() {
                                     guardarCuota(p.item_id, '12');
                                   }
                                 }}
+                                onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
                               <button onClick={() => guardarCuota(p.item_id, '12')}>✓</button>
@@ -3451,6 +3461,7 @@ export default function Productos() {
                   step="0.1"
                   value={configTemp.markup_adicional_cuotas_custom}
                   onChange={(e) => setConfigTemp({ ...configTemp, markup_adicional_cuotas_custom: e.target.value })}
+                  onFocus={(e) => e.target.select()}
                   placeholder="Dejar vacío para usar global (4%)"
                   style={{
                     width: '100%',

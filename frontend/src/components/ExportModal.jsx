@@ -552,6 +552,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
                     placeholder="DD/MM/YYYY"
                     value={fechaDesde}
                     onChange={(e) => setFechaDesde(e.target.value)}
+                    onFocus={(e) => e.target.select()}
                     className={styles.input}
                   />
                 </div>
@@ -562,6 +563,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
                     placeholder="DD/MM/YYYY"
                     value={fechaHasta}
                     onChange={(e) => setFechaHasta(e.target.value)}
+                    onFocus={(e) => e.target.select()}
                     className={styles.input}
                   />
                 </div>
@@ -633,6 +635,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
                         setOffsetDolar('0');
                       }
                     }}
+                    onFocus={(e) => e.target.select()}
                     className={styles.input}
                   />
                   <small className={styles.filterInfo}>
@@ -662,6 +665,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
                       setPorcentajeWebTransf('0');
                     }
                   }}
+                  onFocus={(e) => e.target.select()}
                   className={styles.input}
                 />
                 <small className={styles.filterInfo}>
@@ -748,6 +752,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
                         setOffsetDolar('0');
                       }
                     }}
+                    onFocus={(e) => e.target.select()}
                     className={styles.input}
                   />
                   <small className={styles.filterInfo}>
@@ -777,6 +782,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
                       setPorcentajeClasica('0');
                     }
                   }}
+                  onFocus={(e) => e.target.select()}
                   className={styles.input}
                 />
                 <small className={styles.filterInfo}>

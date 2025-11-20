@@ -237,6 +237,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
                     setPorcentajeConPrecio('0');
                   }
                 }}
+                onFocus={(e) => e.target.select()}
                 className={styles.input}
                 placeholder="0.0"
               />
@@ -267,6 +268,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
                     setPorcentajeSinPrecio('0');
                   }
                 }}
+                onFocus={(e) => e.target.select()}
                 className={styles.input}
                 placeholder="0.0"
               />

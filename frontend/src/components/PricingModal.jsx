@@ -233,6 +233,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
               step="0.01"
               value={markupObjetivo}
               onChange={(e) => setMarkupObjetivo(e.target.value)}
+              onFocus={(e) => e.target.select()}
               className={styles.input}
             />
             <p className={styles.hint}>Las cuotas tendrán +4% adicional</p>
@@ -245,6 +246,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
               step="0.01"
               value={precioManual}
               onChange={(e) => setPrecioManual(e.target.value)}
+              onFocus={(e) => e.target.select()}
               placeholder="Ingrese el precio"
               className={styles.input}
             />
@@ -286,7 +288,8 @@ export default function PricingModal({ producto, onClose, onSave }) {
                 step="0.1"
                 value={porcentajeRebate}
                 onChange={(e) => setPorcentajeRebate(parseFloat(e.target.value))}
-                style={{ 
+                onFocus={(e) => e.target.select()}
+                style={{
                   width: '100%',
                   padding: '10px',
                   borderRadius: '6px',
