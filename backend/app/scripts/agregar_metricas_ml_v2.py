@@ -26,7 +26,7 @@ from app.models.ml_venta_metrica import MLVentaMetrica
 
 def fetch_data_from_api(from_date: date, to_date: date) -> pd.DataFrame:
     """Obtiene datos del mismo endpoint que usa st_app"""
-    url = f"https://pricing.gaussonline.com.ar/api/gbp-parser?strScriptLabel=scriptDashboard&fromDate={from_date}&toDate={to_date}"
+    url = f"http://localhost:8002/api/gbp-parser?strScriptLabel=scriptDashboard&fromDate={from_date}&toDate={to_date}"
 
     print(f"🌐 Consultando API: {url}")
 

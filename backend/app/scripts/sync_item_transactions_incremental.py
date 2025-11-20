@@ -44,7 +44,7 @@ async def sync_item_transactions_incremental(db: Session):
 
     try:
         # Llamar al endpoint externo usando itTransaction
-        url = "https://pricing.gaussonline.com.ar/api/gbp-parser"
+        url = "http://localhost:8002/api/gbp-parser"
         params = {
             "strScriptLabel": "scriptItemTransaction",
             "itTransaction": ultimo_it

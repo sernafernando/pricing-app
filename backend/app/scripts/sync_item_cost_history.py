@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # URL del Cloudflare Worker
-WORKER_URL = "https://pricing.gaussonline.com.ar/api/gbp-parser?strScriptLabel=scriptItemCostListHistory"
+WORKER_URL = "http://localhost:8002/api/gbp-parser?strScriptLabel=scriptItemCostListHistory"
 
 
 def fetch_cost_history_from_erp(fecha_desde: datetime = None, iclh_id: int = None):

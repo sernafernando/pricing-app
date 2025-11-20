@@ -43,7 +43,7 @@ async def sync_ml_orders_shipping_incremental(db: Session):
         print(f"   Último mlm_id sincronizado: {ultimo_mlm_id}")
 
         # Llamar al endpoint externo
-        url = "https://pricing.gaussonline.com.ar/api/gbp-parser"
+        url = "http://localhost:8002/api/gbp-parser"
         params = {
             "strScriptLabel": "scriptMLOrdersShipping",
             "mlmId": ultimo_mlm_id

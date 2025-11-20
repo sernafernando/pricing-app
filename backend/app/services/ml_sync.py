@@ -4,7 +4,7 @@ from app.models.publicacion_ml import PublicacionML
 from app.models.producto import ProductoERP
 from typing import Dict, List
 
-ENDPOINT_ML = "https://pricing.gaussonline.com.ar/api/gbp-parser?intExpgr_id=77"
+ENDPOINT_ML = "http://localhost:8002/api/gbp-parser?intExpgr_id=77"
 
 async def sincronizar_publicaciones_ml(db: Session) -> Dict:
     """Sincroniza publicaciones de ML desde el endpoint externo"""

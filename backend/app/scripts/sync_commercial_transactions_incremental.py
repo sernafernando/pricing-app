@@ -50,7 +50,7 @@ async def sync_transacciones_incrementales(db: Session, batch_size: int = 1000):
         hasta = hoy.strftime('%Y-%m-%d')
 
         # Llamar al endpoint externo
-        url = "https://pricing.gaussonline.com.ar/api/gbp-parser"
+        url = "http://localhost:8002/api/gbp-parser"
         params = {
             "strScriptLabel": "scriptCommercial",
             "fromDate": desde,

@@ -23,7 +23,7 @@ from app.core.database import SessionLocal
 import app.models  # noqa
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
-API_URL = "https://pricing.gaussonline.com.ar/api/gbp-parser"
+API_URL = "http://localhost:8002/api/gbp-parser"
 
 def convertir_a_numero(valor, default=None):
     """Convierte string a número, maneja decimales y nulos"""

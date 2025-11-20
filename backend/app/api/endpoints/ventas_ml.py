@@ -75,7 +75,7 @@ async def sync_ventas_ml(
     """
     try:
         # Llamar al endpoint externo
-        url = "https://pricing.gaussonline.com.ar/api/gbp-parser"
+        url = "http://localhost:8002/api/gbp-parser"
         params = {
             "strScriptLabel": "scriptDashboard",
             "fromDate": request.from_date,
