@@ -2796,7 +2796,6 @@ export default function Productos() {
                                   guardarRebate(p.item_id);
                                 }
                               }}
-                              autoFocus
                             />
                             <span>Rebate</span>
                           </label>
@@ -2814,6 +2813,7 @@ export default function Productos() {
                               }}
                               onFocus={(e) => e.target.select()}
                               placeholder="%"
+                              autoFocus
                             />
                           )}
                           <div className="inline-edit">
