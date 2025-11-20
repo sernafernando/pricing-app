@@ -3331,6 +3331,7 @@ export default function Productos() {
             filtroRebate,
             filtroOferta,
             filtroWebTransf,
+            filtroTiendaNube,
             filtroMarkupClasica,
             filtroMarkupRebate,
             filtroMarkupOferta,
