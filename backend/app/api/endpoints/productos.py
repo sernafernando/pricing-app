@@ -4081,7 +4081,9 @@ async def exportar_vista_actual(
             logger.info("Aplicando filtro: tiendanube_no_publicado")
             count_antes = query.count()
             print(f"[DEBUG] Productos ANTES del filtro TN: {count_antes}")
+            # Solo filtrar productos que tienen precio Y no están publicados en TN
             query = query.filter(
+                ProductoPricing.precio_lista_ml.isnot(None),
                 or_(
                     ProductoPricing.publicado_tiendanube == False,
                     ProductoPricing.publicado_tiendanube.is_(None)
