@@ -4081,12 +4081,19 @@ async def exportar_vista_actual(
             logger.info("Aplicando filtro: tiendanube_no_publicado")
             count_antes = query.count()
             print(f"[DEBUG] Productos ANTES del filtro TN: {count_antes}")
-            # Solo filtrar productos que tienen precio Y no están publicados en TN
+            # Productos con stock pero NO en Tienda Nube
+            from app.models.tienda_nube_producto import TiendaNubeProducto
+            from sqlalchemy.sql import exists
+            subquery = exists().where(
+                and_(
+                    TiendaNubeProducto.item_id == ProductoERP.item_id,
+                    TiendaNubeProducto.activo == True
+                )
+            )
             query = query.filter(
-                ProductoPricing.precio_lista_ml.isnot(None),
-                or_(
-                    ProductoPricing.publicado_tiendanube == False,
-                    ProductoPricing.publicado_tiendanube.is_(None)
+                and_(
+                    ProductoERP.stock > 0,
+                    ~subquery
                 )
             )
             count_despues = query.count()
