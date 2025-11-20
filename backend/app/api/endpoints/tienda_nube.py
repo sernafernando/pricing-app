@@ -183,6 +183,7 @@ async def sincronizar_tienda_nube(
 
     # Intentar relacionar con productos del ERP por SKU
     try:
+        # Primero intentar match exacto
         db.execute(text("""
             UPDATE tienda_nube_productos tn
             SET item_id = pe.item_id
@@ -192,7 +193,35 @@ async def sincronizar_tienda_nube(
             AND tn.variant_sku IS NOT NULL
             AND tn.variant_sku != ''
         """))
-        logger.info("SKUs relacionados con productos ERP")
+
+        # Intentar match sin el 0 inicial (ERP tiene 0123456, TN tiene 123456)
+        # Solo para SKUs que empiezan con 0 y aún no tienen match
+        db.execute(text("""
+            UPDATE tienda_nube_productos tn
+            SET item_id = pe.item_id
+            FROM productos_erp pe
+            WHERE tn.variant_sku = SUBSTRING(pe.codigo, 2)
+            AND tn.item_id IS NULL
+            AND tn.variant_sku IS NOT NULL
+            AND tn.variant_sku != ''
+            AND pe.codigo LIKE '0%'
+            AND LENGTH(pe.codigo) > 1
+        """))
+
+        # Intentar match agregando 0 inicial (ERP tiene 0123456, TN tiene 123456)
+        # Solo para SKUs que aún no tienen match
+        db.execute(text("""
+            UPDATE tienda_nube_productos tn
+            SET item_id = pe.item_id
+            FROM productos_erp pe
+            WHERE '0' || tn.variant_sku = pe.codigo
+            AND tn.item_id IS NULL
+            AND tn.variant_sku IS NOT NULL
+            AND tn.variant_sku != ''
+            AND tn.variant_sku NOT LIKE '0%'
+        """))
+
+        logger.info("SKUs relacionados con productos ERP (con fallback de 0 inicial)")
     except Exception as e:
         logger.warning(f"No se pudieron relacionar SKUs: {e}")
 

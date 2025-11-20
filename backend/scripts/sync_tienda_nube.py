@@ -120,10 +120,25 @@ def sync_tienda_nube():
                 # Buscar item_id por SKU en productos_erp
                 item_id = None
                 if variant_sku:
+                    # Intentar match exacto primero
                     result = db.execute(
                         text("SELECT item_id FROM productos_erp WHERE codigo = :sku LIMIT 1"),
                         {"sku": variant_sku}
                     ).fetchone()
+
+                    # Si no encuentra y el SKU tiene 0 al inicio, intentar sin el 0
+                    if not result and variant_sku.startswith('0') and len(variant_sku) > 1:
+                        result = db.execute(
+                            text("SELECT item_id FROM productos_erp WHERE codigo = :sku LIMIT 1"),
+                            {"sku": variant_sku[1:]}
+                        ).fetchone()
+
+                    # Si no encuentra y el SKU NO tiene 0 al inicio, intentar con 0
+                    if not result and not variant_sku.startswith('0'):
+                        result = db.execute(
+                            text("SELECT item_id FROM productos_erp WHERE codigo = :sku LIMIT 1"),
+                            {"sku": '0' + variant_sku}
+                        ).fetchone()
 
                     if result:
                         item_id = result[0]

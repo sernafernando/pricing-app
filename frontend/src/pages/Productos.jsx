@@ -1544,15 +1544,46 @@ export default function Productos() {
 
   const toggleRebateRapido = async (producto) => {
     try {
-      await axios.patch(
-        `${API_URL}/productos/${producto.item_id}/rebate`,
-        {
-          participa_rebate: !producto.participa_rebate,
-          porcentaje_rebate: producto.porcentaje_rebate || 3.8
-        },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-      );
-      cargarProductos();
+      // Si el rebate está desactivado, activarlo y abrir modo edición
+      if (!producto.participa_rebate) {
+        await axios.patch(
+          `${API_URL}/productos/${producto.item_id}/rebate`,
+          {
+            participa_rebate: true,
+            porcentaje_rebate: producto.porcentaje_rebate || 3.8
+          },
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        );
+
+        // Abrir modo edición
+        setEditandoRebate(producto.item_id);
+        setRebateTemp({
+          participa: true,
+          porcentaje: producto.porcentaje_rebate || 3.8
+        });
+
+        // Hacer focus en el input de porcentaje
+        setTimeout(() => {
+          const input = document.querySelector('.rebate-edit input[type="number"]');
+          if (input) {
+            input.focus();
+            input.select();
+          }
+        }, 100);
+
+        cargarProductos();
+      } else {
+        // Si está activado, desactivarlo (comportamiento actual)
+        await axios.patch(
+          `${API_URL}/productos/${producto.item_id}/rebate`,
+          {
+            participa_rebate: false,
+            porcentaje_rebate: producto.porcentaje_rebate || 3.8
+          },
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        );
+        cargarProductos();
+      }
     } catch (error) {
       console.error('Error toggling rebate:', error);
     }
@@ -1576,11 +1607,41 @@ export default function Productos() {
 
   const toggleOutOfCardsRapido = async (producto) => {
     try {
+      // Si el rebate NO está activo, activarlo primero
+      if (!producto.participa_rebate) {
+        await axios.patch(
+          `${API_URL}/productos/${producto.item_id}/rebate`,
+          {
+            participa_rebate: true,
+            porcentaje_rebate: producto.porcentaje_rebate || 3.8
+          },
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        );
+      }
+
+      // Marcar out_of_cards = true
       await axios.patch(
         `${API_URL}/productos/${producto.item_id}/out-of-cards`,
-        { out_of_cards: !producto.out_of_cards },
+        { out_of_cards: true },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
+
+      // Abrir modo edición
+      setEditandoRebate(producto.item_id);
+      setRebateTemp({
+        participa: true,
+        porcentaje: producto.porcentaje_rebate || 3.8
+      });
+
+      // Hacer focus en el input de porcentaje
+      setTimeout(() => {
+        const input = document.querySelector('.rebate-edit input[type="number"]');
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      }, 100);
+
       cargarProductos();
     } catch (error) {
       console.error('Error toggling out of cards:', error);
