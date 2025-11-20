@@ -4079,12 +4079,16 @@ async def exportar_vista_actual(
 
         if tiendanube_no_publicado:
             logger.info("Aplicando filtro: tiendanube_no_publicado")
+            count_antes = query.count()
+            print(f"[DEBUG] Productos ANTES del filtro TN: {count_antes}")
             query = query.filter(
                 or_(
                     ProductoPricing.publicado_tiendanube == False,
                     ProductoPricing.publicado_tiendanube.is_(None)
                 )
             )
+            count_despues = query.count()
+            print(f"[DEBUG] Productos DESPUÉS del filtro TN: {count_despues}")
 
         if out_of_cards is not None:
             if out_of_cards:
