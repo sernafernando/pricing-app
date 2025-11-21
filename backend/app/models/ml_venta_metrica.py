@@ -29,7 +29,7 @@ class MLVentaMetrica(Base):
 
     # Identificadores de la venta
     id_operacion = Column(BigInteger, unique=True, index=True, nullable=False)  # ID único de la orden ML
-    ml_order_id = Column(BigInteger, index=True)  # ID de la orden en ml_orders_header
+    ml_order_id = Column(String(50), index=True)  # ID de la orden en ml_orders_header (puede contener caracteres)
     pack_id = Column(BigInteger, index=True)  # Para órdenes agrupadas
 
     # Información del producto

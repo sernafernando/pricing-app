@@ -221,6 +221,11 @@ def calcular_metricas_adicionales(row, count_per_pack):
     markup_porcentaje = 0
     if costo_total_sin_iva > 0:
         markup_porcentaje = (ganancia / costo_total_sin_iva) * 100
+        # Limitar a un máximo razonable para evitar overflow (NUMERIC(10,2) max = 99,999,999.99)
+        if markup_porcentaje > 99999999.99:
+            markup_porcentaje = 99999999.99
+        elif markup_porcentaje < -99999999.99:
+            markup_porcentaje = -99999999.99
 
     return {
         'costo_total_sin_iva': costo_total_sin_iva,
@@ -268,7 +273,7 @@ def process_and_insert(db: Session, rows):
             # Preparar datos
             data = {
                 'id_operacion': row.id_operacion,
-                'ml_order_id': row.ml_id,
+                'ml_order_id': str(row.ml_id) if row.ml_id else None,
                 'pack_id': row.pack_id,
                 'item_id': row.item_id,
                 'codigo': row.codigo,
@@ -311,6 +316,7 @@ def process_and_insert(db: Session, rows):
         except Exception as e:
             total_errores += 1
             print(f"  ⚠️  Error procesando operación {row.id_operacion}: {str(e)}")
+            db.rollback()  # Rollback para continuar con los demás
             continue
 
     # Commit final

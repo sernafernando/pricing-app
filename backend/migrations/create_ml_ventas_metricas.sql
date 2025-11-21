@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS ml_ventas_metricas (
 
     -- Identificadores de la venta
     id_operacion BIGINT NOT NULL UNIQUE,
-    ml_order_id BIGINT,
+    ml_order_id VARCHAR(50),
     pack_id BIGINT,
 
     -- Información del producto
