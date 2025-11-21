@@ -86,7 +86,7 @@ class SaleOrderHeader(Base):
     soh_autoprocesslastorder = Column(Boolean)
     dc_id = Column(Integer)
     soh_isprintedfromsopreparation = Column(Boolean)
-    soh_persistexchange = Column(Numeric(18, 6))
+    soh_persistexchange = Column(Boolean)  # Es boolean, no numeric
     ct_transaction_precollection = Column(BigInteger)
     soh_isemailenvied = Column(Boolean)
     soh_deliverylabel = Column(String(255))

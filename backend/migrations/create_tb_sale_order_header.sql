@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS tb_sale_order_header (
     soh_autoprocessLastOrder BOOLEAN,
     dc_id INTEGER,
     soh_isPrintedFromSOPreparation BOOLEAN,
-    soh_persistExchange NUMERIC(18, 6),
+    soh_persistExchange BOOLEAN,
     ct_transaction_preCollection BIGINT,
     soh_iseMailEnvied BOOLEAN,
     soh_deliveryLabel VARCHAR(255),
