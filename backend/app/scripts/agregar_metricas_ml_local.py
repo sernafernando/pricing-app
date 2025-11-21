@@ -121,7 +121,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                 0
             ) as costo_sin_iva,
 
-            ttn.tax_percentage as iva,
+            COALESCE(ttn.tax_percentage, 21.0) as iva,
 
             -- Tipo de cambio al momento de la venta
             (
