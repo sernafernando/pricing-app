@@ -8,6 +8,17 @@ Estrategia:
 - Sincronización incremental: cada hora (este script - solo actualiza las que ya tenemos)
 """
 
+import sys
+import os
+from pathlib import Path
+
+# Cargar variables de entorno desde .env ANTES de importar settings
+if __name__ == "__main__":
+    backend_path = Path(__file__).resolve().parent.parent.parent
+    from dotenv import load_dotenv
+    env_path = backend_path / '.env'
+    load_dotenv(dotenv_path=env_path)
+
 import asyncio
 import httpx
 from datetime import datetime

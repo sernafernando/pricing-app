@@ -9,11 +9,17 @@ Ejecutar desde el directorio backend:
 import sys
 import os
 from datetime import datetime
+from pathlib import Path
 
 if __name__ == "__main__":
     backend_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     if backend_path not in sys.path:
         sys.path.insert(0, backend_path)
+
+    # Cargar variables de entorno desde .env ANTES de importar settings
+    from dotenv import load_dotenv
+    env_path = Path(backend_path) / '.env'
+    load_dotenv(dotenv_path=env_path)
 
 import asyncio
 from app.core.database import SessionLocal

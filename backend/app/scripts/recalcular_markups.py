@@ -1,5 +1,14 @@
 import sys
-sys.path.append('/var/www/html/pricing-app/backend')
+from pathlib import Path
+
+# Agregar path del backend
+backend_path = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(backend_path))
+
+# Cargar variables de entorno desde .env ANTES de importar settings
+from dotenv import load_dotenv
+env_path = backend_path / '.env'
+load_dotenv(dotenv_path=env_path)
 
 import psycopg2
 from app.core.config import settings

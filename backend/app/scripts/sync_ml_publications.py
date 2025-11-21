@@ -3,6 +3,16 @@ Script para sincronizar publicaciones de MercadoLibre
 Guarda snapshots de las publicaciones para comparar con los datos actuales del sistema
 """
 
+import sys
+from pathlib import Path
+
+# Cargar variables de entorno desde .env ANTES de importar settings
+if __name__ == "__main__":
+    backend_path = Path(__file__).resolve().parent.parent.parent
+    from dotenv import load_dotenv
+    env_path = backend_path / '.env'
+    load_dotenv(dotenv_path=env_path)
+
 import asyncio
 import httpx
 from datetime import datetime
