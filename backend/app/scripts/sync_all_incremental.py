@@ -32,7 +32,7 @@ from app.scripts.sync_ml_orders_incremental import sync_ml_orders_incremental
 from app.scripts.sync_ml_orders_detail_incremental import sync_ml_orders_detail_incremental
 from app.scripts.sync_ml_orders_shipping_incremental import sync_ml_orders_shipping_incremental
 from app.scripts.sync_ml_items_publicados_incremental import sync_items_publicados_incremental
-from app.scripts.sync_ml_publications_incremental import sync_ml_publications_incremental
+# ML Publications Snapshot removido - se ejecuta en cron separado
 from app.scripts.sync_item_cost_history import sync_item_cost_history_incremental
 
 
