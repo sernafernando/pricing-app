@@ -288,6 +288,7 @@ def calcular_metricas_adicionales(row, count_per_pack):
     """
     cantidad = float(row.cantidad or 1)
     monto_total = float(row.monto_total or 0)
+    iva = float(row.iva or 0)
     costo_sin_iva = float(row.costo_sin_iva or 0)
     costo_total_sin_iva = costo_sin_iva * cantidad
 
@@ -300,8 +301,11 @@ def calcular_metricas_adicionales(row, count_per_pack):
         costo_envio_total = float(row.costo_envio_ml or 0)
         costo_envio_prorrateado = costo_envio_total / count_per_pack
 
-    # Monto limpio = monto total - comisión - envío
-    monto_limpio = monto_total - comision_ml - costo_envio_prorrateado
+    # Monto sin IVA = monto total / (1 + IVA/100)
+    monto_sin_iva = monto_total / (1 + iva / 100) if iva > 0 else monto_total
+
+    # Monto limpio = monto sin IVA - comisión - envío
+    monto_limpio = monto_sin_iva - comision_ml - costo_envio_prorrateado
 
     # Ganancia = monto limpio - costo total
     ganancia = monto_limpio - costo_total_sin_iva
