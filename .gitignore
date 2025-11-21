@@ -54,3 +54,4 @@ Thumbs.db
 # Streamlit app
 st_app.py
 
+backend/migrations/check_tb_item_serials_columns.sql
