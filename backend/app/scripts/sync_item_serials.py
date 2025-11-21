@@ -68,41 +68,41 @@ def sync_full(db: Session, batch_size: int = 10000, max_is_id: int = 1000000):
             else:
                 print(f"   ✓ Obtenidos {len(data)} registros")
 
+                # Normalizar todos los datos primero
+                normalized_data = []
+                for row in data:
+                    # Mapear is_IsOwnGeneration a is_isowngeneration
+                    if 'is_IsOwnGeneration' in row:
+                        row['is_isowngeneration'] = row.pop('is_IsOwnGeneration')
+
+                    # Convertir booleanos
+                    for bool_field in ['is_available', 'is_isowngeneration', 'is_checked', 'is_printed']:
+                        if bool_field in row and row[bool_field] is not None:
+                            row[bool_field] = bool(row[bool_field])
+
+                    # Convertir fechas
+                    if 'is_cd' in row and row['is_cd']:
+                        try:
+                            row['is_cd'] = datetime.fromisoformat(row['is_cd'].replace('Z', '+00:00'))
+                        except:
+                            row['is_cd'] = None
+
+                    # Filtrar solo campos válidos de la tabla
+                    valid_fields = {
+                        'comp_id', 'is_id', 'bra_id', 'ct_transaction', 'it_transaction',
+                        'item_id', 'stor_id', 'is_serial', 'is_cd', 'is_available',
+                        'is_guid', 'is_isowngeneration', 'is_checked', 'is_printed'
+                    }
+                    normalized_row = {k: v for k, v in row.items() if k in valid_fields}
+                    normalized_data.append(normalized_row)
+
                 # Procesar en batches más pequeños para INSERT
                 insert_batch_size = 500
-                for i in range(0, len(data), insert_batch_size):
-                    batch = data[i:i + insert_batch_size]
+                for i in range(0, len(normalized_data), insert_batch_size):
+                    batch = normalized_data[i:i + insert_batch_size]
 
-                    # Normalizar datos
-                    normalized_batch = []
-                    for row in batch:
-                        # Mapear is_IsOwnGeneration a is_isowngeneration
-                        if 'is_IsOwnGeneration' in row:
-                            row['is_isowngeneration'] = row.pop('is_IsOwnGeneration')
-
-                        # Convertir booleanos
-                        for bool_field in ['is_available', 'is_isowngeneration', 'is_checked', 'is_printed']:
-                            if bool_field in row and row[bool_field] is not None:
-                                row[bool_field] = bool(row[bool_field])
-
-                        # Convertir fechas
-                        if 'is_cd' in row and row['is_cd']:
-                            try:
-                                row['is_cd'] = datetime.fromisoformat(row['is_cd'].replace('Z', '+00:00'))
-                            except:
-                                row['is_cd'] = None
-
-                        # Filtrar solo campos válidos de la tabla
-                        valid_fields = {
-                            'comp_id', 'is_id', 'bra_id', 'ct_transaction', 'it_transaction',
-                            'item_id', 'stor_id', 'is_serial', 'is_cd', 'is_available',
-                            'is_guid', 'is_isowngeneration', 'is_checked', 'is_printed'
-                        }
-                        normalized_row = {k: v for k, v in row.items() if k in valid_fields}
-                        normalized_batch.append(normalized_row)
-
-                    # Upsert
-                    stmt = insert(TbItemSerial).values(normalized_batch)
+                    # Upsert usando executemany
+                    stmt = insert(TbItemSerial)
                     stmt = stmt.on_conflict_do_update(
                         index_elements=['comp_id', 'is_id', 'bra_id'],
                         set_={
@@ -120,7 +120,7 @@ def sync_full(db: Session, batch_size: int = 10000, max_is_id: int = 1000000):
                         }
                     )
 
-                    db.execute(stmt)
+                    db.execute(stmt, batch)
                     db.commit()
 
                 total_procesado += len(data)
