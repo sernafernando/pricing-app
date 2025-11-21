@@ -2,9 +2,9 @@
 -- Cabecera de órdenes de venta desde el ERP
 
 CREATE TABLE IF NOT EXISTS tb_sale_order_header (
-    soh_id BIGINT PRIMARY KEY,
-    comp_id INTEGER,
-    bra_id INTEGER,
+    comp_id INTEGER NOT NULL,
+    bra_id INTEGER NOT NULL,
+    soh_id BIGINT NOT NULL,
     soh_cd TIMESTAMP,
     soh_deliveryDate TIMESTAMP,
     soh_observation1 TEXT,
@@ -80,11 +80,13 @@ CREATE TABLE IF NOT EXISTS tb_sale_order_header (
     ct_transaction_preCollection BIGINT,
     soh_iseMailEnvied BOOLEAN,
     soh_deliveryLabel VARCHAR(255),
-    ct_transaction_preInvoice BIGINT
+    ct_transaction_preInvoice BIGINT,
+    PRIMARY KEY (comp_id, bra_id, soh_id)
 );
 
 -- Crear índices
 CREATE INDEX IF NOT EXISTS idx_tb_sale_order_header_soh_id ON tb_sale_order_header(soh_id);
+CREATE INDEX IF NOT EXISTS idx_tb_sale_order_header_bra_id ON tb_sale_order_header(bra_id);
 CREATE INDEX IF NOT EXISTS idx_tb_sale_order_header_soh_cd ON tb_sale_order_header(soh_cd);
 CREATE INDEX IF NOT EXISTS idx_tb_sale_order_header_comp_id ON tb_sale_order_header(comp_id);
 CREATE INDEX IF NOT EXISTS idx_tb_sale_order_header_cust_id ON tb_sale_order_header(cust_id);

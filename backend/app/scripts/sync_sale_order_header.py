@@ -20,6 +20,7 @@ load_dotenv(dotenv_path=env_path)
 import requests
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from app.core.database import SessionLocal
 from app.models.sale_order_header import SaleOrderHeader
 
@@ -70,11 +71,17 @@ def sync_sale_order_header(db: Session, data: list):
 
     for record in data:
         try:
+            comp_id = record.get('comp_id')
+            bra_id = record.get('bra_id')
             soh_id = record.get('soh_id')
 
-            # Buscar registro existente
+            # Buscar registro existente por clave compuesta
             existente = db.query(SaleOrderHeader).filter(
-                SaleOrderHeader.soh_id == soh_id
+                and_(
+                    SaleOrderHeader.comp_id == comp_id,
+                    SaleOrderHeader.bra_id == bra_id,
+                    SaleOrderHeader.soh_id == soh_id
+                )
             ).first()
 
             # Función helper para convertir fechas
@@ -188,7 +195,7 @@ def sync_sale_order_header(db: Session, data: list):
 
         except Exception as e:
             errores += 1
-            print(f"  ⚠️  Error en registro {record.get('soh_id')}: {str(e)}")
+            print(f"  ⚠️  Error en registro (comp_id={record.get('comp_id')}, bra_id={record.get('bra_id')}, soh_id={record.get('soh_id')}): {str(e)}")
             db.rollback()  # Rollback para poder continuar con los demás
             continue
 

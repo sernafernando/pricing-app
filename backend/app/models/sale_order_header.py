@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Numeric, DateTime, Boolean, Text
+from sqlalchemy import Column, Integer, BigInteger, String, Numeric, DateTime, Boolean, Text, PrimaryKeyConstraint
 from app.core.database import Base
 
 
@@ -8,13 +8,16 @@ class SaleOrderHeader(Base):
     Cabecera de órdenes de venta
     """
     __tablename__ = "tb_sale_order_header"
+    __table_args__ = (
+        PrimaryKeyConstraint('comp_id', 'bra_id', 'soh_id'),
+    )
 
-    # Primary Key
-    soh_id = Column(BigInteger, primary_key=True, index=True)
+    # Composite Primary Key
+    comp_id = Column(Integer, nullable=False, index=True)
+    bra_id = Column(Integer, nullable=False, index=True)
+    soh_id = Column(BigInteger, nullable=False, index=True)
 
     # Campos principales (todos en minúsculas para PostgreSQL)
-    comp_id = Column(Integer, index=True)
-    bra_id = Column(Integer)
     soh_cd = Column(DateTime, index=True)
     soh_deliverydate = Column(DateTime)
     soh_observation1 = Column(Text)
