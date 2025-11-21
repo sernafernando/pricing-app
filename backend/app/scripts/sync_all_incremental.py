@@ -99,13 +99,9 @@ async def ejecutar_todas_sincronizaciones():
             "emoji": "📢",
             "funcion": sync_items_publicados_incremental,
             "args_batch": False
-        },
-        {
-            "nombre": "ML Publications Snapshot",
-            "emoji": "📸",
-            "funcion": sync_ml_publications_incremental,
-            "args_batch": False
         }
+        # NOTA: ML Publications Snapshot se movió a un cron separado (cada 4-6 horas)
+        # porque procesa 14k+ registros y hace que este script tarde demasiado
     ]
 
     for i, sync in enumerate(sincronizaciones, 1):
