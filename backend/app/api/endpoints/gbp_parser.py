@@ -54,7 +54,7 @@ SCRIPT_CONFIG = {
     "scriptTaxName": ["taxID"],
     "scriptItemTaxes": ["taxID", "itemID"],
     "scriptSupplier": ["suppID", "cuit"],
-    "scriptItemSerials": ["fromDate", "toDate", "isID", "itemID", "isSerial", "ctTransaction", "itTransaction"]
+    "scriptItemSerials": ["fromDate", "toDate", "isID", "isIDfrom", "isIDto", "itemID", "isSerial", "ctTransaction", "itTransaction"]
 }
 
 # Configuración de operaciones

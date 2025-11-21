@@ -35,76 +35,96 @@ async def fetch_from_erp(params: dict) -> list:
         return response.json()
 
 
-def sync_full(db: Session):
-    """Sincronización completa desde el inicio"""
-    print("\n🔄 Sincronización COMPLETA de tb_item_serials")
+def sync_full(db: Session, batch_size: int = 10000, max_is_id: int = 1000000):
+    """Sincronización completa por rangos de is_id"""
+    print("\n🔄 Sincronización COMPLETA de tb_item_serials (por rangos de is_id)")
     print("=" * 60)
+    print(f"Tamaño de lote: {batch_size} registros")
+    print(f"Rango máximo: hasta is_id={max_is_id}")
+    print()
 
-    # Obtener todos los registros
-    params = {
-        "strScriptLabel": "scriptItemSerials",
-        # Sin filtros para obtener todos
-    }
+    current_from = 1
+    total_procesado = 0
+    batch_num = 1
 
-    print(f"📡 Consultando ERP (todos los registros)...")
-    data = asyncio.run(fetch_from_erp(params))
+    while current_from < max_is_id:
+        current_to = current_from + batch_size - 1
+        if current_to > max_is_id:
+            current_to = max_is_id
 
-    if not data:
-        print("⚠️  No se obtuvieron datos del ERP")
-        return
+        print(f"📦 Lote #{batch_num} (is_id: {current_from} - {current_to})...")
 
-    print(f"✓ Obtenidos {len(data)} registros del ERP")
+        params = {
+            "strScriptLabel": "scriptItemSerials",
+            "isIDfrom": current_from,
+            "isIDto": current_to
+        }
 
-    # Insertar/actualizar en batch
-    print("💾 Insertando en base de datos...")
+        try:
+            data = asyncio.run(fetch_from_erp(params))
 
-    batch_size = 500
-    total_inserted = 0
-    total_updated = 0
+            if not data or len(data) == 0:
+                print(f"   ⚠️  Sin registros en este rango")
+            else:
+                print(f"   ✓ Obtenidos {len(data)} registros")
 
-    for i in range(0, len(data), batch_size):
-        batch = data[i:i + batch_size]
+                # Procesar en batches más pequeños para INSERT
+                insert_batch_size = 500
+                for i in range(0, len(data), insert_batch_size):
+                    batch = data[i:i + insert_batch_size]
 
-        for row in batch:
-            # Convertir booleanos
-            for bool_field in ['is_available', 'is_IsOwnGeneration', 'is_checked', 'is_printed']:
-                if bool_field in row and row[bool_field] is not None:
-                    row[bool_field] = bool(row[bool_field])
+                    for row in batch:
+                        # Convertir booleanos
+                        for bool_field in ['is_available', 'is_IsOwnGeneration', 'is_checked', 'is_printed']:
+                            if bool_field in row and row[bool_field] is not None:
+                                row[bool_field] = bool(row[bool_field])
 
-            # Convertir fechas
-            if 'is_cd' in row and row['is_cd']:
-                try:
-                    row['is_cd'] = datetime.fromisoformat(row['is_cd'].replace('Z', '+00:00'))
-                except:
-                    row['is_cd'] = None
+                        # Convertir fechas
+                        if 'is_cd' in row and row['is_cd']:
+                            try:
+                                row['is_cd'] = datetime.fromisoformat(row['is_cd'].replace('Z', '+00:00'))
+                            except:
+                                row['is_cd'] = None
 
-        # Upsert using PostgreSQL ON CONFLICT
-        stmt = insert(TbItemSerial).values(batch)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=['comp_id', 'is_id', 'bra_id'],
-            set_={
-                'ct_transaction': stmt.excluded.ct_transaction,
-                'it_transaction': stmt.excluded.it_transaction,
-                'item_id': stmt.excluded.item_id,
-                'stor_id': stmt.excluded.stor_id,
-                'is_serial': stmt.excluded.is_serial,
-                'is_cd': stmt.excluded.is_cd,
-                'is_available': stmt.excluded.is_available,
-                'is_guid': stmt.excluded.is_guid,
-                'is_IsOwnGeneration': stmt.excluded.is_IsOwnGeneration,
-                'is_checked': stmt.excluded.is_checked,
-                'is_printed': stmt.excluded.is_printed,
-            }
-        )
+                    # Upsert
+                    stmt = insert(TbItemSerial).values(batch)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=['comp_id', 'is_id', 'bra_id'],
+                        set_={
+                            'ct_transaction': stmt.excluded.ct_transaction,
+                            'it_transaction': stmt.excluded.it_transaction,
+                            'item_id': stmt.excluded.item_id,
+                            'stor_id': stmt.excluded.stor_id,
+                            'is_serial': stmt.excluded.is_serial,
+                            'is_cd': stmt.excluded.is_cd,
+                            'is_available': stmt.excluded.is_available,
+                            'is_guid': stmt.excluded.is_guid,
+                            'is_IsOwnGeneration': stmt.excluded.is_IsOwnGeneration,
+                            'is_checked': stmt.excluded.is_checked,
+                            'is_printed': stmt.excluded.is_printed,
+                        }
+                    )
 
-        result = db.execute(stmt)
-        db.commit()
+                    db.execute(stmt)
+                    db.commit()
 
-        total_inserted += len(batch)
-        print(f"  ✓ Procesados {total_inserted}/{len(data)} registros")
+                total_procesado += len(data)
+                print(f"   💾 Insertados en DB (Total acumulado: {total_procesado})")
+
+            # Avanzar al siguiente rango
+            current_from = current_to + 1
+            batch_num += 1
+
+        except Exception as e:
+            print(f"   ❌ Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            # Continuar con el siguiente batch
+            current_from = current_to + 1
+            batch_num += 1
 
     print(f"\n✅ Sincronización completa finalizada")
-    print(f"   Total procesado: {total_inserted} registros")
+    print(f"   Total procesado: {total_procesado} registros")
 
 
 def sync_incremental(db: Session, days_back: int = 7):
@@ -186,6 +206,8 @@ def main():
     parser.add_argument('--full', action='store_true', help='Sincronización completa')
     parser.add_argument('--incremental', action='store_true', help='Sincronización incremental (últimos 7 días)')
     parser.add_argument('--days', type=int, default=7, help='Días hacia atrás para incremental (default: 7)')
+    parser.add_argument('--batch-size', type=int, default=10000, help='Tamaño de lote para sincronización full (default: 10000)')
+    parser.add_argument('--max-id', type=int, default=1000000, help='ID máximo para sincronización full (default: 1000000)')
 
     args = parser.parse_args()
 
@@ -197,7 +219,7 @@ def main():
 
     try:
         if args.full:
-            sync_full(db)
+            sync_full(db, batch_size=args.batch_size, max_is_id=args.max_id)
         else:
             sync_incremental(db, args.days)
 
