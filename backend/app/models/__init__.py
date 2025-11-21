@@ -13,6 +13,7 @@ from app.models.item_sin_mla_banlist import ItemSinMLABanlist
 from app.models.calculo_pricing import CalculoPricing
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
+from app.models.tb_item_serials import TbItemSerial
 
 __all__ = [
     "ProductoERP",
@@ -33,5 +34,6 @@ __all__ = [
     "ItemSinMLABanlist",
     "CalculoPricing",
     "MercadoLibreItemPublicado",
-    "MLPublicationSnapshot"
+    "MLPublicationSnapshot",
+    "TbItemSerial"
 ]
