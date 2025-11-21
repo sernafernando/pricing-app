@@ -39,7 +39,9 @@ def fetch_cost_history_from_erp(fecha_desde: datetime = None, iclh_id: int = Non
         Lista de registros
     """
     # Construir parámetros para el worker
-    params = {}
+    params = {
+        'strScriptLabel': 'scriptItemCostListHistory'
+    }
 
     if fecha_desde:
         params['fromDate'] = fecha_desde.isoformat()
@@ -57,7 +59,9 @@ def fetch_cost_history_from_erp(fecha_desde: datetime = None, iclh_id: int = Non
 
     try:
         # POST con los parámetros en el body
-        response = requests.post(WORKER_URL, json=params, headers=headers, timeout=30)
+        # Cambiar a la URL base del worker (sin query string)
+        base_url = "http://localhost:8002/api/gbp-parser"
+        response = requests.post(base_url, json=params, headers=headers, timeout=30)
         response.raise_for_status()
 
         data = response.json()
