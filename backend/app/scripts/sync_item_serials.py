@@ -71,6 +71,10 @@ def sync_full(db: Session, batch_size: int = 10000, max_is_id: int = 1000000):
                 # Normalizar todos los datos primero
                 normalized_data = []
                 for row in data:
+                    # Verificar que tenga los campos de primary key
+                    if not row.get('comp_id') or not row.get('is_id') or not row.get('bra_id'):
+                        continue  # Saltar registros sin PK válida
+
                     # Mapear is_IsOwnGeneration a is_isowngeneration
                     if 'is_IsOwnGeneration' in row:
                         row['is_isowngeneration'] = row.pop('is_IsOwnGeneration')
@@ -172,6 +176,10 @@ def sync_incremental(db: Session, days_back: int = 7):
     total_updated = 0
 
     for row in data:
+        # Verificar que tenga los campos de primary key
+        if not row.get('comp_id') or not row.get('is_id') or not row.get('bra_id'):
+            continue  # Saltar registros sin PK válida
+
         # Mapear is_IsOwnGeneration a is_isowngeneration
         if 'is_IsOwnGeneration' in row:
             row['is_isowngeneration'] = row.pop('is_IsOwnGeneration')
