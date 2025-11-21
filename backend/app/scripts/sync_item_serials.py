@@ -24,7 +24,7 @@ from app.core.database import SessionLocal
 from app.models.tb_item_serials import TbItemSerial
 
 # URL del gbp-parser
-GBP_PARSER_URL = "http://localhost:8000/gbp-parser"
+GBP_PARSER_URL = "http://localhost:8000/api/gbp-parser"
 
 
 async def fetch_from_erp(params: dict) -> list:
