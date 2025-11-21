@@ -138,9 +138,26 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmlos.mlshippmentcost4seller as costo_envio_ml,
             tmlip.mlp_price4freeshipping as precio_envio_gratis,
 
-            -- Comisión ML calculada desde comisiones_base (según grupo y fecha de venta)
+            -- Comisión ML calculada desde comisiones_lista_grupo (prioridad 1) o comisiones_base (fallback)
             (tmlod.mlo_unit_price * tmlod.mlo_quantity) * (
                 COALESCE(
+                    -- Prioridad 1: Comisión específica por pricelist + grupo
+                    (
+                        SELECT clg.comision_porcentaje / 100
+                        FROM subcategorias_grupos sg
+                        JOIN comisiones_lista_grupo clg ON clg.grupo_id = sg.grupo_id
+                        WHERE sg.subcat_id = tsc.subcat_id
+                          AND clg.pricelist_id = COALESCE(
+                              tsoh.prli_id,
+                              CASE
+                                  WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
+                                  ELSE tmlip.prli_id
+                              END
+                          )
+                          AND clg.activo = TRUE
+                        LIMIT 1
+                    ),
+                    -- Fallback 1: Comisión base por grupo (versionada por fecha)
                     (
                         SELECT cb.comision_base / 100
                         FROM subcategorias_grupos sg
@@ -151,7 +168,8 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                           AND cv.activo = TRUE
                         LIMIT 1
                     ),
-                    0.12  -- Fallback: 12% (comisión mínima de ML)
+                    -- Fallback 2: 12% (comisión mínima de ML)
+                    0.12
                 )
             ) as comision_ml,
 
