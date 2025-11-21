@@ -64,12 +64,32 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                 LIMIT 1
             ) as moneda_costo,
 
-            -- Costo sin IVA (desde historial, con fallback a tb_item_cost_list)
+            -- Costo sin IVA en PESOS (convierte USD a ARS usando tipo de cambio)
             COALESCE(
                 (
                     SELECT CASE
-                        WHEN iclh.iclh_price = 0 THEN ticl.coslis_price
-                        ELSE iclh.iclh_price
+                        WHEN iclh.curr_id = 2 THEN  -- USD
+                            CASE
+                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price * (
+                                    SELECT ceh.ceh_exchange
+                                    FROM tb_cur_exch_history ceh
+                                    WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                                    ORDER BY ceh.ceh_cd DESC
+                                    LIMIT 1
+                                )
+                                ELSE iclh.iclh_price * (
+                                    SELECT ceh.ceh_exchange
+                                    FROM tb_cur_exch_history ceh
+                                    WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                                    ORDER BY ceh.ceh_cd DESC
+                                    LIMIT 1
+                                )
+                            END
+                        ELSE  -- ARS
+                            CASE
+                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price
+                                ELSE iclh.iclh_price
+                            END
                     END
                     FROM tb_item_cost_list_history iclh
                     LEFT JOIN tb_item_cost_list ticl
@@ -82,7 +102,18 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                     LIMIT 1
                 ),
                 (
-                    SELECT ticl.coslis_price
+                    SELECT CASE
+                        WHEN ticl.curr_id = 2 THEN  -- USD
+                            ticl.coslis_price * (
+                                SELECT ceh.ceh_exchange
+                                FROM tb_cur_exch_history ceh
+                                WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                                ORDER BY ceh.ceh_cd DESC
+                                LIMIT 1
+                            )
+                        ELSE  -- ARS
+                            ticl.coslis_price
+                    END
                     FROM tb_item_cost_list ticl
                     WHERE ticl.item_id = tmlod.item_id
                       AND ticl.coslis_id = 1
