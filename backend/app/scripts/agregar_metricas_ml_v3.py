@@ -25,8 +25,9 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.ml_venta_metrica import MLVentaMetrica
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from .env file in backend directory
+env_path = backend_dir / '.env'
+load_dotenv(dotenv_path=env_path)
 
 # SQL Server connection
 SQL_SERVER_HOST = os.getenv("SQL_SERVER_HOST")
