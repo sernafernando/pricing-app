@@ -177,15 +177,15 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
 
                 +
 
-                -- 2. Tier (solo si precio < MONTOT3)
+                -- 2. Tier (solo si precio < monto_tier3)
                 CASE
-                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) >= (SELECT pc_value FROM pricing_constants WHERE pc_key = 'MONTOT3' LIMIT 1) THEN 0
-                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) < (SELECT pc_value FROM pricing_constants WHERE pc_key = 'MONTOT1' LIMIT 1) THEN
-                        (SELECT pc_value FROM pricing_constants WHERE pc_key = 'TIER1' LIMIT 1) / 1.21
-                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) < (SELECT pc_value FROM pricing_constants WHERE pc_key = 'MONTOT2' LIMIT 1) THEN
-                        (SELECT pc_value FROM pricing_constants WHERE pc_key = 'TIER2' LIMIT 1) / 1.21
-                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) < (SELECT pc_value FROM pricing_constants WHERE pc_key = 'MONTOT3' LIMIT 1) THEN
-                        (SELECT pc_value FROM pricing_constants WHERE pc_key = 'TIER3' LIMIT 1) / 1.21
+                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) >= (SELECT monto_tier3 FROM pricing_constants ORDER BY fecha_desde DESC LIMIT 1) THEN 0
+                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) < (SELECT monto_tier1 FROM pricing_constants ORDER BY fecha_desde DESC LIMIT 1) THEN
+                        (SELECT comision_tier1 FROM pricing_constants ORDER BY fecha_desde DESC LIMIT 1) / 1.21
+                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) < (SELECT monto_tier2 FROM pricing_constants ORDER BY fecha_desde DESC LIMIT 1) THEN
+                        (SELECT comision_tier2 FROM pricing_constants ORDER BY fecha_desde DESC LIMIT 1) / 1.21
+                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) < (SELECT monto_tier3 FROM pricing_constants ORDER BY fecha_desde DESC LIMIT 1) THEN
+                        (SELECT comision_tier3 FROM pricing_constants ORDER BY fecha_desde DESC LIMIT 1) / 1.21
                     ELSE 0
                 END
 
@@ -193,7 +193,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
 
                 -- 3. Varios (6.5% de precio sin IVA)
                 ((tmlod.mlo_unit_price * tmlod.mlo_quantity) / 1.21) * (
-                    (SELECT pc_value FROM pricing_constants WHERE pc_key = 'varios_porcentaje' LIMIT 1) / 100
+                    (SELECT varios_porcentaje FROM pricing_constants ORDER BY fecha_desde DESC LIMIT 1) / 100
                 )
             ) as comision_ml,
 
