@@ -79,7 +79,7 @@ class SaleOrderDetail(Base):
     user_id_division = Column(Integer)
     sodi_id = Column(BigInteger)
     sod_isdivided_costcoeficient = Column(Numeric(18, 6))
-    sod_deliverycharge = Column(Numeric(18, 6))
+    sod_deliverycharge = Column(Boolean)  # Es boolean, no numeric
     sod_itemdesc = Column(Text)
     sops_poh_bra_id = Column(Integer)
     sops_poh_id = Column(BigInteger)
@@ -102,7 +102,7 @@ class SaleOrderDetail(Base):
     sod_exclude4availablestock = Column(Boolean)
     sod_discountplan = Column(Numeric(18, 6))
     tax_id4iva = Column(Integer)
-    sod_pending4pod_idrelation = Column(BigInteger)
+    sod_pending4pod_idrelation = Column(Boolean)  # Es boolean, no bigint
     sod_mercadolibre_mustupdatestock = Column(Boolean)
     sod_auxtmpvalue = Column(Numeric(18, 6))
     sod_itemdiscount2 = Column(Numeric(18, 6))

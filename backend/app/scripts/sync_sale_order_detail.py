@@ -172,7 +172,7 @@ def sync_sale_order_detail(db: Session, data: list):
                 'user_id_division': record.get('user_id_division'),
                 'sodi_id': record.get('sodi_id'),
                 'sod_isdivided_costcoeficient': parse_numeric(record.get('sod_isDivided_costCoeficient')),
-                'sod_deliverycharge': parse_numeric(record.get('sod_DeliveryCharge')),
+                'sod_deliverycharge': record.get('sod_DeliveryCharge'),  # Boolean
                 'sod_itemdesc': record.get('sod_itemDesc'),
                 'sops_poh_bra_id': record.get('sops_poh_bra_id'),
                 'sops_poh_id': record.get('sops_poh_id'),
@@ -195,7 +195,7 @@ def sync_sale_order_detail(db: Session, data: list):
                 'sod_exclude4availablestock': record.get('sod_exclude4AvailableStock'),
                 'sod_discountplan': parse_numeric(record.get('sod_discountPlan')),
                 'tax_id4iva': record.get('tax_id4IVA'),
-                'sod_pending4pod_idrelation': record.get('sod_pending4pod_IdRelation'),
+                'sod_pending4pod_idrelation': record.get('sod_pending4pod_IdRelation'),  # Boolean
                 'sod_mercadolibre_mustupdatestock': record.get('sod_MercadoLibre_MustUpdateStock'),
                 'sod_auxtmpvalue': parse_numeric(record.get('sod_auxTMPValue')),
                 'sod_itemdiscount2': parse_numeric(record.get('sod_itemDiscount2'))
