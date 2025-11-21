@@ -137,7 +137,24 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmloh.mlshippingid as pack_id,
             tmlos.mlshippmentcost4seller as costo_envio_ml,
             tmlip.mlp_price4freeshipping as precio_envio_gratis,
-            tmlos.ml_base_cost as comision_ml,
+
+            -- Comisión ML calculada desde comisiones_base (según grupo y fecha de venta)
+            (tmlod.mlo_unit_price * tmlod.mlo_quantity) * (
+                COALESCE(
+                    (
+                        SELECT cb.comision_base / 100
+                        FROM subcategorias_grupos sg
+                        JOIN comisiones_base cb ON cb.grupo_id = sg.grupo_id
+                        JOIN comisiones_versiones cv ON cv.id = cb.version_id
+                        WHERE sg.subcat_id = tsc.subcat_id
+                          AND tmloh.mlo_cd::date BETWEEN cv.fecha_desde AND COALESCE(cv.fecha_hasta, '9999-12-31'::date)
+                          AND cv.activo = TRUE
+                        LIMIT 1
+                    ),
+                    0.12  -- Fallback: 12% (comisión mínima de ML)
+                )
+            ) as comision_ml,
+
             tsc.subcat_id,
 
             -- Price list: Prioridad 1: SaleOrderHeader, Fallback: ML Items Publicados
