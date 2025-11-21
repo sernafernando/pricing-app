@@ -252,7 +252,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             ON ti.comp_id = tit.comp_id
             AND ti.item_id = tit.item_id
 
-        INNER JOIN tb_tax_name ttn
+        LEFT JOIN tb_tax_name ttn
             ON ttn.comp_id = ti.comp_id
             AND ttn.tax_id = tit.tax_id
 
@@ -264,7 +264,6 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
         WHERE tmlod.item_id NOT IN (460, 3042)
           AND tmloh.mlo_cd BETWEEN :from_date AND :to_date
           AND tmloh.mlo_status <> 'cancelled'
-          AND ticl.coslis_id = 1
     )
     SELECT * FROM sales_data
     ORDER BY fecha_venta, id_operacion
