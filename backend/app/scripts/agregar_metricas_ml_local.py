@@ -39,7 +39,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
     # Query complejo que replica la lógica del ERP
     query = text("""
     WITH sales_data AS (
-        SELECT DISTINCT
+        SELECT
             tmlod.mlo_id as id_operacion,
             tmlod.item_id,
             tct.ct_transaction,
