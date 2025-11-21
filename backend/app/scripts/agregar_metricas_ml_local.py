@@ -134,7 +134,8 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
 
             tmlos.ml_logistic_type as tipo_logistica,
             tmloh.ml_id,
-            tmloh.mlshippingid as pack_id,
+            tmloh.ml_pack_id as pack_id,
+            tmloh.mlshippingid as shipping_id,
             tmlos.mlshippmentcost4seller as costo_envio_ml,
             tmlip.mlp_price4freeshipping as precio_envio_gratis,
 
@@ -206,9 +207,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                     WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
                     ELSE tmlip.prli_id
                 END
-            ) as pricelist_id,
-
-            tmloh.ml_pack_id
+            ) as pricelist_id
 
         FROM tb_mercadolibre_orders_detail tmlod
 
