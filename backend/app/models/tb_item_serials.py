@@ -24,7 +24,7 @@ class TbItemSerial(Base):
     is_cd = Column(DateTime, nullable=True, index=True)  # Fecha de creación
     is_available = Column(Boolean, nullable=True)  # Disponible
     is_guid = Column(String(100), nullable=True)  # GUID
-    is_IsOwnGeneration = Column(Boolean, nullable=True)  # Generación propia
+    is_IsOwnGeneration = Column('is_isowngeneration', Boolean, nullable=True)  # Generación propia
     is_checked = Column(Boolean, nullable=True)  # Chequeado
     is_printed = Column(Boolean, nullable=True)  # Impreso
 

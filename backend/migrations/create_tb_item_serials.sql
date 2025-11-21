@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS tb_item_serials (
     is_cd TIMESTAMP,
     is_available BOOLEAN,
     is_guid VARCHAR(100),
-    is_IsOwnGeneration BOOLEAN,
+    is_isowngeneration BOOLEAN,
     is_checked BOOLEAN,
     is_printed BOOLEAN,
     PRIMARY KEY (comp_id, is_id, bra_id)
