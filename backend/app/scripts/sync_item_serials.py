@@ -75,7 +75,7 @@ def sync_full(db: Session, batch_size: int = 10000, max_is_id: int = 1000000):
 
                     for row in batch:
                         # Convertir booleanos
-                        for bool_field in ['is_available', 'is_IsOwnGeneration', 'is_checked', 'is_printed']:
+                        for bool_field in ['is_available', 'is_isowngeneration', 'is_checked', 'is_printed']:
                             if bool_field in row and row[bool_field] is not None:
                                 row[bool_field] = bool(row[bool_field])
 
@@ -99,7 +99,7 @@ def sync_full(db: Session, batch_size: int = 10000, max_is_id: int = 1000000):
                             'is_cd': stmt.excluded.is_cd,
                             'is_available': stmt.excluded.is_available,
                             'is_guid': stmt.excluded.is_guid,
-                            'is_IsOwnGeneration': stmt.excluded.is_IsOwnGeneration,
+                            'is_isowngeneration': stmt.excluded.is_isowngeneration,
                             'is_checked': stmt.excluded.is_checked,
                             'is_printed': stmt.excluded.is_printed,
                         }
@@ -158,7 +158,7 @@ def sync_incremental(db: Session, days_back: int = 7):
 
     for row in data:
         # Convertir booleanos
-        for bool_field in ['is_available', 'is_IsOwnGeneration', 'is_checked', 'is_printed']:
+        for bool_field in ['is_available', 'is_isowngeneration', 'is_checked', 'is_printed']:
             if bool_field in row and row[bool_field] is not None:
                 row[bool_field] = bool(row[bool_field])
 
@@ -182,7 +182,7 @@ def sync_incremental(db: Session, days_back: int = 7):
                 'is_cd': stmt.excluded.is_cd,
                 'is_available': stmt.excluded.is_available,
                 'is_guid': stmt.excluded.is_guid,
-                'is_IsOwnGeneration': stmt.excluded.is_IsOwnGeneration,
+                'is_isowngeneration': stmt.excluded.is_isowngeneration,
                 'is_checked': stmt.excluded.is_checked,
                 'is_printed': stmt.excluded.is_printed,
             }
