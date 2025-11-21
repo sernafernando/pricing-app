@@ -28,3 +28,6 @@ COMMENT ON TABLE tb_item_serials IS 'Números de serie de items del ERP';
 COMMENT ON COLUMN tb_item_serials.is_serial IS 'Número de serie del item';
 COMMENT ON COLUMN tb_item_serials.is_cd IS 'Fecha de creación del serial';
 COMMENT ON COLUMN tb_item_serials.is_available IS 'Serial disponible para uso';
+
+-- Permisos para pricing_user
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE tb_item_serials TO pricing_user;
