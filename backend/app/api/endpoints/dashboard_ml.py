@@ -111,7 +111,9 @@ async def get_metricas_generales(
         query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
 
     if fecha_hasta:
-        query = query.filter(MLVentaMetrica.fecha_venta <= datetime.fromisoformat(fecha_hasta).date())
+        # Agregar +1 día para incluir todas las operaciones del día final
+        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
+        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
 
     if marca:
         query = query.filter(MLVentaMetrica.marca == marca)
@@ -185,7 +187,9 @@ async def get_ventas_por_marca(
         query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
 
     if fecha_hasta:
-        query = query.filter(MLVentaMetrica.fecha_venta <= datetime.fromisoformat(fecha_hasta).date())
+        # Agregar +1 día para incluir todas las operaciones del día final
+        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
+        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
 
     resultados = query.group_by(MLVentaMetrica.marca).order_by(desc('total_ventas')).limit(limit).all()
 
@@ -227,7 +231,9 @@ async def get_ventas_por_categoria(
         query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
 
     if fecha_hasta:
-        query = query.filter(MLVentaMetrica.fecha_venta <= datetime.fromisoformat(fecha_hasta).date())
+        # Agregar +1 día para incluir todas las operaciones del día final
+        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
+        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
 
     resultados = query.group_by(MLVentaMetrica.categoria).order_by(desc('total_ventas')).limit(limit).all()
 
@@ -265,7 +271,9 @@ async def get_ventas_por_logistica(
         query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
 
     if fecha_hasta:
-        query = query.filter(MLVentaMetrica.fecha_venta <= datetime.fromisoformat(fecha_hasta).date())
+        # Agregar +1 día para incluir todas las operaciones del día final
+        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
+        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
 
     resultados = query.group_by(MLVentaMetrica.tipo_logistica).order_by(desc('total_ventas')).all()
 
@@ -302,7 +310,9 @@ async def get_ventas_por_dia(
         query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
 
     if fecha_hasta:
-        query = query.filter(MLVentaMetrica.fecha_venta <= datetime.fromisoformat(fecha_hasta).date())
+        # Agregar +1 día para incluir todas las operaciones del día final
+        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
+        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
 
     resultados = query.group_by(MLVentaMetrica.fecha_venta).order_by(MLVentaMetrica.fecha_venta).all()
 
@@ -345,7 +355,9 @@ async def get_top_productos(
         query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
 
     if fecha_hasta:
-        query = query.filter(MLVentaMetrica.fecha_venta <= datetime.fromisoformat(fecha_hasta).date())
+        # Agregar +1 día para incluir todas las operaciones del día final
+        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
+        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
 
     resultados = query.group_by(
         MLVentaMetrica.item_id,

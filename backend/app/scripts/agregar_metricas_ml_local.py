@@ -427,6 +427,9 @@ def main():
     try:
         from_date = datetime.strptime(args.from_date, '%Y-%m-%d').date()
         to_date = datetime.strptime(args.to_date, '%Y-%m-%d').date()
+
+        # Agregar +1 día al to_date para incluir todas las operaciones del día final
+        to_date = to_date + timedelta(days=1)
     except ValueError as e:
         print(f"❌ Error en formato de fecha: {e}")
         print("   Usar formato: YYYY-MM-DD")
@@ -435,7 +438,7 @@ def main():
     print("=" * 60)
     print("AGREGACIÓN DE MÉTRICAS ML (TABLAS LOCALES)")
     print("=" * 60)
-    print(f"Rango: {from_date} a {to_date}")
+    print(f"Rango: {from_date} a {to_date} (fecha hasta ajustada +1 día)")
 
     db = SessionLocal()
 
