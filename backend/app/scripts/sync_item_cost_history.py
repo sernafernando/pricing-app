@@ -49,19 +49,12 @@ def fetch_cost_history_from_erp(fecha_desde: datetime = None, iclh_id: int = Non
     if iclh_id:
         params['iclhID'] = iclh_id
 
-    # El worker espera los parámetros en formato JSON
-    # según el script SQL: JSON_VALUE(@strParamOUT, '$.fromDate')
-    headers = {
-        'Content-Type': 'application/json'
-    }
-
     logger.info(f"Consultando ERP Worker con params: {params}")
 
     try:
-        # POST con los parámetros en el body
-        # Cambiar a la URL base del worker (sin query string)
+        # GET con parámetros en query string (igual que los otros scripts)
         base_url = "http://localhost:8002/api/gbp-parser"
-        response = requests.post(base_url, json=params, headers=headers, timeout=30)
+        response = requests.get(base_url, params=params, timeout=30)
         response.raise_for_status()
 
         data = response.json()
