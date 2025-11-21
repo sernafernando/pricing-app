@@ -45,6 +45,7 @@ SCRIPT_CONFIG = {
     "scriptSaleOrderHeader": ["fromDate", "toDate", "sohID", "braID"],
     "scriptSaleOrderDetail": ["fromDate", "toDate", "sohID", "sodID", "braID"],
     "scriptSaleOrderHeaderHistory": ["fromDate", "toDate", "sohID", "sohhID", "braID"],
+    "scriptSaleOrderDetailHistory": ["fromDate", "toDate", "sohID", "sohhID", "sodID", "braID"],
     "scriptVentasFueraOM": ["fromDate", "toDate", "braID"],
     "scriptBrand": ["brandID"],
     "scriptCategory": ["catID"],
