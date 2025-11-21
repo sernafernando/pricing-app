@@ -95,6 +95,17 @@ def sync_sale_order_detail(db: Session, data: list):
                 except:
                     return None
 
+            # Función helper para convertir a numeric (evitar booleans)
+            def parse_numeric(value):
+                if value is None:
+                    return None
+                if isinstance(value, bool):
+                    return 1.0 if value else 0.0
+                try:
+                    return float(value)
+                except:
+                    return None
+
             # Preparar datos (mapear keys del ERP a nombres de columnas en minúsculas)
             data_record = {
                 'comp_id': comp_id,
@@ -105,10 +116,10 @@ def sync_sale_order_detail(db: Session, data: list):
                 'item_id': record.get('item_id'),
                 'sod_detail': record.get('sod_detail'),
                 'curr_id': record.get('curr_id'),
-                'sod_initqty': record.get('sod_initQty'),
-                'sod_qty': record.get('sod_qty'),
+                'sod_initqty': parse_numeric(record.get('sod_initQty')),
+                'sod_qty': parse_numeric(record.get('sod_qty')),
                 'prli_id': record.get('prli_id'),
-                'sod_price': record.get('sod_price'),
+                'sod_price': parse_numeric(record.get('sod_price')),
                 'stor_id': record.get('stor_id'),
                 'sod_lastupdate': parse_datetime(record.get('sod_lastUpdate')),
                 'sod_isediting': record.get('sod_isEditing'),
@@ -116,13 +127,13 @@ def sync_sale_order_detail(db: Session, data: list):
                 'user_id': record.get('user_id'),
                 'sod_quotation': record.get('sod_quotation'),
                 'sod_iscredit': record.get('sod_isCredit'),
-                'sod_cost': record.get('sod_cost'),
-                'sod_costtax': record.get('sod_costTax'),
+                'sod_cost': parse_numeric(record.get('sod_cost')),
+                'sod_costtax': parse_numeric(record.get('sod_costTax')),
                 'rmah_id': record.get('rmah_id'),
                 'rmad_id': record.get('rmad_id'),
                 'sod_note1': record.get('sod_note1'),
                 'sod_note2': record.get('sod_note2'),
-                'sod_itemdiscount': record.get('sod_itemDiscount'),
+                'sod_itemdiscount': parse_numeric(record.get('sod_itemDiscount')),
                 'sod_tis_id_origin': record.get('sod_tis_id_origin'),
                 'sod_item_id_origin': record.get('sod_item_id_origin'),
                 'sod_isparentassociate': record.get('sod_isParentAssociate'),
@@ -145,23 +156,23 @@ def sync_sale_order_detail(db: Session, data: list):
                 'sod_isfrompconfigctrlid': record.get('sod_isFromPCConfigCTRLId'),
                 'sod_ewaddress': record.get('sod_EWAddress'),
                 'sod_pcconfgistransfered2branch': record.get('sod_PCCOnfigIsTransfered2Branch'),
-                'sod_mlcost': record.get('sod_MLCost'),
-                'sod_itemassociationcoeficient': record.get('sod_itemAssociationCoeficient'),
-                'ws_price': record.get('ws_price'),
+                'sod_mlcost': parse_numeric(record.get('sod_MLCost')),
+                'sod_itemassociationcoeficient': parse_numeric(record.get('sod_itemAssociationCoeficient')),
+                'ws_price': parse_numeric(record.get('ws_price')),
                 'ws_curr_id': record.get('ws_curr_Id'),
                 'sops_id': record.get('sops_id'),
                 'mlo_id': record.get('mlo_id'),
                 'sops_supp_id': record.get('sops_supp_id'),
                 'sops_bra_id': record.get('sops_bra_id'),
                 'sops_date': parse_datetime(record.get('sops_date')),
-                'sod_mecost': record.get('sod_MECost'),
-                'sod_mpcost': record.get('sod_MPCost'),
+                'sod_mecost': parse_numeric(record.get('sod_MECost')),
+                'sod_mpcost': parse_numeric(record.get('sod_MPCost')),
                 'sod_isdivided': record.get('sod_isDivided'),
                 'sod_isdivided_date': parse_datetime(record.get('sod_isDivided_Date')),
                 'user_id_division': record.get('user_id_division'),
                 'sodi_id': record.get('sodi_id'),
-                'sod_isdivided_costcoeficient': record.get('sod_isDivided_costCoeficient'),
-                'sod_deliverycharge': record.get('sod_DeliveryCharge'),
+                'sod_isdivided_costcoeficient': parse_numeric(record.get('sod_isDivided_costCoeficient')),
+                'sod_deliverycharge': parse_numeric(record.get('sod_DeliveryCharge')),
                 'sod_itemdesc': record.get('sod_itemDesc'),
                 'sops_poh_bra_id': record.get('sops_poh_bra_id'),
                 'sops_poh_id': record.get('sops_poh_id'),
@@ -169,25 +180,25 @@ def sync_sale_order_detail(db: Session, data: list):
                 'sops_user_id': record.get('sops_user_id'),
                 'sops_lastupdate': parse_datetime(record.get('sops_lastUpdate')),
                 'ct_transaction_selectfrompacking': record.get('ct_transaction_SelectFromPacking'),
-                'sodt_qty': record.get('sodt_qty'),
+                'sodt_qty': parse_numeric(record.get('sodt_qty')),
                 'sod_disableprintinemmition': record.get('sod_disablePrintInEmmition'),
-                'sod_discountbyitem': record.get('sod_discountByItem'),
-                'sod_discountbytotal': record.get('sod_discountByTotal'),
-                'sod_creditint': record.get('sod_creditInt'),
-                'sod_creditintplus': record.get('sod_creditIntPlus'),
-                'sod_priceneto': record.get('sod_priceNeto'),
-                'sod_combocoeficient': record.get('sod_comboCoeficient'),
-                'sod_montlypaymentfrom': record.get('sod_montlyPaymentFrom'),
-                'sod_montlypaymentto': record.get('sod_montlyPaymentTo'),
+                'sod_discountbyitem': parse_numeric(record.get('sod_discountByItem')),
+                'sod_discountbytotal': parse_numeric(record.get('sod_discountByTotal')),
+                'sod_creditint': parse_numeric(record.get('sod_creditInt')),
+                'sod_creditintplus': parse_numeric(record.get('sod_creditIntPlus')),
+                'sod_priceneto': parse_numeric(record.get('sod_priceNeto')),
+                'sod_combocoeficient': parse_numeric(record.get('sod_comboCoeficient')),
+                'sod_montlypaymentfrom': parse_numeric(record.get('sod_montlyPaymentFrom')),
+                'sod_montlypaymentto': parse_numeric(record.get('sod_montlyPaymentTo')),
                 'wscup_id': record.get('wscup_id'),
                 'sod_candeletecomboinso': record.get('sod_canDeleteCOMBOInSO'),
                 'sod_exclude4availablestock': record.get('sod_exclude4AvailableStock'),
-                'sod_discountplan': record.get('sod_discountPlan'),
+                'sod_discountplan': parse_numeric(record.get('sod_discountPlan')),
                 'tax_id4iva': record.get('tax_id4IVA'),
                 'sod_pending4pod_idrelation': record.get('sod_pending4pod_IdRelation'),
                 'sod_mercadolibre_mustupdatestock': record.get('sod_MercadoLibre_MustUpdateStock'),
-                'sod_auxtmpvalue': record.get('sod_auxTMPValue'),
-                'sod_itemdiscount2': record.get('sod_itemDiscount2')
+                'sod_auxtmpvalue': parse_numeric(record.get('sod_auxTMPValue')),
+                'sod_itemdiscount2': parse_numeric(record.get('sod_itemDiscount2'))
             }
 
             if existente:
