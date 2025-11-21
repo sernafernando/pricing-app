@@ -109,11 +109,14 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmlos.ml_base_cost as comision_ml,
             tsc.subcat_id,
 
-            -- Price list (sin SaleOrder por ahora, solo desde ML Items Publicados)
-            CASE
-                WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
-                ELSE tmlip.prli_id
-            END as pricelist_id,
+            -- Price list: Prioridad 1: SaleOrderHeader, Fallback: ML Items Publicados
+            COALESCE(
+                tsoh.prli_id,
+                CASE
+                    WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
+                    ELSE tmlip.prli_id
+                END
+            ) as pricelist_id,
 
             tmloh.ml_pack_id
 
@@ -122,6 +125,10 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
         LEFT JOIN tb_mercadolibre_orders_header tmloh
             ON tmloh.comp_id = tmlod.comp_id
             AND tmloh.mlo_id = tmlod.mlo_id
+
+        LEFT JOIN tb_sale_order_header tsoh
+            ON tsoh.comp_id = tmlod.comp_id
+            AND tsoh.mlo_id = tmlod.mlo_id
 
         LEFT JOIN tb_item ti
             ON ti.comp_id = tmlod.comp_id
