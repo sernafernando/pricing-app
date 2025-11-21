@@ -20,6 +20,7 @@ load_dotenv(dotenv_path=env_path)
 import requests
 from datetime import datetime
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from app.core.database import SessionLocal
 from app.models.item_cost_list import ItemCostList
 
@@ -63,9 +64,11 @@ def sync_item_cost_list(db: Session, data: list):
         try:
             # Buscar registro existente
             existente = db.query(ItemCostList).filter(
-                ItemCostList.comp_id == record.get('comp_id'),
-                ItemCostList.coslis_id == record.get('coslis_id'),
-                ItemCostList.item_id == record.get('item_id')
+                and_(
+                    ItemCostList.comp_id == record.get('comp_id'),
+                    ItemCostList.coslis_id == record.get('coslis_id'),
+                    ItemCostList.item_id == record.get('item_id')
+                )
             ).first()
 
             # Convertir fecha si existe

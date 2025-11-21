@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, Numeric, DateTime
+from sqlalchemy import Column, Integer, BigInteger, Numeric, DateTime, PrimaryKeyConstraint
 from app.core.database import Base
 
 
@@ -8,11 +8,14 @@ class ItemCostList(Base):
     Lista de costos actual de items
     """
     __tablename__ = "tb_item_cost_list"
+    __table_args__ = (
+        PrimaryKeyConstraint('comp_id', 'coslis_id', 'item_id'),
+    )
 
     # Composite Primary Key
-    comp_id = Column(Integer, primary_key=True)
-    coslis_id = Column(Integer, primary_key=True, index=True)
-    item_id = Column(Integer, primary_key=True, index=True)
+    comp_id = Column(Integer, nullable=False)
+    coslis_id = Column(Integer, nullable=False, index=True)
+    item_id = Column(Integer, nullable=False, index=True)
 
     # Datos del costo
     coslis_price = Column(Numeric(18, 6))  # Precio/costo actual
