@@ -197,7 +197,7 @@ def calcular_metricas_adicionales(row, count_per_pack):
     Calcula las métricas adicionales (ganancia, markup, etc)
     Similar a lo que hace st_app
     """
-    cantidad = row.cantidad or 1
+    cantidad = float(row.cantidad or 1)
     monto_total = float(row.monto_total or 0)
     costo_sin_iva = float(row.costo_sin_iva or 0)
     costo_total_sin_iva = costo_sin_iva * cantidad
