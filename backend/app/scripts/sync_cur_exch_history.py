@@ -114,6 +114,7 @@ def sync_exch_history(db: Session, data: list):
         except Exception as e:
             errores += 1
             print(f"  ⚠️  Error en registro {record.get('ceh_id')}: {str(e)}")
+            db.rollback()  # Rollback para poder continuar con los demás
             continue
 
     # Commit final
