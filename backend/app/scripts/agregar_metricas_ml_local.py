@@ -138,38 +138,62 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmlos.mlshippmentcost4seller as costo_envio_ml,
             tmlip.mlp_price4freeshipping as precio_envio_gratis,
 
-            -- Comisión ML calculada desde comisiones_lista_grupo (prioridad 1) o comisiones_base (fallback)
-            (tmlod.mlo_unit_price * tmlod.mlo_quantity) * (
-                COALESCE(
-                    -- Prioridad 1: Comisión específica por pricelist + grupo
-                    (
-                        SELECT clg.comision_porcentaje / 100
-                        FROM subcategorias_grupos sg
-                        JOIN comisiones_lista_grupo clg ON clg.grupo_id = sg.grupo_id
-                        WHERE sg.subcat_id = tsc.subcat_id
-                          AND clg.pricelist_id = COALESCE(
-                              tsoh.prli_id,
-                              CASE
-                                  WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
-                                  ELSE tmlip.prli_id
-                              END
-                          )
-                          AND clg.activo = TRUE
-                        LIMIT 1
-                    ),
-                    -- Fallback 1: Comisión base por grupo (versionada por fecha)
-                    (
-                        SELECT cb.comision_base / 100
-                        FROM subcategorias_grupos sg
-                        JOIN comisiones_base cb ON cb.grupo_id = sg.grupo_id
-                        JOIN comisiones_versiones cv ON cv.id = cb.version_id
-                        WHERE sg.subcat_id = tsc.subcat_id
-                          AND tmloh.mlo_cd::date BETWEEN cv.fecha_desde AND COALESCE(cv.fecha_hasta, '9999-12-31'::date)
-                          AND cv.activo = TRUE
-                        LIMIT 1
-                    ),
-                    -- Fallback 2: 12% (comisión mínima de ML)
-                    0.12
+            -- Comisión ML completa: base + tier + varios (replicando pricing_calculator.py)
+            (
+                -- 1. Comisión base (porcentaje * precio / 1.21)
+                (tmlod.mlo_unit_price * tmlod.mlo_quantity) * (
+                    COALESCE(
+                        -- Prioridad 1: Comisión específica por pricelist + grupo
+                        (
+                            SELECT clg.comision_porcentaje / 100
+                            FROM subcategorias_grupos sg
+                            JOIN comisiones_lista_grupo clg ON clg.grupo_id = sg.grupo_id
+                            WHERE sg.subcat_id = tsc.subcat_id
+                              AND clg.pricelist_id = COALESCE(
+                                  tsoh.prli_id,
+                                  CASE
+                                      WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
+                                      ELSE tmlip.prli_id
+                                  END
+                              )
+                              AND clg.activo = TRUE
+                            LIMIT 1
+                        ),
+                        -- Fallback 1: Comisión base por grupo (versionada por fecha)
+                        (
+                            SELECT cb.comision_base / 100
+                            FROM subcategorias_grupos sg
+                            JOIN comisiones_base cb ON cb.grupo_id = sg.grupo_id
+                            JOIN comisiones_versiones cv ON cv.id = cb.version_id
+                            WHERE sg.subcat_id = tsc.subcat_id
+                              AND tmloh.mlo_cd::date BETWEEN cv.fecha_desde AND COALESCE(cv.fecha_hasta, '9999-12-31'::date)
+                              AND cv.activo = TRUE
+                            LIMIT 1
+                        ),
+                        -- Fallback 2: 12% (comisión mínima de ML)
+                        0.12
+                    )
+                ) / 1.21
+
+                +
+
+                -- 2. Tier (solo si precio < MONTOT3)
+                CASE
+                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) >= (SELECT pc_value FROM pricing_constants WHERE pc_key = 'MONTOT3' LIMIT 1) THEN 0
+                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) < (SELECT pc_value FROM pricing_constants WHERE pc_key = 'MONTOT1' LIMIT 1) THEN
+                        (SELECT pc_value FROM pricing_constants WHERE pc_key = 'TIER1' LIMIT 1) / 1.21
+                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) < (SELECT pc_value FROM pricing_constants WHERE pc_key = 'MONTOT2' LIMIT 1) THEN
+                        (SELECT pc_value FROM pricing_constants WHERE pc_key = 'TIER2' LIMIT 1) / 1.21
+                    WHEN (tmlod.mlo_unit_price * tmlod.mlo_quantity) < (SELECT pc_value FROM pricing_constants WHERE pc_key = 'MONTOT3' LIMIT 1) THEN
+                        (SELECT pc_value FROM pricing_constants WHERE pc_key = 'TIER3' LIMIT 1) / 1.21
+                    ELSE 0
+                END
+
+                +
+
+                -- 3. Varios (6.5% de precio sin IVA)
+                ((tmlod.mlo_unit_price * tmlod.mlo_quantity) / 1.21) * (
+                    (SELECT pc_value FROM pricing_constants WHERE pc_key = 'varios_porcentaje' LIMIT 1) / 100
                 )
             ) as comision_ml,
 
