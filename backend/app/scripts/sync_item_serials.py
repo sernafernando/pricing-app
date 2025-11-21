@@ -76,6 +76,10 @@ def sync_full(db: Session, batch_size: int = 10000, max_is_id: int = 1000000):
                     # Normalizar datos
                     normalized_batch = []
                     for row in batch:
+                        # Mapear is_IsOwnGeneration a is_isowngeneration
+                        if 'is_IsOwnGeneration' in row:
+                            row['is_isowngeneration'] = row.pop('is_IsOwnGeneration')
+
                         # Convertir booleanos
                         for bool_field in ['is_available', 'is_isowngeneration', 'is_checked', 'is_printed']:
                             if bool_field in row and row[bool_field] is not None:
@@ -168,6 +172,10 @@ def sync_incremental(db: Session, days_back: int = 7):
     total_updated = 0
 
     for row in data:
+        # Mapear is_IsOwnGeneration a is_isowngeneration
+        if 'is_IsOwnGeneration' in row:
+            row['is_isowngeneration'] = row.pop('is_IsOwnGeneration')
+
         # Convertir booleanos
         for bool_field in ['is_available', 'is_isowngeneration', 'is_checked', 'is_printed']:
             if bool_field in row and row[bool_field] is not None:
