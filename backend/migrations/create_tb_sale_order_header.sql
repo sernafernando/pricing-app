@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS tb_sale_order_header (
     soh_lastUpdate TIMESTAMP,
     soh_limitDate TIMESTAMP,
     tt_id INTEGER,
-    tt_class INTEGER,
+    tt_class VARCHAR(10),
     soh_StatusOf INTEGER,
     user_id INTEGER,
     soh_isEditing BOOLEAN,

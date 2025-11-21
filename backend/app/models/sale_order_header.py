@@ -31,7 +31,7 @@ class SaleOrderHeader(Base):
     soh_lastupdate = Column(DateTime)
     soh_limitdate = Column(DateTime)
     tt_id = Column(Integer)
-    tt_class = Column(Integer)
+    tt_class = Column(String(10))  # Puede ser 'A', 'B', etc
     soh_statusof = Column(Integer)
     user_id = Column(Integer)
     soh_isediting = Column(Boolean)
