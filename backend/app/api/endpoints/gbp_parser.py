@@ -42,7 +42,7 @@ SCRIPT_CONFIG = {
     "scriptItemCostListHistory": ["fromDate", "toDate", "iclhID"],
     "scriptItemCostList": ["fromDate", "toDate", "coslisID"],
     "scriptCurExchHistory": ["fromDate", "toDate","cehID"],
-    "scriptSaleOrderHeader": ["fromDate", "toDate", "sohID"],
+    "scriptSaleOrderHeader": ["fromDate", "toDate", "sohID", "braID"],
     "scriptVentasFueraOM": ["fromDate", "toDate", "braID"],
     "scriptBrand": ["brandID"],
     "scriptCategory": ["catID"],
