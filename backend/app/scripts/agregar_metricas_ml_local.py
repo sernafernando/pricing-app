@@ -1,0 +1,362 @@
+"""
+Script para agregar métricas de ventas ML - Versión LOCAL
+Consulta directamente las tablas PostgreSQL locales (sin ERP)
+Replica la lógica del query SQL Server del ERP
+
+Ejecutar:
+    python app/scripts/agregar_metricas_ml_local.py --from-date 2025-10-22 --to-date 2025-11-21
+"""
+import sys
+from pathlib import Path
+
+# Add backend directory to path
+backend_dir = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(backend_dir))
+
+from dotenv import load_dotenv
+env_path = backend_dir / '.env'
+load_dotenv(dotenv_path=env_path)
+
+import argparse
+from datetime import datetime, date, timedelta
+from decimal import Decimal
+from sqlalchemy.orm import Session
+from sqlalchemy import text, and_, func, case, desc
+
+from app.core.database import SessionLocal
+from app.models.ml_venta_metrica import MLVentaMetrica
+
+
+def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
+    """
+    Consulta las tablas locales de PostgreSQL para calcular métricas
+    Replica la query del ERP pero usando tablas tb_* locales
+    """
+
+    print(f"\n🔍 Consultando tablas locales PostgreSQL...")
+    print(f"   Rango: {from_date} a {to_date}")
+
+    # Query complejo que replica la lógica del ERP
+    query = text("""
+    WITH sales_data AS (
+        SELECT DISTINCT
+            tmlod.mlo_id as id_operacion,
+            tmlod.item_id,
+            tct.ct_transaction,
+            tmloh.mlo_cd as fecha_venta,
+            tb.brand_desc as marca,
+            tc.cat_desc as categoria,
+            tsc.subcat_desc as subcategoria,
+            ti.item_code as codigo,
+            UPPER(ti.item_desc) as descripcion,
+            tmlod.mlo_quantity as cantidad,
+            tmlod.mlo_unit_price as monto_unitario,
+            tmlod.mlo_unit_price * tmlod.mlo_quantity as monto_total,
+
+            -- Costo: buscar el último costo antes de la fecha de venta
+            (
+                SELECT iclh.curr_id
+                FROM tb_item_cost_list_history iclh
+                WHERE iclh.item_id = tmlod.item_id
+                  AND iclh.iclh_cd <= tmloh.mlo_cd
+                  AND iclh.coslis_id = 1
+                ORDER BY iclh.iclh_id DESC
+                LIMIT 1
+            ) as moneda_costo,
+
+            -- Costo sin IVA (desde historial, con fallback a tb_item_cost_list)
+            COALESCE(
+                (
+                    SELECT CASE
+                        WHEN iclh.iclh_price = 0 THEN ticl.coslis_price
+                        ELSE iclh.iclh_price
+                    END
+                    FROM tb_item_cost_list_history iclh
+                    LEFT JOIN tb_item_cost_list ticl
+                        ON ticl.item_id = iclh.item_id
+                        AND ticl.coslis_id = 1
+                    WHERE iclh.item_id = tmlod.item_id
+                      AND iclh.iclh_cd <= tmloh.mlo_cd
+                      AND iclh.coslis_id = 1
+                    ORDER BY iclh.iclh_id DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT ticl.coslis_price
+                    FROM tb_item_cost_list ticl
+                    WHERE ticl.item_id = tmlod.item_id
+                      AND ticl.coslis_id = 1
+                ),
+                0
+            ) as costo_sin_iva,
+
+            ttn.tax_percentage as iva,
+
+            -- Tipo de cambio al momento de la venta
+            (
+                SELECT ceh.ceh_exchange
+                FROM tb_cur_exch_history ceh
+                WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                ORDER BY ceh.ceh_cd DESC
+                LIMIT 1
+            ) as cambio_momento,
+
+            tmlos.ml_logistic_type as tipo_logistica,
+            tmloh.ml_id,
+            tmloh.mlshippingid as pack_id,
+            tmlos.mlshippmentcost4seller as costo_envio_ml,
+            tmlip.mlp_price4freeshipping as precio_envio_gratis,
+            tmlos.ml_base_cost as comision_ml,
+            tsc.subcat_id,
+
+            -- Price list (sin SaleOrder por ahora, solo desde ML Items Publicados)
+            CASE
+                WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
+                ELSE tmlip.prli_id
+            END as pricelist_id,
+
+            tmloh.ml_pack_id
+
+        FROM tb_mercadolibre_orders_detail tmlod
+
+        LEFT JOIN tb_mercadolibre_orders_header tmloh
+            ON tmloh.comp_id = tmlod.comp_id
+            AND tmloh.mlo_id = tmlod.mlo_id
+
+        LEFT JOIN tb_item ti
+            ON ti.comp_id = tmlod.comp_id
+            AND ti.item_id = tmlod.item_id
+
+        LEFT JOIN tb_mercadolibre_items_publicados tmlip
+            ON tmlip.comp_id = tmlod.comp_id
+            AND tmlip.mlp_id = tmlod.mlp_id
+
+        LEFT JOIN tb_mercadolibre_orders_shipping tmlos
+            ON tmlos.comp_id = tmlod.comp_id
+            AND tmlos.mlo_id = tmlod.mlo_id
+
+        LEFT JOIN tb_commercial_transactions tct
+            ON tct.comp_id = tmlod.comp_id
+            AND tct.mlo_id = tmlod.mlo_id
+
+        LEFT JOIN tb_category tc
+            ON tc.comp_id = tmlod.comp_id
+            AND tc.cat_id = ti.cat_id
+
+        LEFT JOIN tb_subcategory tsc
+            ON tsc.comp_id = tmlod.comp_id
+            AND tsc.cat_id = ti.cat_id
+            AND tsc.subcat_id = ti.subcat_id
+
+        LEFT JOIN tb_brand tb
+            ON tb.comp_id = tmlod.comp_id
+            AND tb.brand_id = ti.brand_id
+
+        LEFT JOIN tb_item_taxes tit
+            ON ti.comp_id = tit.comp_id
+            AND ti.item_id = tit.item_id
+
+        INNER JOIN tb_tax_name ttn
+            ON ttn.comp_id = ti.comp_id
+            AND ttn.tax_id = tit.tax_id
+
+        LEFT JOIN tb_item_cost_list ticl
+            ON ticl.comp_id = tmlod.comp_id
+            AND ticl.item_id = tmlod.item_id
+            AND ticl.coslis_id = 1
+
+        WHERE tmlod.item_id NOT IN (460, 3042)
+          AND tmloh.mlo_cd BETWEEN :from_date AND :to_date
+          AND tmloh.mlo_status <> 'cancelled'
+          AND ticl.coslis_id = 1
+    )
+    SELECT * FROM sales_data
+    ORDER BY fecha_venta, id_operacion
+    """)
+
+    result = db.execute(query, {
+        'from_date': from_date,
+        'to_date': to_date
+    })
+
+    rows = result.fetchall()
+    print(f"  ✓ Obtenidos {len(rows)} registros de tablas locales")
+
+    return rows
+
+
+def calcular_metricas_adicionales(row, count_per_pack):
+    """
+    Calcula las métricas adicionales (ganancia, markup, etc)
+    Similar a lo que hace st_app
+    """
+    cantidad = row.cantidad or 1
+    monto_total = float(row.monto_total or 0)
+    costo_sin_iva = float(row.costo_sin_iva or 0)
+    costo_total_sin_iva = costo_sin_iva * cantidad
+
+    # Comisión ML
+    comision_ml = float(row.comision_ml or 0)
+
+    # Costo de envío prorrateado
+    costo_envio_prorrateado = 0
+    if count_per_pack > 0:
+        costo_envio_total = float(row.costo_envio_ml or 0)
+        costo_envio_prorrateado = costo_envio_total / count_per_pack
+
+    # Monto limpio = monto total - comisión - envío
+    monto_limpio = monto_total - comision_ml - costo_envio_prorrateado
+
+    # Ganancia = monto limpio - costo total
+    ganancia = monto_limpio - costo_total_sin_iva
+
+    # Markup %
+    markup_porcentaje = 0
+    if costo_total_sin_iva > 0:
+        markup_porcentaje = (ganancia / costo_total_sin_iva) * 100
+
+    return {
+        'costo_total_sin_iva': costo_total_sin_iva,
+        'comision_ml': comision_ml,
+        'costo_envio': costo_envio_prorrateado,
+        'monto_limpio': monto_limpio,
+        'ganancia': ganancia,
+        'markup_porcentaje': markup_porcentaje
+    }
+
+
+def process_and_insert(db: Session, rows):
+    """Procesa los registros y los inserta en ml_ventas_metricas"""
+
+    if not rows:
+        print("  ⚠️  No hay datos para procesar")
+        return 0, 0, 0
+
+    print(f"\n📊 Procesando {len(rows)} registros...")
+
+    # Calcular count_per_pack (cuántos items por paquete)
+    pack_counts = {}
+    for row in rows:
+        pack_id = row.pack_id
+        if pack_id:
+            pack_counts[pack_id] = pack_counts.get(pack_id, 0) + 1
+
+    total_insertados = 0
+    total_actualizados = 0
+    total_errores = 0
+
+    fecha_calculo = date.today()
+
+    for row in rows:
+        try:
+            # Verificar si ya existe
+            existente = db.query(MLVentaMetrica).filter(
+                MLVentaMetrica.id_operacion == row.id_operacion
+            ).first()
+
+            # Calcular métricas adicionales
+            count_per_pack = pack_counts.get(row.pack_id, 1)
+            metricas = calcular_metricas_adicionales(row, count_per_pack)
+
+            # Preparar datos
+            data = {
+                'id_operacion': row.id_operacion,
+                'ml_order_id': row.ml_id,
+                'pack_id': row.pack_id,
+                'item_id': row.item_id,
+                'codigo': row.codigo,
+                'descripcion': row.descripcion,
+                'marca': row.marca,
+                'categoria': row.categoria,
+                'subcategoria': row.subcategoria,
+                'fecha_venta': row.fecha_venta,
+                'fecha_calculo': fecha_calculo,
+                'cantidad': row.cantidad,
+                'monto_unitario': Decimal(str(row.monto_unitario)) if row.monto_unitario else Decimal('0'),
+                'monto_total': Decimal(str(row.monto_total)) if row.monto_total else Decimal('0'),
+                'costo_unitario_sin_iva': Decimal(str(row.costo_sin_iva)) if row.costo_sin_iva else Decimal('0'),
+                'costo_total_sin_iva': Decimal(str(metricas['costo_total_sin_iva'])),
+                'comision_ml': Decimal(str(metricas['comision_ml'])),
+                'costo_envio_ml': Decimal(str(metricas['costo_envio'])),
+                'tipo_logistica': row.tipo_logistica,
+                'monto_limpio': Decimal(str(metricas['monto_limpio'])),
+                'ganancia': Decimal(str(metricas['ganancia'])),
+                'markup_porcentaje': Decimal(str(metricas['markup_porcentaje']))
+            }
+
+            if existente:
+                # Actualizar
+                for key, value in data.items():
+                    if key != 'id_operacion':  # No actualizar PK
+                        setattr(existente, key, value)
+                total_actualizados += 1
+            else:
+                # Insertar nuevo
+                nueva_metrica = MLVentaMetrica(**data)
+                db.add(nueva_metrica)
+                total_insertados += 1
+
+            # Commit cada 100 registros
+            if (total_insertados + total_actualizados) % 100 == 0:
+                db.commit()
+                print(f"  📊 Progreso: {total_insertados + total_actualizados}/{len(rows)}")
+
+        except Exception as e:
+            total_errores += 1
+            print(f"  ⚠️  Error procesando operación {row.id_operacion}: {str(e)}")
+            continue
+
+    # Commit final
+    db.commit()
+
+    return total_insertados, total_actualizados, total_errores
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Agregar métricas ML desde tablas locales')
+    parser.add_argument('--from-date', required=True, help='Fecha desde (YYYY-MM-DD)')
+    parser.add_argument('--to-date', required=True, help='Fecha hasta (YYYY-MM-DD)')
+
+    args = parser.parse_args()
+
+    try:
+        from_date = datetime.strptime(args.from_date, '%Y-%m-%d').date()
+        to_date = datetime.strptime(args.to_date, '%Y-%m-%d').date()
+    except ValueError as e:
+        print(f"❌ Error en formato de fecha: {e}")
+        print("   Usar formato: YYYY-MM-DD")
+        sys.exit(1)
+
+    print("=" * 60)
+    print("AGREGACIÓN DE MÉTRICAS ML (TABLAS LOCALES)")
+    print("=" * 60)
+    print(f"Rango: {from_date} a {to_date}")
+
+    db = SessionLocal()
+
+    try:
+        # Obtener datos de tablas locales
+        rows = calcular_metricas_locales(db, from_date, to_date)
+
+        # Procesar e insertar
+        insertados, actualizados, errores = process_and_insert(db, rows)
+
+        print("\n" + "=" * 60)
+        print("✅ COMPLETADO")
+        print("=" * 60)
+        print(f"Insertados: {insertados}")
+        print(f"Actualizados: {actualizados}")
+        print(f"Errores: {errores}")
+        print()
+
+    except Exception as e:
+        print(f"\n❌ Error crítico: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    main()
