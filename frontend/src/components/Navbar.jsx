@@ -42,7 +42,9 @@ export default function Navbar() {
     <nav className={styles.navbar}>
       <div className={styles.container}>
         <div className={styles.brand}>
-          <Link to="/productos"><img src={logo} alt="Logo" className={styles.logo} /></Link>
+          <a href="/productos" onClick={(e) => { e.preventDefault(); window.location.href = '/productos'; }}>
+            <img src={logo} alt="Logo" className={styles.logo} />
+          </a>
           <span className={styles.title}>Pricing App</span>
         </div>
 
