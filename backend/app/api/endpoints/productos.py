@@ -404,24 +404,16 @@ async def listar_productos(
         from app.models.item_sin_mla_banlist import ItemSinMLABanlist
 
         if con_mla:
-            # Con MLA: tienen publicación activa
+            # Con MLA: tienen al menos una publicación (sin importar estado)
             items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
-                MercadoLibreItemPublicado.mlp_id.isnot(None),
-                or_(
-                    MercadoLibreItemPublicado.optval_statusId == 2,
-                    MercadoLibreItemPublicado.optval_statusId.is_(None)
-                )
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
             ).distinct().subquery()
 
             query = query.filter(ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)))
         else:
-            # Sin MLA: no tienen publicación (excluye banlist)
+            # Sin MLA: no tienen ninguna publicación (sin importar estado, excluye banlist)
             items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
-                MercadoLibreItemPublicado.mlp_id.isnot(None),
-                or_(
-                    MercadoLibreItemPublicado.optval_statusId == 2,
-                    MercadoLibreItemPublicado.optval_statusId.is_(None)
-                )
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
             ).distinct().subquery()
 
             items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
