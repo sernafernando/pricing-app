@@ -112,6 +112,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
     if (filtrosActivos.audit_tipos_accion?.length > 0) params.audit_tipos_accion = filtrosActivos.audit_tipos_accion.join(',');
     if (filtrosActivos.audit_fecha_desde) params.audit_fecha_desde = filtrosActivos.audit_fecha_desde;
     if (filtrosActivos.audit_fecha_hasta) params.audit_fecha_hasta = filtrosActivos.audit_fecha_hasta;
+    if (filtrosActivos.filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
+    if (filtrosActivos.filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
     return params;
   };
 
@@ -225,6 +227,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
         if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
         if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
         if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
+        if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
+        if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
       }
 
       const url = `https://pricing.gaussonline.com.ar/api/exportar-vista-actual?${params}`;
@@ -348,6 +352,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
         if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
         if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
         if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
+        if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
+        if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
       }
 
       const response = await axios.get(
@@ -430,6 +436,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
         if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
         if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
         if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
+        if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
+        if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
       }
 
       const response = await axios.get(

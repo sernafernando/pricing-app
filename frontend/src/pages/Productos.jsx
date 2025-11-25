@@ -2722,56 +2722,19 @@ export default function Productos() {
 
                 <div className="filter-item">
                   <label>📊 Estado MLA</label>
-                  <div className="filter-buttons-row" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <button
-                      onClick={() => { setFiltroEstadoMLA('activa'); setPage(1); }}
-                      className={`filter-btn ${filtroEstadoMLA === 'activa' ? 'active' : ''}`}
-                      style={{
-                        padding: '6px 12px',
-                        fontSize: '13px',
-                        border: filtroEstadoMLA === 'activa' ? '2px solid #10b981' : '1px solid #ddd',
-                        backgroundColor: filtroEstadoMLA === 'activa' ? '#d1fae5' : '#fff',
-                        color: filtroEstadoMLA === 'activa' ? '#065f46' : '#666',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontWeight: filtroEstadoMLA === 'activa' ? 'bold' : 'normal'
-                      }}
-                    >
-                      ✅ Activas
-                    </button>
-                    <button
-                      onClick={() => { setFiltroEstadoMLA('pausada'); setPage(1); }}
-                      className={`filter-btn ${filtroEstadoMLA === 'pausada' ? 'active' : ''}`}
-                      style={{
-                        padding: '6px 12px',
-                        fontSize: '13px',
-                        border: filtroEstadoMLA === 'pausada' ? '2px solid #f59e0b' : '1px solid #ddd',
-                        backgroundColor: filtroEstadoMLA === 'pausada' ? '#fef3c7' : '#fff',
-                        color: filtroEstadoMLA === 'pausada' ? '#92400e' : '#666',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontWeight: filtroEstadoMLA === 'pausada' ? 'bold' : 'normal'
-                      }}
-                    >
-                      ⏸ Pausadas
-                    </button>
-                    <button
-                      onClick={() => { setFiltroEstadoMLA(null); setPage(1); }}
-                      className={`filter-btn ${filtroEstadoMLA === null ? 'active' : ''}`}
-                      style={{
-                        padding: '6px 12px',
-                        fontSize: '13px',
-                        border: filtroEstadoMLA === null ? '2px solid #6b7280' : '1px solid #ddd',
-                        backgroundColor: filtroEstadoMLA === null ? '#e5e7eb' : '#fff',
-                        color: filtroEstadoMLA === null ? '#1f2937' : '#666',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontWeight: filtroEstadoMLA === null ? 'bold' : 'normal'
-                      }}
-                    >
-                      Todas
-                    </button>
-                  </div>
+                  <select
+                    value={filtroEstadoMLA || 'todos'}
+                    onChange={(e) => {
+                      const valor = e.target.value === 'todos' ? null : e.target.value;
+                      setFiltroEstadoMLA(valor);
+                      setPage(1);
+                    }}
+                    className="filter-select"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="activa">Activas</option>
+                    <option value="pausada">Pausadas</option>
+                  </select>
                 </div>
 
                 <div className="filter-item">
