@@ -42,7 +42,7 @@ export default function Navbar() {
     <nav className={styles.navbar}>
       <div className={styles.container}>
         <div className={styles.brand}>
-          <img src={logo} alt="Logo" className={styles.logo} />
+          <Link to="/productos"><img src={logo} alt="Logo" className={styles.logo} /></Link>
           <span className={styles.title}>Pricing App</span>
         </div>
 

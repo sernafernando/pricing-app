@@ -188,6 +188,12 @@ export default function Productos() {
     // Page Size
     if (pageSize !== 50) params.set('pagesize', pageSize.toString());
 
+    // Filtros de Auditoría
+    if (filtrosAuditoria.usuarios.length > 0) params.set('audit_usuarios', filtrosAuditoria.usuarios.join(','));
+    if (filtrosAuditoria.tipos_accion.length > 0) params.set('audit_tipos', filtrosAuditoria.tipos_accion.join(','));
+    if (filtrosAuditoria.fecha_desde) params.set('audit_desde', filtrosAuditoria.fecha_desde);
+    if (filtrosAuditoria.fecha_hasta) params.set('audit_hasta', filtrosAuditoria.fecha_hasta);
+
     setSearchParams(params, { replace: true });
   };
 
@@ -213,6 +219,10 @@ export default function Productos() {
     const colores = searchParams.get('colores');
     const pageParam = searchParams.get('page');
     const pagesizeParam = searchParams.get('pagesize');
+    const auditUsuarios = searchParams.get('audit_usuarios');
+    const auditTipos = searchParams.get('audit_tipos');
+    const auditDesde = searchParams.get('audit_desde');
+    const auditHasta = searchParams.get('audit_hasta');
 
     // Setear estados desde URL
     if (search) setSearchInput(search);
@@ -235,6 +245,16 @@ export default function Productos() {
     if (colores) setColoresSeleccionados(colores.split(',').map(c => c.trim()).filter(Boolean));
     if (pageParam) setPage(parseInt(pageParam, 10));
     if (pagesizeParam) setPageSize(parseInt(pagesizeParam, 10));
+
+    // Filtros de Auditoría
+    if (auditUsuarios || auditTipos || auditDesde || auditHasta) {
+      setFiltrosAuditoria({
+        usuarios: auditUsuarios ? auditUsuarios.split(',').map(u => u.trim()).filter(Boolean) : [],
+        tipos_accion: auditTipos ? auditTipos.split(',').map(t => t.trim()).filter(Boolean) : [],
+        fecha_desde: auditDesde || '',
+        fecha_hasta: auditHasta || ''
+      });
+    }
   };
 
   // useEffect inicial: cargar filtros desde URL al montar el componente
@@ -271,7 +291,8 @@ export default function Productos() {
     filtroNuevos,
     coloresSeleccionados,
     page,
-    pageSize
+    pageSize,
+    filtrosAuditoria
   ]);
 
   useEffect(() => {
