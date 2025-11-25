@@ -61,6 +61,7 @@ export default function Productos() {
   const [filtroMarkupWebTransf, setFiltroMarkupWebTransf] = useState(null);
   const [filtroOutOfCards, setFiltroOutOfCards] = useState(null);
   const [filtroMLA, setFiltroMLA] = useState(null); // con_mla, sin_mla
+  const [filtroEstadoMLA, setFiltroEstadoMLA] = useState(null); // 'activa', 'pausada'
   const [filtroNuevos, setFiltroNuevos] = useState(null); // ultimos_7_dias
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
   const [colorDropdownAbierto, setColorDropdownAbierto] = useState(null); // item_id del producto
@@ -176,6 +177,9 @@ export default function Productos() {
     // MLA
     if (filtroMLA) params.set('mla', filtroMLA);
 
+    // Estado MLA
+    if (filtroEstadoMLA) params.set('estado_mla', filtroEstadoMLA);
+
     // Nuevos
     if (filtroNuevos) params.set('nuevos', filtroNuevos);
 
@@ -215,6 +219,7 @@ export default function Productos() {
     const mkwebtransf = searchParams.get('mkwebtransf');
     const outofcards = searchParams.get('outofcards');
     const mla = searchParams.get('mla');
+    const estado_mla = searchParams.get('estado_mla');
     const nuevos = searchParams.get('nuevos');
     const colores = searchParams.get('colores');
     const pageParam = searchParams.get('page');
@@ -241,6 +246,7 @@ export default function Productos() {
     if (mkwebtransf) setFiltroMarkupWebTransf(mkwebtransf);
     if (outofcards) setFiltroOutOfCards(outofcards);
     if (mla) setFiltroMLA(mla);
+    if (estado_mla) setFiltroEstadoMLA(estado_mla);
     if (nuevos) setFiltroNuevos(nuevos);
     if (colores) setColoresSeleccionados(colores.split(',').map(c => c.trim()).filter(Boolean));
     if (pageParam) setPage(parseInt(pageParam, 10));
@@ -288,6 +294,7 @@ export default function Productos() {
     filtroMarkupWebTransf,
     filtroOutOfCards,
     filtroMLA,
+    filtroEstadoMLA,
     filtroNuevos,
     coloresSeleccionados,
     page,
@@ -297,12 +304,12 @@ export default function Productos() {
 
   useEffect(() => {
     cargarProductos();
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroNuevos]);
+  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos]);
 
   // Cargar stats dinámicos cada vez que cambian los filtros
   useEffect(() => {
     cargarStats();
-  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroNuevos]);
+  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos]);
 
   // Cargar marcas y subcategorías cuando se seleccionan PMs
   useEffect(() => {
@@ -364,6 +371,8 @@ export default function Productos() {
       if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
       if (filtroMLA === 'con_mla') params.con_mla = true;
       if (filtroMLA === 'sin_mla') params.con_mla = false;
+      if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
+      if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
       if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
       if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
       if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
@@ -412,6 +421,8 @@ export default function Productos() {
       if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
       if (filtroMLA === 'con_mla') params.con_mla = true;
       if (filtroMLA === 'sin_mla') params.con_mla = false;
+      if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
+      if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
       if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
       if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
       if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
@@ -856,6 +867,9 @@ export default function Productos() {
       if (filtroMLA === 'con_mla') params.con_mla = true;
       if (filtroMLA === 'sin_mla') params.con_mla = false;
 
+      if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
+      if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
+
       if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
 
       if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
@@ -968,6 +982,7 @@ export default function Productos() {
     setFiltroMarkupWebTransf(null);
     setFiltroOutOfCards(null);
     setFiltroMLA(null);
+    setFiltroEstadoMLA(null);
     setFiltroNuevos(null);
     setColoresSeleccionados([]);
     setOrdenColumnas([]);
@@ -2546,6 +2561,7 @@ export default function Productos() {
                 setFiltroMarkupWebTransf(null);
                 setFiltroOutOfCards(null);
                 setFiltroMLA(null);
+                setFiltroEstadoMLA(null);
                 setFiltroNuevos(null);
                 setColoresSeleccionados([]);
                 setPage(1);
@@ -2702,6 +2718,60 @@ export default function Productos() {
                     <option value="con_mla">Con MLA</option>
                     <option value="sin_mla">Sin MLA</option>
                   </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>📊 Estado MLA</label>
+                  <div className="filter-buttons-row" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => { setFiltroEstadoMLA('activa'); setPage(1); }}
+                      className={`filter-btn ${filtroEstadoMLA === 'activa' ? 'active' : ''}`}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '13px',
+                        border: filtroEstadoMLA === 'activa' ? '2px solid #10b981' : '1px solid #ddd',
+                        backgroundColor: filtroEstadoMLA === 'activa' ? '#d1fae5' : '#fff',
+                        color: filtroEstadoMLA === 'activa' ? '#065f46' : '#666',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: filtroEstadoMLA === 'activa' ? 'bold' : 'normal'
+                      }}
+                    >
+                      ✅ Activas
+                    </button>
+                    <button
+                      onClick={() => { setFiltroEstadoMLA('pausada'); setPage(1); }}
+                      className={`filter-btn ${filtroEstadoMLA === 'pausada' ? 'active' : ''}`}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '13px',
+                        border: filtroEstadoMLA === 'pausada' ? '2px solid #f59e0b' : '1px solid #ddd',
+                        backgroundColor: filtroEstadoMLA === 'pausada' ? '#fef3c7' : '#fff',
+                        color: filtroEstadoMLA === 'pausada' ? '#92400e' : '#666',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: filtroEstadoMLA === 'pausada' ? 'bold' : 'normal'
+                      }}
+                    >
+                      ⏸ Pausadas
+                    </button>
+                    <button
+                      onClick={() => { setFiltroEstadoMLA(null); setPage(1); }}
+                      className={`filter-btn ${filtroEstadoMLA === null ? 'active' : ''}`}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '13px',
+                        border: filtroEstadoMLA === null ? '2px solid #6b7280' : '1px solid #ddd',
+                        backgroundColor: filtroEstadoMLA === null ? '#e5e7eb' : '#fff',
+                        color: filtroEstadoMLA === null ? '#1f2937' : '#666',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: filtroEstadoMLA === null ? 'bold' : 'normal'
+                      }}
+                    >
+                      Todas
+                    </button>
+                  </div>
                 </div>
 
                 <div className="filter-item">
@@ -3558,6 +3628,7 @@ export default function Productos() {
             filtroMarkupOferta,
             filtroMarkupWebTransf,
             filtroOutOfCards,
+            filtroEstadoMLA,
             coloresSeleccionados,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,
@@ -3587,6 +3658,7 @@ export default function Productos() {
             filtroMarkupOferta,
             filtroMarkupWebTransf,
             filtroOutOfCards,
+            filtroEstadoMLA,
             coloresSeleccionados,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,

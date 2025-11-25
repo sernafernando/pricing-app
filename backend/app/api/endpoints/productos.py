@@ -124,6 +124,7 @@ async def listar_productos(
     colores: Optional[str] = None,
     pms: Optional[str] = None,
     con_mla: Optional[bool] = None,
+    estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
@@ -421,6 +422,44 @@ async def listar_productos(
             query = query.filter(
                 ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
                 ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id))
+            )
+
+    # Filtro de estado de publicaciones MLA
+    if estado_mla:
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+        if estado_mla == "activa":
+            # Tienen al menos una publicación activa
+            items_activos_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
+
+        elif estado_mla == "pausada":
+            # Tienen publicaciones pero ninguna activa
+            # 1. Productos que tienen al menos una publicación
+            items_con_publis = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
+            ).distinct().subquery()
+
+            # 2. Productos que tienen al menos una publicación activa
+            items_activos = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            # Productos con publicaciones PERO sin ninguna activa
+            query = query.filter(
+                ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
+                ~ProductoERP.item_id.in_(select(items_activos.c.item_id))
             )
 
     # Filtro de productos nuevos (últimos 7 días)
