@@ -4233,10 +4233,30 @@ async def exportar_vista_actual(
                 tipos_list = audit_tipos_accion.split(',')
                 subquery_filters.append(Auditoria.tipo_accion.in_(tipos_list))
             if audit_fecha_desde:
-                fecha_inicio = datetime.strptime(audit_fecha_desde, '%Y-%m-%d')
+                try:
+                    fecha_inicio = datetime.strptime(audit_fecha_desde, '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    try:
+                        fecha_inicio = datetime.strptime(audit_fecha_desde, '%Y-%m-%d %H:%M')
+                    except ValueError:
+                        try:
+                            fecha_inicio = datetime.strptime(audit_fecha_desde, '%Y-%m-%d')
+                        except ValueError:
+                            from datetime import date
+                            fecha_inicio = datetime.combine(date.today(), datetime.min.time())
                 subquery_filters.append(Auditoria.fecha >= fecha_inicio)
             if audit_fecha_hasta:
-                fecha_fin = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d') + timedelta(days=1)
+                try:
+                    fecha_fin = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d %H:%M:%S') + timedelta(days=1)
+                except ValueError:
+                    try:
+                        fecha_fin = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d %H:%M') + timedelta(days=1)
+                    except ValueError:
+                        try:
+                            fecha_fin = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d') + timedelta(days=1)
+                        except ValueError:
+                            from datetime import date
+                            fecha_fin = datetime.combine(date.today(), datetime.max.time())
                 subquery_filters.append(Auditoria.fecha < fecha_fin)
 
             if subquery_filters:
