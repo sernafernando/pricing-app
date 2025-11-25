@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { productosAPI } from '../services/api';
 import PricingModal from '../components/PricingModal';
 import { useDebounce } from '../hooks/useDebounce';
@@ -111,6 +112,10 @@ export default function Productos() {
 
   const debouncedSearch = useDebounce(searchInput, 500);
 
+  // URL Query Params para persistencia de filtros
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [filtrosInicializados, setFiltrosInicializados] = useState(false);
+
   // Función para mostrar toast
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -118,6 +123,156 @@ export default function Productos() {
   };
 
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
+
+  // Función para sincronizar filtros a la URL
+  const syncFiltersToURL = () => {
+    const params = new URLSearchParams();
+
+    // Search
+    if (searchInput) params.set('search', searchInput);
+
+    // Stock
+    if (filtroStock && filtroStock !== 'todos') params.set('stock', filtroStock);
+
+    // Precio
+    if (filtroPrecio && filtroPrecio !== 'todos') params.set('precio', filtroPrecio);
+
+    // Marcas (array -> comma separated string)
+    if (marcasSeleccionadas.length > 0) params.set('marcas', marcasSeleccionadas.join(','));
+
+    // Subcategorías
+    if (subcategoriasSeleccionadas.length > 0) params.set('subcats', subcategoriasSeleccionadas.join(','));
+
+    // PMs
+    if (pmsSeleccionados.length > 0) params.set('pms', pmsSeleccionados.join(','));
+
+    // Rebate
+    if (filtroRebate) params.set('rebate', filtroRebate);
+
+    // Oferta
+    if (filtroOferta) params.set('oferta', filtroOferta);
+
+    // Web Transf
+    if (filtroWebTransf) params.set('webtransf', filtroWebTransf);
+
+    // Tienda Nube
+    if (filtroTiendaNube) params.set('tiendanube', filtroTiendaNube);
+
+    // Markup Clásica
+    if (filtroMarkupClasica) params.set('mkclasica', filtroMarkupClasica);
+
+    // Markup Rebate
+    if (filtroMarkupRebate) params.set('mkrebate', filtroMarkupRebate);
+
+    // Markup Oferta
+    if (filtroMarkupOferta) params.set('mkoferta', filtroMarkupOferta);
+
+    // Markup Web Transf
+    if (filtroMarkupWebTransf) params.set('mkwebtransf', filtroMarkupWebTransf);
+
+    // Out of Cards
+    if (filtroOutOfCards) params.set('outofcards', filtroOutOfCards);
+
+    // MLA
+    if (filtroMLA) params.set('mla', filtroMLA);
+
+    // Nuevos
+    if (filtroNuevos) params.set('nuevos', filtroNuevos);
+
+    // Colores
+    if (coloresSeleccionados.length > 0) params.set('colores', coloresSeleccionados.join(','));
+
+    // Página
+    if (page > 1) params.set('page', page.toString());
+
+    // Page Size
+    if (pageSize !== 50) params.set('pagesize', pageSize.toString());
+
+    setSearchParams(params, { replace: true });
+  };
+
+  // Función para cargar filtros desde la URL
+  const loadFiltersFromURL = () => {
+    const search = searchParams.get('search');
+    const stock = searchParams.get('stock');
+    const precio = searchParams.get('precio');
+    const marcas = searchParams.get('marcas');
+    const subcats = searchParams.get('subcats');
+    const pms = searchParams.get('pms');
+    const rebate = searchParams.get('rebate');
+    const oferta = searchParams.get('oferta');
+    const webtransf = searchParams.get('webtransf');
+    const tiendanube = searchParams.get('tiendanube');
+    const mkclasica = searchParams.get('mkclasica');
+    const mkrebate = searchParams.get('mkrebate');
+    const mkoferta = searchParams.get('mkoferta');
+    const mkwebtransf = searchParams.get('mkwebtransf');
+    const outofcards = searchParams.get('outofcards');
+    const mla = searchParams.get('mla');
+    const nuevos = searchParams.get('nuevos');
+    const colores = searchParams.get('colores');
+    const pageParam = searchParams.get('page');
+    const pagesizeParam = searchParams.get('pagesize');
+
+    // Setear estados desde URL
+    if (search) setSearchInput(search);
+    if (stock) setFiltroStock(stock);
+    if (precio) setFiltroPrecio(precio);
+    if (marcas) setMarcasSeleccionadas(marcas.split(',').map(m => m.trim()).filter(Boolean));
+    if (subcats) setSubcategoriasSeleccionadas(subcats.split(',').map(s => s.trim()).filter(Boolean));
+    if (pms) setPmsSeleccionados(pms.split(',').map(p => p.trim()).filter(Boolean));
+    if (rebate) setFiltroRebate(rebate);
+    if (oferta) setFiltroOferta(oferta);
+    if (webtransf) setFiltroWebTransf(webtransf);
+    if (tiendanube) setFiltroTiendaNube(tiendanube);
+    if (mkclasica) setFiltroMarkupClasica(mkclasica);
+    if (mkrebate) setFiltroMarkupRebate(mkrebate);
+    if (mkoferta) setFiltroMarkupOferta(mkoferta);
+    if (mkwebtransf) setFiltroMarkupWebTransf(mkwebtransf);
+    if (outofcards) setFiltroOutOfCards(outofcards);
+    if (mla) setFiltroMLA(mla);
+    if (nuevos) setFiltroNuevos(nuevos);
+    if (colores) setColoresSeleccionados(colores.split(',').map(c => c.trim()).filter(Boolean));
+    if (pageParam) setPage(parseInt(pageParam, 10));
+    if (pagesizeParam) setPageSize(parseInt(pagesizeParam, 10));
+  };
+
+  // useEffect inicial: cargar filtros desde URL al montar el componente
+  useEffect(() => {
+    loadFiltersFromURL();
+    // Marcar que los filtros ya fueron inicializados
+    setFiltrosInicializados(true);
+  }, []); // Solo al montar
+
+  // useEffect para sincronizar filtros a URL cuando cambian
+  useEffect(() => {
+    // Solo sincronizar después de que los filtros fueron inicializados desde URL
+    if (filtrosInicializados) {
+      syncFiltersToURL();
+    }
+  }, [
+    filtrosInicializados,
+    searchInput,
+    filtroStock,
+    filtroPrecio,
+    marcasSeleccionadas,
+    subcategoriasSeleccionadas,
+    pmsSeleccionados,
+    filtroRebate,
+    filtroOferta,
+    filtroWebTransf,
+    filtroTiendaNube,
+    filtroMarkupClasica,
+    filtroMarkupRebate,
+    filtroMarkupOferta,
+    filtroMarkupWebTransf,
+    filtroOutOfCards,
+    filtroMLA,
+    filtroNuevos,
+    coloresSeleccionados,
+    page,
+    pageSize
+  ]);
 
   useEffect(() => {
     cargarProductos();
@@ -796,6 +951,9 @@ export default function Productos() {
     setColoresSeleccionados([]);
     setOrdenColumnas([]);
     setPage(1);
+
+    // Limpiar también la URL
+    setSearchParams({}, { replace: true });
   };
 
   const verAuditoria = async (productoId) => {
