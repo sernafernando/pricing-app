@@ -1,7 +1,7 @@
 """create producto_banlist table
 
 Revision ID: e8f3c4d5a6b2
-Revises: be7e944130f0
+Revises: 706705276b8d
 Create Date: 2025-01-26 10:00:00.000000
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'e8f3c4d5a6b2'
-down_revision = 'be7e944130f0'
+down_revision = '706705276b8d'
 branch_labels = None
 depends_on = None
 
