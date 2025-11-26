@@ -168,8 +168,11 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
         if (filtrosActivos.audit_tipos_accion?.length > 0) body.filtros.audit_tipos_accion = filtrosActivos.audit_tipos_accion.join(',');
         if (filtrosActivos.audit_fecha_desde) body.filtros.audit_fecha_desde = filtrosActivos.audit_fecha_desde;
         if (filtrosActivos.audit_fecha_hasta) body.filtros.audit_fecha_hasta = filtrosActivos.audit_fecha_hasta;
+        if (filtrosActivos.filtroMLA === 'con_mla') body.filtros.con_mla = true;
+        if (filtrosActivos.filtroMLA === 'sin_mla') body.filtros.con_mla = false;
         if (filtrosActivos.filtroEstadoMLA === 'activa') body.filtros.estado_mla = 'activa';
         if (filtrosActivos.filtroEstadoMLA === 'pausada') body.filtros.estado_mla = 'pausada';
+        if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') body.filtros.nuevos_ultimos_7_dias = true;
       }
 
       const response = await axios.post(

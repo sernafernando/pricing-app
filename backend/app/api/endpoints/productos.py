@@ -2636,7 +2636,72 @@ async def calcular_web_masivo(
             marcas_asignadas = [m[0] for m in marcas_pm]
             if marcas_asignadas:
                 query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
-    
+
+        # Filtro de MLA
+        if request.filtros.get('con_mla') is not None:
+            from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+            from app.models.item_sin_mla_banlist import ItemSinMLABanlist
+
+            if request.filtros['con_mla']:
+                # Con MLA: tienen al menos una publicación (sin importar estado)
+                items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                    MercadoLibreItemPublicado.mlp_id.isnot(None)
+                ).distinct().subquery()
+                query = query.filter(ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)))
+            else:
+                # Sin MLA: no tienen ninguna publicación (sin importar estado, excluye banlist)
+                items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                    MercadoLibreItemPublicado.mlp_id.isnot(None)
+                ).distinct().subquery()
+
+                items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
+
+                query = query.filter(
+                    ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
+                    ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id))
+                )
+
+        # Filtro de estado de publicaciones MLA
+        if request.filtros.get('estado_mla'):
+            from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+            if request.filtros['estado_mla'] == "activa":
+                # Tienen al menos una publicación activa
+                items_activos_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                    MercadoLibreItemPublicado.mlp_id.isnot(None),
+                    or_(
+                        MercadoLibreItemPublicado.optval_statusId == 2,
+                        MercadoLibreItemPublicado.optval_statusId.is_(None)
+                    )
+                ).distinct().subquery()
+
+                query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
+
+            elif request.filtros['estado_mla'] == "pausada":
+                # Tienen publicaciones pero ninguna activa
+                items_con_publis = db.query(MercadoLibreItemPublicado.item_id).filter(
+                    MercadoLibreItemPublicado.mlp_id.isnot(None)
+                ).distinct().subquery()
+
+                items_activos = db.query(MercadoLibreItemPublicado.item_id).filter(
+                    MercadoLibreItemPublicado.mlp_id.isnot(None),
+                    or_(
+                        MercadoLibreItemPublicado.optval_statusId == 2,
+                        MercadoLibreItemPublicado.optval_statusId.is_(None)
+                    )
+                ).distinct().subquery()
+
+                query = query.filter(
+                    ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
+                    ~ProductoERP.item_id.in_(select(items_activos.c.item_id))
+                )
+
+        # Filtro de productos nuevos
+        if request.filtros.get('nuevos_ultimos_7_dias'):
+            from datetime import datetime, timedelta, timezone
+            fecha_limite = datetime.now(timezone.utc) - timedelta(days=7)
+            query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
+
     productos = query.all()
 
     procesados = 0

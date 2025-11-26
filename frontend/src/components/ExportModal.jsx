@@ -84,7 +84,10 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
     (filtrosActivos?.audit_usuarios?.length > 0) ||
     (filtrosActivos?.audit_tipos_accion?.length > 0) ||
     !!filtrosActivos?.audit_fecha_desde ||
-    !!filtrosActivos?.audit_fecha_hasta;
+    !!filtrosActivos?.audit_fecha_hasta ||
+    filtrosActivos?.filtroMLA !== null ||
+    filtrosActivos?.filtroEstadoMLA !== null ||
+    filtrosActivos?.filtroNuevos !== null;
 
   const agregarFiltrosAvanzados = (params) => {
     if (filtrosActivos.filtroRebate === 'con_rebate') params.con_rebate = true;
@@ -112,8 +115,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
     if (filtrosActivos.audit_tipos_accion?.length > 0) params.audit_tipos_accion = filtrosActivos.audit_tipos_accion.join(',');
     if (filtrosActivos.audit_fecha_desde) params.audit_fecha_desde = filtrosActivos.audit_fecha_desde;
     if (filtrosActivos.audit_fecha_hasta) params.audit_fecha_hasta = filtrosActivos.audit_fecha_hasta;
+    if (filtrosActivos.filtroMLA === 'con_mla') params.con_mla = true;
+    if (filtrosActivos.filtroMLA === 'sin_mla') params.con_mla = false;
     if (filtrosActivos.filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
     if (filtrosActivos.filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
+    if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
     return params;
   };
 
@@ -151,6 +157,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
       {filtrosActivos?.audit_fecha_hasta && <div>• Auditoría hasta: {filtrosActivos.audit_fecha_hasta}</div>}
       {filtrosActivos?.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
       {filtrosActivos?.pmsSeleccionados?.length > 0 && <div>• {filtrosActivos.pmsSeleccionados.length} PM(s) seleccionado(s)</div>}
+      {filtrosActivos?.filtroMLA === 'con_mla' && <div>• Con MLA</div>}
+      {filtrosActivos?.filtroMLA === 'sin_mla' && <div>• Sin MLA</div>}
+      {filtrosActivos?.filtroEstadoMLA === 'activa' && <div>• Estado MLA: Activas</div>}
+      {filtrosActivos?.filtroEstadoMLA === 'pausada' && <div>• Estado MLA: Pausadas</div>}
+      {filtrosActivos?.filtroNuevos === 'ultimos_7_dias' && <div>• Nuevos (últimos 7 días)</div>}
     </div>
   );
 
@@ -227,8 +238,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
         if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
         if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
         if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
+        if (filtrosActivos.filtroMLA === 'con_mla') params += `&con_mla=true`;
+        if (filtrosActivos.filtroMLA === 'sin_mla') params += `&con_mla=false`;
         if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
         if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
+        if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
       }
 
       const url = `https://pricing.gaussonline.com.ar/api/exportar-vista-actual?${params}`;
@@ -352,8 +366,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
         if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
         if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
         if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
+        if (filtrosActivos.filtroMLA === 'con_mla') params += `&con_mla=true`;
+        if (filtrosActivos.filtroMLA === 'sin_mla') params += `&con_mla=false`;
         if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
         if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
+        if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
       }
 
       const response = await axios.get(
@@ -436,8 +453,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
         if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
         if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
         if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
+        if (filtrosActivos.filtroMLA === 'con_mla') params += `&con_mla=true`;
+        if (filtrosActivos.filtroMLA === 'sin_mla') params += `&con_mla=false`;
         if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
         if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
+        if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
       }
 
       const response = await axios.get(
