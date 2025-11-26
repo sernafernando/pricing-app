@@ -1820,11 +1820,14 @@
 .row-colored small,
 .row-colored .web-transf-porcentaje,
 .row-colored .web-transf-markup,
+.row-colored .web-transf-info,
 .row-colored .rebate-price,
 .row-colored .rebate-percentage,
+.row-colored .rebate-info,
 .row-colored .mejor-oferta-precio,
 .row-colored .mejor-oferta-detalle,
-.row-colored .mejor-oferta-rebate {
+.row-colored .mejor-oferta-rebate,
+.row-colored .mejor-oferta-info {
   color: inherit !important;
   opacity: 0.75;
 }
