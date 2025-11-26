@@ -2004,6 +2004,7 @@ class ExportRebateRequest(BaseModel):
     fecha_desde: Optional[str] = None
     fecha_hasta: Optional[str] = None
     filtros: Optional[dict] = None
+    estado_mla: Optional[str] = None
 
 @router.post("/productos/exportar-rebate")
 async def exportar_rebate(
@@ -2206,8 +2207,79 @@ async def exportar_rebate(
                 # Si no hay items que cumplan con los filtros de auditoría, no devolver nada
                 query = query.filter(ProductoERP.item_id == -1)
 
+        # Filtro de estado de publicaciones MLA
+        if filtros.get('estado_mla'):
+            from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+            estado_mla_val = filtros['estado_mla']
+
+            if estado_mla_val == "activa":
+                # Tienen al menos una publicación activa
+                items_activos_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                    MercadoLibreItemPublicado.mlp_id.isnot(None),
+                    or_(
+                        MercadoLibreItemPublicado.optval_statusId == 2,
+                        MercadoLibreItemPublicado.optval_statusId.is_(None)
+                    )
+                ).distinct().subquery()
+
+                query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
+
+            elif estado_mla_val == "pausada":
+                # Tienen publicaciones pero ninguna activa
+                items_con_publis = db.query(MercadoLibreItemPublicado.item_id).filter(
+                    MercadoLibreItemPublicado.mlp_id.isnot(None)
+                ).distinct().subquery()
+
+                items_activos = db.query(MercadoLibreItemPublicado.item_id).filter(
+                    MercadoLibreItemPublicado.mlp_id.isnot(None),
+                    or_(
+                        MercadoLibreItemPublicado.optval_statusId == 2,
+                        MercadoLibreItemPublicado.optval_statusId.is_(None)
+                    )
+                ).distinct().subquery()
+
+                query = query.filter(
+                    ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
+                    ~ProductoERP.item_id.in_(select(items_activos.c.item_id))
+                )
+
+    # Filtro de estado_mla directo del request (fuera del dict filtros)
+    if request.estado_mla:
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+        if request.estado_mla == "activa":
+            # Tienen al menos una publicación activa
+            items_activos_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
+
+        elif request.estado_mla == "pausada":
+            # Tienen publicaciones pero ninguna activa
+            items_con_publis = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
+            ).distinct().subquery()
+
+            items_activos = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            query = query.filter(
+                ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
+                ~ProductoERP.item_id.in_(select(items_activos.c.item_id))
+            )
+
     productos = query.all()
-    
+
     # Crear Excel
     wb = Workbook()
     ws = wb.active
@@ -3192,6 +3264,7 @@ async def exportar_web_transferencia(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    estado_mla: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Exporta precios de Web Transferencia en formato Excel con filtros opcionales"""
@@ -3402,6 +3475,41 @@ async def exportar_web_transferencia(
             )
         )
 
+    # Filtro de estado de publicaciones MLA
+    if estado_mla:
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+        if estado_mla == "activa":
+            # Tienen al menos una publicación activa
+            items_activos_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
+
+        elif estado_mla == "pausada":
+            # Tienen publicaciones pero ninguna activa
+            items_con_publis = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
+            ).distinct().subquery()
+
+            items_activos = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            query = query.filter(
+                ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
+                ~ProductoERP.item_id.in_(select(items_activos.c.item_id))
+            )
+
     productos = query.all()
 
     # Aplicar filtros de markup y oferta (requieren cálculos, se hacen después de la query)
@@ -3558,6 +3666,7 @@ async def exportar_clasica(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    estado_mla: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Exporta precios de Clásica. Si tiene rebate activo, aplica % sobre precio rebate."""
@@ -3778,6 +3887,41 @@ async def exportar_clasica(
                 ~subquery
             )
         )
+
+    # Filtro de estado de publicaciones MLA
+    if estado_mla:
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+        if estado_mla == "activa":
+            # Tienen al menos una publicación activa
+            items_activos_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
+
+        elif estado_mla == "pausada":
+            # Tienen publicaciones pero ninguna activa
+            items_con_publis = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
+            ).distinct().subquery()
+
+            items_activos = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            query = query.filter(
+                ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
+                ~ProductoERP.item_id.in_(select(items_activos.c.item_id))
+            )
 
     productos = query.all()
 
@@ -4090,6 +4234,7 @@ async def exportar_vista_actual(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    estado_mla: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Exporta la vista actual de productos a Excel con todos los datos"""
@@ -4299,6 +4444,41 @@ async def exportar_vista_actual(
                             *subquery_filters
                         )
                     )
+                )
+
+        # Filtro de estado de publicaciones MLA
+        if estado_mla:
+            from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+            if estado_mla == "activa":
+                # Tienen al menos una publicación activa
+                items_activos_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                    MercadoLibreItemPublicado.mlp_id.isnot(None),
+                    or_(
+                        MercadoLibreItemPublicado.optval_statusId == 2,
+                        MercadoLibreItemPublicado.optval_statusId.is_(None)
+                    )
+                ).distinct().subquery()
+
+                query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
+
+            elif estado_mla == "pausada":
+                # Tienen publicaciones pero ninguna activa
+                items_con_publis = db.query(MercadoLibreItemPublicado.item_id).filter(
+                    MercadoLibreItemPublicado.mlp_id.isnot(None)
+                ).distinct().subquery()
+
+                items_activos = db.query(MercadoLibreItemPublicado.item_id).filter(
+                    MercadoLibreItemPublicado.mlp_id.isnot(None),
+                    or_(
+                        MercadoLibreItemPublicado.optval_statusId == 2,
+                        MercadoLibreItemPublicado.optval_statusId.is_(None)
+                    )
+                ).distinct().subquery()
+
+                query = query.filter(
+                    ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
+                    ~ProductoERP.item_id.in_(select(items_activos.c.item_id))
                 )
 
         # Ejecutar query
