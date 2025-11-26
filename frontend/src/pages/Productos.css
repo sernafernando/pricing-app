@@ -1622,3 +1622,131 @@
     bottom: 10px;
   }
 }
+
+/* Modal de confirmación de ban */
+.modal-ban-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modal-ban-content {
+  background-color: var(--bg-primary);
+  padding: 30px;
+  border-radius: 8px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  color: var(--text-primary);
+}
+
+.modal-ban-title {
+  margin-top: 0;
+  color: #ef4444;
+}
+
+.modal-ban-info {
+  margin-bottom: 20px;
+}
+
+.modal-ban-info p {
+  margin: 8px 0;
+}
+
+.modal-ban-warning {
+  padding: 15px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.modal-ban-warning p:first-child {
+  margin: 0 0 10px 0;
+  font-weight: bold;
+}
+
+.modal-ban-word {
+  margin: 10px 0;
+  font-size: 20px;
+  font-weight: bold;
+  color: #dc2626;
+  text-align: center;
+  font-family: monospace;
+  background-color: var(--bg-primary);
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.modal-ban-field {
+  margin-bottom: 15px;
+}
+
+.modal-ban-field label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+.modal-ban-input,
+.modal-ban-textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 16px;
+  box-sizing: border-box;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.modal-ban-textarea {
+  font-size: 14px;
+  min-height: 80px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.modal-ban-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.modal-ban-btn-cancel {
+  padding: 10px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.modal-ban-btn-cancel:hover {
+  opacity: 0.8;
+}
+
+.modal-ban-btn-confirm {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  background-color: #ef4444;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.modal-ban-btn-confirm:hover {
+  background-color: #dc2626;
+}

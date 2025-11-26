@@ -3713,103 +3713,45 @@ export default function Productos() {
 
       {/* Modal de confirmación de ban */}
       {mostrarModalBan && productoBan && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '30px',
-            borderRadius: '8px',
-            maxWidth: '500px',
-            width: '90%',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
-          }}>
-            <h2 style={{ marginTop: 0, color: '#ef4444' }}>⚠️ Confirmar Ban</h2>
+        <div className="modal-ban-overlay">
+          <div className="modal-ban-content">
+            <h2 className="modal-ban-title">⚠️ Confirmar Ban</h2>
 
-            <div style={{ marginBottom: '20px' }}>
+            <div className="modal-ban-info">
               <p><strong>Producto:</strong> {productoBan.codigo}</p>
               <p><strong>Descripción:</strong> {productoBan.descripcion}</p>
               <p><strong>Item ID:</strong> {productoBan.item_id}</p>
               {productoBan.ean && <p><strong>EAN:</strong> {productoBan.ean}</p>}
             </div>
 
-            <div style={{
-              padding: '15px',
-              backgroundColor: '#fef2f2',
-              border: '1px solid #fecaca',
-              borderRadius: '6px',
-              marginBottom: '20px'
-            }}>
-              <p style={{ margin: '0 0 10px 0', fontWeight: 'bold' }}>
-                Para confirmar, escribe la siguiente palabra:
-              </p>
-              <p style={{
-                margin: '10px 0',
-                fontSize: '20px',
-                fontWeight: 'bold',
-                color: '#dc2626',
-                textAlign: 'center',
-                fontFamily: 'monospace',
-                backgroundColor: 'white',
-                padding: '10px',
-                borderRadius: '4px'
-              }}>
-                {palabraObjetivo}
-              </p>
+            <div className="modal-ban-warning">
+              <p>Para confirmar, escribe la siguiente palabra:</p>
+              <p className="modal-ban-word">{palabraObjetivo}</p>
             </div>
 
-            <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Palabra de verificación:
-              </label>
+            <div className="modal-ban-field">
+              <label>Palabra de verificación:</label>
               <input
                 type="text"
                 value={palabraVerificacion}
                 onChange={(e) => setPalabraVerificacion(e.target.value)}
                 placeholder="Escribe la palabra aquí"
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '4px',
-                  fontSize: '16px',
-                  boxSizing: 'border-box'
-                }}
+                className="modal-ban-input"
                 autoFocus
               />
             </div>
 
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Motivo (opcional):
-              </label>
+            <div className="modal-ban-field">
+              <label>Motivo (opcional):</label>
               <textarea
                 value={motivoBan}
                 onChange={(e) => setMotivoBan(e.target.value)}
                 placeholder="Razón por la cual se banea este producto"
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  minHeight: '80px',
-                  boxSizing: 'border-box',
-                  resize: 'vertical'
-                }}
+                className="modal-ban-textarea"
               />
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+            <div className="modal-ban-actions">
               <button
                 onClick={() => {
                   setMostrarModalBan(false);
@@ -3818,29 +3760,13 @@ export default function Productos() {
                   setPalabraObjetivo('');
                   setMotivoBan('');
                 }}
-                style={{
-                  padding: '10px 20px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '4px',
-                  backgroundColor: 'white',
-                  cursor: 'pointer',
-                  fontSize: '14px'
-                }}
+                className="modal-ban-btn-cancel"
               >
                 Cancelar
               </button>
               <button
                 onClick={confirmarBan}
-                style={{
-                  padding: '10px 20px',
-                  border: 'none',
-                  borderRadius: '4px',
-                  backgroundColor: '#ef4444',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: 'bold'
-                }}
+                className="modal-ban-btn-confirm"
               >
                 Confirmar Ban
               </button>
