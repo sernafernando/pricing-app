@@ -1832,9 +1832,18 @@
   opacity: 0.75;
 }
 
-/* Los markups que se colorean dinámicamente con JS también deben heredar el color */
+/* Los markups y elementos que se colorean dinámicamente con JS también deben heredar el color */
 .row-colored .web-transf-markup[style*="color"],
-.row-colored .mejor-oferta-detalle[style*="color"] {
+.row-colored .mejor-oferta-detalle[style*="color"],
+.row-colored .web-transf-info [style*="color"],
+.row-colored .web-transf-info div,
+.row-colored .web-transf-info span,
+.row-colored .rebate-info [style*="color"],
+.row-colored .rebate-info div,
+.row-colored .rebate-info span,
+.row-colored .mejor-oferta-info [style*="color"],
+.row-colored .mejor-oferta-info div,
+.row-colored .mejor-oferta-info span {
   color: inherit !important;
   opacity: 0.85;
 }
