@@ -542,6 +542,7 @@ function ProductoBanlistTab() {
                   <th style={{ padding: '12px', color: 'var(--text-primary)' }}>Código</th>
                   <th style={{ padding: '12px', color: 'var(--text-primary)' }}>Descripción</th>
                   <th style={{ padding: '12px', color: 'var(--text-primary)' }}>Motivo</th>
+                  <th style={{ padding: '12px', color: 'var(--text-primary)' }}>Usuario</th>
                   <th style={{ padding: '12px', color: 'var(--text-primary)' }}>Fecha</th>
                   {esAdmin && <th style={{ padding: '12px', color: 'var(--text-primary)' }}>Acciones</th>}
                 </tr>
@@ -562,6 +563,9 @@ function ProductoBanlistTab() {
                       </td>
                       <td style={{ padding: '12px', color: 'var(--text-secondary)' }}>
                         {prod.motivo || <em style={{ color: 'var(--text-tertiary)' }}>Sin motivo</em>}
+                      </td>
+                      <td style={{ padding: '12px', color: 'var(--text-secondary)' }}>
+                        {prod.usuario_nombre || <em style={{ color: 'var(--text-tertiary)' }}>-</em>}
                       </td>
                       <td style={{ padding: '12px', color: 'var(--text-secondary)' }}>
                         {new Date(prod.fecha_creacion).toLocaleDateString('es-AR', {

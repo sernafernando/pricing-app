@@ -26,6 +26,7 @@ class ProductoBanlistResponse(BaseModel):
     motivo: Optional[str]
     fecha_creacion: datetime
     activo: bool
+    usuario_nombre: Optional[str]  # Nombre del usuario que baneó
 
     class Config:
         from_attributes = True
@@ -47,6 +48,13 @@ async def listar_banlist(
         elif prod.ean:
             producto_erp = db.query(ProductoERP).filter(ProductoERP.ean == prod.ean).first()
 
+        # Buscar usuario que baneó
+        usuario_nombre = None
+        if prod.usuario_id:
+            usuario = db.query(Usuario).filter(Usuario.id == prod.usuario_id).first()
+            if usuario:
+                usuario_nombre = usuario.nombre
+
         resultado.append({
             "id": prod.id,
             "item_id": prod.item_id,
@@ -55,7 +63,8 @@ async def listar_banlist(
             "descripcion": producto_erp.descripcion if producto_erp else None,
             "motivo": prod.motivo,
             "fecha_creacion": prod.fecha_creacion,
-            "activo": prod.activo
+            "activo": prod.activo,
+            "usuario_nombre": usuario_nombre
         })
 
     return resultado
@@ -106,7 +115,8 @@ async def agregar_a_banlist(
             nuevo_prod = ProductoBanlist(
                 item_id=item_id,
                 motivo=datos.motivo,
-                activo=True
+                activo=True,
+                usuario_id=current_user.id
             )
             db.add(nuevo_prod)
             agregados.append(f"Item ID {item_id} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''}")
@@ -140,7 +150,8 @@ async def agregar_a_banlist(
             nuevo_prod = ProductoBanlist(
                 ean=ean,
                 motivo=datos.motivo,
-                activo=True
+                activo=True,
+                usuario_id=current_user.id
             )
             db.add(nuevo_prod)
             agregados.append(f"EAN {ean} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''}")
