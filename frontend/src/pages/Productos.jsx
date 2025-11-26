@@ -2058,7 +2058,7 @@ export default function Productos() {
       <div className="search-bar">
         <input
           type="text"
-          placeholder="Buscar por código, descripción o marca..."
+          placeholder="Buscar por código, descripción o marca... (ej: ean:123456, marca:Samsung, *123, código*)"
           value={searchInput}
           onChange={handleSearchChange}
           onFocus={(e) => e.target.select()}
@@ -4034,6 +4034,38 @@ export default function Productos() {
                 <div className="shortcut-item">
                   <kbd>Alt</kbd> + <kbd>F</kbd>
                   <span>Toggle filtros avanzados</span>
+                </div>
+              </div>
+
+              <div className="shortcuts-section">
+                <h3>🔍 Operadores de Búsqueda</h3>
+                <div className="shortcut-item">
+                  <kbd>ean:123456</kbd>
+                  <span>Búsqueda exacta por EAN</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>codigo:ABC123</kbd>
+                  <span>Búsqueda exacta por código</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>marca:Samsung</kbd>
+                  <span>Búsqueda exacta por marca</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>desc:texto</kbd>
+                  <span>Búsqueda en descripción (contiene)</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>*123</kbd>
+                  <span>Termina en "123" (en cualquier campo)</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>123*</kbd>
+                  <span>Comienza con "123" (en cualquier campo)</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>texto</kbd>
+                  <span>Búsqueda normal (contiene en desc, marca o código)</span>
                 </div>
               </div>
 
