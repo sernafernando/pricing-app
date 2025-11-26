@@ -279,24 +279,24 @@ async def listar_productos(
         # Detectar wildcards: *valor (termina en) o valor* (comienza con)
         elif search.startswith('*') and not search.endswith('*'):
             # Termina en
-            value = search[1:].replace('-', '').replace(' ', '').upper()
+            value = search[1:].upper()  # No normalizar para wildcards, mantener guiones
             search_filters.append(
                 or_(
-                    func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{value}"),
-                    func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{value}"),
-                    func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{value}"),
-                    ProductoERP.ean.like(f"%{value}")
+                    func.upper(ProductoERP.descripcion).like(f"%{value}"),
+                    func.upper(ProductoERP.marca).like(f"%{value}"),
+                    func.upper(ProductoERP.codigo).like(f"%{value}"),
+                    func.upper(ProductoERP.ean).like(f"%{value}")
                 )
             )
         elif search.endswith('*') and not search.startswith('*'):
             # Comienza con
-            value = search[:-1].replace('-', '').replace(' ', '').upper()
+            value = search[:-1].upper()  # No normalizar para wildcards, mantener guiones
             search_filters.append(
                 or_(
-                    func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"{value}%"),
-                    func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"{value}%"),
-                    func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"{value}%"),
-                    ProductoERP.ean.like(f"{value}%")
+                    func.upper(ProductoERP.descripcion).like(f"{value}%"),
+                    func.upper(ProductoERP.marca).like(f"{value}%"),
+                    func.upper(ProductoERP.codigo).like(f"{value}%"),
+                    func.upper(ProductoERP.ean).like(f"{value}%")
                 )
             )
         else:
