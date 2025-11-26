@@ -243,6 +243,7 @@ async def listar_productos(
     if search:
         # Parsear operadores de búsqueda
         search_filter = None
+        logger.info(f"🔍 Búsqueda recibida: '{search}'")
 
         # Detectar búsquedas literales: campo:valor
         if ':' in search and not search.startswith('*') and not search.endswith('*'):
@@ -252,6 +253,7 @@ async def listar_productos(
 
                 if field == 'ean':
                     # Búsqueda exacta por EAN (case insensitive)
+                    logger.info(f"✅ Filtrando por EAN exacto: '{value}'")
                     search_filter = and_(
                         ProductoERP.ean.isnot(None),
                         ProductoERP.ean != '',
@@ -291,6 +293,7 @@ async def listar_productos(
         elif search.startswith('*') and not search.endswith('*'):
             # Termina en
             value = search[1:].upper()
+            logger.info(f"✅ Filtrando por TERMINA EN: '{value}'")
             search_filter = or_(
                 and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"%{value}")),
                 and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"%{value}")),
@@ -317,7 +320,10 @@ async def listar_productos(
 
         # Aplicar filtro de búsqueda
         if search_filter is not None:
+            logger.info(f"✅ Aplicando filtro de búsqueda")
             query = query.filter(search_filter)
+        else:
+            logger.warning(f"⚠️ search_filter quedó en None! No se aplicó ningún filtro")
 
     if categoria:
         query = query.filter(ProductoERP.categoria == categoria)
