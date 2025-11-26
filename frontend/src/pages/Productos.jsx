@@ -105,6 +105,13 @@ export default function Productos() {
   // Toast notification
   const [toast, setToast] = useState(null);
 
+  // Modal de ban
+  const [mostrarModalBan, setMostrarModalBan] = useState(false);
+  const [productoBan, setProductoBan] = useState(null);
+  const [palabraVerificacion, setPalabraVerificacion] = useState('');
+  const [palabraObjetivo, setPalabraObjetivo] = useState('');
+  const [motivoBan, setMotivoBan] = useState('');
+
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
 
@@ -1042,6 +1049,64 @@ export default function Productos() {
       console.error('Error cambiando color:', error);
       console.error('Detalles:', error.response?.data);
       alert('Error al cambiar el color');
+    }
+  };
+
+  const abrirModalBan = (producto) => {
+    // Obtener palabras de la descripción (filtrar palabras de más de 3 caracteres)
+    const palabras = producto.descripcion
+      .split(/\s+/)
+      .filter(p => p.length > 3)
+      .map(p => p.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ]/g, ''));
+
+    if (palabras.length === 0) {
+      alert('No hay palabras suficientes en la descripción del producto');
+      return;
+    }
+
+    // Elegir una palabra aleatoria
+    const palabraAleatoria = palabras[Math.floor(Math.random() * palabras.length)];
+
+    setProductoBan(producto);
+    setPalabraObjetivo(palabraAleatoria);
+    setPalabraVerificacion('');
+    setMotivoBan('');
+    setMostrarModalBan(true);
+  };
+
+  const confirmarBan = async () => {
+    // Verificar palabra
+    if (palabraVerificacion.toLowerCase() !== palabraObjetivo.toLowerCase()) {
+      alert('La palabra de verificación no coincide');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(
+        `${API_URL}/producto-banlist`,
+        {
+          item_ids: [productoBan.item_id],
+          eans: productoBan.ean ? [productoBan.ean] : [],
+          motivo: motivoBan || 'Sin motivo especificado'
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+
+      showToast('Producto agregado a la banlist', 'success');
+      setMostrarModalBan(false);
+      setProductoBan(null);
+      setPalabraVerificacion('');
+      setPalabraObjetivo('');
+      setMotivoBan('');
+
+      // Recargar productos para reflejar el cambio
+      cargarProductos();
+    } catch (error) {
+      console.error('Error al banear producto:', error);
+      alert(`Error: ${error.response?.data?.detail || error.message}`);
     }
   };
 
@@ -3444,6 +3509,16 @@ export default function Productos() {
                             </div>
                           )}
                         </div>
+                        {['SUPERADMIN', 'ADMIN'].includes(user?.rol) && (
+                          <button
+                            onClick={() => abrirModalBan(p)}
+                            className="icon-button ban"
+                            title="Agregar a banlist"
+                            style={{ color: '#ef4444' }}
+                          >
+                            🚫
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -3634,6 +3709,144 @@ export default function Productos() {
           }}
           showToast={showToast}
         />
+      )}
+
+      {/* Modal de confirmación de ban */}
+      {mostrarModalBan && productoBan && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            padding: '30px',
+            borderRadius: '8px',
+            maxWidth: '500px',
+            width: '90%',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+          }}>
+            <h2 style={{ marginTop: 0, color: '#ef4444' }}>⚠️ Confirmar Ban</h2>
+
+            <div style={{ marginBottom: '20px' }}>
+              <p><strong>Producto:</strong> {productoBan.codigo}</p>
+              <p><strong>Descripción:</strong> {productoBan.descripcion}</p>
+              <p><strong>Item ID:</strong> {productoBan.item_id}</p>
+              {productoBan.ean && <p><strong>EAN:</strong> {productoBan.ean}</p>}
+            </div>
+
+            <div style={{
+              padding: '15px',
+              backgroundColor: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '6px',
+              marginBottom: '20px'
+            }}>
+              <p style={{ margin: '0 0 10px 0', fontWeight: 'bold' }}>
+                Para confirmar, escribe la siguiente palabra:
+              </p>
+              <p style={{
+                margin: '10px 0',
+                fontSize: '20px',
+                fontWeight: 'bold',
+                color: '#dc2626',
+                textAlign: 'center',
+                fontFamily: 'monospace',
+                backgroundColor: 'white',
+                padding: '10px',
+                borderRadius: '4px'
+              }}>
+                {palabraObjetivo}
+              </p>
+            </div>
+
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                Palabra de verificación:
+              </label>
+              <input
+                type="text"
+                value={palabraVerificacion}
+                onChange={(e) => setPalabraVerificacion(e.target.value)}
+                placeholder="Escribe la palabra aquí"
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '4px',
+                  fontSize: '16px',
+                  boxSizing: 'border-box'
+                }}
+                autoFocus
+              />
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                Motivo (opcional):
+              </label>
+              <textarea
+                value={motivoBan}
+                onChange={(e) => setMotivoBan(e.target.value)}
+                placeholder="Razón por la cual se banea este producto"
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '4px',
+                  fontSize: '14px',
+                  minHeight: '80px',
+                  boxSizing: 'border-box',
+                  resize: 'vertical'
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => {
+                  setMostrarModalBan(false);
+                  setProductoBan(null);
+                  setPalabraVerificacion('');
+                  setPalabraObjetivo('');
+                  setMotivoBan('');
+                }}
+                style={{
+                  padding: '10px 20px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '4px',
+                  backgroundColor: 'white',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarBan}
+                style={{
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: 'bold'
+                }}
+              >
+                Confirmar Ban
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Barra de acciones flotante para selección múltiple */}

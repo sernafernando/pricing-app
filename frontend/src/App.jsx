@@ -10,7 +10,7 @@ import Admin from './pages/Admin';
 import UltimosCambios from './pages/UltimosCambios';
 import PreciosListas from './pages/PreciosListas';
 import GestionPM from './pages/GestionPM';
-import MLABanlist from './pages/MLABanlist';
+import Banlist from './pages/Banlist';
 import ItemsSinMLA from './pages/ItemsSinMLA';
 import DashboardVentas from './pages/DashboardVentas';
 import DashboardMetricasML from './pages/DashboardMetricasML';
@@ -91,7 +91,7 @@ function App() {
                 } />
                 <Route path="/mla-banlist" element={
                   <ProtectedRoute>
-                    <MLABanlist />
+                    <Banlist />
                   </ProtectedRoute>
                 } />
                 <Route path="/dashboard-ventas" element={
