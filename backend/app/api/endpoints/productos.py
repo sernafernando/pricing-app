@@ -252,17 +252,32 @@ async def listar_productos(
 
                 if field == 'ean':
                     # Búsqueda exacta por EAN (case insensitive)
-                    search_filter = func.upper(ProductoERP.ean) == value.upper()
+                    search_filter = and_(
+                        ProductoERP.ean.isnot(None),
+                        ProductoERP.ean != '',
+                        func.upper(ProductoERP.ean) == value.upper()
+                    )
                 elif field == 'codigo':
                     # Búsqueda exacta por código (case insensitive)
-                    search_filter = func.upper(ProductoERP.codigo) == value.upper()
+                    search_filter = and_(
+                        ProductoERP.codigo.isnot(None),
+                        ProductoERP.codigo != '',
+                        func.upper(ProductoERP.codigo) == value.upper()
+                    )
                 elif field == 'marca':
                     # Búsqueda exacta por marca (case insensitive)
-                    search_filter = func.upper(ProductoERP.marca) == value.upper()
+                    search_filter = and_(
+                        ProductoERP.marca.isnot(None),
+                        ProductoERP.marca != '',
+                        func.upper(ProductoERP.marca) == value.upper()
+                    )
                 elif field == 'desc' or field == 'descripcion':
                     # Búsqueda por descripción (contiene)
                     value_normalized = value.replace('-', '').replace(' ', '').upper()
-                    search_filter = func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{value_normalized}%")
+                    search_filter = and_(
+                        ProductoERP.descripcion.isnot(None),
+                        func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{value_normalized}%")
+                    )
                 else:
                     # Si el campo no es reconocido, hacer búsqueda normal con el texto completo
                     search_normalized = search.replace('-', '').replace(' ', '').upper()
@@ -277,19 +292,19 @@ async def listar_productos(
             # Termina en
             value = search[1:].upper()
             search_filter = or_(
-                func.upper(ProductoERP.descripcion).like(f"%{value}"),
-                func.upper(ProductoERP.marca).like(f"%{value}"),
-                func.upper(ProductoERP.codigo).like(f"%{value}"),
-                func.upper(ProductoERP.ean).like(f"%{value}")
+                and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"%{value}")),
+                and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"%{value}")),
+                and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"%{value}")),
+                and_(ProductoERP.ean.isnot(None), ProductoERP.ean != '', func.upper(ProductoERP.ean).like(f"%{value}"))
             )
         elif search.endswith('*') and not search.startswith('*'):
             # Comienza con
             value = search[:-1].upper()
             search_filter = or_(
-                func.upper(ProductoERP.descripcion).like(f"{value}%"),
-                func.upper(ProductoERP.marca).like(f"{value}%"),
-                func.upper(ProductoERP.codigo).like(f"{value}%"),
-                func.upper(ProductoERP.ean).like(f"{value}%")
+                and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"{value}%")),
+                and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"{value}%")),
+                and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"{value}%")),
+                and_(ProductoERP.ean.isnot(None), ProductoERP.ean != '', func.upper(ProductoERP.ean).like(f"{value}%"))
             )
         else:
             # Búsqueda normal (contiene)
