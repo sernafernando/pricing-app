@@ -252,13 +252,9 @@ async def listar_productos(
                 field, value = parts[0].strip().lower(), parts[1].strip()
 
                 if field == 'ean':
-                    # Búsqueda exacta por EAN (case insensitive)
-                    logger.info(f"✅ Filtrando por EAN exacto: '{value}'")
-                    search_filter = and_(
-                        ProductoERP.ean.isnot(None),
-                        ProductoERP.ean != '',
-                        func.upper(ProductoERP.ean) == value.upper()
-                    )
+                    # EAN no está disponible en ProductoERP
+                    logger.warning(f"⚠️ Campo EAN no disponible en ProductoERP")
+                    search_filter = None
                 elif field == 'codigo':
                     # Búsqueda exacta por código (case insensitive)
                     search_filter = and_(
@@ -297,8 +293,7 @@ async def listar_productos(
             search_filter = or_(
                 and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"%{value}")),
                 and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"%{value}")),
-                and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"%{value}")),
-                and_(ProductoERP.ean.isnot(None), ProductoERP.ean != '', func.upper(ProductoERP.ean).like(f"%{value}"))
+                and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"%{value}"))
             )
         elif search.endswith('*') and not search.startswith('*'):
             # Comienza con
@@ -306,8 +301,7 @@ async def listar_productos(
             search_filter = or_(
                 and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"{value}%")),
                 and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"{value}%")),
-                and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"{value}%")),
-                and_(ProductoERP.ean.isnot(None), ProductoERP.ean != '', func.upper(ProductoERP.ean).like(f"{value}%"))
+                and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"{value}%"))
             )
         else:
             # Búsqueda normal (contiene)
