@@ -242,7 +242,7 @@ async def listar_productos(
 
     if search:
         # Parsear operadores de búsqueda
-        search_filters = []
+        search_filter = None
 
         # Detectar búsquedas literales: campo:valor
         if ':' in search and not search.startswith('*') and not search.endswith('*'):
@@ -251,68 +251,58 @@ async def listar_productos(
                 field, value = parts[0].strip().lower(), parts[1].strip()
 
                 if field == 'ean':
-                    # Búsqueda exacta por EAN
-                    search_filters.append(ProductoERP.ean == value)
+                    # Búsqueda exacta por EAN (case insensitive)
+                    search_filter = func.upper(ProductoERP.ean) == value.upper()
                 elif field == 'codigo':
                     # Búsqueda exacta por código (case insensitive)
-                    search_filters.append(func.upper(ProductoERP.codigo) == value.upper())
+                    search_filter = func.upper(ProductoERP.codigo) == value.upper()
                 elif field == 'marca':
                     # Búsqueda exacta por marca (case insensitive)
-                    search_filters.append(func.upper(ProductoERP.marca) == value.upper())
+                    search_filter = func.upper(ProductoERP.marca) == value.upper()
                 elif field == 'desc' or field == 'descripcion':
                     # Búsqueda por descripción (contiene)
                     value_normalized = value.replace('-', '').replace(' ', '').upper()
-                    search_filters.append(
-                        func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{value_normalized}%")
-                    )
+                    search_filter = func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{value_normalized}%")
                 else:
                     # Si el campo no es reconocido, hacer búsqueda normal con el texto completo
                     search_normalized = search.replace('-', '').replace(' ', '').upper()
-                    search_filters.append(
-                        or_(
-                            func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
-                            func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
-                            func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
-                        )
+                    search_filter = or_(
+                        func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                        func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                        func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
                     )
 
         # Detectar wildcards: *valor (termina en) o valor* (comienza con)
         elif search.startswith('*') and not search.endswith('*'):
             # Termina en
-            value = search[1:].upper()  # No normalizar para wildcards, mantener guiones
-            search_filters.append(
-                or_(
-                    func.upper(ProductoERP.descripcion).like(f"%{value}"),
-                    func.upper(ProductoERP.marca).like(f"%{value}"),
-                    func.upper(ProductoERP.codigo).like(f"%{value}"),
-                    func.upper(ProductoERP.ean).like(f"%{value}")
-                )
+            value = search[1:].upper()
+            search_filter = or_(
+                func.upper(ProductoERP.descripcion).like(f"%{value}"),
+                func.upper(ProductoERP.marca).like(f"%{value}"),
+                func.upper(ProductoERP.codigo).like(f"%{value}"),
+                func.upper(ProductoERP.ean).like(f"%{value}")
             )
         elif search.endswith('*') and not search.startswith('*'):
             # Comienza con
-            value = search[:-1].upper()  # No normalizar para wildcards, mantener guiones
-            search_filters.append(
-                or_(
-                    func.upper(ProductoERP.descripcion).like(f"{value}%"),
-                    func.upper(ProductoERP.marca).like(f"{value}%"),
-                    func.upper(ProductoERP.codigo).like(f"{value}%"),
-                    func.upper(ProductoERP.ean).like(f"{value}%")
-                )
+            value = search[:-1].upper()
+            search_filter = or_(
+                func.upper(ProductoERP.descripcion).like(f"{value}%"),
+                func.upper(ProductoERP.marca).like(f"{value}%"),
+                func.upper(ProductoERP.codigo).like(f"{value}%"),
+                func.upper(ProductoERP.ean).like(f"{value}%")
             )
         else:
             # Búsqueda normal (contiene)
             search_normalized = search.replace('-', '').replace(' ', '').upper()
-            search_filters.append(
-                or_(
-                    func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
-                    func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
-                    func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
-                )
+            search_filter = or_(
+                func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
             )
 
-        # Aplicar filtros de búsqueda
-        if search_filters:
-            query = query.filter(or_(*search_filters))
+        # Aplicar filtro de búsqueda
+        if search_filter is not None:
+            query = query.filter(search_filter)
 
     if categoria:
         query = query.filter(ProductoERP.categoria == categoria)
