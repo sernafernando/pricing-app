@@ -1086,8 +1086,8 @@ export default function Productos() {
       await axios.post(
         `${API_URL}/producto-banlist`,
         {
-          item_ids: [productoBan.item_id],
-          eans: productoBan.ean ? [productoBan.ean] : [],
+          item_ids: productoBan.item_id ? String(productoBan.item_id) : null,
+          eans: productoBan.ean || null,
           motivo: motivoBan || 'Sin motivo especificado'
         },
         {
