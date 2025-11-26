@@ -101,25 +101,31 @@ async def agregar_a_banlist(
                 no_encontrados.append(f"Item ID {item_id} no encontrado en ERP")
                 continue
 
-            # Verificar si ya existe en banlist
+            # Verificar si ya existe en banlist (activo o inactivo)
             existe = db.query(ProductoBanlist).filter(
-                ProductoBanlist.item_id == item_id,
-                ProductoBanlist.activo == True
+                ProductoBanlist.item_id == item_id
             ).first()
 
             if existe:
-                duplicados.append(f"Item ID {item_id}")
-                continue
-
-            # Crear nuevo registro
-            nuevo_prod = ProductoBanlist(
-                item_id=item_id,
-                motivo=datos.motivo,
-                activo=True,
-                usuario_id=current_user.id
-            )
-            db.add(nuevo_prod)
-            agregados.append(f"Item ID {item_id} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''}")
+                if existe.activo:
+                    duplicados.append(f"Item ID {item_id}")
+                    continue
+                else:
+                    # Reactivar registro existente
+                    existe.activo = True
+                    existe.motivo = datos.motivo
+                    existe.usuario_id = current_user.id
+                    agregados.append(f"Item ID {item_id} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''} (reactivado)")
+            else:
+                # Crear nuevo registro
+                nuevo_prod = ProductoBanlist(
+                    item_id=item_id,
+                    motivo=datos.motivo,
+                    activo=True,
+                    usuario_id=current_user.id
+                )
+                db.add(nuevo_prod)
+                agregados.append(f"Item ID {item_id} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''}")
 
     # Procesar EANs
     if datos.eans:
@@ -136,25 +142,31 @@ async def agregar_a_banlist(
                 no_encontrados.append(f"EAN {ean} no encontrado en ERP")
                 continue
 
-            # Verificar si ya existe en banlist
+            # Verificar si ya existe en banlist (activo o inactivo)
             existe = db.query(ProductoBanlist).filter(
-                ProductoBanlist.ean == ean,
-                ProductoBanlist.activo == True
+                ProductoBanlist.ean == ean
             ).first()
 
             if existe:
-                duplicados.append(f"EAN {ean}")
-                continue
-
-            # Crear nuevo registro
-            nuevo_prod = ProductoBanlist(
-                ean=ean,
-                motivo=datos.motivo,
-                activo=True,
-                usuario_id=current_user.id
-            )
-            db.add(nuevo_prod)
-            agregados.append(f"EAN {ean} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''}")
+                if existe.activo:
+                    duplicados.append(f"EAN {ean}")
+                    continue
+                else:
+                    # Reactivar registro existente
+                    existe.activo = True
+                    existe.motivo = datos.motivo
+                    existe.usuario_id = current_user.id
+                    agregados.append(f"EAN {ean} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''} (reactivado)")
+            else:
+                # Crear nuevo registro
+                nuevo_prod = ProductoBanlist(
+                    ean=ean,
+                    motivo=datos.motivo,
+                    activo=True,
+                    usuario_id=current_user.id
+                )
+                db.add(nuevo_prod)
+                agregados.append(f"EAN {ean} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''}")
 
     db.commit()
 
@@ -180,9 +192,10 @@ async def eliminar_de_banlist(
     if not producto:
         raise HTTPException(404, "Producto no encontrado en banlist")
 
-    # Marcar como inactivo en lugar de eliminar
-    producto.activo = False
+    identificador = f"Item ID {producto.item_id}" if producto.item_id else f"EAN {producto.ean}"
+
+    # Eliminar físicamente de la base de datos
+    db.delete(producto)
     db.commit()
 
-    identificador = f"Item ID {producto.item_id}" if producto.item_id else f"EAN {producto.ean}"
     return {"mensaje": f"Producto {identificador} eliminado de la banlist"}
