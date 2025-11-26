@@ -3217,11 +3217,9 @@ async def obtener_datos_ml_producto(
             func.sum(VentaML.monto_total).label('monto_total'),
             func.count(VentaML.id_venta).label('numero_ventas')
         ).filter(
-            and_(
-                VentaML.item_id == item_id,
-                VentaML.fecha >= fecha_desde,
-                VentaML.fecha < fecha_actual + timedelta(days=1)
-            )
+            VentaML.item_id == item_id,
+            VentaML.fecha >= fecha_desde,
+            VentaML.fecha <= fecha_actual
         ).first()
 
         ventas_stats[f"ultimos_{dias}_dias"] = {
