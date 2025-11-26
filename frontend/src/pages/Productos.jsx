@@ -2955,14 +2955,12 @@ export default function Productos() {
               </thead>
               <tbody className="table-body">
                 {productosOrdenados.map((p, rowIndex) => {
-                  const colorInfo = COLORES_DISPONIBLES.find(c => c.id === p.color_marcado);
-                  const rowStyle = colorInfo?.color ? { backgroundColor: colorInfo.color } : undefined;
                   const isRowActive = modoNavegacion && celdaActiva?.rowIndex === rowIndex;
+                  const colorClass = p.color_marcado ? `row-color-${p.color_marcado}` : '';
                   return (
                   <tr
                     key={p.item_id}
-                    style={rowStyle}
-                    className={`${p.color_marcado ? 'row-colored' : ''} ${isRowActive ? 'keyboard-row-active' : ''}`}
+                    className={`${colorClass} ${p.color_marcado ? 'row-colored' : ''} ${isRowActive ? 'keyboard-row-active' : ''}`}
                   >
                     <td style={{ textAlign: 'center' }}>
                       <input

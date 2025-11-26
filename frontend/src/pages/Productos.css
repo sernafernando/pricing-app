@@ -1750,3 +1750,83 @@
 .modal-ban-btn-confirm:hover {
   background-color: #dc2626;
 }
+
+/* Clases para filas coloreadas - estilo Bootstrap Alerts */
+.row-color-rojo {
+  background-color: #fee2e2 !important;
+  color: #991b1b !important;
+}
+
+.row-color-rojo td {
+  color: #991b1b !important;
+}
+
+.row-color-naranja {
+  background-color: #fed7aa !important;
+  color: #9a3412 !important;
+}
+
+.row-color-naranja td {
+  color: #9a3412 !important;
+}
+
+.row-color-amarillo {
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+}
+
+.row-color-amarillo td {
+  color: #92400e !important;
+}
+
+.row-color-verde {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+}
+
+.row-color-verde td {
+  color: #065f46 !important;
+}
+
+.row-color-azul {
+  background-color: #dbeafe !important;
+  color: #1e40af !important;
+}
+
+.row-color-azul td {
+  color: #1e40af !important;
+}
+
+.row-color-purpura {
+  background-color: #e9d5ff !important;
+  color: #6b21a8 !important;
+}
+
+.row-color-purpura td {
+  color: #6b21a8 !important;
+}
+
+.row-color-gris {
+  background-color: #e5e7eb !important;
+  color: #374151 !important;
+}
+
+.row-color-gris td {
+  color: #374151 !important;
+}
+
+/* Asegurar que elementos interactivos tengan buen contraste */
+.row-colored input[type="checkbox"] {
+  opacity: 0.8;
+}
+
+.row-colored .editable-field:hover {
+  opacity: 0.7;
+}
+
+/* Badges y elementos con colores propios dentro de filas coloreadas */
+.row-colored .markup-display,
+.row-colored .text-muted {
+  color: inherit !important;
+  opacity: 0.7;
+}
