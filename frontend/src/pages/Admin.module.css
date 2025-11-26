@@ -151,3 +151,123 @@
   color: #667eea;
   border-bottom-color: #667eea;
 }
+
+/* Modal de confirmación de limpieza */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modalContent {
+  background-color: var(--bg-primary);
+  padding: 30px;
+  border-radius: 8px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  color: var(--text-primary);
+}
+
+.modalTitle {
+  margin-top: 0;
+  color: #ef4444;
+}
+
+.modalInfo {
+  margin-bottom: 20px;
+}
+
+.modalInfo p {
+  margin: 8px 0;
+}
+
+.modalWarning {
+  padding: 15px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.modalWarning p:first-child {
+  margin: 0 0 10px 0;
+  font-weight: bold;
+}
+
+.modalWord {
+  margin: 10px 0;
+  font-size: 20px;
+  font-weight: bold;
+  color: #dc2626;
+  text-align: center;
+  font-family: monospace;
+  background-color: var(--bg-primary);
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.modalField {
+  margin-bottom: 15px;
+}
+
+.modalField label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+.modalInput {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 16px;
+  box-sizing: border-box;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.modalActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.modalBtnCancel {
+  padding: 10px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.modalBtnCancel:hover {
+  opacity: 0.8;
+}
+
+.modalBtnConfirm {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  background-color: #ef4444;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.modalBtnConfirm:hover {
+  background-color: #dc2626;
+}

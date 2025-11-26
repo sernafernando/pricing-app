@@ -24,6 +24,12 @@ export default function Admin() {
   const [cambiandoPassword, setCambiandoPassword] = useState(null);
   const [nuevaPassword, setNuevaPassword] = useState('');
 
+  // Modal de confirmación de limpieza
+  const [mostrarModalLimpieza, setMostrarModalLimpieza] = useState(false);
+  const [tipoLimpieza, setTipoLimpieza] = useState(''); // 'rebate' o 'web-transferencia'
+  const [palabraVerificacion, setPalabraVerificacion] = useState('');
+  const [palabraObjetivo, setPalabraObjetivo] = useState('');
+
   useEffect(() => {
     cargarDatos();
   }, []);
@@ -215,6 +221,54 @@ export default function Admin() {
     }
   };
 
+  const abrirModalLimpieza = (tipo) => {
+    // Palabras fijas para cada tipo de limpieza
+    const palabrasPorTipo = {
+      'rebate': ['LIMPIAR', 'REBATE', 'ELIMINAR', 'MASIVO', 'TODOS'],
+      'web-transferencia': ['LIMPIAR', 'TRANSFERENCIA', 'ELIMINAR', 'MASIVO', 'TODOS']
+    };
+
+    const palabras = palabrasPorTipo[tipo];
+    const palabraAleatoria = palabras[Math.floor(Math.random() * palabras.length)];
+
+    setTipoLimpieza(tipo);
+    setPalabraObjetivo(palabraAleatoria);
+    setPalabraVerificacion('');
+    setMostrarModalLimpieza(true);
+  };
+
+  const confirmarLimpieza = async () => {
+    // Verificar palabra
+    if (palabraVerificacion.toUpperCase() !== palabraObjetivo.toUpperCase()) {
+      alert('La palabra de verificación no coincide');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const endpoint = tipoLimpieza === 'rebate'
+        ? 'https://pricing.gaussonline.com.ar/api/productos/limpiar-rebate'
+        : 'https://pricing.gaussonline.com.ar/api/productos/limpiar-web-transferencia';
+
+      const response = await axios.post(
+        endpoint,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      alert(`✓ ${response.data.mensaje}\nProductos actualizados: ${response.data.productos_actualizados}`);
+
+      // Cerrar modal
+      setMostrarModalLimpieza(false);
+      setTipoLimpieza('');
+      setPalabraVerificacion('');
+      setPalabraObjetivo('');
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Error al realizar la limpieza');
+    }
+  };
+
 
   return (
     <div className={styles.container}>
@@ -305,43 +359,15 @@ export default function Admin() {
 	  	  
 	  	  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
 	  	    <button
-	  	      onClick={async () => {
-	  	        if (!confirm('¿Confirmar desactivar REBATE en TODOS los productos?')) return;
-	  	        try {
-	  	          const token = localStorage.getItem('token');
-	  	          const response = await axios.post(
-	  	            'https://pricing.gaussonline.com.ar/api/productos/limpiar-rebate',
-	  	            {},
-	  	            { headers: { Authorization: `Bearer ${token}` } }
-	  	          );
-	  	          alert(`✓ ${response.data.mensaje}\nProductos actualizados: ${response.data.productos_actualizados}`);
-	  	        } catch (error) {
-	  	          console.error('Error:', error);
-	  	          alert('Error al limpiar rebate');
-	  	        }
-	  	      }}
+	  	      onClick={() => abrirModalLimpieza('rebate')}
 	  	      className={styles.secondaryButton}
 	  	      style={{ background: '#ef4444', color: 'white', cursor: 'pointer' }}
 	  	    >
 	  	      🧹 Limpiar Rebate
 	  	    </button>
-	  	    
+
 	  	    <button
-	  	      onClick={async () => {
-	  	        if (!confirm('¿Confirmar desactivar WEB TRANSFERENCIA en TODOS los productos?')) return;
-	  	        try {
-	  	          const token = localStorage.getItem('token');
-	  	          const response = await axios.post(
-	  	            'https://pricing.gaussonline.com.ar/api/productos/limpiar-web-transferencia',
-	  	            {},
-	  	            { headers: { Authorization: `Bearer ${token}` } }
-	  	          );
-	  	          alert(`✓ ${response.data.mensaje}\nProductos actualizados: ${response.data.productos_actualizados}`);
-	  	        } catch (error) {
-	  	          console.error('Error:', error);
-	  	          alert('Error al limpiar web transferencia');
-	  	        }
-	  	      }}
+	  	      onClick={() => abrirModalLimpieza('web-transferencia')}
 	  	      className={styles.secondaryButton}
 	  	      style={{ background: '#f59e0b', color: 'white', cursor: 'pointer' }}
 	  	    >
@@ -635,6 +661,60 @@ export default function Admin() {
 
       {tabActiva === 'constantes' && (
         <PanelConstantesPricing />
+      )}
+
+      {/* Modal de confirmación de limpieza */}
+      {mostrarModalLimpieza && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <h2 className={styles.modalTitle}>⚠️ Confirmar Limpieza Masiva</h2>
+
+            <div className={styles.modalInfo}>
+              <p><strong>Acción:</strong> {tipoLimpieza === 'rebate' ? 'Limpiar Rebate' : 'Limpiar Web Transferencia'}</p>
+              <p><strong>Afectará:</strong> TODOS los productos</p>
+              <p style={{ color: '#dc2626', fontWeight: 'bold' }}>
+                Esta acción {tipoLimpieza === 'rebate' ? 'desactivará el rebate' : 'desactivará la web transferencia'} en todos los productos de la base de datos.
+              </p>
+            </div>
+
+            <div className={styles.modalWarning}>
+              <p>Para confirmar, escribe la siguiente palabra:</p>
+              <p className={styles.modalWord}>{palabraObjetivo}</p>
+            </div>
+
+            <div className={styles.modalField}>
+              <label>Palabra de verificación:</label>
+              <input
+                type="text"
+                value={palabraVerificacion}
+                onChange={(e) => setPalabraVerificacion(e.target.value)}
+                placeholder="Escribe la palabra aquí"
+                className={styles.modalInput}
+                autoFocus
+              />
+            </div>
+
+            <div className={styles.modalActions}>
+              <button
+                onClick={() => {
+                  setMostrarModalLimpieza(false);
+                  setTipoLimpieza('');
+                  setPalabraVerificacion('');
+                  setPalabraObjetivo('');
+                }}
+                className={styles.modalBtnCancel}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarLimpieza}
+                className={styles.modalBtnConfirm}
+              >
+                Confirmar Limpieza
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
