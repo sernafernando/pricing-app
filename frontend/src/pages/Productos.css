@@ -1817,7 +1817,21 @@
 .row-colored .text-muted,
 .row-colored .text-success,
 .row-colored .text-danger,
-.row-colored small {
+.row-colored small,
+.row-colored .web-transf-porcentaje,
+.row-colored .web-transf-markup,
+.row-colored .rebate-price,
+.row-colored .rebate-percentage,
+.row-colored .mejor-oferta-precio,
+.row-colored .mejor-oferta-detalle,
+.row-colored .mejor-oferta-rebate {
   color: inherit !important;
   opacity: 0.75;
+}
+
+/* Los markups que se colorean dinámicamente con JS también deben heredar el color */
+.row-colored .web-transf-markup[style*="color"],
+.row-colored .mejor-oferta-detalle[style*="color"] {
+  color: inherit !important;
+  opacity: 0.85;
 }
