@@ -1385,6 +1385,7 @@ async def obtener_stats_dinamicos(
     colores: Optional[str] = None,
     pms: Optional[str] = None,
     con_mla: Optional[bool] = None,
+    estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
@@ -1588,22 +1589,16 @@ async def obtener_stats_dinamicos(
     # Filtro de MLA
     if con_mla is not None:
         if con_mla:
+            # Con MLA: tienen al menos una publicación (sin importar estado)
             items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
-                MercadoLibreItemPublicado.mlp_id.isnot(None),
-                or_(
-                    MercadoLibreItemPublicado.optval_statusId == 2,
-                    MercadoLibreItemPublicado.optval_statusId.is_(None)
-                )
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
             ).distinct().subquery()
 
             query = query.filter(ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)))
         else:
+            # Sin MLA: no tienen ninguna publicación (sin importar estado, excluye banlist)
             items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
-                MercadoLibreItemPublicado.mlp_id.isnot(None),
-                or_(
-                    MercadoLibreItemPublicado.optval_statusId == 2,
-                    MercadoLibreItemPublicado.optval_statusId.is_(None)
-                )
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
             ).distinct().subquery()
 
             items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
@@ -1611,6 +1606,42 @@ async def obtener_stats_dinamicos(
             query = query.filter(
                 ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
                 ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id))
+            )
+
+    # Filtro de estado de publicaciones MLA
+    if estado_mla:
+        if estado_mla == "activa":
+            # Tienen al menos una publicación activa
+            items_activos_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
+
+        elif estado_mla == "pausada":
+            # Tienen publicaciones pero ninguna activa
+            # 1. Productos que tienen al menos una publicación
+            items_con_publis = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
+            ).distinct().subquery()
+
+            # 2. Productos que tienen al menos una publicación activa
+            items_activos = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            # 3. Filtrar: tienen publicaciones PERO NO tienen activas
+            query = query.filter(
+                ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
+                ~ProductoERP.item_id.in_(select(items_activos.c.item_id))
             )
 
     # Filtro de productos nuevos
@@ -1625,11 +1656,7 @@ async def obtener_stats_dinamicos(
 
     # Subqueries para cálculos
     items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
-        MercadoLibreItemPublicado.mlp_id.isnot(None),
-        or_(
-            MercadoLibreItemPublicado.optval_statusId == 2,
-            MercadoLibreItemPublicado.optval_statusId.is_(None)
-        )
+        MercadoLibreItemPublicado.mlp_id.isnot(None)
     ).distinct().subquery()
 
     items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
