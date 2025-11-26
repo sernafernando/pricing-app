@@ -7,7 +7,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.usuario import Usuario, RolUsuario
 from app.models.producto_banlist import ProductoBanlist
-from app.models.producto_erp import ProductoERP
+from app.models.producto import ProductoERP
 import re
 
 router = APIRouter()
