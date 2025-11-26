@@ -1127,21 +1127,9 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Filas coloreadas - usar texto oscuro sobre colores pastel */
+/* Filas coloreadas - borde sutil (los colores se definen por clase específica) */
 .row-colored {
-  color: #1f2937 !important;
-}
-
-.row-colored td {
-  color: #1f2937 !important;
-}
-
-.row-colored .markup-display,
-.row-colored .text-muted,
-.row-colored .text-success,
-.row-colored .text-danger,
-.row-colored small {
-  color: #374151 !important;
+  border-left: 4px solid rgba(0, 0, 0, 0.1);
 }
 
 /* Modal */
@@ -1826,7 +1814,10 @@
 
 /* Badges y elementos con colores propios dentro de filas coloreadas */
 .row-colored .markup-display,
-.row-colored .text-muted {
+.row-colored .text-muted,
+.row-colored .text-success,
+.row-colored .text-danger,
+.row-colored small {
   color: inherit !important;
-  opacity: 0.7;
+  opacity: 0.75;
 }
