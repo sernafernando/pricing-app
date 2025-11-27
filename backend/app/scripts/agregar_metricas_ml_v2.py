@@ -80,9 +80,6 @@ def process_and_insert(db: Session, df: pd.DataFrame):
             costo_total_sin_iva = costo_sin_iva * cantidad
             moneda_costo = row.get('Moneda_Costo', 'ARS')
 
-            # Comisión (ya viene calculada desde la API)
-            comision_ml = float(row.get('Comisión en pesos', 0)) if pd.notna(row.get('Comisión en pesos')) else 0.0
-
             # Costo de envío
             costo_envio_ml = float(row.get('mlp_price4FreeShipping', 0)) if pd.notna(row.get('mlp_price4FreeShipping')) else 0.0
 
@@ -93,6 +90,11 @@ def process_and_insert(db: Session, df: pd.DataFrame):
             else:
                 tipo_logistica = str(tipo_logistica_raw) if tipo_logistica_raw else None
 
+            # Datos para calcular comisión dinámicamente
+            subcat_id = int(row.get('subcat_id')) if pd.notna(row.get('subcat_id')) else None
+            pricelist_id = int(row.get('priceList')) if pd.notna(row.get('priceList')) else None
+            comision_base_porcentaje = float(row.get('Comisión_base_%', 15.5)) if pd.notna(row.get('Comisión_base_%')) else 15.5
+
             # Usar helper centralizado para calcular métricas
             contar_si = row.get('contar_si', 1)
             metricas = calcular_metricas_ml(
@@ -100,15 +102,21 @@ def process_and_insert(db: Session, df: pd.DataFrame):
                 cantidad=cantidad,
                 iva_porcentaje=21.0,  # IVA hardcoded a 21% en este script
                 costo_unitario_sin_iva=costo_sin_iva,
-                comision_ml=comision_ml,  # Comisión ya calculada por ERP
                 costo_envio_ml=costo_envio_ml if pd.notna(row.get('MLShippingID')) else None,
-                count_per_pack=contar_si
+                count_per_pack=contar_si,
+                # Calcular comisión dinámicamente
+                subcat_id=subcat_id,
+                pricelist_id=pricelist_id,
+                fecha_venta=fecha_venta,
+                comision_base_porcentaje=comision_base_porcentaje,
+                db_session=db
             )
 
             monto_limpio = metricas['monto_limpio']
             ganancia = metricas['ganancia']
             markup_porcentaje = metricas['markup_porcentaje']
             costo_envio_prorrateado = metricas['costo_envio']
+            comision_ml = metricas['comision_ml']  # Comisión calculada por el helper
             monto_total_sin_iva = monto_total / 1.21
 
             # Porcentaje de comisión
