@@ -129,8 +129,10 @@ export default function DashboardMetricasML() {
 
   const getTipoLogistica = (tipo) => {
     const tipos = {
-      'cross_docking': '📦 Full',
-      'self_service': '🏢 Flex',
+      'cross_docking': '📦 Colecta',
+      'self_service': '🛵 Flex',
+      'fulfillment': '📦 Full',
+      'default': '🏢 Retiro',
       'drop_off': '📮 Drop Off',
       'xd_drop_off': '📮 XD Drop Off'
     };
