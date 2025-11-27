@@ -141,9 +141,10 @@ export default function Notificaciones() {
       setExpandedNotif(null);
     } else {
       setExpandedNotif(notif.id);
-      if (!orderData[notif.id] && notif.id_operacion) {
-        await fetchOrderData(notif);
-      }
+      // No fetchear datos de orden automáticamente por CORS
+      // if (!orderData[notif.id] && notif.id_operacion) {
+      //   await fetchOrderData(notif);
+      // }
       if (!notif.leida) {
         await marcarComoLeida(notif.id);
       }
@@ -170,37 +171,11 @@ export default function Notificaciones() {
     });
   };
 
-  const abrirEnML = async (notif) => {
-    try {
-      // Si ya tenemos pack_id en la notificación, usarlo directamente
-      if (notif.pack_id) {
-        window.open(`https://www.mercadolibre.com.ar/ventas/${notif.pack_id}/detalle`, '_blank');
-        return;
-      }
-
-      // Si no, intentar obtenerlo de los datos de orden ya cargados
-      let orderInfo = orderData[notif.id];
-
-      // Si no tenemos los datos, fetchearlos
-      if (!orderInfo && notif.id_operacion) {
-        setLoadingOrder({ ...loadingOrder, [notif.id]: true });
-        const response = await axios.get(
-          `https://ml-webhook.gaussonline.com.ar/api/ml/render?resource=%2Forders%2F${notif.id_operacion}&format=json`
-        );
-        orderInfo = response.data;
-        setOrderData({ ...orderData, [notif.id]: orderInfo });
-        setLoadingOrder({ ...loadingOrder, [notif.id]: false });
-      }
-
-      if (orderInfo && orderInfo.pack_id) {
-        window.open(`https://www.mercadolibre.com.ar/ventas/${orderInfo.pack_id}/detalle`, '_blank');
-      } else {
-        alert('No se pudo obtener el pack_id de la orden');
-      }
-    } catch (error) {
-      console.error('Error al obtener pack_id:', error);
-      alert('Error al obtener información de la orden');
-      setLoadingOrder({ ...loadingOrder, [notif.id]: false });
+  const abrirEnML = (notif) => {
+    if (notif.pack_id) {
+      window.open(`https://www.mercadolibre.com.ar/ventas/${notif.pack_id}/detalle`, '_blank');
+    } else {
+      alert('No se puede abrir la orden: pack_id no disponible');
     }
   };
 
@@ -317,19 +292,8 @@ export default function Notificaciones() {
                       </div>
                     </div>
 
-                    {loadingOrder[notif.id] ? (
-                      <div className={styles.loadingOrder}>Cargando datos de orden...</div>
-                    ) : orderData[notif.id] ? (
-                      <div className={styles.orderData}>
-                        <h4>Datos de la Orden ML</h4>
-                        <pre className={styles.orderJson}>
-                          {JSON.stringify(orderData[notif.id], null, 2)}
-                        </pre>
-                      </div>
-                    ) : null}
-
                     <div className={styles.detalleActions}>
-                      {notif.id_operacion && (
+                      {notif.pack_id && (
                         <button
                           onClick={() => abrirEnML(notif)}
                           className={styles.btnPrimary}
