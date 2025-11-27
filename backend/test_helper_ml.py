@@ -26,17 +26,17 @@ print("=" * 80)
 print("PRUEBA HELPER ML - Valores del Dashboard")
 print("=" * 80)
 
-# Valores de la operación
-monto_unitario = 26340.0  # Precio de venta con IVA
+# Valores de la operación (del dashboard)
+monto_unitario = 40865.0  # Precio de venta con IVA
 cantidad = 1
 iva_porcentaje = 10.5
-costo_unitario_sin_iva = 24780.0  # Costo sin IVA (ya confirmado correcto)
-costo_envio_ml = None  # No hay envío en este caso
+costo_unitario_sin_iva = 24780.0  # Costo sin IVA
+costo_envio_ml = 5383.0  # Costo de envío CON IVA
 count_per_pack = 1
 
 # Datos para calcular comisión dinámicamente
 fecha_venta = datetime(2025, 11, 26)
-comision_base_porcentaje = 15.5  # Ajustar según corresponda
+comision_base_porcentaje = 15.5
 
 print(f"\nDatos de entrada:")
 print(f"  Monto unitario (con IVA): ${monto_unitario:,.2f}")
