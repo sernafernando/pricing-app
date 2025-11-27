@@ -300,9 +300,9 @@ def calcular_metricas_adicionales(row, count_per_pack):
     costo_envio_prorrateado = 0
     if count_per_pack > 0:
         costo_envio_total = float(row.costo_envio_ml or 0)
-        # El costo de envío viene con IVA, dividir por 1.21
-        costo_envio_sin_iva = costo_envio_total / 1.21
-        costo_envio_prorrateado = costo_envio_sin_iva / count_per_pack
+        # El costo de envío viene con IVA, dividir por 1.21, multiplicar por cantidad, dividir por count_per_pack
+        # Fórmula del dashboard: (((Costo envío / 1.21) * Cantidad) / contar_si)
+        costo_envio_prorrateado = ((costo_envio_total / 1.21) * cantidad) / count_per_pack
 
     # Monto sin IVA = monto total / (1 + IVA/100)
     monto_sin_iva = monto_total / (1 + iva / 100) if iva > 0 else monto_total
@@ -313,40 +313,15 @@ def calcular_metricas_adicionales(row, count_per_pack):
     # Ganancia = monto limpio - costo total
     ganancia = monto_limpio - costo_total_sin_iva
 
-    # Markup %
+    # Markup % - Fórmula del dashboard: ((Limpio / costo_total) - 1) * 100
     markup_porcentaje = 0
     if costo_total_sin_iva > 0:
-        markup_porcentaje = (ganancia / costo_total_sin_iva) * 100
+        markup_porcentaje = ((monto_limpio / costo_total_sin_iva) - 1) * 100
         # Limitar a un máximo razonable para evitar overflow (NUMERIC(10,2) max = 99,999,999.99)
         if markup_porcentaje > 99999999.99:
             markup_porcentaje = 99999999.99
         elif markup_porcentaje < -99999999.99:
             markup_porcentaje = -99999999.99
-
-    # Debug para el producto específico
-    if hasattr(row, 'codigo') and row.codigo == '6935364080433' and hasattr(row, 'id_operacion'):
-        # Solo mostrar una vez por id_operacion único
-        if not hasattr(calcular_metricas_adicionales, '_debug_shown'):
-            calcular_metricas_adicionales._debug_shown = set()
-
-        if row.id_operacion not in calcular_metricas_adicionales._debug_shown:
-            calcular_metricas_adicionales._debug_shown.add(row.id_operacion)
-            print(f"\n🔍 DEBUG producto 6935364080433 (operación {row.id_operacion}):")
-            print(f"  item_id: {row.item_id}")
-            print(f"  fecha_venta: {row.fecha_venta}")
-            print(f"  cantidad: {cantidad}")
-            print(f"  monto_total: {monto_total}")
-            print(f"  iva: {iva}")
-            print(f"  costo_sin_iva: {costo_sin_iva}")
-            print(f"  costo_total_sin_iva: {costo_total_sin_iva}")
-            print(f"  comision_ml: {comision_ml}")
-            print(f"  costo_envio_ml: {row.costo_envio_ml}")
-            print(f"  count_per_pack: {count_per_pack}")
-            print(f"  costo_envio_prorrateado: {costo_envio_prorrateado}")
-            print(f"  monto_sin_iva: {monto_sin_iva}")
-            print(f"  monto_limpio: {monto_limpio}")
-            print(f"  ganancia: {ganancia}")
-            print(f"  markup_porcentaje: {markup_porcentaje}%\n")
 
     return {
         'costo_total_sin_iva': costo_total_sin_iva,
@@ -494,10 +469,13 @@ def process_and_insert(db: Session, rows):
                 db.add(nueva_metrica)
                 total_insertados += 1
 
-            # Verificar markup y crear notificación si es necesario
-            producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == row.item_id).first()
-            if crear_notificacion_markup_bajo(db, row, metricas, producto_erp):
-                total_notificaciones += 1
+            # TODO: Verificar markup y crear notificación si es necesario
+            # DESHABILITADO: El costo histórico no está funcionando correctamente
+            # El script usa tb_item_cost_list (costo actual) en lugar de tb_item_cost_list_history (costo al momento de venta)
+            # Esto causa que los markups calculados sean incorrectos
+            # producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == row.item_id).first()
+            # if crear_notificacion_markup_bajo(db, row, metricas, producto_erp):
+            #     total_notificaciones += 1
 
             # Commit cada 100 registros
             if (total_insertados + total_actualizados) % 100 == 0:
