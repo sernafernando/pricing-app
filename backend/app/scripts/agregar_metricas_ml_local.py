@@ -26,7 +26,7 @@ from sqlalchemy import text, and_, func, case, desc
 from app.core.database import SessionLocal
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.notificacion import Notificacion
-from app.models.producto import ProductoERP
+from app.models.producto import ProductoERP, ProductoPricing
 
 
 def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
@@ -334,47 +334,63 @@ def calcular_metricas_adicionales(row, count_per_pack):
 def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
     """
     Crea una notificación si el markup real está por debajo del markup objetivo
+    NOTA: Por ahora usa markup_calculado de ProductoPricing como referencia
+    TODO: Agregar campo markup_objetivo específico a la tabla productos_pricing
     """
-    if not producto_erp or producto_erp.markup_objetivo is None:
+    if not producto_erp:
         return False
 
-    markup_objetivo = float(producto_erp.markup_objetivo)
-    markup_real = float(metricas['markup_porcentaje'])
-
-    # Solo notificar si el markup real está por debajo del objetivo
-    if markup_real < markup_objetivo:
-        # Verificar si ya existe una notificación para esta operación
-        existe_notif = db.query(Notificacion).filter(
-            Notificacion.id_operacion == row.id_operacion,
-            Notificacion.tipo == 'markup_bajo'
+    # Buscar el pricing del producto para obtener el markup_calculado como referencia
+    try:
+        producto_pricing = db.query(ProductoPricing).filter(
+            ProductoPricing.item_id == row.item_id
         ).first()
 
-        if not existe_notif:
-            diferencia = markup_objetivo - markup_real
+        if not producto_pricing or producto_pricing.markup_calculado is None:
+            return False
 
-            mensaje = (
-                f"Producto vendido con markup por debajo del objetivo. "
-                f"Objetivo: {markup_objetivo:.2f}%, Real: {markup_real:.2f}% "
-                f"(diferencia: {diferencia:.2f}%). "
-                f"Venta: ${float(row.monto_total):,.2f}"
-            )
+        markup_objetivo = float(producto_pricing.markup_calculado)
+        markup_real = float(metricas['markup_porcentaje'])
 
-            notificacion = Notificacion(
-                tipo='markup_bajo',
-                item_id=row.item_id,
-                id_operacion=row.id_operacion,
-                codigo_producto=row.codigo,
-                descripcion_producto=row.descripcion[:500] if row.descripcion else None,
-                mensaje=mensaje,
-                markup_real=Decimal(str(markup_real)),
-                markup_objetivo=Decimal(str(markup_objetivo)),
-                monto_venta=Decimal(str(row.monto_total)),
-                fecha_venta=row.fecha_venta,
-                leida=False
-            )
+        # Solo notificar si el markup real está significativamente por debajo del objetivo
+        # Tolerancia de 5% para evitar alertas menores por redondeos
+        if markup_real < (markup_objetivo - 5):
+            # Verificar si ya existe una notificación para esta operación
+            existe_notif = db.query(Notificacion).filter(
+                Notificacion.id_operacion == row.id_operacion,
+                Notificacion.tipo == 'markup_bajo'
+            ).first()
 
-            db.add(notificacion)
-            return True
+            if not existe_notif:
+                diferencia = markup_objetivo - markup_real
+
+                mensaje = (
+                    f"Producto vendido con markup por debajo del esperado. "
+                    f"Esperado: {markup_objetivo:.2f}%, Real: {markup_real:.2f}% "
+                    f"(diferencia: {diferencia:.2f}%). "
+                    f"Venta: ${float(row.monto_total):,.2f}"
+                )
+
+                notificacion = Notificacion(
+                    tipo='markup_bajo',
+                    item_id=row.item_id,
+                    id_operacion=row.id_operacion,
+                    codigo_producto=row.codigo,
+                    descripcion_producto=row.descripcion[:500] if row.descripcion else None,
+                    mensaje=mensaje,
+                    markup_real=Decimal(str(markup_real)),
+                    markup_objetivo=Decimal(str(markup_objetivo)),
+                    monto_venta=Decimal(str(row.monto_total)),
+                    fecha_venta=row.fecha_venta,
+                    leida=False
+                )
+
+                db.add(notificacion)
+                return True
+
+    except Exception as e:
+        # Si hay error, simplemente no crear notificación (silencioso)
+        return False
 
     return False
 
