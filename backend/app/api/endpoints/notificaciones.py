@@ -45,9 +45,9 @@ async def listar_notificaciones(
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Lista las notificaciones ordenadas por fecha de creación (más recientes primero)
+    Lista las notificaciones del usuario actual ordenadas por fecha de creación (más recientes primero)
     """
-    query = db.query(Notificacion)
+    query = db.query(Notificacion).filter(Notificacion.user_id == current_user.id)
 
     if solo_no_leidas:
         query = query.filter(Notificacion.leida == False)
@@ -65,16 +65,20 @@ async def obtener_estadisticas_notificaciones(
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Obtiene estadísticas de las notificaciones
+    Obtiene estadísticas de las notificaciones del usuario actual
     """
-    total = db.query(Notificacion).count()
-    no_leidas = db.query(Notificacion).filter(Notificacion.leida == False).count()
+    total = db.query(Notificacion).filter(Notificacion.user_id == current_user.id).count()
+    no_leidas = db.query(Notificacion).filter(
+        Notificacion.user_id == current_user.id,
+        Notificacion.leida == False
+    ).count()
 
     # Contar por tipo
     tipos_query = db.query(
         Notificacion.tipo,
         func.count(Notificacion.id).label('count')
     ).filter(
+        Notificacion.user_id == current_user.id,
         Notificacion.leida == False
     ).group_by(Notificacion.tipo).all()
 
@@ -93,9 +97,12 @@ async def marcar_notificacion_leida(
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Marca una notificación como leída
+    Marca una notificación como leída (solo la del usuario actual)
     """
-    notificacion = db.query(Notificacion).filter(Notificacion.id == notificacion_id).first()
+    notificacion = db.query(Notificacion).filter(
+        Notificacion.id == notificacion_id,
+        Notificacion.user_id == current_user.id
+    ).first()
 
     if not notificacion:
         raise HTTPException(404, "Notificación no encontrada")
@@ -114,9 +121,12 @@ async def marcar_todas_leidas(
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Marca todas las notificaciones como leídas (opcionalmente filtradas por tipo)
+    Marca todas las notificaciones del usuario actual como leídas (opcionalmente filtradas por tipo)
     """
-    query = db.query(Notificacion).filter(Notificacion.leida == False)
+    query = db.query(Notificacion).filter(
+        Notificacion.user_id == current_user.id,
+        Notificacion.leida == False
+    )
 
     if tipo:
         query = query.filter(Notificacion.tipo == tipo)
@@ -137,9 +147,12 @@ async def eliminar_notificacion(
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Elimina una notificación
+    Elimina una notificación del usuario actual
     """
-    notificacion = db.query(Notificacion).filter(Notificacion.id == notificacion_id).first()
+    notificacion = db.query(Notificacion).filter(
+        Notificacion.id == notificacion_id,
+        Notificacion.user_id == current_user.id
+    ).first()
 
     if not notificacion:
         raise HTTPException(404, "Notificación no encontrada")
@@ -155,9 +168,12 @@ async def limpiar_notificaciones_leidas(
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Elimina todas las notificaciones leídas
+    Elimina todas las notificaciones leídas del usuario actual
     """
-    count = db.query(Notificacion).filter(Notificacion.leida == True).delete()
+    count = db.query(Notificacion).filter(
+        Notificacion.user_id == current_user.id,
+        Notificacion.leida == True
+    ).delete()
     db.commit()
 
     return {"mensaje": f"{count} notificaciones leídas eliminadas"}

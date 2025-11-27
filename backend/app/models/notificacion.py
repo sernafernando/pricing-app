@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Numeric, BigInteger
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Numeric, BigInteger, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -6,6 +7,7 @@ class Notificacion(Base):
     __tablename__ = "notificaciones"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('usuarios.id', ondelete='CASCADE'), nullable=True, index=True)
     tipo = Column(String(50), nullable=False, index=True)  # markup_bajo, stock_bajo, precio_desactualizado, etc.
     item_id = Column(Integer, nullable=True, index=True)
     id_operacion = Column(BigInteger, nullable=True)  # ID de operación ML
@@ -23,3 +25,6 @@ class Notificacion(Base):
     leida = Column(Boolean, default=False, nullable=False, index=True)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     fecha_lectura = Column(DateTime(timezone=True), nullable=True)
+
+    # Relaciones
+    usuario = relationship("Usuario", backref="notificaciones")

@@ -27,6 +27,7 @@ from app.core.database import SessionLocal
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.notificacion import Notificacion
 from app.models.producto import ProductoERP, ProductoPricing
+from app.models.usuario import Usuario, RolUsuario
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
 
@@ -341,37 +342,50 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
         diferencia = markup_calculado - markup_real
 
         if markup_real < 0 and markup_real < markup_calculado and diferencia > 0.5:
-            # Verificar si ya existe una notificación para esta operación
-            existe_notif = db.query(Notificacion).filter(
-                Notificacion.id_operacion == row.id_operacion,
-                Notificacion.tipo == 'markup_bajo'
-            ).first()
+            # Obtener usuarios que deben recibir notificaciones (PRICING, ADMIN, SUPERADMIN)
+            usuarios_notificar = db.query(Usuario).filter(
+                Usuario.activo == True,
+                Usuario.rol.in_([RolUsuario.PRICING, RolUsuario.ADMIN, RolUsuario.SUPERADMIN])
+            ).all()
 
-            if not existe_notif:
+            if not usuarios_notificar:
+                return False
 
-                mensaje = (
-                    f"⚠️ VENTA EN PÉRDIDA - Markup negativo peor de lo esperado. "
-                    f"Esperado: {markup_calculado:.2f}%, Real: {markup_real:.2f}% "
-                    f"(diferencia: {diferencia:.2f}%). "
-                    f"Venta: ${float(row.monto_total):,.2f}"
-                )
+            mensaje = (
+                f"⚠️ VENTA EN PÉRDIDA - Markup negativo peor de lo esperado. "
+                f"Esperado: {markup_calculado:.2f}%, Real: {markup_real:.2f}% "
+                f"(diferencia: {diferencia:.2f}%). "
+                f"Venta: ${float(row.monto_total):,.2f}"
+            )
 
-                notificacion = Notificacion(
-                    tipo='markup_bajo',
-                    item_id=row.item_id,
-                    id_operacion=row.id_operacion,
-                    codigo_producto=row.codigo,
-                    descripcion_producto=row.descripcion[:500] if row.descripcion else None,
-                    mensaje=mensaje,
-                    markup_real=Decimal(str(markup_real)),
-                    markup_objetivo=Decimal(str(markup_calculado)),
-                    monto_venta=Decimal(str(row.monto_total)),
-                    fecha_venta=row.fecha_venta,
-                    leida=False
-                )
+            notificaciones_creadas = 0
+            for usuario in usuarios_notificar:
+                # Verificar si ya existe una notificación para esta operación y usuario
+                existe_notif = db.query(Notificacion).filter(
+                    Notificacion.id_operacion == row.id_operacion,
+                    Notificacion.tipo == 'markup_bajo',
+                    Notificacion.user_id == usuario.id
+                ).first()
 
-                db.add(notificacion)
-                return True
+                if not existe_notif:
+                    notificacion = Notificacion(
+                        user_id=usuario.id,
+                        tipo='markup_bajo',
+                        item_id=row.item_id,
+                        id_operacion=row.id_operacion,
+                        codigo_producto=row.codigo,
+                        descripcion_producto=row.descripcion[:500] if row.descripcion else None,
+                        mensaje=mensaje,
+                        markup_real=Decimal(str(markup_real)),
+                        markup_objetivo=Decimal(str(markup_calculado)),
+                        monto_venta=Decimal(str(row.monto_total)),
+                        fecha_venta=row.fecha_venta,
+                        leida=False
+                    )
+                    db.add(notificacion)
+                    notificaciones_creadas += 1
+
+            return notificaciones_creadas > 0
 
     except Exception as e:
         # Si hay error, simplemente no crear notificación (silencioso)
