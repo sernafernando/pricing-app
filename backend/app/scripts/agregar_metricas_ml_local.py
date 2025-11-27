@@ -260,22 +260,26 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
 def calcular_metricas_adicionales(row, count_per_pack):
     """
     Calcula las métricas usando helper centralizado
-    Usa la fórmula que ya funciona correctamente
+    El helper calcula la comisión dinámicamente usando subcat_id y pricelist_id
     """
-    # Llamar al helper centralizado
+    # Llamar al helper centralizado - ahora calcula la comisión dinámicamente
     metricas = calcular_metricas_ml(
         monto_unitario=float(row.monto_unitario or 0),
         cantidad=float(row.cantidad or 1),
         iva_porcentaje=float(row.iva or 0),
         costo_unitario_sin_iva=float(row.costo_sin_iva or 0),
-        comision_ml=float(row.comision_ml or 0),
         costo_envio_ml=float(row.costo_envio_ml or 0) if row.costo_envio_ml else None,
-        count_per_pack=count_per_pack
+        count_per_pack=count_per_pack,
+        # Parámetros para calcular comisión dinámicamente
+        subcat_id=row.subcat_id,
+        pricelist_id=row.pricelist_id,
+        fecha_venta=row.fecha_venta,
+        comision_base_porcentaje=float(row.comision_base_porcentaje or 12.0)
     )
 
     return {
         'costo_total_sin_iva': metricas['costo_total_sin_iva'],
-        'comision_ml': float(row.comision_ml or 0),  # Usar la del SQL
+        'comision_ml': metricas['comision_ml'],  # Ahora viene del helper
         'costo_envio': metricas['costo_envio'],
         'monto_limpio': metricas['monto_limpio'],
         'ganancia': metricas['ganancia'],
