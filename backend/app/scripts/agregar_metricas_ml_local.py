@@ -392,10 +392,10 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                     except:
                         pass
 
-                    # Calcular porcentaje de comisión
+                    # Obtener porcentaje de comisión base (que se usó para calcular)
                     comision_porcentaje = None
-                    if metricas.get('comision_ml') and row.monto_total:
-                        comision_porcentaje = (float(metricas['comision_ml']) / float(row.monto_total)) * 100
+                    if row.comision_base_porcentaje is not None:
+                        comision_porcentaje = float(row.comision_base_porcentaje)
 
                     # Obtener nombre de pricelist para tipo_publicacion
                     tipo_publicacion = None

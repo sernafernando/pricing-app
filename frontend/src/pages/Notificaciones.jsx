@@ -282,9 +282,15 @@ export default function Notificaciones() {
                         </span>
                       </div>
                       <div className={styles.detalleItem}>
-                        <strong>Markup Esperado (PM):</strong>
-                        <span>{notif.pm || notif.markup_objetivo}%</span>
+                        <strong>Markup Esperado:</strong>
+                        <span>{notif.markup_objetivo}%</span>
                       </div>
+                      {notif.pm && (
+                        <div className={styles.detalleItem}>
+                          <strong>Product Manager:</strong>
+                          <span>{notif.pm}</span>
+                        </div>
+                      )}
                       <div className={styles.detalleItem}>
                         <strong>Costo Operación:</strong>
                         <span>${notif.costo_operacion ? parseFloat(notif.costo_operacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
