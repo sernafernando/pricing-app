@@ -25,7 +25,7 @@ result = db.execute(text("""
         cantidad,
         costo_total_sin_iva,
         comision_ml,
-        costo_envio,
+        costo_envio_ml,
         monto_limpio,
         ganancia,
         markup_porcentaje
@@ -47,7 +47,7 @@ if row:
     print(f"Cantidad: {row.cantidad}")
     print(f"Costo total: ${row.costo_total_sin_iva:,.2f}")
     print(f"Comisión ML: ${row.comision_ml:,.2f}")
-    print(f"Costo envío: ${row.costo_envio:,.2f}")
+    print(f"Costo envío: ${row.costo_envio_ml:,.2f}")
     print(f"Monto limpio: ${row.monto_limpio:,.2f}")
     print(f"Ganancia: ${row.ganancia:,.2f}")
     print(f"Markup: {row.markup_porcentaje:.2f}%")
