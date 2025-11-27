@@ -16,6 +16,7 @@ import DashboardVentas from './pages/DashboardVentas';
 import DashboardMetricasML from './pages/DashboardMetricasML';
 import Calculos from './pages/Calculos';
 import TestStatsDinamicos from './pages/TestStatsDinamicos';
+import Notificaciones from './pages/Notificaciones';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import './styles/theme.css';
@@ -117,6 +118,11 @@ function App() {
                 <Route path="/test-stats-dinamicos" element={
                   <ProtectedRoute allowedRoles={['SUPERADMIN', 'ADMIN']}>
                     <TestStatsDinamicos />
+                  </ProtectedRoute>
+                } />
+                <Route path="/notificaciones" element={
+                  <ProtectedRoute>
+                    <Notificaciones />
                   </ProtectedRoute>
                 } />
               </Routes>

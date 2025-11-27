@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import styles from './NotificationBell.module.css';
 import axios from 'axios';
 
@@ -15,6 +16,7 @@ api.interceptors.request.use((config) => {
 });
 
 export default function NotificationBell() {
+  const navigate = useNavigate();
   const [notificaciones, setNotificaciones] = useState([]);
   const [noLeidas, setNoLeidas] = useState(0);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -194,7 +196,7 @@ export default function NotificationBell() {
                   className={styles.verTodasBtn}
                   onClick={() => {
                     setDropdownOpen(false);
-                    // TODO: navegar a página de todas las notificaciones
+                    navigate('/notificaciones');
                   }}
                 >
                   Ver todas las notificaciones
