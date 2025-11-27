@@ -323,6 +323,23 @@ def calcular_metricas_adicionales(row, count_per_pack):
         elif markup_porcentaje < -99999999.99:
             markup_porcentaje = -99999999.99
 
+    # Debug para el producto específico
+    if hasattr(row, 'codigo') and row.codigo == '6935364080433':
+        print(f"\n🔍 DEBUG producto 6935364080433:")
+        print(f"  cantidad: {cantidad}")
+        print(f"  monto_total: {monto_total}")
+        print(f"  iva: {iva}")
+        print(f"  costo_sin_iva: {costo_sin_iva}")
+        print(f"  costo_total_sin_iva: {costo_total_sin_iva}")
+        print(f"  comision_ml: {comision_ml}")
+        print(f"  costo_envio_ml: {row.costo_envio_ml}")
+        print(f"  count_per_pack: {count_per_pack}")
+        print(f"  costo_envio_prorrateado: {costo_envio_prorrateado}")
+        print(f"  monto_sin_iva: {monto_sin_iva}")
+        print(f"  monto_limpio: {monto_limpio}")
+        print(f"  ganancia: {ganancia}")
+        print(f"  markup_porcentaje: {markup_porcentaje}%\n")
+
     return {
         'costo_total_sin_iva': costo_total_sin_iva,
         'comision_ml': comision_ml,
