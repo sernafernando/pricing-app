@@ -302,12 +302,12 @@ export default function Notificaciones() {
                         <span>${parseFloat(notif.monto_venta).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                       </div>
                       <div className={styles.detalleItem}>
-                        <strong>Tipo Publicación:</strong>
+                        <strong>Lista de Precios:</strong>
                         <span>{notif.tipo_publicacion || 'N/A'}</span>
                       </div>
                       <div className={styles.detalleItem}>
                         <strong>Comisión ML:</strong>
-                        <span>${notif.comision_ml ? parseFloat(notif.comision_ml).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                        <span>{notif.comision_ml ? `${parseFloat(notif.comision_ml).toFixed(2)}%` : 'N/A'}</span>
                       </div>
                       <div className={styles.detalleItem}>
                         <strong>IVA:</strong>

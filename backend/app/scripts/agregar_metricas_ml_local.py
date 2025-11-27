@@ -367,17 +367,47 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                 ).first()
 
                 if not existe_notif:
-                    # Obtener costo actual del producto
-                    from app.models.producto import ProductoPricing
+                    # Obtener costo actual del producto desde ProductoERP
                     costo_actual = None
                     try:
-                        producto = db.query(ProductoPricing).filter(
-                            ProductoPricing.item_id == row.item_id
+                        producto_actual = db.query(ProductoERP).filter(
+                            ProductoERP.item_id == row.item_id
                         ).first()
-                        if producto:
-                            costo_actual = float(producto.costo_actual) if producto.costo_actual else None
+                        if producto_actual and producto_actual.costo is not None:
+                            # Convertir a ARS si está en USD
+                            if producto_actual.moneda_costo == 'USD':
+                                # Obtener último tipo de cambio
+                                from sqlalchemy import text
+                                tc_query = text("""
+                                    SELECT ceh_exchange
+                                    FROM tb_cur_exch_history
+                                    ORDER BY ceh_cd DESC
+                                    LIMIT 1
+                                """)
+                                tc_result = db.execute(tc_query).fetchone()
+                                tipo_cambio = float(tc_result[0]) if tc_result else 1.0
+                                costo_actual = float(producto_actual.costo) * tipo_cambio
+                            else:
+                                costo_actual = float(producto_actual.costo)
                     except:
                         pass
+
+                    # Calcular porcentaje de comisión
+                    comision_porcentaje = None
+                    if metricas.get('comision_ml') and row.monto_total:
+                        comision_porcentaje = (float(metricas['comision_ml']) / float(row.monto_total)) * 100
+
+                    # Obtener nombre de pricelist para tipo_publicacion
+                    tipo_publicacion = None
+                    if row.pricelist_id:
+                        pricelist_names = {
+                            1: "Classic",
+                            2: "Premium",
+                            3: "Gold Special",
+                            4: "Free",
+                            5: "Mercado Shops"
+                        }
+                        tipo_publicacion = pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}")
 
                     notificacion = Notificacion(
                         user_id=usuario.id,
@@ -395,13 +425,13 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         fecha_venta=row.fecha_venta,
                         # Campos adicionales
                         pm=Decimal(str(markup_calculado)),
-                        costo_operacion=Decimal(str(row.costo_sin_iva)) if row.costo_sin_iva else None,
-                        costo_actual=Decimal(str(costo_actual)) if costo_actual else None,
-                        precio_venta_unitario=Decimal(str(row.monto_unitario)) if row.monto_unitario else None,
+                        costo_operacion=Decimal(str(row.costo_sin_iva)) if row.costo_sin_iva is not None else None,
+                        costo_actual=Decimal(str(costo_actual)) if costo_actual is not None else None,
+                        precio_venta_unitario=Decimal(str(row.monto_unitario)) if row.monto_unitario is not None else None,
                         precio_publicacion=None,  # TODO: obtener de ML si está disponible
-                        tipo_publicacion=row.ct_transaction if hasattr(row, 'ct_transaction') else None,
-                        comision_ml=Decimal(str(metricas['comision_ml'])) if metricas.get('comision_ml') else None,
-                        iva_porcentaje=Decimal(str(row.iva)) if row.iva else None,
+                        tipo_publicacion=tipo_publicacion,
+                        comision_ml=Decimal(str(comision_porcentaje)) if comision_porcentaje is not None else None,
+                        iva_porcentaje=Decimal(str(row.iva)) if row.iva is not None else None,
                         cantidad=int(row.cantidad) if row.cantidad else None,
                         costo_envio=Decimal(str(metricas['costo_envio'])) if metricas.get('costo_envio') else None,
                         leida=False
