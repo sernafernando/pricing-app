@@ -172,10 +172,10 @@ export default function Notificaciones() {
   };
 
   const abrirEnML = (notif) => {
-    if (notif.pack_id) {
-      window.open(`https://www.mercadolibre.com.ar/ventas/${notif.pack_id}/detalle`, '_blank');
+    if (notif.ml_id) {
+      window.open(`https://www.mercadolibre.com.ar/ventas/${notif.ml_id}/detalle`, '_blank');
     } else {
-      alert('No se puede abrir la orden: pack_id no disponible');
+      alert('No se puede abrir la orden: ml_id no disponible');
     }
   };
 
@@ -293,7 +293,7 @@ export default function Notificaciones() {
                     </div>
 
                     <div className={styles.detalleActions}>
-                      {notif.pack_id && (
+                      {notif.ml_id && (
                         <button
                           onClick={() => abrirEnML(notif)}
                           className={styles.btnPrimary}
