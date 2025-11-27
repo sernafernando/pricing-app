@@ -431,6 +431,24 @@ def process_and_insert(db: Session, rows):
             count_per_pack = pack_counts.get(row.pack_id, 1)
             metricas = calcular_metricas_adicionales(row, count_per_pack)
 
+            # DEBUG: Producto específico
+            if row.codigo == "6935364080433":
+                print(f"\n🔍 DEBUG - Producto: {row.codigo}")
+                print(f"  cantidad: {row.cantidad}")
+                print(f"  monto_total: {row.monto_total}")
+                print(f"  iva: {row.iva}")
+                print(f"  costo_sin_iva: {row.costo_sin_iva}")
+                print(f"  comision_ml (de SQL): {row.comision_ml}")
+                print(f"  costo_envio_ml: {row.costo_envio_ml}")
+                print(f"  count_per_pack: {count_per_pack}")
+                print(f"  MÉTRICAS CALCULADAS:")
+                print(f"    costo_total_sin_iva: {metricas['costo_total_sin_iva']}")
+                print(f"    comision_ml: {metricas['comision_ml']}")
+                print(f"    costo_envio: {metricas['costo_envio']}")
+                print(f"    monto_limpio: {metricas['monto_limpio']}")
+                print(f"    ganancia: {metricas['ganancia']}")
+                print(f"    markup_porcentaje: {metricas['markup_porcentaje']}%")
+
             # Preparar datos
             data = {
                 'id_operacion': row.id_operacion,
