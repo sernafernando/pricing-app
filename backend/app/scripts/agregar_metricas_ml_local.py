@@ -367,6 +367,18 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                 ).first()
 
                 if not existe_notif:
+                    # Obtener costo actual del producto
+                    from app.models.producto import ProductoPricing
+                    costo_actual = None
+                    try:
+                        producto = db.query(ProductoPricing).filter(
+                            ProductoPricing.item_id == row.item_id
+                        ).first()
+                        if producto:
+                            costo_actual = float(producto.costo_actual) if producto.costo_actual else None
+                    except:
+                        pass
+
                     notificacion = Notificacion(
                         user_id=usuario.id,
                         tipo='markup_bajo',
@@ -381,6 +393,17 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         markup_objetivo=Decimal(str(markup_calculado)),
                         monto_venta=Decimal(str(row.monto_total)),
                         fecha_venta=row.fecha_venta,
+                        # Campos adicionales
+                        pm=Decimal(str(markup_calculado)),
+                        costo_operacion=Decimal(str(row.costo_sin_iva)) if row.costo_sin_iva else None,
+                        costo_actual=Decimal(str(costo_actual)) if costo_actual else None,
+                        precio_venta_unitario=Decimal(str(row.monto_unitario)) if row.monto_unitario else None,
+                        precio_publicacion=None,  # TODO: obtener de ML si está disponible
+                        tipo_publicacion=row.ct_transaction if hasattr(row, 'ct_transaction') else None,
+                        comision_ml=Decimal(str(metricas['comision_ml'])) if metricas.get('comision_ml') else None,
+                        iva_porcentaje=Decimal(str(row.iva)) if row.iva else None,
+                        cantidad=int(row.cantidad) if row.cantidad else None,
+                        costo_envio=Decimal(str(metricas['costo_envio'])) if metricas.get('costo_envio') else None,
                         leida=False
                     )
                     db.add(notificacion)

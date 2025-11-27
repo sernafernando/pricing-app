@@ -25,6 +25,16 @@ class NotificacionResponse(BaseModel):
     markup_objetivo: Optional[float]
     monto_venta: Optional[float]
     fecha_venta: Optional[datetime]
+    pm: Optional[float]
+    costo_operacion: Optional[float]
+    costo_actual: Optional[float]
+    precio_venta_unitario: Optional[float]
+    precio_publicacion: Optional[float]
+    tipo_publicacion: Optional[str]
+    comision_ml: Optional[float]
+    iva_porcentaje: Optional[float]
+    cantidad: Optional[int]
+    costo_envio: Optional[float]
     leida: bool
     fecha_creacion: datetime
     fecha_lectura: Optional[datetime]

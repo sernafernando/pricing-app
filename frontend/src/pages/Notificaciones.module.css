@@ -209,6 +209,18 @@
   line-height: 1.4;
 }
 
+.pmTag {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #60a5fa;
+}
+
 .notifMeta {
   display: flex;
   flex-direction: column;
@@ -250,12 +262,24 @@
 
 .detalleGrid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 1.25rem;
   margin-bottom: 1.5rem;
   padding: 1rem;
   background: rgba(0, 0, 0, 0.15);
   border-radius: 6px;
+}
+
+@media (max-width: 1200px) {
+  .detalleGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .detalleGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .detalleItem {

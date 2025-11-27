@@ -259,6 +259,9 @@ export default function Notificaciones() {
                         {notif.codigo_producto} - {notif.descripcion_producto}
                       </div>
                     )}
+                    {notif.pm && (
+                      <div className={styles.pmTag}>PM: {parseFloat(notif.pm).toFixed(2)}%</div>
+                    )}
                   </div>
                   <div className={styles.notifMeta}>
                     <span className={styles.notifFecha}>{formatearFecha(notif.fecha_creacion)}</span>
@@ -279,12 +282,44 @@ export default function Notificaciones() {
                         </span>
                       </div>
                       <div className={styles.detalleItem}>
-                        <strong>Markup Esperado:</strong>
-                        <span>{notif.markup_objetivo}%</span>
+                        <strong>Markup Esperado (PM):</strong>
+                        <span>{notif.pm || notif.markup_objetivo}%</span>
                       </div>
                       <div className={styles.detalleItem}>
-                        <strong>Monto Venta:</strong>
-                        <span>${parseFloat(notif.monto_venta).toLocaleString('es-AR')}</span>
+                        <strong>Costo Operación:</strong>
+                        <span>${notif.costo_operacion ? parseFloat(notif.costo_operacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                      </div>
+                      <div className={styles.detalleItem}>
+                        <strong>Costo Actual:</strong>
+                        <span>${notif.costo_actual ? parseFloat(notif.costo_actual).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                      </div>
+                      <div className={styles.detalleItem}>
+                        <strong>Precio Venta Unitario:</strong>
+                        <span>${notif.precio_venta_unitario ? parseFloat(notif.precio_venta_unitario).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                      </div>
+                      <div className={styles.detalleItem}>
+                        <strong>Monto Total:</strong>
+                        <span>${parseFloat(notif.monto_venta).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                      </div>
+                      <div className={styles.detalleItem}>
+                        <strong>Tipo Publicación:</strong>
+                        <span>{notif.tipo_publicacion || 'N/A'}</span>
+                      </div>
+                      <div className={styles.detalleItem}>
+                        <strong>Comisión ML:</strong>
+                        <span>${notif.comision_ml ? parseFloat(notif.comision_ml).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                      </div>
+                      <div className={styles.detalleItem}>
+                        <strong>IVA:</strong>
+                        <span>{notif.iva_porcentaje || 21}%</span>
+                      </div>
+                      <div className={styles.detalleItem}>
+                        <strong>Cantidad:</strong>
+                        <span>{notif.cantidad || 1} unidad{notif.cantidad > 1 ? 'es' : ''}</span>
+                      </div>
+                      <div className={styles.detalleItem}>
+                        <strong>Costo Envío:</strong>
+                        <span>${notif.costo_envio ? parseFloat(notif.costo_envio).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'No aplica'}</span>
                       </div>
                       <div className={styles.detalleItem}>
                         <strong>Fecha Venta:</strong>

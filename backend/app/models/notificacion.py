@@ -23,6 +23,18 @@ class Notificacion(Base):
     monto_venta = Column(Numeric(12, 2), nullable=True)
     fecha_venta = Column(DateTime(timezone=True), nullable=True)
 
+    # Campos adicionales para detalle
+    pm = Column(Numeric(10, 2), nullable=True)  # PM (markup) calculado
+    costo_operacion = Column(Numeric(12, 2), nullable=True)  # Costo al momento de la venta
+    costo_actual = Column(Numeric(12, 2), nullable=True)  # Costo actual
+    precio_venta_unitario = Column(Numeric(12, 2), nullable=True)  # Precio unitario
+    precio_publicacion = Column(Numeric(12, 2), nullable=True)  # Precio en publicación ML
+    tipo_publicacion = Column(String(50), nullable=True)  # classic, gold, premium
+    comision_ml = Column(Numeric(12, 2), nullable=True)  # Comisión ML
+    iva_porcentaje = Column(Numeric(5, 2), nullable=True)  # % de IVA
+    cantidad = Column(Integer, nullable=True)  # Cantidad vendida
+    costo_envio = Column(Numeric(12, 2), nullable=True)  # Costo de envío
+
     # Control de lectura
     leida = Column(Boolean, default=False, nullable=False, index=True)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
