@@ -293,7 +293,7 @@ export default function Notificaciones() {
                       </div>
                       <div className={styles.detalleItem}>
                         <strong>Costo Envío:</strong>
-                        <span>${notif.costo_envio ? parseFloat(notif.costo_envio).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'No aplica'}</span>
+                        <span>${notif.costo_envio ? parseFloat(notif.costo_envio).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0,00'}</span>
                       </div>
                       <div className={styles.detalleItem}>
                         <strong>Fecha Venta:</strong>
