@@ -83,18 +83,19 @@ def calcular_comision_ml(
     # 1. Comisión base (porcentaje sobre precio / 1.21)
     comision_base_sin_iva = (comision_base_porcentaje / 100) / 1.21
 
-    # 2. Tier (cargo fijo según rango de precio)
+    # 2. Tier (cargo fijo según rango de precio UNITARIO)
     # Los valores de tier vienen CON IVA, hay que dividir por 1.21
-    if monto_total >= monto_tier3:
+    # IMPORTANTE: El tier se calcula por precio unitario, NO por total
+    if monto_unitario >= monto_tier3:
         # Por encima de tier3 = sin cargo fijo
         tier_fijo_sin_iva = 0
-    elif monto_total < monto_tier1:
+    elif monto_unitario < monto_tier1:
         # Menor a tier1
         tier_fijo_sin_iva = comision_tier1 / 1.21
-    elif monto_total < monto_tier2:
+    elif monto_unitario < monto_tier2:
         # Entre tier1 y tier2
         tier_fijo_sin_iva = comision_tier2 / 1.21
-    elif monto_total < monto_tier3:
+    elif monto_unitario < monto_tier3:
         # Entre tier2 y tier3
         tier_fijo_sin_iva = comision_tier3 / 1.21
     else:
