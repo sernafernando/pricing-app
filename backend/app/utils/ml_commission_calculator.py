@@ -22,108 +22,89 @@ def calcular_comision_ml(
     """
     Calcula la comisión ML EXACTAMENTE como st_app.py
 
-    La fórmula es: ((monto * base_pct_sin_iva + fijo_val) * qty) + varios
+    Fórmula: (monto * base% + tier_fijo) * qty + varios
+
+    Componentes:
+    1. Base: comision_base_porcentaje / 100 / 1.21
+    2. Tier: valor fijo según rango (monto_tier1, monto_tier2, monto_tier3)
+    3. Varios: varios_porcentaje% del total sin IVA
 
     Args:
         monto_unitario: Precio de venta unitario (CON IVA)
         cantidad: Cantidad vendida
-        iva_porcentaje: Porcentaje de IVA (ej: 10.5)
-        fecha_venta: Fecha de la venta (para determinar período)
+        iva_porcentaje: Porcentaje de IVA (ej: 10.5 para 10.5%)
+        fecha_venta: Fecha de la venta
         comision_base_porcentaje: Porcentaje de comisión base (ej: 15.5 para 15.5%)
-        varios_porcentaje: Porcentaje de "varios" (default 6.5%)
-        min_fijo: Umbral mínimo para tarifa fija
-        max_fijo: Umbral máximo para tarifa fija
-        min_free: Umbral para envío gratis/sin tarifa fija
-        valor_fijo: Valor fijo para montos < min_fijo
-        valor_max_fijo: Valor fijo para montos entre min_fijo y max_fijo
-        valor_free: Valor fijo para montos >= max_fijo y < min_free
+        db_session: Sesión de DB (opcional, para obtener pricing_constants)
 
     Returns:
         Comisión total en pesos (SIN IVA)
     """
-    # Calcular monto total sin IVA
-    total_sin_iva = (monto_unitario * cantidad) / (1 + iva_porcentaje / 100)
+    # Obtener constantes de pricing
+    if db_session:
+        from app.models.pricing_constants import PricingConstants
+        constants = db_session.query(PricingConstants).filter(
+            PricingConstants.fecha_desde <= fecha_venta.date()
+        ).order_by(PricingConstants.fecha_desde.desc()).first()
 
-    # Comisión base sin IVA
+        if constants:
+            monto_tier1 = float(constants.monto_tier1)
+            monto_tier2 = float(constants.monto_tier2)
+            monto_tier3 = float(constants.monto_tier3)
+            comision_tier1 = float(constants.comision_tier1)
+            comision_tier2 = float(constants.comision_tier2)
+            comision_tier3 = float(constants.comision_tier3)
+            varios_porcentaje = float(constants.varios_porcentaje)
+        else:
+            # Fallback a valores por defecto
+            monto_tier1 = 15000
+            monto_tier2 = 24000
+            monto_tier3 = 33000
+            comision_tier1 = 1095
+            comision_tier2 = 2190
+            comision_tier3 = 2628
+            varios_porcentaje = 6.5
+    else:
+        # Sin sesión DB, usar valores por defecto
+        monto_tier1 = 15000
+        monto_tier2 = 24000
+        monto_tier3 = 33000
+        comision_tier1 = 1095
+        comision_tier2 = 2190
+        comision_tier3 = 2628
+        varios_porcentaje = 6.5
+
+    # Calcular monto total
+    monto_total = monto_unitario * cantidad
+
+    # Monto sin IVA
+    total_sin_iva = monto_total / (1 + iva_porcentaje / 100)
+
+    # 1. Comisión base (porcentaje sobre precio / 1.21)
     comision_base_sin_iva = (comision_base_porcentaje / 100) / 1.21
 
-    # Varios sin IVA
+    # 2. Tier (cargo fijo según rango de precio)
+    # Los valores de tier vienen CON IVA, hay que dividir por 1.21
+    if monto_total >= monto_tier3:
+        # Por encima de tier3 = sin cargo fijo
+        tier_fijo_sin_iva = 0
+    elif monto_total < monto_tier1:
+        # Menor a tier1
+        tier_fijo_sin_iva = comision_tier1 / 1.21
+    elif monto_total < monto_tier2:
+        # Entre tier1 y tier2
+        tier_fijo_sin_iva = comision_tier2 / 1.21
+    elif monto_total < monto_tier3:
+        # Entre tier2 y tier3
+        tier_fijo_sin_iva = comision_tier3 / 1.21
+    else:
+        tier_fijo_sin_iva = 0
+
+    # 3. Varios (porcentaje del total sin IVA)
     varios_sin_iva = total_sin_iva * (varios_porcentaje / 100)
 
-    # Valores fijos sin IVA
-    valor_fijo_sin_iva = valor_fijo / 1.21
-    valor_max_fijo_sin_iva = valor_max_fijo / 1.21
-    valor_free_sin_iva = valor_free / 1.21
-
-    # Determinar período según fecha (lógica de st_app.py líneas 499-505)
-    # Para simplificar, usamos el período actual (desde oct 2025)
-    # Si necesitas períodos históricos, agregar lógica de fechas aquí
-
-    if fecha_venta >= datetime(2025, 10, 6):
-        # Período actual (desde oct 2025) - st_app.py líneas 577-586
-        varios_actual = varios_sin_iva
-    elif fecha_venta >= datetime(2025, 9, 3):
-        # Septiembre 2025 - st_app.py líneas 565-575
-        varios_actual = varios_sin_iva
-        # Valores diferentes para Q3
-        valor_fijo_sin_iva = 2628 / 1.21
-        valor_max_fijo_sin_iva = 2190 / 1.21
-        valor_free_sin_iva = 2628 / 1.21
-        min_fijo = 15000
-        max_fijo = 24000
-        min_free = 33000
-    elif fecha_venta >= datetime(2025, 8, 4):
-        # Agosto 2025 - st_app.py líneas 553-563
-        varios_actual = varios_sin_iva
-        valor_fijo_sin_iva = 2628 / 1.21
-        valor_max_fijo_sin_iva = 2190 / 1.21
-        valor_free_sin_iva = 2628 / 1.21
-        min_fijo = 15000
-        max_fijo = 24000
-        min_free = 33000
-    elif fecha_venta >= datetime(2025, 3, 11):
-        # Q1 2025 - st_app.py líneas 541-551
-        varios_actual = total_sin_iva * 0.055  # 5.5%
-        valor_fijo_sin_iva = 1000 / 1.21
-        valor_max_fijo_sin_iva = 2000 / 1.21
-        valor_free_sin_iva = 1000 / 1.21
-        min_fijo = 15000
-        max_fijo = 24000
-        min_free = 33000
-    elif fecha_venta >= datetime(2025, 2, 26):
-        # Feb 26 - Mar 10, 2025 - st_app.py líneas 529-539
-        varios_actual = varios_sin_iva
-        valor_fijo_sin_iva = 900 / 1.21
-        valor_max_fijo_sin_iva = 1800 / 1.21
-        valor_free_sin_iva = 0.0
-        min_fijo = 12000
-        max_fijo = 30000
-        min_free = float('inf')  # nunca se cumple
-    else:
-        # Antes de feb 26, 2025 - st_app.py líneas 517-527
-        varios_actual = varios_sin_iva
-        valor_fijo_sin_iva = 900 / 1.21
-        valor_max_fijo_sin_iva = 1800 / 1.21
-        valor_free_sin_iva = 0.0
-        min_fijo = 12000
-        max_fijo = 30000
-        min_free = float('inf')
-
-    # Determinar valor fijo según umbral (st_app.py líneas 509-514)
-    if monto_unitario >= min_free:
-        # Envío gratis / sin cargo fijo
-        fijo_val = 0.0
-    elif monto_unitario < min_fijo:
-        # Monto bajo
-        fijo_val = valor_fijo_sin_iva
-    elif monto_unitario < max_fijo:
-        # Monto medio
-        fijo_val = valor_max_fijo_sin_iva
-    else:
-        # Monto alto pero < min_free
-        fijo_val = valor_free_sin_iva
-
-    # Fórmula final (st_app.py línea 515)
-    comision_total = ((monto_unitario * comision_base_sin_iva + fijo_val) * cantidad) + varios_actual
+    # Fórmula final: ((monto * base% + tier) * qty) + varios
+    # Como monto_unitario ya incluye la cantidad en monto_total, simplificamos:
+    comision_total = (monto_unitario * comision_base_sin_iva + tier_fijo_sin_iva) * cantidad + varios_sin_iva
 
     return comision_total

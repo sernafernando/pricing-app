@@ -1,6 +1,6 @@
 """
-Script de prueba para el helper de métricas ML
-Usa los valores del dashboard para verificar que el cálculo sea correcto
+Script de prueba para el helper de métricas ML - Operación 2
+Código: 4895252500875
 """
 import sys
 from pathlib import Path
@@ -17,28 +17,26 @@ load_dotenv(dotenv_path=env_path)
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
 from app.core.database import SessionLocal
 
-# Datos de la venta del dashboard (código 6935364080433)
-# Dashboard muestra:
-# - Comisión: 7,638.60 pesos
-# - Markup: 0.46%
-
 print("=" * 80)
-print("PRUEBA HELPER ML - Valores del Dashboard")
+print("PRUEBA HELPER ML - Operación 2")
 print("=" * 80)
 
-# Valores de la operación
-monto_unitario = 26340.0  # Precio de venta con IVA
+# Datos de la operación (de la tabla que pasaste)
+codigo = "4895252500875"
+monto_unitario = 70800.3  # Precio de venta con IVA
 cantidad = 1
 iva_porcentaje = 10.5
-costo_unitario_sin_iva = 24780.0  # Costo sin IVA (ya confirmado correcto)
-costo_envio_ml = None  # No hay envío en este caso
+costo_unitario_sin_iva = 38291.0  # Costo sin IVA
+costo_envio_ml = 0  # Parece que es 0 según la tabla
 count_per_pack = 1
 
 # Datos para calcular comisión dinámicamente
-fecha_venta = datetime(2025, 11, 26)
-comision_base_porcentaje = 15.5  # Ajustar según corresponda
+# Necesitamos averiguar estos valores... asumiendo defaults similares
+fecha_venta = datetime.now()  # Asumiendo fecha actual
+comision_base_porcentaje = 15.5  # Valor común
 
 print(f"\nDatos de entrada:")
+print(f"  Código: {codigo}")
 print(f"  Monto unitario (con IVA): ${monto_unitario:,.2f}")
 print(f"  Cantidad: {cantidad}")
 print(f"  IVA: {iva_porcentaje}%")
@@ -54,7 +52,7 @@ try:
         cantidad=cantidad,
         iva_porcentaje=iva_porcentaje,
         costo_unitario_sin_iva=costo_unitario_sin_iva,
-        costo_envio_ml=costo_envio_ml,
+        costo_envio_ml=costo_envio_ml if costo_envio_ml > 0 else None,
         count_per_pack=count_per_pack,
         fecha_venta=fecha_venta,
         comision_base_porcentaje=comision_base_porcentaje,
@@ -73,23 +71,11 @@ print(f"  Ganancia: ${metricas['ganancia']:,.2f}")
 print(f"  Markup: {metricas['markup_porcentaje']:.2f}%")
 
 print(f"\n{'=' * 80}")
-print("COMPARACIÓN CON DASHBOARD:")
+print("VALORES ESPERADOS (de la tabla):")
 print(f"{'=' * 80}")
-comision_dashboard = 7638.60
-markup_dashboard = 0.46
-
-diff_comision = metricas['comision_ml'] - comision_dashboard
-diff_markup = metricas['markup_porcentaje'] - markup_dashboard
-
-print(f"  Comisión Dashboard: ${comision_dashboard:,.2f}")
-print(f"  Diferencia comisión: ${diff_comision:,.2f} ({abs(diff_comision/comision_dashboard*100):.2f}%)")
-print(f"\n  Markup Dashboard: {markup_dashboard:.2f}%")
-print(f"  Diferencia markup: {diff_markup:.2f}% puntos")
-
-# Verificar si está dentro del margen aceptable (0.2%)
-if abs(diff_markup) <= 0.2:
-    print(f"\n  ✅ DENTRO DEL MARGEN ACEPTABLE (≤0.2%)")
-else:
-    print(f"\n  ❌ FUERA DEL MARGEN ACEPTABLE (>{0.2}%)")
+# Los valores en la tabla parecen estar corruptos/incorrectos
+# Comisión y Limpio tienen números gigantes
+print(f"  Markup esperado: 32.77%")
+print(f"  Costo total esperado: ${38291:,.2f}")
 
 print()

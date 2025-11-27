@@ -257,7 +257,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
     return rows
 
 
-def calcular_metricas_adicionales(row, count_per_pack):
+def calcular_metricas_adicionales(row, count_per_pack, db_session):
     """
     Calcula las métricas usando helper centralizado
     El helper calcula la comisión dinámicamente usando subcat_id y pricelist_id
@@ -274,7 +274,8 @@ def calcular_metricas_adicionales(row, count_per_pack):
         subcat_id=row.subcat_id,
         pricelist_id=row.pricelist_id,
         fecha_venta=row.fecha_venta,
-        comision_base_porcentaje=float(row.comision_base_porcentaje or 12.0)
+        comision_base_porcentaje=float(row.comision_base_porcentaje or 12.0),
+        db_session=db_session  # Pasar sesión para obtener pricing_constants
     )
 
     return {
@@ -383,7 +384,7 @@ def process_and_insert(db: Session, rows):
 
             # Calcular métricas adicionales
             count_per_pack = pack_counts.get(row.pack_id, 1)
-            metricas = calcular_metricas_adicionales(row, count_per_pack)
+            metricas = calcular_metricas_adicionales(row, count_per_pack, db)
 
             # Preparar datos
             data = {

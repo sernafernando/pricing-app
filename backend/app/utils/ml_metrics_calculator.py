@@ -22,7 +22,8 @@ def calcular_metricas_ml(
     subcat_id: Optional[int] = None,
     pricelist_id: Optional[int] = None,
     fecha_venta: Optional[datetime] = None,
-    comision_base_porcentaje: Optional[float] = None
+    comision_base_porcentaje: Optional[float] = None,
+    db_session = None  # Sesión de DB para pricing_constants
 ) -> dict:
     """
     Calcula métricas ML usando la fórmula que ya funciona
@@ -50,7 +51,8 @@ def calcular_metricas_ml(
             cantidad=cantidad,
             iva_porcentaje=iva_porcentaje,
             fecha_venta=fecha_venta,
-            comision_base_porcentaje=comision_base_porcentaje
+            comision_base_porcentaje=comision_base_porcentaje,
+            db_session=db_session  # Pasar sesión de DB para pricing_constants
         )
     elif comision_ml is None:
         raise ValueError("Debe proporcionar comision_ml O (fecha_venta + comision_base_porcentaje)")
