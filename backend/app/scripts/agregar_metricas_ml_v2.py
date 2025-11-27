@@ -22,6 +22,7 @@ import pandas as pd
 
 from app.core.database import SessionLocal
 from app.models.ml_venta_metrica import MLVentaMetrica
+from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
 
 def fetch_data_from_api(from_date: date, to_date: date) -> pd.DataFrame:
@@ -92,31 +93,25 @@ def process_and_insert(db: Session, df: pd.DataFrame):
             else:
                 tipo_logistica = str(tipo_logistica_raw) if tipo_logistica_raw else None
 
-            # Calcular limpio (mismo cálculo que st_app)
-            monto_total_sin_iva = monto_total / 1.21
-            costo_envio_ml_sin_iva = costo_envio_ml / 1.21
-
-            # Prorrateo de envío
+            # Usar helper centralizado para calcular métricas
             contar_si = row.get('contar_si', 1)
-            if pd.notna(row.get('MLShippingID')) and contar_si > 0:
-                # Tiene pack/shipping
-                if monto_unitario >= 33000:  # min_free
-                    costo_envio_prorrateado = (costo_envio_ml_sin_iva * cantidad) / contar_si
-                else:
-                    costo_envio_prorrateado = 0
-            else:
-                costo_envio_prorrateado = 0
+            metricas = calcular_metricas_ml(
+                monto_unitario=monto_unitario,
+                cantidad=cantidad,
+                iva_porcentaje=21.0,  # IVA hardcoded a 21% en este script
+                costo_unitario_sin_iva=costo_sin_iva,
+                comision_ml=comision_ml,  # Comisión ya calculada por ERP
+                costo_envio_ml=costo_envio_ml if pd.notna(row.get('MLShippingID')) else None,
+                count_per_pack=contar_si
+            )
 
-            # Monto limpio = monto sin IVA - comisión - envío prorrateado
-            monto_limpio = monto_total_sin_iva - comision_ml - costo_envio_prorrateado
+            monto_limpio = metricas['monto_limpio']
+            ganancia = metricas['ganancia']
+            markup_porcentaje = metricas['markup_porcentaje']
+            costo_envio_prorrateado = metricas['costo_envio']
+            monto_total_sin_iva = monto_total / 1.21
 
-            # Ganancia = limpio - costo del producto
-            ganancia = monto_limpio - costo_total_sin_iva
-
-            # Markup
-            markup_porcentaje = (ganancia / costo_total_sin_iva * 100) if costo_total_sin_iva > 0 else 0.0
-
-            # Porcentaje de comisión (estimado, asumiendo comisión base ~15%)
+            # Porcentaje de comisión
             porcentaje_comision_ml = (comision_ml / monto_total_sin_iva * 100) if monto_total_sin_iva > 0 else 0.0
 
             # Cotización dólar

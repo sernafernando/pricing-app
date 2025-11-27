@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.models.ml_venta_metrica import MLVentaMetrica
+from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
 # Load environment variables from .env file in backend directory
 env_path = backend_dir / '.env'
@@ -189,29 +190,23 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
             iva_percentage = float(row.get('IVA', 21)) if pd.notna(row.get('IVA')) else 21.0
             iva_multiplier = 1 + (iva_percentage / 100)
 
-            # Calcular limpio (mismo cálculo que st_app)
-            monto_total_sin_iva = monto_total / iva_multiplier
-            costo_envio_ml_sin_iva = costo_envio_ml / iva_multiplier
-
-            # Prorrateo de envío
+            # Usar helper centralizado para calcular métricas
             contar_si = row.get('contar_si', 1)
-            if pd.notna(row.get('MLShippingID')) and contar_si > 0:
-                # Tiene pack/shipping
-                if monto_unitario >= min_free:  # min_free
-                    costo_envio_prorrateado = (costo_envio_ml_sin_iva * cantidad) / contar_si
-                else:
-                    costo_envio_prorrateado = 0
-            else:
-                costo_envio_prorrateado = 0
+            metricas = calcular_metricas_ml(
+                monto_unitario=monto_unitario,
+                cantidad=cantidad,
+                iva_porcentaje=iva_percentage,
+                costo_unitario_sin_iva=costo_sin_iva,
+                comision_ml=comision_ml,  # Comisión ya calculada por ERP
+                costo_envio_ml=costo_envio_ml if pd.notna(row.get('MLShippingID')) else None,
+                count_per_pack=contar_si
+            )
 
-            # Monto limpio = monto sin IVA - comisión - envío prorrateado
-            monto_limpio = monto_total_sin_iva - comision_ml - costo_envio_prorrateado
-
-            # Ganancia = limpio - costo del producto
-            ganancia = monto_limpio - costo_total_sin_iva
-
-            # Markup
-            markup_porcentaje = (ganancia / costo_total_sin_iva * 100) if costo_total_sin_iva > 0 else 0.0
+            monto_limpio = metricas['monto_limpio']
+            ganancia = metricas['ganancia']
+            markup_porcentaje = metricas['markup_porcentaje']
+            costo_envio_prorrateado = metricas['costo_envio']
+            monto_total_sin_iva = monto_total / iva_multiplier
 
             # Porcentaje de comisión
             porcentaje_comision_ml = (comision_ml / monto_total_sin_iva * 100) if monto_total_sin_iva > 0 else 0.0
