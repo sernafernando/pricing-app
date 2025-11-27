@@ -260,7 +260,7 @@ export default function Notificaciones() {
                       </div>
                     )}
                     {notif.pm && (
-                      <div className={styles.pmTag}>PM: {parseFloat(notif.pm).toFixed(2)}%</div>
+                      <div className={styles.pmTag}>PM: {notif.pm}</div>
                     )}
                   </div>
                   <div className={styles.notifMeta}>

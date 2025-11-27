@@ -401,13 +401,26 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                     tipo_publicacion = None
                     if row.pricelist_id:
                         pricelist_names = {
-                            1: "Classic",
-                            2: "Premium",
-                            3: "Gold Special",
-                            4: "Free",
-                            5: "Mercado Shops"
+                            4: "Clásica",
+                            12: "Clásica",
+                            17: "3 Cuotas",
+                            18: "3 Cuotas",
+                            14: "6 Cuotas",
+                            19: "6 Cuotas",
+                            13: "9 Cuotas",
+                            20: "9 Cuotas",
+                            23: "12 Cuotas",
+                            21: "12 Cuotas"
                         }
                         tipo_publicacion = pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}")
+
+                    # Obtener PM asignado a la marca del producto
+                    from app.models.marca_pm import MarcaPM
+                    pm_nombre = None
+                    if row.marca:
+                        marca_pm = db.query(MarcaPM).filter(MarcaPM.marca == row.marca).first()
+                        if marca_pm and marca_pm.usuario:
+                            pm_nombre = marca_pm.usuario.nombre
 
                     notificacion = Notificacion(
                         user_id=usuario.id,
@@ -424,7 +437,7 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         monto_venta=Decimal(str(row.monto_total)),
                         fecha_venta=row.fecha_venta,
                         # Campos adicionales
-                        pm=Decimal(str(markup_calculado)),
+                        pm=pm_nombre,
                         costo_operacion=Decimal(str(row.costo_sin_iva)) if row.costo_sin_iva is not None else None,
                         costo_actual=Decimal(str(costo_actual)) if costo_actual is not None else None,
                         precio_venta_unitario=Decimal(str(row.monto_unitario)) if row.monto_unitario is not None else None,

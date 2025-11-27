@@ -25,7 +25,7 @@ class NotificacionResponse(BaseModel):
     markup_objetivo: Optional[float]
     monto_venta: Optional[float]
     fecha_venta: Optional[datetime]
-    pm: Optional[float]
+    pm: Optional[str]
     costo_operacion: Optional[float]
     costo_actual: Optional[float]
     precio_venta_unitario: Optional[float]

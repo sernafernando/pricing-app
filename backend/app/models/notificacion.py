@@ -24,7 +24,7 @@ class Notificacion(Base):
     fecha_venta = Column(DateTime(timezone=True), nullable=True)
 
     # Campos adicionales para detalle
-    pm = Column(Numeric(10, 2), nullable=True)  # PM (markup) calculado
+    pm = Column(String(100), nullable=True)  # Product Manager asignado a la marca
     costo_operacion = Column(Numeric(12, 2), nullable=True)  # Costo al momento de la venta
     costo_actual = Column(Numeric(12, 2), nullable=True)  # Costo actual
     precio_venta_unitario = Column(Numeric(12, 2), nullable=True)  # Precio unitario
