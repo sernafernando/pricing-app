@@ -23,17 +23,16 @@ export default function DashboardMetricasML() {
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
   useEffect(() => {
-    // Configurar fechas por defecto: últimos 30 días
+    // Configurar fechas por defecto: primer día del mes actual hasta hoy
     const hoy = new Date();
-    const hace30Dias = new Date(hoy);
-    hace30Dias.setDate(hace30Dias.getDate() - 30);
+    const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
 
-    const formatearFecha = (fecha) => {
+    const formatearFechaISO = (fecha) => {
       return fecha.toISOString().split('T')[0];
     };
 
-    setFechaDesde(formatearFecha(hace30Dias));
-    setFechaHasta(formatearFecha(hoy));
+    setFechaDesde(formatearFechaISO(primerDiaMes));
+    setFechaHasta(formatearFechaISO(hoy));
 
     // Cargar listas de marcas y categorías
     cargarMarcasYCategorias();
@@ -138,10 +137,84 @@ export default function DashboardMetricasML() {
     return tipos[tipo] || tipo;
   };
 
+  const aplicarFiltroRapido = (filtro) => {
+    const hoy = new Date();
+    const formatearFechaISO = (fecha) => fecha.toISOString().split('T')[0];
+
+    let desde, hasta = hoy;
+
+    switch (filtro) {
+      case 'hoy':
+        desde = new Date(hoy);
+        break;
+      case 'ayer':
+        desde = new Date(hoy);
+        desde.setDate(desde.getDate() - 1);
+        hasta = new Date(desde);
+        break;
+      case '3dias':
+        desde = new Date(hoy);
+        desde.setDate(desde.getDate() - 2);
+        break;
+      case 'semana':
+        desde = new Date(hoy);
+        desde.setDate(desde.getDate() - 6);
+        break;
+      case '2semanas':
+        desde = new Date(hoy);
+        desde.setDate(desde.getDate() - 13);
+        break;
+      case 'mesActual':
+        desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+        break;
+      case '30dias':
+        desde = new Date(hoy);
+        desde.setDate(desde.getDate() - 29);
+        break;
+      case '3meses':
+        desde = new Date(hoy);
+        desde.setMonth(desde.getMonth() - 3);
+        break;
+      default:
+        return;
+    }
+
+    setFechaDesde(formatearFechaISO(desde));
+    setFechaHasta(formatearFechaISO(hasta));
+  };
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
         <h1 className={styles.title}>📊 Dashboard Métricas ML</h1>
+
+        {/* Filtros Rápidos */}
+        <div className={styles.filtrosRapidos}>
+          <button onClick={() => aplicarFiltroRapido('hoy')} className={styles.btnFiltroRapido}>
+            Hoy
+          </button>
+          <button onClick={() => aplicarFiltroRapido('ayer')} className={styles.btnFiltroRapido}>
+            Ayer
+          </button>
+          <button onClick={() => aplicarFiltroRapido('3dias')} className={styles.btnFiltroRapido}>
+            Últimos 3 días
+          </button>
+          <button onClick={() => aplicarFiltroRapido('semana')} className={styles.btnFiltroRapido}>
+            Última semana
+          </button>
+          <button onClick={() => aplicarFiltroRapido('2semanas')} className={styles.btnFiltroRapido}>
+            Últimas 2 semanas
+          </button>
+          <button onClick={() => aplicarFiltroRapido('mesActual')} className={styles.btnFiltroRapido}>
+            Mes actual
+          </button>
+          <button onClick={() => aplicarFiltroRapido('30dias')} className={styles.btnFiltroRapido}>
+            Últimos 30 días
+          </button>
+          <button onClick={() => aplicarFiltroRapido('3meses')} className={styles.btnFiltroRapido}>
+            Últimos 3 meses
+          </button>
+        </div>
 
         <div className={styles.filtros}>
           <div className={styles.filtroFecha}>
@@ -349,8 +422,11 @@ export default function DashboardMetricasML() {
               </div>
             </div>
 
-            {/* Top Productos */}
-            <div className={styles.chartCard}>
+          </div>
+
+          {/* Top Productos (ancho completo) */}
+          {topProductos.length > 0 && (
+            <div className={styles.timelineCard}>
               <h3 className={styles.chartTitle}>⭐ Top Productos</h3>
               <div className={styles.tableWrapper}>
                 <table className={styles.table}>
@@ -381,10 +457,10 @@ export default function DashboardMetricasML() {
                 </table>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Ventas por Día (Timeline) */}
-          {ventasPorDia.length > 0 && (
+          {/* Ventas por Día (Timeline) - REMOVIDO */}
+          {false && ventasPorDia.length > 0 && (
             <div className={styles.timelineCard}>
               <h3 className={styles.chartTitle}>📅 Evolución Diaria</h3>
               <div className={styles.tableWrapper}>
