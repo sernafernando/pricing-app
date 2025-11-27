@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'add_user_id_notif'
-down_revision = None  # TODO: actualizar con el último revision ID
+down_revision = 'a1b2c3d4e5f6'
 branch_labels = None
 depends_on = None
 
