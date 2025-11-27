@@ -20,18 +20,25 @@ export default function NotificationBell() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  console.log('🔔 NotificationBell montado - noLeidas:', noLeidas, 'total notifs:', notificaciones.length);
+
   const fetchNotificaciones = async () => {
     try {
       setLoading(true);
+      console.log('🔔 Fetching notificaciones...');
       const [notifResponse, statsResponse] = await Promise.all([
         api.get('/api/notificaciones?limit=20&solo_no_leidas=false'),
         api.get('/api/notificaciones/stats')
       ]);
 
+      console.log('✅ Notificaciones response:', notifResponse.data);
+      console.log('✅ Stats response:', statsResponse.data);
+
       setNotificaciones(notifResponse.data);
       setNoLeidas(statsResponse.data.no_leidas);
     } catch (error) {
-      console.error('Error al obtener notificaciones:', error);
+      console.error('❌ Error al obtener notificaciones:', error);
+      console.error('Error details:', error.response?.data || error.message);
     } finally {
       setLoading(false);
     }

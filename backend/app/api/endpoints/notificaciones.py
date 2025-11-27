@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
@@ -73,7 +73,7 @@ async def obtener_estadisticas_notificaciones(
     # Contar por tipo
     tipos_query = db.query(
         Notificacion.tipo,
-        db.func.count(Notificacion.id).label('count')
+        func.count(Notificacion.id).label('count')
     ).filter(
         Notificacion.leida == False
     ).group_by(Notificacion.tipo).all()
