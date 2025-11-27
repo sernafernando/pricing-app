@@ -1,12 +1,14 @@
 """
 Helper centralizado para calcular comisiones de MercadoLibre
 Replica EXACTAMENTE la lógica de st_app.py (líneas 464-591)
+Obtiene valores de pricing_constants automáticamente
 
 Uso:
     from app.utils.ml_commission_calculator import calcular_comision_ml
 """
 from datetime import datetime
 from typing import Optional
+from sqlalchemy.orm import Session
 
 
 def calcular_comision_ml(
@@ -15,14 +17,7 @@ def calcular_comision_ml(
     iva_porcentaje: float,
     fecha_venta: datetime,
     comision_base_porcentaje: float,
-    varios_porcentaje: float = 6.5,
-    # Parámetros de configuración (vienen de pricing_constants o secrets)
-    min_fijo: float = 18000,
-    max_fijo: float = 28000,
-    min_free: float = 39000,
-    valor_fijo: float = 1490,
-    valor_max_fijo: float = 2480,
-    valor_free: float = 1490,
+    db_session: Optional[Session] = None
 ) -> float:
     """
     Calcula la comisión ML EXACTAMENTE como st_app.py
