@@ -86,7 +86,11 @@ def process_and_insert(db: Session, df: pd.DataFrame):
             costo_envio_ml = float(row.get('mlp_price4FreeShipping', 0)) if pd.notna(row.get('mlp_price4FreeShipping')) else 0.0
 
             # Tipo de logística
-            tipo_logistica = row.get('ML_logistic_type', 'unknown')
+            tipo_logistica_raw = row.get('ML_logistic_type')
+            if pd.isna(tipo_logistica_raw) or tipo_logistica_raw == 'NaN':
+                tipo_logistica = None
+            else:
+                tipo_logistica = str(tipo_logistica_raw) if tipo_logistica_raw else None
 
             # Calcular limpio (mismo cálculo que st_app)
             monto_total_sin_iva = monto_total / 1.21
