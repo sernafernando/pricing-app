@@ -293,19 +293,6 @@ def calcular_metricas_adicionales(row, count_per_pack):
     costo_sin_iva = float(row.costo_sin_iva or 0)
     costo_total_sin_iva = costo_sin_iva * cantidad
 
-    # DEBUG: Para el producto específico, mostrar el TC y costo USD
-    if row.codigo == "6935364080433":
-        tc_momento = float(row.cambio_momento or 0)
-        moneda_costo = row.moneda_costo
-        # Si es USD (moneda_costo == 2), calcular el costo en USD
-        if moneda_costo == 2 and tc_momento > 0:
-            costo_usd = costo_sin_iva / tc_momento
-            print(f"\n🔍 DEBUG TC - Producto: {row.codigo}")
-            print(f"  Fecha venta: {row.fecha_venta}")
-            print(f"  TC momento: {tc_momento}")
-            print(f"  Costo USD: ${costo_usd:.2f}")
-            print(f"  Costo ARS: ${costo_sin_iva:.2f} (= {costo_usd:.2f} × {tc_momento})")
-
     # Comisión ML
     comision_ml = float(row.comision_ml or 0)
 
@@ -483,9 +470,21 @@ def process_and_insert(db: Session, rows):
                 total_insertados += 1
 
             # TODO: Verificar markup y crear notificación si es necesario
-            # DESHABILITADO: El costo histórico no está funcionando correctamente
-            # El script usa tb_item_cost_list (costo actual) en lugar de tb_item_cost_list_history (costo al momento de venta)
-            # Esto causa que los markups calculados sean incorrectos
+            # DESHABILITADO TEMPORALMENTE:
+            #
+            # El script ahora calcula correctamente el markup usando:
+            # 1. Fórmula del dashboard: ((monto_limpio / costo_total) - 1) * 100
+            # 2. Costo de envío: (costo_envio / 1.21) * cantidad / count_per_pack
+            # 3. TC histórico del momento exacto de la venta
+            #
+            # Sin embargo, el dashboard (st_app.py / scriptDashboard) usa un TC diferente
+            # (posiblemente de fin de día en lugar del momento exacto), lo que causa
+            # discrepancias en los costos y por ende en los markups:
+            # - Script: costo = $24,360 (TC=1,450) → markup correcto según momento de venta
+            # - Dashboard: costo = $24,780 (TC=1,475) → markup con TC diferente
+            #
+            # Descomentar cuando se decida qué TC usar (momento venta vs fin de día)
+            #
             # producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == row.item_id).first()
             # if crear_notificacion_markup_bajo(db, row, metricas, producto_erp):
             #     total_notificaciones += 1
