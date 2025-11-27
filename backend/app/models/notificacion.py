@@ -11,6 +11,8 @@ class Notificacion(Base):
     tipo = Column(String(50), nullable=False, index=True)  # markup_bajo, stock_bajo, precio_desactualizado, etc.
     item_id = Column(Integer, nullable=True, index=True)
     id_operacion = Column(BigInteger, nullable=True)  # ID de operación ML
+    ml_id = Column(String(50), nullable=True, index=True)  # ML_id de la orden
+    pack_id = Column(BigInteger, nullable=True, index=True)  # Pack ID de ML para URL
     codigo_producto = Column(String(100), nullable=True)
     descripcion_producto = Column(String(500), nullable=True)
     mensaje = Column(Text, nullable=False)

@@ -1,7 +1,8 @@
 .container {
-  padding: 2rem;
-  max-width: 1400px;
+  padding: 1.5rem;
+  max-width: 1600px;
   margin: 0 auto;
+  min-height: 100vh;
 }
 
 .header {
@@ -46,13 +47,14 @@
 
 .filters {
   background: var(--bg-secondary);
-  padding: 1.5rem;
-  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  border-radius: 6px;
   margin-bottom: 1.5rem;
   display: flex;
   gap: 2rem;
   align-items: center;
   flex-wrap: wrap;
+  border: 1px solid var(--border-color);
 }
 
 .filterGroup {
@@ -69,11 +71,25 @@
 }
 
 .filterGroup select {
-  padding: 0.5rem;
+  padding: 0.5rem 0.75rem;
   border-radius: 4px;
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
   color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-width: 180px;
+}
+
+.filterGroup select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.filterGroup input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 .actions {
@@ -85,12 +101,16 @@
 .btnSecondary,
 .btnDanger,
 .btnPrimary {
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
+  padding: 0.625rem 1.25rem;
+  border-radius: 6px;
   border: none;
   cursor: pointer;
   font-weight: 500;
+  font-size: 0.9rem;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .btnSecondary {
@@ -99,7 +119,8 @@
 }
 
 .btnSecondary:hover {
-  opacity: 0.9;
+  opacity: 0.85;
+  transform: translateY(-1px);
 }
 
 .btnDanger {
@@ -109,6 +130,7 @@
 
 .btnDanger:hover {
   background: #dc2626;
+  transform: translateY(-1px);
 }
 
 .btnPrimary {
@@ -118,6 +140,7 @@
 
 .btnPrimary:hover {
   background: #2563eb;
+  transform: translateY(-1px);
 }
 
 .loading,
@@ -135,31 +158,35 @@
 
 .notifCard {
   background: var(--bg-secondary);
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
   overflow: hidden;
   transition: all 0.2s;
 }
 
 .notifCard.noLeida {
-  border-left: 4px solid var(--primary-color);
+  border-left: 3px solid #fbbf24;
+  background: rgba(251, 191, 36, 0.05);
 }
 
 .notifHeader {
   display: flex;
-  align-items: center;
-  padding: 1rem;
+  align-items: flex-start;
+  padding: 1rem 1.25rem;
   cursor: pointer;
   gap: 1rem;
+  transition: background 0.15s;
 }
 
 .notifHeader:hover {
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .notifIcon {
-  font-size: 1.5rem;
+  font-size: 1.75rem;
   flex-shrink: 0;
+  line-height: 1;
+  padding-top: 0.125rem;
 }
 
 .notifMain {
@@ -169,78 +196,91 @@
 
 .notifMensaje {
   color: var(--text-primary);
-  font-weight: 500;
-  margin-bottom: 0.25rem;
+  font-weight: 400;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
 }
 
 .notifProducto {
   color: var(--text-secondary);
-  font-size: 0.875rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 0.85rem;
+  font-family: 'Courier New', monospace;
+  line-height: 1.4;
 }
 
 .notifMeta {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.5rem;
+  gap: 0.75rem;
+  min-width: 140px;
 }
 
 .notifFecha {
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   color: var(--text-secondary);
   white-space: nowrap;
 }
 
 .badgeNoLeida {
-  background: var(--primary-color);
-  color: white;
-  padding: 0.25rem 0.5rem;
-  border-radius: 12px;
+  background: #fbbf24;
+  color: #1f2937;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
   font-size: 0.75rem;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .expandIcon {
   color: var(--text-secondary);
-  font-size: 0.875rem;
-  margin-left: 0.5rem;
+  font-size: 1rem;
+  margin-left: 0.75rem;
+  line-height: 1;
+  padding-top: 0.125rem;
 }
 
 .notifDetalle {
-  padding: 1rem 1.5rem 1.5rem 4rem;
+  padding: 1.5rem 1.25rem;
   border-top: 1px solid var(--border-color);
-  background: var(--bg-primary);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .detalleGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1rem;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
 }
 
 .detalleItem {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.5rem;
 }
 
 .detalleItem strong {
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
 }
 
 .detalleItem span {
-  font-size: 1rem;
+  font-size: 1.1rem;
   color: var(--text-primary);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .detalleItem span.negativo {
-  color: #ef4444;
+  color: #f87171;
+  font-weight: 700;
 }
 
 .loadingOrder {
@@ -276,10 +316,10 @@
 
 .detalleActions {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border-color);
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 0;
+  flex-wrap: wrap;
 }
 
 .pagination {

@@ -372,6 +372,8 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         tipo='markup_bajo',
                         item_id=row.item_id,
                         id_operacion=row.id_operacion,
+                        ml_id=row.ml_id,
+                        pack_id=row.pack_id,
                         codigo_producto=row.codigo,
                         descripcion_producto=row.descripcion[:500] if row.descripcion else None,
                         mensaje=mensaje,

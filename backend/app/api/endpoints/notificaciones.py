@@ -16,6 +16,8 @@ class NotificacionResponse(BaseModel):
     tipo: str
     item_id: Optional[int]
     id_operacion: Optional[int]
+    ml_id: Optional[str]
+    pack_id: Optional[int]
     codigo_producto: Optional[str]
     descripcion_producto: Optional[str]
     mensaje: str

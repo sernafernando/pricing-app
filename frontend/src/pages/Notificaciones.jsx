@@ -145,8 +145,38 @@ export default function Notificaciones() {
     });
   };
 
-  const abrirEnML = (idOperacion) => {
-    window.open(`https://www.mercadolibre.com.ar/ventas/${idOperacion}/detalle`, '_blank');
+  const abrirEnML = async (notif) => {
+    try {
+      // Si ya tenemos pack_id en la notificación, usarlo directamente
+      if (notif.pack_id) {
+        window.open(`https://www.mercadolibre.com.ar/ventas/${notif.pack_id}/detalle`, '_blank');
+        return;
+      }
+
+      // Si no, intentar obtenerlo de los datos de orden ya cargados
+      let orderInfo = orderData[notif.id];
+
+      // Si no tenemos los datos, fetchearlos
+      if (!orderInfo && notif.id_operacion) {
+        setLoadingOrder({ ...loadingOrder, [notif.id]: true });
+        const response = await axios.get(
+          `https://ml-webhook.gaussonline.com.ar/api/ml/render?resource=%2Forders%2F${notif.id_operacion}&format=json`
+        );
+        orderInfo = response.data;
+        setOrderData({ ...orderData, [notif.id]: orderInfo });
+        setLoadingOrder({ ...loadingOrder, [notif.id]: false });
+      }
+
+      if (orderInfo && orderInfo.pack_id) {
+        window.open(`https://www.mercadolibre.com.ar/ventas/${orderInfo.pack_id}/detalle`, '_blank');
+      } else {
+        alert('No se pudo obtener el pack_id de la orden');
+      }
+    } catch (error) {
+      console.error('Error al obtener pack_id:', error);
+      alert('Error al obtener información de la orden');
+      setLoadingOrder({ ...loadingOrder, [notif.id]: false });
+    }
   };
 
   const notificacionesPaginadas = notificaciones.slice(
@@ -276,7 +306,7 @@ export default function Notificaciones() {
                     <div className={styles.detalleActions}>
                       {notif.id_operacion && (
                         <button
-                          onClick={() => abrirEnML(notif.id_operacion)}
+                          onClick={() => abrirEnML(notif)}
                           className={styles.btnPrimary}
                         >
                           🔗 Ver en MercadoLibre
