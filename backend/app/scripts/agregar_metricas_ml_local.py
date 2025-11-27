@@ -27,6 +27,7 @@ from app.core.database import SessionLocal
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.notificacion import Notificacion
 from app.models.producto import ProductoERP, ProductoPricing
+from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
 
 def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
@@ -284,52 +285,27 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
 
 def calcular_metricas_adicionales(row, count_per_pack):
     """
-    Calcula las métricas adicionales (ganancia, markup, etc)
-    Similar a lo que hace st_app
+    Calcula las métricas usando helper centralizado
+    Usa la fórmula que ya funciona correctamente
     """
-    cantidad = float(row.cantidad or 1)
-    monto_total = float(row.monto_total or 0)
-    iva = float(row.iva or 0)
-    costo_sin_iva = float(row.costo_sin_iva or 0)
-    costo_total_sin_iva = costo_sin_iva * cantidad
-
-    # Comisión ML
-    comision_ml = float(row.comision_ml or 0)
-
-    # Costo de envío prorrateado
-    costo_envio_prorrateado = 0
-    if count_per_pack > 0:
-        costo_envio_total = float(row.costo_envio_ml or 0)
-        # El costo de envío viene con IVA, dividir por 1.21, multiplicar por cantidad, dividir por count_per_pack
-        # Fórmula del dashboard: (((Costo envío / 1.21) * Cantidad) / contar_si)
-        costo_envio_prorrateado = ((costo_envio_total / 1.21) * cantidad) / count_per_pack
-
-    # Monto sin IVA = monto total / (1 + IVA/100)
-    monto_sin_iva = monto_total / (1 + iva / 100) if iva > 0 else monto_total
-
-    # Monto limpio = monto sin IVA - comisión - envío
-    monto_limpio = monto_sin_iva - comision_ml - costo_envio_prorrateado
-
-    # Ganancia = monto limpio - costo total
-    ganancia = monto_limpio - costo_total_sin_iva
-
-    # Markup % - Fórmula del dashboard: ((Limpio / costo_total) - 1) * 100
-    markup_porcentaje = 0
-    if costo_total_sin_iva > 0:
-        markup_porcentaje = ((monto_limpio / costo_total_sin_iva) - 1) * 100
-        # Limitar a un máximo razonable para evitar overflow (NUMERIC(10,2) max = 99,999,999.99)
-        if markup_porcentaje > 99999999.99:
-            markup_porcentaje = 99999999.99
-        elif markup_porcentaje < -99999999.99:
-            markup_porcentaje = -99999999.99
+    # Llamar al helper centralizado
+    metricas = calcular_metricas_ml(
+        monto_unitario=float(row.monto_unitario or 0),
+        cantidad=float(row.cantidad or 1),
+        iva_porcentaje=float(row.iva or 0),
+        costo_unitario_sin_iva=float(row.costo_sin_iva or 0),
+        comision_ml=float(row.comision_ml or 0),
+        costo_envio_ml=float(row.costo_envio_ml or 0) if row.costo_envio_ml else None,
+        count_per_pack=count_per_pack
+    )
 
     return {
-        'costo_total_sin_iva': costo_total_sin_iva,
-        'comision_ml': comision_ml,
-        'costo_envio': costo_envio_prorrateado,
-        'monto_limpio': monto_limpio,
-        'ganancia': ganancia,
-        'markup_porcentaje': markup_porcentaje
+        'costo_total_sin_iva': metricas['costo_total_sin_iva'],
+        'comision_ml': float(row.comision_ml or 0),  # Usar la del SQL
+        'costo_envio': metricas['costo_envio'],
+        'monto_limpio': metricas['monto_limpio'],
+        'ganancia': metricas['ganancia'],
+        'markup_porcentaje': metricas['markup_porcentaje']
     }
 
 
@@ -469,25 +445,12 @@ def process_and_insert(db: Session, rows):
                 db.add(nueva_metrica)
                 total_insertados += 1
 
-            # TODO: Verificar markup y crear notificación si es necesario
-            # DESHABILITADO TEMPORALMENTE:
-            #
-            # El script ahora calcula correctamente el markup usando:
-            # 1. Fórmula del dashboard: ((monto_limpio / costo_total) - 1) * 100
-            # 2. Costo de envío: (costo_envio / 1.21) * cantidad / count_per_pack
-            # 3. TC histórico del momento exacto de la venta
-            #
-            # Sin embargo, el dashboard (st_app.py / scriptDashboard) usa un TC diferente
-            # (posiblemente de fin de día en lugar del momento exacto), lo que causa
-            # discrepancias en los costos y por ende en los markups:
-            # - Script: costo = $24,360 (TC=1,450) → markup correcto según momento de venta
-            # - Dashboard: costo = $24,780 (TC=1,475) → markup con TC diferente
-            #
-            # Descomentar cuando se decida qué TC usar (momento venta vs fin de día)
-            #
-            # producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == row.item_id).first()
-            # if crear_notificacion_markup_bajo(db, row, metricas, producto_erp):
-            #     total_notificaciones += 1
+            # Verificar markup y crear notificación si es necesario
+            # NOTA: Requiere que tb_cur_exch_history esté sincronizado con el ERP
+            # Ejecutar: python app/scripts/sync_cur_exch_history.py
+            producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == row.item_id).first()
+            if crear_notificacion_markup_bajo(db, row, metricas, producto_erp):
+                total_notificaciones += 1
 
             # Commit cada 100 registros
             if (total_insertados + total_actualizados) % 100 == 0:
