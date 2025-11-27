@@ -324,21 +324,29 @@ def calcular_metricas_adicionales(row, count_per_pack):
             markup_porcentaje = -99999999.99
 
     # Debug para el producto específico
-    if hasattr(row, 'codigo') and row.codigo == '6935364080433':
-        print(f"\n🔍 DEBUG producto 6935364080433:")
-        print(f"  cantidad: {cantidad}")
-        print(f"  monto_total: {monto_total}")
-        print(f"  iva: {iva}")
-        print(f"  costo_sin_iva: {costo_sin_iva}")
-        print(f"  costo_total_sin_iva: {costo_total_sin_iva}")
-        print(f"  comision_ml: {comision_ml}")
-        print(f"  costo_envio_ml: {row.costo_envio_ml}")
-        print(f"  count_per_pack: {count_per_pack}")
-        print(f"  costo_envio_prorrateado: {costo_envio_prorrateado}")
-        print(f"  monto_sin_iva: {monto_sin_iva}")
-        print(f"  monto_limpio: {monto_limpio}")
-        print(f"  ganancia: {ganancia}")
-        print(f"  markup_porcentaje: {markup_porcentaje}%\n")
+    if hasattr(row, 'codigo') and row.codigo == '6935364080433' and hasattr(row, 'id_operacion'):
+        # Solo mostrar una vez por id_operacion único
+        if not hasattr(calcular_metricas_adicionales, '_debug_shown'):
+            calcular_metricas_adicionales._debug_shown = set()
+
+        if row.id_operacion not in calcular_metricas_adicionales._debug_shown:
+            calcular_metricas_adicionales._debug_shown.add(row.id_operacion)
+            print(f"\n🔍 DEBUG producto 6935364080433 (operación {row.id_operacion}):")
+            print(f"  item_id: {row.item_id}")
+            print(f"  fecha_venta: {row.fecha_venta}")
+            print(f"  cantidad: {cantidad}")
+            print(f"  monto_total: {monto_total}")
+            print(f"  iva: {iva}")
+            print(f"  costo_sin_iva: {costo_sin_iva}")
+            print(f"  costo_total_sin_iva: {costo_total_sin_iva}")
+            print(f"  comision_ml: {comision_ml}")
+            print(f"  costo_envio_ml: {row.costo_envio_ml}")
+            print(f"  count_per_pack: {count_per_pack}")
+            print(f"  costo_envio_prorrateado: {costo_envio_prorrateado}")
+            print(f"  monto_sin_iva: {monto_sin_iva}")
+            print(f"  monto_limpio: {monto_limpio}")
+            print(f"  ganancia: {ganancia}")
+            print(f"  markup_porcentaje: {markup_porcentaje}%\n")
 
     return {
         'costo_total_sin_iva': costo_total_sin_iva,
