@@ -139,8 +139,10 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
             tmloh.mlshippingid as shipping_id,
-            tmlos.mlshippmentcost4seller as costo_envio_ml,
+            -- Priorizar mlp_price4freeshipping (ya tiene IVA), sino usar mlshippmentcost4seller (sin IVA)
+            COALESCE(tmlip.mlp_price4freeshipping, tmlos.mlshippmentcost4seller) as costo_envio_ml,
             tmlip.mlp_price4freeshipping as precio_envio_gratis,
+            tmlos.mlshippmentcost4seller as costo_envio_sin_iva_orig,
 
             -- Obtener el porcentaje de comisión base para que el helper lo calcule
             COALESCE(
@@ -262,11 +264,18 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
     Calcula las métricas usando helper centralizado
     El helper calcula la comisión dinámicamente usando subcat_id y pricelist_id
     """
-    # IMPORTANTE: mlshippmentcost4seller viene SIN IVA, pero el helper espera CON IVA
-    # porque internamente divide por 1.21. Por eso multiplicamos por 1.21 antes de pasarlo.
-    costo_envio_con_iva = None
+    # IMPORTANTE: Determinamos si el costo_envio_ml ya tiene IVA o no
+    # - Si viene de mlp_price4freeshipping: YA tiene IVA → pasar directo
+    # - Si viene de mlshippmentcost4seller: NO tiene IVA → multiplicar por 1.21
+    costo_envio_para_helper = None
     if row.costo_envio_ml:
-        costo_envio_con_iva = float(row.costo_envio_ml) * 1.21
+        # Si precio_envio_gratis existe y es igual a costo_envio_ml, ya tiene IVA
+        if row.precio_envio_gratis and abs(float(row.precio_envio_gratis) - float(row.costo_envio_ml)) < 0.01:
+            # Ya tiene IVA, pasar directo
+            costo_envio_para_helper = float(row.costo_envio_ml)
+        else:
+            # No tiene IVA, multiplicar por 1.21
+            costo_envio_para_helper = float(row.costo_envio_ml) * 1.21
 
     # Llamar al helper centralizado - ahora calcula la comisión dinámicamente
     metricas = calcular_metricas_ml(
@@ -274,7 +283,7 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
         cantidad=float(row.cantidad or 1),
         iva_porcentaje=float(row.iva or 0),
         costo_unitario_sin_iva=float(row.costo_sin_iva or 0),
-        costo_envio_ml=costo_envio_con_iva,
+        costo_envio_ml=costo_envio_para_helper,
         count_per_pack=count_per_pack,
         # Parámetros para calcular comisión dinámicamente
         subcat_id=row.subcat_id,
