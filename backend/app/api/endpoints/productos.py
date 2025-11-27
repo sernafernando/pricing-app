@@ -252,9 +252,13 @@ async def listar_productos(
                 field, value = parts[0].strip().lower(), parts[1].strip()
 
                 if field == 'ean':
-                    # EAN no está disponible en ProductoERP
-                    logger.warning(f"⚠️ Campo EAN no disponible en ProductoERP")
-                    search_filter = None
+                    # EAN no está disponible en ProductoERP, buscar por código
+                    logger.info(f"✅ Buscando EAN '{value}' en campo código")
+                    search_filter = and_(
+                        ProductoERP.codigo.isnot(None),
+                        ProductoERP.codigo != '',
+                        func.upper(ProductoERP.codigo) == value.upper()
+                    )
                 elif field == 'codigo':
                     # Búsqueda exacta por código (case insensitive)
                     search_filter = and_(
