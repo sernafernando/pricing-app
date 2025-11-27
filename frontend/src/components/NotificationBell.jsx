@@ -1,6 +1,18 @@
 import { useState, useEffect } from 'react';
 import styles from './NotificationBell.module.css';
-import api from '../utils/axios';
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: 'https://pricing.gaussonline.com.ar',
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export default function NotificationBell() {
   const [notificaciones, setNotificaciones] = useState([]);
