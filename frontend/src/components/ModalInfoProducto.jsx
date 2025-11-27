@@ -132,12 +132,12 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
             >
               📊 Ventas
             </button>
-            {detalle.proveedor?.nombre && (
+            {detalle.ultimas_compras && detalle.ultimas_compras.length > 0 && (
               <button
                 className={`tab-button ${tabActiva === 'proveedor' ? 'active' : ''}`}
                 onClick={() => setTabActiva('proveedor')}
               >
-                🏭 Proveedor
+                🏭 Últimas Compras
               </button>
             )}
           </div>
@@ -510,23 +510,45 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                 </>
               )}
 
-              {/* TAB: PROVEEDOR */}
-              {tabActiva === 'proveedor' && detalle.proveedor && detalle.proveedor.nombre && (
+              {/* TAB: ÚLTIMAS COMPRAS */}
+              {tabActiva === 'proveedor' && detalle.ultimas_compras && detalle.ultimas_compras.length > 0 && (
                 <section className="info-section">
-                  <h3>🏭 Información de Compra</h3>
-                  <div className="info-grid">
-                    <div className="info-item">
-                      <span className="info-label">Proveedor:</span>
-                      <span className="info-value highlight">{detalle.proveedor.nombre}</span>
-                    </div>
-                    {detalle.proveedor.ultima_compra && (
-                      <div className="info-item">
-                        <span className="info-label">Última Compra:</span>
-                        <span className="info-value">
-                          {new Date(detalle.proveedor.ultima_compra).toLocaleDateString('es-AR')}
-                        </span>
-                      </div>
-                    )}
+                  <h3>🏭 Últimas 5 Compras</h3>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid var(--border-primary)', textAlign: 'left' }}>
+                          <th style={{ padding: '12px' }}>Fecha</th>
+                          <th style={{ padding: '12px' }}>Proveedor</th>
+                          <th style={{ padding: '12px', textAlign: 'right' }}>Cantidad</th>
+                          <th style={{ padding: '12px', textAlign: 'right' }}>Precio Unit.</th>
+                          <th style={{ padding: '12px', textAlign: 'right' }}>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detalle.ultimas_compras.map((compra, index) => (
+                          <tr key={index} style={{ borderBottom: '1px solid var(--border-secondary)' }}>
+                            <td style={{ padding: '12px' }}>
+                              {compra.fecha ? new Date(compra.fecha).toLocaleDateString('es-AR', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
+                              }) : '-'}
+                            </td>
+                            <td style={{ padding: '12px' }}>{compra.proveedor || '-'}</td>
+                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: '600' }}>
+                              {compra.cantidad.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'right' }}>
+                              ${compra.precio_unitario.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: '600' }}>
+                              ${(compra.cantidad * compra.precio_unitario).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </section>
               )}

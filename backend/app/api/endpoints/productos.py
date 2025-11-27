@@ -3104,14 +3104,17 @@ async def obtener_detalle_producto(
     # ML data ahora se carga de forma lazy en el endpoint separado /mercadolibre
     # Esto mejora significativamente el tiempo de carga del modal
 
-    # Obtener último proveedor (última compra con puco_id = 10)
+    # Obtener últimas 5 compras del producto (puco_id = 10)
     from app.models.tb_supplier import TBSupplier
     from app.models.commercial_transaction import CommercialTransaction
     from app.models.item_transaction import ItemTransaction
 
-    ultimo_proveedor_query = db.query(
+    ultimas_compras_query = db.query(
         TBSupplier.supp_name,
-        ItemTransaction.it_cd
+        ItemTransaction.it_cd,
+        ItemTransaction.it_qty,
+        ItemTransaction.it_price,
+        ItemTransaction.curr_id
     ).join(
         CommercialTransaction,
         and_(
@@ -3130,12 +3133,17 @@ async def obtener_detalle_producto(
             ItemTransaction.item_id == item_id,
             CommercialTransaction.supp_id.isnot(None)
         )
-    ).order_by(ItemTransaction.it_cd.desc()).first()
+    ).order_by(ItemTransaction.it_cd.desc()).limit(5).all()
 
-    proveedor_info = {
-        "nombre": ultimo_proveedor_query.supp_name if ultimo_proveedor_query else None,
-        "ultima_compra": ultimo_proveedor_query.it_cd.isoformat() if ultimo_proveedor_query and ultimo_proveedor_query.it_cd else None
-    }
+    ultimas_compras = []
+    for compra in ultimas_compras_query:
+        ultimas_compras.append({
+            "proveedor": compra.supp_name,
+            "fecha": compra.it_cd.isoformat() if compra.it_cd else None,
+            "cantidad": float(compra.it_qty) if compra.it_qty else 0,
+            "precio_unitario": float(compra.it_price) if compra.it_price else 0,
+            "moneda_id": compra.curr_id
+        })
 
     return {
         "producto": {
@@ -3171,7 +3179,7 @@ async def obtener_detalle_producto(
             "usuario_modifico": pricing.usuario.nombre if pricing and pricing.usuario else None,
             "fecha_modificacion": pricing.fecha_modificacion if pricing else None
         },
-        "proveedor": proveedor_info
+        "ultimas_compras": ultimas_compras
         # ventas, precios_ml, y publicaciones_ml ahora se cargan de forma lazy en /mercadolibre endpoint
     }
 
@@ -3279,26 +3287,65 @@ async def obtener_datos_ml_producto(
                     publicaciones_dict[mla]["publication_status"] = None
 
     # Calcular ventas de los últimos 7, 15 y 30 días
+    # Usamos las tablas del ERP: ItemTransaction para facturas, SaleOrderDetail para pedidos pendientes
+    from app.models.sale_order_header import SaleOrderHeader
+    from app.models.sale_order_detail import SaleOrderDetail
+
     fecha_actual = datetime.now()
     ventas_stats = {}
 
     for dias in [7, 15, 30]:
         fecha_desde = fecha_actual - timedelta(days=dias)
 
-        ventas_query = db.query(
-            func.sum(VentaML.cantidad).label('cantidad_total'),
-            func.sum(VentaML.monto_total).label('monto_total'),
-            func.count(VentaML.id_venta).label('numero_ventas')
+        # Ventas FACTURADAS (ItemTransaction con puco_id IS NULL o != 10, y cust_id IS NOT NULL)
+        ventas_facturadas = db.query(
+            func.coalesce(func.sum(ItemTransaction.it_qty), 0).label('cantidad'),
+            func.coalesce(func.sum(ItemTransaction.it_qty * ItemTransaction.it_price), 0).label('monto')
+        ).join(
+            CommercialTransaction,
+            and_(
+                CommercialTransaction.comp_id == ItemTransaction.comp_id,
+                CommercialTransaction.ct_transaction == ItemTransaction.ct_transaction
+            )
         ).filter(
-            VentaML.item_id == item_id,
-            VentaML.fecha >= fecha_desde,
-            VentaML.fecha <= fecha_actual
+            ItemTransaction.item_id == item_id,
+            or_(
+                ItemTransaction.puco_id.is_(None),  # NULL = ventas
+                ItemTransaction.puco_id != 10  # 10 = compras (excluir)
+            ),
+            CommercialTransaction.cust_id.isnot(None),  # Es venta a cliente (no compra a proveedor)
+            CommercialTransaction.supp_id.is_(None),  # No es compra a proveedor
+            ItemTransaction.it_cd >= fecha_desde,
+            ItemTransaction.it_cd <= fecha_actual
         ).first()
 
+        # Pedidos CONFIRMADOS pendientes de facturar (SaleOrderDetail con estados de venta confirmada)
+        pedidos_pendientes = db.query(
+            func.coalesce(func.sum(SaleOrderDetail.sod_qty), 0).label('cantidad'),
+            func.coalesce(func.sum(SaleOrderDetail.sod_qty * SaleOrderDetail.sod_price), 0).label('monto')
+        ).join(
+            SaleOrderHeader,
+            and_(
+                SaleOrderHeader.comp_id == SaleOrderDetail.comp_id,
+                SaleOrderHeader.bra_id == SaleOrderDetail.bra_id,
+                SaleOrderHeader.soh_id == SaleOrderDetail.soh_id
+            )
+        ).filter(
+            SaleOrderDetail.item_id == item_id,
+            SaleOrderHeader.cust_id.isnot(None),  # Es venta (no compra)
+            SaleOrderHeader.ssos_id.in_([20, 50]),  # 20: en preparación (confirmado), 50: ok para emisión (listo para facturar)
+            SaleOrderHeader.soh_cd >= fecha_desde,
+            SaleOrderHeader.soh_cd <= fecha_actual
+        ).first()
+
+        # Sumar ambas fuentes
+        cantidad_total = int((ventas_facturadas.cantidad or 0) + (pedidos_pendientes.cantidad or 0))
+        monto_total = float((ventas_facturadas.monto or 0) + (pedidos_pendientes.monto or 0))
+
         ventas_stats[f"ultimos_{dias}_dias"] = {
-            "cantidad_vendida": int(ventas_query.cantidad_total or 0),
-            "monto_total": float(ventas_query.monto_total or 0),
-            "numero_ventas": int(ventas_query.numero_ventas or 0)
+            "cantidad_vendida": cantidad_total,
+            "monto_total": monto_total,
+            "numero_ventas": cantidad_total  # Aproximación
         }
 
     return {
