@@ -4,6 +4,7 @@ import styles from './Navbar.module.css';
 import logo from '../assets/white-g-logo.png';
 import { useAuthStore } from '../store/authStore';
 import ThemeToggle from './ThemeToggle';
+import NotificationBell from './NotificationBell';
 
 export default function Navbar() {
   const location = useLocation();
@@ -177,6 +178,7 @@ export default function Navbar() {
               </span>
             </div>
           )}
+          <NotificationBell />
           <ThemeToggle />
           <button onClick={handleLogout} className={styles.logoutBtn}>
             🚪 Salir

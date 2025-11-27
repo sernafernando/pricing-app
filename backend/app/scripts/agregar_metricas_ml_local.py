@@ -25,6 +25,8 @@ from sqlalchemy import text, and_, func, case, desc
 
 from app.core.database import SessionLocal
 from app.models.ml_venta_metrica import MLVentaMetrica
+from app.models.notificacion import Notificacion
+from app.models.producto import ProductoERP
 
 
 def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
@@ -329,12 +331,60 @@ def calcular_metricas_adicionales(row, count_per_pack):
     }
 
 
+def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
+    """
+    Crea una notificación si el markup real está por debajo del markup objetivo
+    """
+    if not producto_erp or producto_erp.markup_objetivo is None:
+        return False
+
+    markup_objetivo = float(producto_erp.markup_objetivo)
+    markup_real = float(metricas['markup_porcentaje'])
+
+    # Solo notificar si el markup real está por debajo del objetivo
+    if markup_real < markup_objetivo:
+        # Verificar si ya existe una notificación para esta operación
+        existe_notif = db.query(Notificacion).filter(
+            Notificacion.id_operacion == row.id_operacion,
+            Notificacion.tipo == 'markup_bajo'
+        ).first()
+
+        if not existe_notif:
+            diferencia = markup_objetivo - markup_real
+
+            mensaje = (
+                f"Producto vendido con markup por debajo del objetivo. "
+                f"Objetivo: {markup_objetivo:.2f}%, Real: {markup_real:.2f}% "
+                f"(diferencia: {diferencia:.2f}%). "
+                f"Venta: ${float(row.monto_total):,.2f}"
+            )
+
+            notificacion = Notificacion(
+                tipo='markup_bajo',
+                item_id=row.item_id,
+                id_operacion=row.id_operacion,
+                codigo_producto=row.codigo,
+                descripcion_producto=row.descripcion[:500] if row.descripcion else None,
+                mensaje=mensaje,
+                markup_real=Decimal(str(markup_real)),
+                markup_objetivo=Decimal(str(markup_objetivo)),
+                monto_venta=Decimal(str(row.monto_total)),
+                fecha_venta=row.fecha_venta,
+                leida=False
+            )
+
+            db.add(notificacion)
+            return True
+
+    return False
+
+
 def process_and_insert(db: Session, rows):
     """Procesa los registros y los inserta en ml_ventas_metricas"""
 
     if not rows:
         print("  ⚠️  No hay datos para procesar")
-        return 0, 0, 0
+        return 0, 0, 0, 0
 
     print(f"\n📊 Procesando {len(rows)} registros...")
 
@@ -348,6 +398,7 @@ def process_and_insert(db: Session, rows):
     total_insertados = 0
     total_actualizados = 0
     total_errores = 0
+    total_notificaciones = 0
 
     fecha_calculo = date.today()
 
@@ -400,10 +451,15 @@ def process_and_insert(db: Session, rows):
                 db.add(nueva_metrica)
                 total_insertados += 1
 
+            # Verificar markup y crear notificación si es necesario
+            producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == row.item_id).first()
+            if crear_notificacion_markup_bajo(db, row, metricas, producto_erp):
+                total_notificaciones += 1
+
             # Commit cada 100 registros
             if (total_insertados + total_actualizados) % 100 == 0:
                 db.commit()
-                print(f"  📊 Progreso: {total_insertados + total_actualizados}/{len(rows)}")
+                print(f"  📊 Progreso: {total_insertados + total_actualizados}/{len(rows)} | Notificaciones: {total_notificaciones}")
 
         except Exception as e:
             total_errores += 1
@@ -414,7 +470,7 @@ def process_and_insert(db: Session, rows):
     # Commit final
     db.commit()
 
-    return total_insertados, total_actualizados, total_errores
+    return total_insertados, total_actualizados, total_errores, total_notificaciones
 
 
 def main():
@@ -447,7 +503,7 @@ def main():
         rows = calcular_metricas_locales(db, from_date, to_date)
 
         # Procesar e insertar
-        insertados, actualizados, errores = process_and_insert(db, rows)
+        insertados, actualizados, errores, notificaciones = process_and_insert(db, rows)
 
         print("\n" + "=" * 60)
         print("✅ COMPLETADO")
@@ -455,6 +511,7 @@ def main():
         print(f"Insertados: {insertados}")
         print(f"Actualizados: {actualizados}")
         print(f"Errores: {errores}")
+        print(f"🔔 Notificaciones creadas: {notificaciones}")
         print()
 
     except Exception as e:
