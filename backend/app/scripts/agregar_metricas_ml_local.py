@@ -285,33 +285,37 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
 def calcular_metricas_adicionales(row, count_per_pack):
     """
     Calcula las métricas adicionales (ganancia, markup, etc)
-    Similar a lo que hace st_app
+    IMPORTANTE: comision_ml del query YA viene sin IVA (se divide por 1.21 en el SQL)
     """
     cantidad = float(row.cantidad or 1)
     monto_total = float(row.monto_total or 0)
-    iva = float(row.iva or 0)
+    monto_unitario = float(row.monto_unitario or 0)
     costo_sin_iva = float(row.costo_sin_iva or 0)
     costo_total_sin_iva = costo_sin_iva * cantidad
 
-    # Comisión ML
+    # Comisión ML - Ya viene sin IVA del query SQL (se divide por 1.21 en líneas 179, 199)
     comision_ml = float(row.comision_ml or 0)
 
+    # Monto total sin IVA
+    monto_total_sin_iva = monto_total / 1.21
+
     # Costo de envío prorrateado
+    # Solo aplica si: 1) existe shipping_id, 2) monto >= $33,000 (umbral envío gratis)
     costo_envio_prorrateado = 0
-    if count_per_pack > 0:
-        costo_envio_total = float(row.costo_envio_ml or 0)
-        costo_envio_prorrateado = costo_envio_total / count_per_pack
+    if row.shipping_id and count_per_pack > 0:
+        if monto_unitario >= 33000:
+            costo_envio_ml = float(row.costo_envio_ml or 0)
+            costo_envio_sin_iva = costo_envio_ml / 1.21
+            # Prorratear: (envío sin IVA * cantidad) / items en el pack
+            costo_envio_prorrateado = (costo_envio_sin_iva * cantidad) / count_per_pack
 
-    # Monto sin IVA = monto total / (1 + IVA/100)
-    monto_sin_iva = monto_total / (1 + iva / 100) if iva > 0 else monto_total
-
-    # Monto limpio = monto sin IVA - comisión - envío
-    monto_limpio = monto_sin_iva - comision_ml - costo_envio_prorrateado
+    # Monto limpio = monto sin IVA - comisión - envío prorrateado
+    monto_limpio = monto_total_sin_iva - comision_ml - costo_envio_prorrateado
 
     # Ganancia = monto limpio - costo total
     ganancia = monto_limpio - costo_total_sin_iva
 
-    # Markup %
+    # Markup % = (ganancia / costo) * 100
     markup_porcentaje = 0
     if costo_total_sin_iva > 0:
         markup_porcentaje = (ganancia / costo_total_sin_iva) * 100
