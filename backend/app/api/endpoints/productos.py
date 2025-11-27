@@ -3193,6 +3193,10 @@ async def obtener_datos_ml_producto(
     from app.models.publicacion_ml import PublicacionML
     from app.models.venta_ml import VentaML
     from app.services.ml_webhook_client import ml_webhook_client
+    from app.models.commercial_transaction import CommercialTransaction
+    from app.models.item_transaction import ItemTransaction
+    from app.models.sale_order_header import SaleOrderHeader
+    from app.models.sale_order_detail import SaleOrderDetail
     from sqlalchemy import text
     from datetime import timedelta, datetime
 
@@ -3288,9 +3292,6 @@ async def obtener_datos_ml_producto(
 
     # Calcular ventas de los últimos 7, 15 y 30 días
     # Usamos las tablas del ERP: ItemTransaction para facturas, SaleOrderDetail para pedidos pendientes
-    from app.models.sale_order_header import SaleOrderHeader
-    from app.models.sale_order_detail import SaleOrderDetail
-
     fecha_actual = datetime.now()
     ventas_stats = {}
 
