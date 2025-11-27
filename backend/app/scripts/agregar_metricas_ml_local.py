@@ -293,6 +293,19 @@ def calcular_metricas_adicionales(row, count_per_pack):
     costo_sin_iva = float(row.costo_sin_iva or 0)
     costo_total_sin_iva = costo_sin_iva * cantidad
 
+    # DEBUG: Para el producto específico, mostrar el TC y costo USD
+    if row.codigo == "6935364080433":
+        tc_momento = float(row.cambio_momento or 0)
+        moneda_costo = row.moneda_costo
+        # Si es USD (moneda_costo == 2), calcular el costo en USD
+        if moneda_costo == 2 and tc_momento > 0:
+            costo_usd = costo_sin_iva / tc_momento
+            print(f"\n🔍 DEBUG TC - Producto: {row.codigo}")
+            print(f"  Fecha venta: {row.fecha_venta}")
+            print(f"  TC momento: {tc_momento}")
+            print(f"  Costo USD: ${costo_usd:.2f}")
+            print(f"  Costo ARS: ${costo_sin_iva:.2f} (= {costo_usd:.2f} × {tc_momento})")
+
     # Comisión ML
     comision_ml = float(row.comision_ml or 0)
 
@@ -430,24 +443,6 @@ def process_and_insert(db: Session, rows):
             # Calcular métricas adicionales
             count_per_pack = pack_counts.get(row.pack_id, 1)
             metricas = calcular_metricas_adicionales(row, count_per_pack)
-
-            # DEBUG: Producto específico
-            if row.codigo == "6935364080433":
-                print(f"\n🔍 DEBUG - Producto: {row.codigo}")
-                print(f"  cantidad: {row.cantidad}")
-                print(f"  monto_total: {row.monto_total}")
-                print(f"  iva: {row.iva}")
-                print(f"  costo_sin_iva: {row.costo_sin_iva}")
-                print(f"  comision_ml (de SQL): {row.comision_ml}")
-                print(f"  costo_envio_ml: {row.costo_envio_ml}")
-                print(f"  count_per_pack: {count_per_pack}")
-                print(f"  MÉTRICAS CALCULADAS:")
-                print(f"    costo_total_sin_iva: {metricas['costo_total_sin_iva']}")
-                print(f"    comision_ml: {metricas['comision_ml']}")
-                print(f"    costo_envio: {metricas['costo_envio']}")
-                print(f"    monto_limpio: {metricas['monto_limpio']}")
-                print(f"    ganancia: {metricas['ganancia']}")
-                print(f"    markup_porcentaje: {metricas['markup_porcentaje']}%")
 
             # Preparar datos
             data = {
