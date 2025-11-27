@@ -59,7 +59,17 @@ export default function Notificaciones() {
   const marcarComoLeida = async (notifId) => {
     try {
       await api.patch(`/api/notificaciones/${notifId}/marcar-leida`);
-      await fetchNotificaciones();
+
+      // Actualizar estado local en lugar de recargar todo
+      setNotificaciones(notificaciones.map(n =>
+        n.id === notifId ? { ...n, leida: true, fecha_lectura: new Date().toISOString() } : n
+      ));
+
+      // Actualizar stats
+      setStats(prev => ({
+        ...prev,
+        no_leidas: Math.max(0, prev.no_leidas - 1)
+      }));
     } catch (error) {
       console.error('Error al marcar notificación:', error);
     }
@@ -78,8 +88,23 @@ export default function Notificaciones() {
 
   const eliminarNotificacion = async (notifId) => {
     try {
+      const notif = notificaciones.find(n => n.id === notifId);
       await api.delete(`/api/notificaciones/${notifId}`);
-      await fetchNotificaciones();
+
+      // Actualizar estado local
+      setNotificaciones(notificaciones.filter(n => n.id !== notifId));
+
+      // Actualizar stats
+      setStats(prev => ({
+        ...prev,
+        total: Math.max(0, prev.total - 1),
+        no_leidas: notif && !notif.leida ? Math.max(0, prev.no_leidas - 1) : prev.no_leidas
+      }));
+
+      // Cerrar expandido si es la misma
+      if (expandedNotif === notifId) {
+        setExpandedNotif(null);
+      }
     } catch (error) {
       console.error('Error al eliminar notificación:', error);
     }
