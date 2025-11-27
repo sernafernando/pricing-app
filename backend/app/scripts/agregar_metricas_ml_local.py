@@ -342,10 +342,9 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
         diferencia = markup_calculado - markup_real
 
         if markup_real < 0 and markup_real < markup_calculado and diferencia > 0.5:
-            # Obtener usuarios que deben recibir notificaciones (PRICING, ADMIN, SUPERADMIN)
+            # Obtener TODOS los usuarios activos para notificar
             usuarios_notificar = db.query(Usuario).filter(
-                Usuario.activo == True,
-                Usuario.rol.in_([RolUsuario.PRICING, RolUsuario.ADMIN, RolUsuario.SUPERADMIN])
+                Usuario.activo == True
             ).all()
 
             if not usuarios_notificar:
