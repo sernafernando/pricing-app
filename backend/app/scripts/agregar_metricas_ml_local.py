@@ -139,8 +139,16 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
             tmloh.mlshippingid as shipping_id,
-            -- Priorizar mlp_price4freeshipping (ya tiene IVA), sino usar mlshippmentcost4seller (sin IVA)
-            COALESCE(tmlip.mlp_price4freeshipping, tmlos.mlshippmentcost4seller) as costo_envio_ml,
+            -- Si monto_total < mlp_price4freeshipping, el vendedor NO paga envío
+            -- Solo aplicar costo de envío si monto_total >= mlp_price4freeshipping
+            CASE
+                WHEN tmlip.mlp_price4freeshipping IS NOT NULL
+                     AND (tmlod.mlo_unit_price * tmlod.mlo_quantity) < tmlip.mlp_price4freeshipping
+                THEN NULL  -- Envío gratis para el vendedor
+                WHEN tmlip.mlp_price4freeshipping IS NOT NULL
+                THEN tmlip.mlp_price4freeshipping  -- Cobrar el umbral como costo fijo
+                ELSE tmlos.mlshippmentcost4seller  -- Fallback si no hay umbral
+            END as costo_envio_ml,
             tmlip.mlp_price4freeshipping as precio_envio_gratis,
             tmlos.mlshippmentcost4seller as costo_envio_sin_iva_orig,
 
