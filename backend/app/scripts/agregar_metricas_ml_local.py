@@ -305,24 +305,6 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
         db_session=db_session  # Pasar sesión para obtener pricing_constants
     )
 
-    # Debug para el producto específico
-    if row.codigo and '6935364050719' in str(row.codigo):
-        print(f"\n🔍 DEBUG producto {row.codigo}:")
-        print(f"   monto_unitario: {row.monto_unitario}")
-        print(f"   cantidad: {row.cantidad}")
-        print(f"   iva: {row.iva}")
-        print(f"   costo_sin_iva: {row.costo_sin_iva}")
-        print(f"   costo_envio_ml (query): {row.costo_envio_ml}")
-        print(f"   costo_envio_para_helper: {costo_envio_para_helper}")
-        print(f"   count_per_pack: {count_per_pack}")
-        print(f"   comision_base_porcentaje: {row.comision_base_porcentaje}")
-        print(f"   ---")
-        print(f"   comision_ml (calculada): ${metricas['comision_ml']:.2f}")
-        print(f"   costo_envio (prorrateado): ${metricas['costo_envio']:.2f}")
-        print(f"   monto_limpio: ${metricas['monto_limpio']:.2f}")
-        print(f"   costo_total_sin_iva: ${metricas['costo_total_sin_iva']:.2f}")
-        print(f"   markup_porcentaje: {metricas['markup_porcentaje']:.2f}%")
-
     return {
         'costo_total_sin_iva': metricas['costo_total_sin_iva'],
         'comision_ml': metricas['comision_ml'],  # Ahora viene del helper
