@@ -422,6 +422,11 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         if marca_pm and marca_pm.usuario:
                             pm_nombre = marca_pm.usuario.nombre
 
+                    # Calcular costo total de la operación (unitario × cantidad)
+                    costo_total_operacion = None
+                    if row.costo_sin_iva is not None and row.cantidad:
+                        costo_total_operacion = float(row.costo_sin_iva) * float(row.cantidad)
+
                     notificacion = Notificacion(
                         user_id=usuario.id,
                         tipo='markup_bajo',
@@ -438,7 +443,7 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         fecha_venta=row.fecha_venta,
                         # Campos adicionales
                         pm=pm_nombre,
-                        costo_operacion=Decimal(str(row.costo_sin_iva)) if row.costo_sin_iva is not None else None,
+                        costo_operacion=Decimal(str(costo_total_operacion)) if costo_total_operacion is not None else None,
                         costo_actual=Decimal(str(costo_actual)) if costo_actual is not None else None,
                         precio_venta_unitario=Decimal(str(row.monto_unitario)) if row.monto_unitario is not None else None,
                         precio_publicacion=None,  # TODO: obtener de ML si está disponible
