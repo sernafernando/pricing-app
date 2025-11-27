@@ -139,11 +139,11 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
             tmloh.mlshippingid as shipping_id,
-            -- REGLA: Si monto_unitario < monto_tier3_envio_gratis, NO se resta costo de envío
-            --        Si monto_unitario >= monto_tier3_envio_gratis, SÍ se resta costo de envío
+            -- REGLA: Si monto_unitario < monto_tier3, NO se resta costo de envío
+            --        Si monto_unitario >= monto_tier3, SÍ se resta costo de envío
             CASE
                 WHEN tmlod.mlo_unit_price < (
-                    SELECT monto_tier3_envio_gratis
+                    SELECT monto_tier3
                     FROM pricing_constants
                     WHERE fecha_desde <= tmloh.mlo_cd::date
                     ORDER BY fecha_desde DESC
