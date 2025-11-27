@@ -333,9 +333,8 @@ def calcular_metricas_adicionales(row, count_per_pack):
 
 def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
     """
-    Crea una notificación si el markup real está por debajo del markup objetivo
-    NOTA: Por ahora usa markup_calculado de ProductoPricing como referencia
-    TODO: Agregar campo markup_objetivo específico a la tabla productos_pricing
+    Crea una notificación si el markup real es NEGATIVO y está por debajo del markup_calculado
+    Solo alerta ventas en pérdida que están peor de lo esperado
     """
     if not producto_erp:
         return False
@@ -349,12 +348,13 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
         if not producto_pricing or producto_pricing.markup_calculado is None:
             return False
 
-        markup_objetivo = float(producto_pricing.markup_calculado)
+        markup_calculado = float(producto_pricing.markup_calculado)
         markup_real = float(metricas['markup_porcentaje'])
 
-        # Solo notificar si el markup real está significativamente por debajo del objetivo
-        # Tolerancia de 5% para evitar alertas menores por redondeos
-        if markup_real < (markup_objetivo - 5):
+        # Solo notificar si:
+        # 1. El markup real es NEGATIVO (venta en pérdida)
+        # 2. Y está por debajo del markup_calculado (peor de lo esperado)
+        if markup_real < 0 and markup_real < markup_calculado:
             # Verificar si ya existe una notificación para esta operación
             existe_notif = db.query(Notificacion).filter(
                 Notificacion.id_operacion == row.id_operacion,
@@ -362,11 +362,11 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
             ).first()
 
             if not existe_notif:
-                diferencia = markup_objetivo - markup_real
+                diferencia = markup_calculado - markup_real
 
                 mensaje = (
-                    f"Producto vendido con markup por debajo del esperado. "
-                    f"Esperado: {markup_objetivo:.2f}%, Real: {markup_real:.2f}% "
+                    f"⚠️ VENTA EN PÉRDIDA - Markup negativo peor de lo esperado. "
+                    f"Esperado: {markup_calculado:.2f}%, Real: {markup_real:.2f}% "
                     f"(diferencia: {diferencia:.2f}%). "
                     f"Venta: ${float(row.monto_total):,.2f}"
                 )
@@ -379,7 +379,7 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                     descripcion_producto=row.descripcion[:500] if row.descripcion else None,
                     mensaje=mensaje,
                     markup_real=Decimal(str(markup_real)),
-                    markup_objetivo=Decimal(str(markup_objetivo)),
+                    markup_objetivo=Decimal(str(markup_calculado)),
                     monto_venta=Decimal(str(row.monto_total)),
                     fecha_venta=row.fecha_venta,
                     leida=False
