@@ -260,6 +260,19 @@
   background: rgba(0, 0, 0, 0.2);
 }
 
+.seccionTitulo {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.seccionTitulo:not(:first-child) {
+  margin-top: 1.5rem;
+}
+
 .detalleGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
