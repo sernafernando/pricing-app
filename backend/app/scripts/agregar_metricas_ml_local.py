@@ -337,7 +337,10 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
         # Solo notificar si:
         # 1. El markup real es NEGATIVO (venta en pérdida)
         # 2. Y está por debajo del markup_calculado (peor de lo esperado)
-        if markup_real < 0 and markup_real < markup_calculado:
+        # 3. Con una diferencia significativa (> 0.5%)
+        diferencia = markup_calculado - markup_real
+
+        if markup_real < 0 and markup_real < markup_calculado and diferencia > 0.5:
             # Verificar si ya existe una notificación para esta operación
             existe_notif = db.query(Notificacion).filter(
                 Notificacion.id_operacion == row.id_operacion,
@@ -345,7 +348,6 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
             ).first()
 
             if not existe_notif:
-                diferencia = markup_calculado - markup_real
 
                 mensaje = (
                     f"⚠️ VENTA EN PÉRDIDA - Markup negativo peor de lo esperado. "
