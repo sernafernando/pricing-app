@@ -635,8 +635,8 @@ async def get_operaciones_con_metricas(
     LIMIT %(limit)s OFFSET %(offset)s
     """
 
-    # Ejecutar con parámetros usando el driver nativo
-    result = db.execute(text(query_str), {
+    # Ejecutar raw SQL directamente sin text() para evitar escape de %
+    result = db.execute(query_str, {
         'from_date': from_date,
         'to_date': to_date_full,
         'limit': limit,
