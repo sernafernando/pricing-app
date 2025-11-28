@@ -18,6 +18,7 @@ def calcular_metricas_ml(
     comision_ml: Optional[float] = None,
     costo_envio_ml: Optional[float] = None,
     count_per_pack: int = 1,
+    costo_envio_por_unidad: bool = False,  # True si es mlp_price4freeshipping, False si es mlshippmentcost4seller
     # Parámetros opcionales para calcular comisión dinámicamente
     subcat_id: Optional[int] = None,
     pricelist_id: Optional[int] = None,
@@ -36,6 +37,7 @@ def calcular_metricas_ml(
         comision_ml: Comisión ML en pesos (sin IVA) - OPCIONAL si se pasan subcat_id y pricelist_id
         costo_envio_ml: Costo de envío (con IVA), None si no aplica
         count_per_pack: Items en el pack
+        costo_envio_por_unidad: True si el envío es por unidad (mlp_price4freeshipping), False si es por operación (mlshippmentcost4seller)
         subcat_id: ID de subcategoría (para calcular comisión dinámicamente)
         pricelist_id: ID de pricelist (para calcular comisión dinámicamente)
         fecha_venta: Fecha de la venta (para calcular comisión dinámicamente)
@@ -69,8 +71,12 @@ def calcular_metricas_ml(
     # Costo de envío prorrateado
     costo_envio_prorrateado = 0
     if costo_envio_ml and count_per_pack > 0:
-        # El envío es por operación, no por unidad. Solo se prorratea entre items del pack
-        costo_envio_prorrateado = (costo_envio_ml / 1.21) / count_per_pack
+        if costo_envio_por_unidad:
+            # mlp_price4freeshipping: es por unidad, multiplicar por cantidad
+            costo_envio_prorrateado = ((costo_envio_ml / 1.21) * cantidad) / count_per_pack
+        else:
+            # mlshippmentcost4seller: es por operación, NO multiplicar por cantidad
+            costo_envio_prorrateado = (costo_envio_ml / 1.21) / count_per_pack
 
     # Monto limpio = monto sin IVA - comisión - envío
     monto_limpio = monto_sin_iva - comision_ml - costo_envio_prorrateado

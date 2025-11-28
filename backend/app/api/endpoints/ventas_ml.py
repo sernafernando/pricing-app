@@ -738,16 +738,19 @@ async def get_operaciones_con_metricas(
         if marca and marca != row.marca:
             continue
 
-        # Determinar costo_envio_para_helper
+        # Determinar costo_envio_para_helper y si es por unidad o por operación
         costo_envio_para_helper = None
+        costo_envio_por_unidad = False
         if row.costo_envio_ml:
-            # Si precio_envio_gratis existe y es igual a costo_envio_ml, ya tiene IVA
+            # Si precio_envio_gratis existe y es igual a costo_envio_ml, ya tiene IVA y es por unidad
             if row.precio_envio_gratis and abs(float(row.precio_envio_gratis) - float(row.costo_envio_ml)) < 0.01:
-                # Ya tiene IVA, pasar directo
+                # Ya tiene IVA, pasar directo - ES POR UNIDAD (mlp_price4freeshipping)
                 costo_envio_para_helper = float(row.costo_envio_ml)
+                costo_envio_por_unidad = True
             else:
-                # No tiene IVA, multiplicar por 1.21
+                # No tiene IVA, multiplicar por 1.21 - ES POR OPERACIÓN (mlshippmentcost4seller)
                 costo_envio_para_helper = float(row.costo_envio_ml) * 1.21
+                costo_envio_por_unidad = False
 
         # Calcular métricas usando el helper
         metricas = calcular_metricas_ml(
@@ -757,6 +760,7 @@ async def get_operaciones_con_metricas(
             costo_unitario_sin_iva=float(row.costo_sin_iva or 0),
             costo_envio_ml=costo_envio_para_helper,
             count_per_pack=1,
+            costo_envio_por_unidad=costo_envio_por_unidad,
             subcat_id=row.subcat_id if hasattr(row, 'subcat_id') else None,
             pricelist_id=row.pricelist_id,
             fecha_venta=row.fecha_venta,

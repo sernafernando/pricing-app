@@ -276,17 +276,20 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
     El helper calcula la comisión dinámicamente usando subcat_id y pricelist_id
     """
     # IMPORTANTE: Determinamos si el costo_envio_ml ya tiene IVA o no
-    # - Si viene de mlp_price4freeshipping: YA tiene IVA → pasar directo
-    # - Si viene de mlshippmentcost4seller: NO tiene IVA → multiplicar por 1.21
+    # - Si viene de mlp_price4freeshipping: YA tiene IVA → pasar directo, es POR UNIDAD
+    # - Si viene de mlshippmentcost4seller: NO tiene IVA → multiplicar por 1.21, es POR OPERACIÓN
     costo_envio_para_helper = None
+    costo_envio_por_unidad = False
     if row.costo_envio_ml:
-        # Si precio_envio_gratis existe y es igual a costo_envio_ml, ya tiene IVA
+        # Si precio_envio_gratis existe y es igual a costo_envio_ml, ya tiene IVA y es por unidad
         if row.precio_envio_gratis and abs(float(row.precio_envio_gratis) - float(row.costo_envio_ml)) < 0.01:
-            # Ya tiene IVA, pasar directo
+            # Ya tiene IVA, pasar directo - ES POR UNIDAD (mlp_price4freeshipping)
             costo_envio_para_helper = float(row.costo_envio_ml)
+            costo_envio_por_unidad = True
         else:
-            # No tiene IVA, multiplicar por 1.21
+            # No tiene IVA, multiplicar por 1.21 - ES POR OPERACIÓN (mlshippmentcost4seller)
             costo_envio_para_helper = float(row.costo_envio_ml) * 1.21
+            costo_envio_por_unidad = False
 
     # Llamar al helper centralizado - ahora calcula la comisión dinámicamente
     metricas = calcular_metricas_ml(
@@ -296,6 +299,7 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
         costo_unitario_sin_iva=float(row.costo_sin_iva or 0),
         costo_envio_ml=costo_envio_para_helper,
         count_per_pack=count_per_pack,
+        costo_envio_por_unidad=costo_envio_por_unidad,
         # Parámetros para calcular comisión dinámicamente
         subcat_id=row.subcat_id,
         pricelist_id=row.pricelist_id,
