@@ -632,13 +632,14 @@ async def get_operaciones_con_metricas(
     LIMIT :limit OFFSET :offset
     """)
 
-    # Ejecutar query
-    result = db.execute(query, {
-        'from_date': from_date,
-        'to_date': to_date + ' 23:59:59',
-        'limit': limit,
-        'offset': offset
-    })
+    # Ejecutar query con bindparams
+    query = query.bindparams(
+        from_date=from_date,
+        to_date=to_date + ' 23:59:59',
+        limit=limit,
+        offset=offset
+    )
+    result = db.execute(query)
 
     rows = result.fetchall()
 
