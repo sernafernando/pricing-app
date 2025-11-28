@@ -66,14 +66,14 @@ def calcular_metricas_ml(
     # Monto sin IVA
     monto_sin_iva = monto_total / (1 + iva_porcentaje / 100)
 
-    # Costo de envío: simplemente usar el monto que viene del producto
+    # Costo de envío: usar el costo del producto multiplicado por cantidad
     # Ya viene con IVA, dividir por 1.21 para obtener sin IVA
-    costo_envio_prorrateado = 0
+    costo_envio_total = 0
     if costo_envio_ml:
-        costo_envio_prorrateado = costo_envio_ml / 1.21
+        costo_envio_total = (costo_envio_ml / 1.21) * cantidad
 
     # Monto limpio = monto sin IVA - comisión - envío
-    monto_limpio = monto_sin_iva - comision_ml - costo_envio_prorrateado
+    monto_limpio = monto_sin_iva - comision_ml - costo_envio_total
 
     # Ganancia
     ganancia = monto_limpio - costo_total_sin_iva
@@ -94,6 +94,6 @@ def calcular_metricas_ml(
         'costo_total_sin_iva': costo_total_sin_iva,
         'ganancia': ganancia,
         'markup_porcentaje': markup_porcentaje or 0,
-        'costo_envio': costo_envio_prorrateado,
+        'costo_envio': costo_envio_total,
         'comision_ml': comision_ml  # Devolver la comisión calculada/usada
     }
