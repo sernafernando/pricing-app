@@ -594,7 +594,7 @@ async def get_operaciones_con_metricas(
 
         LEFT JOIN tb_sale_order_header tsoh
             ON tsoh.comp_id = tmlod.comp_id
-            AND tsoh.sal_ord_num = tmloh.mlo_id
+            AND tsoh.mlo_id = tmlod.mlo_id
 
         LEFT JOIN tb_item ti
             ON ti.comp_id = tmlod.comp_id
