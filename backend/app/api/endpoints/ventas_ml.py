@@ -624,12 +624,12 @@ async def get_operaciones_con_metricas(
             AND ticl.coslis_id = 1
 
         WHERE tmlod.item_id NOT IN (460, 3042)
-          AND tmloh.mlo_cd BETWEEN :from_date AND :to_date
+          AND tmloh.mlo_cd BETWEEN %(from_date)s AND %(to_date)s
           AND tmloh.mlo_status <> 'cancelled'
     )
     SELECT * FROM sales_data
     ORDER BY fecha_venta DESC, id_operacion
-    LIMIT :limit OFFSET :offset
+    LIMIT %(limit)s OFFSET %(offset)s
     """)
 
     # Ejecutar query
