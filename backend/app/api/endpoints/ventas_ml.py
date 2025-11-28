@@ -518,33 +518,80 @@ async def get_operaciones_con_metricas(
 
     query_str = """
     WITH sales_data AS (
-        SELECT
-            tmlod.mlod_id as id_detalle,
-            tmloh.mlo_id as id_operacion,
-            tmloh.ml_id,
-            tmloh.ml_pack_id as pack_id,
-            tmloh.mlo_cd as fecha_venta,
-
+        SELECT DISTINCT ON (tmlod.mlo_id)
+            tmlod.mlo_id as id_operacion,
             tmlod.item_id,
-            ti.item_code as codigo,
-            ti.item_desc as descripcion,
+            tmloh.mlo_cd as fecha_venta,
+            tb.brand_desc as marca,
             tc.cat_desc as categoria,
             tsc.subcat_desc as subcategoria,
-            tb.brand_desc as marca,
-
-            tmlod.mlod_qty as cantidad,
+            ti.item_code as codigo,
+            UPPER(ti.item_desc) as descripcion,
+            tmlod.mlo_quantity as cantidad,
             tmlod.mlo_unit_price as monto_unitario,
-            tmlod.mlod_unit_price as monto_total,
-            COALESCE(ttn.tax_pct, 0) as iva,
+            tmlod.mlo_unit_price * tmlod.mlo_quantity as monto_total,
 
-            COALESCE(tsoh.prli_id,
-                CASE
-                    WHEN tmloh.mlo_cd < '2024-11-16' THEN 4
-                    WHEN tmloh.mlo_cd >= '2024-11-16' THEN 12
-                END
-            ) as pricelist_id,
+            -- Costo sin IVA en PESOS (convierte USD a ARS usando tipo de cambio)
+            COALESCE(
+                (
+                    SELECT CASE
+                        WHEN iclh.curr_id = 2 THEN  -- USD
+                            CASE
+                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price * (
+                                    SELECT ceh.ceh_exchange
+                                    FROM tb_cur_exch_history ceh
+                                    WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                                    ORDER BY ceh.ceh_cd DESC
+                                    LIMIT 1
+                                )
+                                ELSE iclh.iclh_price * (
+                                    SELECT ceh.ceh_exchange
+                                    FROM tb_cur_exch_history ceh
+                                    WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                                    ORDER BY ceh.ceh_cd DESC
+                                    LIMIT 1
+                                )
+                            END
+                        ELSE  -- ARS
+                            CASE
+                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price
+                                ELSE iclh.iclh_price
+                            END
+                    END
+                    FROM tb_item_cost_list_history iclh
+                    LEFT JOIN tb_item_cost_list ticl
+                        ON ticl.item_id = iclh.item_id
+                        AND ticl.coslis_id = 1
+                    WHERE iclh.item_id = tmlod.item_id
+                      AND iclh.iclh_cd <= tmloh.mlo_cd
+                      AND iclh.coslis_id = 1
+                    ORDER BY iclh.iclh_id DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT CASE
+                        WHEN ticl.curr_id = 2 THEN  -- USD
+                            ticl.coslis_price * (
+                                SELECT ceh.ceh_exchange
+                                FROM tb_cur_exch_history ceh
+                                WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                                ORDER BY ceh.ceh_cd DESC
+                                LIMIT 1
+                            )
+                        ELSE  -- ARS
+                            ticl.coslis_price
+                    END
+                    FROM tb_item_cost_list ticl
+                    WHERE ticl.item_id = tmlod.item_id
+                      AND ticl.coslis_id = 1
+                ),
+                0
+            ) as costo_sin_iva,
 
-            ticl.item_cost as costo_sin_iva,
+            COALESCE(ttn.tax_percentage, 21.0) as iva,
+
+            tmloh.ml_id,
+            tmloh.ml_pack_id as pack_id,
 
             -- Costo de envío
             CASE
@@ -558,6 +605,7 @@ async def get_operaciones_con_metricas(
                 THEN NULL
                 ELSE COALESCE(tmlip.mlp_price4freeshipping, tmlos.mlshippmentcost4seller)
             END as costo_envio_ml,
+            tmlip.mlp_price4freeshipping as precio_envio_gratis,
 
             -- Comisión base porcentaje
             COALESCE(
@@ -569,28 +617,42 @@ async def get_operaciones_con_metricas(
                       AND clg.pricelist_id = COALESCE(
                           tsoh.prli_id,
                           CASE
-                              WHEN tmloh.mlo_cd < '2024-11-16' THEN 4
-                              WHEN tmloh.mlo_cd >= '2024-11-16' THEN 12
+                              WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
+                              ELSE tmlip.prli_id
                           END
                       )
+                      AND clg.activo = TRUE
+                    LIMIT 1
+                ),
+                (
+                    SELECT cb.comision_base
+                    FROM subcategorias_grupos sg
+                    JOIN comisiones_base cb ON cb.grupo_id = sg.grupo_id
+                    JOIN comisiones_versiones cv ON cv.id = cb.version_id
+                    WHERE sg.subcat_id = tsc.subcat_id
+                      AND tmloh.mlo_cd::date BETWEEN cv.fecha_desde AND COALESCE(cv.fecha_hasta, '9999-12-31'::date)
+                      AND cv.activo = TRUE
                     LIMIT 1
                 ),
                 12.0
-            ) as comision_base_porcentaje
+            ) as comision_base_porcentaje,
+
+            tsc.subcat_id,
+
+            -- Price list
+            COALESCE(
+                tsoh.prli_id,
+                CASE
+                    WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
+                    ELSE tmlip.prli_id
+                END
+            ) as pricelist_id
 
         FROM tb_mercadolibre_orders_detail tmlod
 
-        INNER JOIN tb_mercadolibre_orders_header tmloh
+        LEFT JOIN tb_mercadolibre_orders_header tmloh
             ON tmloh.comp_id = tmlod.comp_id
             AND tmloh.mlo_id = tmlod.mlo_id
-
-        LEFT JOIN tb_mercadolibre_items_publicados tmlip
-            ON tmlip.comp_id = tmlod.comp_id
-            AND tmlip.mlp_id = tmlod.mlp_id
-
-        LEFT JOIN tb_mercadolibre_orders_shipping tmlos
-            ON tmlos.comp_id = tmlod.comp_id
-            AND tmlos.mlo_id = tmlod.mlo_id
 
         LEFT JOIN tb_sale_order_header tsoh
             ON tsoh.comp_id = tmlod.comp_id
@@ -600,12 +662,24 @@ async def get_operaciones_con_metricas(
             ON ti.comp_id = tmlod.comp_id
             AND ti.item_id = tmlod.item_id
 
+        LEFT JOIN tb_mercadolibre_items_publicados tmlip
+            ON tmlip.comp_id = tmlod.comp_id
+            AND tmlip.mlp_id = tmlod.mlp_id
+
+        LEFT JOIN tb_mercadolibre_orders_shipping tmlos
+            ON tmlos.comp_id = tmlod.comp_id
+            AND tmlos.mlo_id = tmlod.mlo_id
+
+        LEFT JOIN tb_commercial_transactions tct
+            ON tct.comp_id = tmlod.comp_id
+            AND tct.mlo_id = tmlod.mlo_id
+
         LEFT JOIN tb_category tc
-            ON tc.comp_id = ti.comp_id
+            ON tc.comp_id = tmlod.comp_id
             AND tc.cat_id = ti.cat_id
 
         LEFT JOIN tb_subcategory tsc
-            ON tsc.comp_id = ti.comp_id
+            ON tsc.comp_id = tmlod.comp_id
             AND tsc.cat_id = ti.cat_id
             AND tsc.subcat_id = ti.subcat_id
 
@@ -667,9 +741,13 @@ async def get_operaciones_con_metricas(
         # Determinar costo_envio_para_helper
         costo_envio_para_helper = None
         if row.costo_envio_ml:
-            # Si viene de mlp_price4freeshipping, ya tiene IVA
-            # Si viene de mlshippmentcost4seller, NO tiene IVA
-            costo_envio_para_helper = float(row.costo_envio_ml) * 1.21
+            # Si precio_envio_gratis existe y es igual a costo_envio_ml, ya tiene IVA
+            if row.precio_envio_gratis and abs(float(row.precio_envio_gratis) - float(row.costo_envio_ml)) < 0.01:
+                # Ya tiene IVA, pasar directo
+                costo_envio_para_helper = float(row.costo_envio_ml)
+            else:
+                # No tiene IVA, multiplicar por 1.21
+                costo_envio_para_helper = float(row.costo_envio_ml) * 1.21
 
         # Calcular métricas usando el helper
         metricas = calcular_metricas_ml(
