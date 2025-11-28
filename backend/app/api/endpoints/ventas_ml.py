@@ -584,11 +584,11 @@ async def get_operaciones_con_metricas(
             ON tmloh.comp_id = tmlod.comp_id
             AND tmloh.mlo_id = tmlod.mlo_id
 
-        LEFT JOIN tb_mercadolibre_item_publications tmlip
+        LEFT JOIN tb_mercadolibre_items_publicados tmlip
             ON tmlip.comp_id = tmlod.comp_id
-            AND tmlip.item_id = tmlod.item_id
+            AND tmlip.mlp_id = tmlod.mlp_id
 
-        LEFT JOIN tb_mercadolibre_order_shipping tmlos
+        LEFT JOIN tb_mercadolibre_orders_shipping tmlos
             ON tmlos.comp_id = tmlod.comp_id
             AND tmlos.mlo_id = tmlod.mlo_id
 
