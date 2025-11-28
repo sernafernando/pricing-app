@@ -527,10 +527,10 @@ async def get_operaciones_con_metricas(
 
             tmlod.item_id,
             ti.item_code as codigo,
-            ti.item_de as descripcion,
-            tc.cat_de as categoria,
-            tsc.subcat_de as subcategoria,
-            tb.brand_de as marca,
+            ti.item_desc as descripcion,
+            tc.cat_desc as categoria,
+            tsc.subcat_desc as subcategoria,
+            tb.brand_desc as marca,
 
             tmlod.mlod_qty as cantidad,
             tmlod.mlo_unit_price as monto_unitario,
