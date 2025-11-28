@@ -635,16 +635,23 @@ async def get_operaciones_con_metricas(
     LIMIT %(limit)s OFFSET %(offset)s
     """
 
-    # Ejecutar via connection.execute() que soporta %(param)s nativo
-    connection = db.connection()
-    result = connection.execute(query_str, {
+    # Ejecutar via raw connection (psycopg2) que soporta %(param)s nativo
+    # Obtener la conexión raw de psycopg2
+    raw_connection = db.connection().connection
+    cursor = raw_connection.cursor()
+    cursor.execute(query_str, {
         'from_date': from_date,
         'to_date': to_date_full,
         'limit': limit,
         'offset': offset
     })
 
-    rows = result.fetchall()
+    # Convertir resultado a formato compatible
+    columns = [desc[0] for desc in cursor.description]
+    from collections import namedtuple
+    Row = namedtuple('Row', columns)
+    rows = [Row(*row) for row in cursor.fetchall()]
+    cursor.close()
 
     # Procesar cada fila y calcular métricas
     operaciones = []
