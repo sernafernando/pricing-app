@@ -513,6 +513,8 @@ async def get_operaciones_con_metricas(
     """
 
     # Usar la misma query que el script agregar_metricas_ml_local.py
+    from sqlalchemy import bindparam, Integer, String
+
     query = text("""
     WITH sales_data AS (
         SELECT
@@ -630,16 +632,20 @@ async def get_operaciones_con_metricas(
     SELECT * FROM sales_data
     ORDER BY fecha_venta DESC, id_operacion
     LIMIT :limit OFFSET :offset
-    """)
-
-    # Ejecutar query con bindparams
-    query = query.bindparams(
-        from_date=from_date,
-        to_date=to_date + ' 23:59:59',
-        limit=limit,
-        offset=offset
+    """).bindparams(
+        bindparam('from_date', type_=String),
+        bindparam('to_date', type_=String),
+        bindparam('limit', type_=Integer),
+        bindparam('offset', type_=Integer)
     )
-    result = db.execute(query)
+
+    # Ejecutar query
+    result = db.execute(query, {
+        'from_date': from_date,
+        'to_date': to_date + ' 23:59:59',
+        'limit': limit,
+        'offset': offset
+    })
 
     rows = result.fetchall()
 
