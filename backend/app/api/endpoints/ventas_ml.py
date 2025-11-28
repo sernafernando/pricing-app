@@ -603,7 +603,7 @@ async def get_operaciones_con_metricas(
                     LIMIT 1
                 )
                 THEN NULL
-                ELSE COALESCE(tmlip.mlp_price4freeshipping, tmlos.mlshippmentcost4seller)
+                ELSE COALESCE(NULLIF(tmlip.mlp_price4freeshipping, 0), tmlos.mlshippmentcost4seller)
             END as costo_envio_ml,
             tmlip.mlp_price4freeshipping as precio_envio_gratis,
 

@@ -151,7 +151,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                     LIMIT 1
                 )
                 THEN NULL  -- No restar envío
-                ELSE COALESCE(tmlip.mlp_price4freeshipping, tmlos.mlshippmentcost4seller)
+                ELSE COALESCE(NULLIF(tmlip.mlp_price4freeshipping, 0), tmlos.mlshippmentcost4seller)
             END as costo_envio_ml,
             tmlip.mlp_price4freeshipping as precio_envio_gratis,
             tmlos.mlshippmentcost4seller as costo_envio_sin_iva_orig,
