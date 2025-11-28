@@ -513,9 +513,10 @@ async def get_operaciones_con_metricas(
     """
 
     # Usar la misma query que el script agregar_metricas_ml_local.py
-    from sqlalchemy import bindparam, Integer, String
+    # Construir query con parámetros seguros usando psycopg2's SQL escaping via SQLAlchemy
+    to_date_full = to_date + ' 23:59:59'
 
-    query = text("""
+    query_str = """
     WITH sales_data AS (
         SELECT
             tmlod.mlod_id as id_detalle,
@@ -626,23 +627,18 @@ async def get_operaciones_con_metricas(
             AND ticl.coslis_id = 1
 
         WHERE tmlod.item_id NOT IN (460, 3042)
-          AND tmloh.mlo_cd BETWEEN :from_date AND :to_date
+          AND tmloh.mlo_cd BETWEEN %(from_date)s AND %(to_date)s
           AND tmloh.mlo_status <> 'cancelled'
     )
     SELECT * FROM sales_data
     ORDER BY fecha_venta DESC, id_operacion
-    LIMIT :limit OFFSET :offset
-    """).bindparams(
-        bindparam('from_date', type_=String),
-        bindparam('to_date', type_=String),
-        bindparam('limit', type_=Integer),
-        bindparam('offset', type_=Integer)
-    )
+    LIMIT %(limit)s OFFSET %(offset)s
+    """
 
-    # Ejecutar query
-    result = db.execute(query, {
+    # Ejecutar con parámetros usando el driver nativo
+    result = db.execute(text(query_str), {
         'from_date': from_date,
-        'to_date': to_date + ' 23:59:59',
+        'to_date': to_date_full,
         'limit': limit,
         'offset': offset
     })
