@@ -513,7 +513,7 @@ async def get_operaciones_con_metricas(
     """
 
     # Usar la misma query que el script agregar_metricas_ml_local.py
-    # Construir query con parámetros seguros usando psycopg2's SQL escaping via SQLAlchemy
+    # Ejecutar directamente via connection para evitar text() parameter escaping
     to_date_full = to_date + ' 23:59:59'
 
     query_str = """
@@ -635,8 +635,9 @@ async def get_operaciones_con_metricas(
     LIMIT %(limit)s OFFSET %(offset)s
     """
 
-    # Ejecutar raw SQL directamente sin text() para evitar escape de %
-    result = db.execute(query_str, {
+    # Ejecutar via connection.execute() que soporta %(param)s nativo
+    connection = db.connection()
+    result = connection.execute(query_str, {
         'from_date': from_date,
         'to_date': to_date_full,
         'limit': limit,
