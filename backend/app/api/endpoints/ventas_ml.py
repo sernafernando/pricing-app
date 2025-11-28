@@ -578,17 +578,17 @@ async def get_operaciones_con_metricas(
                 12.0
             ) as comision_base_porcentaje
 
-        FROM tb_ml_order_detail tmlod
+        FROM tb_mercadolibre_orders_detail tmlod
 
-        INNER JOIN tb_ml_order_header tmloh
+        INNER JOIN tb_mercadolibre_orders_header tmloh
             ON tmloh.comp_id = tmlod.comp_id
             AND tmloh.mlo_id = tmlod.mlo_id
 
-        LEFT JOIN tb_ml_item_publications tmlip
+        LEFT JOIN tb_mercadolibre_item_publications tmlip
             ON tmlip.comp_id = tmlod.comp_id
             AND tmlip.item_id = tmlod.item_id
 
-        LEFT JOIN tb_ml_order_shipping tmlos
+        LEFT JOIN tb_mercadolibre_order_shipping tmlos
             ON tmlos.comp_id = tmlod.comp_id
             AND tmlos.mlo_id = tmlod.mlo_id
 
