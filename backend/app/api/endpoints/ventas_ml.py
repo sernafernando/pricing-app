@@ -630,15 +630,15 @@ async def get_operaciones_con_metricas(
     SELECT * FROM sales_data
     ORDER BY fecha_venta DESC, id_operacion
     LIMIT :limit OFFSET :offset
-    """).bindparams(
-        from_date=from_date,
-        to_date=to_date + ' 23:59:59',
-        limit=limit,
-        offset=offset
-    )
+    """)
 
     # Ejecutar query
-    result = db.execute(query)
+    result = db.execute(query, {
+        'from_date': from_date,
+        'to_date': to_date + ' 23:59:59',
+        'limit': limit,
+        'offset': offset
+    })
 
     rows = result.fetchall()
 
