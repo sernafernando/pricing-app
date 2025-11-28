@@ -69,8 +69,8 @@ def calcular_metricas_ml(
     # Costo de envío prorrateado
     costo_envio_prorrateado = 0
     if costo_envio_ml and count_per_pack > 0:
-        # Fórmula dashboard: (((Costo envío / 1.21) * Cantidad) / contar_si)
-        costo_envio_prorrateado = ((costo_envio_ml / 1.21) * cantidad) / count_per_pack
+        # El envío es por operación, no por unidad. Solo se prorratea entre items del pack
+        costo_envio_prorrateado = (costo_envio_ml / 1.21) / count_per_pack
 
     # Monto limpio = monto sin IVA - comisión - envío
     monto_limpio = monto_sin_iva - comision_ml - costo_envio_prorrateado
