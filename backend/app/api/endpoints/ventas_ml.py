@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_, desc
+from sqlalchemy import func, and_, or_, desc, text
 from typing import List, Optional
 from datetime import datetime, date, timedelta
 import httpx
@@ -15,6 +15,7 @@ from app.models.tb_item_taxes import TBItemTaxes
 from app.api.deps import get_current_user
 from pydantic import BaseModel
 from decimal import Decimal
+from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
 router = APIRouter()
 
@@ -454,3 +455,263 @@ async def get_ventas_detalladas(
         })
 
     return resultados
+
+
+class OperacionConMetricasResponse(BaseModel):
+    # Datos de la operación
+    id_operacion: int
+    ml_id: Optional[str]
+    pack_id: Optional[int]
+    fecha_venta: datetime
+
+    # Datos del producto
+    item_id: Optional[int]
+    codigo: Optional[str]
+    descripcion: Optional[str]
+    categoria: Optional[str]
+    subcategoria: Optional[str]
+    marca: Optional[str]
+
+    # Datos de la venta
+    cantidad: Decimal
+    monto_unitario: Decimal
+    monto_total: Decimal
+    iva: Decimal
+    pricelist_id: Optional[int]
+    tipo_publicacion: Optional[str]
+
+    # Costos
+    costo_sin_iva: Decimal
+    costo_total: Decimal
+
+    # Métricas calculadas
+    comision_porcentaje: Decimal
+    comision_pesos: Decimal
+    costo_envio: Decimal
+    monto_limpio: Decimal
+    markup_porcentaje: Decimal
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/ventas-ml/operaciones-con-metricas", response_model=List[OperacionConMetricasResponse])
+async def get_operaciones_con_metricas(
+    from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
+    to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
+    ml_id: Optional[str] = Query(None, description="Filtrar por ML ID"),
+    codigo: Optional[str] = Query(None, description="Filtrar por código de producto"),
+    marca: Optional[str] = Query(None, description="Filtrar por marca"),
+    limit: int = Query(1000, le=5000, description="Límite de resultados"),
+    offset: int = Query(0, description="Offset para paginación"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtiene operaciones de ML con todas las métricas calculadas (comisión, markup, etc.)
+    Similar al output de Streamlit para poder verificar los cálculos
+    """
+
+    # Usar la misma query que el script agregar_metricas_ml_local.py
+    query = text("""
+    WITH sales_data AS (
+        SELECT
+            tmlod.mlod_id as id_detalle,
+            tmloh.mlo_id as id_operacion,
+            tmloh.ml_id,
+            tmloh.ml_pack_id as pack_id,
+            tmloh.mlo_cd as fecha_venta,
+
+            tmlod.item_id,
+            ti.item_code as codigo,
+            ti.item_de as descripcion,
+            tc.cat_de as categoria,
+            tsc.subcat_de as subcategoria,
+            tb.brand_de as marca,
+
+            tmlod.mlod_qty as cantidad,
+            tmlod.mlo_unit_price as monto_unitario,
+            tmlod.mlod_unit_price as monto_total,
+            COALESCE(ttn.tax_pct, 0) as iva,
+
+            COALESCE(tsoh.prli_id,
+                CASE
+                    WHEN tmloh.mlo_cd < '2024-11-16' THEN 4
+                    WHEN tmloh.mlo_cd >= '2024-11-16' THEN 12
+                END
+            ) as pricelist_id,
+
+            ticl.item_cost as costo_sin_iva,
+
+            -- Costo de envío
+            CASE
+                WHEN tmlod.mlo_unit_price < (
+                    SELECT monto_tier3
+                    FROM pricing_constants
+                    WHERE fecha_desde <= tmloh.mlo_cd::date
+                    ORDER BY fecha_desde DESC
+                    LIMIT 1
+                )
+                THEN NULL
+                ELSE COALESCE(tmlip.mlp_price4freeshipping, tmlos.mlshippmentcost4seller)
+            END as costo_envio_ml,
+
+            -- Comisión base porcentaje
+            COALESCE(
+                (
+                    SELECT clg.comision_porcentaje
+                    FROM subcategorias_grupos sg
+                    JOIN comisiones_lista_grupo clg ON clg.grupo_id = sg.grupo_id
+                    WHERE sg.subcat_id = tsc.subcat_id
+                      AND clg.pricelist_id = COALESCE(
+                          tsoh.prli_id,
+                          CASE
+                              WHEN tmloh.mlo_cd < '2024-11-16' THEN 4
+                              WHEN tmloh.mlo_cd >= '2024-11-16' THEN 12
+                          END
+                      )
+                    LIMIT 1
+                ),
+                12.0
+            ) as comision_base_porcentaje
+
+        FROM tb_ml_order_detail tmlod
+
+        INNER JOIN tb_ml_order_header tmloh
+            ON tmloh.comp_id = tmlod.comp_id
+            AND tmloh.mlo_id = tmlod.mlo_id
+
+        LEFT JOIN tb_ml_item_publications tmlip
+            ON tmlip.comp_id = tmlod.comp_id
+            AND tmlip.item_id = tmlod.item_id
+
+        LEFT JOIN tb_ml_order_shipping tmlos
+            ON tmlos.comp_id = tmlod.comp_id
+            AND tmlos.mlo_id = tmlod.mlo_id
+
+        LEFT JOIN tb_sale_order_header tsoh
+            ON tsoh.comp_id = tmlod.comp_id
+            AND tsoh.sal_ord_num = tmloh.mlo_id
+
+        LEFT JOIN tb_item ti
+            ON ti.comp_id = tmlod.comp_id
+            AND ti.item_id = tmlod.item_id
+
+        LEFT JOIN tb_category tc
+            ON tc.comp_id = ti.comp_id
+            AND tc.cat_id = ti.cat_id
+
+        LEFT JOIN tb_subcategory tsc
+            ON tsc.comp_id = ti.comp_id
+            AND tsc.cat_id = ti.cat_id
+            AND tsc.subcat_id = ti.subcat_id
+
+        LEFT JOIN tb_brand tb
+            ON tb.comp_id = tmlod.comp_id
+            AND tb.brand_id = ti.brand_id
+
+        LEFT JOIN tb_item_taxes tit
+            ON ti.comp_id = tit.comp_id
+            AND ti.item_id = tit.item_id
+
+        LEFT JOIN tb_tax_name ttn
+            ON ttn.comp_id = ti.comp_id
+            AND ttn.tax_id = tit.tax_id
+
+        LEFT JOIN tb_item_cost_list ticl
+            ON ticl.comp_id = tmlod.comp_id
+            AND ticl.item_id = tmlod.item_id
+            AND ticl.coslis_id = 1
+
+        WHERE tmlod.item_id NOT IN (460, 3042)
+          AND tmloh.mlo_cd BETWEEN :from_date AND :to_date
+          AND tmloh.mlo_status <> 'cancelled'
+    )
+    SELECT * FROM sales_data
+    ORDER BY fecha_venta DESC, id_operacion
+    LIMIT :limit OFFSET :offset
+    """)
+
+    # Ejecutar query
+    result = db.execute(query, {
+        'from_date': from_date,
+        'to_date': to_date + ' 23:59:59',
+        'limit': limit,
+        'offset': offset
+    })
+
+    rows = result.fetchall()
+
+    # Procesar cada fila y calcular métricas
+    operaciones = []
+    for row in rows:
+        # Aplicar filtros adicionales si se especificaron
+        if ml_id and row.ml_id != ml_id:
+            continue
+        if codigo and codigo not in (row.codigo or ''):
+            continue
+        if marca and marca != row.marca:
+            continue
+
+        # Determinar costo_envio_para_helper
+        costo_envio_para_helper = None
+        if row.costo_envio_ml:
+            # Si viene de mlp_price4freeshipping, ya tiene IVA
+            # Si viene de mlshippmentcost4seller, NO tiene IVA
+            costo_envio_para_helper = float(row.costo_envio_ml) * 1.21
+
+        # Calcular métricas usando el helper
+        metricas = calcular_metricas_ml(
+            monto_unitario=float(row.monto_unitario or 0),
+            cantidad=float(row.cantidad or 1),
+            iva_porcentaje=float(row.iva or 0),
+            costo_unitario_sin_iva=float(row.costo_sin_iva or 0),
+            costo_envio_ml=costo_envio_para_helper,
+            count_per_pack=1,
+            subcat_id=row.subcat_id if hasattr(row, 'subcat_id') else None,
+            pricelist_id=row.pricelist_id,
+            fecha_venta=row.fecha_venta,
+            comision_base_porcentaje=float(row.comision_base_porcentaje or 12.0),
+            db_session=db
+        )
+
+        # Mapeo de pricelist_id a nombre
+        pricelist_names = {
+            4: "Clásica", 12: "Clásica",
+            17: "3 Cuotas", 18: "3 Cuotas",
+            14: "6 Cuotas", 19: "6 Cuotas",
+            13: "9 Cuotas", 20: "9 Cuotas",
+            23: "12 Cuotas", 21: "12 Cuotas"
+        }
+        tipo_publicacion = pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}") if row.pricelist_id else None
+
+        # Costo total
+        costo_total = float(row.costo_sin_iva or 0) * float(row.cantidad or 1)
+
+        operaciones.append({
+            "id_operacion": row.id_operacion,
+            "ml_id": row.ml_id,
+            "pack_id": row.pack_id,
+            "fecha_venta": row.fecha_venta,
+            "item_id": row.item_id,
+            "codigo": row.codigo,
+            "descripcion": row.descripcion,
+            "categoria": row.categoria,
+            "subcategoria": row.subcategoria,
+            "marca": row.marca,
+            "cantidad": Decimal(str(row.cantidad or 0)),
+            "monto_unitario": Decimal(str(row.monto_unitario or 0)),
+            "monto_total": Decimal(str(row.monto_total or 0)),
+            "iva": Decimal(str(row.iva or 0)),
+            "pricelist_id": row.pricelist_id,
+            "tipo_publicacion": tipo_publicacion,
+            "costo_sin_iva": Decimal(str(row.costo_sin_iva or 0)),
+            "costo_total": Decimal(str(costo_total)),
+            "comision_porcentaje": Decimal(str(row.comision_base_porcentaje or 0)),
+            "comision_pesos": Decimal(str(metricas['comision_ml'])),
+            "costo_envio": Decimal(str(metricas['costo_envio'])),
+            "monto_limpio": Decimal(str(metricas['monto_limpio'])),
+            "markup_porcentaje": Decimal(str(metricas['markup_porcentaje']))
+        })
+
+    return operaciones

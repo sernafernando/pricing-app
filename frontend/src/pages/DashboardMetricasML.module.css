@@ -278,3 +278,112 @@
     width: 100%;
   }
 }
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--border-primary);
+}
+
+.tab {
+  padding: 12px 24px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+  position: relative;
+  bottom: -2px;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.tabActivo {
+  color: var(--brand-primary) !important;
+  border-bottom-color: var(--brand-primary) !important;
+}
+
+/* Detalle de Operaciones */
+.operacionesContainer {
+  margin-top: 20px;
+}
+
+.buscadorContainer {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 20px;
+  padding: 15px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+
+.buscador {
+  flex: 1;
+  padding: 10px 15px;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  font-size: 14px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.buscador:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
+.resultadosCount {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.tableOperaciones {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tableOperaciones thead {
+  background: var(--bg-tertiary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tableOperaciones th {
+  padding: 12px 8px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid var(--border-primary);
+  white-space: nowrap;
+}
+
+.tableOperaciones td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border-primary);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.tableOperaciones tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.negativo {
+  color: #ef4444 !important;
+  font-weight: 700;
+}

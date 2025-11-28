@@ -8,6 +8,7 @@ export default function DashboardMetricasML() {
   const [fechaHasta, setFechaHasta] = useState('');
   const [marcaSeleccionada, setMarcaSeleccionada] = useState('');
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('');
+  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen' o 'operaciones'
 
   // Datos
   const [metricasGenerales, setMetricasGenerales] = useState(null);
@@ -18,6 +19,10 @@ export default function DashboardMetricasML() {
   const [topProductos, setTopProductos] = useState([]);
   const [marcasDisponibles, setMarcasDisponibles] = useState([]);
   const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
+
+  // Datos de operaciones detalladas
+  const [operaciones, setOperaciones] = useState([]);
+  const [busqueda, setBusqueda] = useState('');
 
   // API base URL
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
@@ -40,9 +45,13 @@ export default function DashboardMetricasML() {
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
-      cargarDashboard();
+      if (tabActivo === 'resumen') {
+        cargarDashboard();
+      } else if (tabActivo === 'operaciones') {
+        cargarOperaciones();
+      }
     }
-  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada]);
+  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tabActivo]);
 
   const cargarMarcasYCategorias = async () => {
     try {
@@ -101,6 +110,30 @@ export default function DashboardMetricasML() {
     } catch (error) {
       console.error('Error cargando dashboard:', error);
       alert('Error al cargar el dashboard');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cargarOperaciones = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const params = {
+        from_date: fechaDesde,
+        to_date: fechaHasta,
+        limit: 1000
+      };
+
+      if (marcaSeleccionada) params.marca = marcaSeleccionada;
+
+      const response = await axios.get(`${API_URL}/ventas-ml/operaciones-con-metricas`, { params, headers });
+      setOperaciones(response.data || []);
+    } catch (error) {
+      console.error('Error cargando operaciones:', error);
+      alert('Error al cargar las operaciones');
     } finally {
       setLoading(false);
     }
@@ -185,10 +218,38 @@ export default function DashboardMetricasML() {
     setFechaHasta(formatearFechaISO(hasta));
   };
 
+  // Filtrar operaciones por búsqueda
+  const operacionesFiltradas = operaciones.filter(op => {
+    if (!busqueda) return true;
+    const searchLower = busqueda.toLowerCase();
+    return (
+      (op.ml_id && op.ml_id.toLowerCase().includes(searchLower)) ||
+      (op.codigo && op.codigo.toLowerCase().includes(searchLower)) ||
+      (op.descripcion && op.descripcion.toLowerCase().includes(searchLower)) ||
+      (op.marca && op.marca.toLowerCase().includes(searchLower))
+    );
+  });
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
         <h1 className={styles.title}>📊 Dashboard Métricas ML</h1>
+
+        {/* Tabs */}
+        <div className={styles.tabs}>
+          <button
+            className={`${styles.tab} ${tabActivo === 'resumen' ? styles.tabActivo : ''}`}
+            onClick={() => setTabActivo('resumen')}
+          >
+            📊 Resumen
+          </button>
+          <button
+            className={`${styles.tab} ${tabActivo === 'operaciones' ? styles.tabActivo : ''}`}
+            onClick={() => setTabActivo('operaciones')}
+          >
+            📋 Detalle de Operaciones
+          </button>
+        </div>
 
         {/* Filtros Rápidos */}
         <div className={styles.filtrosRapidos}>
@@ -273,8 +334,76 @@ export default function DashboardMetricasML() {
       </div>
 
       {loading ? (
-        <div className={styles.loading}>Cargando métricas...</div>
+        <div className={styles.loading}>Cargando...</div>
+      ) : tabActivo === 'operaciones' ? (
+        /* Tab de Detalle de Operaciones */
+        <div className={styles.operacionesContainer}>
+          <div className={styles.buscadorContainer}>
+            <input
+              type="text"
+              placeholder="🔍 Buscar por ML ID, código, producto o marca..."
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              className={styles.buscador}
+            />
+            <div className={styles.resultadosCount}>
+              {operacionesFiltradas.length} operación{operacionesFiltradas.length !== 1 ? 'es' : ''}
+            </div>
+          </div>
+
+          <div className={styles.tableWrapper}>
+            <table className={styles.tableOperaciones}>
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>ML ID</th>
+                  <th>Código</th>
+                  <th>Producto</th>
+                  <th>Marca</th>
+                  <th>Cant</th>
+                  <th>Precio Unit</th>
+                  <th>Total</th>
+                  <th>IVA%</th>
+                  <th>Costo Unit</th>
+                  <th>Costo Total</th>
+                  <th>Comisión%</th>
+                  <th>Comisión $</th>
+                  <th>Envío</th>
+                  <th>Limpio</th>
+                  <th>Markup%</th>
+                  <th>Lista</th>
+                </tr>
+              </thead>
+              <tbody>
+                {operacionesFiltradas.map((op, idx) => (
+                  <tr key={idx}>
+                    <td>{formatearFecha(op.fecha_venta)}</td>
+                    <td>{op.ml_id || '-'}</td>
+                    <td>{op.codigo || '-'}</td>
+                    <td className={styles.descripcion}>{op.descripcion || '-'}</td>
+                    <td>{op.marca || '-'}</td>
+                    <td className={styles.centrado}>{op.cantidad}</td>
+                    <td className={styles.monto}>{formatearMoneda(op.monto_unitario)}</td>
+                    <td className={styles.monto}>{formatearMoneda(op.monto_total)}</td>
+                    <td className={styles.centrado}>{op.iva}%</td>
+                    <td className={styles.monto}>{formatearMoneda(op.costo_sin_iva)}</td>
+                    <td className={styles.monto}>{formatearMoneda(op.costo_total)}</td>
+                    <td className={styles.centrado}>{formatearPorcentaje(op.comision_porcentaje)}</td>
+                    <td className={styles.monto}>{formatearMoneda(op.comision_pesos)}</td>
+                    <td className={styles.monto}>{formatearMoneda(op.costo_envio)}</td>
+                    <td className={styles.monto}>{formatearMoneda(op.monto_limpio)}</td>
+                    <td className={`${styles.centrado} ${parseFloat(op.markup_porcentaje) < 0 ? styles.negativo : ''}`}>
+                      {formatearPorcentaje(op.markup_porcentaje)}
+                    </td>
+                    <td>{op.tipo_publicacion || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : metricasGenerales ? (
+        /* Tab de Resumen */
         <>
           {/* Métricas Generales */}
           <div className={styles.metricasGrid}>
