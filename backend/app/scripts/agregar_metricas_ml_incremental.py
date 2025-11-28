@@ -21,13 +21,13 @@ import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
+# Load environment variables BEFORE importing app modules
+env_path = backend_dir / '.env'
+load_dotenv(dotenv_path=env_path)
+
 from app.core.database import SessionLocal
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
-
-# Load environment variables from .env file in backend directory
-env_path = backend_dir / '.env'
-load_dotenv(dotenv_path=env_path)
 
 # SQL Server connection
 SQL_SERVER_HOST = os.getenv("SQL_SERVER_HOST")
