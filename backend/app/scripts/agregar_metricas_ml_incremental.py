@@ -409,16 +409,6 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                     if row.costo_sin_iva is not None and row.cantidad:
                         costo_total_operacion = float(row.costo_sin_iva) * float(row.cantidad)
 
-                    # Obtener precio venta configurado del producto
-                    precio_venta_seteado = None
-                    if row.pricelist_id:
-                        precio_seteado = db.query(ProductoPricing).filter(
-                            ProductoPricing.item_id == row.item_id,
-                            ProductoPricing.pricelist_id == row.pricelist_id
-                        ).first()
-                        if precio_seteado and precio_seteado.precio_venta:
-                            precio_venta_seteado = float(precio_seteado.precio_venta)
-
                     notificacion = Notificacion(
                         user_id=usuario.id,
                         tipo='markup_bajo',
@@ -437,7 +427,7 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         pm=pm_nombre,
                         costo_operacion=Decimal(str(costo_total_operacion)) if costo_total_operacion is not None else None,
                         costo_actual=Decimal(str(costo_actual)) if costo_actual is not None else None,
-                        precio_venta_unitario=Decimal(str(precio_venta_seteado)) if precio_venta_seteado is not None else None,
+                        precio_venta_unitario=Decimal(str(row.monto_unitario)) if row.monto_unitario is not None else None,
                         precio_publicacion=None,  # TODO: obtener de ML si está disponible
                         tipo_publicacion=tipo_publicacion,
                         comision_ml=Decimal(str(comision_porcentaje)) if comision_porcentaje is not None else None,  # Guardar el % para mostrar

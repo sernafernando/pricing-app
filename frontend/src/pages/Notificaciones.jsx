@@ -25,6 +25,7 @@ export default function Notificaciones() {
   const [expandedNotif, setExpandedNotif] = useState(null);
   const [orderData, setOrderData] = useState({});
   const [loadingOrder, setLoadingOrder] = useState({});
+  const [preciosSeteados, setPreciosSeteados] = useState({});
 
   const ITEMS_PER_PAGE = 20;
 
@@ -136,15 +137,36 @@ export default function Notificaciones() {
     }
   };
 
+  const fetchPrecioSeteado = async (notif) => {
+    if (!notif.item_id || preciosSeteados[notif.id]) return;
+
+    try {
+      // Obtener el pricelist_id desde tipo_publicacion
+      const pricelistMap = {
+        "Clásica": 4,
+        "3 Cuotas": 17,
+        "6 Cuotas": 14,
+        "9 Cuotas": 13,
+        "12 Cuotas": 23
+      };
+      const pricelistId = pricelistMap[notif.tipo_publicacion] || 4;
+
+      const response = await api.get(`/api/productos/${notif.item_id}/pricing/${pricelistId}`);
+      if (response.data && response.data.precio_venta) {
+        setPreciosSeteados({ ...preciosSeteados, [notif.id]: response.data.precio_venta });
+      }
+    } catch (error) {
+      console.error('Error al obtener precio seteado:', error);
+    }
+  };
+
   const toggleExpand = async (notif) => {
     if (expandedNotif === notif.id) {
       setExpandedNotif(null);
     } else {
       setExpandedNotif(notif.id);
-      // No fetchear datos de orden automáticamente por CORS
-      // if (!orderData[notif.id] && notif.id_operacion) {
-      //   await fetchOrderData(notif);
-      // }
+      // Obtener precio seteado del producto
+      await fetchPrecioSeteado(notif);
       if (!notif.leida) {
         await marcarComoLeida(notif.id);
       }
@@ -327,7 +349,7 @@ export default function Notificaciones() {
                     <div className={styles.detalleGrid}>
                       <div className={styles.detalleItem}>
                         <strong>Precio Venta Seteado:</strong>
-                        <span>${notif.precio_venta_unitario ? parseFloat(notif.precio_venta_unitario).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                        <span>${preciosSeteados[notif.id] ? parseFloat(preciosSeteados[notif.id]).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'Cargando...'}</span>
                       </div>
                       <div className={styles.detalleItem}>
                         <strong>Markup Esperado:</strong>
