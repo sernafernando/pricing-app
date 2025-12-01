@@ -334,10 +334,8 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                 return False
 
             mensaje = (
-                f"⚠️ VENTA EN PÉRDIDA - Markup negativo peor de lo esperado. "
-                f"Esperado: {markup_calculado:.2f}%, Real: {markup_real:.2f}% "
-                f"(diferencia: {diferencia:.2f}%). "
-                f"Venta: ${float(row.monto_total):,.2f}"
+                f"⚠️ Markup: {markup_real:.2f}% (esperado {markup_calculado:.2f}%) - "
+                f"${float(row.monto_total):,.2f}"
             )
 
             notificaciones_creadas = 0
