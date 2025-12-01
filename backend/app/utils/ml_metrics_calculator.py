@@ -60,16 +60,30 @@ def calcular_metricas_ml(
     # Costo total sin IVA (costo × cantidad)
     costo_total_sin_iva = costo_unitario_sin_iva * cantidad
 
-    # Costo de envío sin IVA (multiplicado por cantidad)
-    # El envío viene con IVA, se divide por 1.21 y se multiplica por cantidad
-    costo_envio_sin_iva = 0
-    if costo_envio_ml:
-        costo_envio_sin_iva = (costo_envio_ml / 1.21) * cantidad
+    # Obtener monto_tier3 para determinar si se resta el envío
+    monto_tier3 = 33000  # Default
+    if db_session:
+        from app.models.pricing_constants import PricingConstants
+        constants = db_session.query(PricingConstants).filter(
+            PricingConstants.fecha_desde <= fecha_venta.date()
+        ).order_by(PricingConstants.fecha_desde.desc()).first()
+        if constants:
+            monto_tier3 = float(constants.monto_tier3)
 
-    # FÓRMULA DE LIMPIO (exactamente como en pricing de productos):
-    # limpio = ((precio_unitario / (1 + iva/100)) × cantidad) - comisión - envío
+    # Costo de envío sin IVA - SOLO si precio >= monto_tier3 (envío gratis)
+    # El pricing calcula por unidad, pero en ventas se multiplica por cantidad
+    envio_unitario_sin_iva = 0
+    if monto_unitario >= monto_tier3 and costo_envio_ml:
+        envio_unitario_sin_iva = costo_envio_ml / 1.21
+
+    costo_envio_sin_iva = envio_unitario_sin_iva * cantidad
+
+    # FÓRMULA DE LIMPIO (exactamente como pricing de productos):
+    # (precio_sin_iva - envio_sin_iva - comision_unitaria) * cantidad
     unitario_sin_iva = monto_unitario / (1 + iva_porcentaje / 100)
-    monto_limpio = (unitario_sin_iva * cantidad) - comision_ml - costo_envio_sin_iva
+    comision_unitaria = comision_ml / cantidad
+    limpio_unitario = unitario_sin_iva - envio_unitario_sin_iva - comision_unitaria
+    monto_limpio = limpio_unitario * cantidad
 
     # Ganancia
     ganancia = monto_limpio - costo_total_sin_iva
