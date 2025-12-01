@@ -153,7 +153,7 @@ export default function Notificaciones() {
 
       const response = await api.get(`/api/productos/${notif.item_id}/pricing/${pricelistId}`);
       if (response.data && response.data.precio_venta) {
-        setPreciosSeteados({ ...preciosSeteados, [notif.id]: response.data.precio_venta });
+        setPreciosSeteados(prev => ({ ...prev, [notif.id]: response.data.precio_venta }));
       }
     } catch (error) {
       console.error('Error al obtener precio seteado:', error);
