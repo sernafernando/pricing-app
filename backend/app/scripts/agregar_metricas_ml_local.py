@@ -418,6 +418,19 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                     if row.costo_sin_iva is not None and row.cantidad:
                         costo_total_operacion = float(row.costo_sin_iva) * float(row.cantidad)
 
+                    # Obtener código y descripción del producto
+                    codigo_prod = row.codigo
+                    descripcion_prod = row.descripcion
+
+                    # Si no vienen de tb_item, buscar en productos_erp como fallback
+                    if not codigo_prod or not descripcion_prod:
+                        producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == row.item_id).first()
+                        if producto_erp:
+                            if not codigo_prod:
+                                codigo_prod = producto_erp.codigo
+                            if not descripcion_prod:
+                                descripcion_prod = producto_erp.descripcion
+
                     notificacion = Notificacion(
                         user_id=usuario.id,
                         tipo='markup_bajo',
@@ -425,8 +438,8 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         id_operacion=row.id_operacion,
                         ml_id=row.ml_id,
                         pack_id=row.pack_id,
-                        codigo_producto=row.codigo,
-                        descripcion_producto=row.descripcion[:500] if row.descripcion else None,
+                        codigo_producto=codigo_prod,
+                        descripcion_producto=descripcion_prod[:500] if descripcion_prod else None,
                         mensaje=mensaje,
                         markup_real=Decimal(str(markup_real)),
                         markup_objetivo=Decimal(str(markup_calculado)),

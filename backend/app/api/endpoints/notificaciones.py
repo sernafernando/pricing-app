@@ -107,6 +107,8 @@ async def listar_notificaciones_agrupadas(
     Lista las notificaciones agrupadas por (item_id, tipo, markup_real)
     Cada grupo muestra la cantidad de notificaciones, rango de fechas, y la notificación más reciente
     """
+    from app.models.producto import ProductoERP
+
     query = db.query(Notificacion).filter(Notificacion.user_id == current_user.id)
 
     if solo_no_leidas:
@@ -136,12 +138,24 @@ async def listar_notificaciones_agrupadas(
         notifs_ordenados = sorted(notifs_grupo, key=lambda n: n.fecha_creacion)
         notif_reciente = notifs_ordenados[-1]  # La más reciente
 
+        # Si código o descripción están vacíos, buscar en productos_erp
+        codigo_prod = notif_reciente.codigo_producto
+        descripcion_prod = notif_reciente.descripcion_producto
+
+        if (not codigo_prod or not descripcion_prod) and item_id:
+            producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+            if producto_erp:
+                if not codigo_prod:
+                    codigo_prod = producto_erp.codigo
+                if not descripcion_prod:
+                    descripcion_prod = producto_erp.descripcion
+
         resultado.append({
             "item_id": item_id,
             "tipo": tipo_notif,
             "markup_real": markup_real,
-            "codigo_producto": notif_reciente.codigo_producto,
-            "descripcion_producto": notif_reciente.descripcion_producto,
+            "codigo_producto": codigo_prod,
+            "descripcion_producto": descripcion_prod,
             "pm": notif_reciente.pm,
             "count": len(notifs_grupo),
             "primera_fecha": notifs_ordenados[0].fecha_creacion,
