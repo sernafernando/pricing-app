@@ -29,7 +29,7 @@ export default function NotificationBell() {
       setLoading(true);
       console.log('🔔 Fetching notificaciones...');
       const [notifResponse, statsResponse] = await Promise.all([
-        api.get('/api/notificaciones?limit=20&solo_no_leidas=false'),
+        api.get('/api/notificaciones/agrupadas?solo_no_leidas=false'),
         api.get('/api/notificaciones/stats')
       ]);
 
@@ -53,9 +53,12 @@ export default function NotificationBell() {
     return () => clearInterval(interval);
   }, []);
 
-  const marcarComoLeida = async (notifId) => {
+  const marcarComoLeida = async (notificacionesIds) => {
     try {
-      await api.patch(`/api/notificaciones/${notifId}/marcar-leida`);
+      // Marcar todas las notificaciones del grupo
+      await Promise.all(
+        notificacionesIds.map(id => api.patch(`/api/notificaciones/${id}/marcar-leida`))
+      );
       await fetchNotificaciones();
     } catch (error) {
       console.error('Error al marcar notificación:', error);
@@ -71,9 +74,12 @@ export default function NotificationBell() {
     }
   };
 
-  const eliminarNotificacion = async (notifId) => {
+  const eliminarNotificacion = async (notificacionesIds) => {
     try {
-      await api.delete(`/api/notificaciones/${notifId}`);
+      // Eliminar todas las notificaciones del grupo
+      await Promise.all(
+        notificacionesIds.map(id => api.delete(`/api/notificaciones/${id}`))
+      );
       await fetchNotificaciones();
     } catch (error) {
       console.error('Error al eliminar notificación:', error);
@@ -146,30 +152,35 @@ export default function NotificationBell() {
               ) : notificaciones.length === 0 ? (
                 <div className={styles.empty}>No hay notificaciones</div>
               ) : (
-                notificaciones.map((notif) => (
+                notificaciones.map((grupo) => (
                   <div
-                    key={notif.id}
-                    className={`${styles.notifItem} ${!notif.leida ? styles.noLeida : ''}`}
+                    key={`${grupo.item_id}-${grupo.tipo}-${grupo.markup_real}`}
+                    className={`${styles.notifItem} ${!grupo.notificacion_reciente.leida ? styles.noLeida : ''}`}
                   >
                     <div className={styles.notifIcon}>
-                      {getTipoIcon(notif.tipo)}
+                      {getTipoIcon(grupo.tipo)}
                     </div>
                     <div className={styles.notifContent}>
-                      <div className={styles.notifMensaje}>{notif.mensaje}</div>
-                      {notif.codigo_producto && (
+                      <div className={styles.notifMensaje}>
+                        {grupo.notificacion_reciente.mensaje}
+                        {grupo.count > 1 && (
+                          <span className={styles.grupoCount}> ({grupo.count})</span>
+                        )}
+                      </div>
+                      {grupo.codigo_producto && (
                         <div className={styles.notifProducto}>
-                          {notif.codigo_producto} - {notif.descripcion_producto}
+                          {grupo.codigo_producto} - {grupo.descripcion_producto}
                         </div>
                       )}
                       <div className={styles.notifFooter}>
                         <span className={styles.notifFecha}>
-                          {formatearFecha(notif.fecha_creacion)}
+                          {formatearFecha(grupo.ultima_fecha)}
                         </span>
                         <div className={styles.notifActions}>
-                          {!notif.leida && (
+                          {!grupo.notificacion_reciente.leida && (
                             <button
                               className={styles.actionBtn}
-                              onClick={() => marcarComoLeida(notif.id)}
+                              onClick={() => marcarComoLeida(grupo.notificaciones_ids)}
                               title="Marcar como leída"
                             >
                               ✓
@@ -177,7 +188,7 @@ export default function NotificationBell() {
                           )}
                           <button
                             className={styles.actionBtn}
-                            onClick={() => eliminarNotificacion(notif.id)}
+                            onClick={() => eliminarNotificacion(grupo.notificaciones_ids)}
                             title="Eliminar"
                           >
                             ✕
