@@ -405,8 +405,16 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                     # Obtener PM asignado a la marca del producto
                     from app.models.marca_pm import MarcaPM
                     pm_nombre = None
+
+                    # Intentar con marca de tb_brand primero
                     if row.marca:
                         marca_pm = db.query(MarcaPM).filter(MarcaPM.marca == row.marca).first()
+                        if marca_pm and marca_pm.usuario:
+                            pm_nombre = marca_pm.usuario.nombre
+
+                    # Si no encontró PM, intentar con marca de productos_erp como fallback
+                    if not pm_nombre and producto_actual and producto_actual.marca:
+                        marca_pm = db.query(MarcaPM).filter(MarcaPM.marca == producto_actual.marca).first()
                         if marca_pm and marca_pm.usuario:
                             pm_nombre = marca_pm.usuario.nombre
 
