@@ -141,19 +141,9 @@ export default function Notificaciones() {
     if (!notif.item_id || preciosSeteados[notif.id]) return;
 
     try {
-      // Obtener el pricelist_id desde tipo_publicacion
-      const pricelistMap = {
-        "Clásica": 4,
-        "3 Cuotas": 17,
-        "6 Cuotas": 14,
-        "9 Cuotas": 13,
-        "12 Cuotas": 23
-      };
-      const pricelistId = pricelistMap[notif.tipo_publicacion] || 4;
-
-      const response = await api.get(`/api/productos/${notif.item_id}/pricing/${pricelistId}`);
-      if (response.data && response.data.precio_venta) {
-        setPreciosSeteados(prev => ({ ...prev, [notif.id]: response.data.precio_venta }));
+      const response = await api.get(`/api/productos/${notif.item_id}/pricing-stored`);
+      if (response.data && response.data.precio_lista_ml) {
+        setPreciosSeteados(prev => ({ ...prev, [notif.id]: response.data.precio_lista_ml }));
       }
     } catch (error) {
       console.error('Error al obtener precio seteado:', error);
@@ -283,8 +273,13 @@ export default function Notificaciones() {
                 key={`${grupo.item_id}-${grupo.tipo}-${grupo.markup_real}`}
                 className={styles.grupoCard}
               >
-                <div className={styles.grupoHeader} onClick={() => {
-                  setExpandedGrupo(expandedGrupo === grupo ? null : grupo);
+                <div className={styles.grupoHeader} onClick={async () => {
+                  if (expandedGrupo === grupo) {
+                    setExpandedGrupo(null);
+                  } else {
+                    setExpandedGrupo(grupo);
+                    await fetchPrecioSeteado(grupo.notificacion_reciente);
+                  }
                 }}>
                   <div className={styles.notifIcon}>{getTipoIcon(grupo.tipo)}</div>
                   <div className={styles.grupoMain}>
@@ -364,7 +359,7 @@ export default function Notificaciones() {
                     <div className={styles.detalleGrid}>
                       <div className={styles.detalleItem}>
                         <strong>Precio Venta Seteado:</strong>
-                        <span>${grupo.notificacion_reciente.precio_publicacion ? parseFloat(grupo.notificacion_reciente.precio_publicacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                        <span>${preciosSeteados[grupo.notificacion_reciente.id] ? parseFloat(preciosSeteados[grupo.notificacion_reciente.id]).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'Cargando...'}</span>
                       </div>
                       <div className={styles.detalleItem}>
                         <strong>Markup Esperado:</strong>

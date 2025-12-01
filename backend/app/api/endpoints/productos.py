@@ -1100,6 +1100,22 @@ async def obtener_producto(item_id: int, db: Session = Depends(get_db)):
         necesita_revision=False
     )
 
+@router.get("/productos/{item_id}/pricing-stored")
+async def obtener_precio_stored(item_id: int, db: Session = Depends(get_db)):
+    """
+    Obtiene el precio_lista_ml almacenado en productos_pricing para un item_id
+    """
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Precio no encontrado para este producto")
+
+    return {
+        "item_id": item_id,
+        "precio_lista_ml": float(pricing.precio_lista_ml) if pricing.precio_lista_ml else None,
+        "markup_calculado": float(pricing.markup_calculado) if pricing.markup_calculado else None
+    }
+
 @router.get("/stats")
 async def obtener_estadisticas(
     # Filtros de búsqueda
