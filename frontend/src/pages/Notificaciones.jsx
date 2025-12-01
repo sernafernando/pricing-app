@@ -26,21 +26,21 @@ export default function Notificaciones() {
   const [orderData, setOrderData] = useState({});
   const [loadingOrder, setLoadingOrder] = useState({});
   const [preciosSeteados, setPreciosSeteados] = useState({});
+  const [vistaAgrupada, setVistaAgrupada] = useState(true);
+  const [expandedGrupo, setExpandedGrupo] = useState(null);
 
   const ITEMS_PER_PAGE = 20;
 
   const fetchNotificaciones = async () => {
     try {
       setLoading(true);
+      const endpoint = vistaAgrupada ? '/api/notificaciones/agrupadas' : '/api/notificaciones';
+      const params = vistaAgrupada
+        ? { solo_no_leidas: soloNoLeidas, tipo: filtroTipo }
+        : { limit: 100, offset: 0, solo_no_leidas: soloNoLeidas, tipo: filtroTipo };
+
       const [notifResponse, statsResponse] = await Promise.all([
-        api.get('/api/notificaciones', {
-          params: {
-            limit: 100,
-            offset: 0,
-            solo_no_leidas: soloNoLeidas,
-            tipo: filtroTipo
-          }
-        }),
+        api.get(endpoint, { params }),
         api.get('/api/notificaciones/stats')
       ]);
 
@@ -55,7 +55,7 @@ export default function Notificaciones() {
 
   useEffect(() => {
     fetchNotificaciones();
-  }, [soloNoLeidas, filtroTipo]);
+  }, [soloNoLeidas, filtroTipo, vistaAgrupada]);
 
   const marcarComoLeida = async (notifId) => {
     try {
@@ -237,6 +237,17 @@ export default function Notificaciones() {
         </div>
 
         <div className={styles.filterGroup}>
+          <label>
+            <input
+              type="checkbox"
+              checked={vistaAgrupada}
+              onChange={(e) => setVistaAgrupada(e.target.checked)}
+            />
+            Agrupar por producto/markup
+          </label>
+        </div>
+
+        <div className={styles.filterGroup}>
           <label>Tipo:</label>
           <select value={filtroTipo || ''} onChange={(e) => setFiltroTipo(e.target.value || null)}>
             <option value="">Todas</option>
@@ -264,6 +275,112 @@ export default function Notificaciones() {
         <div className={styles.empty}>
           <p>📭 No hay notificaciones</p>
         </div>
+      ) : vistaAgrupada ? (
+        <>
+          <div className={styles.notifList}>
+            {notificacionesPaginadas.map((grupo) => (
+              <div
+                key={`${grupo.item_id}-${grupo.tipo}-${grupo.markup_real}`}
+                className={styles.grupoCard}
+              >
+                <div className={styles.grupoHeader} onClick={() => setExpandedGrupo(expandedGrupo === grupo ? null : grupo)}>
+                  <div className={styles.notifIcon}>{getTipoIcon(grupo.tipo)}</div>
+                  <div className={styles.grupoMain}>
+                    <div className={styles.grupoProducto}>
+                      {grupo.codigo_producto} - {grupo.descripcion_producto}
+                    </div>
+                    <div className={styles.grupoInfo}>
+                      <span className={styles.grupoMarkup}>Markup Real: {grupo.markup_real}%</span>
+                      <span className={styles.grupoCount}>({grupo.count} notificación{grupo.count > 1 ? 'es' : ''})</span>
+                      {grupo.pm && <span className={styles.pmTag}>PM: {grupo.pm}</span>}
+                    </div>
+                    <div className={styles.grupoFechas}>
+                      {grupo.count > 1 ? (
+                        <span>{formatearFecha(grupo.primera_fecha)} → {formatearFecha(grupo.ultima_fecha)}</span>
+                      ) : (
+                        <span>{formatearFecha(grupo.ultima_fecha)}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className={styles.expandIcon}>
+                    {expandedGrupo === grupo ? '▼' : '▶'}
+                  </div>
+                </div>
+
+                {expandedGrupo === grupo && (
+                  <div className={styles.grupoDetalle}>
+                    {/* Mostrar detalles de la notificación más reciente */}
+                    <h4 className={styles.seccionTitulo}>📊 Operación Más Reciente</h4>
+                    <div className={styles.detalleGrid}>
+                      <div className={styles.detalleItem}>
+                        <strong>Markup Real:</strong>
+                        <span className={grupo.notificacion_reciente.markup_real < 0 ? styles.negativo : ''}>
+                          {grupo.notificacion_reciente.markup_real}%
+                        </span>
+                      </div>
+                      <div className={styles.detalleItem}>
+                        <strong>Monto de la Venta:</strong>
+                        <span>${parseFloat(grupo.notificacion_reciente.monto_venta).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                      </div>
+                      <div className={styles.detalleItem}>
+                        <strong>Costo de la Venta:</strong>
+                        <span>${grupo.notificacion_reciente.costo_operacion ? parseFloat(grupo.notificacion_reciente.costo_operacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                      </div>
+                      <div className={styles.detalleItem}>
+                        <strong>Fecha Venta:</strong>
+                        <span>{formatearFecha(grupo.notificacion_reciente.fecha_venta)}</span>
+                      </div>
+                    </div>
+
+                    <div className={styles.detalleActions}>
+                      {grupo.notificacion_reciente.ml_id && (
+                        <button
+                          onClick={() => abrirEnML(grupo.notificacion_reciente)}
+                          className={styles.btnPrimary}
+                        >
+                          🔗 Ver última en MercadoLibre
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (confirm(`¿Eliminar ${grupo.count} notificación${grupo.count > 1 ? 'es' : ''}?`)) {
+                            Promise.all(grupo.notificaciones_ids.map(id => eliminarNotificacion(id)))
+                              .then(() => setExpandedGrupo(null));
+                          }
+                        }}
+                        className={styles.btnDanger}
+                      >
+                        🗑️ Eliminar todas ({grupo.count})
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {totalPaginas > 1 && (
+            <div className={styles.pagination}>
+              <button
+                onClick={() => setPaginaActual(paginaActual - 1)}
+                disabled={paginaActual === 0}
+                className={styles.paginationBtn}
+              >
+                ← Anterior
+              </button>
+              <span className={styles.paginationInfo}>
+                Página {paginaActual + 1} de {totalPaginas}
+              </span>
+              <button
+                onClick={() => setPaginaActual(paginaActual + 1)}
+                disabled={paginaActual >= totalPaginas - 1}
+                className={styles.paginationBtn}
+              >
+                Siguiente →
+              </button>
+            </div>
+          )}
+        </>
       ) : (
         <>
           <div className={styles.notifList}>

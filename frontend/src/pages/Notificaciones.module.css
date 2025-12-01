@@ -393,3 +393,75 @@
   color: var(--text-primary);
   font-weight: 500;
 }
+
+/* Estilos para vista agrupada */
+.grupoCard {
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.grupoHeader {
+  display: flex;
+  align-items: flex-start;
+  padding: 1rem 1.25rem;
+  cursor: pointer;
+  gap: 1rem;
+  transition: background 0.15s;
+}
+
+.grupoHeader:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.grupoMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.grupoProducto {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+  font-family: 'Courier New', monospace;
+}
+
+.grupoInfo {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.grupoMarkup {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.grupoCount {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  background: rgba(251, 191, 36, 0.15);
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.grupoFechas {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+
+.grupoDetalle {
+  padding: 1.5rem 1.25rem;
+  border-top: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.2);
+}

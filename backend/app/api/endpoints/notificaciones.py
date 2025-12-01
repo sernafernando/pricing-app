@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from app.api.deps import get_current_user
 from app.core.database import get_db
@@ -47,6 +47,31 @@ class NotificacionStats(BaseModel):
     no_leidas: int
     por_tipo: dict
 
+class NotificacionAgrupada(BaseModel):
+    # Clave de agrupación
+    item_id: Optional[int]
+    tipo: str
+    markup_real: Optional[float]
+
+    # Información del producto
+    codigo_producto: Optional[str]
+    descripcion_producto: Optional[str]
+    pm: Optional[str]
+
+    # Agregaciones
+    count: int
+    primera_fecha: datetime
+    ultima_fecha: datetime
+
+    # Representante (notificación más reciente del grupo)
+    notificacion_reciente: NotificacionResponse
+
+    # IDs de todas las notificaciones del grupo
+    notificaciones_ids: List[int]
+
+    class Config:
+        from_attributes = True
+
 @router.get("/notificaciones", response_model=List[NotificacionResponse])
 async def listar_notificaciones(
     limit: int = 50,
@@ -70,6 +95,65 @@ async def listar_notificaciones(
     notificaciones = query.order_by(desc(Notificacion.fecha_creacion)).offset(offset).limit(limit).all()
 
     return notificaciones
+
+@router.get("/notificaciones/agrupadas", response_model=List[NotificacionAgrupada])
+async def listar_notificaciones_agrupadas(
+    solo_no_leidas: bool = False,
+    tipo: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Lista las notificaciones agrupadas por (item_id, tipo, markup_real)
+    Cada grupo muestra la cantidad de notificaciones, rango de fechas, y la notificación más reciente
+    """
+    query = db.query(Notificacion).filter(Notificacion.user_id == current_user.id)
+
+    if solo_no_leidas:
+        query = query.filter(Notificacion.leida == False)
+
+    if tipo:
+        query = query.filter(Notificacion.tipo == tipo)
+
+    # Obtener todas las notificaciones que cumplen el filtro
+    notificaciones = query.order_by(desc(Notificacion.fecha_creacion)).all()
+
+    # Agrupar en memoria por (item_id, tipo, markup_real_redondeado)
+    grupos = {}
+    for notif in notificaciones:
+        # Redondear markup_real a 2 decimales para agrupar
+        markup_key = round(float(notif.markup_real), 2) if notif.markup_real is not None else None
+        key = (notif.item_id, notif.tipo, markup_key)
+
+        if key not in grupos:
+            grupos[key] = []
+        grupos[key].append(notif)
+
+    # Construir respuesta agrupada
+    resultado = []
+    for (item_id, tipo_notif, markup_real), notifs_grupo in grupos.items():
+        # Ordenar por fecha para obtener primera y última
+        notifs_ordenados = sorted(notifs_grupo, key=lambda n: n.fecha_creacion)
+        notif_reciente = notifs_ordenados[-1]  # La más reciente
+
+        resultado.append({
+            "item_id": item_id,
+            "tipo": tipo_notif,
+            "markup_real": markup_real,
+            "codigo_producto": notif_reciente.codigo_producto,
+            "descripcion_producto": notif_reciente.descripcion_producto,
+            "pm": notif_reciente.pm,
+            "count": len(notifs_grupo),
+            "primera_fecha": notifs_ordenados[0].fecha_creacion,
+            "ultima_fecha": notifs_ordenados[-1].fecha_creacion,
+            "notificacion_reciente": notif_reciente,
+            "notificaciones_ids": [n.id for n in notifs_grupo]
+        })
+
+    # Ordenar grupos por última fecha (más reciente primero)
+    resultado.sort(key=lambda g: g["ultima_fecha"], reverse=True)
+
+    return resultado
 
 @router.get("/notificaciones/stats", response_model=NotificacionStats)
 async def obtener_estadisticas_notificaciones(
