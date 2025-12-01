@@ -283,14 +283,8 @@ export default function Notificaciones() {
                 key={`${grupo.item_id}-${grupo.tipo}-${grupo.markup_real}`}
                 className={styles.grupoCard}
               >
-                <div className={styles.grupoHeader} onClick={async () => {
-                  if (expandedGrupo === grupo) {
-                    setExpandedGrupo(null);
-                  } else {
-                    setExpandedGrupo(grupo);
-                    // Obtener precio seteado del producto
-                    await fetchPrecioSeteado(grupo.notificacion_reciente);
-                  }
+                <div className={styles.grupoHeader} onClick={() => {
+                  setExpandedGrupo(expandedGrupo === grupo ? null : grupo);
                 }}>
                   <div className={styles.notifIcon}>{getTipoIcon(grupo.tipo)}</div>
                   <div className={styles.grupoMain}>
@@ -370,7 +364,7 @@ export default function Notificaciones() {
                     <div className={styles.detalleGrid}>
                       <div className={styles.detalleItem}>
                         <strong>Precio Venta Seteado:</strong>
-                        <span>${preciosSeteados[grupo.notificacion_reciente.id] ? parseFloat(preciosSeteados[grupo.notificacion_reciente.id]).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'Cargando...'}</span>
+                        <span>${grupo.notificacion_reciente.precio_publicacion ? parseFloat(grupo.notificacion_reciente.precio_publicacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
                       </div>
                       <div className={styles.detalleItem}>
                         <strong>Markup Esperado:</strong>

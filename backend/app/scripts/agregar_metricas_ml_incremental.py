@@ -374,6 +374,14 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                     except:
                         pass
 
+                    # Obtener precio_lista_ml del producto
+                    precio_lista_ml = None
+                    try:
+                        if producto_actual and producto_actual.precio_lista_ml is not None:
+                            precio_lista_ml = float(producto_actual.precio_lista_ml)
+                    except:
+                        pass
+
                     # Obtener porcentaje de comisión base (solo para el frontend)
                     comision_porcentaje = None
                     if row.comision_base_porcentaje is not None:
@@ -428,7 +436,7 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         costo_operacion=Decimal(str(costo_total_operacion)) if costo_total_operacion is not None else None,
                         costo_actual=Decimal(str(costo_actual)) if costo_actual is not None else None,
                         precio_venta_unitario=Decimal(str(row.monto_unitario)) if row.monto_unitario is not None else None,
-                        precio_publicacion=None,  # TODO: obtener de ML si está disponible
+                        precio_publicacion=Decimal(str(precio_lista_ml)) if precio_lista_ml is not None else None,
                         tipo_publicacion=tipo_publicacion,
                         comision_ml=Decimal(str(comision_porcentaje)) if comision_porcentaje is not None else None,  # Guardar el % para mostrar
                         iva_porcentaje=Decimal(str(row.iva)) if row.iva is not None else None,
