@@ -139,21 +139,8 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
             tmloh.mlshippingid as shipping_id,
-            -- REGLA: Si monto_unitario < monto_tier3, NO se resta costo de envío
-            --        Si monto_unitario >= monto_tier3, SÍ se resta costo de envío
-            CASE
-                WHEN tmlod.mlo_unit_price < (
-                    SELECT monto_tier3
-                    FROM pricing_constants
-                    WHERE fecha_desde <= tmloh.mlo_cd::date
-                    ORDER BY fecha_desde DESC
-                    LIMIT 1
-                )
-                THEN NULL  -- No restar envío
-                ELSE COALESCE(NULLIF(tmlip.mlp_price4freeshipping, 0), tmlos.mlshippmentcost4seller)
-            END as costo_envio_ml,
-            tmlip.mlp_price4freeshipping as precio_envio_gratis,
-            tmlos.mlshippmentcost4seller as costo_envio_sin_iva_orig,
+            -- Costo de envío del producto (viene con IVA)
+            pe.envio as envio_producto,
 
             -- Obtener el porcentaje de comisión base para que el helper lo calcule
             COALESCE(
@@ -212,6 +199,9 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
         LEFT JOIN tb_item ti
             ON ti.comp_id = tmlod.comp_id
             AND ti.item_id = tmlod.item_id
+
+        LEFT JOIN productos_erp pe
+            ON pe.item_id = tmlod.item_id
 
         LEFT JOIN tb_mercadolibre_items_publicados tmlip
             ON tmlip.comp_id = tmlod.comp_id
@@ -275,11 +265,11 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
     Calcula las métricas usando helper centralizado
     El helper calcula la comisión dinámicamente usando subcat_id y pricelist_id
     """
-    # Usar el costo de envío del PRODUCTO (mlp_price4freeshipping)
+    # Usar el costo de envío del PRODUCTO (productos_erp.envio)
     # Ya viene con IVA, el helper lo multiplica por cantidad y le resta el IVA
     costo_envio_producto = None
-    if row.precio_envio_gratis:
-        costo_envio_producto = float(row.precio_envio_gratis)
+    if row.envio_producto:
+        costo_envio_producto = float(row.envio_producto)
 
     # Llamar al helper centralizado - ahora calcula la comisión dinámicamente
     metricas = calcular_metricas_ml(

@@ -1,6 +1,6 @@
 """
 Helper centralizado para calcular métricas ML
-Basado en la fórmula que YA FUNCIONA en el sistema
+Usa la fórmula EXACTA de pricing de productos
 
 Uso:
     from app.utils.ml_metrics_calculator import calcular_metricas_ml
@@ -26,7 +26,7 @@ def calcular_metricas_ml(
     db_session = None  # Sesión de DB para pricing_constants
 ) -> dict:
     """
-    Calcula métricas ML usando la fórmula que ya funciona
+    Calcula métricas ML usando la fórmula EXACTA de pricing de productos
 
     Args:
         monto_unitario: Precio de venta unitario (con IVA)
@@ -35,7 +35,7 @@ def calcular_metricas_ml(
         costo_unitario_sin_iva: Costo unitario sin IVA
         comision_ml: Comisión ML en pesos (sin IVA) - OPCIONAL si se pasan subcat_id y pricelist_id
         costo_envio_ml: Costo de envío del producto (con IVA), None si no aplica
-        count_per_pack: Items en el pack
+        count_per_pack: Items en el pack (DEPRECADO - no se usa)
         subcat_id: ID de subcategoría (para calcular comisión dinámicamente)
         pricelist_id: ID de pricelist (para calcular comisión dinámicamente)
         fecha_venta: Fecha de la venta (para calcular comisión dinámicamente)
@@ -52,33 +52,29 @@ def calcular_metricas_ml(
             iva_porcentaje=iva_porcentaje,
             fecha_venta=fecha_venta,
             comision_base_porcentaje=comision_base_porcentaje,
-            db_session=db_session  # Pasar sesión de DB para pricing_constants
+            db_session=db_session
         )
     elif comision_ml is None:
         raise ValueError("Debe proporcionar comision_ml O (fecha_venta + comision_base_porcentaje)")
 
-    # Costo total
+    # Costo total sin IVA (costo × cantidad)
     costo_total_sin_iva = costo_unitario_sin_iva * cantidad
 
-    # Monto total
-    monto_total = monto_unitario * cantidad
-
-    # Monto sin IVA
-    monto_sin_iva = monto_total / (1 + iva_porcentaje / 100)
-
-    # Costo de envío: usar el costo del producto multiplicado por cantidad
-    # Ya viene con IVA, dividir por 1.21 para obtener sin IVA
-    costo_envio_total = 0
+    # Costo de envío sin IVA (multiplicado por cantidad)
+    # El envío viene con IVA, se divide por 1.21 y se multiplica por cantidad
+    costo_envio_sin_iva = 0
     if costo_envio_ml:
-        costo_envio_total = (costo_envio_ml / 1.21) * cantidad
+        costo_envio_sin_iva = (costo_envio_ml / 1.21) * cantidad
 
-    # Monto limpio = monto sin IVA - comisión - envío
-    monto_limpio = monto_sin_iva - comision_ml - costo_envio_total
+    # FÓRMULA DE LIMPIO (exactamente como en pricing de productos):
+    # limpio = ((precio_unitario / (1 + iva/100)) × cantidad) - comisión - envío
+    unitario_sin_iva = monto_unitario / (1 + iva_porcentaje / 100)
+    monto_limpio = (unitario_sin_iva * cantidad) - comision_ml - costo_envio_sin_iva
 
     # Ganancia
     ganancia = monto_limpio - costo_total_sin_iva
 
-    # Markup % - Fórmula dashboard: ((Limpio / costo_total) - 1) * 100
+    # Markup % - Fórmula: (limpio / costo) - 1
     markup_porcentaje = None
     if costo_total_sin_iva > 0:
         markup_porcentaje = ((monto_limpio / costo_total_sin_iva) - 1) * 100
@@ -94,6 +90,6 @@ def calcular_metricas_ml(
         'costo_total_sin_iva': costo_total_sin_iva,
         'ganancia': ganancia,
         'markup_porcentaje': markup_porcentaje or 0,
-        'costo_envio': costo_envio_total,
-        'comision_ml': comision_ml  # Devolver la comisión calculada/usada
+        'costo_envio': costo_envio_sin_iva,
+        'comision_ml': comision_ml
     }

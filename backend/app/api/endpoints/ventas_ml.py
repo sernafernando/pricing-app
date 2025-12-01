@@ -593,19 +593,8 @@ async def get_operaciones_con_metricas(
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
 
-            -- Costo de envío
-            CASE
-                WHEN tmlod.mlo_unit_price < (
-                    SELECT monto_tier3
-                    FROM pricing_constants
-                    WHERE fecha_desde <= tmloh.mlo_cd::date
-                    ORDER BY fecha_desde DESC
-                    LIMIT 1
-                )
-                THEN NULL
-                ELSE COALESCE(NULLIF(tmlip.mlp_price4freeshipping, 0), tmlos.mlshippmentcost4seller)
-            END as costo_envio_ml,
-            tmlip.mlp_price4freeshipping as precio_envio_gratis,
+            -- Costo de envío del producto (viene con IVA)
+            pe.envio as envio_producto,
 
             -- Comisión base porcentaje
             COALESCE(
@@ -661,6 +650,9 @@ async def get_operaciones_con_metricas(
         LEFT JOIN tb_item ti
             ON ti.comp_id = tmlod.comp_id
             AND ti.item_id = tmlod.item_id
+
+        LEFT JOIN productos_erp pe
+            ON pe.item_id = tmlod.item_id
 
         LEFT JOIN tb_mercadolibre_items_publicados tmlip
             ON tmlip.comp_id = tmlod.comp_id
@@ -738,11 +730,11 @@ async def get_operaciones_con_metricas(
         if marca and marca != row.marca:
             continue
 
-        # Usar el costo de envío del PRODUCTO (mlp_price4freeshipping)
+        # Usar el costo de envío del PRODUCTO (productos_erp.envio)
         # Ya viene con IVA, el helper lo multiplica por cantidad y le resta el IVA
         costo_envio_producto = None
-        if row.precio_envio_gratis:
-            costo_envio_producto = float(row.precio_envio_gratis)
+        if row.envio_producto:
+            costo_envio_producto = float(row.envio_producto)
 
         # Calcular métricas usando el helper
         metricas = calcular_metricas_ml(
