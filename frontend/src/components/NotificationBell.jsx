@@ -170,6 +170,7 @@ export default function NotificationBell() {
                       {grupo.codigo_producto && (
                         <div className={styles.notifProducto}>
                           {grupo.codigo_producto} - {grupo.descripcion_producto}
+                          {grupo.pm && <span className={styles.pmTag}> PM: {grupo.pm}</span>}
                         </div>
                       )}
                       <div className={styles.notifFooter}>

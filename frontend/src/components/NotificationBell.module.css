@@ -154,6 +154,19 @@
   white-space: nowrap;
 }
 
+.pmTag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #60a5fa;
+  white-space: nowrap;
+}
+
 .notifFooter {
   display: flex;
   justify-content: space-between;
