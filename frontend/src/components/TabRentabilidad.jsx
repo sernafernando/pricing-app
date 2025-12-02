@@ -547,30 +547,27 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
               {/* Resultados */}
               {productosEncontrados.length > 0 && (
                 <div className={styles.productosResultados}>
-                  {productosEncontrados.map(producto => (
-                    <label
-                      key={producto.item_id}
-                      className={styles.productoItem}
-                      onClick={() => agregarProducto(producto)}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={productosSeleccionados.some(p => p.item_id === producto.item_id)}
-                        onChange={() => {
-                          if (productosSeleccionados.some(p => p.item_id === producto.item_id)) {
-                            quitarProducto(producto.item_id);
-                          } else {
-                            agregarProducto(producto);
-                          }
-                        }}
-                      />
-                      <div className={styles.productoInfo}>
-                        <span className={styles.productoCodigo}>{producto.codigo}</span>
-                        <span className={styles.productoNombre}>{producto.descripcion}</span>
-                        <span className={styles.productoMarca}>{producto.marca} - {producto.categoria}</span>
+                  {productosEncontrados.map(producto => {
+                    const seleccionado = productosSeleccionados.some(p => p.item_id === producto.item_id);
+                    return (
+                      <div
+                        key={producto.item_id}
+                        className={styles.productoItem}
+                        onClick={() => seleccionado ? quitarProducto(producto.item_id) : agregarProducto(producto)}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={seleccionado}
+                          readOnly
+                        />
+                        <div className={styles.productoInfo}>
+                          <span className={styles.productoCodigo}>{producto.codigo}</span>
+                          <span className={styles.productoNombre}>{producto.descripcion}</span>
+                          <span className={styles.productoMarca}>{producto.marca} - {producto.categoria}</span>
+                        </div>
                       </div>
-                    </label>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </>
