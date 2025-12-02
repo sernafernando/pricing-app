@@ -97,6 +97,7 @@ export default function Productos() {
     recalcular_cuotas_auto: null,
     markup_adicional_cuotas_custom: null
   });
+  const [markupCuotasGlobal, setMarkupCuotasGlobal] = useState(4); // Valor por defecto
 
   // Modal de información
   const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
@@ -312,6 +313,21 @@ export default function Productos() {
   useEffect(() => {
     cargarProductos();
   }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos]);
+
+  // Cargar constantes de pricing globales (para mostrar en modal de config)
+  useEffect(() => {
+    const cargarConstantesGlobales = async () => {
+      try {
+        const response = await productosAPI.api.get('/api/pricing-constants/actual');
+        if (response.data?.markup_adicional_cuotas) {
+          setMarkupCuotasGlobal(response.data.markup_adicional_cuotas);
+        }
+      } catch (error) {
+        console.error('Error cargando constantes globales:', error);
+      }
+    };
+    cargarConstantesGlobales();
+  }, []);
 
   // Cargar stats dinámicos cada vez que cambian los filtros
   useEffect(() => {
@@ -3878,7 +3894,7 @@ export default function Productos() {
                   value={configTemp.markup_adicional_cuotas_custom}
                   onChange={(e) => setConfigTemp({ ...configTemp, markup_adicional_cuotas_custom: e.target.value })}
                   onFocus={(e) => e.target.select()}
-                  placeholder="Dejar vacío para usar global (4%)"
+                  placeholder={`Dejar vacío para usar global (${markupCuotasGlobal}%)`}
                   style={{
                     width: '100%',
                     padding: '8px',
