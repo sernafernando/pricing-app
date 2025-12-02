@@ -63,10 +63,6 @@ async def obtener_pricing_constants_actual(
         )
     ).order_by(PricingConstants.fecha_desde.desc()).first()
 
-    # Debug log
-    if constants:
-        print(f"DEBUG pricing_constants: id={constants.id}, fecha_desde={constants.fecha_desde}, markup_cuotas={constants.markup_adicional_cuotas}")
-
     if not constants:
         raise HTTPException(status_code=404, detail="No se encontraron constantes de pricing vigentes")
 
