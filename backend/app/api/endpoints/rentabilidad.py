@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
 from typing import List, Optional
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 from pydantic import BaseModel
 
 from app.core.database import get_db
@@ -10,6 +10,9 @@ from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+
+# Zona horaria de Argentina (UTC-3)
+ARGENTINA_TZ = timezone(timedelta(hours=-3))
 
 router = APIRouter()
 
@@ -94,9 +97,10 @@ async def obtener_rentabilidad(
         # Sin filtros -> Marcas
         nivel = "marca"
 
-    # Construir query base
-    fecha_inicio = datetime.combine(fecha_desde, datetime.min.time())
-    fecha_fin = datetime.combine(fecha_hasta, datetime.max.time())
+    # Construir query base con zona horaria de Argentina
+    # Las fechas se interpretan como inicio y fin del día en hora argentina
+    fecha_inicio = datetime.combine(fecha_desde, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ)
+    fecha_fin = datetime.combine(fecha_hasta, datetime.max.time()).replace(tzinfo=ARGENTINA_TZ)
 
     # Filtros base comunes
     def aplicar_filtros_base(query):
@@ -359,8 +363,8 @@ async def buscar_productos(
     """
     Busca productos por código o descripción que tengan ventas en el período.
     """
-    fecha_inicio = datetime.combine(fecha_desde, datetime.min.time())
-    fecha_fin = datetime.combine(fecha_hasta, datetime.max.time())
+    fecha_inicio = datetime.combine(fecha_desde, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ)
+    fecha_fin = datetime.combine(fecha_hasta, datetime.max.time()).replace(tzinfo=ARGENTINA_TZ)
 
     # Buscar productos con ventas en el período
     query = db.query(
@@ -410,8 +414,8 @@ async def obtener_filtros_disponibles(
     lista_categorias = [c.strip() for c in categorias.split(',')] if categorias else []
     lista_subcategorias = [s.strip() for s in subcategorias.split(',')] if subcategorias else []
 
-    fecha_inicio = datetime.combine(fecha_desde, datetime.min.time())
-    fecha_fin = datetime.combine(fecha_hasta, datetime.max.time())
+    fecha_inicio = datetime.combine(fecha_desde, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ)
+    fecha_fin = datetime.combine(fecha_hasta, datetime.max.time()).replace(tzinfo=ARGENTINA_TZ)
 
     # Marcas disponibles (filtradas por categorías y subcategorías seleccionadas)
     marcas_query = db.query(MLVentaMetrica.marca).filter(
