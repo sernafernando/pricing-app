@@ -123,17 +123,10 @@ def calcular_markup_oferta(db: Session, producto: ProductoERP, tipo_cambio=None)
 
 
 def obtener_markup_adicional_cuotas(db: Session) -> float:
-    """Obtiene el valor de markup adicional para cuotas desde la configuración"""
-    config = db.query(Configuracion).filter(
-        Configuracion.clave == 'markup_adicional_cuotas'
-    ).first()
-
-    if config:
-        try:
-            return float(config.valor)
-        except ValueError:
-            return 4.0  # Valor por defecto
-    return 4.0  # Valor por defecto si no existe la configuración
+    """Obtiene el valor de markup adicional para cuotas desde pricing_constants"""
+    from app.services.pricing_calculator import obtener_constantes_pricing
+    constantes = obtener_constantes_pricing(db)
+    return constantes.get("markup_adicional_cuotas", 4.0)
 
 class CalcularPorMarkupRequest(BaseModel):
     item_id: int
