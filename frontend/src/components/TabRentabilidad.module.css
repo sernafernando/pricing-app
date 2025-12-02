@@ -452,6 +452,17 @@
   box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
 }
 
+.btnProductosConSeleccion {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.btnProductosConSeleccion .btnFiltroBadge {
+  background: #f59e0b;
+  color: white;
+}
+
 .productoBusqueda {
   display: flex;
   gap: 0.5rem;

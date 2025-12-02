@@ -293,7 +293,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
         </button>
 
         <button
-          className={`${styles.btnProductos} ${panelFiltroActivo === 'productos' ? styles.btnProductosActivo : ''}`}
+          className={`${styles.btnProductos} ${panelFiltroActivo === 'productos' ? styles.btnProductosActivo : ''} ${productosSeleccionados.length > 0 && panelFiltroActivo !== 'productos' ? styles.btnProductosConSeleccion : ''}`}
           onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'productos' ? null : 'productos')}
         >
           Productos
