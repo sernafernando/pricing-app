@@ -31,6 +31,10 @@ class OffsetGananciaCreate(BaseModel):
 
 
 class OffsetGananciaUpdate(BaseModel):
+    marca: Optional[str] = None
+    categoria: Optional[str] = None
+    subcategoria_id: Optional[int] = None
+    item_id: Optional[int] = None
     tipo_offset: Optional[str] = None
     monto: Optional[float] = None
     moneda: Optional[str] = None
@@ -216,6 +220,30 @@ async def actualizar_offset(
 
     if not offset:
         raise HTTPException(404, "Offset no encontrado")
+
+    # Si se actualiza el nivel de aplicación, limpiar los otros niveles
+    # Solo uno debe tener valor a la vez
+    niveles_enviados = [
+        offset_update.marca is not None,
+        offset_update.categoria is not None,
+        offset_update.subcategoria_id is not None,
+        offset_update.item_id is not None
+    ]
+    if any(niveles_enviados):
+        # Limpiar todos los niveles primero
+        offset.marca = None
+        offset.categoria = None
+        offset.subcategoria_id = None
+        offset.item_id = None
+        # Asignar el nuevo nivel
+        if offset_update.marca is not None:
+            offset.marca = offset_update.marca
+        if offset_update.categoria is not None:
+            offset.categoria = offset_update.categoria
+        if offset_update.subcategoria_id is not None:
+            offset.subcategoria_id = offset_update.subcategoria_id
+        if offset_update.item_id is not None:
+            offset.item_id = offset_update.item_id
 
     if offset_update.tipo_offset is not None:
         offset.tipo_offset = offset_update.tipo_offset

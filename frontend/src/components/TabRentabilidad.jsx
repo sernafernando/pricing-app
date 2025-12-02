@@ -309,17 +309,11 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
         fecha_hasta: nuevoOffset.fecha_hasta || null
       };
 
-      // Debug: mostrar valor actual del porcentaje
-      console.log('DEBUG nuevoOffset:', nuevoOffset);
-      console.log('DEBUG porcentaje raw:', nuevoOffset.porcentaje);
-      console.log('DEBUG porcentaje parseFloat:', parseFloat(nuevoOffset.porcentaje));
-
       // Configurar según tipo de offset
       if (nuevoOffset.tipo_offset === 'porcentaje_costo') {
         const porcentajeValue = parseFloat(nuevoOffset.porcentaje);
-        console.log('DEBUG porcentajeValue:', porcentajeValue, 'isNaN:', isNaN(porcentajeValue));
         if (isNaN(porcentajeValue)) {
-          alert('Debe ingresar un porcentaje válido (valor actual: ' + nuevoOffset.porcentaje + ')');
+          alert('Debe ingresar un porcentaje válido');
           return;
         }
         payload.porcentaje = porcentajeValue;
@@ -345,8 +339,6 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
       } else if (nuevoOffset.tipo === 'producto') {
         payload.item_id = parseInt(nuevoOffset.valor);
       }
-
-      console.log('DEBUG payload final:', JSON.stringify(payload, null, 2));
 
       if (editandoOffset) {
         await api.put(`/api/offsets-ganancia/${editandoOffset}`, payload);
