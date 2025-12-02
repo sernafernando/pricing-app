@@ -94,14 +94,16 @@ async def obtener_rentabilidad(
         # Sin filtros -> Marcas
         nivel = "marca"
 
-    # Ajustar fecha_hasta para incluir todo el día (patrón de dashboard_ml.py)
-    fecha_hasta_ajustada = fecha_hasta + timedelta(days=1)
+    # Convertir fechas a datetime para comparación correcta con campo DateTime(timezone=True)
+    # El campo fecha_venta es timestamp with timezone, comparar con date puede dar problemas
+    fecha_desde_dt = datetime.combine(fecha_desde, datetime.min.time())
+    fecha_hasta_dt = datetime.combine(fecha_hasta + timedelta(days=1), datetime.min.time())
 
     # Filtros base comunes
     def aplicar_filtros_base(query):
         query = query.filter(
-            MLVentaMetrica.fecha_venta >= fecha_desde,
-            MLVentaMetrica.fecha_venta < fecha_hasta_ajustada
+            MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+            MLVentaMetrica.fecha_venta < fecha_hasta_dt
         )
         if lista_productos:
             query = query.filter(MLVentaMetrica.item_id.in_(lista_productos))
@@ -193,8 +195,8 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.ganancia).label('ganancia'),
             func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
         ).filter(
-            MLVentaMetrica.fecha_venta >= fecha_desde,
-            MLVentaMetrica.fecha_venta < fecha_hasta_ajustada,
+            MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+            MLVentaMetrica.fecha_venta < fecha_hasta_dt,
             MLVentaMetrica.marca.in_(lista_marcas),
             campo_agrupacion.isnot(None)
         )
@@ -358,7 +360,9 @@ async def buscar_productos(
     """
     Busca productos por código o descripción que tengan ventas en el período.
     """
-    fecha_hasta_ajustada = fecha_hasta + timedelta(days=1)
+    # Convertir fechas a datetime para comparación correcta
+    fecha_desde_dt = datetime.combine(fecha_desde, datetime.min.time())
+    fecha_hasta_dt = datetime.combine(fecha_hasta + timedelta(days=1), datetime.min.time())
 
     # Buscar productos con ventas en el período
     query = db.query(
@@ -368,8 +372,8 @@ async def buscar_productos(
         MLVentaMetrica.marca,
         MLVentaMetrica.categoria
     ).filter(
-        MLVentaMetrica.fecha_venta >= fecha_desde,
-        MLVentaMetrica.fecha_venta < fecha_hasta_ajustada,
+        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+        MLVentaMetrica.fecha_venta < fecha_hasta_dt,
         or_(
             MLVentaMetrica.codigo.ilike(f"%{q}%"),
             MLVentaMetrica.descripcion.ilike(f"%{q}%")
@@ -408,12 +412,14 @@ async def obtener_filtros_disponibles(
     lista_categorias = [c.strip() for c in categorias.split(',')] if categorias else []
     lista_subcategorias = [s.strip() for s in subcategorias.split(',')] if subcategorias else []
 
-    fecha_hasta_ajustada = fecha_hasta + timedelta(days=1)
+    # Convertir fechas a datetime para comparación correcta
+    fecha_desde_dt = datetime.combine(fecha_desde, datetime.min.time())
+    fecha_hasta_dt = datetime.combine(fecha_hasta + timedelta(days=1), datetime.min.time())
 
     # Marcas disponibles (filtradas por categorías y subcategorías seleccionadas)
     marcas_query = db.query(MLVentaMetrica.marca).filter(
-        MLVentaMetrica.fecha_venta >= fecha_desde,
-        MLVentaMetrica.fecha_venta < fecha_hasta_ajustada,
+        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+        MLVentaMetrica.fecha_venta < fecha_hasta_dt,
         MLVentaMetrica.marca.isnot(None)
     )
     if lista_categorias:
@@ -424,8 +430,8 @@ async def obtener_filtros_disponibles(
 
     # Categorías disponibles (filtradas por marcas y subcategorías seleccionadas)
     cat_query = db.query(MLVentaMetrica.categoria).filter(
-        MLVentaMetrica.fecha_venta >= fecha_desde,
-        MLVentaMetrica.fecha_venta < fecha_hasta_ajustada,
+        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+        MLVentaMetrica.fecha_venta < fecha_hasta_dt,
         MLVentaMetrica.categoria.isnot(None)
     )
     if lista_marcas:
@@ -436,8 +442,8 @@ async def obtener_filtros_disponibles(
 
     # Subcategorías disponibles (filtradas por marcas y categorías seleccionadas)
     subcat_query = db.query(MLVentaMetrica.subcategoria).filter(
-        MLVentaMetrica.fecha_venta >= fecha_desde,
-        MLVentaMetrica.fecha_venta < fecha_hasta_ajustada,
+        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+        MLVentaMetrica.fecha_venta < fecha_hasta_dt,
         MLVentaMetrica.subcategoria.isnot(None)
     )
     if lista_marcas:
