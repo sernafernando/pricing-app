@@ -306,37 +306,41 @@ export default function DashboardMetricasML() {
             />
           </div>
 
-          <div className={styles.filtroSelect}>
-            <label>Marca:</label>
-            <select
-              value={marcaSeleccionada}
-              onChange={(e) => setMarcaSeleccionada(e.target.value)}
-              className={styles.select}
-            >
-              <option value="">Todas</option>
-              {marcasDisponibles.map(marca => (
-                <option key={marca} value={marca}>{marca}</option>
-              ))}
-            </select>
-          </div>
+          {tabActivo !== 'rentabilidad' && (
+            <>
+              <div className={styles.filtroSelect}>
+                <label>Marca:</label>
+                <select
+                  value={marcaSeleccionada}
+                  onChange={(e) => setMarcaSeleccionada(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="">Todas</option>
+                  {marcasDisponibles.map(marca => (
+                    <option key={marca} value={marca}>{marca}</option>
+                  ))}
+                </select>
+              </div>
 
-          <div className={styles.filtroSelect}>
-            <label>Categoría:</label>
-            <select
-              value={categoriaSeleccionada}
-              onChange={(e) => setCategoriaSeleccionada(e.target.value)}
-              className={styles.select}
-            >
-              <option value="">Todas</option>
-              {categoriasDisponibles.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-          </div>
+              <div className={styles.filtroSelect}>
+                <label>Categoría:</label>
+                <select
+                  value={categoriaSeleccionada}
+                  onChange={(e) => setCategoriaSeleccionada(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="">Todas</option>
+                  {categoriasDisponibles.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
 
-          <button onClick={cargarDashboard} className={styles.btnRecargar}>
-            🔄 Recargar
-          </button>
+              <button onClick={cargarDashboard} className={styles.btnRecargar}>
+                🔄 Recargar
+              </button>
+            </>
+          )}
         </div>
       </div>
 

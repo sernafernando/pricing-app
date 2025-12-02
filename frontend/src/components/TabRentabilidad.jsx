@@ -218,26 +218,35 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
       {/* Barra de botones de filtro */}
       <div className={styles.filtrosBar}>
         <button
-          className={`filter-toggle-btn ${panelFiltroActivo === 'marcas' ? 'active' : ''} ${marcasSeleccionadas.length > 0 ? 'has-selection' : ''}`}
+          className={`${styles.btnFiltro} ${panelFiltroActivo === 'marcas' ? styles.btnFiltroActivo : ''} ${marcasSeleccionadas.length > 0 && panelFiltroActivo !== 'marcas' ? styles.btnFiltroConSeleccion : ''}`}
           onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'marcas' ? null : 'marcas')}
         >
-          Marcas {marcasSeleccionadas.length > 0 && `(${marcasSeleccionadas.length})`}
+          Marcas
+          {marcasSeleccionadas.length > 0 && (
+            <span className={styles.btnFiltroBadge}>{marcasSeleccionadas.length}</span>
+          )}
         </button>
 
         <button
-          className={`filter-toggle-btn ${panelFiltroActivo === 'categorias' ? 'active' : ''} ${categoriasSeleccionadas.length > 0 ? 'has-selection' : ''}`}
+          className={`${styles.btnFiltro} ${panelFiltroActivo === 'categorias' ? styles.btnFiltroActivo : ''} ${categoriasSeleccionadas.length > 0 && panelFiltroActivo !== 'categorias' ? styles.btnFiltroConSeleccion : ''}`}
           onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'categorias' ? null : 'categorias')}
           disabled={marcasSeleccionadas.length === 0}
         >
-          Categorías {categoriasSeleccionadas.length > 0 && `(${categoriasSeleccionadas.length})`}
+          Categorías
+          {categoriasSeleccionadas.length > 0 && (
+            <span className={styles.btnFiltroBadge}>{categoriasSeleccionadas.length}</span>
+          )}
         </button>
 
         <button
-          className={`filter-toggle-btn ${panelFiltroActivo === 'subcategorias' ? 'active' : ''} ${subcategoriasSeleccionadas.length > 0 ? 'has-selection' : ''}`}
+          className={`${styles.btnFiltro} ${panelFiltroActivo === 'subcategorias' ? styles.btnFiltroActivo : ''} ${subcategoriasSeleccionadas.length > 0 && panelFiltroActivo !== 'subcategorias' ? styles.btnFiltroConSeleccion : ''}`}
           onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias')}
           disabled={categoriasSeleccionadas.length === 0}
         >
-          Subcategorías {subcategoriasSeleccionadas.length > 0 && `(${subcategoriasSeleccionadas.length})`}
+          Subcategorías
+          {subcategoriasSeleccionadas.length > 0 && (
+            <span className={styles.btnFiltroBadge}>{subcategoriasSeleccionadas.length}</span>
+          )}
         </button>
 
         {getTotalFiltrosActivos() > 0 && (

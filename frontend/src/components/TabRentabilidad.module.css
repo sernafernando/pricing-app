@@ -5,39 +5,106 @@
 /* Barra de filtros */
 .filtrosBar {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.5rem;
   margin-bottom: 1rem;
   flex-wrap: wrap;
   align-items: center;
 }
 
-.btnLimpiar {
+/* Botones de filtro */
+.btnFiltro {
   padding: 0.5rem 1rem;
   border-radius: 6px;
   border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
   cursor: pointer;
   font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.btnFiltro:hover:not(:disabled) {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.btnFiltro:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btnFiltroActivo {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border-color: #3b82f6;
+  color: white;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.btnFiltroActivo:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+}
+
+.btnFiltroConSeleccion {
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.btnFiltroConSeleccion:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: #16a34a;
+}
+
+.btnFiltroBadge {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 0.1rem 0.4rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.btnFiltroConSeleccion .btnFiltroBadge {
+  background: #22c55e;
+  color: white;
+}
+
+.btnLimpiar {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
 }
 
 .btnLimpiar:hover {
-  background: var(--bg-hover);
+  background: rgba(239, 68, 68, 0.2);
 }
 
 .btnOffset {
   padding: 0.5rem 1rem;
   border-radius: 6px;
   border: none;
-  background: #8b5cf6;
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
   color: white;
   cursor: pointer;
   font-size: 0.85rem;
+  font-weight: 500;
   margin-left: auto;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
 }
 
 .btnOffset:hover {
-  background: #7c3aed;
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+  transform: translateY(-1px);
 }
 
 /* Loading y Empty */
