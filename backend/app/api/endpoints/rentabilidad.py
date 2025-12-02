@@ -52,29 +52,47 @@ async def obtener_rentabilidad(
 ):
     """
     Obtiene métricas de rentabilidad agrupadas según los filtros.
-    Sin filtros: agrupa por marca
-    Con marca: agrupa por categoría
-    Con marca+categoría: agrupa por subcategoría
-    Con marca+categoría+subcategoría: agrupa por producto
+    Los filtros son independientes y se pueden combinar libremente.
+    El nivel de agrupación se determina por la cantidad de filtros aplicados.
     """
     # Parsear filtros múltiples
     lista_marcas = [m.strip() for m in marcas.split(',')] if marcas else []
     lista_categorias = [c.strip() for c in categorias.split(',')] if categorias else []
     lista_subcategorias = [s.strip() for s in subcategorias.split(',')] if subcategorias else []
 
-    # Determinar nivel de agrupación
+    # Determinar nivel de agrupación basado en cuántos tipos de filtro hay
+    filtros_activos = sum([
+        1 if lista_marcas else 0,
+        1 if lista_categorias else 0,
+        1 if lista_subcategorias else 0
+    ])
+
     if lista_subcategorias:
         nivel = "producto"
-    elif lista_categorias:
+    elif filtros_activos >= 2:
         nivel = "subcategoria"
-    elif lista_marcas:
-        nivel = "categoria"
+    elif filtros_activos == 1:
+        nivel = "categoria" if lista_marcas else ("subcategoria" if lista_categorias else "producto")
     else:
         nivel = "marca"
 
     # Construir query base
     fecha_inicio = datetime.combine(fecha_desde, datetime.min.time())
     fecha_fin = datetime.combine(fecha_hasta, datetime.max.time())
+
+    # Filtros base comunes
+    def aplicar_filtros_base(query):
+        query = query.filter(
+            MLVentaMetrica.fecha_venta >= fecha_inicio,
+            MLVentaMetrica.fecha_venta <= fecha_fin
+        )
+        if lista_marcas:
+            query = query.filter(MLVentaMetrica.marca.in_(lista_marcas))
+        if lista_categorias:
+            query = query.filter(MLVentaMetrica.categoria.in_(lista_categorias))
+        if lista_subcategorias:
+            query = query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
+        return query
 
     # Query según nivel de agrupación
     if nivel == "marca":
@@ -87,11 +105,9 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo_total'),
             func.sum(MLVentaMetrica.ganancia).label('ganancia'),
             func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
-        ).filter(
-            MLVentaMetrica.fecha_venta >= fecha_inicio,
-            MLVentaMetrica.fecha_venta <= fecha_fin,
-            MLVentaMetrica.marca.isnot(None)
-        ).group_by(MLVentaMetrica.marca)
+        )
+        query = aplicar_filtros_base(query)
+        query = query.filter(MLVentaMetrica.marca.isnot(None)).group_by(MLVentaMetrica.marca)
 
     elif nivel == "categoria":
         query = db.query(
@@ -103,12 +119,9 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo_total'),
             func.sum(MLVentaMetrica.ganancia).label('ganancia'),
             func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
-        ).filter(
-            MLVentaMetrica.fecha_venta >= fecha_inicio,
-            MLVentaMetrica.fecha_venta <= fecha_fin,
-            MLVentaMetrica.marca.in_(lista_marcas),
-            MLVentaMetrica.categoria.isnot(None)
-        ).group_by(MLVentaMetrica.categoria)
+        )
+        query = aplicar_filtros_base(query)
+        query = query.filter(MLVentaMetrica.categoria.isnot(None)).group_by(MLVentaMetrica.categoria)
 
     elif nivel == "subcategoria":
         query = db.query(
@@ -120,13 +133,9 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo_total'),
             func.sum(MLVentaMetrica.ganancia).label('ganancia'),
             func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
-        ).filter(
-            MLVentaMetrica.fecha_venta >= fecha_inicio,
-            MLVentaMetrica.fecha_venta <= fecha_fin,
-            MLVentaMetrica.marca.in_(lista_marcas),
-            MLVentaMetrica.categoria.in_(lista_categorias),
-            MLVentaMetrica.subcategoria.isnot(None)
-        ).group_by(MLVentaMetrica.subcategoria)
+        )
+        query = aplicar_filtros_base(query)
+        query = query.filter(MLVentaMetrica.subcategoria.isnot(None)).group_by(MLVentaMetrica.subcategoria)
 
     else:  # producto
         query = db.query(
@@ -138,13 +147,9 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo_total'),
             func.sum(MLVentaMetrica.ganancia).label('ganancia'),
             func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
-        ).filter(
-            MLVentaMetrica.fecha_venta >= fecha_inicio,
-            MLVentaMetrica.fecha_venta <= fecha_fin,
-            MLVentaMetrica.marca.in_(lista_marcas),
-            MLVentaMetrica.categoria.in_(lista_categorias),
-            MLVentaMetrica.subcategoria.in_(lista_subcategorias)
-        ).group_by(MLVentaMetrica.item_id, MLVentaMetrica.codigo, MLVentaMetrica.descripcion)
+        )
+        query = aplicar_filtros_base(query)
+        query = query.group_by(MLVentaMetrica.item_id, MLVentaMetrica.codigo, MLVentaMetrica.descripcion)
 
     resultados = query.all()
 
@@ -254,26 +259,34 @@ async def obtener_filtros_disponibles(
     fecha_hasta: date = Query(...),
     marcas: Optional[str] = Query(None),
     categorias: Optional[str] = Query(None),
+    subcategorias: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Obtiene los valores disponibles para los filtros basado en los datos del período
+    Obtiene los valores disponibles para los filtros basado en los datos del período.
+    Los filtros se retroalimentan entre sí (bidireccional).
     """
     lista_marcas = [m.strip() for m in marcas.split(',')] if marcas else []
     lista_categorias = [c.strip() for c in categorias.split(',')] if categorias else []
+    lista_subcategorias = [s.strip() for s in subcategorias.split(',')] if subcategorias else []
 
     fecha_inicio = datetime.combine(fecha_desde, datetime.min.time())
     fecha_fin = datetime.combine(fecha_hasta, datetime.max.time())
 
-    # Marcas disponibles
-    marcas_disponibles = db.query(MLVentaMetrica.marca).filter(
+    # Marcas disponibles (filtradas por categorías y subcategorías seleccionadas)
+    marcas_query = db.query(MLVentaMetrica.marca).filter(
         MLVentaMetrica.fecha_venta >= fecha_inicio,
         MLVentaMetrica.fecha_venta <= fecha_fin,
         MLVentaMetrica.marca.isnot(None)
-    ).distinct().order_by(MLVentaMetrica.marca).all()
+    )
+    if lista_categorias:
+        marcas_query = marcas_query.filter(MLVentaMetrica.categoria.in_(lista_categorias))
+    if lista_subcategorias:
+        marcas_query = marcas_query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
+    marcas_disponibles = marcas_query.distinct().order_by(MLVentaMetrica.marca).all()
 
-    # Categorías disponibles (filtradas por marca si se seleccionó)
+    # Categorías disponibles (filtradas por marcas y subcategorías seleccionadas)
     cat_query = db.query(MLVentaMetrica.categoria).filter(
         MLVentaMetrica.fecha_venta >= fecha_inicio,
         MLVentaMetrica.fecha_venta <= fecha_fin,
@@ -281,9 +294,11 @@ async def obtener_filtros_disponibles(
     )
     if lista_marcas:
         cat_query = cat_query.filter(MLVentaMetrica.marca.in_(lista_marcas))
+    if lista_subcategorias:
+        cat_query = cat_query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
     categorias_disponibles = cat_query.distinct().order_by(MLVentaMetrica.categoria).all()
 
-    # Subcategorías disponibles (filtradas por marca y categoría si se seleccionaron)
+    # Subcategorías disponibles (filtradas por marcas y categorías seleccionadas)
     subcat_query = db.query(MLVentaMetrica.subcategoria).filter(
         MLVentaMetrica.fecha_venta >= fecha_inicio,
         MLVentaMetrica.fecha_venta <= fecha_fin,

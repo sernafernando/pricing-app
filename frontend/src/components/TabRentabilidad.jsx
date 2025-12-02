@@ -69,11 +69,15 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
         fecha_desde: fechaDesde,
         fecha_hasta: fechaHasta
       };
+      // Enviar todos los filtros para retroalimentación
       if (marcasSeleccionadas.length > 0) {
         params.marcas = marcasSeleccionadas.join(',');
       }
       if (categoriasSeleccionadas.length > 0) {
         params.categorias = categoriasSeleccionadas.join(',');
+      }
+      if (subcategoriasSeleccionadas.length > 0) {
+        params.subcategorias = subcategoriasSeleccionadas.join(',');
       }
 
       const response = await api.get('/api/rentabilidad/filtros', { params });
@@ -230,7 +234,6 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
         <button
           className={`${styles.btnFiltro} ${panelFiltroActivo === 'categorias' ? styles.btnFiltroActivo : ''} ${categoriasSeleccionadas.length > 0 && panelFiltroActivo !== 'categorias' ? styles.btnFiltroConSeleccion : ''}`}
           onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'categorias' ? null : 'categorias')}
-          disabled={marcasSeleccionadas.length === 0}
         >
           Categorías
           {categoriasSeleccionadas.length > 0 && (
@@ -241,7 +244,6 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
         <button
           className={`${styles.btnFiltro} ${panelFiltroActivo === 'subcategorias' ? styles.btnFiltroActivo : ''} ${subcategoriasSeleccionadas.length > 0 && panelFiltroActivo !== 'subcategorias' ? styles.btnFiltroConSeleccion : ''}`}
           onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias')}
-          disabled={categoriasSeleccionadas.length === 0}
         >
           Subcategorías
           {subcategoriasSeleccionadas.length > 0 && (
@@ -276,14 +278,10 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
                 <h3>Marcas</h3>
                 {marcasSeleccionadas.length > 0 && (
                   <button
-                    onClick={() => {
-                      setMarcasSeleccionadas([]);
-                      setCategoriasSeleccionadas([]);
-                      setSubcategoriasSeleccionadas([]);
-                    }}
+                    onClick={() => setMarcasSeleccionadas([])}
                     className="btn-clear-all"
                   >
-                    Limpiar filtros ({marcasSeleccionadas.length})
+                    Limpiar ({marcasSeleccionadas.length})
                   </button>
                 )}
               </div>
@@ -322,10 +320,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
                           setMarcasSeleccionadas([...marcasSeleccionadas, marca]);
                         } else {
                           setMarcasSeleccionadas(marcasSeleccionadas.filter(m => m !== marca));
-                          // Limpiar categorías y subcategorías de esta marca
                         }
-                        setCategoriasSeleccionadas([]);
-                        setSubcategoriasSeleccionadas([]);
                       }}
                     />
                     <span>{marca}</span>
@@ -342,13 +337,10 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
                 <h3>Categorías</h3>
                 {categoriasSeleccionadas.length > 0 && (
                   <button
-                    onClick={() => {
-                      setCategoriasSeleccionadas([]);
-                      setSubcategoriasSeleccionadas([]);
-                    }}
+                    onClick={() => setCategoriasSeleccionadas([])}
                     className="btn-clear-all"
                   >
-                    Limpiar filtros ({categoriasSeleccionadas.length})
+                    Limpiar ({categoriasSeleccionadas.length})
                   </button>
                 )}
               </div>
@@ -388,7 +380,6 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
                         } else {
                           setCategoriasSeleccionadas(categoriasSeleccionadas.filter(c => c !== cat));
                         }
-                        setSubcategoriasSeleccionadas([]);
                       }}
                     />
                     <span>{cat}</span>
