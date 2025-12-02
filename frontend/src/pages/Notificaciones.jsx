@@ -179,6 +179,7 @@ export default function Notificaciones() {
       await fetchPrecioSeteado(notif);
       if (!notif.leida) {
         await marcarComoLeida(notif.id);
+        await fetchNotificaciones();
       }
     }
   };
@@ -296,7 +297,7 @@ export default function Notificaciones() {
             {notificacionesPaginadas.map((grupo) => (
               <div
                 key={`${grupo.item_id}-${grupo.tipo}-${grupo.markup_real}`}
-                className={styles.grupoCard}
+                className={`${styles.grupoCard} ${!grupo.notificacion_reciente.leida ? styles.noLeida : ''}`}
               >
                 <div className={styles.grupoHeader} onClick={async () => {
                   if (expandedGrupo === grupo) {
@@ -304,6 +305,13 @@ export default function Notificaciones() {
                   } else {
                     setExpandedGrupo(grupo);
                     await fetchPrecioSeteado(grupo.notificacion_reciente);
+                    // Marcar todas las del grupo como leídas si no lo están
+                    if (!grupo.notificacion_reciente.leida) {
+                      await Promise.all(grupo.notificaciones_ids.map(id =>
+                        api.patch(`/api/notificaciones/${id}/marcar-leida`)
+                      ));
+                      await fetchNotificaciones();
+                    }
                   }
                 }}>
                   <div className={styles.notifIcon}>{getTipoIcon(grupo.tipo)}</div>

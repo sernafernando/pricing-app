@@ -164,7 +164,8 @@
   transition: all 0.2s;
 }
 
-.notifCard.noLeida {
+.notifCard.noLeida,
+.grupoCard.noLeida {
   border-left: 3px solid #fbbf24;
   background: rgba(251, 191, 36, 0.05);
 }
