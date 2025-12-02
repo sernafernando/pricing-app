@@ -49,6 +49,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
+      cargarFiltros();
       cargarRentabilidad();
     }
   }, [marcasSeleccionadas, categoriasSeleccionadas, subcategoriasSeleccionadas]);
