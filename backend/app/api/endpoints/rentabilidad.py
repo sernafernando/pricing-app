@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, and_, or_, text
 from typing import List, Optional
 from datetime import date, datetime, timedelta
 from pydantic import BaseModel
@@ -10,6 +10,11 @@ from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+
+# Función helper para convertir fecha_venta a zona horaria Argentina
+def fecha_argentina(columna):
+    """Convierte una columna timestamp a zona horaria Argentina (UTC-3)"""
+    return func.timezone('America/Argentina/Buenos_Aires', columna)
 
 router = APIRouter()
 
@@ -94,14 +99,15 @@ async def obtener_rentabilidad(
         # Sin filtros -> Marcas
         nivel = "marca"
 
-    # Usar el mismo patrón que dashboard_ml: >= fecha_desde y < fecha_hasta + 1 día
-    fecha_hasta_ajustada = fecha_hasta + timedelta(days=1)
+    # Convertir fecha_venta a hora Argentina antes de comparar
+    # Esto asegura que las ventas de las 21:00-23:59 UTC (00:00-02:59 Argentina) se cuenten correctamente
+    fecha_venta_argentina = func.date(fecha_argentina(MLVentaMetrica.fecha_venta))
 
     # Filtros base comunes
     def aplicar_filtros_base(query):
         query = query.filter(
-            MLVentaMetrica.fecha_venta >= fecha_desde,
-            MLVentaMetrica.fecha_venta < fecha_hasta_ajustada
+            fecha_venta_argentina >= fecha_desde,
+            fecha_venta_argentina <= fecha_hasta
         )
         if lista_productos:
             query = query.filter(MLVentaMetrica.item_id.in_(lista_productos))
@@ -193,8 +199,8 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.ganancia).label('ganancia'),
             func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
         ).filter(
-            MLVentaMetrica.fecha_venta >= fecha_desde,
-            MLVentaMetrica.fecha_venta < fecha_hasta_ajustada,
+            fecha_venta_argentina >= fecha_desde,
+            fecha_venta_argentina <= fecha_hasta,
             MLVentaMetrica.marca.in_(lista_marcas),
             campo_agrupacion.isnot(None)
         )
@@ -358,7 +364,8 @@ async def buscar_productos(
     """
     Busca productos por código o descripción que tengan ventas en el período.
     """
-    fecha_hasta_ajustada = fecha_hasta + timedelta(days=1)
+    # Convertir fecha_venta a hora Argentina antes de comparar
+    fecha_venta_argentina = func.date(fecha_argentina(MLVentaMetrica.fecha_venta))
 
     # Buscar productos con ventas en el período
     query = db.query(
@@ -368,8 +375,8 @@ async def buscar_productos(
         MLVentaMetrica.marca,
         MLVentaMetrica.categoria
     ).filter(
-        MLVentaMetrica.fecha_venta >= fecha_desde,
-        MLVentaMetrica.fecha_venta < fecha_hasta_ajustada,
+        fecha_venta_argentina >= fecha_desde,
+        fecha_venta_argentina <= fecha_hasta,
         or_(
             MLVentaMetrica.codigo.ilike(f"%{q}%"),
             MLVentaMetrica.descripcion.ilike(f"%{q}%")
@@ -408,12 +415,13 @@ async def obtener_filtros_disponibles(
     lista_categorias = [c.strip() for c in categorias.split(',')] if categorias else []
     lista_subcategorias = [s.strip() for s in subcategorias.split(',')] if subcategorias else []
 
-    fecha_hasta_ajustada = fecha_hasta + timedelta(days=1)
+    # Convertir fecha_venta a hora Argentina antes de comparar
+    fecha_venta_argentina = func.date(fecha_argentina(MLVentaMetrica.fecha_venta))
 
     # Marcas disponibles (filtradas por categorías y subcategorías seleccionadas)
     marcas_query = db.query(MLVentaMetrica.marca).filter(
-        MLVentaMetrica.fecha_venta >= fecha_desde,
-        MLVentaMetrica.fecha_venta < fecha_hasta_ajustada,
+        fecha_venta_argentina >= fecha_desde,
+        fecha_venta_argentina <= fecha_hasta,
         MLVentaMetrica.marca.isnot(None)
     )
     if lista_categorias:
@@ -424,8 +432,8 @@ async def obtener_filtros_disponibles(
 
     # Categorías disponibles (filtradas por marcas y subcategorías seleccionadas)
     cat_query = db.query(MLVentaMetrica.categoria).filter(
-        MLVentaMetrica.fecha_venta >= fecha_desde,
-        MLVentaMetrica.fecha_venta < fecha_hasta_ajustada,
+        fecha_venta_argentina >= fecha_desde,
+        fecha_venta_argentina <= fecha_hasta,
         MLVentaMetrica.categoria.isnot(None)
     )
     if lista_marcas:
@@ -436,8 +444,8 @@ async def obtener_filtros_disponibles(
 
     # Subcategorías disponibles (filtradas por marcas y categorías seleccionadas)
     subcat_query = db.query(MLVentaMetrica.subcategoria).filter(
-        MLVentaMetrica.fecha_venta >= fecha_desde,
-        MLVentaMetrica.fecha_venta < fecha_hasta_ajustada,
+        fecha_venta_argentina >= fecha_desde,
+        fecha_venta_argentina <= fecha_hasta,
         MLVentaMetrica.subcategoria.isnot(None)
     )
     if lista_marcas:
