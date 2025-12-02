@@ -20,6 +20,7 @@ GRUPO_DEFAULT = 1  # Grupo por defecto si la subcategoría no está asignada
 
 def obtener_constantes_pricing(db: Session) -> Dict[str, float]:
     """Obtiene las constantes de pricing vigentes desde la base de datos"""
+    # Ordenar por fecha_desde DESC para tomar la versión más reciente si hay múltiples vigentes
     constants = db.query(PricingConstants).filter(
         and_(
             PricingConstants.fecha_desde <= date.today(),
@@ -28,7 +29,7 @@ def obtener_constantes_pricing(db: Session) -> Dict[str, float]:
                 PricingConstants.fecha_hasta >= date.today()
             )
         )
-    ).first()
+    ).order_by(PricingConstants.fecha_desde.desc()).first()
 
     if constants:
         return {

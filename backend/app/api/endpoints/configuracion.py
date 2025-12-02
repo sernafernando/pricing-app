@@ -60,7 +60,7 @@ async def obtener_pricing_constants_actual(
                 PricingConstants.fecha_hasta >= date.today()
             )
         )
-    ).first()
+    ).order_by(PricingConstants.fecha_desde.desc()).first()
 
     if not constants:
         raise HTTPException(status_code=404, detail="No se encontraron constantes de pricing vigentes")
