@@ -224,6 +224,30 @@ async def marcar_notificacion_leida(
 
     return {"mensaje": "Notificación marcada como leída"}
 
+@router.patch("/notificaciones/{notificacion_id}/marcar-no-leida")
+async def marcar_notificacion_no_leida(
+    notificacion_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Marca una notificación como no leída
+    """
+    notificacion = db.query(Notificacion).filter(
+        Notificacion.id == notificacion_id,
+        Notificacion.user_id == current_user.id
+    ).first()
+
+    if not notificacion:
+        raise HTTPException(404, "Notificación no encontrada")
+
+    if notificacion.leida:
+        notificacion.leida = False
+        notificacion.fecha_lectura = None
+        db.commit()
+
+    return {"mensaje": "Notificación marcada como no leída"}
+
 @router.post("/notificaciones/marcar-todas-leidas")
 async def marcar_todas_leidas(
     tipo: Optional[str] = None,
@@ -249,6 +273,32 @@ async def marcar_todas_leidas(
     db.commit()
 
     return {"mensaje": f"{count} notificaciones marcadas como leídas"}
+
+@router.post("/notificaciones/marcar-todas-no-leidas")
+async def marcar_todas_no_leidas(
+    tipo: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Marca todas las notificaciones del usuario actual como no leídas
+    """
+    query = db.query(Notificacion).filter(
+        Notificacion.user_id == current_user.id,
+        Notificacion.leida == True
+    )
+
+    if tipo:
+        query = query.filter(Notificacion.tipo == tipo)
+
+    count = query.update({
+        "leida": False,
+        "fecha_lectura": None
+    })
+
+    db.commit()
+
+    return {"mensaje": f"{count} notificaciones marcadas como no leídas"}
 
 @router.delete("/notificaciones/{notificacion_id}")
 async def eliminar_notificacion(

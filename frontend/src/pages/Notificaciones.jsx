@@ -87,6 +87,26 @@ export default function Notificaciones() {
     }
   };
 
+  const marcarTodasNoLeidas = async () => {
+    try {
+      await api.post('/api/notificaciones/marcar-todas-no-leidas', null, {
+        params: { tipo: filtroTipo }
+      });
+      await fetchNotificaciones();
+    } catch (error) {
+      console.error('Error al marcar todas como no leídas:', error);
+    }
+  };
+
+  const marcarComoNoLeida = async (notifId) => {
+    try {
+      await api.patch(`/api/notificaciones/${notifId}/marcar-no-leida`);
+      await fetchNotificaciones();
+    } catch (error) {
+      console.error('Error al marcar como no leída:', error);
+    }
+  };
+
   const eliminarNotificacion = async (notifId) => {
     try {
       const notif = notificaciones.find(n => n.id === notifId);
@@ -253,6 +273,11 @@ export default function Notificaciones() {
               ✓ Marcar todas como leídas
             </button>
           )}
+          {stats.leidas > 0 && (
+            <button onClick={marcarTodasNoLeidas} className={styles.btnSecondary}>
+              ○ Marcar todas como no leídas
+            </button>
+          )}
           <button onClick={limpiarLeidas} className={styles.btnDanger}>
             🗑️ Limpiar leídas
           </button>
@@ -384,6 +409,16 @@ export default function Notificaciones() {
                           className={styles.btnPrimary}
                         >
                           🔗 Ver última en MercadoLibre
+                        </button>
+                      )}
+                      {grupo.notificacion_reciente.leida && (
+                        <button
+                          onClick={() => {
+                            Promise.all(grupo.notificaciones_ids.map(id => marcarComoNoLeida(id)));
+                          }}
+                          className={styles.btnSecondary}
+                        >
+                          ○ Marcar no leídas ({grupo.count})
                         </button>
                       )}
                       <button
@@ -536,6 +571,14 @@ export default function Notificaciones() {
                           className={styles.btnPrimary}
                         >
                           🔗 Ver en MercadoLibre
+                        </button>
+                      )}
+                      {notif.leida && (
+                        <button
+                          onClick={() => marcarComoNoLeida(notif.id)}
+                          className={styles.btnSecondary}
+                        >
+                          ○ Marcar no leída
                         </button>
                       )}
                       <button
