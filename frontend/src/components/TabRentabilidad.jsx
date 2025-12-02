@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import '../pages/Productos.css';
 import styles from './TabRentabilidad.module.css';
 
 const api = axios.create({
@@ -23,10 +24,18 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
     subcategorias: []
   });
 
-  // Filtros seleccionados (arrays para múltiple selección)
+  // Filtros seleccionados
   const [marcasSeleccionadas, setMarcasSeleccionadas] = useState([]);
   const [categoriasSeleccionadas, setCategoriasSeleccionadas] = useState([]);
   const [subcategoriasSeleccionadas, setSubcategoriasSeleccionadas] = useState([]);
+
+  // Búsquedas en filtros
+  const [busquedaMarca, setBusquedaMarca] = useState('');
+  const [busquedaCategoria, setBusquedaCategoria] = useState('');
+  const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
+
+  // Panel activo
+  const [panelFiltroActivo, setPanelFiltroActivo] = useState(null);
 
   // Modal de offsets
   const [mostrarModalOffset, setMostrarModalOffset] = useState(false);
@@ -109,32 +118,6 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
     }
   };
 
-  const toggleFiltro = (tipo, valor) => {
-    if (tipo === 'marca') {
-      setMarcasSeleccionadas(prev =>
-        prev.includes(valor)
-          ? prev.filter(m => m !== valor)
-          : [...prev, valor]
-      );
-      // Limpiar filtros dependientes
-      setCategoriasSeleccionadas([]);
-      setSubcategoriasSeleccionadas([]);
-    } else if (tipo === 'categoria') {
-      setCategoriasSeleccionadas(prev =>
-        prev.includes(valor)
-          ? prev.filter(c => c !== valor)
-          : [...prev, valor]
-      );
-      setSubcategoriasSeleccionadas([]);
-    } else if (tipo === 'subcategoria') {
-      setSubcategoriasSeleccionadas(prev =>
-        prev.includes(valor)
-          ? prev.filter(s => s !== valor)
-          : [...prev, valor]
-      );
-    }
-  };
-
   const limpiarFiltros = () => {
     setMarcasSeleccionadas([]);
     setCategoriasSeleccionadas([]);
@@ -211,76 +194,261 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
     }
   };
 
+  // Filtrar marcas por búsqueda
+  const marcasFiltradas = filtrosDisponibles.marcas.filter(m =>
+    m.toLowerCase().includes(busquedaMarca.toLowerCase())
+  );
+
+  // Filtrar categorías por búsqueda
+  const categoriasFiltradas = filtrosDisponibles.categorias.filter(c =>
+    c.toLowerCase().includes(busquedaCategoria.toLowerCase())
+  );
+
+  // Filtrar subcategorías por búsqueda
+  const subcategoriasFiltradas = filtrosDisponibles.subcategorias.filter(s =>
+    s.toLowerCase().includes(busquedaSubcategoria.toLowerCase())
+  );
+
+  const getTotalFiltrosActivos = () => {
+    return marcasSeleccionadas.length + categoriasSeleccionadas.length + subcategoriasSeleccionadas.length;
+  };
+
   return (
     <div className={styles.container}>
-      {/* Filtros múltiples */}
-      <div className={styles.filtrosContainer}>
-        <div className={styles.filtroGrupo}>
-          <label>Marcas:</label>
-          <div className={styles.chipContainer}>
-            {filtrosDisponibles.marcas.map(marca => (
-              <button
-                key={marca}
-                className={`${styles.chip} ${marcasSeleccionadas.includes(marca) ? styles.chipActivo : ''}`}
-                onClick={() => toggleFiltro('marca', marca)}
-              >
-                {marca}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* Barra de botones de filtro */}
+      <div className={styles.filtrosBar}>
+        <button
+          className={`filter-toggle-btn ${panelFiltroActivo === 'marcas' ? 'active' : ''} ${marcasSeleccionadas.length > 0 ? 'has-selection' : ''}`}
+          onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'marcas' ? null : 'marcas')}
+        >
+          Marcas {marcasSeleccionadas.length > 0 && `(${marcasSeleccionadas.length})`}
+        </button>
 
-        {marcasSeleccionadas.length > 0 && filtrosDisponibles.categorias.length > 0 && (
-          <div className={styles.filtroGrupo}>
-            <label>Categorías:</label>
-            <div className={styles.chipContainer}>
-              {filtrosDisponibles.categorias.map(cat => (
-                <button
-                  key={cat}
-                  className={`${styles.chip} ${categoriasSeleccionadas.includes(cat) ? styles.chipActivo : ''}`}
-                  onClick={() => toggleFiltro('categoria', cat)}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <button
+          className={`filter-toggle-btn ${panelFiltroActivo === 'categorias' ? 'active' : ''} ${categoriasSeleccionadas.length > 0 ? 'has-selection' : ''}`}
+          onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'categorias' ? null : 'categorias')}
+          disabled={marcasSeleccionadas.length === 0}
+        >
+          Categorías {categoriasSeleccionadas.length > 0 && `(${categoriasSeleccionadas.length})`}
+        </button>
 
-        {categoriasSeleccionadas.length > 0 && filtrosDisponibles.subcategorias.length > 0 && (
-          <div className={styles.filtroGrupo}>
-            <label>Subcategorías:</label>
-            <div className={styles.chipContainer}>
-              {filtrosDisponibles.subcategorias.map(subcat => (
-                <button
-                  key={subcat}
-                  className={`${styles.chip} ${subcategoriasSeleccionadas.includes(subcat) ? styles.chipActivo : ''}`}
-                  onClick={() => toggleFiltro('subcategoria', subcat)}
-                >
-                  {subcat}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <button
+          className={`filter-toggle-btn ${panelFiltroActivo === 'subcategorias' ? 'active' : ''} ${subcategoriasSeleccionadas.length > 0 ? 'has-selection' : ''}`}
+          onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias')}
+          disabled={categoriasSeleccionadas.length === 0}
+        >
+          Subcategorías {subcategoriasSeleccionadas.length > 0 && `(${subcategoriasSeleccionadas.length})`}
+        </button>
 
-        <div className={styles.filtroAcciones}>
-          {(marcasSeleccionadas.length > 0 || categoriasSeleccionadas.length > 0) && (
-            <button onClick={limpiarFiltros} className={styles.btnLimpiar}>
-              ✕ Limpiar filtros
-            </button>
-          )}
-          <button
-            onClick={() => {
-              cargarOffsets();
-              setMostrarModalOffset(true);
-            }}
-            className={styles.btnOffset}
-          >
-            💰 Gestionar Offsets
+        {getTotalFiltrosActivos() > 0 && (
+          <button onClick={limpiarFiltros} className={styles.btnLimpiar}>
+            Limpiar filtros
           </button>
-        </div>
+        )}
+
+        <button
+          onClick={() => {
+            cargarOffsets();
+            setMostrarModalOffset(true);
+          }}
+          className={styles.btnOffset}
+        >
+          Gestionar Offsets
+        </button>
       </div>
+
+      {/* Panel de filtros */}
+      {panelFiltroActivo && (
+        <div className="advanced-filters-panel">
+          {/* Panel de Marcas */}
+          {panelFiltroActivo === 'marcas' && (
+            <>
+              <div className="advanced-filters-header">
+                <h3>Marcas</h3>
+                {marcasSeleccionadas.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setMarcasSeleccionadas([]);
+                      setCategoriasSeleccionadas([]);
+                      setSubcategoriasSeleccionadas([]);
+                    }}
+                    className="btn-clear-all"
+                  >
+                    Limpiar filtros ({marcasSeleccionadas.length})
+                  </button>
+                )}
+              </div>
+
+              <div className="dropdown-header">
+                <div className="dropdown-search">
+                  <input
+                    type="text"
+                    placeholder="Buscar marca..."
+                    value={busquedaMarca}
+                    onChange={(e) => setBusquedaMarca(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                  />
+                  {busquedaMarca && (
+                    <button
+                      onClick={() => setBusquedaMarca('')}
+                      className="dropdown-search-clear"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="dropdown-content">
+                {marcasFiltradas.map(marca => (
+                  <label
+                    key={marca}
+                    className={`dropdown-item ${marcasSeleccionadas.includes(marca) ? 'selected' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={marcasSeleccionadas.includes(marca)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setMarcasSeleccionadas([...marcasSeleccionadas, marca]);
+                        } else {
+                          setMarcasSeleccionadas(marcasSeleccionadas.filter(m => m !== marca));
+                          // Limpiar categorías y subcategorías de esta marca
+                        }
+                        setCategoriasSeleccionadas([]);
+                        setSubcategoriasSeleccionadas([]);
+                      }}
+                    />
+                    <span>{marca}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Panel de Categorías */}
+          {panelFiltroActivo === 'categorias' && (
+            <>
+              <div className="advanced-filters-header">
+                <h3>Categorías</h3>
+                {categoriasSeleccionadas.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setCategoriasSeleccionadas([]);
+                      setSubcategoriasSeleccionadas([]);
+                    }}
+                    className="btn-clear-all"
+                  >
+                    Limpiar filtros ({categoriasSeleccionadas.length})
+                  </button>
+                )}
+              </div>
+
+              <div className="dropdown-header">
+                <div className="dropdown-search">
+                  <input
+                    type="text"
+                    placeholder="Buscar categoría..."
+                    value={busquedaCategoria}
+                    onChange={(e) => setBusquedaCategoria(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                  />
+                  {busquedaCategoria && (
+                    <button
+                      onClick={() => setBusquedaCategoria('')}
+                      className="dropdown-search-clear"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="dropdown-content">
+                {categoriasFiltradas.map(cat => (
+                  <label
+                    key={cat}
+                    className={`dropdown-item ${categoriasSeleccionadas.includes(cat) ? 'selected' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={categoriasSeleccionadas.includes(cat)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setCategoriasSeleccionadas([...categoriasSeleccionadas, cat]);
+                        } else {
+                          setCategoriasSeleccionadas(categoriasSeleccionadas.filter(c => c !== cat));
+                        }
+                        setSubcategoriasSeleccionadas([]);
+                      }}
+                    />
+                    <span>{cat}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Panel de Subcategorías */}
+          {panelFiltroActivo === 'subcategorias' && (
+            <>
+              <div className="advanced-filters-header">
+                <h3>Subcategorías</h3>
+                {subcategoriasSeleccionadas.length > 0 && (
+                  <button
+                    onClick={() => setSubcategoriasSeleccionadas([])}
+                    className="btn-clear-all"
+                  >
+                    Limpiar filtros ({subcategoriasSeleccionadas.length})
+                  </button>
+                )}
+              </div>
+
+              <div className="dropdown-header">
+                <div className="dropdown-search">
+                  <input
+                    type="text"
+                    placeholder="Buscar subcategoría..."
+                    value={busquedaSubcategoria}
+                    onChange={(e) => setBusquedaSubcategoria(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                  />
+                  {busquedaSubcategoria && (
+                    <button
+                      onClick={() => setBusquedaSubcategoria('')}
+                      className="dropdown-search-clear"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="dropdown-content">
+                {subcategoriasFiltradas.map(subcat => (
+                  <label
+                    key={subcat}
+                    className={`dropdown-item ${subcategoriasSeleccionadas.includes(subcat) ? 'selected' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={subcategoriasSeleccionadas.includes(subcat)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSubcategoriasSeleccionadas([...subcategoriasSeleccionadas, subcat]);
+                        } else {
+                          setSubcategoriasSeleccionadas(subcategoriasSeleccionadas.filter(s => s !== subcat));
+                        }
+                      }}
+                    />
+                    <span>{subcat}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className={styles.loading}>Cargando rentabilidad...</div>

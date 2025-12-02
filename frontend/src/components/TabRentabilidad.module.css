@@ -2,64 +2,13 @@
   padding: 1rem;
 }
 
-/* Filtros */
-.filtrosContainer {
-  background: var(--bg-secondary);
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.filtroGrupo {
-  margin-bottom: 1rem;
-}
-
-.filtroGrupo label {
-  display: block;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.chipContainer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.chip {
-  padding: 0.4rem 0.8rem;
-  border-radius: 20px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.chip:hover {
-  border-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.1);
-}
-
-.chipActivo {
-  background: #3b82f6;
-  color: white;
-  border-color: #3b82f6;
-}
-
-.chipActivo:hover {
-  background: #2563eb;
-}
-
-.filtroAcciones {
+/* Barra de filtros */
+.filtrosBar {
   display: flex;
   gap: 0.75rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border-color);
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .btnLimpiar {
@@ -84,6 +33,7 @@
   color: white;
   cursor: pointer;
   font-size: 0.85rem;
+  margin-left: auto;
 }
 
 .btnOffset:hover {
