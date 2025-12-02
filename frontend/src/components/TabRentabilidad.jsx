@@ -1,6 +1,18 @@
 import { useState, useEffect } from 'react';
-import api from '../api';
+import axios from 'axios';
 import styles from './TabRentabilidad.module.css';
+
+const api = axios.create({
+  baseURL: 'https://pricing.gaussonline.com.ar',
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
   const [loading, setLoading] = useState(false);
