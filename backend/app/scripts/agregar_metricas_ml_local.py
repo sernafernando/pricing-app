@@ -272,6 +272,20 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
     if row.envio_producto:
         costo_envio_producto = float(row.envio_producto)
 
+    # Obtener comisión usando el sistema versionado (igual que pricing)
+    from app.services.pricing_calculator import obtener_comision_versionada, obtener_grupo_subcategoria
+
+    comision_porcentaje = None
+    if db_session and row.subcat_id and row.pricelist_id:
+        grupo_id = obtener_grupo_subcategoria(db_session, row.subcat_id)
+        if grupo_id:
+            fecha_venta = row.fecha_venta.date() if hasattr(row.fecha_venta, 'date') else row.fecha_venta
+            comision_porcentaje = obtener_comision_versionada(db_session, grupo_id, row.pricelist_id, fecha_venta)
+
+    # Fallback al valor de la query si no se pudo obtener del sistema versionado
+    if comision_porcentaje is None:
+        comision_porcentaje = float(row.comision_base_porcentaje or 12.0)
+
     # Llamar al helper centralizado - ahora calcula la comisión dinámicamente
     metricas = calcular_metricas_ml(
         monto_unitario=float(row.monto_unitario or 0),
@@ -284,7 +298,7 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
         subcat_id=row.subcat_id,
         pricelist_id=row.pricelist_id,
         fecha_venta=row.fecha_venta,
-        comision_base_porcentaje=float(row.comision_base_porcentaje or 12.0),
+        comision_base_porcentaje=comision_porcentaje,
         db_session=db_session  # Pasar sesión para obtener pricing_constants
     )
 
