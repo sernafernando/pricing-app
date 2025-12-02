@@ -20,7 +20,19 @@ class OffsetGanancia(Base):
     item_id = Column(Integer, ForeignKey('productos_erp.item_id'), index=True, nullable=True)
 
     # Monto del offset
-    monto = Column(Float, nullable=False)
+    monto = Column(Float, nullable=True)  # Para monto_fijo y monto_por_unidad
+
+    # Tipo de offset
+    tipo_offset = Column(String(20), default='monto_fijo')  # 'monto_fijo', 'monto_por_unidad', 'porcentaje_costo'
+
+    # Moneda (para monto_por_unidad)
+    moneda = Column(String(3), default='ARS')  # 'ARS', 'USD'
+
+    # Tipo de cambio (para conversión USD -> ARS)
+    tipo_cambio = Column(Float, nullable=True)
+
+    # Porcentaje (para porcentaje_costo)
+    porcentaje = Column(Float, nullable=True)
 
     # Descripción/concepto del offset (ej: "Rebate Q4 2024")
     descripcion = Column(String(255), nullable=True)

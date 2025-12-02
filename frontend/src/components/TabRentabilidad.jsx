@@ -46,17 +46,38 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
   // Modal de offsets
   const [mostrarModalOffset, setMostrarModalOffset] = useState(false);
   const [offsets, setOffsets] = useState([]);
+  const [tipoCambioHoy, setTipoCambioHoy] = useState(1000);
+  const [editandoOffset, setEditandoOffset] = useState(null);
+
+  // Búsquedas para el modal de offsets
+  const [busquedaOffsetMarca, setBusquedaOffsetMarca] = useState('');
+  const [busquedaOffsetCategoria, setBusquedaOffsetCategoria] = useState('');
+  const [busquedaOffsetSubcategoria, setBusquedaOffsetSubcategoria] = useState('');
+  const [busquedaOffsetProducto, setBusquedaOffsetProducto] = useState('');
+  const [productosOffsetEncontrados, setProductosOffsetEncontrados] = useState([]);
+  const [productosOffsetSeleccionados, setProductosOffsetSeleccionados] = useState([]);
+  const [buscandoProductosOffset, setBuscandoProductosOffset] = useState(false);
+
   const [nuevoOffset, setNuevoOffset] = useState({
-    tipo: 'marca',
-    valor: '',
+    tipo: 'marca',           // marca, categoria, subcategoria, producto
+    valor: '',               // para marca, categoria, subcategoria
+    tipo_offset: 'monto_fijo', // monto_fijo, monto_por_unidad, porcentaje_costo
     monto: '',
+    moneda: 'ARS',
+    tipo_cambio: '',
+    porcentaje: '',
     descripcion: '',
     fecha_desde: '',
     fecha_hasta: ''
   });
 
+  // Guardar las fechas actuales para mostrar en el UI
+  const [fechasActuales, setFechasActuales] = useState({ desde: null, hasta: null });
+
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
+      // Guardar las fechas que se están usando
+      setFechasActuales({ desde: fechaDesde, hasta: fechaHasta });
       cargarFiltros();
       cargarRentabilidad();
     }
@@ -64,7 +85,6 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
-      cargarFiltros();
       cargarRentabilidad();
     }
   }, [marcasSeleccionadas, categoriasSeleccionadas, subcategoriasSeleccionadas, productosSeleccionados]);
@@ -153,11 +173,66 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
 
   const cargarOffsets = async () => {
     try {
-      const response = await api.get('/api/offsets-ganancia');
-      setOffsets(response.data);
+      const [offsetsRes, tcRes] = await Promise.all([
+        api.get('/api/offsets-ganancia'),
+        api.get('/api/tipo-cambio-hoy')
+      ]);
+      setOffsets(offsetsRes.data);
+      if (tcRes.data.tipo_cambio) {
+        setTipoCambioHoy(tcRes.data.tipo_cambio);
+        setNuevoOffset(prev => ({ ...prev, tipo_cambio: tcRes.data.tipo_cambio.toString() }));
+      }
     } catch (error) {
       console.error('Error cargando offsets:', error);
     }
+  };
+
+  const buscarProductosOffset = async () => {
+    if (busquedaOffsetProducto.length < 2) return;
+    setBuscandoProductosOffset(true);
+    try {
+      const response = await api.get('/api/rentabilidad/buscar-productos', {
+        params: {
+          q: busquedaOffsetProducto,
+          fecha_desde: fechaDesde,
+          fecha_hasta: fechaHasta
+        }
+      });
+      setProductosOffsetEncontrados(response.data);
+    } catch (error) {
+      console.error('Error buscando productos:', error);
+    } finally {
+      setBuscandoProductosOffset(false);
+    }
+  };
+
+  const agregarProductoOffset = (producto) => {
+    if (!productosOffsetSeleccionados.find(p => p.item_id === producto.item_id)) {
+      setProductosOffsetSeleccionados([...productosOffsetSeleccionados, producto]);
+    }
+  };
+
+  const quitarProductoOffset = (itemId) => {
+    setProductosOffsetSeleccionados(productosOffsetSeleccionados.filter(p => p.item_id !== itemId));
+  };
+
+  const resetearFormOffset = () => {
+    setNuevoOffset({
+      tipo: 'marca',
+      valor: '',
+      tipo_offset: 'monto_fijo',
+      monto: '',
+      moneda: 'ARS',
+      tipo_cambio: tipoCambioHoy.toString(),
+      porcentaje: '',
+      descripcion: '',
+      fecha_desde: '',
+      fecha_hasta: ''
+    });
+    setProductosOffsetSeleccionados([]);
+    setProductosOffsetEncontrados([]);
+    setBusquedaOffsetProducto('');
+    setEditandoOffset(null);
   };
 
   const limpiarFiltros = () => {
@@ -184,6 +259,12 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
     return `${valor.toFixed(2)}%`;
   };
 
+  const formatFecha = (fecha) => {
+    if (!fecha) return '';
+    const [year, month, day] = fecha.split('-');
+    return `${day}/${month}/${year}`;
+  };
+
   const getMarkupColor = (markup) => {
     if (markup < 0) return '#ef4444';
     if (markup < 3) return '#f59e0b';
@@ -191,16 +272,60 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
     return '#22c55e';
   };
 
+  // Función para hacer drill-down al hacer click en una card
+  const handleCardClick = (card) => {
+    // No hacer drill-down si ya estamos a nivel producto
+    if (card.tipo === 'producto') return;
+
+    if (card.tipo === 'marca') {
+      // Click en marca: agregar la marca al filtro
+      if (!marcasSeleccionadas.includes(card.nombre)) {
+        setMarcasSeleccionadas([...marcasSeleccionadas, card.nombre]);
+      }
+    } else if (card.tipo === 'categoria') {
+      // Click en categoría: agregar la categoría al filtro
+      if (!categoriasSeleccionadas.includes(card.nombre)) {
+        setCategoriasSeleccionadas([...categoriasSeleccionadas, card.nombre]);
+      }
+    } else if (card.tipo === 'subcategoria') {
+      // Click en subcategoría: agregar la subcategoría al filtro
+      if (!subcategoriasSeleccionadas.includes(card.nombre)) {
+        setSubcategoriasSeleccionadas([...subcategoriasSeleccionadas, card.nombre]);
+      }
+    }
+  };
+
+  // Determinar si una card es clickeable (tiene drill-down disponible)
+  const isCardClickable = (card) => {
+    return card.tipo !== 'producto';
+  };
+
   const guardarOffset = async () => {
     try {
       const payload = {
-        monto: parseFloat(nuevoOffset.monto),
+        tipo_offset: nuevoOffset.tipo_offset,
         descripcion: nuevoOffset.descripcion,
         fecha_desde: nuevoOffset.fecha_desde,
         fecha_hasta: nuevoOffset.fecha_hasta || null
       };
 
-      if (nuevoOffset.tipo === 'marca') {
+      // Configurar según tipo de offset
+      if (nuevoOffset.tipo_offset === 'porcentaje_costo') {
+        payload.porcentaje = parseFloat(nuevoOffset.porcentaje);
+      } else {
+        payload.monto = parseFloat(nuevoOffset.monto);
+        if (nuevoOffset.tipo_offset === 'monto_por_unidad') {
+          payload.moneda = nuevoOffset.moneda;
+          if (nuevoOffset.moneda === 'USD') {
+            payload.tipo_cambio = parseFloat(nuevoOffset.tipo_cambio);
+          }
+        }
+      }
+
+      // Configurar nivel de aplicación
+      if (nuevoOffset.tipo === 'producto' && productosOffsetSeleccionados.length > 0) {
+        payload.item_ids = productosOffsetSeleccionados.map(p => p.item_id);
+      } else if (nuevoOffset.tipo === 'marca') {
         payload.marca = nuevoOffset.valor;
       } else if (nuevoOffset.tipo === 'categoria') {
         payload.categoria = nuevoOffset.valor;
@@ -210,22 +335,35 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
         payload.item_id = parseInt(nuevoOffset.valor);
       }
 
-      await api.post('/api/offsets-ganancia', payload);
-      setMostrarModalOffset(false);
-      setNuevoOffset({
-        tipo: 'marca',
-        valor: '',
-        monto: '',
-        descripcion: '',
-        fecha_desde: '',
-        fecha_hasta: ''
-      });
+      if (editandoOffset) {
+        await api.put(`/api/offsets-ganancia/${editandoOffset}`, payload);
+      } else {
+        await api.post('/api/offsets-ganancia', payload);
+      }
+
+      resetearFormOffset();
       cargarRentabilidad();
       cargarOffsets();
     } catch (error) {
       console.error('Error guardando offset:', error);
       alert('Error al guardar el offset');
     }
+  };
+
+  const editarOffset = (offset) => {
+    setEditandoOffset(offset.id);
+    setNuevoOffset({
+      tipo: offset.item_id ? 'producto' : offset.subcategoria_id ? 'subcategoria' : offset.categoria ? 'categoria' : 'marca',
+      valor: offset.item_id?.toString() || offset.subcategoria_id?.toString() || offset.categoria || offset.marca || '',
+      tipo_offset: offset.tipo_offset || 'monto_fijo',
+      monto: offset.monto?.toString() || '',
+      moneda: offset.moneda || 'ARS',
+      tipo_cambio: offset.tipo_cambio?.toString() || tipoCambioHoy.toString(),
+      porcentaje: offset.porcentaje?.toString() || '',
+      descripcion: offset.descripcion || '',
+      fecha_desde: offset.fecha_desde || '',
+      fecha_hasta: offset.fecha_hasta || ''
+    });
   };
 
   const eliminarOffset = async (id) => {
@@ -581,7 +719,12 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
         <>
           {/* Card de totales */}
           <div className={styles.totalCard}>
-            <h3>Total del período</h3>
+            <div className={styles.totalHeader}>
+              <h3>Total del período</h3>
+              <span className={styles.totalPeriodo}>
+                {formatFecha(fechasActuales.desde)} - {formatFecha(fechasActuales.hasta)}
+              </span>
+            </div>
             <div className={styles.totalGrid}>
               <div className={styles.totalItem}>
                 <span className={styles.totalLabel}>Ventas</span>
@@ -639,7 +782,11 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
           {/* Cards por grupo */}
           <div className={styles.cardsGrid}>
             {rentabilidad.cards.map((card, index) => (
-              <div key={index} className={styles.card}>
+              <div
+                key={index}
+                className={`${styles.card} ${isCardClickable(card) ? styles.cardClickable : ''}`}
+                onClick={() => handleCardClick(card)}
+              >
                 <div className={styles.cardHeader}>
                   <h4 className={styles.cardTitulo}>{card.nombre || 'Sin nombre'}</h4>
                   <span className={styles.cardTipo}>{card.tipo}</span>
@@ -718,43 +865,222 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
 
       {/* Modal de Offsets */}
       {mostrarModalOffset && (
-        <div className={styles.modalOverlay} onClick={() => setMostrarModalOffset(false)}>
+        <div className={styles.modalOverlay} onClick={() => { setMostrarModalOffset(false); resetearFormOffset(); }}>
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
             <h3>Gestionar Offsets de Ganancia</h3>
 
             <div className={styles.offsetForm}>
-              <h4>Nuevo Offset</h4>
+              <h4>{editandoOffset ? 'Editar Offset' : 'Nuevo Offset'}</h4>
+
+              {/* Tipo de Offset */}
               <div className={styles.formRow}>
-                <select
-                  value={nuevoOffset.tipo}
-                  onChange={e => setNuevoOffset({ ...nuevoOffset, tipo: e.target.value, valor: '' })}
-                >
-                  <option value="marca">Por Marca</option>
-                  <option value="categoria">Por Categoría</option>
-                  <option value="subcategoria">Por Subcategoría</option>
-                  <option value="producto">Por Producto (item_id)</option>
-                </select>
-                <input
-                  type="text"
-                  placeholder={nuevoOffset.tipo === 'producto' ? 'Item ID' : `Nombre de ${nuevoOffset.tipo}`}
-                  value={nuevoOffset.valor}
-                  onChange={e => setNuevoOffset({ ...nuevoOffset, valor: e.target.value })}
-                />
+                <div>
+                  <label>Tipo de Offset:</label>
+                  <select
+                    value={nuevoOffset.tipo_offset}
+                    onChange={e => setNuevoOffset({ ...nuevoOffset, tipo_offset: e.target.value })}
+                  >
+                    <option value="monto_fijo">Monto Fijo Total</option>
+                    <option value="monto_por_unidad">Monto por Unidad Vendida</option>
+                    <option value="porcentaje_costo">% sobre Costo</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Aplicar a:</label>
+                  <select
+                    value={nuevoOffset.tipo}
+                    onChange={e => {
+                      setNuevoOffset({ ...nuevoOffset, tipo: e.target.value, valor: '' });
+                      setProductosOffsetSeleccionados([]);
+                    }}
+                    disabled={editandoOffset}
+                  >
+                    <option value="marca">Marca</option>
+                    <option value="categoria">Categoría</option>
+                    <option value="subcategoria">Subcategoría</option>
+                    <option value="producto">Producto(s)</option>
+                  </select>
+                </div>
               </div>
+
+              {/* Selector según tipo */}
+              {nuevoOffset.tipo === 'marca' && (
+                <div className={styles.formRow}>
+                  <div style={{ flex: 1 }}>
+                    <label>Marca:</label>
+                    <select
+                      value={nuevoOffset.valor}
+                      onChange={e => setNuevoOffset({ ...nuevoOffset, valor: e.target.value })}
+                    >
+                      <option value="">Seleccionar marca...</option>
+                      {filtrosDisponibles.marcas.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {nuevoOffset.tipo === 'categoria' && (
+                <div className={styles.formRow}>
+                  <div style={{ flex: 1 }}>
+                    <label>Categoría:</label>
+                    <select
+                      value={nuevoOffset.valor}
+                      onChange={e => setNuevoOffset({ ...nuevoOffset, valor: e.target.value })}
+                    >
+                      <option value="">Seleccionar categoría...</option>
+                      {filtrosDisponibles.categorias.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {nuevoOffset.tipo === 'subcategoria' && (
+                <div className={styles.formRow}>
+                  <div style={{ flex: 1 }}>
+                    <label>Subcategoría:</label>
+                    <select
+                      value={nuevoOffset.valor}
+                      onChange={e => setNuevoOffset({ ...nuevoOffset, valor: e.target.value })}
+                    >
+                      <option value="">Seleccionar subcategoría...</option>
+                      {filtrosDisponibles.subcategorias.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {nuevoOffset.tipo === 'producto' && !editandoOffset && (
+                <>
+                  {productosOffsetSeleccionados.length > 0 && (
+                    <div className={styles.productosSeleccionados}>
+                      {productosOffsetSeleccionados.map(p => (
+                        <div key={p.item_id} className={styles.productoChip}>
+                          <span>{p.codigo}</span>
+                          <button onClick={() => quitarProductoOffset(p.item_id)}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className={styles.productoBusqueda}>
+                    <input
+                      type="text"
+                      placeholder="Buscar producto por código o descripción..."
+                      value={busquedaOffsetProducto}
+                      onChange={(e) => setBusquedaOffsetProducto(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && buscarProductosOffset()}
+                    />
+                    <button
+                      onClick={buscarProductosOffset}
+                      disabled={busquedaOffsetProducto.length < 2 || buscandoProductosOffset}
+                      className={styles.btnBuscar}
+                    >
+                      {buscandoProductosOffset ? '...' : 'Buscar'}
+                    </button>
+                  </div>
+                  {productosOffsetEncontrados.length > 0 && (
+                    <div className={styles.productosResultados}>
+                      {productosOffsetEncontrados.map(producto => {
+                        const seleccionado = productosOffsetSeleccionados.some(p => p.item_id === producto.item_id);
+                        return (
+                          <div
+                            key={producto.item_id}
+                            className={styles.productoItem}
+                            onClick={() => seleccionado ? quitarProductoOffset(producto.item_id) : agregarProductoOffset(producto)}
+                          >
+                            <input type="checkbox" checked={seleccionado} readOnly />
+                            <div className={styles.productoInfo}>
+                              <span className={styles.productoCodigo}>{producto.codigo}</span>
+                              <span className={styles.productoNombre}>{producto.descripcion}</span>
+                              <span className={styles.productoMarca}>{producto.marca}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Monto o Porcentaje según tipo */}
+              {nuevoOffset.tipo_offset === 'porcentaje_costo' ? (
+                <div className={styles.formRow}>
+                  <div>
+                    <label>Porcentaje (%):</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="Ej: 3"
+                      value={nuevoOffset.porcentaje}
+                      onChange={e => setNuevoOffset({ ...nuevoOffset, porcentaje: e.target.value })}
+                    />
+                  </div>
+                </div>
+              ) : nuevoOffset.tipo_offset === 'monto_por_unidad' ? (
+                <div className={styles.formRow}>
+                  <div>
+                    <label>Monto por unidad:</label>
+                    <input
+                      type="number"
+                      placeholder="Ej: 20"
+                      value={nuevoOffset.monto}
+                      onChange={e => setNuevoOffset({ ...nuevoOffset, monto: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label>Moneda:</label>
+                    <select
+                      value={nuevoOffset.moneda}
+                      onChange={e => setNuevoOffset({ ...nuevoOffset, moneda: e.target.value })}
+                    >
+                      <option value="ARS">ARS</option>
+                      <option value="USD">USD</option>
+                    </select>
+                  </div>
+                  {nuevoOffset.moneda === 'USD' && (
+                    <div>
+                      <label>Tipo Cambio:</label>
+                      <input
+                        type="number"
+                        value={nuevoOffset.tipo_cambio}
+                        onChange={e => setNuevoOffset({ ...nuevoOffset, tipo_cambio: e.target.value })}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className={styles.formRow}>
+                  <div>
+                    <label>Monto Total ($):</label>
+                    <input
+                      type="number"
+                      placeholder="Ej: 100000"
+                      value={nuevoOffset.monto}
+                      onChange={e => setNuevoOffset({ ...nuevoOffset, monto: e.target.value })}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Descripción */}
               <div className={styles.formRow}>
-                <input
-                  type="number"
-                  placeholder="Monto ($)"
-                  value={nuevoOffset.monto}
-                  onChange={e => setNuevoOffset({ ...nuevoOffset, monto: e.target.value })}
-                />
-                <input
-                  type="text"
-                  placeholder="Descripción (ej: Rebate Q4)"
-                  value={nuevoOffset.descripcion}
-                  onChange={e => setNuevoOffset({ ...nuevoOffset, descripcion: e.target.value })}
-                />
+                <div style={{ flex: 1 }}>
+                  <label>Descripción:</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Rebate Q4 2024"
+                    value={nuevoOffset.descripcion}
+                    onChange={e => setNuevoOffset({ ...nuevoOffset, descripcion: e.target.value })}
+                  />
+                </div>
               </div>
+
+              {/* Fechas */}
               <div className={styles.formRow}>
                 <div>
                   <label>Desde:</label>
@@ -773,9 +1099,17 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
                   />
                 </div>
               </div>
-              <button onClick={guardarOffset} className={styles.btnGuardar}>
-                Guardar Offset
-              </button>
+
+              <div className={styles.formRow}>
+                <button onClick={guardarOffset} className={styles.btnGuardar}>
+                  {editandoOffset ? 'Actualizar' : 'Guardar'} Offset
+                </button>
+                {editandoOffset && (
+                  <button onClick={resetearFormOffset} className={styles.btnCancelar}>
+                    Cancelar
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className={styles.offsetsLista}>
@@ -788,7 +1122,8 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
                     <tr>
                       <th>Nivel</th>
                       <th>Valor</th>
-                      <th>Monto</th>
+                      <th>Tipo</th>
+                      <th>Monto/Valor</th>
                       <th>Descripción</th>
                       <th>Período</th>
                       <th></th>
@@ -796,7 +1131,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
                   </thead>
                   <tbody>
                     {offsets.map(offset => (
-                      <tr key={offset.id}>
+                      <tr key={offset.id} className={editandoOffset === offset.id ? styles.editando : ''}>
                         <td>
                           {offset.item_id ? 'Producto' :
                            offset.subcategoria_id ? 'Subcategoría' :
@@ -805,16 +1140,35 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
                         <td>
                           {offset.item_id || offset.subcategoria_id || offset.categoria || offset.marca}
                         </td>
-                        <td>{formatMoney(offset.monto)}</td>
+                        <td>
+                          {offset.tipo_offset === 'porcentaje_costo' ? '% Costo' :
+                           offset.tipo_offset === 'monto_por_unidad' ? 'Por Unidad' : 'Fijo'}
+                        </td>
+                        <td>
+                          {offset.tipo_offset === 'porcentaje_costo'
+                            ? `${offset.porcentaje}%`
+                            : offset.tipo_offset === 'monto_por_unidad'
+                              ? `${offset.moneda === 'USD' ? 'USD ' : '$'}${offset.monto}`
+                              : formatMoney(offset.monto)
+                          }
+                        </td>
                         <td>{offset.descripcion}</td>
                         <td>
-                          {offset.fecha_desde}
-                          {offset.fecha_hasta ? ` a ${offset.fecha_hasta}` : ' en adelante'}
+                          {formatFecha(offset.fecha_desde)}
+                          {offset.fecha_hasta ? ` a ${formatFecha(offset.fecha_hasta)}` : '+'}
                         </td>
                         <td>
                           <button
+                            onClick={() => editarOffset(offset)}
+                            className={styles.btnEditar}
+                            title="Editar"
+                          >
+                            ✏️
+                          </button>
+                          <button
                             onClick={() => eliminarOffset(offset.id)}
                             className={styles.btnEliminar}
+                            title="Eliminar"
                           >
                             🗑️
                           </button>
@@ -826,7 +1180,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
               )}
             </div>
 
-            <button onClick={() => setMostrarModalOffset(false)} className={styles.btnCerrar}>
+            <button onClick={() => { setMostrarModalOffset(false); resetearFormOffset(); }} className={styles.btnCerrar}>
               Cerrar
             </button>
           </div>

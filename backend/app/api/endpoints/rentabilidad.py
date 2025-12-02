@@ -218,6 +218,28 @@ async def obtener_rentabilidad(
         for item in desglose_por_item:
             desglose_por_item[item].sort(key=lambda x: x.monto_venta, reverse=True)
 
+    # Función auxiliar para calcular el valor de un offset según su tipo
+    def calcular_valor_offset(offset, cantidad_vendida, costo_total):
+        """
+        Calcula el valor del offset según su tipo:
+        - monto_fijo: usa el monto directamente
+        - monto_por_unidad: monto * cantidad * tipo_cambio (si USD)
+        - porcentaje_costo: porcentaje * costo_total / 100
+        """
+        tipo = offset.tipo_offset or 'monto_fijo'
+
+        if tipo == 'monto_fijo':
+            return float(offset.monto or 0)
+        elif tipo == 'monto_por_unidad':
+            monto_base = float(offset.monto or 0)
+            if offset.moneda == 'USD' and offset.tipo_cambio:
+                monto_base *= float(offset.tipo_cambio)
+            return monto_base * cantidad_vendida
+        elif tipo == 'porcentaje_costo':
+            return (float(offset.porcentaje or 0) / 100) * costo_total
+        else:
+            return float(offset.monto or 0)
+
     # Construir cards
     cards = []
     total_ventas = 0
@@ -230,15 +252,18 @@ async def obtener_rentabilidad(
     for r in resultados:
         # Calcular offset aplicable
         offset_aplicable = 0.0
+        cantidad_vendida = r.total_ventas
+        costo_total_item = float(r.costo_total or 0)
+
         for offset in offsets:
             if nivel == "marca" and offset.marca == r.nombre:
-                offset_aplicable += offset.monto
+                offset_aplicable += calcular_valor_offset(offset, cantidad_vendida, costo_total_item)
             elif nivel == "categoria" and offset.categoria == r.nombre:
-                offset_aplicable += offset.monto
+                offset_aplicable += calcular_valor_offset(offset, cantidad_vendida, costo_total_item)
             elif nivel == "subcategoria" and offset.subcategoria_id and str(offset.subcategoria_id) == str(r.identificador):
-                offset_aplicable += offset.monto
+                offset_aplicable += calcular_valor_offset(offset, cantidad_vendida, costo_total_item)
             elif nivel == "producto" and offset.item_id and str(offset.item_id) == str(r.identificador):
-                offset_aplicable += offset.monto
+                offset_aplicable += calcular_valor_offset(offset, cantidad_vendida, costo_total_item)
 
         monto_venta = float(r.monto_venta or 0)
         monto_limpio = float(r.monto_limpio or 0)

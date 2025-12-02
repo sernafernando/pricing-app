@@ -124,10 +124,25 @@
   color: white;
 }
 
-.totalCard h3 {
-  margin: 0 0 1rem 0;
+.totalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.totalHeader h3 {
+  margin: 0;
   font-size: 1.1rem;
   opacity: 0.9;
+}
+
+.totalPeriodo {
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 0.3rem 0.75rem;
+  border-radius: 4px;
+  font-weight: 500;
 }
 
 .totalGrid {
@@ -171,6 +186,19 @@
 .card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.cardClickable {
+  cursor: pointer;
+}
+
+.cardClickable:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
+.cardClickable:active {
+  transform: translateY(0);
 }
 
 .cardHeader {
@@ -589,4 +617,56 @@
 
 .productoChip button:hover {
   color: #d97706;
+}
+
+/* Estilos adicionales para modal de offsets */
+.btnEditar {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  opacity: 0.6;
+  margin-right: 0.25rem;
+}
+
+.btnEditar:hover {
+  opacity: 1;
+}
+
+.btnCancelar {
+  padding: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btnCancelar:hover {
+  background: var(--bg-hover);
+}
+
+.editando {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.modal {
+  background: var(--bg-primary);
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 850px;
+  width: 95%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.offsetsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.offsetsTable th {
+  white-space: nowrap;
 }

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.usuario import Usuario
+from app.models.cur_exch_history import CurExchHistory
 from app.api.deps import get_current_user
 
 router = APIRouter()
@@ -18,14 +19,23 @@ class OffsetGananciaCreate(BaseModel):
     categoria: Optional[str] = None
     subcategoria_id: Optional[int] = None
     item_id: Optional[int] = None
-    monto: float
+    item_ids: Optional[List[int]] = None  # Para múltiples productos
+    tipo_offset: str = 'monto_fijo'  # 'monto_fijo', 'monto_por_unidad', 'porcentaje_costo'
+    monto: Optional[float] = None
+    moneda: str = 'ARS'  # 'ARS', 'USD'
+    tipo_cambio: Optional[float] = None
+    porcentaje: Optional[float] = None
     descripcion: Optional[str] = None
     fecha_desde: date
     fecha_hasta: Optional[date] = None
 
 
 class OffsetGananciaUpdate(BaseModel):
+    tipo_offset: Optional[str] = None
     monto: Optional[float] = None
+    moneda: Optional[str] = None
+    tipo_cambio: Optional[float] = None
+    porcentaje: Optional[float] = None
     descripcion: Optional[str] = None
     fecha_desde: Optional[date] = None
     fecha_hasta: Optional[date] = None
@@ -37,7 +47,11 @@ class OffsetGananciaResponse(BaseModel):
     categoria: Optional[str]
     subcategoria_id: Optional[int]
     item_id: Optional[int]
-    monto: float
+    tipo_offset: str = 'monto_fijo'
+    monto: Optional[float]
+    moneda: str = 'ARS'
+    tipo_cambio: Optional[float]
+    porcentaje: Optional[float]
     descripcion: Optional[str]
     fecha_desde: date
     fecha_hasta: Optional[date]
@@ -90,7 +104,11 @@ async def listar_offsets(
             categoria=o.categoria,
             subcategoria_id=o.subcategoria_id,
             item_id=o.item_id,
+            tipo_offset=o.tipo_offset or 'monto_fijo',
             monto=o.monto,
+            moneda=o.moneda or 'ARS',
+            tipo_cambio=o.tipo_cambio,
+            porcentaje=o.porcentaje,
             descripcion=o.descripcion,
             fecha_desde=o.fecha_desde,
             fecha_hasta=o.fecha_hasta,
@@ -100,14 +118,45 @@ async def listar_offsets(
     ]
 
 
-@router.post("/offsets-ganancia", response_model=OffsetGananciaResponse)
+@router.post("/offsets-ganancia")
 async def crear_offset(
     offset: OffsetGananciaCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Crea un nuevo offset de ganancia"""
-    # Validar que al menos un nivel esté definido
+    """Crea un nuevo offset de ganancia. Si se pasan múltiples item_ids, crea uno por cada producto."""
+    # Validar tipo de offset
+    if offset.tipo_offset == 'porcentaje_costo' and offset.porcentaje is None:
+        raise HTTPException(400, "Debe especificar el porcentaje para tipo porcentaje_costo")
+    if offset.tipo_offset in ['monto_fijo', 'monto_por_unidad'] and offset.monto is None:
+        raise HTTPException(400, "Debe especificar el monto para este tipo de offset")
+
+    # Si hay múltiples productos, crear un offset por cada uno
+    if offset.item_ids and len(offset.item_ids) > 0:
+        offsets_creados = []
+        for item_id in offset.item_ids:
+            nuevo_offset = OffsetGanancia(
+                item_id=item_id,
+                tipo_offset=offset.tipo_offset,
+                monto=offset.monto,
+                moneda=offset.moneda,
+                tipo_cambio=offset.tipo_cambio,
+                porcentaje=offset.porcentaje,
+                descripcion=offset.descripcion,
+                fecha_desde=offset.fecha_desde,
+                fecha_hasta=offset.fecha_hasta,
+                usuario_id=current_user.id
+            )
+            db.add(nuevo_offset)
+            offsets_creados.append(nuevo_offset)
+
+        db.commit()
+        for o in offsets_creados:
+            db.refresh(o)
+
+        return {"mensaje": f"Se crearon {len(offsets_creados)} offsets", "cantidad": len(offsets_creados)}
+
+    # Validar que al menos un nivel esté definido para offset individual
     niveles = [offset.marca, offset.categoria, offset.subcategoria_id, offset.item_id]
     niveles_definidos = [n for n in niveles if n is not None]
 
@@ -122,7 +171,11 @@ async def crear_offset(
         categoria=offset.categoria,
         subcategoria_id=offset.subcategoria_id,
         item_id=offset.item_id,
+        tipo_offset=offset.tipo_offset,
         monto=offset.monto,
+        moneda=offset.moneda,
+        tipo_cambio=offset.tipo_cambio,
+        porcentaje=offset.porcentaje,
         descripcion=offset.descripcion,
         fecha_desde=offset.fecha_desde,
         fecha_hasta=offset.fecha_hasta,
@@ -139,7 +192,11 @@ async def crear_offset(
         categoria=nuevo_offset.categoria,
         subcategoria_id=nuevo_offset.subcategoria_id,
         item_id=nuevo_offset.item_id,
+        tipo_offset=nuevo_offset.tipo_offset or 'monto_fijo',
         monto=nuevo_offset.monto,
+        moneda=nuevo_offset.moneda or 'ARS',
+        tipo_cambio=nuevo_offset.tipo_cambio,
+        porcentaje=nuevo_offset.porcentaje,
         descripcion=nuevo_offset.descripcion,
         fecha_desde=nuevo_offset.fecha_desde,
         fecha_hasta=nuevo_offset.fecha_hasta,
@@ -160,8 +217,16 @@ async def actualizar_offset(
     if not offset:
         raise HTTPException(404, "Offset no encontrado")
 
+    if offset_update.tipo_offset is not None:
+        offset.tipo_offset = offset_update.tipo_offset
     if offset_update.monto is not None:
         offset.monto = offset_update.monto
+    if offset_update.moneda is not None:
+        offset.moneda = offset_update.moneda
+    if offset_update.tipo_cambio is not None:
+        offset.tipo_cambio = offset_update.tipo_cambio
+    if offset_update.porcentaje is not None:
+        offset.porcentaje = offset_update.porcentaje
     if offset_update.descripcion is not None:
         offset.descripcion = offset_update.descripcion
     if offset_update.fecha_desde is not None:
@@ -178,7 +243,11 @@ async def actualizar_offset(
         categoria=offset.categoria,
         subcategoria_id=offset.subcategoria_id,
         item_id=offset.item_id,
+        tipo_offset=offset.tipo_offset or 'monto_fijo',
         monto=offset.monto,
+        moneda=offset.moneda or 'ARS',
+        tipo_cambio=offset.tipo_cambio,
+        porcentaje=offset.porcentaje,
         descripcion=offset.descripcion,
         fecha_desde=offset.fecha_desde,
         fecha_hasta=offset.fecha_hasta,
@@ -202,3 +271,23 @@ async def eliminar_offset(
     db.commit()
 
     return {"mensaje": "Offset eliminado"}
+
+
+@router.get("/tipo-cambio-hoy")
+async def obtener_tipo_cambio(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene el tipo de cambio USD/ARS más reciente"""
+    tipo_cambio = db.query(CurExchHistory).filter(
+        CurExchHistory.curr_id_1 == 2,  # USD
+        CurExchHistory.curr_id_2 == 1   # ARS
+    ).order_by(CurExchHistory.ceh_cd.desc()).first()
+
+    if tipo_cambio:
+        return {
+            "tipo_cambio": float(tipo_cambio.ceh_exchange),
+            "fecha": tipo_cambio.ceh_cd.isoformat() if tipo_cambio.ceh_cd else None
+        }
+
+    return {"tipo_cambio": 1000.0, "fecha": None}  # Default fallback
