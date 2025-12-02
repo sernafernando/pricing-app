@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './DashboardMetricasML.module.css';
+import TabRentabilidad from '../components/TabRentabilidad';
 
 export default function DashboardMetricasML() {
   const [loading, setLoading] = useState(true);
@@ -8,7 +9,7 @@ export default function DashboardMetricasML() {
   const [fechaHasta, setFechaHasta] = useState('');
   const [marcaSeleccionada, setMarcaSeleccionada] = useState('');
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('');
-  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen' o 'operaciones'
+  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen', 'operaciones' o 'rentabilidad'
 
   // Datos
   const [metricasGenerales, setMetricasGenerales] = useState(null);
@@ -248,6 +249,12 @@ export default function DashboardMetricasML() {
             onClick={() => setTabActivo('operaciones')}
           >
             📋 Detalle de Operaciones
+          </button>
+          <button
+            className={`${styles.tab} ${tabActivo === 'rentabilidad' ? styles.tabActivo : ''}`}
+            onClick={() => setTabActivo('rentabilidad')}
+          >
+            💰 Rentabilidad
           </button>
         </div>
 
@@ -621,6 +628,9 @@ export default function DashboardMetricasML() {
             </div>
           )}
         </>
+      ) : tabActivo === 'rentabilidad' ? (
+        /* Tab de Rentabilidad */
+        <TabRentabilidad fechaDesde={fechaDesde} fechaHasta={fechaHasta} />
       ) : (
         <div className={styles.noData}>No hay datos disponibles</div>
       )}
