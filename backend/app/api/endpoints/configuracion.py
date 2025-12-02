@@ -52,15 +52,20 @@ async def obtener_pricing_constants_actual(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene las constantes de pricing vigentes para hoy"""
+    hoy = date.today()
     constants = db.query(PricingConstants).filter(
         and_(
-            PricingConstants.fecha_desde <= date.today(),
+            PricingConstants.fecha_desde <= hoy,
             or_(
                 PricingConstants.fecha_hasta.is_(None),
-                PricingConstants.fecha_hasta >= date.today()
+                PricingConstants.fecha_hasta >= hoy
             )
         )
     ).order_by(PricingConstants.fecha_desde.desc()).first()
+
+    # Debug log
+    if constants:
+        print(f"DEBUG pricing_constants: id={constants.id}, fecha_desde={constants.fecha_desde}, markup_cuotas={constants.markup_adicional_cuotas}")
 
     if not constants:
         raise HTTPException(status_code=404, detail="No se encontraron constantes de pricing vigentes")
