@@ -409,6 +409,9 @@ export default function DashboardMetricasML() {
             </table>
           </div>
         </div>
+      ) : tabActivo === 'rentabilidad' ? (
+        /* Tab de Rentabilidad */
+        <TabRentabilidad fechaDesde={fechaDesde} fechaHasta={fechaHasta} />
       ) : metricasGenerales ? (
         /* Tab de Resumen */
         <>
@@ -628,9 +631,6 @@ export default function DashboardMetricasML() {
             </div>
           )}
         </>
-      ) : tabActivo === 'rentabilidad' ? (
-        /* Tab de Rentabilidad */
-        <TabRentabilidad fechaDesde={fechaDesde} fechaHasta={fechaHasta} />
       ) : (
         <div className={styles.noData}>No hay datos disponibles</div>
       )}
