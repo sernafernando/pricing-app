@@ -591,20 +591,17 @@ def main():
     from_datetime = now - timedelta(minutes=10)
     to_datetime = now
 
-    from_date = from_datetime.date()
-    to_date = to_datetime.date()
-
     print("=" * 60)
     print("MÉTRICAS ML INCREMENTAL - Últimos 10 minutos")
     print("=" * 60)
     print(f"Ejecutado: {now.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Rango: {from_datetime.strftime('%H:%M:%S')} a {to_datetime.strftime('%H:%M:%S')}")
+    print(f"Rango: {from_datetime.strftime('%Y-%m-%d %H:%M:%S')} a {to_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
 
     db = SessionLocal()
 
     try:
-        # Obtener datos de tablas locales
-        rows = calcular_metricas_locales(db, from_date, to_date)
+        # Obtener datos de tablas locales - pasar datetime completo, no solo date
+        rows = calcular_metricas_locales(db, from_datetime, to_datetime)
 
         # Procesar e insertar
         insertados, actualizados, errores, notificaciones = process_and_insert(db, rows)
