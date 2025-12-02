@@ -333,8 +333,11 @@ async def setear_precio(
                 'precio_12_cuotas': 23   # Lista ML PREMIUM 12C
             }
 
-            # Obtener markup adicional desde configuración
-            markup_adicional = obtener_markup_adicional_cuotas(db)
+            # Obtener markup adicional: primero del producto, si no de configuración global
+            if pricing and pricing.markup_adicional_cuotas_custom is not None:
+                markup_adicional = float(pricing.markup_adicional_cuotas_custom)
+            else:
+                markup_adicional = obtener_markup_adicional_cuotas(db)
 
             for nombre_campo, pricelist_id in cuotas_config.items():
                 try:
@@ -603,6 +606,9 @@ async def setear_precio_rapido(
     # Calcular precios de cuotas si recalcular_cuotas es True
     precios_cuotas = {'precio_3_cuotas': None, 'precio_6_cuotas': None, 'precio_9_cuotas': None, 'precio_12_cuotas': None}
 
+    # Obtener pricing para verificar configuración custom de cuotas
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+
     if recalcular_cuotas:
         # markup está en decimal (ej: 0.355 para 35.5%), convertir a porcentaje
         markup_porcentaje = round(markup * 100, 2)
@@ -614,8 +620,11 @@ async def setear_precio_rapido(
             'precio_12_cuotas': 23
         }
 
-        # Obtener markup adicional desde configuración
-        markup_adicional = obtener_markup_adicional_cuotas(db)
+        # Obtener markup adicional: primero del producto, si no de configuración global
+        if pricing and pricing.markup_adicional_cuotas_custom is not None:
+            markup_adicional = float(pricing.markup_adicional_cuotas_custom)
+        else:
+            markup_adicional = obtener_markup_adicional_cuotas(db)
 
         for nombre_campo, pricelist_id in cuotas_config.items():
             try:
@@ -642,9 +651,7 @@ async def setear_precio_rapido(
                 # Si falla el cálculo, continuar con el siguiente
                 pass
 
-    # Guardar precio
-    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
-    
+    # Guardar precio (pricing ya se obtuvo arriba)
     if pricing:
         if pricing.precio_lista_ml != precio:
                 # Registro en tabla vieja
