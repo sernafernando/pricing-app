@@ -14,6 +14,14 @@ from app.api.deps import get_current_user
 router = APIRouter()
 
 
+class DesgloseMarca(BaseModel):
+    """Desglose por marca dentro de una card"""
+    marca: str
+    monto_venta: float
+    ganancia: float
+    markup_promedio: float
+
+
 class CardRentabilidad(BaseModel):
     """Card de rentabilidad para mostrar en el dashboard"""
     nombre: str
@@ -33,6 +41,9 @@ class CardRentabilidad(BaseModel):
     ganancia_con_offset: float
     markup_con_offset: float
 
+    # Desglose por marca (cuando hay múltiples marcas seleccionadas)
+    desglose_marcas: Optional[List[DesgloseMarca]] = None
+
 
 class RentabilidadResponse(BaseModel):
     cards: List[CardRentabilidad]
@@ -47,6 +58,7 @@ async def obtener_rentabilidad(
     marcas: Optional[str] = Query(None, description="Marcas separadas por coma"),
     categorias: Optional[str] = Query(None, description="Categorías separadas por coma"),
     subcategorias: Optional[str] = Query(None, description="Subcategorías separadas por coma"),
+    productos: Optional[str] = Query(None, description="Item IDs separados por coma"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -59,21 +71,27 @@ async def obtener_rentabilidad(
     lista_marcas = [m.strip() for m in marcas.split(',')] if marcas else []
     lista_categorias = [c.strip() for c in categorias.split(',')] if categorias else []
     lista_subcategorias = [s.strip() for s in subcategorias.split(',')] if subcategorias else []
+    lista_productos = [int(p.strip()) for p in productos.split(',') if p.strip().isdigit()] if productos else []
 
-    # Determinar nivel de agrupación basado en cuántos tipos de filtro hay
-    filtros_activos = sum([
-        1 if lista_marcas else 0,
-        1 if lista_categorias else 0,
-        1 if lista_subcategorias else 0
-    ])
-
-    if lista_subcategorias:
+    # Determinar nivel de agrupación basado en los filtros seleccionados
+    # La lógica es: agrupar por la dimensión que NO está filtrada para hacer drill-down
+    if lista_productos:
+        # Si hay productos específicos, mostrar cada producto
         nivel = "producto"
-    elif filtros_activos >= 2:
+    elif lista_subcategorias:
+        # Si hay subcategorías, mostrar productos
+        nivel = "producto"
+    elif lista_marcas and lista_categorias:
+        # Marca + Categoría -> Subcategorías
         nivel = "subcategoria"
-    elif filtros_activos == 1:
-        nivel = "categoria" if lista_marcas else ("subcategoria" if lista_categorias else "producto")
+    elif lista_marcas:
+        # Solo marca -> Categorías de esa marca
+        nivel = "categoria"
+    elif lista_categorias:
+        # Solo categoría -> Marcas de esa categoría (drill-down inverso)
+        nivel = "marca"
     else:
+        # Sin filtros -> Marcas
         nivel = "marca"
 
     # Construir query base
@@ -86,6 +104,8 @@ async def obtener_rentabilidad(
             MLVentaMetrica.fecha_venta >= fecha_inicio,
             MLVentaMetrica.fecha_venta <= fecha_fin
         )
+        if lista_productos:
+            query = query.filter(MLVentaMetrica.item_id.in_(lista_productos))
         if lista_marcas:
             query = query.filter(MLVentaMetrica.marca.in_(lista_marcas))
         if lista_categorias:
@@ -162,6 +182,42 @@ async def obtener_rentabilidad(
         )
     ).all()
 
+    # Si hay múltiples marcas y estamos en nivel categoría o subcategoría, obtener desglose por marca
+    desglose_por_item = {}
+    if len(lista_marcas) > 1 and nivel in ["categoria", "subcategoria"]:
+        # Query para desglose por marca
+        campo_agrupacion = MLVentaMetrica.categoria if nivel == "categoria" else MLVentaMetrica.subcategoria
+        desglose_query = db.query(
+            campo_agrupacion.label('item'),
+            MLVentaMetrica.marca.label('marca'),
+            func.sum(MLVentaMetrica.monto_total).label('monto_venta'),
+            func.sum(MLVentaMetrica.ganancia).label('ganancia'),
+            func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
+        ).filter(
+            MLVentaMetrica.fecha_venta >= fecha_inicio,
+            MLVentaMetrica.fecha_venta <= fecha_fin,
+            MLVentaMetrica.marca.in_(lista_marcas),
+            campo_agrupacion.isnot(None)
+        )
+        if lista_categorias and nivel == "subcategoria":
+            desglose_query = desglose_query.filter(MLVentaMetrica.categoria.in_(lista_categorias))
+
+        desglose_resultados = desglose_query.group_by(campo_agrupacion, MLVentaMetrica.marca).all()
+
+        for d in desglose_resultados:
+            if d.item not in desglose_por_item:
+                desglose_por_item[d.item] = []
+            desglose_por_item[d.item].append(DesgloseMarca(
+                marca=d.marca,
+                monto_venta=float(d.monto_venta or 0),
+                ganancia=float(d.ganancia or 0),
+                markup_promedio=float(d.markup_promedio or 0)
+            ))
+
+        # Ordenar cada desglose por monto descendente
+        for item in desglose_por_item:
+            desglose_por_item[item].sort(key=lambda x: x.monto_venta, reverse=True)
+
     # Construir cards
     cards = []
     total_ventas = 0
@@ -193,6 +249,9 @@ async def obtener_rentabilidad(
         ganancia_con_offset = ganancia + offset_aplicable
         markup_con_offset = ((ganancia_con_offset / costo_total) * 100) if costo_total > 0 else 0
 
+        # Obtener desglose de marcas si existe
+        desglose = desglose_por_item.get(r.nombre) if r.nombre in desglose_por_item else None
+
         cards.append(CardRentabilidad(
             nombre=r.nombre or "Sin nombre",
             tipo=nivel,
@@ -205,7 +264,8 @@ async def obtener_rentabilidad(
             markup_promedio=markup_promedio,
             offset_total=offset_aplicable,
             ganancia_con_offset=ganancia_con_offset,
-            markup_con_offset=markup_con_offset
+            markup_con_offset=markup_con_offset,
+            desglose_marcas=desglose
         ))
 
         # Acumular totales
@@ -248,9 +308,63 @@ async def obtener_rentabilidad(
             "marcas": lista_marcas,
             "categorias": lista_categorias,
             "subcategorias": lista_subcategorias,
+            "productos": lista_productos,
             "nivel_agrupacion": nivel
         }
     )
+
+
+class ProductoBusqueda(BaseModel):
+    """Producto encontrado en búsqueda"""
+    item_id: int
+    codigo: str
+    descripcion: str
+    marca: Optional[str] = None
+    categoria: Optional[str] = None
+
+
+@router.get("/rentabilidad/buscar-productos", response_model=List[ProductoBusqueda])
+async def buscar_productos(
+    q: str = Query(..., min_length=2, description="Término de búsqueda"),
+    fecha_desde: date = Query(...),
+    fecha_hasta: date = Query(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Busca productos por código o descripción que tengan ventas en el período.
+    """
+    fecha_inicio = datetime.combine(fecha_desde, datetime.min.time())
+    fecha_fin = datetime.combine(fecha_hasta, datetime.max.time())
+
+    # Buscar productos con ventas en el período
+    query = db.query(
+        MLVentaMetrica.item_id,
+        MLVentaMetrica.codigo,
+        MLVentaMetrica.descripcion,
+        MLVentaMetrica.marca,
+        MLVentaMetrica.categoria
+    ).filter(
+        MLVentaMetrica.fecha_venta >= fecha_inicio,
+        MLVentaMetrica.fecha_venta <= fecha_fin,
+        or_(
+            MLVentaMetrica.codigo.ilike(f"%{q}%"),
+            MLVentaMetrica.descripcion.ilike(f"%{q}%")
+        )
+    ).distinct().limit(50)
+
+    resultados = query.all()
+
+    return [
+        ProductoBusqueda(
+            item_id=r.item_id,
+            codigo=r.codigo or "",
+            descripcion=r.descripcion or "",
+            marca=r.marca,
+            categoria=r.categoria
+        )
+        for r in resultados if r.item_id
+    ]
 
 
 @router.get("/rentabilidad/filtros")

@@ -34,6 +34,12 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
   const [busquedaCategoria, setBusquedaCategoria] = useState('');
   const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
 
+  // Búsqueda de productos
+  const [busquedaProducto, setBusquedaProducto] = useState('');
+  const [productosEncontrados, setProductosEncontrados] = useState([]);
+  const [productosSeleccionados, setProductosSeleccionados] = useState([]);
+  const [buscandoProductos, setBuscandoProductos] = useState(false);
+
   // Panel activo
   const [panelFiltroActivo, setPanelFiltroActivo] = useState(null);
 
@@ -61,7 +67,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
       cargarFiltros();
       cargarRentabilidad();
     }
-  }, [marcasSeleccionadas, categoriasSeleccionadas, subcategoriasSeleccionadas]);
+  }, [marcasSeleccionadas, categoriasSeleccionadas, subcategoriasSeleccionadas, productosSeleccionados]);
 
   const cargarFiltros = async () => {
     try {
@@ -103,6 +109,9 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
       if (subcategoriasSeleccionadas.length > 0) {
         params.subcategorias = subcategoriasSeleccionadas.join(',');
       }
+      if (productosSeleccionados.length > 0) {
+        params.productos = productosSeleccionados.map(p => p.item_id).join(',');
+      }
 
       const response = await api.get('/api/rentabilidad', { params });
       setRentabilidad(response.data);
@@ -111,6 +120,35 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const buscarProductos = async () => {
+    if (busquedaProducto.length < 2) return;
+    setBuscandoProductos(true);
+    try {
+      const response = await api.get('/api/rentabilidad/buscar-productos', {
+        params: {
+          q: busquedaProducto,
+          fecha_desde: fechaDesde,
+          fecha_hasta: fechaHasta
+        }
+      });
+      setProductosEncontrados(response.data);
+    } catch (error) {
+      console.error('Error buscando productos:', error);
+    } finally {
+      setBuscandoProductos(false);
+    }
+  };
+
+  const agregarProducto = (producto) => {
+    if (!productosSeleccionados.find(p => p.item_id === producto.item_id)) {
+      setProductosSeleccionados([...productosSeleccionados, producto]);
+    }
+  };
+
+  const quitarProducto = (itemId) => {
+    setProductosSeleccionados(productosSeleccionados.filter(p => p.item_id !== itemId));
   };
 
   const cargarOffsets = async () => {
@@ -126,6 +164,9 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
     setMarcasSeleccionadas([]);
     setCategoriasSeleccionadas([]);
     setSubcategoriasSeleccionadas([]);
+    setProductosSeleccionados([]);
+    setProductosEncontrados([]);
+    setBusquedaProducto('');
   };
 
   const formatMoney = (valor) => {
@@ -214,7 +255,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
   );
 
   const getTotalFiltrosActivos = () => {
-    return marcasSeleccionadas.length + categoriasSeleccionadas.length + subcategoriasSeleccionadas.length;
+    return marcasSeleccionadas.length + categoriasSeleccionadas.length + subcategoriasSeleccionadas.length + productosSeleccionados.length;
   };
 
   return (
@@ -248,6 +289,16 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
           Subcategorías
           {subcategoriasSeleccionadas.length > 0 && (
             <span className={styles.btnFiltroBadge}>{subcategoriasSeleccionadas.length}</span>
+          )}
+        </button>
+
+        <button
+          className={`${styles.btnProductos} ${panelFiltroActivo === 'productos' ? styles.btnProductosActivo : ''}`}
+          onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'productos' ? null : 'productos')}
+        >
+          Productos
+          {productosSeleccionados.length > 0 && (
+            <span className={styles.btnFiltroBadge}>{productosSeleccionados.length}</span>
           )}
         </button>
 
@@ -447,6 +498,83 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
               </div>
             </>
           )}
+
+          {/* Panel de Productos */}
+          {panelFiltroActivo === 'productos' && (
+            <>
+              <div className="advanced-filters-header">
+                <h3>Buscar Productos</h3>
+                {productosSeleccionados.length > 0 && (
+                  <button
+                    onClick={() => setProductosSeleccionados([])}
+                    className="btn-clear-all"
+                  >
+                    Limpiar ({productosSeleccionados.length})
+                  </button>
+                )}
+              </div>
+
+              {/* Productos seleccionados */}
+              {productosSeleccionados.length > 0 && (
+                <div className={styles.productosSeleccionados}>
+                  {productosSeleccionados.map(p => (
+                    <div key={p.item_id} className={styles.productoChip}>
+                      <span>{p.codigo}</span>
+                      <button onClick={() => quitarProducto(p.item_id)}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Buscador */}
+              <div className={styles.productoBusqueda}>
+                <input
+                  type="text"
+                  placeholder="Buscar por código o descripción..."
+                  value={busquedaProducto}
+                  onChange={(e) => setBusquedaProducto(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && buscarProductos()}
+                />
+                <button
+                  onClick={buscarProductos}
+                  disabled={busquedaProducto.length < 2 || buscandoProductos}
+                  className={styles.btnBuscar}
+                >
+                  {buscandoProductos ? 'Buscando...' : 'Buscar'}
+                </button>
+              </div>
+
+              {/* Resultados */}
+              {productosEncontrados.length > 0 && (
+                <div className={styles.productosResultados}>
+                  {productosEncontrados.map(producto => (
+                    <label
+                      key={producto.item_id}
+                      className={styles.productoItem}
+                      onClick={() => agregarProducto(producto)}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={productosSeleccionados.some(p => p.item_id === producto.item_id)}
+                        onChange={() => {
+                          if (productosSeleccionados.some(p => p.item_id === producto.item_id)) {
+                            quitarProducto(producto.item_id);
+                          } else {
+                            agregarProducto(producto);
+                          }
+                        }}
+                      />
+                      <div className={styles.productoInfo}>
+                        <span className={styles.productoCodigo}>{producto.codigo}</span>
+                        <span className={styles.productoNombre}>{producto.descripcion}</span>
+                        <span className={styles.productoMarca}>{producto.marca} - {producto.categoria}</span>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -561,6 +689,26 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
                         </span>
                       </div>
                     </>
+                  )}
+                  {/* Desglose por marca */}
+                  {card.desglose_marcas && card.desglose_marcas.length > 0 && (
+                    <div className={styles.cardDesglose}>
+                      <div className={styles.desgloseHeader}>Desglose por marca</div>
+                      {card.desglose_marcas.map((dm, idx) => (
+                        <div key={idx} className={styles.desgloseItem}>
+                          <span className={styles.desgloseMarca}>{dm.marca}</span>
+                          <div className={styles.desgloseValores}>
+                            <span>{formatMoney(dm.monto_venta)}</span>
+                            <span style={{ color: dm.ganancia >= 0 ? '#22c55e' : '#ef4444' }}>
+                              {formatMoney(dm.ganancia)}
+                            </span>
+                            <span style={{ color: getMarkupColor(dm.markup_promedio) }}>
+                              {formatPercent(dm.markup_promedio)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>

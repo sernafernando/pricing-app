@@ -375,3 +375,207 @@
 .btnCerrar:hover {
   background: var(--bg-hover);
 }
+
+/* Desglose por marca */
+.cardDesglose {
+  margin-top: 0.75rem;
+  border-top: 1px dashed var(--border-color);
+  padding-top: 0.75rem;
+}
+
+.desgloseHeader {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.desgloseItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0;
+  font-size: 0.8rem;
+  border-bottom: 1px dotted var(--border-color);
+}
+
+.desgloseItem:last-child {
+  border-bottom: none;
+}
+
+.desgloseMarca {
+  color: var(--text-primary);
+  font-weight: 500;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desgloseValores {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+}
+
+.desgloseValores span {
+  min-width: 60px;
+  text-align: right;
+}
+
+/* Búsqueda de productos */
+.btnProductos {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.btnProductos:hover {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #d97706;
+}
+
+.btnProductosActivo {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  border-color: #f59e0b;
+  color: white;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+
+.productoBusqueda {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.productoBusqueda input {
+  flex: 1;
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.productoBusqueda input:focus {
+  outline: none;
+  border-color: #f59e0b;
+}
+
+.btnBuscar {
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  border: none;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.btnBuscar:hover {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+}
+
+.btnBuscar:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.productosResultados {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+}
+
+.productoItem {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.productoItem:hover {
+  background: var(--bg-hover);
+}
+
+.productoItem:last-child {
+  border-bottom: none;
+}
+
+.productoItem input {
+  margin-right: 0.5rem;
+}
+
+.productoInfo {
+  flex: 1;
+  overflow: hidden;
+}
+
+.productoCodigo {
+  font-size: 0.8rem;
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.productoNombre {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.productoMarca {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.productosSeleccionados {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.productoChip {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid #f59e0b;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #f59e0b;
+}
+
+.productoChip button {
+  background: none;
+  border: none;
+  color: #f59e0b;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.productoChip button:hover {
+  color: #d97706;
+}
