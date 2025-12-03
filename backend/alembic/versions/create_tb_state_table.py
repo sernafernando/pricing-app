@@ -27,7 +27,7 @@ def upgrade():
         sa.Column('state_desc', sa.String(255), nullable=True),
         sa.Column('state_afip', sa.Integer(), nullable=True),
         sa.Column('state_jurisdiccion', sa.Integer(), nullable=True),
-        sa.Column('state_arba_cot', sa.Integer(), nullable=True),
+        sa.Column('state_arba_cot', sa.String(10), nullable=True),
         sa.Column('state_visatodopago', sa.String(50), nullable=True),
         sa.Column('country_visatodopago', sa.String(50), nullable=True),
         sa.Column('mlstatedescription', sa.String(255), nullable=True),

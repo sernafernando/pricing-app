@@ -18,7 +18,7 @@ class TBState(Base):
     state_desc = Column(String(255))
     state_afip = Column(Integer)
     state_jurisdiccion = Column(Integer)
-    state_arba_cot = Column(Integer)
+    state_arba_cot = Column(String(10))
     state_visatodopago = Column(String(50))
     country_visatodopago = Column(String(50))
     mlstatedescription = Column(String(255))
