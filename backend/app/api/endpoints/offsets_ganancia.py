@@ -474,9 +474,9 @@ async def buscar_productos_erp(
 ):
     """Busca productos en el ERP por código o descripción (todos, no solo los que tienen ventas)"""
     query = """
-    SELECT DISTINCT i.item_id, i.item_code, i.item_desc, b.bra_name
+    SELECT DISTINCT i.item_id, i.item_code, i.item_desc, b.brand_desc
     FROM tb_item i
-    LEFT JOIN tb_brand b ON i.bra_id = b.bra_id
+    LEFT JOIN tb_brand b ON b.comp_id = i.comp_id AND b.brand_id = i.brand_id
     WHERE (i.item_code ILIKE :buscar OR i.item_desc ILIKE :buscar)
       AND i.item_disabled = false
     ORDER BY i.item_code
@@ -490,7 +490,7 @@ async def buscar_productos_erp(
             item_id=r.item_id,
             codigo=r.item_code or str(r.item_id),
             descripcion=r.item_desc or "",
-            marca=r.bra_name
+            marca=r.brand_desc
         )
         for r in result
     ]
