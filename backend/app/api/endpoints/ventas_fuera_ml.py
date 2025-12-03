@@ -95,8 +95,8 @@ DF_PERMITIDOS = [1, 2, 3, 4, 5, 6, 63, 85, 86, 87, 65, 67, 68, 69, 70, 71, 72, 7
 # Clientes excluidos
 CLIENTES_EXCLUIDOS = [11, 3900]
 
-# Vendedores excluidos (ML)
-VENDEDORES_EXCLUIDOS = [10, 11, 12]
+# Vendedores excluidos por defecto (se combinan con los de la BD)
+VENDEDORES_EXCLUIDOS_DEFAULT = [10, 11, 12]
 
 # Items excluidos
 ITEMS_EXCLUIDOS = [16, 460]
@@ -104,15 +104,34 @@ ITEMS_EXCLUIDOS = [16, 460]
 # Todos los sd_id permitidos
 SD_TODOS = SD_VENTAS + SD_DEVOLUCIONES
 
-# Strings pre-generados para usar en queries
+# Strings pre-generados para usar en queries (excepto vendedores que son dinámicos)
 DF_IDS_STR = ','.join(map(str, DF_PERMITIDOS))
 SD_IDS_STR = ','.join(map(str, SD_TODOS))
 ITEMS_EXCLUIDOS_STR = ','.join(map(str, ITEMS_EXCLUIDOS))
 CLIENTES_EXCLUIDOS_STR = ','.join(map(str, CLIENTES_EXCLUIDOS))
-VENDEDORES_EXCLUIDOS_STR = ','.join(map(str, VENDEDORES_EXCLUIDOS))
 
 
-def get_ventas_fuera_ml_query():
+def get_vendedores_excluidos_str(db: Session) -> str:
+    """
+    Obtiene los vendedores excluidos de la base de datos + los default.
+    Retorna string para usar en SQL IN clause.
+    """
+    from app.models.vendedor_excluido import VendedorExcluido
+
+    # Obtener de la BD
+    excluidos_bd = db.query(VendedorExcluido.sm_id).all()
+    excluidos_ids = {e.sm_id for e in excluidos_bd}
+
+    # Combinar con los default
+    todos_excluidos = excluidos_ids.union(set(VENDEDORES_EXCLUIDOS_DEFAULT))
+
+    if not todos_excluidos:
+        return '0'  # Para evitar errores de SQL si no hay ninguno
+
+    return ','.join(map(str, sorted(todos_excluidos)))
+
+
+def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
     """
     Query principal para obtener ventas por fuera de ML.
     Replica la lógica de la query SQL del ERP.
@@ -305,7 +324,7 @@ def get_ventas_fuera_ml_query():
         AND tct.df_id IN ({DF_IDS_STR})
         AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
         AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
-        AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
+        AND tct.sm_id NOT IN ({vendedores_excluidos_str})
         AND tit.it_price <> 0
         AND tit.it_qty <> 0
         AND tct.sd_id IN ({SD_IDS_STR})
@@ -335,8 +354,10 @@ async def get_ventas_fuera_ml(
     Obtiene ventas por fuera de MercadoLibre con métricas calculadas.
     Incluye: precio sin IVA, con IVA, costo, markup, datos del cliente, etc.
     """
+    # Obtener vendedores excluidos dinámicamente
+    vendedores_excluidos = get_vendedores_excluidos_str(db)
 
-    query_str = get_ventas_fuera_ml_query()
+    query_str = get_ventas_fuera_ml_query(vendedores_excluidos)
 
     # Agregar LIMIT y OFFSET
     query_str += f"\nLIMIT {limit} OFFSET {offset}"
@@ -380,6 +401,8 @@ async def get_ventas_fuera_ml_stats(
     """
     Obtiene estadísticas agregadas de ventas por fuera de ML.
     """
+    # Obtener vendedores excluidos dinámicamente
+    VENDEDORES_EXCLUIDOS_STR = get_vendedores_excluidos_str(db)
 
     stats_query = f"""
     WITH ventas AS (
@@ -554,6 +577,8 @@ async def get_ventas_fuera_ml_por_marca(
     """
     Obtiene ventas agrupadas por marca.
     """
+    # Obtener vendedores excluidos dinámicamente
+    VENDEDORES_EXCLUIDOS_STR = get_vendedores_excluidos_str(db)
 
     query = f"""
     SELECT
@@ -638,6 +663,8 @@ async def get_top_productos_fuera_ml(
     """
     Obtiene los productos más vendidos por fuera de ML.
     """
+    # Obtener vendedores excluidos dinámicamente
+    VENDEDORES_EXCLUIDOS_STR = get_vendedores_excluidos_str(db)
 
     query = f"""
     SELECT

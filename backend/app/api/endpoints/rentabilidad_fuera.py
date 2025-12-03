@@ -84,15 +84,35 @@ DF_PERMITIDOS = [1, 2, 3, 4, 5, 6, 63, 85, 86, 87, 65, 67, 68, 69, 70, 71, 72, 7
 
 # Exclusiones
 CLIENTES_EXCLUIDOS = [11, 3900]
-VENDEDORES_EXCLUIDOS = [10, 11, 12]
+VENDEDORES_EXCLUIDOS_DEFAULT = [10, 11, 12]
 ITEMS_EXCLUIDOS = [16, 460]
+
+
+def get_vendedores_excluidos_str(db) -> str:
+    """
+    Obtiene los vendedores excluidos de la base de datos + los default.
+    Retorna string para usar en SQL IN clause.
+    """
+    from app.models.vendedor_excluido import VendedorExcluido
+
+    # Obtener de la BD
+    excluidos_bd = db.query(VendedorExcluido.sm_id).all()
+    excluidos_ids = {e.sm_id for e in excluidos_bd}
+
+    # Combinar con los default
+    todos_excluidos = excluidos_ids.union(set(VENDEDORES_EXCLUIDOS_DEFAULT))
+
+    if not todos_excluidos:
+        return '0'
+
+    return ','.join(map(str, sorted(todos_excluidos)))
 
 
 # ============================================================================
 # Query base
 # ============================================================================
 
-def get_base_ventas_query(grupo_by: str, filtros_extra: str = "") -> str:
+def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_excluidos_str: str = "10,11,12") -> str:
     """
     Query base para obtener ventas agrupadas por el nivel especificado.
     grupo_by puede ser: 'marca', 'categoria', 'subcategoria', 'producto'
@@ -174,7 +194,7 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "") -> str:
             AND tct.df_id IN ({','.join(map(str, DF_PERMITIDOS))})
             AND (tit.item_id NOT IN ({','.join(map(str, ITEMS_EXCLUIDOS))}) OR tit.item_id IS NULL)
             AND tct.cust_id NOT IN ({','.join(map(str, CLIENTES_EXCLUIDOS))})
-            AND tct.sm_id NOT IN ({','.join(map(str, VENDEDORES_EXCLUIDOS))})
+            AND tct.sm_id NOT IN ({vendedores_excluidos_str})
             AND tit.it_price <> 0
             AND tit.it_qty <> 0
             AND tct.sd_id IN ({','.join(map(str, SD_TODOS))})
@@ -291,8 +311,11 @@ async def obtener_rentabilidad_fuera(
         subcats_quoted = "','".join(lista_subcategorias)
         filtros_extra += f" AND tsc.subcat_desc IN ('{subcats_quoted}')"
 
+    # Obtener vendedores excluidos dinámicamente
+    vendedores_excluidos = get_vendedores_excluidos_str(db)
+
     # Ejecutar query
-    query_str = get_base_ventas_query(nivel, filtros_extra)
+    query_str = get_base_ventas_query(nivel, filtros_extra, vendedores_excluidos)
     result = db.execute(text(query_str), params)
     resultados = result.fetchall()
 
@@ -421,6 +444,7 @@ async def buscar_productos_fuera(
     Busca productos por código o descripción que tengan ventas en el período.
     """
     search_term = f"%{q}%"
+    vendedores_excluidos = get_vendedores_excluidos_str(db)
 
     query = f"""
     SELECT DISTINCT
@@ -441,7 +465,7 @@ async def buscar_productos_fuera(
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
         AND tct.df_id IN ({','.join(map(str, DF_PERMITIDOS))})
         AND tct.cust_id NOT IN ({','.join(map(str, CLIENTES_EXCLUIDOS))})
-        AND tct.sm_id NOT IN ({','.join(map(str, VENDEDORES_EXCLUIDOS))})
+        AND tct.sm_id NOT IN ({vendedores_excluidos})
         AND tct.sd_id IN ({','.join(map(str, SD_TODOS))})
         AND (ti.item_code ILIKE :search OR ti.item_desc ILIKE :search)
     LIMIT 50
@@ -485,6 +509,8 @@ async def obtener_filtros_disponibles_fuera(
     lista_categorias = [c.strip() for c in categorias.split(',')] if categorias else []
     lista_subcategorias = [s.strip() for s in subcategorias.split(',')] if subcategorias else []
 
+    vendedores_excluidos = get_vendedores_excluidos_str(db)
+
     params = {
         "from_date": fecha_desde.isoformat(),
         "to_date": (fecha_hasta + timedelta(days=1)).isoformat()
@@ -494,7 +520,7 @@ async def obtener_filtros_disponibles_fuera(
         WHERE tct.ct_date BETWEEN :from_date AND :to_date
             AND tct.df_id IN ({','.join(map(str, DF_PERMITIDOS))})
             AND tct.cust_id NOT IN ({','.join(map(str, CLIENTES_EXCLUIDOS))})
-            AND tct.sm_id NOT IN ({','.join(map(str, VENDEDORES_EXCLUIDOS))})
+            AND tct.sm_id NOT IN ({vendedores_excluidos})
             AND tct.sd_id IN ({','.join(map(str, SD_TODOS))})
     """
 

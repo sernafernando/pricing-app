@@ -2,14 +2,19 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
 import TabRentabilidadFuera from '../components/TabRentabilidadFuera';
+import TabAdminVentasFuera from '../components/TabAdminVentasFuera';
+import { useAuthStore } from '../store/authStore';
 
 export default function DashboardVentasFuera() {
+  const user = useAuthStore((state) => state.user);
+  const esAdmin = user?.rol === 'ADMIN' || user?.rol === 'SUPERADMIN';
+
   const [loading, setLoading] = useState(true);
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [sucursalSeleccionada, setSucursalSeleccionada] = useState('');
   const [vendedorSeleccionado, setVendedorSeleccionado] = useState('');
-  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen', 'operaciones' o 'rentabilidad'
+  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen', 'operaciones', 'rentabilidad' o 'admin'
 
   // Datos
   const [stats, setStats] = useState(null);
@@ -221,6 +226,14 @@ export default function DashboardVentasFuera() {
           >
             💹 Rentabilidad
           </button>
+          {esAdmin && (
+            <button
+              className={`${styles.tab} ${tabActivo === 'admin' ? styles.tabActivo : ''}`}
+              onClick={() => setTabActivo('admin')}
+            >
+              ⚙️ Admin
+            </button>
+          )}
         </div>
 
         {/* Filtros Rápidos */}
@@ -303,7 +316,7 @@ export default function DashboardVentasFuera() {
             </>
           )}
 
-          {tabActivo !== 'rentabilidad' && (
+          {tabActivo !== 'rentabilidad' && tabActivo !== 'admin' && (
             <button onClick={tabActivo === 'resumen' ? cargarDashboard : cargarOperaciones} className={styles.btnRecargar}>
               🔄 Recargar
             </button>
@@ -311,7 +324,9 @@ export default function DashboardVentasFuera() {
         </div>
       </div>
 
-      {tabActivo === 'rentabilidad' ? (
+      {tabActivo === 'admin' ? (
+        <TabAdminVentasFuera />
+      ) : tabActivo === 'rentabilidad' ? (
         <TabRentabilidadFuera fechaDesde={fechaDesde} fechaHasta={fechaHasta} />
       ) : loading ? (
         <div className={styles.loading}>Cargando...</div>
