@@ -15,6 +15,7 @@ from app.models.tb_item import TBItem
 from app.models.tb_tax_name import TBTaxName
 from app.models.tb_item_taxes import TBItemTaxes
 from app.models.tb_supplier import TBSupplier
+from app.models.tb_customer import TBCustomer
 
 
 router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"])
@@ -465,6 +466,154 @@ async def sync_suppliers(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al sincronizar proveedores: {str(e)}")
+
+
+@router.post("/customers")
+async def sync_customers(
+    cust_id: Optional[int] = Query(None, description="ID de cliente específico"),
+    from_cust_id: Optional[int] = Query(None, description="ID de cliente desde (para paginación)"),
+    to_cust_id: Optional[int] = Query(None, description="ID de cliente hasta (para paginación)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Sincroniza clientes desde el ERP a PostgreSQL
+
+    - Si se proporciona cust_id, sincroniza solo ese cliente
+    - Si se proporcionan from_cust_id y to_cust_id, sincroniza el rango
+    - Si no se proporcionan filtros, sincroniza desde el último ID que tenemos
+    """
+    try:
+        # Si no hay parámetros, calcular desde el último cust_id
+        if not cust_id and not from_cust_id:
+            last_record = db.query(TBCustomer).order_by(
+                TBCustomer.cust_id.desc()
+            ).first()
+            from_cust_id = (last_record.cust_id + 1) if last_record else 1
+
+        if not to_cust_id and not cust_id:
+            to_cust_id = from_cust_id + 10000 - 1  # batch de 10k por defecto
+
+        # Obtener datos del worker
+        customers = await erp_worker_client.get_customers(
+            cust_id=cust_id,
+            from_cust_id=from_cust_id,
+            to_cust_id=to_cust_id
+        )
+
+        insertados = 0
+        actualizados = 0
+
+        # Obtener IDs existentes para este batch
+        cust_ids = [c.get('cust_id') for c in customers if c.get('cust_id')]
+        existing = db.query(TBCustomer.cust_id).filter(
+            TBCustomer.cust_id.in_(cust_ids)
+        ).all()
+        ids_existentes = {id[0] for id in existing}
+
+        for cust_data in customers:
+            cust_id_val = cust_data.get('cust_id')
+            if not cust_id_val:
+                continue
+
+            comp_id = cust_data.get('comp_id', 1)
+
+            # Parsear fechas
+            cust_cd = None
+            if cust_data.get('cust_cd'):
+                try:
+                    cust_cd = datetime.fromisoformat(str(cust_data['cust_cd']).replace('Z', '+00:00'))
+                except:
+                    pass
+
+            cust_lastupdate = None
+            if cust_data.get('cust_LastUpdate'):
+                try:
+                    cust_lastupdate = datetime.fromisoformat(str(cust_data['cust_LastUpdate']).replace('Z', '+00:00'))
+                except:
+                    pass
+
+            # Parsear booleanos
+            def parse_bool(value):
+                if value is None:
+                    return None
+                if isinstance(value, bool):
+                    return value
+                if isinstance(value, str):
+                    return value.lower() in ('true', '1', 'yes')
+                return bool(value)
+
+            # Preparar datos
+            datos = {
+                'comp_id': comp_id,
+                'cust_id': cust_id_val,
+                'bra_id': cust_data.get('bra_id'),
+                'cust_name': cust_data.get('cust_name'),
+                'cust_name1': cust_data.get('cust_name1'),
+                'fc_id': cust_data.get('fc_id'),
+                'cust_taxNumber': cust_data.get('cust_taxNumber'),
+                'tnt_id': cust_data.get('tnt_id'),
+                'stcIB_Id': cust_data.get('stcIB_Id'),
+                'cust_taxIBNumber': cust_data.get('cust_taxIBNumber'),
+                'cust_web': cust_data.get('cust_web'),
+                'cust_contact': cust_data.get('cust_contact'),
+                'cust_phone1': cust_data.get('cust_phone1'),
+                'cust_phone2': cust_data.get('cust_phone2'),
+                'cust_cellPhone': cust_data.get('cust_cellPhone'),
+                'cust_cellPhone2': cust_data.get('cust_cellPhone2'),
+                'cust_email': cust_data.get('cust_email'),
+                'cust_fax': cust_data.get('cust_fax'),
+                'cust_whatsapp': cust_data.get('cust_whatsapp'),
+                'cust_address': cust_data.get('cust_address'),
+                'cust_city': cust_data.get('cust_city'),
+                'cust_zip': cust_data.get('cust_zip'),
+                'country_id': cust_data.get('country_id'),
+                'state_id': cust_data.get('state_id'),
+                'city_id': cust_data.get('city_id'),
+                'sm_id': cust_data.get('sm_id'),
+                'sm_id_2': cust_data.get('sm_id_2'),
+                'cust_inactive': parse_bool(cust_data.get('cust_inactive')),
+                'prli_id': cust_data.get('prli_id'),
+                'cust_MercadoLibreNickName': cust_data.get('cust_MercadoLibreNickName'),
+                'cust_MercadoLibreID': cust_data.get('cust_MercadoLibreID'),
+                'MLUser_Id': cust_data.get('MLUser_Id'),
+                'cust_cd': cust_cd,
+                'cust_LastUpdate': cust_lastupdate,
+            }
+
+            if cust_id_val in ids_existentes:
+                # Actualizar
+                db.query(TBCustomer).filter(
+                    TBCustomer.comp_id == comp_id,
+                    TBCustomer.cust_id == cust_id_val
+                ).update(datos)
+                actualizados += 1
+            else:
+                # Insertar
+                nuevo = TBCustomer(**datos)
+                db.add(nuevo)
+                insertados += 1
+
+            # Commit cada 500 registros
+            if (insertados + actualizados) % 500 == 0:
+                db.commit()
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Clientes sincronizados correctamente",
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "total": insertados + actualizados,
+            "rango": {
+                "from": from_cust_id or cust_id,
+                "to": to_cust_id or cust_id
+            }
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar clientes: {str(e)}")
 
 
 @router.post("/all")
