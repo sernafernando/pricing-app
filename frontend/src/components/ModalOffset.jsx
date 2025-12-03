@@ -39,6 +39,7 @@ export default function ModalOffset({
   const [nuevoGrupoNombre, setNuevoGrupoNombre] = useState('');
 
   const [nuevoOffset, setNuevoOffset] = useState({
+    modo: 'individual', // 'individual' o 'grupo'
     tipo: 'marca',
     valor: '',
     tipo_offset: 'monto_fijo',
@@ -116,12 +117,9 @@ export default function ModalOffset({
     if (busquedaOffsetProducto.length < 2) return;
     setBuscandoProductosOffset(true);
     try {
-      const response = await api.get(`${apiBasePath}/buscar-productos`, {
-        params: {
-          q: busquedaOffsetProducto,
-          fecha_desde: fechaDesde,
-          fecha_hasta: fechaHasta
-        }
+      // Usar endpoint genérico que busca en todos los productos del ERP
+      const response = await api.get('/api/buscar-productos-erp', {
+        params: { q: busquedaOffsetProducto }
       });
       setProductosOffsetEncontrados(response.data);
     } catch (error) {
@@ -143,6 +141,7 @@ export default function ModalOffset({
 
   const resetearFormOffset = () => {
     setNuevoOffset({
+      modo: 'individual',
       tipo: 'marca',
       valor: '',
       tipo_offset: 'monto_fijo',
@@ -163,6 +162,7 @@ export default function ModalOffset({
     setProductosOffsetEncontrados([]);
     setBusquedaOffsetProducto('');
     setEditandoOffset(null);
+    setMostrarFormGrupo(false);
   };
 
   const formatMoney = (valor) => {
@@ -251,7 +251,19 @@ export default function ModalOffset({
 
   const editarOffset = (offset) => {
     setEditandoOffset(offset.id);
+    cargarOffsetEnForm(offset);
+  };
+
+  const clonarOffset = (offset) => {
+    setEditandoOffset(null); // No estamos editando, es nuevo
+    cargarOffsetEnForm(offset);
+  };
+
+  const cargarOffsetEnForm = (offset) => {
+    // Si tiene grupo_id, es modo grupo
+    const tieneGrupo = !!offset.grupo_id;
     setNuevoOffset({
+      modo: tieneGrupo ? 'grupo' : 'individual',
       tipo: offset.item_id ? 'producto' : offset.subcategoria_id ? 'subcategoria' : offset.categoria ? 'categoria' : 'marca',
       valor: offset.item_id?.toString() || offset.subcategoria_id?.toString() || offset.categoria || offset.marca || '',
       tipo_offset: offset.tipo_offset || 'monto_fijo',
@@ -288,21 +300,43 @@ export default function ModalOffset({
 
   if (!mostrar) return null;
 
-  const muestraCondiciones = nuevoOffset.tipo_offset === 'monto_por_unidad';
+  const esGrupo = nuevoOffset.modo === 'grupo';
 
   return (
     <div className={styles.modalOverlay} onClick={handleClose}>
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <h3>Gestionar Offsets de Ganancia</h3>
-        <p style={{ fontSize: '0.85em', color: '#666', marginBottom: '1rem' }}>
+        <p className={styles.tcActual}>
           TC actual: {tipoCambioHoy ? `$${tipoCambioHoy.toFixed(2)}` : 'Cargando...'}
         </p>
 
         <div className={styles.offsetForm}>
           <h4>{editandoOffset ? 'Editar Offset' : 'Nuevo Offset'}</h4>
 
-          {/* Tipo de Offset */}
+          {/* Modo: Individual o Grupo */}
           <div className={styles.formRow}>
+            <div>
+              <label>Modo:</label>
+              <select
+                value={nuevoOffset.modo}
+                onChange={e => {
+                  const newModo = e.target.value;
+                  setNuevoOffset({
+                    ...nuevoOffset,
+                    modo: newModo,
+                    tipo: newModo === 'grupo' ? 'producto' : nuevoOffset.tipo,
+                    grupo_id: ''
+                  });
+                  if (newModo === 'individual') {
+                    setProductosOffsetSeleccionados([]);
+                  }
+                }}
+                disabled={editandoOffset}
+              >
+                <option value="individual">Individual</option>
+                <option value="grupo">Grupo de productos</option>
+              </select>
+            </div>
             <div>
               <label>Tipo de Offset:</label>
               <select
@@ -314,28 +348,34 @@ export default function ModalOffset({
                 <option value="porcentaje_costo">% sobre Costo</option>
               </select>
             </div>
-            <div>
-              <label>Aplicar a:</label>
-              <select
-                value={nuevoOffset.tipo}
-                onChange={e => {
-                  setNuevoOffset({ ...nuevoOffset, tipo: e.target.value, valor: '' });
-                  setProductosOffsetSeleccionados([]);
-                }}
-                disabled={editandoOffset}
-              >
-                <option value="marca">Marca</option>
-                <option value="categoria">Categoria</option>
-                <option value="subcategoria">Subcategoria</option>
-                <option value="producto">Producto(s)</option>
-              </select>
-            </div>
           </div>
 
-          {/* Selector segun tipo */}
-          {nuevoOffset.tipo === 'marca' && (
+          {/* Aplicar a (solo en modo individual) */}
+          {!esGrupo && (
             <div className={styles.formRow}>
-              <div style={{ flex: 1 }}>
+              <div>
+                <label>Aplicar a:</label>
+                <select
+                  value={nuevoOffset.tipo}
+                  onChange={e => {
+                    setNuevoOffset({ ...nuevoOffset, tipo: e.target.value, valor: '' });
+                    setProductosOffsetSeleccionados([]);
+                  }}
+                  disabled={editandoOffset}
+                >
+                  <option value="marca">Marca</option>
+                  <option value="categoria">Categoria</option>
+                  <option value="subcategoria">Subcategoria</option>
+                  <option value="producto">Producto(s)</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Selector segun tipo (solo modo individual) */}
+          {!esGrupo && nuevoOffset.tipo === 'marca' && (
+            <div className={styles.formRow}>
+              <div>
                 <label>Marca:</label>
                 <select
                   value={nuevoOffset.valor}
@@ -350,9 +390,9 @@ export default function ModalOffset({
             </div>
           )}
 
-          {nuevoOffset.tipo === 'categoria' && (
+          {!esGrupo && nuevoOffset.tipo === 'categoria' && (
             <div className={styles.formRow}>
-              <div style={{ flex: 1 }}>
+              <div>
                 <label>Categoria:</label>
                 <select
                   value={nuevoOffset.valor}
@@ -367,9 +407,9 @@ export default function ModalOffset({
             </div>
           )}
 
-          {nuevoOffset.tipo === 'subcategoria' && (
+          {!esGrupo && nuevoOffset.tipo === 'subcategoria' && (
             <div className={styles.formRow}>
-              <div style={{ flex: 1 }}>
+              <div>
                 <label>Subcategoria:</label>
                 <select
                   value={nuevoOffset.valor}
@@ -384,7 +424,8 @@ export default function ModalOffset({
             </div>
           )}
 
-          {nuevoOffset.tipo === 'producto' && !editandoOffset && (
+          {/* Busqueda de productos: modo individual con tipo producto O modo grupo */}
+          {((!esGrupo && nuevoOffset.tipo === 'producto') || esGrupo) && !editandoOffset && (
             <>
               {productosOffsetSeleccionados.length > 0 && (
                 <div className={styles.productosSeleccionados}>
@@ -491,19 +532,18 @@ export default function ModalOffset({
             </div>
           )}
 
-          {/* Condiciones para monto_por_unidad */}
-          {muestraCondiciones && (
+          {/* Seleccion de grupo (modo grupo) */}
+          {esGrupo && (
             <>
-              <div className={styles.formRow} style={{ backgroundColor: '#f8f9fa', padding: '0.5rem', borderRadius: '4px' }}>
+              <div className={styles.formRowHighlight}>
                 <div>
-                  <label>Grupo (opcional):</label>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <label>Grupo:</label>
+                  <div className={styles.grupoSelector}>
                     <select
                       value={nuevoOffset.grupo_id}
                       onChange={e => setNuevoOffset({ ...nuevoOffset, grupo_id: e.target.value })}
-                      style={{ flex: 1 }}
                     >
-                      <option value="">Sin grupo</option>
+                      <option value="">Seleccionar o crear grupo...</option>
                       {grupos.map(g => (
                         <option key={g.id} value={g.id}>{g.nombre}</option>
                       ))}
@@ -512,35 +552,17 @@ export default function ModalOffset({
                       type="button"
                       onClick={() => setMostrarFormGrupo(!mostrarFormGrupo)}
                       className={styles.btnBuscar}
-                      style={{ padding: '0.25rem 0.5rem' }}
+                      title="Crear nuevo grupo"
                     >
                       +
                     </button>
                   </div>
                 </div>
-                <div>
-                  <label>Max. Unidades:</label>
-                  <input
-                    type="number"
-                    placeholder="Ej: 200"
-                    value={nuevoOffset.max_unidades}
-                    onChange={e => setNuevoOffset({ ...nuevoOffset, max_unidades: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label>Max. Monto USD:</label>
-                  <input
-                    type="number"
-                    placeholder="Ej: 2000"
-                    value={nuevoOffset.max_monto_usd}
-                    onChange={e => setNuevoOffset({ ...nuevoOffset, max_monto_usd: e.target.value })}
-                  />
-                </div>
               </div>
 
               {mostrarFormGrupo && (
-                <div className={styles.formRow} style={{ backgroundColor: '#e3f2fd', padding: '0.5rem', borderRadius: '4px' }}>
-                  <div style={{ flex: 1 }}>
+                <div className={styles.formRowBlue}>
+                  <div>
                     <label>Nombre del nuevo grupo:</label>
                     <input
                       type="text"
@@ -549,26 +571,51 @@ export default function ModalOffset({
                       onChange={e => setNuevoGrupoNombre(e.target.value)}
                     />
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.25rem' }}>
-                    <button onClick={crearGrupo} className={styles.btnGuardar} style={{ padding: '0.5rem' }}>
+                  <div className={styles.grupoSelector}>
+                    <button onClick={crearGrupo} className={styles.btnGuardar}>
                       Crear
                     </button>
-                    <button onClick={() => setMostrarFormGrupo(false)} className={styles.btnCancelar} style={{ padding: '0.5rem' }}>
+                    <button onClick={() => setMostrarFormGrupo(false)} className={styles.btnCancelar}>
                       X
                     </button>
                   </div>
                 </div>
               )}
-
-              <p style={{ fontSize: '0.75em', color: '#666', margin: '0.25rem 0' }}>
-                Si se asigna grupo, los limites aplican a la suma de todas las ventas del grupo en el periodo.
-              </p>
             </>
+          )}
+
+          {/* Limites (solo para monto_por_unidad) */}
+          {nuevoOffset.tipo_offset === 'monto_por_unidad' && (
+            <div className={styles.formRowHighlight}>
+              <div>
+                <label>Max. Unidades:</label>
+                <input
+                  type="number"
+                  placeholder="Ej: 200"
+                  value={nuevoOffset.max_unidades}
+                  onChange={e => setNuevoOffset({ ...nuevoOffset, max_unidades: e.target.value })}
+                />
+              </div>
+              <div>
+                <label>Max. Monto USD:</label>
+                <input
+                  type="number"
+                  placeholder="Ej: 2000"
+                  value={nuevoOffset.max_monto_usd}
+                  onChange={e => setNuevoOffset({ ...nuevoOffset, max_monto_usd: e.target.value })}
+                />
+              </div>
+              {esGrupo && (
+                <p className={styles.limitesHint}>
+                  Los limites aplican al grupo completo
+                </p>
+              )}
+            </div>
           )}
 
           {/* Descripcion */}
           <div className={styles.formRow}>
-            <div style={{ flex: 1 }}>
+            <div>
               <label>Descripcion:</label>
               <input
                 type="text"
@@ -600,9 +647,9 @@ export default function ModalOffset({
           </div>
 
           {/* Canales de aplicacion */}
-          <div className={styles.formRow} style={{ backgroundColor: 'rgba(255,255,255,0.05)', padding: '0.5rem', borderRadius: '4px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+          <div className={styles.formRowHighlight}>
+            <div className={styles.checkboxRow}>
+              <label className={styles.checkboxLabel}>
                 <input
                   type="checkbox"
                   checked={nuevoOffset.aplica_ml}
@@ -610,7 +657,7 @@ export default function ModalOffset({
                 />
                 Aplica en Metricas ML
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+              <label className={styles.checkboxLabel}>
                 <input
                   type="checkbox"
                   checked={nuevoOffset.aplica_fuera}
@@ -674,13 +721,13 @@ export default function ModalOffset({
                         : `${offset.moneda === 'USD' ? 'USD ' : '$'}${offset.monto}`
                       }
                     </td>
-                    <td style={{ fontSize: '0.75em' }}>
+                    <td className={styles.tdSmall}>
                       {offset.aplica_ml !== false && 'ML'}
                       {offset.aplica_ml !== false && offset.aplica_fuera !== false && ' / '}
                       {offset.aplica_fuera !== false && 'Fuera'}
                     </td>
                     <td>{offset.grupo_nombre || '-'}</td>
-                    <td style={{ fontSize: '0.8em' }}>
+                    <td className={styles.tdMedium}>
                       {offset.max_unidades ? `${offset.max_unidades}u` : ''}
                       {offset.max_unidades && offset.max_monto_usd ? ' / ' : ''}
                       {offset.max_monto_usd ? `$${offset.max_monto_usd}` : ''}
@@ -691,7 +738,14 @@ export default function ModalOffset({
                       {formatFecha(offset.fecha_desde)}
                       {offset.fecha_hasta ? ` a ${formatFecha(offset.fecha_hasta)}` : '+'}
                     </td>
-                    <td>
+                    <td className={styles.accionesOffset}>
+                      <button
+                        onClick={() => clonarOffset(offset)}
+                        className={styles.btnClonar}
+                        title="Clonar"
+                      >
+                        📋
+                      </button>
                       <button
                         onClick={() => editarOffset(offset)}
                         className={styles.btnEditar}
@@ -716,28 +770,14 @@ export default function ModalOffset({
 
         {/* Seccion de grupos */}
         {grupos.length > 0 && (
-          <div className={styles.offsetsLista} style={{ marginTop: '1rem' }}>
+          <div className={`${styles.offsetsLista} ${styles.gruposSeccion}`}>
             <h4>Grupos de Offsets</h4>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div className={styles.gruposList}>
               {grupos.map(g => (
-                <div key={g.id} style={{
-                  padding: '0.25rem 0.5rem',
-                  backgroundColor: '#e3f2fd',
-                  borderRadius: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem'
-                }}>
+                <div key={g.id} className={styles.grupoChip}>
                   <span>{g.nombre}</span>
                   <button
                     onClick={() => eliminarGrupo(g.id)}
-                    style={{
-                      border: 'none',
-                      background: 'none',
-                      cursor: 'pointer',
-                      color: '#999',
-                      fontSize: '0.8em'
-                    }}
                     title="Eliminar grupo"
                   >
                     x

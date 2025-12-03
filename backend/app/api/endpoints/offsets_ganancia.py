@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, text
 from typing import List, Optional
 from datetime import date
 from pydantic import BaseModel
@@ -457,3 +457,40 @@ async def obtener_tipo_cambio(
         }
 
     return {"tipo_cambio": 1000.0, "fecha": None}  # Default fallback
+
+
+class ProductoBusquedaGeneral(BaseModel):
+    item_id: int
+    codigo: str
+    descripcion: str
+    marca: Optional[str] = None
+
+
+@router.get("/buscar-productos-erp", response_model=List[ProductoBusquedaGeneral])
+async def buscar_productos_erp(
+    q: str = Query(..., min_length=2, description="Buscar por código o descripción"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Busca productos en el ERP por código o descripción (todos, no solo los que tienen ventas)"""
+    query = """
+    SELECT DISTINCT i.item_id, i.item_code, i.item_desc, b.bra_name
+    FROM tb_item i
+    LEFT JOIN tb_brand b ON i.bra_id = b.bra_id
+    WHERE (i.item_code ILIKE :buscar OR i.item_desc ILIKE :buscar)
+      AND i.item_disabled = false
+    ORDER BY i.item_code
+    LIMIT 50
+    """
+
+    result = db.execute(text(query), {"buscar": f"%{q}%"}).fetchall()
+
+    return [
+        ProductoBusquedaGeneral(
+            item_id=r.item_id,
+            codigo=r.item_code or str(r.item_id),
+            descripcion=r.item_desc or "",
+            marca=r.bra_name
+        )
+        for r in result
+    ]

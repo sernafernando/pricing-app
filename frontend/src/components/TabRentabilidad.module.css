@@ -907,3 +907,167 @@
   font-size: 1.2rem;
   line-height: 1;
 }
+
+/* ============================================
+   Estilos para Modal Offset mejorado
+   ============================================ */
+
+.tcActual {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+
+.formRowHighlight {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.formRowHighlight input,
+.formRowHighlight select {
+  flex: 1;
+  padding: 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.formRowHighlight label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.formRowHighlight > div {
+  flex: 1;
+}
+
+.formRowBlue {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  background: rgba(59, 130, 246, 0.1);
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.formRowBlue input,
+.formRowBlue select {
+  flex: 1;
+  padding: 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.formRowBlue label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.formRowBlue > div {
+  flex: 1;
+}
+
+.grupoSelector {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.grupoSelector select {
+  flex: 1;
+}
+
+.grupoSelector button {
+  padding: 0.25rem 0.5rem;
+}
+
+.limitesHint {
+  font-size: 0.75em;
+  color: var(--text-secondary);
+  margin: 0;
+  align-self: center;
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.gruposSeccion {
+  margin-top: 1rem;
+}
+
+.gruposList {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.grupoChip {
+  padding: 0.25rem 0.5rem;
+  background: rgba(59, 130, 246, 0.15);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-primary);
+}
+
+.grupoChip button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.8em;
+}
+
+.grupoChip button:hover {
+  color: #ef4444;
+}
+
+.btnClonar {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  opacity: 0.6;
+  margin-right: 0.25rem;
+}
+
+.btnClonar:hover {
+  opacity: 1;
+}
+
+.accionesOffset {
+  display: flex;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.tdSmall {
+  font-size: 0.75em;
+}
+
+.tdMedium {
+  font-size: 0.8em;
+}
