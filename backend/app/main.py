@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
-from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, producto_banlist, ventas_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog, tienda_nube, gbp_parser, notificaciones, offsets_ganancia, rentabilidad
+from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, producto_banlist, ventas_ml, ventas_fuera_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog, tienda_nube, gbp_parser, notificaciones, offsets_ganancia, rentabilidad
 
 app = FastAPI(
     title="Pricing API",
@@ -33,6 +33,7 @@ app.include_router(marcas_pm.router, prefix="/api", tags=["marcas-pm"])
 app.include_router(mla_banlist.router, prefix="/api", tags=["mla-banlist"])
 app.include_router(producto_banlist.router, prefix="/api", tags=["producto-banlist"])
 app.include_router(ventas_ml.router, prefix="/api", tags=["ventas-ml"])
+app.include_router(ventas_fuera_ml.router, prefix="/api", tags=["ventas-fuera-ml"])
 app.include_router(commercial_transactions.router, prefix="/api", tags=["commercial-transactions"])
 app.include_router(comisiones.router, prefix="/api", tags=["comisiones"])
 app.include_router(calculos.router, prefix="/api", tags=["calculos"])
