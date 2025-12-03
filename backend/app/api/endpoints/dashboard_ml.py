@@ -298,8 +298,11 @@ async def get_ventas_por_dia(
     """
     Obtiene ventas agrupadas por día
     """
+    # Truncar fecha_venta a solo fecha (sin hora) para agrupar correctamente
+    fecha_truncada = func.date(MLVentaMetrica.fecha_venta)
+
     query = db.query(
-        MLVentaMetrica.fecha_venta,
+        fecha_truncada.label('fecha'),
         func.sum(MLVentaMetrica.monto_total).label('total_ventas'),
         func.sum(MLVentaMetrica.monto_limpio).label('total_limpio'),
         func.sum(MLVentaMetrica.ganancia).label('total_ganancia'),
@@ -314,11 +317,11 @@ async def get_ventas_por_dia(
         fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
         query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
 
-    resultados = query.group_by(MLVentaMetrica.fecha_venta).order_by(MLVentaMetrica.fecha_venta).all()
+    resultados = query.group_by(fecha_truncada).order_by(fecha_truncada).all()
 
     return [
         VentaDiariaResponse(
-            fecha=r.fecha_venta.date() if isinstance(r.fecha_venta, datetime) else r.fecha_venta,
+            fecha=r.fecha,
             total_ventas=r.total_ventas or Decimal('0'),
             total_limpio=r.total_limpio or Decimal('0'),
             total_ganancia=r.total_ganancia or Decimal('0'),

@@ -683,6 +683,11 @@
   font-weight: 600;
 }
 
+.markupRegular {
+  color: #f59e0b !important;
+  font-weight: 600;
+}
+
 .markupMalo {
   color: #ef4444 !important;
   font-weight: 600;

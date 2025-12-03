@@ -552,7 +552,7 @@ export default function DashboardMetricasML() {
                         </div>
                         <div className={styles.rankingMeta}>
                           <span>Ganancia: {formatearMoneda(item.total_ganancia)}</span>
-                          <span className={parseFloat(item.markup_porcentaje) >= 15 ? styles.markupBueno : parseFloat(item.markup_porcentaje) < 10 ? styles.markupMalo : ''}>
+                          <span className={parseFloat(item.markup_porcentaje) >= 15 ? styles.markupBueno : parseFloat(item.markup_porcentaje) >= 10 ? styles.markupRegular : styles.markupMalo}>
                             {formatearPorcentaje(item.markup_porcentaje)} mkp
                           </span>
                           <span>{item.cantidad_operaciones} ops</span>
@@ -586,7 +586,7 @@ export default function DashboardMetricasML() {
                         </div>
                         <div className={styles.rankingMeta}>
                           <span>Ganancia: {formatearMoneda(item.total_ganancia)}</span>
-                          <span className={parseFloat(item.markup_porcentaje) >= 15 ? styles.markupBueno : parseFloat(item.markup_porcentaje) < 10 ? styles.markupMalo : ''}>
+                          <span className={parseFloat(item.markup_porcentaje) >= 15 ? styles.markupBueno : parseFloat(item.markup_porcentaje) >= 10 ? styles.markupRegular : styles.markupMalo}>
                             {formatearPorcentaje(item.markup_porcentaje)} mkp
                           </span>
                         </div>
