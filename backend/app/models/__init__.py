@@ -18,6 +18,7 @@ from app.models.notificacion import Notificacion
 from app.models.tb_customer import TBCustomer
 from app.models.tb_branch import TBBranch
 from app.models.tb_salesman import TBSalesman
+from app.models.tb_document_file import TBDocumentFile
 
 __all__ = [
     "ProductoERP",
@@ -43,5 +44,6 @@ __all__ = [
     "Notificacion",
     "TBCustomer",
     "TBBranch",
-    "TBSalesman"
+    "TBSalesman",
+    "TBDocumentFile"
 ]

@@ -18,6 +18,7 @@ from app.models.tb_supplier import TBSupplier
 from app.models.tb_customer import TBCustomer
 from app.models.tb_branch import TBBranch
 from app.models.tb_salesman import TBSalesman
+from app.models.tb_document_file import TBDocumentFile
 
 
 router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"])
@@ -771,6 +772,90 @@ async def sync_salesmen(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al sincronizar vendedores: {str(e)}")
+
+
+@router.post("/document-files")
+async def sync_document_files(
+    df_id: Optional[int] = Query(None, description="ID de documento específico"),
+    bra_id: Optional[int] = Query(None, description="ID de sucursal"),
+    db: Session = Depends(get_db)
+):
+    """
+    Sincroniza tipos de documento desde el ERP a PostgreSQL
+
+    - Si se proporciona df_id, sincroniza solo ese documento
+    - Si se proporciona bra_id, sincroniza solo documentos de esa sucursal
+    - Si no se proporcionan filtros, sincroniza todos
+    """
+    try:
+        documents = await erp_worker_client.get_document_files(
+            df_id=df_id,
+            bra_id=bra_id
+        )
+
+        insertados = 0
+        actualizados = 0
+
+        for doc_data in documents:
+            df_id_val = doc_data.get('df_id')
+            bra_id_val = doc_data.get('bra_id')
+            if not df_id_val or not bra_id_val:
+                continue
+
+            comp_id = doc_data.get('comp_id', 1)
+
+            # Parsear booleanos
+            def parse_bool(value):
+                if value is None:
+                    return None
+                if isinstance(value, bool):
+                    return value
+                if isinstance(value, str):
+                    return value.lower() in ('true', '1', 'yes')
+                return bool(value)
+
+            # Verificar si existe (PK compuesta: comp_id, bra_id, df_id)
+            existente = db.query(TBDocumentFile).filter(
+                TBDocumentFile.comp_id == comp_id,
+                TBDocumentFile.bra_id == bra_id_val,
+                TBDocumentFile.df_id == df_id_val
+            ).first()
+
+            # Preparar datos (columnas lowercase, .get() con camelCase del ERP)
+            datos = {
+                'comp_id': comp_id,
+                'bra_id': bra_id_val,
+                'df_id': df_id_val,
+                'df_desc': doc_data.get('df_desc'),
+                'df_pointofsale': doc_data.get('df_pointOfSale'),
+                'df_number': doc_data.get('df_number'),
+                'df_tonumber': doc_data.get('df_toNumber'),
+                'df_disabled': parse_bool(doc_data.get('df_Disabled')),
+                'df_iselectronicinvoice': parse_bool(doc_data.get('df_isElectronicInvoice')),
+            }
+
+            if existente:
+                for key, value in datos.items():
+                    setattr(existente, key, value)
+                actualizados += 1
+            else:
+                nuevo = TBDocumentFile(**datos)
+                db.add(nuevo)
+                insertados += 1
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Tipos de documento sincronizados correctamente",
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "total": insertados + actualizados
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar tipos de documento: {str(e)}")
 
 
 @router.post("/all")

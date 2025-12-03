@@ -259,6 +259,29 @@ class ERPWorkerClient:
 
         return await self._fetch("scriptSalesman", params)
 
+    async def get_document_files(
+        self,
+        df_id: Optional[int] = None,
+        bra_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene tipos de documento del ERP
+
+        Args:
+            df_id: ID de documento específico (opcional)
+            bra_id: ID de sucursal (opcional)
+
+        Returns:
+            Lista de tipos de documento
+        """
+        params = {}
+        if df_id:
+            params["dfID"] = df_id
+        if bra_id:
+            params["braID"] = bra_id
+
+        return await self._fetch("scriptDocumentFile", params)
+
 
 # Instancia singleton del cliente
 erp_worker_client = ERPWorkerClient()
