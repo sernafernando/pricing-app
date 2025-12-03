@@ -486,25 +486,38 @@ async def get_ventas_fuera_ml_stats(
         {"from_date": from_date, "to_date": to_date + " 23:59:59"}
     ).fetchone()
 
-    # Stats por sucursal
+    # Stats por sucursal (usando CTE igual que el principal para consistencia)
     sucursal_query = f"""
+    WITH ventas AS (
+        SELECT
+            tb.bra_desc as sucursal,
+            CASE
+                WHEN tct.sd_id IN (1, 4, 21, 56) THEN tit.it_qty
+                WHEN tct.sd_id IN (3, 6, 23, 66) THEN -tit.it_qty
+                ELSE tit.it_qty
+            END as cantidad,
+            tit.it_price * tit.it_qty *
+            CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END as precio_sin_iva
+        FROM tb_item ti
+        LEFT JOIN tb_item_transactions tit ON tit.comp_id = ti.comp_id AND tit.item_id = ti.item_id
+        LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
+        LEFT JOIN tb_branch tb ON tb.comp_id = ti.comp_id AND tb.bra_id = tct.bra_id
+        WHERE tct.ct_date BETWEEN :from_date AND :to_date
+            AND tct.df_id IN ({DF_IDS_STR})
+            AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
+            AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
+            AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
+            AND tit.it_price <> 0
+            AND tit.it_qty <> 0
+            AND tct.sd_id IN ({SD_IDS_STR})
+    )
     SELECT
-        tb.bra_desc as sucursal,
+        sucursal,
         COUNT(*) as total_ventas,
-        SUM(tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END) as unidades,
-        SUM(tit.it_price * tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END) as monto
-    FROM tb_item_transactions tit
-    LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-    LEFT JOIN tb_branch tb ON tb.comp_id = tit.comp_id AND tb.bra_id = tct.bra_id
-    WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN ({DF_IDS_STR})
-        AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
-        AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
-        AND tit.it_price <> 0
-        AND tit.it_qty <> 0
-        AND tct.sd_id IN ({SD_IDS_STR})
-    GROUP BY tb.bra_desc
+        COALESCE(SUM(cantidad), 0) as unidades,
+        COALESCE(SUM(precio_sin_iva), 0) as monto
+    FROM ventas
+    GROUP BY sucursal
     ORDER BY monto DESC
     """
 
@@ -513,25 +526,38 @@ async def get_ventas_fuera_ml_stats(
         {"from_date": from_date, "to_date": to_date + " 23:59:59"}
     ).fetchall()
 
-    # Stats por vendedor
+    # Stats por vendedor (usando CTE igual que el principal para consistencia)
     vendedor_query = f"""
+    WITH ventas AS (
+        SELECT
+            tsm.sm_name as vendedor,
+            CASE
+                WHEN tct.sd_id IN (1, 4, 21, 56) THEN tit.it_qty
+                WHEN tct.sd_id IN (3, 6, 23, 66) THEN -tit.it_qty
+                ELSE tit.it_qty
+            END as cantidad,
+            tit.it_price * tit.it_qty *
+            CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END as precio_sin_iva
+        FROM tb_item ti
+        LEFT JOIN tb_item_transactions tit ON tit.comp_id = ti.comp_id AND tit.item_id = ti.item_id
+        LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
+        LEFT JOIN tb_salesman tsm ON tsm.sm_id = tct.sm_id
+        WHERE tct.ct_date BETWEEN :from_date AND :to_date
+            AND tct.df_id IN ({DF_IDS_STR})
+            AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
+            AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
+            AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
+            AND tit.it_price <> 0
+            AND tit.it_qty <> 0
+            AND tct.sd_id IN ({SD_IDS_STR})
+    )
     SELECT
-        tsm.sm_name as vendedor,
+        vendedor,
         COUNT(*) as total_ventas,
-        SUM(tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END) as unidades,
-        SUM(tit.it_price * tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END) as monto
-    FROM tb_item_transactions tit
-    LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-    LEFT JOIN tb_salesman tsm ON tsm.sm_id = tct.sm_id
-    WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN ({DF_IDS_STR})
-        AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
-        AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
-        AND tit.it_price <> 0
-        AND tit.it_qty <> 0
-        AND tct.sd_id IN ({SD_IDS_STR})
-    GROUP BY tsm.sm_name
+        COALESCE(SUM(cantidad), 0) as unidades,
+        COALESCE(SUM(precio_sin_iva), 0) as monto
+    FROM ventas
+    GROUP BY vendedor
     ORDER BY monto DESC
     """
 
