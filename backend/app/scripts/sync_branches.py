@@ -5,6 +5,7 @@ Usa el Cloudflare Worker / gbp-parser para obtener los datos.
 Ejecutar:
     python -m app.scripts.sync_branches
     python -m app.scripts.sync_branches --bra-id 1
+    python -m app.scripts.sync_branches --from-id 1 --to-id 100
 """
 import sys
 from pathlib import Path
@@ -29,12 +30,18 @@ logger = logging.getLogger(__name__)
 WORKER_URL = "http://localhost:8002/api/gbp-parser"
 
 
-def fetch_branches_from_erp(bra_id: int = None):
+def fetch_branches_from_erp(
+    bra_id: int = None,
+    from_bra_id: int = None,
+    to_bra_id: int = None
+):
     """
     Obtiene sucursales desde el ERP vía gbp-parser.
 
     Args:
         bra_id: ID de sucursal específica
+        from_bra_id: ID desde (para paginación)
+        to_bra_id: ID hasta (para paginación)
 
     Returns:
         Lista de registros
@@ -45,6 +52,10 @@ def fetch_branches_from_erp(bra_id: int = None):
 
     if bra_id:
         params['braID'] = bra_id
+    if from_bra_id:
+        params['frombraID'] = from_bra_id
+    if to_bra_id:
+        params['tobraID'] = to_bra_id
 
     logger.info(f"Consultando ERP con params: {params}")
 
@@ -76,12 +87,18 @@ def parse_bool(value):
     return bool(value)
 
 
-def sync_branches(bra_id: int = None):
+def sync_branches(
+    bra_id: int = None,
+    from_bra_id: int = None,
+    to_bra_id: int = None
+):
     """
     Sincroniza sucursales desde el ERP.
 
     Args:
         bra_id: ID específico de sucursal (opcional)
+        from_bra_id: ID desde (para paginación)
+        to_bra_id: ID hasta (para paginación)
     """
     db_local = None
 
@@ -94,7 +111,11 @@ def sync_branches(bra_id: int = None):
         total_actualizados = 0
 
         # Obtener registros del ERP
-        registros_erp = fetch_branches_from_erp(bra_id=bra_id)
+        registros_erp = fetch_branches_from_erp(
+            bra_id=bra_id,
+            from_bra_id=from_bra_id,
+            to_bra_id=to_bra_id
+        )
 
         logger.info(f"Recibidos {len(registros_erp)} registros del ERP")
 
@@ -253,7 +274,21 @@ if __name__ == "__main__":
         type=int,
         help='ID de sucursal específica'
     )
+    parser.add_argument(
+        '--from-id',
+        type=int,
+        help='ID de sucursal desde'
+    )
+    parser.add_argument(
+        '--to-id',
+        type=int,
+        help='ID de sucursal hasta'
+    )
 
     args = parser.parse_args()
 
-    sync_branches(bra_id=args.bra_id)
+    sync_branches(
+        bra_id=args.bra_id,
+        from_bra_id=args.from_id,
+        to_bra_id=args.to_id
+    )
