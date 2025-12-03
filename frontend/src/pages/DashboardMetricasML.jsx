@@ -419,154 +419,206 @@ export default function DashboardMetricasML() {
       ) : metricasGenerales ? (
         /* Tab de Resumen */
         <>
-          {/* Métricas Generales */}
-          <div className={styles.metricasGrid}>
-            <div className={styles.metricaCard}>
-              <div className={styles.metricaLabel}>💰 Total Ventas ML</div>
-              <div className={styles.metricaValue}>
-                {formatearMoneda(metricasGenerales.total_ventas_ml)}
-              </div>
-              <div className={styles.metricaSubtext}>
-                {metricasGenerales.cantidad_operaciones} operaciones
-              </div>
-            </div>
-
-            <div className={styles.metricaCard}>
-              <div className={styles.metricaLabel}>✨ Total Limpio</div>
-              <div className={styles.metricaValue}>
-                {formatearMoneda(metricasGenerales.total_limpio)}
-              </div>
-              <div className={styles.metricaSubtext}>
-                Después de comisiones y envío
+          {/* KPIs Principales - 3 cards grandes */}
+          <div className={styles.kpisContainer}>
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiIcon}>💰</div>
+              <div className={styles.kpiContent}>
+                <div className={styles.kpiLabel}>Total Facturado</div>
+                <div className={styles.kpiValue}>{formatearMoneda(metricasGenerales.total_ventas_ml)}</div>
+                <div className={styles.kpiStats}>
+                  <span>{metricasGenerales.cantidad_operaciones} ventas</span>
+                  <span className={styles.kpiDivider}>•</span>
+                  <span>{metricasGenerales.cantidad_unidades} unidades</span>
+                </div>
               </div>
             </div>
 
-            <div className={styles.metricaCard}>
-              <div className={styles.metricaLabel}>📈 Total Ganancia</div>
-              <div className={styles.metricaValue}>
-                {formatearMoneda(metricasGenerales.total_ganancia)}
-              </div>
-              <div className={styles.metricaSubtext}>
-                {metricasGenerales.cantidad_unidades} unidades vendidas
-              </div>
-            </div>
-
-            <div className={styles.metricaCard}>
-              <div className={styles.metricaLabel}>📊 Markup %</div>
-              <div className={styles.metricaValue}>
-                {formatearPorcentaje(metricasGenerales.markup_porcentaje)}
-              </div>
-              <div className={styles.metricaSubtext}>
-                Costo Total: {formatearMoneda(metricasGenerales.total_costo)}
+            <div className={`${styles.kpiCard} ${styles.kpiGanancia}`}>
+              <div className={styles.kpiIcon}>📈</div>
+              <div className={styles.kpiContent}>
+                <div className={styles.kpiLabel}>Ganancia Neta</div>
+                <div className={styles.kpiValue}>{formatearMoneda(metricasGenerales.total_ganancia)}</div>
+                <div className={styles.kpiStats}>
+                  <span className={styles.kpiHighlight}>{formatearPorcentaje(metricasGenerales.markup_porcentaje)} markup</span>
+                  <span className={styles.kpiDivider}>•</span>
+                  <span>Costo: {formatearMoneda(metricasGenerales.total_costo)}</span>
+                </div>
               </div>
             </div>
 
-            <div className={styles.metricaCard}>
-              <div className={styles.metricaLabel}>💳 Comisiones ML</div>
-              <div className={styles.metricaValue}>
-                {formatearMoneda(metricasGenerales.total_comisiones)}
-              </div>
-              <div className={styles.metricaSubtext}>
-                {formatearPorcentaje((metricasGenerales.total_comisiones / metricasGenerales.total_ventas_ml) * 100)} del total
-              </div>
-            </div>
-
-            <div className={styles.metricaCard}>
-              <div className={styles.metricaLabel}>🚚 Costos Envío</div>
-              <div className={styles.metricaValue}>
-                {formatearMoneda(metricasGenerales.total_envios)}
-              </div>
-              <div className={styles.metricaSubtext}>
-                {formatearPorcentaje((metricasGenerales.total_envios / metricasGenerales.total_ventas_ml) * 100)} del total
+            <div className={`${styles.kpiCard} ${styles.kpiLimpio}`}>
+              <div className={styles.kpiIcon}>✨</div>
+              <div className={styles.kpiContent}>
+                <div className={styles.kpiLabel}>Neto después de ML</div>
+                <div className={styles.kpiValue}>{formatearMoneda(metricasGenerales.total_limpio)}</div>
+                <div className={styles.kpiStats}>
+                  <span>{formatearPorcentaje((metricasGenerales.total_limpio / metricasGenerales.total_ventas_ml) * 100)} del facturado</span>
+                </div>
               </div>
             </div>
           </div>
+
+          {/* Métricas secundarias en fila */}
+          <div className={styles.metricsRow}>
+            <div className={styles.metricMini}>
+              <span className={styles.metricMiniLabel}>Ticket Promedio</span>
+              <span className={styles.metricMiniValue}>
+                {formatearMoneda(metricasGenerales.total_ventas_ml / metricasGenerales.cantidad_operaciones)}
+              </span>
+            </div>
+            <div className={styles.metricMini}>
+              <span className={styles.metricMiniLabel}>Ganancia/Venta</span>
+              <span className={styles.metricMiniValue}>
+                {formatearMoneda(metricasGenerales.total_ganancia / metricasGenerales.cantidad_operaciones)}
+              </span>
+            </div>
+            <div className={styles.metricMini}>
+              <span className={styles.metricMiniLabel}>Unids/Venta</span>
+              <span className={styles.metricMiniValue}>
+                {(metricasGenerales.cantidad_unidades / metricasGenerales.cantidad_operaciones).toFixed(1)}
+              </span>
+            </div>
+            <div className={styles.metricMini}>
+              <span className={styles.metricMiniLabel}>Comisiones ML</span>
+              <span className={styles.metricMiniValue} style={{ color: '#ef4444' }}>
+                -{formatearMoneda(metricasGenerales.total_comisiones)}
+              </span>
+              <span className={styles.metricMiniPercent}>
+                {formatearPorcentaje((metricasGenerales.total_comisiones / metricasGenerales.total_ventas_ml) * 100)}
+              </span>
+            </div>
+            <div className={styles.metricMini}>
+              <span className={styles.metricMiniLabel}>Envíos</span>
+              <span className={styles.metricMiniValue} style={{ color: '#ef4444' }}>
+                -{formatearMoneda(metricasGenerales.total_envios)}
+              </span>
+              <span className={styles.metricMiniPercent}>
+                {formatearPorcentaje((metricasGenerales.total_envios / metricasGenerales.total_ventas_ml) * 100)}
+              </span>
+            </div>
+          </div>
+
+          {/* Gráfico de barras - Ventas por día */}
+          {ventasPorDia.length > 0 && (
+            <div className={styles.chartBarCard}>
+              <h3 className={styles.chartTitle}>📅 Ventas por Día</h3>
+              <div className={styles.barChart}>
+                {(() => {
+                  const maxVenta = Math.max(...ventasPorDia.map(d => d.total_ventas));
+                  return ventasPorDia.slice(-14).map((dia, idx) => (
+                    <div key={idx} className={styles.barGroup}>
+                      <div className={styles.barContainer}>
+                        <div
+                          className={styles.bar}
+                          style={{ height: `${(dia.total_ventas / maxVenta) * 100}%` }}
+                          title={`${formatearMoneda(dia.total_ventas)} - ${dia.cantidad_operaciones} ops`}
+                        >
+                          <span className={styles.barValue}>{formatearMoneda(dia.total_ventas).replace('$', '').replace('.', '')}</span>
+                        </div>
+                      </div>
+                      <div className={styles.barLabel}>
+                        {new Date(dia.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
+                      </div>
+                      <div className={styles.barOps}>{dia.cantidad_operaciones}</div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+          )}
 
           {/* Gráficos y Tablas */}
           <div className={styles.chartsGrid}>
             {/* Ventas por Marca */}
             <div className={styles.chartCard}>
-              <h3 className={styles.chartTitle}>🏷️ Ventas por Marca</h3>
-              <div className={styles.tableWrapper}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Marca</th>
-                      <th>Ventas</th>
-                      <th>Ganancia</th>
-                      <th>Markup</th>
-                      <th>Ops</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ventasPorMarca.slice(0, 10).map((item, idx) => (
-                      <tr key={idx}>
-                        <td>{item.marca}</td>
-                        <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
-                        <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>
-                        <td className={styles.centrado}>{formatearPorcentaje(item.markup_porcentaje)}</td>
-                        <td className={styles.centrado}>{item.cantidad_operaciones}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <h3 className={styles.chartTitle}>🏷️ Top Marcas</h3>
+              <div className={styles.rankingList}>
+                {(() => {
+                  const maxVenta = ventasPorMarca[0]?.total_ventas || 1;
+                  return ventasPorMarca.slice(0, 8).map((item, idx) => (
+                    <div key={idx} className={styles.rankingItem}>
+                      <div className={styles.rankingPosition}>{idx + 1}</div>
+                      <div className={styles.rankingContent}>
+                        <div className={styles.rankingHeader}>
+                          <span className={styles.rankingName}>{item.marca}</span>
+                          <span className={styles.rankingAmount}>{formatearMoneda(item.total_ventas)}</span>
+                        </div>
+                        <div className={styles.rankingBarBg}>
+                          <div
+                            className={styles.rankingBar}
+                            style={{ width: `${(item.total_ventas / maxVenta) * 100}%` }}
+                          />
+                        </div>
+                        <div className={styles.rankingMeta}>
+                          <span>Ganancia: {formatearMoneda(item.total_ganancia)}</span>
+                          <span className={parseFloat(item.markup_porcentaje) >= 15 ? styles.markupBueno : parseFloat(item.markup_porcentaje) < 10 ? styles.markupMalo : ''}>
+                            {formatearPorcentaje(item.markup_porcentaje)} mkp
+                          </span>
+                          <span>{item.cantidad_operaciones} ops</span>
+                        </div>
+                      </div>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
 
             {/* Ventas por Categoría */}
             <div className={styles.chartCard}>
-              <h3 className={styles.chartTitle}>📦 Ventas por Categoría</h3>
-              <div className={styles.tableWrapper}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Categoría</th>
-                      <th>Ventas</th>
-                      <th>Ganancia</th>
-                      <th>Markup</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ventasPorCategoria.slice(0, 10).map((item, idx) => (
-                      <tr key={idx}>
-                        <td>{item.categoria}</td>
-                        <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
-                        <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>
-                        <td className={styles.centrado}>{formatearPorcentaje(item.markup_porcentaje)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <h3 className={styles.chartTitle}>📦 Top Categorías</h3>
+              <div className={styles.rankingList}>
+                {(() => {
+                  const maxVenta = ventasPorCategoria[0]?.total_ventas || 1;
+                  return ventasPorCategoria.slice(0, 8).map((item, idx) => (
+                    <div key={idx} className={styles.rankingItem}>
+                      <div className={styles.rankingPosition}>{idx + 1}</div>
+                      <div className={styles.rankingContent}>
+                        <div className={styles.rankingHeader}>
+                          <span className={styles.rankingName}>{item.categoria}</span>
+                          <span className={styles.rankingAmount}>{formatearMoneda(item.total_ventas)}</span>
+                        </div>
+                        <div className={styles.rankingBarBg}>
+                          <div
+                            className={`${styles.rankingBar} ${styles.rankingBarCategoria}`}
+                            style={{ width: `${(item.total_ventas / maxVenta) * 100}%` }}
+                          />
+                        </div>
+                        <div className={styles.rankingMeta}>
+                          <span>Ganancia: {formatearMoneda(item.total_ganancia)}</span>
+                          <span className={parseFloat(item.markup_porcentaje) >= 15 ? styles.markupBueno : parseFloat(item.markup_porcentaje) < 10 ? styles.markupMalo : ''}>
+                            {formatearPorcentaje(item.markup_porcentaje)} mkp
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
+          </div>
 
+          {/* Segunda fila: Logística */}
+          <div className={styles.chartsGridSmall}>
             {/* Ventas por Logística */}
             <div className={styles.chartCard}>
-              <h3 className={styles.chartTitle}>🚚 Ventas por Tipo de Envío</h3>
-              <div className={styles.tableWrapper}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Tipo</th>
-                      <th>Ventas</th>
-                      <th>Costo Envío</th>
-                      <th>Ops</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ventasPorLogistica.map((item, idx) => (
-                      <tr key={idx}>
-                        <td>{getTipoLogistica(item.tipo_logistica)}</td>
-                        <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
-                        <td className={styles.monto}>{formatearMoneda(item.total_envios)}</td>
-                        <td className={styles.centrado}>{item.cantidad_operaciones}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <h3 className={styles.chartTitle}>🚚 Por Tipo de Envío</h3>
+              <div className={styles.logisticaGrid}>
+                {ventasPorLogistica.map((item, idx) => (
+                  <div key={idx} className={styles.logisticaCard}>
+                    <div className={styles.logisticaIcon}>{getTipoLogistica(item.tipo_logistica).split(' ')[0]}</div>
+                    <div className={styles.logisticaInfo}>
+                      <div className={styles.logisticaNombre}>{getTipoLogistica(item.tipo_logistica).split(' ').slice(1).join(' ')}</div>
+                      <div className={styles.logisticaVentas}>{formatearMoneda(item.total_ventas)}</div>
+                      <div className={styles.logisticaMeta}>
+                        <span>{item.cantidad_operaciones} ops</span>
+                        <span className={styles.logisticaEnvio}>Envío: {formatearMoneda(item.total_envios)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-
           </div>
 
           {/* Top Productos (ancho completo) */}
