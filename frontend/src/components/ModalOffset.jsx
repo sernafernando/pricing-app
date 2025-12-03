@@ -689,10 +689,12 @@ export default function ModalOffset({
               <thead>
                 <tr>
                   <th>Aplica a</th>
+                  <th>Tipo</th>
                   <th>Offset</th>
                   <th>Descripcion</th>
                   <th>Periodo</th>
-                  <th>Acciones</th>
+                  <th>Canal</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -701,16 +703,25 @@ export default function ModalOffset({
                                offset.subcategoria_id ? 'Subcat' :
                                offset.categoria ? 'Cat' : 'Marca';
                   const valor = offset.item_id || offset.subcategoria_id || offset.categoria || offset.marca;
+
+                  const tipoLabel = offset.tipo_offset === 'porcentaje_costo' ? '% Costo' :
+                                   offset.tipo_offset === 'monto_por_unidad' ? '$/unidad' : 'Fijo';
+
                   const montoStr = offset.tipo_offset === 'porcentaje_costo'
                     ? `${offset.porcentaje}%`
-                    : `${offset.moneda === 'USD' ? 'U$' : '$'}${offset.monto}${offset.tipo_offset === 'monto_por_unidad' ? '/u' : ''}`;
+                    : `${offset.moneda === 'USD' ? 'U$' : '$'}${offset.monto}`;
+
+                  const canalStr = offset.aplica_ml && offset.aplica_fuera ? 'Ambos' :
+                                  offset.aplica_ml ? 'ML' :
+                                  offset.aplica_fuera ? 'Fuera' : '-';
 
                   return (
                     <tr key={offset.id} className={editandoOffset === offset.id ? styles.editando : ''}>
                       <td>
                         <span className={styles.tdSmall}>{nivel}:</span> {valor}
-                        {offset.grupo_nombre && <span className={styles.tdSmall}> ({offset.grupo_nombre})</span>}
+                        {offset.grupo_nombre && <><br/><span className={styles.tdSmall}>Grupo: {offset.grupo_nombre}</span></>}
                       </td>
+                      <td className={styles.tdSmall}>{tipoLabel}</td>
                       <td>
                         {montoStr}
                         {offset.max_unidades && <span className={styles.tdSmall}> (max {offset.max_unidades}u)</span>}
@@ -719,6 +730,7 @@ export default function ModalOffset({
                       <td className={styles.tdSmall}>
                         {formatFecha(offset.fecha_desde)}{offset.fecha_hasta ? ` - ${formatFecha(offset.fecha_hasta)}` : '+'}
                       </td>
+                      <td className={styles.tdSmall}>{canalStr}</td>
                       <td className={styles.accionesOffset}>
                         <button onClick={() => clonarOffset(offset)} className={styles.btnClonar} title="Clonar">📋</button>
                         <button onClick={() => editarOffset(offset)} className={styles.btnEditar} title="Editar">✏️</button>
