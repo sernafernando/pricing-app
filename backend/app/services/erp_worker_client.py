@@ -213,6 +213,25 @@ class ERPWorkerClient:
 
         return await self._fetch("scriptCustomer", params)
 
+    async def get_branches(
+        self,
+        bra_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene sucursales del ERP
+
+        Args:
+            bra_id: ID de sucursal específica (opcional)
+
+        Returns:
+            Lista de sucursales
+        """
+        params = {}
+        if bra_id:
+            params["braID"] = bra_id
+
+        return await self._fetch("scriptBranch", params)
+
 
 # Instancia singleton del cliente
 erp_worker_client = ERPWorkerClient()

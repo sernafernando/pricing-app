@@ -16,6 +16,7 @@ from app.models.tb_tax_name import TBTaxName
 from app.models.tb_item_taxes import TBItemTaxes
 from app.models.tb_supplier import TBSupplier
 from app.models.tb_customer import TBCustomer
+from app.models.tb_branch import TBBranch
 
 
 router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"])
@@ -604,6 +605,83 @@ async def sync_customers(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al sincronizar clientes: {str(e)}")
+
+
+@router.post("/branches")
+async def sync_branches(
+    bra_id: Optional[int] = Query(None, description="ID de sucursal específica"),
+    db: Session = Depends(get_db)
+):
+    """
+    Sincroniza sucursales desde el ERP a PostgreSQL
+
+    - Si se proporciona bra_id, sincroniza solo esa sucursal
+    - Si no, sincroniza todas las sucursales
+    """
+    try:
+        branches = await erp_worker_client.get_branches(bra_id=bra_id)
+
+        insertados = 0
+        actualizados = 0
+
+        for bra_data in branches:
+            bra_id_val = bra_data.get('bra_id')
+            if not bra_id_val:
+                continue
+
+            comp_id = bra_data.get('comp_id', 1)
+
+            # Parsear booleanos
+            def parse_bool(value):
+                if value is None:
+                    return None
+                if isinstance(value, bool):
+                    return value
+                if isinstance(value, str):
+                    return value.lower() in ('true', '1', 'yes')
+                return bool(value)
+
+            # Verificar si existe
+            existente = db.query(TBBranch).filter(
+                TBBranch.comp_id == comp_id,
+                TBBranch.bra_id == bra_id_val
+            ).first()
+
+            datos = {
+                'comp_id': comp_id,
+                'bra_id': bra_id_val,
+                'bra_desc': bra_data.get('bra_desc'),
+                'bra_maindesc': bra_data.get('bra_MainDesc'),
+                'country_id': bra_data.get('country_id'),
+                'state_id': bra_data.get('state_id'),
+                'bra_address': bra_data.get('bra_address'),
+                'bra_phone': bra_data.get('bra_phone'),
+                'bra_taxnumber': bra_data.get('bra_taxNumber'),
+                'bra_disabled': parse_bool(bra_data.get('bra_disabled')),
+            }
+
+            if existente:
+                for key, value in datos.items():
+                    setattr(existente, key, value)
+                actualizados += 1
+            else:
+                nuevo = TBBranch(**datos)
+                db.add(nuevo)
+                insertados += 1
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Sucursales sincronizadas correctamente",
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "total": insertados + actualizados
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar sucursales: {str(e)}")
 
 
 @router.post("/all")
