@@ -20,6 +20,7 @@ from app.models.tb_branch import TBBranch
 from app.models.tb_salesman import TBSalesman
 from app.models.tb_document_file import TBDocumentFile
 from app.models.tb_fiscal_class import TBFiscalClass
+from app.models.tb_tax_number_type import TBTaxNumberType
 
 
 router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"])
@@ -917,6 +918,64 @@ async def sync_fiscal_classes(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al sincronizar clases fiscales: {str(e)}")
+
+
+@router.post("/tax-number-types")
+async def sync_tax_number_types(
+    tnt_id: Optional[int] = Query(None, description="ID de tipo específico"),
+    db: Session = Depends(get_db)
+):
+    """
+    Sincroniza tipos de número de impuesto desde el ERP a PostgreSQL
+
+    - Si se proporciona tnt_id, sincroniza solo ese tipo
+    - Si no se proporcionan filtros, sincroniza todos
+    """
+    try:
+        tax_number_types = await erp_worker_client.get_tax_number_types(tnt_id=tnt_id)
+
+        insertados = 0
+        actualizados = 0
+
+        for tnt_data in tax_number_types:
+            tnt_id_val = tnt_data.get('tnt_id')
+            if not tnt_id_val:
+                continue
+
+            # Verificar si existe
+            existente = db.query(TBTaxNumberType).filter(
+                TBTaxNumberType.tnt_id == tnt_id_val
+            ).first()
+
+            # Preparar datos
+            datos = {
+                'tnt_id': tnt_id_val,
+                'tnt_desc': tnt_data.get('tnt_desc'),
+                'tnt_afip': tnt_data.get('tnt_afip'),
+            }
+
+            if existente:
+                for key, value in datos.items():
+                    setattr(existente, key, value)
+                actualizados += 1
+            else:
+                nuevo = TBTaxNumberType(**datos)
+                db.add(nuevo)
+                insertados += 1
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Tipos de número de impuesto sincronizados correctamente",
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "total": insertados + actualizados
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar tipos de número de impuesto: {str(e)}")
 
 
 @router.post("/all")

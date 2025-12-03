@@ -301,6 +301,25 @@ class ERPWorkerClient:
 
         return await self._fetch("scriptFiscalClass", params)
 
+    async def get_tax_number_types(
+        self,
+        tnt_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene tipos de número de impuesto del ERP
+
+        Args:
+            tnt_id: ID de tipo específico (opcional)
+
+        Returns:
+            Lista de tipos de número de impuesto
+        """
+        params = {}
+        if tnt_id:
+            params["tntID"] = tnt_id
+
+        return await self._fetch("scriptTaxNumberType", params)
+
 
 # Instancia singleton del cliente
 erp_worker_client = ERPWorkerClient()
