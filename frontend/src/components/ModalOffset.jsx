@@ -688,81 +688,45 @@ export default function ModalOffset({
             <table className={styles.offsetsTable}>
               <thead>
                 <tr>
-                  <th>Nivel</th>
-                  <th>Valor</th>
-                  <th>Tipo</th>
-                  <th>Monto/Valor</th>
-                  <th>Aplica</th>
-                  <th>Grupo</th>
-                  <th>Limites</th>
+                  <th>Aplica a</th>
+                  <th>Offset</th>
                   <th>Descripcion</th>
                   <th>Periodo</th>
-                  <th></th>
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {offsets.map(offset => (
-                  <tr key={offset.id} className={editandoOffset === offset.id ? styles.editando : ''}>
-                    <td>
-                      {offset.item_id ? 'Producto' :
-                       offset.subcategoria_id ? 'Subcategoria' :
-                       offset.categoria ? 'Categoria' : 'Marca'}
-                    </td>
-                    <td>
-                      {offset.item_id || offset.subcategoria_id || offset.categoria || offset.marca}
-                    </td>
-                    <td>
-                      {offset.tipo_offset === 'porcentaje_costo' ? '% Costo' :
-                       offset.tipo_offset === 'monto_por_unidad' ? 'Por Unidad' : 'Fijo'}
-                    </td>
-                    <td>
-                      {offset.tipo_offset === 'porcentaje_costo'
-                        ? `${offset.porcentaje}%`
-                        : `${offset.moneda === 'USD' ? 'USD ' : '$'}${offset.monto}`
-                      }
-                    </td>
-                    <td className={styles.tdSmall}>
-                      {offset.aplica_ml !== false && 'ML'}
-                      {offset.aplica_ml !== false && offset.aplica_fuera !== false && ' / '}
-                      {offset.aplica_fuera !== false && 'Fuera'}
-                    </td>
-                    <td>{offset.grupo_nombre || '-'}</td>
-                    <td className={styles.tdMedium}>
-                      {offset.max_unidades ? `${offset.max_unidades}u` : ''}
-                      {offset.max_unidades && offset.max_monto_usd ? ' / ' : ''}
-                      {offset.max_monto_usd ? `$${offset.max_monto_usd}` : ''}
-                      {!offset.max_unidades && !offset.max_monto_usd ? '-' : ''}
-                    </td>
-                    <td>{offset.descripcion}</td>
-                    <td>
-                      {formatFecha(offset.fecha_desde)}
-                      {offset.fecha_hasta ? ` a ${formatFecha(offset.fecha_hasta)}` : '+'}
-                    </td>
-                    <td className={styles.accionesOffset}>
-                      <button
-                        onClick={() => clonarOffset(offset)}
-                        className={styles.btnClonar}
-                        title="Clonar"
-                      >
-                        📋
-                      </button>
-                      <button
-                        onClick={() => editarOffset(offset)}
-                        className={styles.btnEditar}
-                        title="Editar"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => eliminarOffset(offset.id)}
-                        className={styles.btnEliminar}
-                        title="Eliminar"
-                      >
-                        🗑️
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {offsets.map(offset => {
+                  const nivel = offset.item_id ? 'Producto' :
+                               offset.subcategoria_id ? 'Subcat' :
+                               offset.categoria ? 'Cat' : 'Marca';
+                  const valor = offset.item_id || offset.subcategoria_id || offset.categoria || offset.marca;
+                  const montoStr = offset.tipo_offset === 'porcentaje_costo'
+                    ? `${offset.porcentaje}%`
+                    : `${offset.moneda === 'USD' ? 'U$' : '$'}${offset.monto}${offset.tipo_offset === 'monto_por_unidad' ? '/u' : ''}`;
+
+                  return (
+                    <tr key={offset.id} className={editandoOffset === offset.id ? styles.editando : ''}>
+                      <td>
+                        <span className={styles.tdSmall}>{nivel}:</span> {valor}
+                        {offset.grupo_nombre && <span className={styles.tdSmall}> ({offset.grupo_nombre})</span>}
+                      </td>
+                      <td>
+                        {montoStr}
+                        {offset.max_unidades && <span className={styles.tdSmall}> (max {offset.max_unidades}u)</span>}
+                      </td>
+                      <td>{offset.descripcion || '-'}</td>
+                      <td className={styles.tdSmall}>
+                        {formatFecha(offset.fecha_desde)}{offset.fecha_hasta ? ` - ${formatFecha(offset.fecha_hasta)}` : '+'}
+                      </td>
+                      <td className={styles.accionesOffset}>
+                        <button onClick={() => clonarOffset(offset)} className={styles.btnClonar} title="Clonar">📋</button>
+                        <button onClick={() => editarOffset(offset)} className={styles.btnEditar} title="Editar">✏️</button>
+                        <button onClick={() => eliminarOffset(offset.id)} className={styles.btnEliminar} title="Eliminar">🗑️</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
