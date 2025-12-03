@@ -425,7 +425,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                           <tr key={idx}>
                             <td>
                               <a
-                                href={`https://articulo.mercadolibre.com.ar/${pub.mla}`}
+                                href={`https://articulo.mercadolibre.com.ar/${pub.mla?.replace(/^(MLA)(\d+)$/, '$1-$2')}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 style={{ color: '#3b82f6', textDecoration: 'none' }}
