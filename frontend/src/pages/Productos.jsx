@@ -114,8 +114,10 @@ export default function Productos() {
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
 
-  // Columnas editables (solo precios)
-  const columnasEditables = ['precio_clasica', 'precio_rebate', 'mejor_oferta', 'precio_web_transf'];
+  // Columnas navegables según la vista activa
+  const columnasNavegablesNormal = ['precio_clasica', 'precio_rebate', 'mejor_oferta', 'precio_web_transf'];
+  const columnasNavegablesCuotas = ['precio_clasica', 'cuotas_3', 'cuotas_6', 'cuotas_9', 'cuotas_12'];
+  const columnasEditables = vistaModoCuotas ? columnasNavegablesCuotas : columnasNavegablesNormal;
 
   const debouncedSearch = useDebounce(searchInput, 500);
 
@@ -1553,6 +1555,10 @@ export default function Productos() {
       if (e.altKey && e.key === 'v') {
         e.preventDefault();
         setVistaModoCuotas(!vistaModoCuotas);
+        // Resetear columna activa para evitar ir a columnas ocultas
+        if (celdaActiva) {
+          setCeldaActiva({ ...celdaActiva, colIndex: 0 });
+        }
         return;
       }
 
@@ -1592,7 +1598,7 @@ export default function Productos() {
         const { rowIndex, colIndex } = celdaActiva;
 
         // Enter: Editar celda activa (igual que Espacio)
-        if (e.key === 'Enter' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
+        if (e.key === 'Enter' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
           const columna = columnasEditables[colIndex];
@@ -1601,7 +1607,7 @@ export default function Productos() {
         }
 
         // Flechas: Navegación por celdas (solo si NO estamos editando)
-        if (e.key === 'ArrowRight' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
+        if (e.key === 'ArrowRight' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
           e.preventDefault();
           if (colIndex < columnasEditables.length - 1) {
             setCeldaActiva({ rowIndex, colIndex: colIndex + 1 });
@@ -1609,7 +1615,7 @@ export default function Productos() {
           return;
         }
 
-        if (e.key === 'ArrowLeft' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
+        if (e.key === 'ArrowLeft' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
           e.preventDefault();
           if (colIndex > 0) {
             setCeldaActiva({ rowIndex, colIndex: colIndex - 1 });
@@ -1617,7 +1623,7 @@ export default function Productos() {
           return;
         }
 
-        if (e.key === 'ArrowDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
+        if (e.key === 'ArrowDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
           e.preventDefault();
           if (e.shiftKey) {
             // Shift+ArrowDown: Seleccionar siguiente fila
@@ -1637,7 +1643,7 @@ export default function Productos() {
           return;
         }
 
-        if (e.key === 'ArrowUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
+        if (e.key === 'ArrowUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
           e.preventDefault();
           if (e.shiftKey) {
             // Shift+ArrowUp: Seleccionar fila anterior
@@ -1658,7 +1664,7 @@ export default function Productos() {
         }
 
         // PageUp: Subir 10 filas (solo si NO estamos editando)
-        if (e.key === 'PageUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
+        if (e.key === 'PageUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
           e.preventDefault();
           const newRow = Math.max(0, rowIndex - 10);
           setCeldaActiva({ rowIndex: newRow, colIndex });
@@ -1666,7 +1672,7 @@ export default function Productos() {
         }
 
         // PageDown: Bajar 10 filas (solo si NO estamos editando)
-        if (e.key === 'PageDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
+        if (e.key === 'PageDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
           e.preventDefault();
           const newRow = Math.min(productos.length - 1, rowIndex + 10);
           setCeldaActiva({ rowIndex: newRow, colIndex });
@@ -1674,21 +1680,21 @@ export default function Productos() {
         }
 
         // Home: Ir a primera columna (solo si NO estamos editando)
-        if (e.key === 'Home' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
+        if (e.key === 'Home' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
           e.preventDefault();
           setCeldaActiva({ rowIndex, colIndex: 0 });
           return;
         }
 
         // End: Ir a última columna (solo si NO estamos editando)
-        if (e.key === 'End' && !editandoPrecio && !editandoRebate && !editandoWebTransf) {
+        if (e.key === 'End' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
           e.preventDefault();
           setCeldaActiva({ rowIndex, colIndex: columnasEditables.length - 1 });
           return;
         }
 
         // Espacio: Editar precio en celda activa (solo si NO estamos editando nada)
-        if (e.key === ' ' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
+        if (e.key === ' ' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
           const columna = columnasEditables[colIndex];
@@ -1742,7 +1748,7 @@ export default function Productos() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, mostrarFiltrosAvanzados, vistaModoCuotas, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarModalConfig, mostrarModalInfo]);
+  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, mostrarFiltrosAvanzados, vistaModoCuotas, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarModalConfig, mostrarModalInfo]);
 
   // Scroll automático para seguir la celda activa
   useEffect(() => {
@@ -1781,6 +1787,14 @@ export default function Productos() {
         participa: producto.participa_web_transferencia || false,
         porcentaje: producto.porcentaje_markup_web || 6.0
       });
+    } else if (columna === 'cuotas_3') {
+      iniciarEdicionCuota(producto, '3');
+    } else if (columna === 'cuotas_6') {
+      iniciarEdicionCuota(producto, '6');
+    } else if (columna === 'cuotas_9') {
+      iniciarEdicionCuota(producto, '9');
+    } else if (columna === 'cuotas_12') {
+      iniciarEdicionCuota(producto, '12');
     }
   };
 
@@ -2162,7 +2176,13 @@ export default function Productos() {
             <input
               type="checkbox"
               checked={vistaModoCuotas}
-              onChange={(e) => setVistaModoCuotas(e.target.checked)}
+              onChange={(e) => {
+                setVistaModoCuotas(e.target.checked);
+                // Resetear columna activa para evitar ir a columnas ocultas
+                if (celdaActiva) {
+                  setCeldaActiva({ ...celdaActiva, colIndex: 0 });
+                }
+              }}
               className="filter-checkbox"
             />
             <span className="filter-checkbox-text">
@@ -3306,7 +3326,7 @@ export default function Productos() {
                     ) : (
                       /* Vista Cuotas: 3, 6, 9, 12 cuotas */
                       <>
-                        <td>
+                        <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
                           {editandoCuota?.item_id === p.item_id && editandoCuota?.tipo === '3' ? (
                             <div className="inline-edit">
                               <input
@@ -3339,7 +3359,7 @@ export default function Productos() {
                             </div>
                           )}
                         </td>
-                        <td>
+                        <td className={isRowActive && celdaActiva?.colIndex === 2 ? 'keyboard-cell-active' : ''}>
                           {editandoCuota?.item_id === p.item_id && editandoCuota?.tipo === '6' ? (
                             <div className="inline-edit">
                               <input
@@ -3372,7 +3392,7 @@ export default function Productos() {
                             </div>
                           )}
                         </td>
-                        <td>
+                        <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
                           {editandoCuota?.item_id === p.item_id && editandoCuota?.tipo === '9' ? (
                             <div className="inline-edit">
                               <input
@@ -3405,7 +3425,7 @@ export default function Productos() {
                             </div>
                           )}
                         </td>
-                        <td>
+                        <td className={isRowActive && celdaActiva?.colIndex === 4 ? 'keyboard-cell-active' : ''}>
                           {editandoCuota?.item_id === p.item_id && editandoCuota?.tipo === '12' ? (
                             <div className="inline-edit">
                               <input
