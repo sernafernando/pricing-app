@@ -576,6 +576,15 @@
   cursor: pointer;
 }
 
+.barMax:hover {
+  background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
+  transform: scaleX(1.05);
+}
+
+.barMax:hover .barValue {
+  display: block;
+}
+
 .barMin {
   width: 80%;
   max-width: 60px;
@@ -587,12 +596,22 @@
   cursor: pointer;
 }
 
-.barMax:hover,
 .barMin:hover {
+  background: linear-gradient(180deg, #fca5a5 0%, #f87171 100%);
   transform: scaleX(1.05);
 }
 
+.barMin:hover .barValue {
+  display: block;
+}
+
 .barValueVisible {
+  display: block !important;
+}
+
+.barMax .barValueVisible,
+.barMin .barValueVisible,
+.bar .barValueVisible {
   display: block !important;
 }
 
