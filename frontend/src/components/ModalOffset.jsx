@@ -67,12 +67,12 @@ export default function ModalOffset({
     try {
       const [offsetsRes, tcRes] = await Promise.all([
         api.get('/api/offsets-ganancia'),
-        api.get('/api/tipo-cambio-hoy')
+        api.get('/api/tipo-cambio/actual')
       ]);
       setOffsets(offsetsRes.data);
-      if (tcRes.data.tipo_cambio) {
-        setTipoCambioHoy(tcRes.data.tipo_cambio);
-        setNuevoOffset(prev => ({ ...prev, tipo_cambio: tcRes.data.tipo_cambio.toString() }));
+      if (tcRes.data.valor) {
+        setTipoCambioHoy(tcRes.data.valor);
+        setNuevoOffset(prev => ({ ...prev, tipo_cambio: tcRes.data.valor.toString() }));
       }
     } catch (error) {
       console.error('Error cargando offsets:', error);
