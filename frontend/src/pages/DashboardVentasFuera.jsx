@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
+import TabRentabilidadFuera from '../components/TabRentabilidadFuera';
 
 export default function DashboardVentasFuera() {
   const [loading, setLoading] = useState(true);
@@ -8,7 +9,7 @@ export default function DashboardVentasFuera() {
   const [fechaHasta, setFechaHasta] = useState('');
   const [sucursalSeleccionada, setSucursalSeleccionada] = useState('');
   const [vendedorSeleccionado, setVendedorSeleccionado] = useState('');
-  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen' o 'operaciones'
+  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen', 'operaciones' o 'rentabilidad'
 
   // Datos
   const [stats, setStats] = useState(null);
@@ -214,6 +215,12 @@ export default function DashboardVentasFuera() {
           >
             📋 Detalle de Operaciones
           </button>
+          <button
+            className={`${styles.tab} ${tabActivo === 'rentabilidad' ? styles.tabActivo : ''}`}
+            onClick={() => setTabActivo('rentabilidad')}
+          >
+            💹 Rentabilidad
+          </button>
         </div>
 
         {/* Filtros Rápidos */}
@@ -296,13 +303,17 @@ export default function DashboardVentasFuera() {
             </>
           )}
 
-          <button onClick={tabActivo === 'resumen' ? cargarDashboard : cargarOperaciones} className={styles.btnRecargar}>
-            🔄 Recargar
-          </button>
+          {tabActivo !== 'rentabilidad' && (
+            <button onClick={tabActivo === 'resumen' ? cargarDashboard : cargarOperaciones} className={styles.btnRecargar}>
+              🔄 Recargar
+            </button>
+          )}
         </div>
       </div>
 
-      {loading ? (
+      {tabActivo === 'rentabilidad' ? (
+        <TabRentabilidadFuera fechaDesde={fechaDesde} fechaHasta={fechaHasta} />
+      ) : loading ? (
         <div className={styles.loading}>Cargando...</div>
       ) : tabActivo === 'operaciones' ? (
         /* Tab de Detalle de Operaciones */
