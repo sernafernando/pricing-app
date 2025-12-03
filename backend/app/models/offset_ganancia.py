@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -25,7 +25,7 @@ class OffsetGanancia(Base):
     # Tipo de offset
     tipo_offset = Column(String(20), default='monto_fijo')  # 'monto_fijo', 'monto_por_unidad', 'porcentaje_costo'
 
-    # Moneda (para monto_por_unidad)
+    # Moneda (para monto_fijo y monto_por_unidad)
     moneda = Column(String(3), default='ARS')  # 'ARS', 'USD'
 
     # Tipo de cambio (para conversión USD -> ARS)
@@ -41,6 +41,17 @@ class OffsetGanancia(Base):
     fecha_desde = Column(Date, nullable=False)
     fecha_hasta = Column(Date, nullable=True)  # NULL = sin fecha fin
 
+    # Grupo de offsets (para límites compartidos)
+    grupo_id = Column(Integer, ForeignKey('offset_grupos.id'), index=True, nullable=True)
+
+    # Límites para offsets tipo monto_por_unidad
+    max_unidades = Column(Integer, nullable=True)  # Máximo de unidades que aplica el offset
+    max_monto_usd = Column(Float, nullable=True)   # Máximo monto en USD que aplica el offset
+
+    # Aplicación por canal
+    aplica_ml = Column(Boolean, default=True)         # Aplica a Métricas ML
+    aplica_fuera = Column(Boolean, default=True)      # Aplica a Ventas por Fuera de ML
+
     # Auditoría
     usuario_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
@@ -49,3 +60,4 @@ class OffsetGanancia(Base):
     # Relaciones
     usuario = relationship("Usuario", foreign_keys=[usuario_id])
     producto = relationship("ProductoERP", foreign_keys=[item_id])
+    grupo = relationship("OffsetGrupo", back_populates="offsets")

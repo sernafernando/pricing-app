@@ -7,11 +7,26 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
+from app.models.offset_grupo import OffsetGrupo
 from app.models.usuario import Usuario
 from app.models.cur_exch_history import CurExchHistory
 from app.api.deps import get_current_user
 
 router = APIRouter()
+
+
+class OffsetGrupoCreate(BaseModel):
+    nombre: str
+    descripcion: Optional[str] = None
+
+
+class OffsetGrupoResponse(BaseModel):
+    id: int
+    nombre: str
+    descripcion: Optional[str]
+
+    class Config:
+        from_attributes = True
 
 
 class OffsetGananciaCreate(BaseModel):
@@ -28,6 +43,13 @@ class OffsetGananciaCreate(BaseModel):
     descripcion: Optional[str] = None
     fecha_desde: date
     fecha_hasta: Optional[date] = None
+    # Nuevos campos para grupos y límites
+    grupo_id: Optional[int] = None
+    max_unidades: Optional[int] = None
+    max_monto_usd: Optional[float] = None
+    # Canales de aplicación
+    aplica_ml: bool = True
+    aplica_fuera: bool = True
 
 
 class OffsetGananciaUpdate(BaseModel):
@@ -43,6 +65,13 @@ class OffsetGananciaUpdate(BaseModel):
     descripcion: Optional[str] = None
     fecha_desde: Optional[date] = None
     fecha_hasta: Optional[date] = None
+    # Nuevos campos para grupos y límites
+    grupo_id: Optional[int] = None
+    max_unidades: Optional[int] = None
+    max_monto_usd: Optional[float] = None
+    # Canales de aplicación
+    aplica_ml: Optional[bool] = None
+    aplica_fuera: Optional[bool] = None
 
 
 class OffsetGananciaResponse(BaseModel):
@@ -60,9 +89,66 @@ class OffsetGananciaResponse(BaseModel):
     fecha_desde: date
     fecha_hasta: Optional[date]
     usuario_nombre: Optional[str] = None
+    # Nuevos campos
+    grupo_id: Optional[int] = None
+    grupo_nombre: Optional[str] = None
+    max_unidades: Optional[int] = None
+    max_monto_usd: Optional[float] = None
+    # Canales de aplicación
+    aplica_ml: bool = True
+    aplica_fuera: bool = True
 
     class Config:
         from_attributes = True
+
+
+@router.get("/offset-grupos", response_model=List[OffsetGrupoResponse])
+async def listar_grupos(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Lista todos los grupos de offsets"""
+    grupos = db.query(OffsetGrupo).order_by(OffsetGrupo.nombre).all()
+    return grupos
+
+
+@router.post("/offset-grupos", response_model=OffsetGrupoResponse)
+async def crear_grupo(
+    grupo: OffsetGrupoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Crea un nuevo grupo de offsets"""
+    nuevo_grupo = OffsetGrupo(
+        nombre=grupo.nombre,
+        descripcion=grupo.descripcion,
+        usuario_id=current_user.id
+    )
+    db.add(nuevo_grupo)
+    db.commit()
+    db.refresh(nuevo_grupo)
+    return nuevo_grupo
+
+
+@router.delete("/offset-grupos/{grupo_id}")
+async def eliminar_grupo(
+    grupo_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Elimina un grupo de offsets (solo si no tiene offsets asociados)"""
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    if not grupo:
+        raise HTTPException(404, "Grupo no encontrado")
+
+    # Verificar si tiene offsets asociados
+    offsets_count = db.query(OffsetGanancia).filter(OffsetGanancia.grupo_id == grupo_id).count()
+    if offsets_count > 0:
+        raise HTTPException(400, f"No se puede eliminar el grupo, tiene {offsets_count} offsets asociados")
+
+    db.delete(grupo)
+    db.commit()
+    return {"mensaje": "Grupo eliminado"}
 
 
 @router.get("/offsets-ganancia", response_model=List[OffsetGananciaResponse])
@@ -71,6 +157,7 @@ async def listar_offsets(
     categoria: Optional[str] = None,
     subcategoria_id: Optional[int] = None,
     item_id: Optional[int] = None,
+    grupo_id: Optional[int] = None,
     solo_vigentes: bool = False,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -86,6 +173,8 @@ async def listar_offsets(
         query = query.filter(OffsetGanancia.subcategoria_id == subcategoria_id)
     if item_id:
         query = query.filter(OffsetGanancia.item_id == item_id)
+    if grupo_id:
+        query = query.filter(OffsetGanancia.grupo_id == grupo_id)
 
     if solo_vigentes:
         hoy = date.today()
@@ -116,7 +205,13 @@ async def listar_offsets(
             descripcion=o.descripcion,
             fecha_desde=o.fecha_desde,
             fecha_hasta=o.fecha_hasta,
-            usuario_nombre=o.usuario.nombre if o.usuario else None
+            usuario_nombre=o.usuario.nombre if o.usuario else None,
+            grupo_id=o.grupo_id,
+            grupo_nombre=o.grupo.nombre if o.grupo else None,
+            max_unidades=o.max_unidades,
+            max_monto_usd=o.max_monto_usd,
+            aplica_ml=o.aplica_ml if o.aplica_ml is not None else True,
+            aplica_fuera=o.aplica_fuera if o.aplica_fuera is not None else True
         )
         for o in offsets
     ]
@@ -135,6 +230,12 @@ async def crear_offset(
     if offset.tipo_offset in ['monto_fijo', 'monto_por_unidad'] and offset.monto is None:
         raise HTTPException(400, "Debe especificar el monto para este tipo de offset")
 
+    # Validar grupo si se especifica
+    if offset.grupo_id:
+        grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == offset.grupo_id).first()
+        if not grupo:
+            raise HTTPException(400, "El grupo especificado no existe")
+
     # Si hay múltiples productos, crear un offset por cada uno
     if offset.item_ids and len(offset.item_ids) > 0:
         offsets_creados = []
@@ -149,6 +250,11 @@ async def crear_offset(
                 descripcion=offset.descripcion,
                 fecha_desde=offset.fecha_desde,
                 fecha_hasta=offset.fecha_hasta,
+                grupo_id=offset.grupo_id,
+                max_unidades=offset.max_unidades,
+                max_monto_usd=offset.max_monto_usd,
+                aplica_ml=offset.aplica_ml,
+                aplica_fuera=offset.aplica_fuera,
                 usuario_id=current_user.id
             )
             db.add(nuevo_offset)
@@ -183,6 +289,11 @@ async def crear_offset(
         descripcion=offset.descripcion,
         fecha_desde=offset.fecha_desde,
         fecha_hasta=offset.fecha_hasta,
+        grupo_id=offset.grupo_id,
+        max_unidades=offset.max_unidades,
+        max_monto_usd=offset.max_monto_usd,
+        aplica_ml=offset.aplica_ml,
+        aplica_fuera=offset.aplica_fuera,
         usuario_id=current_user.id
     )
 
@@ -204,7 +315,13 @@ async def crear_offset(
         descripcion=nuevo_offset.descripcion,
         fecha_desde=nuevo_offset.fecha_desde,
         fecha_hasta=nuevo_offset.fecha_hasta,
-        usuario_nombre=current_user.nombre
+        usuario_nombre=current_user.nombre,
+        grupo_id=nuevo_offset.grupo_id,
+        grupo_nombre=nuevo_offset.grupo.nombre if nuevo_offset.grupo else None,
+        max_unidades=nuevo_offset.max_unidades,
+        max_monto_usd=nuevo_offset.max_monto_usd,
+        aplica_ml=nuevo_offset.aplica_ml if nuevo_offset.aplica_ml is not None else True,
+        aplica_fuera=nuevo_offset.aplica_fuera if nuevo_offset.aplica_fuera is not None else True
     )
 
 
@@ -261,6 +378,21 @@ async def actualizar_offset(
         offset.fecha_desde = offset_update.fecha_desde
     if offset_update.fecha_hasta is not None:
         offset.fecha_hasta = offset_update.fecha_hasta
+    if offset_update.grupo_id is not None:
+        # Validar que el grupo exista
+        if offset_update.grupo_id > 0:
+            grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == offset_update.grupo_id).first()
+            if not grupo:
+                raise HTTPException(400, "El grupo especificado no existe")
+        offset.grupo_id = offset_update.grupo_id if offset_update.grupo_id > 0 else None
+    if offset_update.max_unidades is not None:
+        offset.max_unidades = offset_update.max_unidades if offset_update.max_unidades > 0 else None
+    if offset_update.max_monto_usd is not None:
+        offset.max_monto_usd = offset_update.max_monto_usd if offset_update.max_monto_usd > 0 else None
+    if offset_update.aplica_ml is not None:
+        offset.aplica_ml = offset_update.aplica_ml
+    if offset_update.aplica_fuera is not None:
+        offset.aplica_fuera = offset_update.aplica_fuera
 
     db.commit()
     db.refresh(offset)
@@ -279,7 +411,13 @@ async def actualizar_offset(
         descripcion=offset.descripcion,
         fecha_desde=offset.fecha_desde,
         fecha_hasta=offset.fecha_hasta,
-        usuario_nombre=offset.usuario.nombre if offset.usuario else None
+        usuario_nombre=offset.usuario.nombre if offset.usuario else None,
+        grupo_id=offset.grupo_id,
+        grupo_nombre=offset.grupo.nombre if offset.grupo else None,
+        max_unidades=offset.max_unidades,
+        max_monto_usd=offset.max_monto_usd,
+        aplica_ml=offset.aplica_ml if offset.aplica_ml is not None else True,
+        aplica_fuera=offset.aplica_fuera if offset.aplica_fuera is not None else True
     )
 
 
