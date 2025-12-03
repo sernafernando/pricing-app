@@ -17,6 +17,7 @@ from app.models.tb_item_taxes import TBItemTaxes
 from app.models.tb_supplier import TBSupplier
 from app.models.tb_customer import TBCustomer
 from app.models.tb_branch import TBBranch
+from app.models.tb_salesman import TBSalesman
 
 
 router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"])
@@ -682,6 +683,94 @@ async def sync_branches(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al sincronizar sucursales: {str(e)}")
+
+
+@router.post("/salesmen")
+async def sync_salesmen(
+    sm_id: Optional[int] = Query(None, description="ID de vendedor específico"),
+    from_sm_id: Optional[int] = Query(None, description="ID de vendedor desde (para paginación)"),
+    to_sm_id: Optional[int] = Query(None, description="ID de vendedor hasta (para paginación)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Sincroniza vendedores desde el ERP a PostgreSQL
+
+    - Si se proporciona sm_id, sincroniza solo ese vendedor
+    - Si se proporcionan from_sm_id y to_sm_id, sincroniza el rango
+    - Si no se proporcionan filtros, sincroniza todos
+    """
+    try:
+        salesmen = await erp_worker_client.get_salesmen(
+            sm_id=sm_id,
+            from_sm_id=from_sm_id,
+            to_sm_id=to_sm_id
+        )
+
+        insertados = 0
+        actualizados = 0
+
+        # Obtener IDs existentes para este batch
+        sm_ids = [s.get('sm_id') for s in salesmen if s.get('sm_id')]
+        existing = db.query(TBSalesman.sm_id).filter(
+            TBSalesman.sm_id.in_(sm_ids)
+        ).all()
+        ids_existentes = {id[0] for id in existing}
+
+        for sm_data in salesmen:
+            sm_id_val = sm_data.get('sm_id')
+            if not sm_id_val:
+                continue
+
+            comp_id = sm_data.get('comp_id', 1)
+
+            # Parsear booleanos
+            def parse_bool(value):
+                if value is None:
+                    return None
+                if isinstance(value, bool):
+                    return value
+                if isinstance(value, str):
+                    return value.lower() in ('true', '1', 'yes')
+                return bool(value)
+
+            # Preparar datos (columnas lowercase, .get() con camelCase del ERP)
+            datos = {
+                'comp_id': comp_id,
+                'sm_id': sm_id_val,
+                'sm_name': sm_data.get('sm_name'),
+                'sm_email': sm_data.get('sm_email'),
+                'bra_id': sm_data.get('bra_id'),
+                'sm_commission_bysale': sm_data.get('sm_commission_bySale'),
+                'sm_commission_byreceive': sm_data.get('sm_commission_byReceive'),
+                'sm_disabled': parse_bool(sm_data.get('sm_disabled')),
+            }
+
+            if sm_id_val in ids_existentes:
+                # Actualizar
+                db.query(TBSalesman).filter(
+                    TBSalesman.comp_id == comp_id,
+                    TBSalesman.sm_id == sm_id_val
+                ).update(datos)
+                actualizados += 1
+            else:
+                # Insertar
+                nuevo = TBSalesman(**datos)
+                db.add(nuevo)
+                insertados += 1
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Vendedores sincronizados correctamente",
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "total": insertados + actualizados
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar vendedores: {str(e)}")
 
 
 @router.post("/all")

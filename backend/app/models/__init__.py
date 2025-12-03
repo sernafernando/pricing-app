@@ -17,6 +17,7 @@ from app.models.tb_item_serials import TbItemSerial
 from app.models.notificacion import Notificacion
 from app.models.tb_customer import TBCustomer
 from app.models.tb_branch import TBBranch
+from app.models.tb_salesman import TBSalesman
 
 __all__ = [
     "ProductoERP",
@@ -41,5 +42,6 @@ __all__ = [
     "TbItemSerial",
     "Notificacion",
     "TBCustomer",
-    "TBBranch"
+    "TBBranch",
+    "TBSalesman"
 ]

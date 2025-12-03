@@ -232,6 +232,33 @@ class ERPWorkerClient:
 
         return await self._fetch("scriptBranch", params)
 
+    async def get_salesmen(
+        self,
+        sm_id: Optional[int] = None,
+        from_sm_id: Optional[int] = None,
+        to_sm_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene vendedores del ERP
+
+        Args:
+            sm_id: ID de vendedor específico (opcional)
+            from_sm_id: ID desde (para paginación)
+            to_sm_id: ID hasta (para paginación)
+
+        Returns:
+            Lista de vendedores
+        """
+        params = {}
+        if sm_id:
+            params["smID"] = sm_id
+        if from_sm_id:
+            params["fromSmID"] = from_sm_id
+        if to_sm_id:
+            params["toSmID"] = to_sm_id
+
+        return await self._fetch("scriptSalesman", params)
+
 
 # Instancia singleton del cliente
 erp_worker_client = ERPWorkerClient()
