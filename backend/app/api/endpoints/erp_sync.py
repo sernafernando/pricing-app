@@ -21,6 +21,7 @@ from app.models.tb_salesman import TBSalesman
 from app.models.tb_document_file import TBDocumentFile
 from app.models.tb_fiscal_class import TBFiscalClass
 from app.models.tb_tax_number_type import TBTaxNumberType
+from app.models.tb_state import TBState
 
 
 router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"])
@@ -976,6 +977,77 @@ async def sync_tax_number_types(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al sincronizar tipos de número de impuesto: {str(e)}")
+
+
+@router.post("/states")
+async def sync_states(
+    country_id: Optional[int] = Query(54, description="ID de país (default 54 = Argentina)"),
+    state_id: Optional[int] = Query(None, description="ID de estado específico"),
+    db: Session = Depends(get_db)
+):
+    """
+    Sincroniza estados/provincias desde el ERP a PostgreSQL
+
+    - Por defecto sincroniza solo Argentina (country_id=54)
+    - Si se proporciona state_id, sincroniza solo ese estado
+    """
+    try:
+        states = await erp_worker_client.get_states(
+            country_id=country_id,
+            state_id=state_id
+        )
+
+        insertados = 0
+        actualizados = 0
+
+        for state_data in states:
+            country_id_val = state_data.get('country_id')
+            state_id_val = state_data.get('state_id')
+            if not country_id_val or not state_id_val:
+                continue
+
+            # Verificar si existe (PK compuesta: country_id, state_id)
+            existente = db.query(TBState).filter(
+                TBState.country_id == country_id_val,
+                TBState.state_id == state_id_val
+            ).first()
+
+            # Preparar datos (columnas lowercase, .get() con camelCase del ERP)
+            datos = {
+                'country_id': country_id_val,
+                'state_id': state_id_val,
+                'state_desc': state_data.get('state_desc'),
+                'state_afip': state_data.get('state_afip'),
+                'state_jurisdiccion': state_data.get('state_jurisdiccion'),
+                'state_arba_cot': state_data.get('state_arba_cot'),
+                'state_visatodopago': state_data.get('state_VISATodoPago'),
+                'country_visatodopago': state_data.get('country_VISATodopago'),
+                'mlstatedescription': state_data.get('MLStateDescription'),
+                'state_enviopackid': state_data.get('state_EnvioPackID'),
+            }
+
+            if existente:
+                for key, value in datos.items():
+                    setattr(existente, key, value)
+                actualizados += 1
+            else:
+                nuevo = TBState(**datos)
+                db.add(nuevo)
+                insertados += 1
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Estados/provincias sincronizados correctamente",
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "total": insertados + actualizados
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar estados/provincias: {str(e)}")
 
 
 @router.post("/all")

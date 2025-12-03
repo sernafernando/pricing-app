@@ -320,6 +320,29 @@ class ERPWorkerClient:
 
         return await self._fetch("scriptTaxNumberType", params)
 
+    async def get_states(
+        self,
+        country_id: Optional[int] = None,
+        state_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene estados/provincias del ERP
+
+        Args:
+            country_id: ID de país (opcional, default 54 para Argentina)
+            state_id: ID de estado específico (opcional)
+
+        Returns:
+            Lista de estados/provincias
+        """
+        params = {}
+        if country_id:
+            params["countryID"] = country_id
+        if state_id:
+            params["stateID"] = state_id
+
+        return await self._fetch("scriptState", params)
+
 
 # Instancia singleton del cliente
 erp_worker_client = ERPWorkerClient()

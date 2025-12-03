@@ -60,7 +60,8 @@ SCRIPT_CONFIG = {
     "scriptSalesman": ["smID", "fromSmID", "toSmID"],
     "scriptDocumentFile": ["dfID", "braID"],
     "scriptFiscalClass": ["fcID"],
-    "scriptTaxNumberType": ["tntID"]
+    "scriptTaxNumberType": ["tntID"],
+    "scriptState": ["countryID", "stateID"]
 }
 
 # Configuración de operaciones

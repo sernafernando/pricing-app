@@ -21,6 +21,7 @@ from app.models.tb_salesman import TBSalesman
 from app.models.tb_document_file import TBDocumentFile
 from app.models.tb_fiscal_class import TBFiscalClass
 from app.models.tb_tax_number_type import TBTaxNumberType
+from app.models.tb_state import TBState
 
 __all__ = [
     "ProductoERP",
@@ -49,5 +50,6 @@ __all__ = [
     "TBSalesman",
     "TBDocumentFile",
     "TBFiscalClass",
-    "TBTaxNumberType"
+    "TBTaxNumberType",
+    "TBState"
 ]
