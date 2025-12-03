@@ -86,11 +86,11 @@ class VentaFueraMLPorMarcaResponse(BaseModel):
 SD_VENTAS = [1, 4, 21, 56]
 SD_DEVOLUCIONES = [3, 6, 23, 66]
 
-# df_id permitidos para ventas (facturas, remitos, etc.)
-# Sucursal 45 (Grupo Gauss): 105-118, 124
-# Excluimos: 113, 114 (TN), 129-132 (MercadoLibre)
+# df_id permitidos para ventas (facturas, NC, ND, etc.)
+# Sucursal 45 (Grupo Gauss): 105, 106, 109, 111, 115, 116, 117, 118, 124
+# Excluimos: 107, 110 (Remitos), 112 (Recibos), 113, 114 (TN), 129-132 (MercadoLibre)
 DF_PERMITIDOS = [1, 2, 3, 4, 5, 6, 63, 85, 86, 87, 65, 67, 68, 69, 70, 71, 72, 73, 74, 81,
-                 105, 106, 107, 109, 110, 111, 112, 115, 116, 117, 118, 124]
+                 105, 106, 109, 111, 115, 116, 117, 118, 124]
 
 # Clientes excluidos
 CLIENTES_EXCLUIDOS = [11, 3900]
