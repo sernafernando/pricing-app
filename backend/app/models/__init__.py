@@ -15,6 +15,7 @@ from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.models.tb_item_serials import TbItemSerial
 from app.models.notificacion import Notificacion
+from app.models.tb_customer import TBCustomer
 
 __all__ = [
     "ProductoERP",
@@ -37,5 +38,6 @@ __all__ = [
     "MercadoLibreItemPublicado",
     "MLPublicationSnapshot",
     "TbItemSerial",
-    "Notificacion"
+    "Notificacion",
+    "TBCustomer"
 ]
