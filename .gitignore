@@ -55,3 +55,4 @@ Thumbs.db
 st_app.py
 
 backend/migrations/check_tb_item_serials_columns.sql
+backend/TABLAS_PENDIENTES.txt
