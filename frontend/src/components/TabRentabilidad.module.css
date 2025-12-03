@@ -291,6 +291,7 @@
   width: 90%;
   max-height: 80vh;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .modal h3 {
@@ -357,17 +358,16 @@
 
 .offsetsLista {
   margin-top: 1.5rem;
-  margin-left: -1.5rem;
-  margin-right: -1.5rem;
-  padding: 0 1.5rem;
-  overflow-x: auto;
+}
+
+.offsetsLista h4 {
+  margin-bottom: 0.5rem;
 }
 
 .offsetsTable {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
-  table-layout: fixed;
 }
 
 .offsetsTable th,
@@ -375,7 +375,6 @@
   padding: 0.6rem 0.5rem;
   text-align: left;
   border-bottom: 1px solid var(--border-color);
-  word-wrap: break-word;
 }
 
 .offsetsTable th {
