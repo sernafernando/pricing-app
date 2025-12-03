@@ -70,9 +70,9 @@ export default function ModalOffset({
         api.get('/api/tipo-cambio/actual')
       ]);
       setOffsets(offsetsRes.data);
-      if (tcRes.data.valor) {
-        setTipoCambioHoy(tcRes.data.valor);
-        setNuevoOffset(prev => ({ ...prev, tipo_cambio: tcRes.data.valor.toString() }));
+      if (tcRes.data.venta) {
+        setTipoCambioHoy(tcRes.data.venta);
+        setNuevoOffset(prev => ({ ...prev, tipo_cambio: tcRes.data.venta.toString() }));
       }
     } catch (error) {
       console.error('Error cargando offsets:', error);
