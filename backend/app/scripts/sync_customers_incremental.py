@@ -82,11 +82,9 @@ def parse_datetime(value):
     if not value:
         return None
     try:
-        # Intentar varios formatos
         if 'T' in str(value):
             return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
         else:
-            # Formato MM/DD/YYYY HH:MM:SS AM/PM
             return datetime.strptime(str(value), '%m/%d/%Y %I:%M:%S %p')
     except:
         return None
@@ -101,16 +99,6 @@ def parse_bool(value):
     if isinstance(value, str):
         return value.lower() in ('true', '1', 'yes')
     return bool(value)
-
-
-def parse_decimal(value):
-    """Parsea un valor decimal desde el ERP."""
-    if value is None or value == '':
-        return None
-    try:
-        return float(value)
-    except:
-        return None
 
 
 def sync_customers(
@@ -190,32 +178,20 @@ def sync_customers(
                 'fc_id': record.get('fc_id'),
                 'cust_taxNumber': record.get('cust_taxNumber'),
                 'tnt_id': record.get('tnt_id'),
-                'stcIB_Id': record.get('stcIB_Id'),
-                'cust_taxIBNumber': record.get('cust_taxIBNumber'),
-                'cust_web': record.get('cust_web'),
-                'cust_contact': record.get('cust_contact'),
-                'cust_phone1': record.get('cust_phone1'),
-                'cust_phone2': record.get('cust_phone2'),
-                'cust_cellPhone': record.get('cust_cellPhone'),
-                'cust_cellPhone2': record.get('cust_cellPhone2'),
-                'cust_email': record.get('cust_email'),
-                'cust_fax': record.get('cust_fax'),
-                'cust_whatsapp': record.get('cust_whatsapp'),
                 'cust_address': record.get('cust_address'),
                 'cust_city': record.get('cust_city'),
                 'cust_zip': record.get('cust_zip'),
                 'country_id': record.get('country_id'),
                 'state_id': record.get('state_id'),
-                'city_id': record.get('city_id'),
+                'cust_phone1': record.get('cust_phone1'),
+                'cust_cellPhone': record.get('cust_cellPhone'),
+                'cust_email': record.get('cust_email'),
                 'sm_id': record.get('sm_id'),
                 'sm_id_2': record.get('sm_id_2'),
                 'cust_inactive': parse_bool(record.get('cust_inactive')),
                 'prli_id': record.get('prli_id'),
-                'cust_credit_max': parse_decimal(record.get('cust_credit_max')),
-                'cust_credit_own': parse_decimal(record.get('cust_credit_own')),
                 'cust_MercadoLibreNickName': record.get('cust_MercadoLibreNickName'),
                 'cust_MercadoLibreID': record.get('cust_MercadoLibreID'),
-                'MLUser_Id': record.get('MLUser_Id'),
                 'cust_cd': parse_datetime(record.get('cust_cd')),
                 'cust_LastUpdate': parse_datetime(record.get('cust_LastUpdate')),
             }
@@ -323,7 +299,7 @@ async def sync_customers_incremental(db: Session, batch_size: int = 10000):
                 if not cust_id_val:
                     continue
 
-                # Preparar datos (versión reducida para incremental)
+                # Preparar datos
                 datos = {
                     'comp_id': record.get('comp_id', 1),
                     'cust_id': cust_id_val,
@@ -335,10 +311,16 @@ async def sync_customers_incremental(db: Session, batch_size: int = 10000):
                     'tnt_id': record.get('tnt_id'),
                     'cust_address': record.get('cust_address'),
                     'cust_city': record.get('cust_city'),
+                    'cust_zip': record.get('cust_zip'),
                     'country_id': record.get('country_id'),
                     'state_id': record.get('state_id'),
+                    'cust_phone1': record.get('cust_phone1'),
+                    'cust_cellPhone': record.get('cust_cellPhone'),
+                    'cust_email': record.get('cust_email'),
                     'sm_id': record.get('sm_id'),
+                    'sm_id_2': record.get('sm_id_2'),
                     'cust_inactive': parse_bool(record.get('cust_inactive')),
+                    'prli_id': record.get('prli_id'),
                     'cust_MercadoLibreNickName': record.get('cust_MercadoLibreNickName'),
                     'cust_MercadoLibreID': record.get('cust_MercadoLibreID'),
                     'cust_cd': parse_datetime(record.get('cust_cd')),
