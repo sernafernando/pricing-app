@@ -478,7 +478,6 @@ async def buscar_productos_erp(
     FROM tb_item i
     LEFT JOIN tb_brand b ON b.comp_id = i.comp_id AND b.brand_id = i.brand_id
     WHERE (i.item_code ILIKE :buscar OR i.item_desc ILIKE :buscar)
-      AND i.item_disabled = false
     ORDER BY i.item_code
     LIMIT 50
     """
