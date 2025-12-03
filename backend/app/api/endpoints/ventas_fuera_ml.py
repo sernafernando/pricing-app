@@ -101,13 +101,23 @@ VENDEDORES_EXCLUIDOS = [10, 11, 12]
 # Items excluidos
 ITEMS_EXCLUIDOS = [16, 460]
 
+# Todos los sd_id permitidos
+SD_TODOS = SD_VENTAS + SD_DEVOLUCIONES
+
+# Strings pre-generados para usar en queries
+DF_IDS_STR = ','.join(map(str, DF_PERMITIDOS))
+SD_IDS_STR = ','.join(map(str, SD_TODOS))
+ITEMS_EXCLUIDOS_STR = ','.join(map(str, ITEMS_EXCLUIDOS))
+CLIENTES_EXCLUIDOS_STR = ','.join(map(str, CLIENTES_EXCLUIDOS))
+VENDEDORES_EXCLUIDOS_STR = ','.join(map(str, VENDEDORES_EXCLUIDOS))
+
 
 def get_ventas_fuera_ml_query():
     """
     Query principal para obtener ventas por fuera de ML.
     Replica la lógica de la query SQL del ERP.
     """
-    return """
+    return f"""
     WITH costo_historico AS (
         -- Subconsulta para obtener el costo histórico más cercano a la fecha de venta
         SELECT DISTINCT ON (iclh.item_id, ct_date_trunc)
@@ -292,13 +302,13 @@ def get_ventas_fuera_ml_query():
         ON tch.ct_date_trunc = DATE_TRUNC('day', tct.ct_date)
 
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN (1,2,3,4,5,6,63,85,86,87,65,67,68,69,70,71,72,73,74,81)
-        AND (tit.item_id NOT IN (16, 460) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN (11, 3900)
-        AND tct.sm_id NOT IN (10, 11, 12)
+        AND tct.df_id IN ({DF_IDS_STR})
+        AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
+        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
+        AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
         AND tit.it_price <> 0
         AND tit.it_qty <> 0
-        AND tct.sd_id IN (1, 3, 4, 6, 21, 23, 56, 66)
+        AND tct.sd_id IN ({SD_IDS_STR})
 
     ORDER BY tct.ct_date DESC, tit.it_transaction
     """
@@ -371,7 +381,7 @@ async def get_ventas_fuera_ml_stats(
     Obtiene estadísticas agregadas de ventas por fuera de ML.
     """
 
-    stats_query = """
+    stats_query = f"""
     WITH ventas AS (
         SELECT
             tit.it_transaction,
@@ -430,13 +440,13 @@ async def get_ventas_fuera_ml_stats(
         ) ceh ON true
 
         WHERE tct.ct_date BETWEEN :from_date AND :to_date
-            AND tct.df_id IN (1,2,3,4,5,6,63,85,86,87,65,67,68,69,70,71,72,73,74,81)
-            AND (tit.item_id NOT IN (16, 460) OR tit.item_id IS NULL)
-            AND tct.cust_id NOT IN (11, 3900)
-            AND tct.sm_id NOT IN (10, 11, 12)
+            AND tct.df_id IN ({DF_IDS_STR})
+            AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
+            AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
+            AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
             AND tit.it_price <> 0
             AND tit.it_qty <> 0
-            AND tct.sd_id IN (1, 3, 4, 6, 21, 23, 56, 66)
+            AND tct.sd_id IN ({SD_IDS_STR})
     )
     SELECT
         COUNT(*) as total_ventas,
@@ -454,7 +464,7 @@ async def get_ventas_fuera_ml_stats(
     ).fetchone()
 
     # Stats por sucursal
-    sucursal_query = """
+    sucursal_query = f"""
     SELECT
         tb.bra_desc as sucursal,
         COUNT(*) as total_ventas,
@@ -464,13 +474,13 @@ async def get_ventas_fuera_ml_stats(
     LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
     LEFT JOIN tb_branch tb ON tb.comp_id = tit.comp_id AND tb.bra_id = tct.bra_id
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN (1,2,3,4,5,6,63,85,86,87,65,67,68,69,70,71,72,73,74,81)
-        AND (tit.item_id NOT IN (16, 460) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN (11, 3900)
-        AND tct.sm_id NOT IN (10, 11, 12)
+        AND tct.df_id IN ({DF_IDS_STR})
+        AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
+        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
+        AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
         AND tit.it_price <> 0
         AND tit.it_qty <> 0
-        AND tct.sd_id IN (1, 3, 4, 6, 21, 23, 56, 66)
+        AND tct.sd_id IN ({SD_IDS_STR})
     GROUP BY tb.bra_desc
     ORDER BY monto DESC
     """
@@ -481,7 +491,7 @@ async def get_ventas_fuera_ml_stats(
     ).fetchall()
 
     # Stats por vendedor
-    vendedor_query = """
+    vendedor_query = f"""
     SELECT
         tsm.sm_name as vendedor,
         COUNT(*) as total_ventas,
@@ -491,13 +501,13 @@ async def get_ventas_fuera_ml_stats(
     LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
     LEFT JOIN tb_salesman tsm ON tsm.sm_id = tct.sm_id
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN (1,2,3,4,5,6,63,85,86,87,65,67,68,69,70,71,72,73,74,81)
-        AND (tit.item_id NOT IN (16, 460) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN (11, 3900)
-        AND tct.sm_id NOT IN (10, 11, 12)
+        AND tct.df_id IN ({DF_IDS_STR})
+        AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
+        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
+        AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
         AND tit.it_price <> 0
         AND tit.it_qty <> 0
-        AND tct.sd_id IN (1, 3, 4, 6, 21, 23, 56, 66)
+        AND tct.sd_id IN ({SD_IDS_STR})
     GROUP BY tsm.sm_name
     ORDER BY monto DESC
     """
@@ -545,7 +555,7 @@ async def get_ventas_fuera_ml_por_marca(
     Obtiene ventas agrupadas por marca.
     """
 
-    query = """
+    query = f"""
     SELECT
         tbd.brand_desc as marca,
         COUNT(*) as total_ventas,
@@ -586,13 +596,13 @@ async def get_ventas_fuera_ml_por_marca(
     ) ceh ON true
 
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN (1,2,3,4,5,6,63,85,86,87,65,67,68,69,70,71,72,73,74,81)
-        AND (tit.item_id NOT IN (16, 460) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN (11, 3900)
-        AND tct.sm_id NOT IN (10, 11, 12)
+        AND tct.df_id IN ({DF_IDS_STR})
+        AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
+        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
+        AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
         AND tit.it_price <> 0
         AND tit.it_qty <> 0
-        AND tct.sd_id IN (1, 3, 4, 6, 21, 23, 56, 66)
+        AND tct.sd_id IN ({SD_IDS_STR})
 
     GROUP BY tbd.brand_desc
     ORDER BY monto_sin_iva DESC
@@ -629,7 +639,7 @@ async def get_top_productos_fuera_ml(
     Obtiene los productos más vendidos por fuera de ML.
     """
 
-    query = """
+    query = f"""
     SELECT
         ti.item_id,
         ti.item_code as codigo,
@@ -645,13 +655,13 @@ async def get_top_productos_fuera_ml(
     LEFT JOIN tb_brand tbd ON tbd.comp_id = ti.comp_id AND tbd.brand_id = ti.brand_id
 
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN (1,2,3,4,5,6,63,85,86,87,65,67,68,69,70,71,72,73,74,81)
-        AND tit.item_id NOT IN (16, 460)
-        AND tct.cust_id NOT IN (11, 3900)
-        AND tct.sm_id NOT IN (10, 11, 12)
+        AND tct.df_id IN ({DF_IDS_STR})
+        AND tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR})
+        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
+        AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
         AND tit.it_price <> 0
         AND tit.it_qty <> 0
-        AND tct.sd_id IN (1, 3, 4, 6, 21, 23, 56, 66)
+        AND tct.sd_id IN ({SD_IDS_STR})
 
     GROUP BY ti.item_id, ti.item_code, ti.item_desc, tbd.brand_desc
     ORDER BY unidades_vendidas DESC
