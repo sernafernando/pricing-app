@@ -506,34 +506,28 @@ export default function DashboardMetricasML() {
               <div className={styles.barChart}>
                 {(() => {
                   const datos = ventasPorDia.slice(-14);
-                  const maxVenta = Math.max(...datos.map(d => d.total_ventas));
-                  const minVenta = Math.min(...datos.map(d => d.total_ventas));
+                  const valores = datos.map(d => d.total_ventas);
+                  const maxVenta = Math.max(...valores);
+                  const minVenta = Math.min(...valores);
+                  console.log('Ventas por día:', { maxVenta, minVenta, valores });
+
                   return datos.map((dia, idx) => {
                     const esMax = dia.total_ventas === maxVenta && maxVenta !== minVenta;
                     const esMin = dia.total_ventas === minVenta && maxVenta !== minVenta;
 
-                    // Colores: verde para max, rojo para min, azul para el resto
-                    const barBackground = esMax
-                      ? 'linear-gradient(180deg, #10b981 0%, #059669 100%)'
-                      : esMin
-                        ? 'linear-gradient(180deg, #f87171 0%, #ef4444 100%)'
-                        : 'linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%)';
+                    let barClassName = styles.bar;
+                    if (esMax) barClassName = styles.barMax;
+                    else if (esMin) barClassName = styles.barMin;
 
                     return (
                       <div key={idx} className={styles.barGroup}>
                         <div className={styles.barContainer}>
                           <div
-                            className={styles.bar}
-                            style={{
-                              height: `${(dia.total_ventas / maxVenta) * 100}%`,
-                              background: barBackground
-                            }}
+                            className={barClassName}
+                            style={{ height: `${(dia.total_ventas / maxVenta) * 100}%` }}
                             title={`${formatearMoneda(dia.total_ventas)} - ${dia.cantidad_operaciones} ops`}
                           >
-                            <span
-                              className={styles.barValue}
-                              style={(esMax || esMin) ? { display: 'block' } : {}}
-                            >
+                            <span className={`${styles.barValue} ${(esMax || esMin) ? styles.barValueVisible : ''}`}>
                               {formatearMoneda(dia.total_ventas).replace('$ ', '')}
                             </span>
                           </div>
