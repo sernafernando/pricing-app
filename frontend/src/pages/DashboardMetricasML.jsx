@@ -506,31 +506,29 @@ export default function DashboardMetricasML() {
               <div className={styles.barChart}>
                 {(() => {
                   const datos = ventasPorDia.slice(-14);
-                  const valores = datos.map(d => d.total_ventas);
+                  const valores = datos.map(d => parseFloat(d.total_ventas));
                   const maxVenta = Math.max(...valores);
                   const minVenta = Math.min(...valores);
-                  console.log('Ventas por día:', { maxVenta, minVenta, valores });
 
                   return datos.map((dia, idx) => {
-                    const esMax = dia.total_ventas === maxVenta && maxVenta !== minVenta;
-                    const esMin = dia.total_ventas === minVenta && maxVenta !== minVenta;
+                    const valor = parseFloat(dia.total_ventas);
+                    const esMax = valor === maxVenta && maxVenta !== minVenta;
+                    const esMin = valor === minVenta && maxVenta !== minVenta;
 
                     let barClassName = styles.bar;
                     if (esMax) barClassName = styles.barMax;
                     else if (esMin) barClassName = styles.barMin;
-
-                    console.log(`Día ${idx}:`, { valor: dia.total_ventas, esMax, esMin, clase: barClassName });
 
                     return (
                       <div key={idx} className={styles.barGroup}>
                         <div className={styles.barContainer}>
                           <div
                             className={barClassName}
-                            style={{ height: `${(dia.total_ventas / maxVenta) * 100}%` }}
-                            title={`${formatearMoneda(dia.total_ventas)} - ${dia.cantidad_operaciones} ops`}
+                            style={{ height: `${(valor / maxVenta) * 100}%` }}
+                            title={`${formatearMoneda(valor)} - ${dia.cantidad_operaciones} ops`}
                           >
                             <span className={`${styles.barValue} ${(esMax || esMin) ? styles.barValueVisible : ''}`}>
-                              {formatearMoneda(dia.total_ventas).replace('$ ', '')}
+                              {formatearMoneda(valor).replace('$ ', '')}
                             </span>
                           </div>
                         </div>
