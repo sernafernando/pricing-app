@@ -445,10 +445,10 @@ async def obtener_tipo_cambio(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el tipo de cambio USD/ARS más reciente"""
-    tipo_cambio = db.query(CurExchHistory).filter(
-        CurExchHistory.curr_id_1 == 2,  # USD
-        CurExchHistory.curr_id_2 == 1   # ARS
-    ).order_by(CurExchHistory.ceh_cd.desc()).first()
+    # Traer el TC más reciente sin filtrar por curr_id (la tabla solo tiene USD/ARS)
+    tipo_cambio = db.query(CurExchHistory).order_by(
+        CurExchHistory.ceh_cd.desc()
+    ).first()
 
     if tipo_cambio:
         return {
