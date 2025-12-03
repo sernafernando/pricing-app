@@ -86,7 +86,7 @@ export default function Navbar() {
             onMouseLeave={() => setDropdownOpen(null)}
           >
             <div
-              className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-ventas', '/dashboard-metricas-ml', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
+              className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-ventas', '/dashboard-metricas-ml', '/dashboard-ventas-fuera', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
               onClick={() => setDropdownOpen(dropdownOpen === 'reportes' ? null : 'reportes')}
             >
               📊 Reportes ▾
@@ -109,6 +109,13 @@ export default function Navbar() {
                   onClick={() => setDropdownOpen(null)}
                 >
                   📈 Métricas ML
+                </Link>
+                <Link
+                  to="/dashboard-ventas-fuera"
+                  className={`${styles.dropdownItem} ${isActive('/dashboard-ventas-fuera') ? styles.activeDropdown : ''}`}
+                  onClick={() => setDropdownOpen(null)}
+                >
+                  🏪 Ventas por Fuera
                 </Link>
                 <Link
                   to="/calculos"

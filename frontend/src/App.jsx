@@ -14,6 +14,7 @@ import Banlist from './pages/Banlist';
 import ItemsSinMLA from './pages/ItemsSinMLA';
 import DashboardVentas from './pages/DashboardVentas';
 import DashboardMetricasML from './pages/DashboardMetricasML';
+import DashboardVentasFuera from './pages/DashboardVentasFuera';
 import Calculos from './pages/Calculos';
 import TestStatsDinamicos from './pages/TestStatsDinamicos';
 import Notificaciones from './pages/Notificaciones';
@@ -103,6 +104,11 @@ function App() {
                 <Route path="/dashboard-metricas-ml" element={
                   <ProtectedRoute>
                     <DashboardMetricasML />
+                  </ProtectedRoute>
+                } />
+                <Route path="/dashboard-ventas-fuera" element={
+                  <ProtectedRoute>
+                    <DashboardVentasFuera />
                   </ProtectedRoute>
                 } />
                 <Route path="/calculos" element={
