@@ -89,27 +89,11 @@ async def listar_vendedores_disponibles(
     excluidos = db.query(VendedorExcluido.sm_id).all()
     excluidos_ids = {e.sm_id for e in excluidos}
 
-    # Query que combina vendedores activos del ERP + vendedores que aparecen en ventas por fuera
-    # Esto asegura que aparezcan vendedores de ventas viejas aunque estén deshabilitados
+    # Traer TODOS los vendedores (habilitados y deshabilitados)
     query = """
-    SELECT DISTINCT sm_id, sm_name, bra_id
-    FROM (
-        -- Vendedores activos del ERP
-        SELECT sm_id, sm_name, bra_id
-        FROM tb_salesman
-        WHERE sm_name IS NOT NULL
-          AND sm_disabled = false
-
-        UNION
-
-        -- Vendedores que aparecen en ventas por fuera de ML (pueden estar deshabilitados)
-        SELECT DISTINCT s.sm_id, s.sm_name, s.bra_id
-        FROM tb_document_detail dd
-        INNER JOIN tb_salesman s ON dd.sm_id = s.sm_id
-        WHERE dd.df_id IN (1,2,3,4,5,6,8,105,106,108,109,111,113,114,115,116,117,118,119,120,121,122,123,124)
-          AND s.sm_name IS NOT NULL
-    ) AS vendedores
-    WHERE 1=1
+    SELECT sm_id, sm_name, bra_id
+    FROM tb_salesman
+    WHERE sm_name IS NOT NULL
     """
 
     params = {}
