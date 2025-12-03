@@ -505,24 +505,33 @@ export default function DashboardMetricasML() {
               <h3 className={styles.chartTitle}>📅 Ventas por Día</h3>
               <div className={styles.barChart}>
                 {(() => {
-                  const maxVenta = Math.max(...ventasPorDia.map(d => d.total_ventas));
-                  return ventasPorDia.slice(-14).map((dia, idx) => (
-                    <div key={idx} className={styles.barGroup}>
-                      <div className={styles.barContainer}>
-                        <div
-                          className={styles.bar}
-                          style={{ height: `${(dia.total_ventas / maxVenta) * 100}%` }}
-                          title={`${formatearMoneda(dia.total_ventas)} - ${dia.cantidad_operaciones} ops`}
-                        >
-                          <span className={styles.barValue}>{formatearMoneda(dia.total_ventas).replace('$', '').replace('.', '')}</span>
+                  const datos = ventasPorDia.slice(-14);
+                  const maxVenta = Math.max(...datos.map(d => d.total_ventas));
+                  const minVenta = Math.min(...datos.map(d => d.total_ventas));
+                  return datos.map((dia, idx) => {
+                    const esMax = dia.total_ventas === maxVenta;
+                    const esMin = dia.total_ventas === minVenta;
+                    const barClass = esMax ? styles.barMax : esMin ? styles.barMin : styles.bar;
+                    return (
+                      <div key={idx} className={styles.barGroup}>
+                        <div className={styles.barContainer}>
+                          <div
+                            className={barClass}
+                            style={{ height: `${(dia.total_ventas / maxVenta) * 100}%` }}
+                            title={`${formatearMoneda(dia.total_ventas)} - ${dia.cantidad_operaciones} ops`}
+                          >
+                            <span className={`${styles.barValue} ${(esMax || esMin) ? styles.barValueVisible : ''}`}>
+                              {formatearMoneda(dia.total_ventas).replace('$ ', '')}
+                            </span>
+                          </div>
                         </div>
+                        <div className={styles.barLabel}>
+                          {new Date(dia.fecha + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
+                        </div>
+                        <div className={styles.barOps}>{dia.cantidad_operaciones}</div>
                       </div>
-                      <div className={styles.barLabel}>
-                        {new Date(dia.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
-                      </div>
-                      <div className={styles.barOps}>{dia.cantidad_operaciones}</div>
-                    </div>
-                  ));
+                    );
+                  });
                 })()}
               </div>
             </div>
