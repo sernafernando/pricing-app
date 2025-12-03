@@ -19,6 +19,7 @@ from app.models.tb_customer import TBCustomer
 from app.models.tb_branch import TBBranch
 from app.models.tb_salesman import TBSalesman
 from app.models.tb_document_file import TBDocumentFile
+from app.models.tb_fiscal_class import TBFiscalClass
 
 
 router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"])
@@ -856,6 +857,66 @@ async def sync_document_files(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al sincronizar tipos de documento: {str(e)}")
+
+
+@router.post("/fiscal-classes")
+async def sync_fiscal_classes(
+    fc_id: Optional[int] = Query(None, description="ID de clase fiscal específica"),
+    db: Session = Depends(get_db)
+):
+    """
+    Sincroniza clases fiscales desde el ERP a PostgreSQL
+
+    - Si se proporciona fc_id, sincroniza solo esa clase fiscal
+    - Si no se proporcionan filtros, sincroniza todas
+    """
+    try:
+        fiscal_classes = await erp_worker_client.get_fiscal_classes(fc_id=fc_id)
+
+        insertados = 0
+        actualizados = 0
+
+        for fc_data in fiscal_classes:
+            fc_id_val = fc_data.get('fc_id')
+            if not fc_id_val:
+                continue
+
+            # Verificar si existe
+            existente = db.query(TBFiscalClass).filter(
+                TBFiscalClass.fc_id == fc_id_val
+            ).first()
+
+            # Preparar datos (columnas lowercase, .get() con camelCase del ERP)
+            datos = {
+                'fc_id': fc_id_val,
+                'fc_desc': fc_data.get('fc_desc'),
+                'fc_kindof': fc_data.get('fc_KindOf'),
+                'country_id': fc_data.get('country_id'),
+                'fc_legaltaxid': fc_data.get('fc_LegalTaxId'),
+            }
+
+            if existente:
+                for key, value in datos.items():
+                    setattr(existente, key, value)
+                actualizados += 1
+            else:
+                nuevo = TBFiscalClass(**datos)
+                db.add(nuevo)
+                insertados += 1
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Clases fiscales sincronizadas correctamente",
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "total": insertados + actualizados
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar clases fiscales: {str(e)}")
 
 
 @router.post("/all")

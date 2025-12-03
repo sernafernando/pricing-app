@@ -282,6 +282,25 @@ class ERPWorkerClient:
 
         return await self._fetch("scriptDocumentFile", params)
 
+    async def get_fiscal_classes(
+        self,
+        fc_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene clases fiscales del ERP
+
+        Args:
+            fc_id: ID de clase fiscal específica (opcional)
+
+        Returns:
+            Lista de clases fiscales
+        """
+        params = {}
+        if fc_id:
+            params["fcID"] = fc_id
+
+        return await self._fetch("scriptFiscalClass", params)
+
 
 # Instancia singleton del cliente
 erp_worker_client = ERPWorkerClient()

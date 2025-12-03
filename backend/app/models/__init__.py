@@ -19,6 +19,7 @@ from app.models.tb_customer import TBCustomer
 from app.models.tb_branch import TBBranch
 from app.models.tb_salesman import TBSalesman
 from app.models.tb_document_file import TBDocumentFile
+from app.models.tb_fiscal_class import TBFiscalClass
 
 __all__ = [
     "ProductoERP",
@@ -45,5 +46,6 @@ __all__ = [
     "TBCustomer",
     "TBBranch",
     "TBSalesman",
-    "TBDocumentFile"
+    "TBDocumentFile",
+    "TBFiscalClass"
 ]

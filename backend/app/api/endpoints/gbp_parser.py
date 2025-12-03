@@ -58,7 +58,8 @@ SCRIPT_CONFIG = {
     "scriptCustomer": ["custID", "fromCustID", "toCustID"],
     "scriptBranch": ["braID", "frombraID", "tobraID"],
     "scriptSalesman": ["smID", "fromSmID", "toSmID"],
-    "scriptDocumentFile": ["dfID", "braID"]
+    "scriptDocumentFile": ["dfID", "braID"],
+    "scriptFiscalClass": ["fcID"]
 }
 
 # Configuración de operaciones
