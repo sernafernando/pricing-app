@@ -25,7 +25,7 @@ export default function ModalOffset({
 }) {
   const [offsets, setOffsets] = useState([]);
   const [grupos, setGrupos] = useState([]);
-  const [tipoCambioHoy, setTipoCambioHoy] = useState(1000);
+  const [tipoCambioHoy, setTipoCambioHoy] = useState(null);
   const [editandoOffset, setEditandoOffset] = useState(null);
 
   // Búsquedas para productos
@@ -295,7 +295,7 @@ export default function ModalOffset({
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <h3>Gestionar Offsets de Ganancia</h3>
         <p style={{ fontSize: '0.85em', color: '#666', marginBottom: '1rem' }}>
-          TC actual: ${tipoCambioHoy.toFixed(2)}
+          TC actual: {tipoCambioHoy ? `$${tipoCambioHoy.toFixed(2)}` : 'Cargando...'}
         </p>
 
         <div className={styles.offsetForm}>
