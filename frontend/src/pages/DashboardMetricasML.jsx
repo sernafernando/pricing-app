@@ -519,6 +519,8 @@ export default function DashboardMetricasML() {
                     if (esMax) barClassName = styles.barMax;
                     else if (esMin) barClassName = styles.barMin;
 
+                    console.log(`Día ${idx}:`, { valor: dia.total_ventas, esMax, esMin, clase: barClassName });
+
                     return (
                       <div key={idx} className={styles.barGroup}>
                         <div className={styles.barContainer}>
