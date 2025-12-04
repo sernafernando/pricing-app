@@ -494,72 +494,73 @@ async def get_ventas_fuera_ml_stats(
     """
     Obtiene estadísticas agregadas de ventas por fuera de ML.
     Usa la tabla de métricas pre-calculadas para mayor performance.
+    Una sola query con GROUPING SETS para calcular todo de una vez.
     """
-    # Query ultra-rápida desde tabla de métricas pre-calculadas
-    stats_query = """
+    # Query única con GROUPING SETS para stats totales, por sucursal y por vendedor
+    combined_query = """
     SELECT
+        sucursal,
+        vendedor,
+        GROUPING(sucursal) as is_sucursal_total,
+        GROUPING(vendedor) as is_vendedor_total,
         COUNT(*) as total_ventas,
         COUNT(*) FILTER (WHERE costo_total = 0 OR costo_total IS NULL) as productos_sin_costo,
         COALESCE(SUM(cantidad * signo), 0) as total_unidades,
         COALESCE(SUM(monto_total * signo), 0) as monto_total_sin_iva,
         COALESCE(SUM(monto_con_iva * signo), 0) as monto_total_con_iva,
         COALESCE(SUM(costo_total * signo), 0) as costo_total,
-        -- Solo productos con costo
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN monto_total * signo ELSE 0 END), 0) as monto_con_costo,
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN monto_con_iva * signo ELSE 0 END), 0) as monto_con_costo_con_iva,
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN costo_total * signo ELSE 0 END), 0) as costo_con_costo
     FROM ventas_fuera_ml_metricas
     WHERE fecha_venta BETWEEN :from_date AND :to_date
+    GROUP BY GROUPING SETS (
+        (),
+        (sucursal),
+        (vendedor)
+    )
     """
 
-    result = db.execute(
-        text(stats_query),
+    results = db.execute(
+        text(combined_query),
         {"from_date": from_date, "to_date": to_date + " 23:59:59"}
-    ).fetchone()
+    ).fetchall()
 
-    # Extraer resultados
-    total_ventas = result.total_ventas or 0
-    productos_sin_costo = result.productos_sin_costo or 0
-    total_unidades = float(result.total_unidades or 0)
-    monto_con_costo = float(result.monto_con_costo or 0)
-    monto_con_costo_con_iva = float(result.monto_con_costo_con_iva or 0)
-    costo_con_costo = float(result.costo_con_costo or 0)
-
-    # Por sucursal
-    sucursal_query = """
-    SELECT
-        sucursal,
-        COUNT(*) as total_ventas,
-        COALESCE(SUM(cantidad * signo), 0) as unidades,
-        COALESCE(SUM(monto_total * signo), 0) as monto
-    FROM ventas_fuera_ml_metricas
-    WHERE fecha_venta BETWEEN :from_date AND :to_date
-    GROUP BY sucursal
-    """
-    sucursales_result = db.execute(text(sucursal_query), {"from_date": from_date, "to_date": to_date + " 23:59:59"}).fetchall()
-
+    # Inicializar variables
+    total_ventas = 0
+    productos_sin_costo = 0
+    total_unidades = 0.0
+    monto_con_costo = 0.0
+    monto_con_costo_con_iva = 0.0
+    costo_con_costo = 0.0
     sucursales_dict = {}
-    for s in sucursales_result:
-        if s.sucursal:
-            sucursales_dict[s.sucursal] = {"ventas": s.total_ventas, "unidades": float(s.unidades or 0), "monto": float(s.monto or 0)}
-
-    # Por vendedor
-    vendedor_query = """
-    SELECT
-        vendedor,
-        COUNT(*) as total_ventas,
-        COALESCE(SUM(cantidad * signo), 0) as unidades,
-        COALESCE(SUM(monto_total * signo), 0) as monto
-    FROM ventas_fuera_ml_metricas
-    WHERE fecha_venta BETWEEN :from_date AND :to_date
-    GROUP BY vendedor
-    """
-    vendedores_result = db.execute(text(vendedor_query), {"from_date": from_date, "to_date": to_date + " 23:59:59"}).fetchall()
-
     vendedores_dict = {}
-    for v in vendedores_result:
-        if v.vendedor:
-            vendedores_dict[v.vendedor] = {"ventas": v.total_ventas, "unidades": float(v.unidades or 0), "monto": float(v.monto or 0)}
+
+    for row in results:
+        # Row con ambos GROUPING = 1 es el total general
+        if row.is_sucursal_total == 1 and row.is_vendedor_total == 1:
+            total_ventas = row.total_ventas or 0
+            productos_sin_costo = row.productos_sin_costo or 0
+            total_unidades = float(row.total_unidades or 0)
+            monto_con_costo = float(row.monto_con_costo or 0)
+            monto_con_costo_con_iva = float(row.monto_con_costo_con_iva or 0)
+            costo_con_costo = float(row.costo_con_costo or 0)
+        # Row con is_sucursal_total = 0 es agrupado por sucursal
+        elif row.is_sucursal_total == 0 and row.is_vendedor_total == 1:
+            if row.sucursal:
+                sucursales_dict[row.sucursal] = {
+                    "ventas": row.total_ventas,
+                    "unidades": float(row.total_unidades or 0),
+                    "monto": float(row.monto_total_sin_iva or 0)
+                }
+        # Row con is_vendedor_total = 0 es agrupado por vendedor
+        elif row.is_sucursal_total == 1 and row.is_vendedor_total == 0:
+            if row.vendedor:
+                vendedores_dict[row.vendedor] = {
+                    "ventas": row.total_ventas,
+                    "unidades": float(row.total_unidades or 0),
+                    "monto": float(row.monto_total_sin_iva or 0)
+                }
 
     # Calcular markup promedio
     markup_promedio = None
@@ -589,96 +590,20 @@ async def get_ventas_fuera_ml_por_marca(
 ):
     """
     Obtiene ventas agrupadas por marca.
+    Usa la tabla de métricas pre-calculadas para mayor performance.
     """
-    # Obtener vendedores excluidos dinámicamente
-    VENDEDORES_EXCLUIDOS_STR = get_vendedores_excluidos_str(db)
-
-    # Query unificada que comienza desde tb_item_transactions
-    query = f"""
-    WITH combo_precios AS (
-        SELECT tit.it_isassociationgroup as group_id, tit.ct_transaction,
-            SUM(tit.it_price * tit.it_qty) as precio_combo
-        FROM tb_item_transactions tit
-        LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-        WHERE tit.it_isassociationgroup IS NOT NULL
-          AND tit.it_price IS NOT NULL AND tit.it_price > 0
-          AND tct.ct_date BETWEEN :from_date AND :to_date
-        GROUP BY tit.it_isassociationgroup, tit.ct_transaction
-    )
+    # Query rápida desde tabla de métricas pre-calculadas
+    query = """
     SELECT
-        tbd.brand_desc as marca,
+        marca,
         COUNT(*) as total_ventas,
-        SUM(tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END) as unidades_vendidas,
-        SUM(
-            CASE
-                WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN cp.precio_combo
-                ELSE tit.it_price * tit.it_qty
-            END * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END
-        ) as monto_sin_iva,
-        SUM(
-            CASE
-                WHEN iclh.curr_id = 1 THEN COALESCE(iclh.iclh_price, 0) * tit.it_qty
-                ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
-            END * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END
-        ) as costo_total,
-        -- Monto solo de productos CON costo (para markup)
-        SUM(
-            CASE
-                WHEN COALESCE(iclh.iclh_price, 0) > 0 THEN
-                    CASE
-                        WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN cp.precio_combo
-                        ELSE tit.it_price * tit.it_qty
-                    END * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END
-                ELSE 0
-            END
-        ) as monto_con_costo,
-        -- Costo solo de productos CON costo (para markup)
-        SUM(
-            CASE
-                WHEN COALESCE(iclh.iclh_price, 0) > 0 THEN
-                    CASE
-                        WHEN iclh.curr_id = 1 THEN iclh.iclh_price * tit.it_qty
-                        ELSE iclh.iclh_price * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
-                    END * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END
-                ELSE 0
-            END
-        ) as costo_con_costo
-
-    FROM tb_item_transactions tit
-    LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-    LEFT JOIN tb_item ti ON ti.comp_id = tit.comp_id AND ti.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-    LEFT JOIN tb_brand tbd ON tbd.comp_id = ti.comp_id AND tbd.brand_id = ti.brand_id
-    LEFT JOIN combo_precios cp ON cp.group_id = tit.it_isassociationgroup AND cp.ct_transaction = tit.ct_transaction
-    LEFT JOIN LATERAL (
-        SELECT iclh_price, curr_id
-        FROM tb_item_cost_list_history
-        WHERE item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice) AND iclh_cd <= tct.ct_date AND coslis_id = 1
-        ORDER BY iclh_id DESC LIMIT 1
-    ) iclh ON true
-    LEFT JOIN LATERAL (
-        SELECT ceh_exchange
-        FROM tb_cur_exch_history
-        WHERE ceh_cd <= tct.ct_date
-        ORDER BY ceh_cd DESC LIMIT 1
-    ) ceh ON true
-
-    WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN ({DF_IDS_STR})
-        AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
-        AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
-        AND tit.it_qty <> 0
-        AND tct.sd_id IN ({SD_IDS_STR})
-        AND COALESCE(ti.item_desc, '') NOT ILIKE '%envio%'
-        -- Excluir componentes de combos
-        AND NOT (
-            COALESCE(tit.it_isassociation, false) = true
-            AND COALESCE(tit.it_order, 1) <> 1
-            AND tit.it_isassociationgroup IS NOT NULL
-        )
-
-    GROUP BY tbd.brand_desc
-    ORDER BY monto_sin_iva DESC
+        COALESCE(SUM(cantidad * signo), 0) as unidades_vendidas,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN monto_total * signo ELSE 0 END), 0) as monto_con_costo,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN costo_total * signo ELSE 0 END), 0) as costo_con_costo
+    FROM ventas_fuera_ml_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+    GROUP BY marca
+    ORDER BY monto_con_costo DESC
     LIMIT :limit
     """
 
@@ -687,13 +612,11 @@ async def get_ventas_fuera_ml_por_marca(
         {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
     ).fetchall()
 
-    # Calcular markup desde totales (solo productos con costo, sin comisión ML porque es venta directa)
+    # Calcular markup desde totales
     marcas = []
     for r in result:
-        # Para monto y costo: solo usar productos con costo
         monto_con_costo = float(r.monto_con_costo or 0)
         costo_con_costo = float(r.costo_con_costo or 0)
-        # Markup = (monto / costo) - 1 (solo productos con costo)
         markup = ((monto_con_costo / costo_con_costo) - 1) if costo_con_costo > 0 else None
         marcas.append({
             "marca": r.marca,
@@ -716,59 +639,21 @@ async def get_top_productos_fuera_ml(
 ):
     """
     Obtiene los productos más vendidos por fuera de ML.
+    Usa la tabla de métricas pre-calculadas para mayor performance.
     """
-    # Obtener vendedores excluidos dinámicamente
-    VENDEDORES_EXCLUIDOS_STR = get_vendedores_excluidos_str(db)
-
-    # Query unificada que comienza desde tb_item_transactions
-    query = f"""
-    WITH combo_precios AS (
-        SELECT tit.it_isassociationgroup as group_id, tit.ct_transaction,
-            SUM(tit.it_price * tit.it_qty) as precio_combo
-        FROM tb_item_transactions tit
-        LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-        WHERE tit.it_isassociationgroup IS NOT NULL
-          AND tit.it_price IS NOT NULL AND tit.it_price > 0
-          AND tct.ct_date BETWEEN :from_date AND :to_date
-        GROUP BY tit.it_isassociationgroup, tit.ct_transaction
-    )
+    # Query rápida desde tabla de métricas pre-calculadas
+    query = """
     SELECT
-        ti.item_id,
-        ti.item_code as codigo,
-        COALESCE(ti.item_desc, titd.itm_desc) as descripcion,
-        tbd.brand_desc as marca,
-        SUM(tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END) as unidades_vendidas,
-        SUM(
-            CASE
-                WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN cp.precio_combo
-                ELSE tit.it_price * tit.it_qty
-            END * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END
-        ) as monto_total,
-        COUNT(DISTINCT tit.it_transaction) as cantidad_operaciones
-
-    FROM tb_item_transactions tit
-    LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-    LEFT JOIN tb_item ti ON ti.comp_id = tit.comp_id AND ti.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-    LEFT JOIN tb_brand tbd ON tbd.comp_id = ti.comp_id AND tbd.brand_id = ti.brand_id
-    LEFT JOIN tb_item_transaction_details titd ON titd.comp_id = tit.comp_id AND titd.bra_id = tit.bra_id AND titd.it_transaction = tit.it_transaction
-    LEFT JOIN combo_precios cp ON cp.group_id = tit.it_isassociationgroup AND cp.ct_transaction = tit.ct_transaction
-
-    WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN ({DF_IDS_STR})
-        AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
-        AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
-        AND tit.it_qty <> 0
-        AND tct.sd_id IN ({SD_IDS_STR})
-        AND COALESCE(ti.item_desc, titd.itm_desc, '') NOT ILIKE '%envio%'
-        -- Excluir componentes de combos
-        AND NOT (
-            COALESCE(tit.it_isassociation, false) = true
-            AND COALESCE(tit.it_order, 1) <> 1
-            AND tit.it_isassociationgroup IS NOT NULL
-        )
-
-    GROUP BY ti.item_id, ti.item_code, COALESCE(ti.item_desc, titd.itm_desc), tbd.brand_desc
+        item_id,
+        codigo,
+        descripcion,
+        marca,
+        COALESCE(SUM(cantidad * signo), 0) as unidades_vendidas,
+        COALESCE(SUM(monto_total * signo), 0) as monto_total,
+        COUNT(*) as cantidad_operaciones
+    FROM ventas_fuera_ml_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+    GROUP BY item_id, codigo, descripcion, marca
     ORDER BY unidades_vendidas DESC
     LIMIT :limit
     """

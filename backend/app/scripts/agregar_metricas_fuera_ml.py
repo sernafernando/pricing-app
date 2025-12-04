@@ -363,11 +363,18 @@ def main():
     parser.add_argument('--full', action='store_true', help='Reprocesar todo (último año)')
     parser.add_argument('--days', type=int, default=None, help='Procesar últimos N días')
     parser.add_argument('--minutes', type=int, default=10, help='Minutos hacia atrás (modo incremental)')
+    parser.add_argument('--from-date', type=str, default=None, help='Fecha desde (YYYY-MM-DD)')
+    parser.add_argument('--to-date', type=str, default=None, help='Fecha hasta (YYYY-MM-DD)')
     args = parser.parse_args()
 
     now = datetime.now()
 
-    if args.full:
+    if args.from_date and args.to_date:
+        # Modo fecha específica
+        from_date = args.from_date
+        to_date = args.to_date + ' 23:59:59'
+        mode = f"PERÍODO ESPECÍFICO"
+    elif args.full:
         # Modo completo: último año
         from_date = (now - timedelta(days=365)).strftime('%Y-%m-%d')
         to_date = now.strftime('%Y-%m-%d 23:59:59')
