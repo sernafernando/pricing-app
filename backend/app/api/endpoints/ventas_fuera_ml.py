@@ -252,8 +252,8 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
         tbd.brand_desc as marca,
         tcc.cat_desc as categoria,
         tsc.subcat_desc as subcategoria,
-        ti.item_code as codigo_item,
-        ti.item_desc as descripcion,
+        COALESCE(ti.item_code, titd.itm_code) as codigo_item,
+        COALESCE(ti.item_desc, titd.itm_desc) as descripcion,
 
         -- Cantidad ajustada por PlusOrMinus (basado en sd_id)
         tit.it_qty * CASE
