@@ -463,8 +463,22 @@ async def get_ventas_fuera_ml_stats(
     """
     VENDEDORES_EXCLUIDOS_STR = get_vendedores_excluidos_str(db)
 
-    # Query principal de stats - simple y directa
+    # Query principal de stats - con manejo de combos
+    # Los combos tienen it_price = NULL en el producto principal, el precio está en los componentes
+    # Usamos un CTE para calcular el precio_venta del combo (suma de componentes)
     stats_query = f"""
+    WITH precio_combo AS (
+        -- Precio total de cada combo (suma de precios de componentes)
+        SELECT
+            tit.it_isassociationgroup AS group_id,
+            SUM(tit.it_price) AS precio_total
+        FROM tb_item_transactions tit
+        LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
+        WHERE tit.it_isassociationgroup IS NOT NULL
+          AND tit.it_price IS NOT NULL
+          AND tct.ct_date BETWEEN :from_date AND :to_date
+        GROUP BY tit.it_isassociationgroup
+    )
     SELECT
         COUNT(*) as total_ventas,
         COALESCE(SUM(
@@ -475,11 +489,11 @@ async def get_ventas_fuera_ml_stats(
             END
         ), 0) as total_unidades,
         COALESCE(SUM(
-            tit.it_price * tit.it_qty *
+            COALESCE(tit.it_price, pc.precio_total) * tit.it_qty *
             CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END
         ), 0) as monto_total_sin_iva,
         COALESCE(SUM(
-            tit.it_price * tit.it_qty * (1 + COALESCE(ttn.tax_percentage, 21.0) / 100) *
+            COALESCE(tit.it_price, pc.precio_total) * tit.it_qty * (1 + COALESCE(ttn.tax_percentage, 21.0) / 100) *
             CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END
         ), 0) as monto_total_con_iva,
         COALESCE(SUM(
@@ -491,7 +505,7 @@ async def get_ventas_fuera_ml_stats(
         AVG(
             CASE
                 WHEN COALESCE(iclh.iclh_price, 0) = 0 THEN NULL
-                ELSE (tit.it_price * 0.95 /
+                ELSE (COALESCE(tit.it_price, pc.precio_total) * 0.95 /
                     CASE
                         WHEN iclh.curr_id = 1 THEN iclh.iclh_price
                         ELSE iclh.iclh_price * COALESCE(ceh.ceh_exchange, 1)
@@ -503,6 +517,7 @@ async def get_ventas_fuera_ml_stats(
     LEFT JOIN tb_item ti ON ti.comp_id = tit.comp_id AND ti.item_id = tit.item_id
     LEFT JOIN tb_item_taxes titx ON titx.comp_id = tit.comp_id AND titx.item_id = tit.item_id
     LEFT JOIN tb_tax_name ttn ON ttn.comp_id = tit.comp_id AND ttn.tax_id = titx.tax_id
+    LEFT JOIN precio_combo pc ON pc.group_id = tit.it_isassociationgroup
     LEFT JOIN LATERAL (
         SELECT iclh_price, curr_id
         FROM tb_item_cost_list_history
@@ -520,16 +535,17 @@ async def get_ventas_fuera_ml_stats(
         AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
         AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
         AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
-        AND tit.it_price <> 0
         AND tit.it_qty <> 0
         AND tct.sd_id IN ({SD_IDS_STR})
-        AND COALESCE(ti.item_desc, '') <> 'Envio'
-        -- Excluir componentes de combo (solo mostrar el principal con it_order = 1)
+        AND COALESCE(ti.item_desc, '') NOT ILIKE '%envio%'
+        -- Excluir componentes de combo (solo mostrar el principal)
+        -- El principal tiene it_isassociation = false O it_order = 1
         AND NOT (
             COALESCE(tit.it_isassociation, false) = true
             AND COALESCE(tit.it_order, 1) <> 1
-            AND tit.it_isassociationgroup IS NOT NULL
         )
+        -- Excluir items sin precio que NO son combos (movimientos internos)
+        AND (tit.it_price IS NOT NULL AND tit.it_price <> 0 OR tit.it_isassociationgroup IS NOT NULL)
     """
 
     result = db.execute(
@@ -537,31 +553,42 @@ async def get_ventas_fuera_ml_stats(
         {"from_date": from_date, "to_date": to_date + " 23:59:59"}
     ).fetchone()
 
-    # Stats por sucursal - simple
+    # Stats por sucursal - con manejo de combos
     sucursal_query = f"""
+    WITH precio_combo AS (
+        SELECT
+            tit.it_isassociationgroup AS group_id,
+            SUM(tit.it_price) AS precio_total
+        FROM tb_item_transactions tit
+        LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
+        WHERE tit.it_isassociationgroup IS NOT NULL
+          AND tit.it_price IS NOT NULL
+          AND tct.ct_date BETWEEN :from_date AND :to_date
+        GROUP BY tit.it_isassociationgroup
+    )
     SELECT
         tb.bra_desc as sucursal,
         COUNT(*) as total_ventas,
         COALESCE(SUM(tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END), 0) as unidades,
-        COALESCE(SUM(tit.it_price * tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END), 0) as monto
+        COALESCE(SUM(COALESCE(tit.it_price, pc.precio_total) * tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END), 0) as monto
     FROM tb_item_transactions tit
     LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
     LEFT JOIN tb_branch tb ON tb.comp_id = tit.comp_id AND tb.bra_id = tct.bra_id
     LEFT JOIN tb_item ti ON ti.comp_id = tit.comp_id AND ti.item_id = tit.item_id
+    LEFT JOIN precio_combo pc ON pc.group_id = tit.it_isassociationgroup
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
         AND tct.df_id IN ({DF_IDS_STR})
         AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
         AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
         AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
-        AND tit.it_price <> 0
         AND tit.it_qty <> 0
         AND tct.sd_id IN ({SD_IDS_STR})
-        AND COALESCE(ti.item_desc, '') <> 'Envio'
+        AND COALESCE(ti.item_desc, '') NOT ILIKE '%envio%'
         AND NOT (
             COALESCE(tit.it_isassociation, false) = true
             AND COALESCE(tit.it_order, 1) <> 1
-            AND tit.it_isassociationgroup IS NOT NULL
         )
+        AND (tit.it_price IS NOT NULL AND tit.it_price <> 0 OR tit.it_isassociationgroup IS NOT NULL)
     GROUP BY tb.bra_desc
     ORDER BY monto DESC
     """
@@ -571,31 +598,42 @@ async def get_ventas_fuera_ml_stats(
         {"from_date": from_date, "to_date": to_date + " 23:59:59"}
     ).fetchall()
 
-    # Stats por vendedor - simple
+    # Stats por vendedor - con manejo de combos
     vendedor_query = f"""
+    WITH precio_combo AS (
+        SELECT
+            tit.it_isassociationgroup AS group_id,
+            SUM(tit.it_price) AS precio_total
+        FROM tb_item_transactions tit
+        LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
+        WHERE tit.it_isassociationgroup IS NOT NULL
+          AND tit.it_price IS NOT NULL
+          AND tct.ct_date BETWEEN :from_date AND :to_date
+        GROUP BY tit.it_isassociationgroup
+    )
     SELECT
         tsm.sm_name as vendedor,
         COUNT(*) as total_ventas,
         COALESCE(SUM(tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END), 0) as unidades,
-        COALESCE(SUM(tit.it_price * tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END), 0) as monto
+        COALESCE(SUM(COALESCE(tit.it_price, pc.precio_total) * tit.it_qty * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END), 0) as monto
     FROM tb_item_transactions tit
     LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
     LEFT JOIN tb_salesman tsm ON tsm.sm_id = tct.sm_id
     LEFT JOIN tb_item ti ON ti.comp_id = tit.comp_id AND ti.item_id = tit.item_id
+    LEFT JOIN precio_combo pc ON pc.group_id = tit.it_isassociationgroup
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
         AND tct.df_id IN ({DF_IDS_STR})
         AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
         AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
         AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
-        AND tit.it_price <> 0
         AND tit.it_qty <> 0
         AND tct.sd_id IN ({SD_IDS_STR})
-        AND COALESCE(ti.item_desc, '') <> 'Envio'
+        AND COALESCE(ti.item_desc, '') NOT ILIKE '%envio%'
         AND NOT (
             COALESCE(tit.it_isassociation, false) = true
             AND COALESCE(tit.it_order, 1) <> 1
-            AND tit.it_isassociationgroup IS NOT NULL
         )
+        AND (tit.it_price IS NOT NULL AND tit.it_price <> 0 OR tit.it_isassociationgroup IS NOT NULL)
     GROUP BY tsm.sm_name
     ORDER BY monto DESC
     """
