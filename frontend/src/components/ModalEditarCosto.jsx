@@ -29,6 +29,10 @@ export default function ModalEditarCosto({
   const [tipoCambioOriginal, setTipoCambioOriginal] = useState(null);
   const [fechaTipoCambio, setFechaTipoCambio] = useState(null);
 
+  // Markup de costo (VARIOS) - carga desde configuración
+  const [markupCosto, setMarkupCosto] = useState('6.5');
+  const [markupCostoOriginal, setMarkupCostoOriginal] = useState(6.5);
+
   // Búsqueda de productos en ERP
   const [busquedaProducto, setBusquedaProducto] = useState('');
   const [productosEncontrados, setProductosEncontrados] = useState([]);
@@ -57,8 +61,26 @@ export default function ModalEditarCosto({
       if (operacion.fecha) {
         cargarTipoCambioFecha(operacion.fecha);
       }
+
+      // Cargar markup de costo (VARIOS) desde configuración
+      cargarMarkupCosto();
     }
   }, [mostrar, operacion]);
+
+  const cargarMarkupCosto = async () => {
+    try {
+      const response = await api.get('/api/configuracion/pricing-constants/actual');
+      if (response.data.varios_porcentaje !== undefined) {
+        setMarkupCosto(response.data.varios_porcentaje.toString());
+        setMarkupCostoOriginal(response.data.varios_porcentaje);
+      }
+    } catch (error) {
+      console.error('Error cargando markup de costo:', error);
+      // Mantener default 6.5%
+      setMarkupCosto('6.5');
+      setMarkupCostoOriginal(6.5);
+    }
+  };
 
   const cargarTipoCambioFecha = async (fecha) => {
     try {
@@ -195,10 +217,14 @@ export default function ModalEditarCosto({
       return;
     }
 
+    // Aplicar markup de costo (VARIOS)
+    const markup = parseFloat(markupCosto) || 0;
+    const costoConMarkup = costoARS * (1 + markup / 100);
+
     setGuardando(true);
     try {
       await api.put(`/api/ventas-fuera-ml/metricas/${operacion.metrica_id}/costo`, {
-        costo_unitario: costoARS
+        costo_unitario: costoConMarkup
       });
 
       if (onSave) onSave();
@@ -224,7 +250,10 @@ export default function ModalEditarCosto({
 
   const cantidad = operacion.cantidad || 1;
   const costoUnitarioARS = getCostoEnARS();
-  const costoTotal = costoUnitarioARS * cantidad;
+  // Aplicar markup de costo (VARIOS) al preview
+  const markupCostoVal = parseFloat(markupCosto) || 0;
+  const costoConMarkup = costoUnitarioARS * (1 + markupCostoVal / 100);
+  const costoTotal = costoConMarkup * cantidad;
   const montoTotal = operacion.precio_final_sin_iva || 0;
   const gananciaPreview = montoTotal - costoTotal;
   const markupPreview = costoTotal > 0 ? ((montoTotal / costoTotal) - 1) * 100 : null;
@@ -464,6 +493,54 @@ export default function ModalEditarCosto({
             </p>
           )}
 
+          {/* Markup de costo (VARIOS) */}
+          <div className={styles.formRow} style={{ marginTop: '0.75rem' }}>
+            <div style={{ flex: 1 }}>
+              <label>
+                Markup Costo (%):
+                <span style={{ fontWeight: 'normal', marginLeft: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  (VARIOS - default {markupCostoOriginal}%)
+                </span>
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                placeholder="Ej: 6.5"
+                value={markupCosto}
+                onChange={e => setMarkupCosto(e.target.value)}
+                style={{ fontSize: '1.1rem', padding: '0.5rem' }}
+              />
+            </div>
+            {markupCostoOriginal && markupCosto !== markupCostoOriginal.toString() && (
+              <div style={{ flex: 0, alignSelf: 'flex-end', marginBottom: '0.25rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setMarkupCosto(markupCostoOriginal.toString())}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.8rem',
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    color: 'var(--text-secondary)'
+                  }}
+                  title="Restaurar markup original"
+                >
+                  Restaurar
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Mostrar cálculo del markup */}
+          {costoUnitarioARS > 0 && markupCostoVal > 0 && (
+            <p style={{ fontSize: '0.85rem', color: '#8b5cf6', marginTop: '0.5rem', fontWeight: 500 }}>
+              {formatMoney(costoUnitarioARS)} + {markupCostoVal}% = {formatMoney(costoConMarkup)}
+            </p>
+          )}
+
           {/* Preview de cálculos */}
           {costoUnitario && parseFloat(costoUnitario) > 0 && (monedaCosto === 'ARS' || (monedaCosto === 'USD' && tipoCambio && parseFloat(tipoCambio) > 0)) && (
             <div style={{
@@ -473,9 +550,10 @@ export default function ModalEditarCosto({
               borderRadius: '8px',
               border: gananciaPreview >= 0 ? '1px solid #10b981' : '1px solid #ef4444'
             }}>
-              <h4 style={{ margin: '0 0 0.5rem 0', color: '#1f2937' }}>Vista previa:</h4>
+              <h4 style={{ margin: '0 0 0.5rem 0', color: '#1f2937' }}>Vista previa (se guarda con markup {markupCostoVal}%):</h4>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem', color: '#374151' }}>
-                <div><strong>Costo Unit (ARS):</strong> {formatMoney(costoUnitarioARS)}</div>
+                <div><strong>Costo Base:</strong> {formatMoney(costoUnitarioARS)}</div>
+                <div><strong>Costo c/Markup:</strong> {formatMoney(costoConMarkup)}</div>
                 <div><strong>Costo Total:</strong> {formatMoney(costoTotal)}</div>
                 <div>
                   <strong>Ganancia:</strong>{' '}
@@ -483,8 +561,8 @@ export default function ModalEditarCosto({
                     {formatMoney(gananciaPreview)}
                   </span>
                 </div>
-                <div>
-                  <strong>Markup:</strong>{' '}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <strong>Markup Final:</strong>{' '}
                   <span style={{ color: markupPreview !== null && markupPreview >= 0 ? '#059669' : '#dc2626', fontWeight: 'bold' }}>
                     {markupPreview !== null ? `${markupPreview.toFixed(1)}%` : '-'}
                   </span>
