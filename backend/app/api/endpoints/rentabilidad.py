@@ -194,94 +194,108 @@ async def obtener_rentabilidad(
         OffsetGanancia.aplica_ml == True
     ).all()
 
-    # Calcular acumulados por grupo/offset para verificar límites
-    # Los límites son OR: si se cumple max_unidades O max_monto_usd, el offset deja de aplicar
-    acumulados_grupo = {}  # grupo_id -> {'unidades': X, 'monto_usd': Y}
-    acumulados_offset = {}  # offset_id -> {'unidades': X, 'monto_usd': Y}
+    # Calcular el offset total por grupo/offset CON límites aplicados
+    # El límite es el máximo que puede sumar el grupo completo (no por producto)
+    # Si hay max_unidades O max_monto_usd, el offset se limita al mínimo entre lo calculado y el límite
+    offsets_grupo_calculados = {}  # grupo_id -> {'offset_total': X, 'descripcion': Y, 'limite_aplicado': bool}
 
-    # Obtener unidades vendidas y monto para cada offset con límites
+    # Pre-calcular offsets por grupo para aplicar límites a nivel grupo
     for offset in offsets:
-        if offset.max_unidades is None and offset.max_monto_usd is None:
-            continue  # Sin límites, no necesita tracking
+        if not offset.grupo_id:
+            continue  # Los offsets sin grupo se calculan individualmente
 
-        # Determinar qué item_ids aplican a este offset
-        items_aplicables = []
-        if offset.item_id:
-            items_aplicables = [offset.item_id]
-        elif offset.subcategoria_id:
-            items_aplicables = [
-                d.item_id for d in db.query(MLVentaMetrica.item_id).filter(
-                    MLVentaMetrica.subcategoria == str(offset.subcategoria_id),
-                    MLVentaMetrica.fecha_venta >= fecha_desde_dt,
-                    MLVentaMetrica.fecha_venta < fecha_hasta_dt
-                ).distinct().all()
-            ]
-        elif offset.categoria:
-            items_aplicables = [
-                d.item_id for d in db.query(MLVentaMetrica.item_id).filter(
-                    MLVentaMetrica.categoria == offset.categoria,
-                    MLVentaMetrica.fecha_venta >= fecha_desde_dt,
-                    MLVentaMetrica.fecha_venta < fecha_hasta_dt
-                ).distinct().all()
-            ]
-        elif offset.marca:
-            items_aplicables = [
-                d.item_id for d in db.query(MLVentaMetrica.item_id).filter(
-                    MLVentaMetrica.marca == offset.marca,
-                    MLVentaMetrica.fecha_venta >= fecha_desde_dt,
-                    MLVentaMetrica.fecha_venta < fecha_hasta_dt
-                ).distinct().all()
-            ]
+        if offset.grupo_id not in offsets_grupo_calculados:
+            # Calcular el offset total del grupo sumando todos los productos que aplican
+            grupo_offset_total = 0.0
+            grupo_unidades_total = 0
 
-        # Calcular unidades y monto para estos items
-        if items_aplicables:
-            acum = db.query(
-                func.count(MLVentaMetrica.id).label('unidades'),
-                func.sum(MLVentaMetrica.monto_total).label('monto')
-            ).filter(
-                MLVentaMetrica.item_id.in_(items_aplicables),
-                MLVentaMetrica.fecha_venta >= fecha_desde_dt,
-                MLVentaMetrica.fecha_venta < fecha_hasta_dt
-            ).first()
+            # Buscar todos los offsets del mismo grupo
+            offsets_del_grupo = [o for o in offsets if o.grupo_id == offset.grupo_id]
 
-            unidades = acum.unidades or 0
-            monto = float(acum.monto or 0)
-            # Convertir monto a USD si hay tipo de cambio
-            monto_usd = monto / float(offset.tipo_cambio) if offset.tipo_cambio and offset.tipo_cambio > 0 else monto
+            for og in offsets_del_grupo:
+                # Determinar qué items aplican a este offset del grupo
+                if og.item_id:
+                    items_q = db.query(
+                        func.count(MLVentaMetrica.id).label('cantidad'),
+                        func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo')
+                    ).filter(
+                        MLVentaMetrica.item_id == og.item_id,
+                        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+                        MLVentaMetrica.fecha_venta < fecha_hasta_dt
+                    ).first()
+                elif og.subcategoria_id:
+                    items_q = db.query(
+                        func.count(MLVentaMetrica.id).label('cantidad'),
+                        func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo')
+                    ).filter(
+                        MLVentaMetrica.subcategoria == str(og.subcategoria_id),
+                        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+                        MLVentaMetrica.fecha_venta < fecha_hasta_dt
+                    ).first()
+                elif og.categoria:
+                    items_q = db.query(
+                        func.count(MLVentaMetrica.id).label('cantidad'),
+                        func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo')
+                    ).filter(
+                        MLVentaMetrica.categoria == og.categoria,
+                        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+                        MLVentaMetrica.fecha_venta < fecha_hasta_dt
+                    ).first()
+                elif og.marca:
+                    items_q = db.query(
+                        func.count(MLVentaMetrica.id).label('cantidad'),
+                        func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo')
+                    ).filter(
+                        MLVentaMetrica.marca == og.marca,
+                        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+                        MLVentaMetrica.fecha_venta < fecha_hasta_dt
+                    ).first()
+                else:
+                    continue
 
-            if offset.grupo_id:
-                # Acumular en el grupo
-                if offset.grupo_id not in acumulados_grupo:
-                    acumulados_grupo[offset.grupo_id] = {'unidades': 0, 'monto_usd': 0}
-                acumulados_grupo[offset.grupo_id]['unidades'] += unidades
-                acumulados_grupo[offset.grupo_id]['monto_usd'] += monto_usd
-            else:
-                # Acumular en el offset individual
-                acumulados_offset[offset.id] = {'unidades': unidades, 'monto_usd': monto_usd}
+                if items_q and items_q.cantidad:
+                    cantidad = items_q.cantidad
+                    costo = float(items_q.costo or 0)
+                    grupo_unidades_total += cantidad
 
-    def verificar_limite_alcanzado(offset):
-        """
-        Verifica si el offset ya alcanzó alguno de sus límites (condición OR).
-        Retorna True si ya NO debe aplicar más.
-        """
-        if offset.max_unidades is None and offset.max_monto_usd is None:
-            return False  # Sin límites
+                    # Calcular valor del offset para estas unidades
+                    tipo = og.tipo_offset or 'monto_fijo'
+                    if tipo == 'monto_fijo':
+                        grupo_offset_total += float(og.monto or 0)
+                    elif tipo == 'monto_por_unidad':
+                        monto_base = float(og.monto or 0)
+                        if og.moneda == 'USD' and og.tipo_cambio:
+                            monto_base *= float(og.tipo_cambio)
+                        grupo_offset_total += monto_base * cantidad
+                    elif tipo == 'porcentaje_costo':
+                        grupo_offset_total += (float(og.porcentaje or 0) / 100) * costo
 
-        # Obtener acumulados
-        if offset.grupo_id and offset.grupo_id in acumulados_grupo:
-            acum = acumulados_grupo[offset.grupo_id]
-        elif offset.id in acumulados_offset:
-            acum = acumulados_offset[offset.id]
-        else:
-            return False  # No hay datos acumulados
+            # Aplicar límites (OR: el primero que se cumpla)
+            limite_aplicado = False
+            tc = float(offset.tipo_cambio) if offset.tipo_cambio else 1.0
 
-        # Verificar límites con condición OR
-        if offset.max_unidades is not None and acum['unidades'] >= offset.max_unidades:
-            return True
-        if offset.max_monto_usd is not None and acum['monto_usd'] >= offset.max_monto_usd:
-            return True
+            if offset.max_unidades is not None and grupo_unidades_total >= offset.max_unidades:
+                # Limitar por unidades: recalcular con max_unidades
+                if offset.tipo_offset == 'monto_por_unidad':
+                    monto_base = float(offset.monto or 0)
+                    if offset.moneda == 'USD' and offset.tipo_cambio:
+                        monto_base *= float(offset.tipo_cambio)
+                    grupo_offset_total = monto_base * offset.max_unidades
+                limite_aplicado = True
 
-        return False
+            if offset.max_monto_usd is not None:
+                max_monto_ars = offset.max_monto_usd * tc
+                if grupo_offset_total >= max_monto_ars:
+                    grupo_offset_total = max_monto_ars
+                    limite_aplicado = True
+
+            offsets_grupo_calculados[offset.grupo_id] = {
+                'offset_total': grupo_offset_total,
+                'descripcion': offset.descripcion or f"Grupo {offset.grupo_id}",
+                'limite_aplicado': limite_aplicado,
+                'max_unidades': offset.max_unidades,
+                'max_monto_usd': offset.max_monto_usd
+            }
 
     # Para propagar offsets de niveles inferiores, necesitamos saber qué productos
     # pertenecen a cada marca/categoría/subcategoría
@@ -392,15 +406,108 @@ async def obtener_rentabilidad(
         """
         Calcula todos los offsets aplicables a una card, incluyendo propagación
         de niveles inferiores. Retorna (total, lista_desglose)
+
+        Para offsets con grupo_id:
+        - Se muestra UN solo desglose por grupo (no por producto)
+        - El monto es el total del grupo (con límites aplicados)
+        - Solo se muestra en la primera card que lo use
         """
         offset_total = 0.0
         desglose = []
+        grupos_procesados_en_card = set()  # Track grupos ya procesados en esta card
 
         for offset in offsets:
             valor_offset = 0.0
             aplica = False
             nivel_offset, nombre_nivel = get_offset_nivel_nombre(offset)
 
+            # Si el offset tiene grupo, usar el valor pre-calculado del grupo
+            # El offset de grupo es UN SOLO MONTO para toda la campaña, no se reparte por producto
+            if offset.grupo_id and offset.grupo_id in offsets_grupo_calculados:
+                # Skip si ya procesamos este grupo para esta card
+                if offset.grupo_id in grupos_procesados_en_card:
+                    continue
+
+                # Solo procesar si este offset aplica a la card actual
+                aplica_a_card = False
+
+                if nivel == "marca":
+                    if offset.marca and offset.marca == card_nombre:
+                        aplica_a_card = True
+                    elif offset.item_id:
+                        detalle = productos_detalle.get(offset.item_id)
+                        if detalle and detalle['marca'] == card_nombre:
+                            aplica_a_card = True
+                    elif offset.categoria:
+                        for item_id, detalle in productos_detalle.items():
+                            if detalle['marca'] == card_nombre and detalle['categoria'] == offset.categoria:
+                                aplica_a_card = True
+                                break
+                elif nivel == "categoria":
+                    if offset.categoria and offset.categoria == card_nombre:
+                        aplica_a_card = True
+                    elif offset.item_id:
+                        detalle = productos_detalle.get(offset.item_id)
+                        if detalle and detalle['categoria'] == card_nombre:
+                            aplica_a_card = True
+                    elif offset.marca:
+                        for item_id, detalle in productos_detalle.items():
+                            if detalle['categoria'] == card_nombre and detalle['marca'] == offset.marca:
+                                aplica_a_card = True
+                                break
+                elif nivel == "subcategoria":
+                    if offset.subcategoria_id and str(offset.subcategoria_id) == str(card_identificador):
+                        aplica_a_card = True
+                    elif offset.item_id:
+                        detalle = productos_detalle.get(offset.item_id)
+                        if detalle and detalle['subcategoria'] == card_nombre:
+                            aplica_a_card = True
+                elif nivel == "producto":
+                    if offset.item_id and str(offset.item_id) == str(card_identificador):
+                        aplica_a_card = True
+
+                if aplica_a_card:
+                    # Marcar grupo como procesado para esta card
+                    grupos_procesados_en_card.add(offset.grupo_id)
+
+                    grupo_info = offsets_grupo_calculados[offset.grupo_id]
+
+                    # Agregar al desglose para que se muestre la info del grupo
+                    limite_texto = ""
+                    if grupo_info['limite_aplicado']:
+                        if grupo_info.get('max_monto_usd'):
+                            limite_texto = f" (máx USD {grupo_info['max_monto_usd']:,.0f})"
+                        elif grupo_info.get('max_unidades'):
+                            limite_texto = f" (máx {grupo_info['max_unidades']} un.)"
+
+                    # En cards individuales de producto, NO sumamos el offset del grupo
+                    # porque el offset del grupo es por CAMPAÑA, no por producto
+                    # Solo mostramos que participa del grupo (monto 0 para la card)
+                    # El total se suma UNA sola vez en los totales globales
+                    if nivel == "producto":
+                        # Mostrar que el producto participa del grupo pero sin sumar
+                        desglose.append(DesgloseOffset(
+                            descripcion=f"{grupo_info['descripcion']}{limite_texto} (ver total)",
+                            nivel="grupo",
+                            nombre_nivel=f"Grupo {offset.grupo_id}",
+                            tipo_offset=offset.tipo_offset or 'monto_fijo',
+                            monto=0  # No sumar a nivel producto
+                        ))
+                    else:
+                        # Para niveles agregados (marca, categoria, subcategoria)
+                        # mostramos el total del grupo
+                        desglose.append(DesgloseOffset(
+                            descripcion=f"{grupo_info['descripcion']}{limite_texto}",
+                            nivel="grupo",
+                            nombre_nivel=f"Grupo {offset.grupo_id}",
+                            tipo_offset=offset.tipo_offset or 'monto_fijo',
+                            monto=grupo_info['offset_total']
+                        ))
+                        offset_total += grupo_info['offset_total']
+
+                continue  # Skip normal processing for grouped offsets
+
+            # Offsets SIN grupo - procesar normalmente
             if nivel == "marca":
                 # Offset directo por marca
                 if offset.marca and offset.marca == card_nombre and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
@@ -480,26 +587,15 @@ async def obtener_rentabilidad(
                     valor_offset = calcular_valor_offset(offset, cantidad_vendida, costo_total)
                     aplica = True
 
-            # Verificar si el offset ya alcanzó alguno de sus límites (OR)
             if aplica and valor_offset > 0:
-                if verificar_limite_alcanzado(offset):
-                    # Límite alcanzado, agregar al desglose con monto 0 y nota
-                    desglose.append(DesgloseOffset(
-                        descripcion=f"{offset.descripcion or f'Offset {offset.id}'} (LÍMITE ALCANZADO)",
-                        nivel=nivel_offset,
-                        nombre_nivel=nombre_nivel,
-                        tipo_offset=offset.tipo_offset or 'monto_fijo',
-                        monto=0
-                    ))
-                else:
-                    offset_total += valor_offset
-                    desglose.append(DesgloseOffset(
-                        descripcion=offset.descripcion or f"Offset {offset.id}",
-                        nivel=nivel_offset,
-                        nombre_nivel=nombre_nivel,
-                        tipo_offset=offset.tipo_offset or 'monto_fijo',
-                        monto=valor_offset
-                    ))
+                offset_total += valor_offset
+                desglose.append(DesgloseOffset(
+                    descripcion=offset.descripcion or f"Offset {offset.id}",
+                    nivel=nivel_offset,
+                    nombre_nivel=nombre_nivel,
+                    tipo_offset=offset.tipo_offset or 'monto_fijo',
+                    monto=valor_offset
+                ))
 
         return offset_total, desglose if desglose else None
 
@@ -569,14 +665,52 @@ async def obtener_rentabilidad(
     # Ordenar por monto de venta descendente
     cards.sort(key=lambda c: c.monto_venta, reverse=True)
 
+    # Agregar offsets de grupos al total (una sola vez por grupo)
+    # Solo cuando estamos a nivel producto, porque en niveles agregados ya se sumó en calcular_offsets_para_card
+    if nivel == "producto":
+        for grupo_id, grupo_info in offsets_grupo_calculados.items():
+            # Verificar si algún producto del grupo está en los resultados
+            grupo_aplica = False
+            for offset in offsets:
+                if offset.grupo_id == grupo_id:
+                    if offset.item_id:
+                        for r in resultados:
+                            if str(r.identificador) == str(offset.item_id):
+                                grupo_aplica = True
+                                break
+                if grupo_aplica:
+                    break
+
+            if grupo_aplica:
+                total_offset += grupo_info['offset_total']
+
+                limite_texto = ""
+                if grupo_info['limite_aplicado']:
+                    if grupo_info.get('max_monto_usd'):
+                        limite_texto = f" (máx USD {grupo_info['max_monto_usd']:,.0f})"
+                    elif grupo_info.get('max_unidades'):
+                        limite_texto = f" (máx {grupo_info['max_unidades']} un.)"
+
+                total_desglose_offsets.append(DesgloseOffset(
+                    descripcion=f"{grupo_info['descripcion']}{limite_texto}",
+                    nivel="grupo",
+                    nombre_nivel=f"Grupo {grupo_id}",
+                    tipo_offset="monto_por_unidad",
+                    monto=grupo_info['offset_total']
+                ))
+
     # Calcular totales
     total_ganancia_con_offset = total_ganancia + total_offset
     total_markup = ((total_ganancia / total_costo) * 100) if total_costo > 0 else 0
     total_markup_con_offset = ((total_ganancia_con_offset / total_costo) * 100) if total_costo > 0 else 0
 
     # Agrupar desglose de offsets totales por descripción
+    # Filtrar los de grupo con monto=0 (que vienen de las cards de producto individuales)
     desglose_totales_agrupado = {}
     for d in total_desglose_offsets:
+        # Skip entries de grupo con monto=0 (vienen de cards individuales de producto)
+        if d.nivel == "grupo" and d.monto == 0:
+            continue
         key = (d.descripcion, d.nivel, d.nombre_nivel, d.tipo_offset)
         if key not in desglose_totales_agrupado:
             desglose_totales_agrupado[key] = DesgloseOffset(
