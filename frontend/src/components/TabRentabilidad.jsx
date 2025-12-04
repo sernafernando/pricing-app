@@ -71,15 +71,15 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
         fecha_desde: fechaDesde,
         fecha_hasta: fechaHasta
       };
-      // Enviar todos los filtros para retroalimentación
+      // Enviar todos los filtros para retroalimentación (usar | como separador para evitar conflictos con comas en nombres)
       if (marcasSeleccionadas.length > 0) {
-        params.marcas = marcasSeleccionadas.join(',');
+        params.marcas = marcasSeleccionadas.join('|');
       }
       if (categoriasSeleccionadas.length > 0) {
-        params.categorias = categoriasSeleccionadas.join(',');
+        params.categorias = categoriasSeleccionadas.join('|');
       }
       if (subcategoriasSeleccionadas.length > 0) {
-        params.subcategorias = subcategoriasSeleccionadas.join(',');
+        params.subcategorias = subcategoriasSeleccionadas.join('|');
       }
 
       const response = await api.get('/api/rentabilidad/filtros', { params });
@@ -96,17 +96,18 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
         fecha_desde: fechaDesde,
         fecha_hasta: fechaHasta
       };
+      // Usar | como separador para evitar conflictos con comas en nombres
       if (marcasSeleccionadas.length > 0) {
-        params.marcas = marcasSeleccionadas.join(',');
+        params.marcas = marcasSeleccionadas.join('|');
       }
       if (categoriasSeleccionadas.length > 0) {
-        params.categorias = categoriasSeleccionadas.join(',');
+        params.categorias = categoriasSeleccionadas.join('|');
       }
       if (subcategoriasSeleccionadas.length > 0) {
-        params.subcategorias = subcategoriasSeleccionadas.join(',');
+        params.subcategorias = subcategoriasSeleccionadas.join('|');
       }
       if (productosSeleccionados.length > 0) {
-        params.productos = productosSeleccionados.map(p => p.item_id).join(',');
+        params.productos = productosSeleccionados.map(p => p.item_id).join('|');
       }
 
       const response = await api.get('/api/rentabilidad', { params });

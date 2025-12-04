@@ -79,11 +79,11 @@ async def obtener_rentabilidad(
     Los filtros son independientes y se pueden combinar libremente.
     El nivel de agrupación se determina por la cantidad de filtros aplicados.
     """
-    # Parsear filtros múltiples
-    lista_marcas = [m.strip() for m in marcas.split(',')] if marcas else []
-    lista_categorias = [c.strip() for c in categorias.split(',')] if categorias else []
-    lista_subcategorias = [s.strip() for s in subcategorias.split(',')] if subcategorias else []
-    lista_productos = [int(p.strip()) for p in productos.split(',') if p.strip().isdigit()] if productos else []
+    # Parsear filtros múltiples (usar | como separador para evitar conflictos con comas en nombres)
+    lista_marcas = [m.strip() for m in marcas.split('|')] if marcas else []
+    lista_categorias = [c.strip() for c in categorias.split('|')] if categorias else []
+    lista_subcategorias = [s.strip() for s in subcategorias.split('|')] if subcategorias else []
+    lista_productos = [int(p.strip()) for p in productos.split('|') if p.strip().isdigit()] if productos else []
 
     # Determinar nivel de agrupación basado en los filtros seleccionados
     # La lógica es: agrupar por la dimensión que NO está filtrada para hacer drill-down
@@ -821,9 +821,10 @@ async def obtener_filtros_disponibles(
     Obtiene los valores disponibles para los filtros basado en los datos del período.
     Los filtros se retroalimentan entre sí (bidireccional).
     """
-    lista_marcas = [m.strip() for m in marcas.split(',')] if marcas else []
-    lista_categorias = [c.strip() for c in categorias.split(',')] if categorias else []
-    lista_subcategorias = [s.strip() for s in subcategorias.split(',')] if subcategorias else []
+    # Usar | como separador para evitar conflictos con comas en nombres
+    lista_marcas = [m.strip() for m in marcas.split('|')] if marcas else []
+    lista_categorias = [c.strip() for c in categorias.split('|')] if categorias else []
+    lista_subcategorias = [s.strip() for s in subcategorias.split('|')] if subcategorias else []
 
     # Convertir fechas a datetime para comparación correcta
     fecha_desde_dt = datetime.combine(fecha_desde, datetime.min.time())
