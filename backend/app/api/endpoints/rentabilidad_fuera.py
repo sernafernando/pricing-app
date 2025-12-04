@@ -231,7 +231,27 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
                 ELSE costo_unitario * tipo_cambio * it_qty
             END *
             CASE WHEN sd_id IN ({','.join(map(str, SD_DEVOLUCIONES))}) THEN -1 ELSE 1 END
-        ) as ganancia
+        ) as ganancia,
+
+        -- Monto solo de productos CON costo (para calcular markup)
+        SUM(
+            CASE WHEN costo_unitario > 0 THEN
+                it_price * it_qty *
+                CASE WHEN bra_id = 35 THEN (1 + iva_porcentaje / 100) ELSE 1 END *
+                CASE WHEN sd_id IN ({','.join(map(str, SD_DEVOLUCIONES))}) THEN -1 ELSE 1 END
+            ELSE 0 END
+        ) as monto_con_costo,
+
+        -- Costo solo de productos CON costo (para calcular markup)
+        SUM(
+            CASE WHEN costo_unitario > 0 THEN
+                CASE
+                    WHEN costo_moneda = 1 THEN costo_unitario * it_qty
+                    ELSE costo_unitario * tipo_cambio * it_qty
+                END *
+                CASE WHEN sd_id IN ({','.join(map(str, SD_DEVOLUCIONES))}) THEN -1 ELSE 1 END
+            ELSE 0 END
+        ) as costo_con_costo
 
     FROM costo_venta
     WHERE nombre IS NOT NULL
@@ -335,6 +355,8 @@ async def obtener_rentabilidad_fuera(
     total_costo = 0.0
     total_ganancia = 0.0
     total_offset = 0.0
+    total_monto_con_costo = 0.0
+    total_costo_con_costo = 0.0
 
     for r in resultados:
         # Calcular offset aplicable
@@ -355,12 +377,17 @@ async def obtener_rentabilidad_fuera(
         monto_venta = float(r.monto_venta or 0)
         costo_total = float(r.costo_total or 0)
         ganancia = float(r.ganancia or 0)
+        # Para markup: solo usar productos con costo
+        monto_con_costo = float(r.monto_con_costo or 0)
+        costo_con_costo = float(r.costo_con_costo or 0)
+        ganancia_con_costo = monto_con_costo - costo_con_costo
 
-        # Calcular markup a partir de ganancia/costo (no promediar porcentajes)
-        markup_promedio = ((ganancia / costo_total) * 100) if costo_total > 0 else 0
+        # Calcular markup solo con productos que tienen costo (no promediar porcentajes)
+        markup_promedio = ((ganancia_con_costo / costo_con_costo) * 100) if costo_con_costo > 0 else 0
 
         ganancia_con_offset = ganancia + offset_aplicable
-        markup_con_offset = ((ganancia_con_offset / costo_total) * 100) if costo_total > 0 else 0
+        # Para markup con offset, usar ganancia_con_costo + offset proporcional
+        markup_con_offset = (((ganancia_con_costo + offset_aplicable) / costo_con_costo) * 100) if costo_con_costo > 0 else 0
 
         cards.append(CardRentabilidadFuera(
             nombre=r.nombre or "Sin nombre",
@@ -382,14 +409,17 @@ async def obtener_rentabilidad_fuera(
         total_costo += costo_total
         total_ganancia += ganancia
         total_offset += offset_aplicable
+        total_monto_con_costo += monto_con_costo
+        total_costo_con_costo += costo_con_costo
 
     # Ordenar por monto de venta descendente
     cards.sort(key=lambda c: c.monto_venta, reverse=True)
 
-    # Calcular totales
+    # Calcular totales (markup solo con productos que tienen costo)
     total_ganancia_con_offset = total_ganancia + total_offset
-    total_markup = ((total_ganancia / total_costo) * 100) if total_costo > 0 else 0
-    total_markup_con_offset = ((total_ganancia_con_offset / total_costo) * 100) if total_costo > 0 else 0
+    total_ganancia_con_costo = total_monto_con_costo - total_costo_con_costo
+    total_markup = ((total_ganancia_con_costo / total_costo_con_costo) * 100) if total_costo_con_costo > 0 else 0
+    total_markup_con_offset = (((total_ganancia_con_costo + total_offset) / total_costo_con_costo) * 100) if total_costo_con_costo > 0 else 0
 
     totales = CardRentabilidadFuera(
         nombre="TOTAL",

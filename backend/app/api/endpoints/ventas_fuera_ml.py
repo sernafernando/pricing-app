@@ -582,7 +582,54 @@ async def get_ventas_fuera_ml_stats(
             CASE WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
                  WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
                  ELSE 0 END
-        ), 0) as costo_total
+        ), 0) as costo_total,
+        -- Monto solo de productos CON costo (para calcular markup)
+        COALESCE(SUM(
+            CASE
+                WHEN (
+                    CASE
+                        WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccosto.costo_combo, 0)
+                        ELSE CASE
+                            WHEN iclh.curr_id = 1 THEN COALESCE(iclh.iclh_price, 0) * tit.it_qty
+                            ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
+                        END
+                    END
+                ) > 0 THEN
+                    CASE
+                        WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN cp.precio_combo
+                        ELSE tit.it_price * tit.it_qty
+                    END *
+                    CASE WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
+                         WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
+                         ELSE 0 END
+                ELSE 0
+            END
+        ), 0) as monto_con_costo,
+        -- Costo solo de productos CON costo (para calcular markup)
+        COALESCE(SUM(
+            CASE
+                WHEN (
+                    CASE
+                        WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccosto.costo_combo, 0)
+                        ELSE CASE
+                            WHEN iclh.curr_id = 1 THEN COALESCE(iclh.iclh_price, 0) * tit.it_qty
+                            ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
+                        END
+                    END
+                ) > 0 THEN
+                    CASE
+                        WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccosto.costo_combo, 0)
+                        ELSE CASE
+                            WHEN iclh.curr_id = 1 THEN COALESCE(iclh.iclh_price, 0) * tit.it_qty
+                            ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
+                        END
+                    END *
+                    CASE WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
+                         WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
+                         ELSE 0 END
+                ELSE 0
+            END
+        ), 0) as costo_con_costo
     FROM tb_item_transactions tit
     LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
     LEFT JOIN tb_item ti ON ti.comp_id = tit.comp_id AND ti.item_id = tit.item_id
@@ -630,6 +677,9 @@ async def get_ventas_fuera_ml_stats(
     monto_sin_iva = float(result.monto_total_sin_iva or 0)
     monto_con_iva = float(result.monto_total_con_iva or 0)
     costo_total = float(result.costo_total or 0)
+    # Para markup: solo productos con costo
+    monto_con_costo = float(result.monto_con_costo or 0)
+    costo_con_costo = float(result.costo_con_costo or 0)
 
     # ========== Por sucursal: query unificada ==========
     sucursal_query = f"""
@@ -735,10 +785,10 @@ async def get_ventas_fuera_ml_stats(
         if v.vendedor:
             vendedores_dict[v.vendedor] = {"ventas": v.total_ventas, "unidades": float(v.unidades or 0), "monto": float(v.monto or 0)}
 
-    # Calcular markup promedio si hay datos (sin comisión ML porque es venta directa)
+    # Calcular markup promedio solo con productos que tienen costo (sin comisión ML porque es venta directa)
     markup_promedio = None
-    if monto_sin_iva > 0 and costo_total > 0:
-        markup_promedio = (monto_sin_iva / costo_total) - 1
+    if monto_con_costo > 0 and costo_con_costo > 0:
+        markup_promedio = (monto_con_costo / costo_con_costo) - 1
 
     return {
         "total_ventas": total_ventas,
@@ -793,7 +843,29 @@ async def get_ventas_fuera_ml_por_marca(
                 WHEN iclh.curr_id = 1 THEN COALESCE(iclh.iclh_price, 0) * tit.it_qty
                 ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
             END * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END
-        ) as costo_total
+        ) as costo_total,
+        -- Monto solo de productos CON costo (para markup)
+        SUM(
+            CASE
+                WHEN COALESCE(iclh.iclh_price, 0) > 0 THEN
+                    CASE
+                        WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN cp.precio_combo
+                        ELSE tit.it_price * tit.it_qty
+                    END * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END
+                ELSE 0
+            END
+        ) as monto_con_costo,
+        -- Costo solo de productos CON costo (para markup)
+        SUM(
+            CASE
+                WHEN COALESCE(iclh.iclh_price, 0) > 0 THEN
+                    CASE
+                        WHEN iclh.curr_id = 1 THEN iclh.iclh_price * tit.it_qty
+                        ELSE iclh.iclh_price * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
+                    END * CASE WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1 ELSE 1 END
+                ELSE 0
+            END
+        ) as costo_con_costo
 
     FROM tb_item_transactions tit
     LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
@@ -838,13 +910,16 @@ async def get_ventas_fuera_ml_por_marca(
         {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
     ).fetchall()
 
-    # Calcular markup desde totales (sin comisión ML porque es venta directa)
+    # Calcular markup desde totales (solo productos con costo, sin comisión ML porque es venta directa)
     marcas = []
     for r in result:
         monto = float(r.monto_sin_iva or 0)
         costo = float(r.costo_total or 0)
-        # Markup = (monto / costo) - 1 (sin el *0.95 porque no hay comisión ML)
-        markup = ((monto / costo) - 1) if costo > 0 else None
+        # Para markup: solo usar productos con costo
+        monto_con_costo = float(r.monto_con_costo or 0)
+        costo_con_costo = float(r.costo_con_costo or 0)
+        # Markup = (monto / costo) - 1 (solo productos con costo)
+        markup = ((monto_con_costo / costo_con_costo) - 1) if costo_con_costo > 0 else None
         marcas.append({
             "marca": r.marca,
             "total_ventas": r.total_ventas,
