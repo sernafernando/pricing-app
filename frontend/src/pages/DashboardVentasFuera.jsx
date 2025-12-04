@@ -411,7 +411,7 @@ export default function DashboardVentasFuera() {
                 {operacionesFiltradas.map((op, idx) => {
                   const sinCosto = !op.costo_pesos_sin_iva || op.costo_pesos_sin_iva === 0;
                   return (
-                    <tr key={op.metrica_id || idx} style={sinCosto ? { backgroundColor: '#fef2f2' } : {}}>
+                    <tr key={op.metrica_id || idx} className={sinCosto ? styles.rowSinCosto : ''}>
                       <td>{formatearFecha(op.fecha)}</td>
                       <td>{op.sucursal || '-'}</td>
                       <td className={styles.descripcion}>{op.cliente || '-'}</td>
@@ -424,8 +424,11 @@ export default function DashboardVentasFuera() {
                       <td className={styles.centrado}>{op.iva_porcentaje}%</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_final_sin_iva)}</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_final_con_iva)}</td>
-                      <td className={styles.monto} style={sinCosto ? { color: '#ef4444', fontWeight: 'bold' } : {}}>
-                        {sinCosto ? 'Sin costo' : formatearMoneda(op.costo_pesos_sin_iva)}
+                      <td className={styles.monto}>
+                        {sinCosto
+                          ? <span className={styles.alertDanger}>Sin costo</span>
+                          : formatearMoneda(op.costo_pesos_sin_iva)
+                        }
                       </td>
                       <td className={`${styles.centrado} ${op.markup !== null && parseFloat(op.markup) < 0 ? styles.negativo : ''}`}>
                         {formatearPorcentaje(op.markup)}
@@ -434,12 +437,13 @@ export default function DashboardVentasFuera() {
                       <td>
                         <button
                           onClick={() => abrirModalCosto(op)}
+                          className={sinCosto ? styles.alertWarning : ''}
                           style={{
                             padding: '0.25rem 0.5rem',
                             fontSize: '0.8rem',
                             cursor: 'pointer',
-                            background: sinCosto ? '#fbbf24' : '#e5e7eb',
-                            border: 'none',
+                            background: sinCosto ? undefined : '#e5e7eb',
+                            border: sinCosto ? undefined : 'none',
                             borderRadius: '4px'
                           }}
                           title={sinCosto ? 'Agregar costo' : 'Editar costo'}

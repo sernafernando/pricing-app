@@ -398,6 +398,50 @@
   font-weight: 700;
 }
 
+/* Alerts estilo Bootstrap */
+.alertDanger {
+  background-color: #f8d7da !important;
+  color: #842029 !important;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #f5c2c7;
+  display: inline-block;
+}
+
+.alertWarning {
+  background-color: #fff3cd !important;
+  color: #664d03 !important;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #ffecb5;
+  display: inline-block;
+}
+
+.alertSuccess {
+  background-color: #d1e7dd !important;
+  color: #0f5132 !important;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #badbcc;
+  display: inline-block;
+}
+
+/* Fila sin costo - estilo sutil */
+.rowSinCosto {
+  background-color: #fef2f2 !important;
+}
+
+.rowSinCosto td {
+  color: #1f2937 !important;
+}
+
+.rowSinCosto:hover {
+  background-color: #fee2e2 !important;
+}
+
 /* KPIs Principales */
 .kpisContainer {
   display: grid;
