@@ -326,17 +326,16 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
             ) - 1
         END as markup
 
-    FROM tb_item ti
-
-    LEFT JOIN tb_item_transactions tit
-        ON tit.comp_id = ti.comp_id
-        AND (tit.item_id = ti.item_id
-             OR (tit.item_id IS NULL AND tit.it_item_id_origin = ti.item_id)
-             OR (tit.item_id IS NULL AND tit.it_item_id_origin IS NULL AND tit.item_idfrompreinvoice = ti.item_id))
+    FROM tb_item_transactions tit
 
     LEFT JOIN tb_commercial_transactions tct
         ON tct.comp_id = tit.comp_id
         AND tct.ct_transaction = tit.ct_transaction
+
+    -- JOIN a tb_item usando item_id, it_item_id_origin o item_idfrompreinvoice
+    LEFT JOIN tb_item ti
+        ON ti.comp_id = tit.comp_id
+        AND ti.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
 
     LEFT JOIN tb_customer tc
         ON tc.comp_id = tct.comp_id
@@ -371,18 +370,18 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
         AND tdf.df_id = tct.df_id
 
     LEFT JOIN tb_item_taxes titx
-        ON titx.comp_id = ti.comp_id
-        AND titx.item_id = ti.item_id
+        ON titx.comp_id = tit.comp_id
+        AND titx.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
 
     LEFT JOIN tb_tax_name ttn
-        ON ttn.comp_id = ti.comp_id
+        ON ttn.comp_id = tit.comp_id
         AND ttn.tax_id = titx.tax_id
 
     LEFT JOIN tb_salesman tsm
         ON tsm.sm_id = tct.sm_id
 
     LEFT JOIN tb_branch tb
-        ON tb.comp_id = ti.comp_id
+        ON tb.comp_id = tit.comp_id
         AND tb.bra_id = tct.bra_id
 
     LEFT JOIN tb_item_transaction_details titd
