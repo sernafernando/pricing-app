@@ -474,20 +474,18 @@ async def buscar_productos_erp(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Busca productos en el ERP por código o descripción, incluyendo costo actual"""
+    """Busca productos en productos_erp por código o descripción, con costo actual"""
     query = """
-    SELECT DISTINCT ON (i.item_id)
-        i.item_id,
-        i.item_code,
-        i.item_desc,
-        b.brand_desc,
-        ticl.coslis_price as costo,
-        CASE WHEN ticl.curr_id = 2 THEN 'USD' ELSE 'ARS' END as moneda_costo
-    FROM tb_item i
-    LEFT JOIN tb_brand b ON b.comp_id = i.comp_id AND b.brand_id = i.brand_id
-    LEFT JOIN tb_item_cost_list ticl ON ticl.item_id = i.item_id AND ticl.coslis_id = 1
-    WHERE (i.item_code ILIKE :buscar OR i.item_desc ILIKE :buscar)
-    ORDER BY i.item_id, i.item_code
+    SELECT
+        p.item_id,
+        p.codigo,
+        p.descripcion,
+        p.marca,
+        p.costo,
+        p.moneda_costo
+    FROM productos_erp p
+    WHERE (p.codigo ILIKE :buscar OR p.descripcion ILIKE :buscar)
+    ORDER BY p.codigo
     LIMIT 50
     """
 
@@ -496,9 +494,9 @@ async def buscar_productos_erp(
     return [
         {
             "item_id": r.item_id,
-            "codigo": r.item_code or str(r.item_id),
-            "descripcion": r.item_desc or "",
-            "marca": r.brand_desc,
+            "codigo": r.codigo or str(r.item_id),
+            "descripcion": r.descripcion or "",
+            "marca": r.marca,
             "costo_unitario": float(r.costo) if r.costo else None,
             "moneda_costo": r.moneda_costo
         }
