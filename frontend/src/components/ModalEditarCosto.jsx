@@ -21,6 +21,7 @@ export default function ModalEditarCosto({
   operacion // La operación a editar
 }) {
   const [costoUnitario, setCostoUnitario] = useState('');
+  const [monedaCosto, setMonedaCosto] = useState('ARS'); // ARS o USD
   const [guardando, setGuardando] = useState(false);
   const [tipoCambioHoy, setTipoCambioHoy] = useState(null);
 
@@ -38,6 +39,7 @@ export default function ModalEditarCosto({
       } else {
         setCostoUnitario('');
       }
+      setMonedaCosto('ARS');
       setProductoSeleccionado(null);
       setProductosEncontrados([]);
       setBusquedaProducto('');
@@ -75,21 +77,28 @@ export default function ModalEditarCosto({
 
   const seleccionarProducto = (producto) => {
     setProductoSeleccionado(producto);
-    // Si el producto tiene costo, usarlo
+    // Si el producto tiene costo, usarlo en su moneda original
     if (producto.costo_unitario && producto.costo_unitario > 0) {
-      // Si el costo está en USD, convertir a ARS
-      let costo = producto.costo_unitario;
-      if (producto.moneda_costo === 'USD' && tipoCambioHoy) {
-        costo = producto.costo_unitario * tipoCambioHoy;
-      }
-      setCostoUnitario(costo.toFixed(2));
+      setCostoUnitario(producto.costo_unitario.toFixed(2));
+      setMonedaCosto(producto.moneda_costo || 'ARS');
     }
     setProductosEncontrados([]);
     setBusquedaProducto('');
   };
 
+  // Calcular costo en ARS para guardar
+  const getCostoEnARS = () => {
+    if (!costoUnitario || parseFloat(costoUnitario) <= 0) return 0;
+    const costo = parseFloat(costoUnitario);
+    if (monedaCosto === 'USD' && tipoCambioHoy) {
+      return costo * tipoCambioHoy;
+    }
+    return costo;
+  };
+
   const guardarCosto = async () => {
-    if (!costoUnitario || parseFloat(costoUnitario) <= 0) {
+    const costoARS = getCostoEnARS();
+    if (costoARS <= 0) {
       alert('Debe ingresar un costo válido mayor a 0');
       return;
     }
@@ -97,7 +106,7 @@ export default function ModalEditarCosto({
     setGuardando(true);
     try {
       await api.put(`/api/ventas-fuera-ml/metricas/${operacion.metrica_id}/costo`, {
-        costo_unitario: parseFloat(costoUnitario)
+        costo_unitario: costoARS
       });
 
       if (onSave) onSave();
@@ -110,11 +119,10 @@ export default function ModalEditarCosto({
     }
   };
 
-  const formatMoney = (valor) => {
+  const formatMoney = (valor, moneda = 'ARS') => {
     if (valor === null || valor === undefined) return '$0';
-    return new Intl.NumberFormat('es-AR', {
-      style: 'currency',
-      currency: 'ARS',
+    const prefix = moneda === 'USD' ? 'U$S ' : '$ ';
+    return prefix + new Intl.NumberFormat('es-AR', {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
     }).format(valor);
@@ -123,7 +131,8 @@ export default function ModalEditarCosto({
   if (!mostrar || !operacion) return null;
 
   const cantidad = operacion.cantidad || 1;
-  const costoTotal = costoUnitario ? parseFloat(costoUnitario) * cantidad : 0;
+  const costoUnitarioARS = getCostoEnARS();
+  const costoTotal = costoUnitarioARS * cantidad;
   const montoTotal = operacion.precio_final_sin_iva || 0;
   const gananciaPreview = montoTotal - costoTotal;
   const markupPreview = costoTotal > 0 ? ((montoTotal / costoTotal) - 1) * 100 : null;
@@ -134,7 +143,7 @@ export default function ModalEditarCosto({
         <h3>Editar Costo de Operacion</h3>
 
         {/* Info de la operación */}
-        <div className={styles.offsetsLista} style={{ marginBottom: '1rem' }}>
+        <div className={styles.offsetForm} style={{ marginBottom: '1rem' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem' }}>
             <div><strong>Codigo:</strong> {operacion.codigo_item || '-'}</div>
             <div><strong>Fecha:</strong> {operacion.fecha ? new Date(operacion.fecha).toLocaleDateString('es-AR') : '-'}</div>
@@ -149,7 +158,7 @@ export default function ModalEditarCosto({
         {/* Buscar producto para traer costo */}
         <div className={styles.offsetForm}>
           <h4>Buscar costo de producto</h4>
-          <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.5rem' }}>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
             Busca un producto para traer su costo del sistema
           </p>
 
@@ -183,7 +192,7 @@ export default function ModalEditarCosto({
                     <span className={styles.productoNombre}>{producto.descripcion}</span>
                     <span className={styles.productoMarca}>
                       {producto.costo_unitario > 0
-                        ? `Costo: ${producto.moneda_costo === 'USD' ? 'U$' : '$'}${producto.costo_unitario?.toFixed(2)}`
+                        ? `Costo: ${producto.moneda_costo === 'USD' ? 'U$S' : '$'} ${producto.costo_unitario?.toFixed(2)}`
                         : 'Sin costo'}
                     </span>
                   </div>
@@ -193,30 +202,53 @@ export default function ModalEditarCosto({
           )}
 
           {productoSeleccionado && (
-            <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: '#e0f2fe', borderRadius: '4px', fontSize: '0.85rem' }}>
+            <div style={{
+              marginTop: '0.5rem',
+              padding: '0.5rem',
+              background: 'rgba(59, 130, 246, 0.15)',
+              borderRadius: '4px',
+              fontSize: '0.85rem',
+              color: 'var(--text-primary)'
+            }}>
               Costo de: <strong>{productoSeleccionado.codigo}</strong> - {productoSeleccionado.descripcion?.substring(0, 40)}
             </div>
           )}
 
-          {/* Input de costo manual */}
+          {/* Input de costo manual con selector de moneda */}
           <div className={styles.formRow} style={{ marginTop: '1rem' }}>
-            <div>
-              <label>Costo Unitario (ARS):</label>
+            <div style={{ flex: 2 }}>
+              <label>Costo Unitario:</label>
               <input
                 type="number"
                 step="0.01"
                 min="0"
-                placeholder="Ej: 150000"
+                placeholder={monedaCosto === 'USD' ? 'Ej: 150' : 'Ej: 150000'}
                 value={costoUnitario}
                 onChange={e => setCostoUnitario(e.target.value)}
                 style={{ fontSize: '1.1rem', padding: '0.5rem' }}
               />
             </div>
+            <div style={{ flex: 1 }}>
+              <label>Moneda:</label>
+              <select
+                value={monedaCosto}
+                onChange={e => setMonedaCosto(e.target.value)}
+                style={{ fontSize: '1.1rem', padding: '0.5rem', width: '100%' }}
+              >
+                <option value="ARS">ARS ($)</option>
+                <option value="USD">USD (U$S)</option>
+              </select>
+            </div>
           </div>
 
           {tipoCambioHoy && (
-            <p style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
-              TC actual: ${tipoCambioHoy.toFixed(2)}
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+              TC actual: <strong>$ {tipoCambioHoy.toFixed(2)}</strong>
+              {monedaCosto === 'USD' && costoUnitario && parseFloat(costoUnitario) > 0 && (
+                <span style={{ marginLeft: '1rem', color: '#3b82f6' }}>
+                  = {formatMoney(costoUnitarioARS)} ARS
+                </span>
+              )}
             </p>
           )}
 
@@ -226,13 +258,25 @@ export default function ModalEditarCosto({
               marginTop: '1rem',
               padding: '1rem',
               background: gananciaPreview >= 0 ? '#d1fae5' : '#fee2e2',
-              borderRadius: '8px'
+              borderRadius: '8px',
+              border: gananciaPreview >= 0 ? '1px solid #10b981' : '1px solid #ef4444'
             }}>
-              <h4 style={{ margin: '0 0 0.5rem 0' }}>Vista previa:</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem' }}>
+              <h4 style={{ margin: '0 0 0.5rem 0', color: '#1f2937' }}>Vista previa:</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem', color: '#374151' }}>
+                <div><strong>Costo Unit (ARS):</strong> {formatMoney(costoUnitarioARS)}</div>
                 <div><strong>Costo Total:</strong> {formatMoney(costoTotal)}</div>
-                <div><strong>Ganancia:</strong> <span style={{ color: gananciaPreview >= 0 ? '#10b981' : '#ef4444' }}>{formatMoney(gananciaPreview)}</span></div>
-                <div><strong>Markup:</strong> {markupPreview !== null ? `${markupPreview.toFixed(1)}%` : '-'}</div>
+                <div>
+                  <strong>Ganancia:</strong>{' '}
+                  <span style={{ color: gananciaPreview >= 0 ? '#059669' : '#dc2626', fontWeight: 'bold' }}>
+                    {formatMoney(gananciaPreview)}
+                  </span>
+                </div>
+                <div>
+                  <strong>Markup:</strong>{' '}
+                  <span style={{ color: markupPreview !== null && markupPreview >= 0 ? '#059669' : '#dc2626', fontWeight: 'bold' }}>
+                    {markupPreview !== null ? `${markupPreview.toFixed(1)}%` : '-'}
+                  </span>
+                </div>
               </div>
             </div>
           )}
