@@ -793,9 +793,9 @@ async def get_ventas_fuera_ml_stats(
     return {
         "total_ventas": total_ventas,
         "total_unidades": total_unidades,
-        "monto_total_sin_iva": monto_sin_iva,
+        "monto_total_sin_iva": monto_con_costo,  # Solo productos con costo
         "monto_total_con_iva": monto_con_iva,
-        "costo_total": costo_total,
+        "costo_total": costo_con_costo,  # Solo productos con costo
         "markup_promedio": markup_promedio,
         "por_sucursal": sucursales_dict,
         "por_vendedor": vendedores_dict
@@ -913,9 +913,7 @@ async def get_ventas_fuera_ml_por_marca(
     # Calcular markup desde totales (solo productos con costo, sin comisión ML porque es venta directa)
     marcas = []
     for r in result:
-        monto = float(r.monto_sin_iva or 0)
-        costo = float(r.costo_total or 0)
-        # Para markup: solo usar productos con costo
+        # Para monto y costo: solo usar productos con costo
         monto_con_costo = float(r.monto_con_costo or 0)
         costo_con_costo = float(r.costo_con_costo or 0)
         # Markup = (monto / costo) - 1 (solo productos con costo)
@@ -924,8 +922,8 @@ async def get_ventas_fuera_ml_por_marca(
             "marca": r.marca,
             "total_ventas": r.total_ventas,
             "unidades_vendidas": Decimal(str(r.unidades_vendidas or 0)),
-            "monto_sin_iva": Decimal(str(monto)),
-            "costo_total": Decimal(str(costo)),
+            "monto_sin_iva": Decimal(str(monto_con_costo)),
+            "costo_total": Decimal(str(costo_con_costo)),
             "markup_promedio": Decimal(str(markup)) if markup is not None else None
         })
     return marcas

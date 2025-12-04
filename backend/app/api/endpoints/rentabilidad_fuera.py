@@ -394,20 +394,20 @@ async def obtener_rentabilidad_fuera(
             tipo=nivel,
             identificador=str(r.identificador) if r.identificador else None,
             total_ventas=r.total_ventas,
-            monto_venta=monto_venta,
-            costo_total=costo_total,
-            ganancia=ganancia,
+            monto_venta=monto_con_costo,  # Solo productos con costo
+            costo_total=costo_con_costo,  # Solo productos con costo
+            ganancia=ganancia_con_costo,  # Solo productos con costo
             markup_promedio=markup_promedio,
             offset_total=offset_aplicable,
-            ganancia_con_offset=ganancia_con_offset,
+            ganancia_con_offset=ganancia_con_costo + offset_aplicable,
             markup_con_offset=markup_con_offset
         ))
 
-        # Acumular totales
+        # Acumular totales (solo productos con costo)
         total_ventas += r.total_ventas
-        total_monto_venta += monto_venta
-        total_costo += costo_total
-        total_ganancia += ganancia
+        total_monto_venta += monto_con_costo
+        total_costo += costo_con_costo
+        total_ganancia += ganancia_con_costo
         total_offset += offset_aplicable
         total_monto_con_costo += monto_con_costo
         total_costo_con_costo += costo_con_costo
@@ -415,11 +415,10 @@ async def obtener_rentabilidad_fuera(
     # Ordenar por monto de venta descendente
     cards.sort(key=lambda c: c.monto_venta, reverse=True)
 
-    # Calcular totales (markup solo con productos que tienen costo)
+    # Calcular totales (solo productos con costo)
+    total_markup = ((total_ganancia / total_costo) * 100) if total_costo > 0 else 0
     total_ganancia_con_offset = total_ganancia + total_offset
-    total_ganancia_con_costo = total_monto_con_costo - total_costo_con_costo
-    total_markup = ((total_ganancia_con_costo / total_costo_con_costo) * 100) if total_costo_con_costo > 0 else 0
-    total_markup_con_offset = (((total_ganancia_con_costo + total_offset) / total_costo_con_costo) * 100) if total_costo_con_costo > 0 else 0
+    total_markup_con_offset = ((total_ganancia_con_offset / total_costo) * 100) if total_costo > 0 else 0
 
     totales = CardRentabilidadFuera(
         nombre="TOTAL",
