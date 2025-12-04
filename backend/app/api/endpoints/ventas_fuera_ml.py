@@ -161,12 +161,12 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
                 COALESCE(
                     (SELECT iclh.iclh_price
                      FROM tb_item_cost_list_history iclh
-                     WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompre_invoice)
+                     WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
                        AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
                      ORDER BY iclh.iclh_id DESC LIMIT 1),
                     (SELECT ticl.coslis_price
                      FROM tb_item_cost_list ticl
-                     WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompre_invoice)
+                     WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
                        AND ticl.coslis_id = 1
                      ORDER BY ticl.coslis_cd DESC LIMIT 1),
                     0
@@ -174,11 +174,11 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
                 CASE
                     WHEN COALESCE(
                         (SELECT iclh.curr_id FROM tb_item_cost_list_history iclh
-                         WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompre_invoice)
+                         WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
                            AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
                          ORDER BY iclh.iclh_id DESC LIMIT 1),
                         (SELECT ticl.curr_id FROM tb_item_cost_list ticl
-                         WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompre_invoice)
+                         WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
                            AND ticl.coslis_id = 1
                          ORDER BY ticl.coslis_cd DESC LIMIT 1),
                         1
@@ -302,7 +302,7 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
         ON tit.comp_id = ti.comp_id
         AND (tit.item_id = ti.item_id
              OR (tit.item_id IS NULL AND tit.it_item_id_origin = ti.item_id)
-             OR (tit.item_id IS NULL AND tit.it_item_id_origin IS NULL AND tit.item_idfrompre_invoice = ti.item_id))
+             OR (tit.item_id IS NULL AND tit.it_item_id_origin IS NULL AND tit.item_idfrompreinvoice = ti.item_id))
 
     LEFT JOIN tb_commercial_transactions tct
         ON tct.comp_id = tit.comp_id
@@ -507,12 +507,12 @@ def get_stats_base_cte(vendedores_excluidos_str: str):
                 COALESCE(
                     (SELECT iclh.iclh_price
                      FROM tb_item_cost_list_history iclh
-                     WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompre_invoice)
+                     WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
                        AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
                      ORDER BY iclh.iclh_id DESC LIMIT 1),
                     (SELECT ticl.coslis_price
                      FROM tb_item_cost_list ticl
-                     WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompre_invoice)
+                     WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
                        AND ticl.coslis_id = 1
                      ORDER BY ticl.coslis_cd DESC LIMIT 1),
                     0
@@ -520,11 +520,11 @@ def get_stats_base_cte(vendedores_excluidos_str: str):
                 CASE
                     WHEN COALESCE(
                         (SELECT iclh.curr_id FROM tb_item_cost_list_history iclh
-                         WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompre_invoice)
+                         WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
                            AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
                          ORDER BY iclh.iclh_id DESC LIMIT 1),
                         (SELECT ticl.curr_id FROM tb_item_cost_list ticl
-                         WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompre_invoice)
+                         WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
                            AND ticl.coslis_id = 1
                          ORDER BY ticl.coslis_cd DESC LIMIT 1),
                         1
@@ -542,7 +542,7 @@ def get_stats_base_cte(vendedores_excluidos_str: str):
                 WHEN COALESCE(
                     (SELECT iclh.iclh_price
                      FROM tb_item_cost_list_history iclh
-                     WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompre_invoice)
+                     WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
                        AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
                      ORDER BY iclh.iclh_id DESC LIMIT 1),
                     0
@@ -552,7 +552,7 @@ def get_stats_base_cte(vendedores_excluidos_str: str):
                         COALESCE(
                             (SELECT iclh.iclh_price
                              FROM tb_item_cost_list_history iclh
-                             WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompre_invoice)
+                             WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
                                AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
                              ORDER BY iclh.iclh_id DESC LIMIT 1),
                             1
@@ -560,7 +560,7 @@ def get_stats_base_cte(vendedores_excluidos_str: str):
                         CASE
                             WHEN COALESCE(
                                 (SELECT iclh.curr_id FROM tb_item_cost_list_history iclh
-                                 WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompre_invoice)
+                                 WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
                                    AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
                                  ORDER BY iclh.iclh_id DESC LIMIT 1),
                                 1
@@ -579,7 +579,7 @@ def get_stats_base_cte(vendedores_excluidos_str: str):
             ON tit.comp_id = ti.comp_id
             AND (tit.item_id = ti.item_id
                  OR (tit.item_id IS NULL AND tit.it_item_id_origin = ti.item_id)
-                 OR (tit.item_id IS NULL AND tit.it_item_id_origin IS NULL AND tit.item_idfrompre_invoice = ti.item_id))
+                 OR (tit.item_id IS NULL AND tit.it_item_id_origin IS NULL AND tit.item_idfrompreinvoice = ti.item_id))
         LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
         LEFT JOIN tb_branch tb ON tb.comp_id = ti.comp_id AND tb.bra_id = tct.bra_id
         LEFT JOIN tb_salesman tsm ON tsm.sm_id = tct.sm_id
