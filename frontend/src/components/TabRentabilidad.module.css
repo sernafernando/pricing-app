@@ -168,6 +168,30 @@
   font-weight: 600;
 }
 
+/* Desglose de offsets en totales */
+.totalDesgloseOffsets {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.totalDesgloseGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.totalDesgloseItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: rgba(139, 92, 246, 0.1);
+  border-radius: 6px;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
 /* Cards Grid */
 .cardsGrid {
   display: grid;
@@ -266,6 +290,60 @@
 }
 
 .cardMetricaOffset span:first-child {
+  color: #a78bfa;
+}
+
+/* Desglose de offsets */
+.desgloseOffsets {
+  margin-top: 0.75rem;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 6px;
+  padding: 0.5rem;
+  margin-left: -1rem;
+  margin-right: -1rem;
+}
+
+.desgloseOffsetsHeader {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #a78bfa;
+  margin-bottom: 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.desgloseOffsetItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+  font-size: 0.8rem;
+}
+
+.desgloseOffsetItem:last-child {
+  border-bottom: none;
+}
+
+.desgloseOffsetInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.desgloseOffsetNivel {
+  font-weight: 600;
+  color: #c4b5fd;
+}
+
+.desgloseOffsetDesc {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.desgloseOffsetMonto {
+  font-weight: 600;
   color: #a78bfa;
 }
 

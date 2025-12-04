@@ -22,6 +22,15 @@ class DesgloseMarca(BaseModel):
     markup_promedio: float
 
 
+class DesgloseOffset(BaseModel):
+    """Desglose de un offset aplicado"""
+    descripcion: str
+    nivel: str  # marca, categoria, subcategoria, producto
+    nombre_nivel: str  # ej: "LENOVO", "Notebooks", etc.
+    tipo_offset: str  # monto_fijo, monto_por_unidad, porcentaje_costo
+    monto: float
+
+
 class CardRentabilidad(BaseModel):
     """Card de rentabilidad para mostrar en el dashboard"""
     nombre: str
@@ -40,6 +49,9 @@ class CardRentabilidad(BaseModel):
     offset_total: float
     ganancia_con_offset: float
     markup_con_offset: float
+
+    # Desglose de offsets aplicados
+    desglose_offsets: Optional[List[DesgloseOffset]] = None
 
     # Desglose por marca (cuando hay múltiples marcas seleccionadas)
     desglose_marcas: Optional[List[DesgloseMarca]] = None
@@ -172,14 +184,47 @@ async def obtener_rentabilidad(
 
     resultados = query.all()
 
-    # Obtener offsets vigentes para el período
+    # Obtener offsets vigentes para el período (solo los que aplican a ML)
     offsets = db.query(OffsetGanancia).filter(
         OffsetGanancia.fecha_desde <= fecha_hasta,
         or_(
             OffsetGanancia.fecha_hasta.is_(None),
             OffsetGanancia.fecha_hasta >= fecha_desde
-        )
+        ),
+        OffsetGanancia.aplica_ml == True
     ).all()
+
+    # Para propagar offsets de niveles inferiores, necesitamos saber qué productos
+    # pertenecen a cada marca/categoría/subcategoría
+    # Obtenemos una query detallada a nivel producto con sus atributos
+    productos_detalle = {}
+    if nivel in ["marca", "categoria", "subcategoria"]:
+        detalle_query = db.query(
+            MLVentaMetrica.item_id,
+            MLVentaMetrica.marca,
+            MLVentaMetrica.categoria,
+            MLVentaMetrica.subcategoria,
+            func.count(MLVentaMetrica.id).label('cantidad'),
+            func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo')
+        ).filter(
+            MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+            MLVentaMetrica.fecha_venta < fecha_hasta_dt
+        )
+        detalle_query = aplicar_filtros_base(detalle_query)
+        detalle_query = detalle_query.group_by(
+            MLVentaMetrica.item_id,
+            MLVentaMetrica.marca,
+            MLVentaMetrica.categoria,
+            MLVentaMetrica.subcategoria
+        )
+        for d in detalle_query.all():
+            productos_detalle[d.item_id] = {
+                'marca': d.marca,
+                'categoria': d.categoria,
+                'subcategoria': d.subcategoria,
+                'cantidad': d.cantidad,
+                'costo': float(d.costo or 0)
+            }
 
     # Si hay múltiples marcas y estamos en nivel categoría o subcategoría, obtener desglose por marca
     desglose_por_item = {}
@@ -242,6 +287,122 @@ async def obtener_rentabilidad(
         else:
             return float(offset.monto or 0)
 
+    def get_offset_nivel_nombre(offset):
+        """Obtiene el nivel y nombre del offset para el desglose"""
+        if offset.item_id:
+            return "producto", f"Producto {offset.item_id}"
+        elif offset.subcategoria_id:
+            return "subcategoria", f"Subcat {offset.subcategoria_id}"
+        elif offset.categoria:
+            return "categoria", offset.categoria
+        elif offset.marca:
+            return "marca", offset.marca
+        return "otro", "Offset"
+
+    def calcular_offsets_para_card(card_nombre, card_identificador, cantidad_vendida, costo_total):
+        """
+        Calcula todos los offsets aplicables a una card, incluyendo propagación
+        de niveles inferiores. Retorna (total, lista_desglose)
+        """
+        offset_total = 0.0
+        desglose = []
+
+        for offset in offsets:
+            valor_offset = 0.0
+            aplica = False
+            nivel_offset, nombre_nivel = get_offset_nivel_nombre(offset)
+
+            if nivel == "marca":
+                # Offset directo por marca
+                if offset.marca and offset.marca == card_nombre and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
+                    valor_offset = calcular_valor_offset(offset, cantidad_vendida, costo_total)
+                    aplica = True
+                # Offsets de categorías dentro de esta marca
+                elif offset.categoria and not offset.subcategoria_id and not offset.item_id:
+                    # Sumar ventas de productos de esta marca en esa categoría
+                    for item_id, detalle in productos_detalle.items():
+                        if detalle['marca'] == card_nombre and detalle['categoria'] == offset.categoria:
+                            valor_offset += calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
+                    if valor_offset > 0:
+                        aplica = True
+                        nombre_nivel = f"Cat: {offset.categoria}"
+                # Offsets de productos dentro de esta marca
+                elif offset.item_id:
+                    detalle = productos_detalle.get(offset.item_id)
+                    if detalle and detalle['marca'] == card_nombre:
+                        valor_offset = calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
+                        aplica = True
+                        nombre_nivel = f"Prod: {offset.item_id}"
+
+            elif nivel == "categoria":
+                # Offset directo por categoría
+                if offset.categoria and offset.categoria == card_nombre and not offset.subcategoria_id and not offset.item_id:
+                    valor_offset = calcular_valor_offset(offset, cantidad_vendida, costo_total)
+                    aplica = True
+                # Offset de marca que aplica a esta categoría
+                elif offset.marca and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
+                    # Sumar ventas de productos de esa marca en esta categoría
+                    for item_id, detalle in productos_detalle.items():
+                        if detalle['categoria'] == card_nombre and detalle['marca'] == offset.marca:
+                            valor_offset += calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
+                    if valor_offset > 0:
+                        aplica = True
+                        nombre_nivel = f"Marca: {offset.marca}"
+                # Offsets de productos dentro de esta categoría
+                elif offset.item_id:
+                    detalle = productos_detalle.get(offset.item_id)
+                    if detalle and detalle['categoria'] == card_nombre:
+                        valor_offset = calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
+                        aplica = True
+                        nombre_nivel = f"Prod: {offset.item_id}"
+
+            elif nivel == "subcategoria":
+                # Offset directo por subcategoría
+                if offset.subcategoria_id and str(offset.subcategoria_id) == str(card_identificador):
+                    valor_offset = calcular_valor_offset(offset, cantidad_vendida, costo_total)
+                    aplica = True
+                # Offset de marca que aplica a esta subcategoría
+                elif offset.marca and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
+                    for item_id, detalle in productos_detalle.items():
+                        if detalle['subcategoria'] == card_nombre and detalle['marca'] == offset.marca:
+                            valor_offset += calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
+                    if valor_offset > 0:
+                        aplica = True
+                        nombre_nivel = f"Marca: {offset.marca}"
+                # Offset de categoría que aplica a esta subcategoría
+                elif offset.categoria and not offset.subcategoria_id and not offset.item_id:
+                    for item_id, detalle in productos_detalle.items():
+                        if detalle['subcategoria'] == card_nombre and detalle['categoria'] == offset.categoria:
+                            valor_offset += calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
+                    if valor_offset > 0:
+                        aplica = True
+                        nombre_nivel = f"Cat: {offset.categoria}"
+                # Offsets de productos dentro de esta subcategoría
+                elif offset.item_id:
+                    detalle = productos_detalle.get(offset.item_id)
+                    if detalle and detalle['subcategoria'] == card_nombre:
+                        valor_offset = calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
+                        aplica = True
+                        nombre_nivel = f"Prod: {offset.item_id}"
+
+            elif nivel == "producto":
+                # Solo offsets directos del producto o de sus niveles superiores
+                if offset.item_id and str(offset.item_id) == str(card_identificador):
+                    valor_offset = calcular_valor_offset(offset, cantidad_vendida, costo_total)
+                    aplica = True
+
+            if aplica and valor_offset > 0:
+                offset_total += valor_offset
+                desglose.append(DesgloseOffset(
+                    descripcion=offset.descripcion or f"Offset {offset.id}",
+                    nivel=nivel_offset,
+                    nombre_nivel=nombre_nivel,
+                    tipo_offset=offset.tipo_offset or 'monto_fijo',
+                    monto=valor_offset
+                ))
+
+        return offset_total, desglose if desglose else None
+
     # Construir cards
     cards = []
     total_ventas = 0
@@ -250,22 +411,19 @@ async def obtener_rentabilidad(
     total_costo = 0.0
     total_ganancia = 0.0
     total_offset = 0.0
+    total_desglose_offsets = []
 
     for r in resultados:
-        # Calcular offset aplicable
-        offset_aplicable = 0.0
         cantidad_vendida = r.total_ventas
         costo_total_item = float(r.costo_total or 0)
 
-        for offset in offsets:
-            if nivel == "marca" and offset.marca == r.nombre:
-                offset_aplicable += calcular_valor_offset(offset, cantidad_vendida, costo_total_item)
-            elif nivel == "categoria" and offset.categoria == r.nombre:
-                offset_aplicable += calcular_valor_offset(offset, cantidad_vendida, costo_total_item)
-            elif nivel == "subcategoria" and offset.subcategoria_id and str(offset.subcategoria_id) == str(r.identificador):
-                offset_aplicable += calcular_valor_offset(offset, cantidad_vendida, costo_total_item)
-            elif nivel == "producto" and offset.item_id and str(offset.item_id) == str(r.identificador):
-                offset_aplicable += calcular_valor_offset(offset, cantidad_vendida, costo_total_item)
+        # Calcular offsets con desglose
+        offset_aplicable, desglose_offsets = calcular_offsets_para_card(
+            r.nombre,
+            r.identificador,
+            cantidad_vendida,
+            costo_total_item
+        )
 
         monto_venta = float(r.monto_venta or 0)
         monto_limpio = float(r.monto_limpio or 0)
@@ -294,6 +452,7 @@ async def obtener_rentabilidad(
             offset_total=offset_aplicable,
             ganancia_con_offset=ganancia_con_offset,
             markup_con_offset=markup_con_offset,
+            desglose_offsets=desglose_offsets,
             desglose_marcas=desglose
         ))
 
@@ -304,6 +463,8 @@ async def obtener_rentabilidad(
         total_costo += costo_total
         total_ganancia += ganancia
         total_offset += offset_aplicable
+        if desglose_offsets:
+            total_desglose_offsets.extend(desglose_offsets)
 
     # Ordenar por monto de venta descendente
     cards.sort(key=lambda c: c.monto_venta, reverse=True)
@@ -312,6 +473,20 @@ async def obtener_rentabilidad(
     total_ganancia_con_offset = total_ganancia + total_offset
     total_markup = ((total_ganancia / total_costo) * 100) if total_costo > 0 else 0
     total_markup_con_offset = ((total_ganancia_con_offset / total_costo) * 100) if total_costo > 0 else 0
+
+    # Agrupar desglose de offsets totales por descripción
+    desglose_totales_agrupado = {}
+    for d in total_desglose_offsets:
+        key = (d.descripcion, d.nivel, d.nombre_nivel, d.tipo_offset)
+        if key not in desglose_totales_agrupado:
+            desglose_totales_agrupado[key] = DesgloseOffset(
+                descripcion=d.descripcion,
+                nivel=d.nivel,
+                nombre_nivel=d.nombre_nivel,
+                tipo_offset=d.tipo_offset,
+                monto=0
+            )
+        desglose_totales_agrupado[key].monto += d.monto
 
     totales = CardRentabilidad(
         nombre="TOTAL",
@@ -325,7 +500,8 @@ async def obtener_rentabilidad(
         markup_promedio=total_markup,
         offset_total=total_offset,
         ganancia_con_offset=total_ganancia_con_offset,
-        markup_con_offset=total_markup_con_offset
+        markup_con_offset=total_markup_con_offset,
+        desglose_offsets=list(desglose_totales_agrupado.values()) if desglose_totales_agrupado else None
     )
 
     return RentabilidadResponse(

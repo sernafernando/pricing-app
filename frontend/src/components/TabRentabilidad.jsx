@@ -609,6 +609,23 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
                 </>
               )}
             </div>
+            {/* Desglose de offsets en totales */}
+            {rentabilidad.totales.desglose_offsets && rentabilidad.totales.desglose_offsets.length > 0 && (
+              <div className={styles.totalDesgloseOffsets}>
+                <div className={styles.desgloseOffsetsHeader}>Desglose de Offsets Aplicados</div>
+                <div className={styles.totalDesgloseGrid}>
+                  {rentabilidad.totales.desglose_offsets.map((offset, idx) => (
+                    <div key={idx} className={styles.totalDesgloseItem}>
+                      <div className={styles.desgloseOffsetInfo}>
+                        <span className={styles.desgloseOffsetNivel}>{offset.nombre_nivel}</span>
+                        <span className={styles.desgloseOffsetDesc}>{offset.descripcion}</span>
+                      </div>
+                      <span className={styles.desgloseOffsetMonto}>{formatMoney(offset.monto)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Cards por grupo */}
@@ -664,6 +681,21 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
                           {formatPercent(card.markup_con_offset)}
                         </span>
                       </div>
+                      {/* Desglose de offsets */}
+                      {card.desglose_offsets && card.desglose_offsets.length > 0 && (
+                        <div className={styles.desgloseOffsets}>
+                          <div className={styles.desgloseOffsetsHeader}>Desglose Offsets</div>
+                          {card.desglose_offsets.map((offset, idx) => (
+                            <div key={idx} className={styles.desgloseOffsetItem}>
+                              <div className={styles.desgloseOffsetInfo}>
+                                <span className={styles.desgloseOffsetNivel}>{offset.nombre_nivel}</span>
+                                <span className={styles.desgloseOffsetDesc}>{offset.descripcion}</span>
+                              </div>
+                              <span className={styles.desgloseOffsetMonto}>{formatMoney(offset.monto)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </>
                   )}
                   {/* Desglose por marca */}
