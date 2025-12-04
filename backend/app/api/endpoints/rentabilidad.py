@@ -116,6 +116,8 @@ async def obtener_rentabilidad(
         return query
 
     # Query según nivel de agrupación
+    # NOTA: No usamos avg(markup_porcentaje) porque promediar porcentajes es incorrecto.
+    # El markup se calcula después: (ganancia / costo) * 100
     if nivel == "marca":
         query = db.query(
             MLVentaMetrica.marca.label('nombre'),
@@ -124,8 +126,7 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.monto_total).label('monto_venta'),
             func.sum(MLVentaMetrica.monto_limpio).label('monto_limpio'),
             func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo_total'),
-            func.sum(MLVentaMetrica.ganancia).label('ganancia'),
-            func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
+            func.sum(MLVentaMetrica.ganancia).label('ganancia')
         )
         query = aplicar_filtros_base(query)
         query = query.filter(MLVentaMetrica.marca.isnot(None)).group_by(MLVentaMetrica.marca)
@@ -138,8 +139,7 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.monto_total).label('monto_venta'),
             func.sum(MLVentaMetrica.monto_limpio).label('monto_limpio'),
             func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo_total'),
-            func.sum(MLVentaMetrica.ganancia).label('ganancia'),
-            func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
+            func.sum(MLVentaMetrica.ganancia).label('ganancia')
         )
         query = aplicar_filtros_base(query)
         query = query.filter(MLVentaMetrica.categoria.isnot(None)).group_by(MLVentaMetrica.categoria)
@@ -152,8 +152,7 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.monto_total).label('monto_venta'),
             func.sum(MLVentaMetrica.monto_limpio).label('monto_limpio'),
             func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo_total'),
-            func.sum(MLVentaMetrica.ganancia).label('ganancia'),
-            func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
+            func.sum(MLVentaMetrica.ganancia).label('ganancia')
         )
         query = aplicar_filtros_base(query)
         query = query.filter(MLVentaMetrica.subcategoria.isnot(None)).group_by(MLVentaMetrica.subcategoria)
@@ -166,8 +165,7 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.monto_total).label('monto_venta'),
             func.sum(MLVentaMetrica.monto_limpio).label('monto_limpio'),
             func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo_total'),
-            func.sum(MLVentaMetrica.ganancia).label('ganancia'),
-            func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
+            func.sum(MLVentaMetrica.ganancia).label('ganancia')
         )
         query = aplicar_filtros_base(query)
         query = query.group_by(MLVentaMetrica.item_id, MLVentaMetrica.codigo, MLVentaMetrica.descripcion)
@@ -193,7 +191,7 @@ async def obtener_rentabilidad(
             MLVentaMetrica.marca.label('marca'),
             func.sum(MLVentaMetrica.monto_total).label('monto_venta'),
             func.sum(MLVentaMetrica.ganancia).label('ganancia'),
-            func.avg(MLVentaMetrica.markup_porcentaje).label('markup_promedio')
+            func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo_total')
         ).filter(
             MLVentaMetrica.fecha_venta >= fecha_desde_dt,
             MLVentaMetrica.fecha_venta < fecha_hasta_dt,
@@ -208,11 +206,14 @@ async def obtener_rentabilidad(
         for d in desglose_resultados:
             if d.item not in desglose_por_item:
                 desglose_por_item[d.item] = []
+            ganancia = float(d.ganancia or 0)
+            costo = float(d.costo_total or 0)
+            markup = ((ganancia / costo) * 100) if costo > 0 else 0
             desglose_por_item[d.item].append(DesgloseMarca(
                 marca=d.marca,
                 monto_venta=float(d.monto_venta or 0),
-                ganancia=float(d.ganancia or 0),
-                markup_promedio=float(d.markup_promedio or 0)
+                ganancia=ganancia,
+                markup_promedio=markup
             ))
 
         # Ordenar cada desglose por monto descendente
@@ -270,7 +271,9 @@ async def obtener_rentabilidad(
         monto_limpio = float(r.monto_limpio or 0)
         costo_total = float(r.costo_total or 0)
         ganancia = float(r.ganancia or 0)
-        markup_promedio = float(r.markup_promedio or 0)
+
+        # Calcular markup a partir de ganancia/costo (no promediar porcentajes)
+        markup_promedio = ((ganancia / costo_total) * 100) if costo_total > 0 else 0
 
         ganancia_con_offset = ganancia + offset_aplicable
         markup_con_offset = ((ganancia_con_offset / costo_total) * 100) if costo_total > 0 else 0
