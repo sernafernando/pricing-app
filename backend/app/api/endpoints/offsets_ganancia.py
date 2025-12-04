@@ -464,32 +464,43 @@ class ProductoBusquedaGeneral(BaseModel):
     codigo: str
     descripcion: str
     marca: Optional[str] = None
+    costo_unitario: Optional[float] = None
+    moneda_costo: Optional[str] = None
 
 
-@router.get("/buscar-productos-erp", response_model=List[ProductoBusquedaGeneral])
+@router.get("/buscar-productos-erp")
 async def buscar_productos_erp(
     q: str = Query(..., min_length=2, description="Buscar por código o descripción"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Busca productos en el ERP por código o descripción (todos, no solo los que tienen ventas)"""
+    """Busca productos en el ERP por código o descripción, incluyendo costo actual"""
     query = """
-    SELECT DISTINCT i.item_id, i.item_code, i.item_desc, b.brand_desc
+    SELECT DISTINCT ON (i.item_id)
+        i.item_id,
+        i.item_code,
+        i.item_desc,
+        b.brand_desc,
+        ticl.icl_cost as costo,
+        CASE WHEN ticl.curr_id = 2 THEN 'USD' ELSE 'ARS' END as moneda_costo
     FROM tb_item i
     LEFT JOIN tb_brand b ON b.comp_id = i.comp_id AND b.brand_id = i.brand_id
+    LEFT JOIN tb_item_cost_list ticl ON ticl.item_id = i.item_id AND ticl.icl_default = true
     WHERE (i.item_code ILIKE :buscar OR i.item_desc ILIKE :buscar)
-    ORDER BY i.item_code
+    ORDER BY i.item_id, i.item_code
     LIMIT 50
     """
 
     result = db.execute(text(query), {"buscar": f"%{q}%"}).fetchall()
 
     return [
-        ProductoBusquedaGeneral(
-            item_id=r.item_id,
-            codigo=r.item_code or str(r.item_id),
-            descripcion=r.item_desc or "",
-            marca=r.brand_desc
-        )
+        {
+            "item_id": r.item_id,
+            "codigo": r.item_code or str(r.item_id),
+            "descripcion": r.item_desc or "",
+            "marca": r.brand_desc,
+            "costo_unitario": float(r.costo) if r.costo else None,
+            "moneda_costo": r.moneda_costo
+        }
         for r in result
     ]
