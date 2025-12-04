@@ -194,6 +194,95 @@ async def obtener_rentabilidad(
         OffsetGanancia.aplica_ml == True
     ).all()
 
+    # Calcular acumulados por grupo/offset para verificar límites
+    # Los límites son OR: si se cumple max_unidades O max_monto_usd, el offset deja de aplicar
+    acumulados_grupo = {}  # grupo_id -> {'unidades': X, 'monto_usd': Y}
+    acumulados_offset = {}  # offset_id -> {'unidades': X, 'monto_usd': Y}
+
+    # Obtener unidades vendidas y monto para cada offset con límites
+    for offset in offsets:
+        if offset.max_unidades is None and offset.max_monto_usd is None:
+            continue  # Sin límites, no necesita tracking
+
+        # Determinar qué item_ids aplican a este offset
+        items_aplicables = []
+        if offset.item_id:
+            items_aplicables = [offset.item_id]
+        elif offset.subcategoria_id:
+            items_aplicables = [
+                d.item_id for d in db.query(MLVentaMetrica.item_id).filter(
+                    MLVentaMetrica.subcategoria == str(offset.subcategoria_id),
+                    MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+                    MLVentaMetrica.fecha_venta < fecha_hasta_dt
+                ).distinct().all()
+            ]
+        elif offset.categoria:
+            items_aplicables = [
+                d.item_id for d in db.query(MLVentaMetrica.item_id).filter(
+                    MLVentaMetrica.categoria == offset.categoria,
+                    MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+                    MLVentaMetrica.fecha_venta < fecha_hasta_dt
+                ).distinct().all()
+            ]
+        elif offset.marca:
+            items_aplicables = [
+                d.item_id for d in db.query(MLVentaMetrica.item_id).filter(
+                    MLVentaMetrica.marca == offset.marca,
+                    MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+                    MLVentaMetrica.fecha_venta < fecha_hasta_dt
+                ).distinct().all()
+            ]
+
+        # Calcular unidades y monto para estos items
+        if items_aplicables:
+            acum = db.query(
+                func.count(MLVentaMetrica.id).label('unidades'),
+                func.sum(MLVentaMetrica.monto_total).label('monto')
+            ).filter(
+                MLVentaMetrica.item_id.in_(items_aplicables),
+                MLVentaMetrica.fecha_venta >= fecha_desde_dt,
+                MLVentaMetrica.fecha_venta < fecha_hasta_dt
+            ).first()
+
+            unidades = acum.unidades or 0
+            monto = float(acum.monto or 0)
+            # Convertir monto a USD si hay tipo de cambio
+            monto_usd = monto / float(offset.tipo_cambio) if offset.tipo_cambio and offset.tipo_cambio > 0 else monto
+
+            if offset.grupo_id:
+                # Acumular en el grupo
+                if offset.grupo_id not in acumulados_grupo:
+                    acumulados_grupo[offset.grupo_id] = {'unidades': 0, 'monto_usd': 0}
+                acumulados_grupo[offset.grupo_id]['unidades'] += unidades
+                acumulados_grupo[offset.grupo_id]['monto_usd'] += monto_usd
+            else:
+                # Acumular en el offset individual
+                acumulados_offset[offset.id] = {'unidades': unidades, 'monto_usd': monto_usd}
+
+    def verificar_limite_alcanzado(offset):
+        """
+        Verifica si el offset ya alcanzó alguno de sus límites (condición OR).
+        Retorna True si ya NO debe aplicar más.
+        """
+        if offset.max_unidades is None and offset.max_monto_usd is None:
+            return False  # Sin límites
+
+        # Obtener acumulados
+        if offset.grupo_id and offset.grupo_id in acumulados_grupo:
+            acum = acumulados_grupo[offset.grupo_id]
+        elif offset.id in acumulados_offset:
+            acum = acumulados_offset[offset.id]
+        else:
+            return False  # No hay datos acumulados
+
+        # Verificar límites con condición OR
+        if offset.max_unidades is not None and acum['unidades'] >= offset.max_unidades:
+            return True
+        if offset.max_monto_usd is not None and acum['monto_usd'] >= offset.max_monto_usd:
+            return True
+
+        return False
+
     # Para propagar offsets de niveles inferiores, necesitamos saber qué productos
     # pertenecen a cada marca/categoría/subcategoría
     # Obtenemos una query detallada a nivel producto con sus atributos
@@ -391,15 +480,26 @@ async def obtener_rentabilidad(
                     valor_offset = calcular_valor_offset(offset, cantidad_vendida, costo_total)
                     aplica = True
 
+            # Verificar si el offset ya alcanzó alguno de sus límites (OR)
             if aplica and valor_offset > 0:
-                offset_total += valor_offset
-                desglose.append(DesgloseOffset(
-                    descripcion=offset.descripcion or f"Offset {offset.id}",
-                    nivel=nivel_offset,
-                    nombre_nivel=nombre_nivel,
-                    tipo_offset=offset.tipo_offset or 'monto_fijo',
-                    monto=valor_offset
-                ))
+                if verificar_limite_alcanzado(offset):
+                    # Límite alcanzado, agregar al desglose con monto 0 y nota
+                    desglose.append(DesgloseOffset(
+                        descripcion=f"{offset.descripcion or f'Offset {offset.id}'} (LÍMITE ALCANZADO)",
+                        nivel=nivel_offset,
+                        nombre_nivel=nombre_nivel,
+                        tipo_offset=offset.tipo_offset or 'monto_fijo',
+                        monto=0
+                    ))
+                else:
+                    offset_total += valor_offset
+                    desglose.append(DesgloseOffset(
+                        descripcion=offset.descripcion or f"Offset {offset.id}",
+                        nivel=nivel_offset,
+                        nombre_nivel=nombre_nivel,
+                        tipo_offset=offset.tipo_offset or 'monto_fijo',
+                        monto=valor_offset
+                    ))
 
         return offset_total, desglose if desglose else None
 
