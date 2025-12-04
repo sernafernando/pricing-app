@@ -559,19 +559,49 @@ async def get_ventas_fuera_ml_stats(
         AND tit.it_price IS NOT NULL AND tit.it_price > 0
     """
 
-    # ========== QUERY 2: Combos (productos con it_isassociationgroup) ==========
-    # Solo el item principal del combo (it_order = 1 o it_isassociation = false)
-    # El precio viene de la suma de componentes
+    # ========== QUERY 2: Combos (productos con it_isassociationgroup y sin precio propio) ==========
+    # El item principal del combo tiene it_price NULL o 0, el precio viene de la suma de componentes
     stats_combo_query = f"""
     WITH combo_precios AS (
-        -- Calcular precio de cada combo sumando sus componentes
+        -- Calcular precio de cada combo sumando sus componentes (filtrado por fecha)
         SELECT
             tit.it_isassociationgroup as group_id,
             tit.ct_transaction,
             SUM(tit.it_price * tit.it_qty) as precio_combo
         FROM tb_item_transactions tit
+        LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL
           AND tit.it_price IS NOT NULL
+          AND tct.ct_date BETWEEN :from_date AND :to_date + ' 23:59:59'
+        GROUP BY tit.it_isassociationgroup, tit.ct_transaction
+    ),
+    combo_costos AS (
+        -- Calcular costo de cada combo sumando costos de componentes
+        SELECT
+            tit.it_isassociationgroup as group_id,
+            tit.ct_transaction,
+            SUM(
+                CASE
+                    WHEN iclh.curr_id = 1 THEN COALESCE(iclh.iclh_price, 0) * tit.it_qty
+                    ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
+                END
+            ) as costo_combo
+        FROM tb_item_transactions tit
+        LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
+        LEFT JOIN LATERAL (
+            SELECT iclh_price, curr_id
+            FROM tb_item_cost_list_history
+            WHERE item_id = tit.item_id AND iclh_cd <= tct.ct_date AND coslis_id = 1
+            ORDER BY iclh_id DESC LIMIT 1
+        ) iclh ON true
+        LEFT JOIN LATERAL (
+            SELECT ceh_exchange
+            FROM tb_cur_exch_history
+            WHERE ceh_cd <= tct.ct_date
+            ORDER BY ceh_cd DESC LIMIT 1
+        ) ceh ON true
+        WHERE tit.it_isassociationgroup IS NOT NULL
+          AND tct.ct_date BETWEEN :from_date AND :to_date + ' 23:59:59'
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     )
     SELECT
@@ -596,12 +626,10 @@ async def get_ventas_fuera_ml_stats(
                  ELSE 0 END
         ), 0) as monto_total_con_iva,
         COALESCE(SUM(
-            CASE
-                WHEN iclh.curr_id = 1 THEN COALESCE(iclh.iclh_price, 0) * tit.it_qty
-                ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
-            END * CASE WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
-                       WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
-                       ELSE 0 END
+            ccosto.costo_combo *
+            CASE WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
+                 WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
+                 ELSE 0 END
         ), 0) as costo_total
     FROM tb_item_transactions tit
     LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
@@ -609,18 +637,7 @@ async def get_ventas_fuera_ml_stats(
     LEFT JOIN tb_item_taxes titx ON titx.comp_id = tit.comp_id AND titx.item_id = tit.item_id
     LEFT JOIN tb_tax_name ttn ON ttn.comp_id = tit.comp_id AND ttn.tax_id = titx.tax_id
     LEFT JOIN combo_precios cp ON cp.group_id = tit.it_isassociationgroup AND cp.ct_transaction = tit.ct_transaction
-    LEFT JOIN LATERAL (
-        SELECT iclh_price, curr_id
-        FROM tb_item_cost_list_history
-        WHERE item_id = tit.item_id AND iclh_cd <= tct.ct_date AND coslis_id = 1
-        ORDER BY iclh_id DESC LIMIT 1
-    ) iclh ON true
-    LEFT JOIN LATERAL (
-        SELECT ceh_exchange
-        FROM tb_cur_exch_history
-        WHERE ceh_cd <= tct.ct_date
-        ORDER BY ceh_cd DESC LIMIT 1
-    ) ceh ON true
+    LEFT JOIN combo_costos ccosto ON ccosto.group_id = tit.it_isassociationgroup AND ccosto.ct_transaction = tit.ct_transaction
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
         AND tct.df_id IN ({DF_IDS_STR})
         AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
@@ -630,8 +647,8 @@ async def get_ventas_fuera_ml_stats(
         AND tct.sd_id IN ({SD_IDS_STR})
         AND COALESCE(ti.item_desc, '') NOT ILIKE '%envio%'
         AND tit.it_isassociationgroup IS NOT NULL
-        -- Solo el item principal del combo
-        AND (COALESCE(tit.it_isassociation, false) = false OR COALESCE(tit.it_order, 1) = 1)
+        -- Solo el item principal del combo (sin precio propio)
+        AND (tit.it_price IS NULL OR tit.it_price = 0)
     """
 
     # Ejecutar ambas queries
@@ -682,7 +699,9 @@ async def get_ventas_fuera_ml_stats(
         SELECT tit.it_isassociationgroup as group_id, tit.ct_transaction,
             SUM(tit.it_price * tit.it_qty) as precio_combo
         FROM tb_item_transactions tit
+        LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL AND tit.it_price IS NOT NULL
+          AND tct.ct_date BETWEEN :from_date AND :to_date + ' 23:59:59'
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     )
     SELECT
@@ -704,7 +723,7 @@ async def get_ventas_fuera_ml_stats(
         AND tct.sd_id IN ({SD_IDS_STR})
         AND COALESCE(ti.item_desc, '') NOT ILIKE '%envio%'
         AND tit.it_isassociationgroup IS NOT NULL
-        AND (COALESCE(tit.it_isassociation, false) = false OR COALESCE(tit.it_order, 1) = 1)
+        AND (tit.it_price IS NULL OR tit.it_price = 0)
     GROUP BY tb.bra_desc
     """
 
@@ -755,7 +774,9 @@ async def get_ventas_fuera_ml_stats(
         SELECT tit.it_isassociationgroup as group_id, tit.ct_transaction,
             SUM(tit.it_price * tit.it_qty) as precio_combo
         FROM tb_item_transactions tit
+        LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL AND tit.it_price IS NOT NULL
+          AND tct.ct_date BETWEEN :from_date AND :to_date + ' 23:59:59'
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     )
     SELECT
@@ -777,7 +798,7 @@ async def get_ventas_fuera_ml_stats(
         AND tct.sd_id IN ({SD_IDS_STR})
         AND COALESCE(ti.item_desc, '') NOT ILIKE '%envio%'
         AND tit.it_isassociationgroup IS NOT NULL
-        AND (COALESCE(tit.it_isassociation, false) = false OR COALESCE(tit.it_order, 1) = 1)
+        AND (tit.it_price IS NULL OR tit.it_price = 0)
     GROUP BY tsm.sm_name
     """
 
