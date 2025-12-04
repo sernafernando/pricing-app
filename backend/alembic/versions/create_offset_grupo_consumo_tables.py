@@ -24,7 +24,7 @@ def upgrade() -> None:
         sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('grupo_id', sa.Integer(), sa.ForeignKey('offset_grupos.id'), nullable=False, index=True),
         sa.Column('id_operacion', sa.BigInteger(), index=True),  # Para ventas ML
-        sa.Column('venta_fuera_id', sa.Integer(), sa.ForeignKey('ventas_fuera_ml.id'), index=True),  # Para ventas fuera ML
+        sa.Column('venta_fuera_id', sa.Integer(), index=True),  # Para ventas fuera ML (sin FK porque la tabla puede no existir)
         sa.Column('tipo_venta', sa.String(20), nullable=False),  # 'ml' o 'fuera_ml'
         sa.Column('fecha_venta', sa.DateTime(timezone=True), nullable=False, index=True),
         sa.Column('item_id', sa.Integer(), index=True),

@@ -23,7 +23,7 @@ class OffsetGrupoConsumo(Base):
 
     # Referencia a la venta (puede ser ML o fuera de ML)
     id_operacion = Column(BigInteger, index=True, nullable=True)  # Para ventas ML (ml_ventas_metricas.id_operacion)
-    venta_fuera_id = Column(Integer, ForeignKey('ventas_fuera_ml.id'), index=True, nullable=True)  # Para ventas fuera ML
+    venta_fuera_id = Column(Integer, index=True, nullable=True)  # Para ventas fuera ML (sin FK porque tabla puede no existir)
 
     # Tipo de venta
     tipo_venta = Column(String(20), nullable=False)  # 'ml' o 'fuera_ml'
@@ -47,7 +47,6 @@ class OffsetGrupoConsumo(Base):
     # Relaciones
     grupo = relationship("OffsetGrupo", foreign_keys=[grupo_id])
     offset = relationship("OffsetGanancia", foreign_keys=[offset_id])
-    venta_fuera = relationship("VentaFueraML", foreign_keys=[venta_fuera_id])
 
 
 class OffsetGrupoResumen(Base):
