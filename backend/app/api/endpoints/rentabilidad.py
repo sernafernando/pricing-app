@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.offset_ganancia import OffsetGanancia
+from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 
@@ -195,9 +196,28 @@ async def obtener_rentabilidad(
     ).all()
 
     # Calcular el offset total por grupo/offset CON límites aplicados
-    # El límite es el máximo que puede sumar el grupo completo (no por producto)
-    # Si hay max_unidades O max_monto_usd, el offset se limita al mínimo entre lo calculado y el límite
-    offsets_grupo_calculados = {}  # grupo_id -> {'offset_total': X, 'descripcion': Y, 'limite_aplicado': bool}
+    # IMPORTANTE: El límite se calcula sobre el ACUMULADO desde que empezó el offset,
+    # no solo sobre el período filtrado. Usamos la tabla offset_grupo_resumen para esto.
+    offsets_grupo_calculados = {}  # grupo_id -> {'offset_total': X, 'descripcion': Y, 'limite_aplicado': bool, 'limite_agotado': bool}
+
+    # Función auxiliar para calcular consumo de un grupo en un rango de fechas DESDE LA TABLA DE CONSUMO
+    def calcular_consumo_grupo_desde_tabla(grupo_id, desde_dt, hasta_dt):
+        """Calcula unidades y monto offset para un grupo en un rango de fechas desde la tabla de consumo"""
+        consumo = db.query(
+            func.sum(OffsetGrupoConsumo.cantidad).label('total_unidades'),
+            func.sum(OffsetGrupoConsumo.monto_offset_aplicado).label('total_monto_ars'),
+            func.sum(OffsetGrupoConsumo.monto_offset_usd).label('total_monto_usd')
+        ).filter(
+            OffsetGrupoConsumo.grupo_id == grupo_id,
+            OffsetGrupoConsumo.fecha_venta >= desde_dt,
+            OffsetGrupoConsumo.fecha_venta < hasta_dt
+        ).first()
+
+        return (
+            int(consumo.total_unidades or 0),
+            float(consumo.total_monto_ars or 0),
+            float(consumo.total_monto_usd or 0)
+        )
 
     # Pre-calcular offsets por grupo para aplicar límites a nivel grupo
     for offset in offsets:
@@ -205,97 +225,98 @@ async def obtener_rentabilidad(
             continue  # Los offsets sin grupo se calculan individualmente
 
         if offset.grupo_id not in offsets_grupo_calculados:
-            # Calcular el offset total del grupo sumando todos los productos que aplican
-            grupo_offset_total = 0.0
-            grupo_unidades_total = 0
-
-            # Buscar todos los offsets del mismo grupo
-            offsets_del_grupo = [o for o in offsets if o.grupo_id == offset.grupo_id]
-
-            for og in offsets_del_grupo:
-                # Determinar qué items aplican a este offset del grupo
-                if og.item_id:
-                    items_q = db.query(
-                        func.count(MLVentaMetrica.id).label('cantidad'),
-                        func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo')
-                    ).filter(
-                        MLVentaMetrica.item_id == og.item_id,
-                        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
-                        MLVentaMetrica.fecha_venta < fecha_hasta_dt
-                    ).first()
-                elif og.subcategoria_id:
-                    items_q = db.query(
-                        func.count(MLVentaMetrica.id).label('cantidad'),
-                        func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo')
-                    ).filter(
-                        MLVentaMetrica.subcategoria == str(og.subcategoria_id),
-                        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
-                        MLVentaMetrica.fecha_venta < fecha_hasta_dt
-                    ).first()
-                elif og.categoria:
-                    items_q = db.query(
-                        func.count(MLVentaMetrica.id).label('cantidad'),
-                        func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo')
-                    ).filter(
-                        MLVentaMetrica.categoria == og.categoria,
-                        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
-                        MLVentaMetrica.fecha_venta < fecha_hasta_dt
-                    ).first()
-                elif og.marca:
-                    items_q = db.query(
-                        func.count(MLVentaMetrica.id).label('cantidad'),
-                        func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo')
-                    ).filter(
-                        MLVentaMetrica.marca == og.marca,
-                        MLVentaMetrica.fecha_venta >= fecha_desde_dt,
-                        MLVentaMetrica.fecha_venta < fecha_hasta_dt
-                    ).first()
-                else:
-                    continue
-
-                if items_q and items_q.cantidad:
-                    cantidad = items_q.cantidad
-                    costo = float(items_q.costo or 0)
-                    grupo_unidades_total += cantidad
-
-                    # Calcular valor del offset para estas unidades
-                    tipo = og.tipo_offset or 'monto_fijo'
-                    if tipo == 'monto_fijo':
-                        grupo_offset_total += float(og.monto or 0)
-                    elif tipo == 'monto_por_unidad':
-                        monto_base = float(og.monto or 0)
-                        if og.moneda == 'USD' and og.tipo_cambio:
-                            monto_base *= float(og.tipo_cambio)
-                        grupo_offset_total += monto_base * cantidad
-                    elif tipo == 'porcentaje_costo':
-                        grupo_offset_total += (float(og.porcentaje or 0) / 100) * costo
-
-            # Aplicar límites (OR: el primero que se cumpla)
-            limite_aplicado = False
             tc = float(offset.tipo_cambio) if offset.tipo_cambio else 1.0
 
-            if offset.max_unidades is not None and grupo_unidades_total >= offset.max_unidades:
-                # Limitar por unidades: recalcular con max_unidades
-                if offset.tipo_offset == 'monto_por_unidad':
-                    monto_base = float(offset.monto or 0)
-                    if offset.moneda == 'USD' and offset.tipo_cambio:
-                        monto_base *= float(offset.tipo_cambio)
-                    grupo_offset_total = monto_base * offset.max_unidades
-                limite_aplicado = True
+            # Primero intentamos usar la tabla de resumen para obtener el consumo total
+            resumen = db.query(OffsetGrupoResumen).filter(
+                OffsetGrupoResumen.grupo_id == offset.grupo_id
+            ).first()
 
-            if offset.max_monto_usd is not None:
-                max_monto_ars = offset.max_monto_usd * tc
-                if grupo_offset_total >= max_monto_ars:
-                    grupo_offset_total = max_monto_ars
+            # Fecha inicio del offset (desde cuando empezó a correr)
+            offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
+
+            # Si hay resumen, lo usamos para el límite total
+            if resumen:
+                # Consumo total acumulado desde la tabla de resumen
+                acum_unidades = resumen.total_unidades or 0
+                acum_offset_usd = float(resumen.total_monto_usd or 0)
+                acum_offset_ars = float(resumen.total_monto_ars or 0)
+
+                # Calcular consumo ANTES del período filtrado (lo que ya se consumió)
+                consumo_previo_unidades = 0
+                consumo_previo_offset = 0.0
+                if offset_inicio_dt < fecha_desde_dt:
+                    consumo_previo_unidades, consumo_previo_offset, _ = calcular_consumo_grupo_desde_tabla(
+                        offset.grupo_id, offset_inicio_dt, fecha_desde_dt
+                    )
+
+                # Calcular consumo del período filtrado
+                periodo_unidades, periodo_offset, _ = calcular_consumo_grupo_desde_tabla(
+                    offset.grupo_id, fecha_desde_dt, fecha_hasta_dt
+                )
+
+                # Verificar si el límite ya se agotó
+                limite_agotado_previo = False
+                limite_aplicado = False
+                max_monto_ars = (offset.max_monto_usd * tc) if offset.max_monto_usd else None
+
+                # Si el resumen ya indica límite alcanzado, verificar si fue antes del período
+                if resumen.limite_alcanzado:
+                    if offset.max_unidades is not None and consumo_previo_unidades >= offset.max_unidades:
+                        limite_agotado_previo = True
+                    if max_monto_ars is not None and consumo_previo_offset >= max_monto_ars:
+                        limite_agotado_previo = True
+
+                # Calcular el offset aplicable al período filtrado
+                if limite_agotado_previo:
+                    grupo_offset_total = 0.0
                     limite_aplicado = True
+                else:
+                    grupo_offset_total = periodo_offset
 
-            offsets_grupo_calculados[offset.grupo_id] = {
-                'offset_total': grupo_offset_total,
-                'descripcion': offset.descripcion or f"Grupo {offset.grupo_id}",
-                'limite_aplicado': limite_aplicado,
-                'max_unidades': offset.max_unidades,
-                'max_monto_usd': offset.max_monto_usd
-            }
+                    # Aplicar límite de unidades
+                    if offset.max_unidades is not None:
+                        unidades_disponibles = offset.max_unidades - consumo_previo_unidades
+                        if periodo_unidades >= unidades_disponibles:
+                            if offset.tipo_offset == 'monto_por_unidad':
+                                monto_base = float(offset.monto or 0)
+                                if offset.moneda == 'USD' and offset.tipo_cambio:
+                                    monto_base *= float(offset.tipo_cambio)
+                                grupo_offset_total = monto_base * max(0, unidades_disponibles)
+                            limite_aplicado = True
+
+                    # Aplicar límite de monto
+                    if max_monto_ars is not None:
+                        monto_disponible = max_monto_ars - consumo_previo_offset
+                        if grupo_offset_total >= monto_disponible:
+                            grupo_offset_total = max(0, monto_disponible)
+                            limite_aplicado = True
+
+                offsets_grupo_calculados[offset.grupo_id] = {
+                    'offset_total': grupo_offset_total,
+                    'descripcion': offset.descripcion or f"Grupo {offset.grupo_id}",
+                    'limite_aplicado': limite_aplicado,
+                    'limite_agotado_previo': limite_agotado_previo,
+                    'max_unidades': offset.max_unidades,
+                    'max_monto_usd': offset.max_monto_usd,
+                    'consumo_previo_offset': consumo_previo_offset,
+                    'consumo_acumulado_offset': acum_offset_ars,
+                    'consumo_acumulado_usd': acum_offset_usd
+                }
+            else:
+                # No hay resumen todavía - grupo sin consumo registrado o sin recalcular
+                # El offset aplica completo para el período
+                offsets_grupo_calculados[offset.grupo_id] = {
+                    'offset_total': 0.0,  # Se calculará en calcular_offsets_para_card
+                    'descripcion': offset.descripcion or f"Grupo {offset.grupo_id}",
+                    'limite_aplicado': False,
+                    'limite_agotado_previo': False,
+                    'max_unidades': offset.max_unidades,
+                    'max_monto_usd': offset.max_monto_usd,
+                    'consumo_previo_offset': 0.0,
+                    'consumo_acumulado_offset': 0.0,
+                    'sin_recalcular': True  # Flag para indicar que falta recalcular
+                }
 
     # Para propagar offsets de niveles inferiores, necesitamos saber qué productos
     # pertenecen a cada marca/categoría/subcategoría

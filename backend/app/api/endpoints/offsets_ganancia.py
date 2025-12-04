@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
+from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.usuario import Usuario
 from app.models.cur_exch_history import CurExchHistory
 from app.api.deps import get_current_user
@@ -502,3 +503,395 @@ async def buscar_productos_erp(
         }
         for r in result
     ]
+
+
+# ==================== ENDPOINTS PARA CONSUMO DE GRUPOS ====================
+
+class OffsetGrupoConsumoResponse(BaseModel):
+    id: int
+    grupo_id: int
+    grupo_nombre: Optional[str] = None
+    id_operacion: Optional[int] = None
+    venta_fuera_id: Optional[int] = None
+    tipo_venta: str
+    fecha_venta: str
+    item_id: Optional[int] = None
+    cantidad: int
+    offset_id: int
+    monto_offset_aplicado: float
+    monto_offset_usd: Optional[float] = None
+    cotizacion_dolar: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
+class OffsetGrupoResumenResponse(BaseModel):
+    id: int
+    grupo_id: int
+    grupo_nombre: str
+    total_unidades: int
+    total_monto_ars: float
+    total_monto_usd: float
+    cantidad_ventas: int
+    limite_alcanzado: Optional[str] = None
+    fecha_limite_alcanzado: Optional[str] = None
+    # Límites del grupo (de los offsets)
+    max_unidades: Optional[int] = None
+    max_monto_usd: Optional[float] = None
+    porcentaje_consumido_unidades: Optional[float] = None
+    porcentaje_consumido_monto: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/offset-grupos/{grupo_id}/consumo")
+async def obtener_consumo_grupo(
+    grupo_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene el detalle de consumo de un grupo de offsets"""
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    if not grupo:
+        raise HTTPException(404, "Grupo no encontrado")
+
+    # Obtener consumos del grupo
+    consumos = db.query(OffsetGrupoConsumo).filter(
+        OffsetGrupoConsumo.grupo_id == grupo_id
+    ).order_by(OffsetGrupoConsumo.fecha_venta.desc()).limit(100).all()
+
+    return {
+        "grupo": {
+            "id": grupo.id,
+            "nombre": grupo.nombre,
+            "descripcion": grupo.descripcion
+        },
+        "consumos": [
+            {
+                "id": c.id,
+                "grupo_id": c.grupo_id,
+                "id_operacion": c.id_operacion,
+                "venta_fuera_id": c.venta_fuera_id,
+                "tipo_venta": c.tipo_venta,
+                "fecha_venta": c.fecha_venta.isoformat() if c.fecha_venta else None,
+                "item_id": c.item_id,
+                "cantidad": c.cantidad,
+                "offset_id": c.offset_id,
+                "monto_offset_aplicado": float(c.monto_offset_aplicado) if c.monto_offset_aplicado else 0,
+                "monto_offset_usd": float(c.monto_offset_usd) if c.monto_offset_usd else None,
+                "cotizacion_dolar": float(c.cotizacion_dolar) if c.cotizacion_dolar else None
+            }
+            for c in consumos
+        ]
+    }
+
+
+@router.get("/offset-grupos-resumen")
+async def obtener_resumen_grupos(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene el resumen de consumo de todos los grupos con límites"""
+    # Obtener grupos que tienen offsets con límites
+    grupos_con_limites = db.query(OffsetGrupo).join(
+        OffsetGanancia, OffsetGrupo.id == OffsetGanancia.grupo_id
+    ).filter(
+        or_(
+            OffsetGanancia.max_unidades.isnot(None),
+            OffsetGanancia.max_monto_usd.isnot(None)
+        )
+    ).distinct().all()
+
+    resultado = []
+    for grupo in grupos_con_limites:
+        # Obtener resumen si existe
+        resumen = db.query(OffsetGrupoResumen).filter(
+            OffsetGrupoResumen.grupo_id == grupo.id
+        ).first()
+
+        # Obtener límites del offset (asumimos que todos los offsets del grupo tienen el mismo límite)
+        offset_con_limite = db.query(OffsetGanancia).filter(
+            OffsetGanancia.grupo_id == grupo.id,
+            or_(
+                OffsetGanancia.max_unidades.isnot(None),
+                OffsetGanancia.max_monto_usd.isnot(None)
+            )
+        ).first()
+
+        max_unidades = offset_con_limite.max_unidades if offset_con_limite else None
+        max_monto_usd = offset_con_limite.max_monto_usd if offset_con_limite else None
+
+        if resumen:
+            total_unidades = resumen.total_unidades or 0
+            total_monto_usd = float(resumen.total_monto_usd or 0)
+
+            resultado.append({
+                "grupo_id": grupo.id,
+                "grupo_nombre": grupo.nombre,
+                "total_unidades": total_unidades,
+                "total_monto_ars": float(resumen.total_monto_ars or 0),
+                "total_monto_usd": total_monto_usd,
+                "cantidad_ventas": resumen.cantidad_ventas or 0,
+                "limite_alcanzado": resumen.limite_alcanzado,
+                "fecha_limite_alcanzado": resumen.fecha_limite_alcanzado.isoformat() if resumen.fecha_limite_alcanzado else None,
+                "max_unidades": max_unidades,
+                "max_monto_usd": max_monto_usd,
+                "porcentaje_consumido_unidades": (total_unidades / max_unidades * 100) if max_unidades else None,
+                "porcentaje_consumido_monto": (total_monto_usd / max_monto_usd * 100) if max_monto_usd else None
+            })
+        else:
+            resultado.append({
+                "grupo_id": grupo.id,
+                "grupo_nombre": grupo.nombre,
+                "total_unidades": 0,
+                "total_monto_ars": 0,
+                "total_monto_usd": 0,
+                "cantidad_ventas": 0,
+                "limite_alcanzado": None,
+                "fecha_limite_alcanzado": None,
+                "max_unidades": max_unidades,
+                "max_monto_usd": max_monto_usd,
+                "porcentaje_consumido_unidades": 0 if max_unidades else None,
+                "porcentaje_consumido_monto": 0 if max_monto_usd else None
+            })
+
+    return resultado
+
+
+@router.post("/offset-grupos/{grupo_id}/recalcular")
+async def recalcular_consumo_grupo(
+    grupo_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Recalcula el consumo de un grupo desde cero.
+    Lee las ventas ML y fuera de ML y recalcula todo el consumo del grupo.
+    """
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    if not grupo:
+        raise HTTPException(404, "Grupo no encontrado")
+
+    # Eliminar consumos existentes del grupo
+    db.query(OffsetGrupoConsumo).filter(OffsetGrupoConsumo.grupo_id == grupo_id).delete()
+
+    # Obtener offsets del grupo
+    offsets_grupo = db.query(OffsetGanancia).filter(
+        OffsetGanancia.grupo_id == grupo_id
+    ).all()
+
+    if not offsets_grupo:
+        return {"mensaje": "No hay offsets en este grupo", "consumos_creados": 0}
+
+    # Determinar fecha de inicio (la más antigua de los offsets)
+    fecha_inicio = min(o.fecha_desde for o in offsets_grupo)
+
+    # Obtener item_ids del grupo
+    item_ids = [o.item_id for o in offsets_grupo if o.item_id]
+
+    # Obtener tipo cambio actual para conversiones
+    tc_actual = db.query(CurExchHistory).order_by(CurExchHistory.ceh_cd.desc()).first()
+    cotizacion = float(tc_actual.ceh_exchange) if tc_actual else 1000.0
+
+    consumos_creados = 0
+    total_unidades = 0
+    total_monto_ars = 0
+    total_monto_usd = 0
+
+    if item_ids:
+        # Obtener ventas ML
+        ventas_ml_query = text("""
+            SELECT
+                m.id_operacion,
+                m.fecha_venta,
+                m.item_id,
+                m.cantidad,
+                m.costo_total_sin_iva,
+                m.cotizacion_dolar
+            FROM ml_ventas_metricas m
+            WHERE m.item_id = ANY(:item_ids)
+            AND m.fecha_venta >= :fecha_inicio
+            ORDER BY m.fecha_venta
+        """)
+
+        ventas_ml = db.execute(ventas_ml_query, {
+            "item_ids": item_ids,
+            "fecha_inicio": fecha_inicio
+        }).fetchall()
+
+        for venta in ventas_ml:
+            # Encontrar el offset aplicable
+            offset_aplicable = next(
+                (o for o in offsets_grupo if o.item_id == venta.item_id),
+                None
+            )
+
+            if not offset_aplicable:
+                continue
+
+            # Calcular monto del offset
+            cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+            costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
+
+            if offset_aplicable.tipo_offset == 'monto_fijo':
+                monto_offset = float(offset_aplicable.monto or 0)
+                if offset_aplicable.moneda == 'USD':
+                    monto_offset_ars = monto_offset * cot
+                    monto_offset_usd = monto_offset
+                else:
+                    monto_offset_ars = monto_offset
+                    monto_offset_usd = monto_offset / cot if cot > 0 else 0
+            elif offset_aplicable.tipo_offset == 'monto_por_unidad':
+                monto_por_u = float(offset_aplicable.monto or 0)
+                if offset_aplicable.moneda == 'USD':
+                    monto_offset_ars = monto_por_u * venta.cantidad * cot
+                    monto_offset_usd = monto_por_u * venta.cantidad
+                else:
+                    monto_offset_ars = monto_por_u * venta.cantidad
+                    monto_offset_usd = monto_por_u * venta.cantidad / cot if cot > 0 else 0
+            elif offset_aplicable.tipo_offset == 'porcentaje_costo':
+                porcentaje = float(offset_aplicable.porcentaje or 0)
+                monto_offset_ars = costo * (porcentaje / 100)
+                monto_offset_usd = monto_offset_ars / cot if cot > 0 else 0
+            else:
+                continue
+
+            # Crear registro de consumo
+            consumo = OffsetGrupoConsumo(
+                grupo_id=grupo_id,
+                id_operacion=venta.id_operacion,
+                tipo_venta='ml',
+                fecha_venta=venta.fecha_venta,
+                item_id=venta.item_id,
+                cantidad=venta.cantidad,
+                offset_id=offset_aplicable.id,
+                monto_offset_aplicado=monto_offset_ars,
+                monto_offset_usd=monto_offset_usd,
+                cotizacion_dolar=cot
+            )
+            db.add(consumo)
+            consumos_creados += 1
+            total_unidades += venta.cantidad
+            total_monto_ars += monto_offset_ars
+            total_monto_usd += monto_offset_usd
+
+        # Obtener ventas fuera de ML
+        ventas_fuera_query = text("""
+            SELECT
+                v.id,
+                v.fecha_venta,
+                v.item_id,
+                v.cantidad,
+                v.costo_total_sin_iva,
+                v.cotizacion_dolar
+            FROM ventas_fuera_ml v
+            WHERE v.item_id = ANY(:item_ids)
+            AND v.fecha_venta >= :fecha_inicio
+            ORDER BY v.fecha_venta
+        """)
+
+        ventas_fuera = db.execute(ventas_fuera_query, {
+            "item_ids": item_ids,
+            "fecha_inicio": fecha_inicio
+        }).fetchall()
+
+        for venta in ventas_fuera:
+            offset_aplicable = next(
+                (o for o in offsets_grupo if o.item_id == venta.item_id),
+                None
+            )
+
+            if not offset_aplicable:
+                continue
+
+            cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+            costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
+
+            if offset_aplicable.tipo_offset == 'monto_fijo':
+                monto_offset = float(offset_aplicable.monto or 0)
+                if offset_aplicable.moneda == 'USD':
+                    monto_offset_ars = monto_offset * cot
+                    monto_offset_usd = monto_offset
+                else:
+                    monto_offset_ars = monto_offset
+                    monto_offset_usd = monto_offset / cot if cot > 0 else 0
+            elif offset_aplicable.tipo_offset == 'monto_por_unidad':
+                monto_por_u = float(offset_aplicable.monto or 0)
+                if offset_aplicable.moneda == 'USD':
+                    monto_offset_ars = monto_por_u * venta.cantidad * cot
+                    monto_offset_usd = monto_por_u * venta.cantidad
+                else:
+                    monto_offset_ars = monto_por_u * venta.cantidad
+                    monto_offset_usd = monto_por_u * venta.cantidad / cot if cot > 0 else 0
+            elif offset_aplicable.tipo_offset == 'porcentaje_costo':
+                porcentaje = float(offset_aplicable.porcentaje or 0)
+                monto_offset_ars = costo * (porcentaje / 100)
+                monto_offset_usd = monto_offset_ars / cot if cot > 0 else 0
+            else:
+                continue
+
+            consumo = OffsetGrupoConsumo(
+                grupo_id=grupo_id,
+                venta_fuera_id=venta.id,
+                tipo_venta='fuera_ml',
+                fecha_venta=venta.fecha_venta,
+                item_id=venta.item_id,
+                cantidad=venta.cantidad,
+                offset_id=offset_aplicable.id,
+                monto_offset_aplicado=monto_offset_ars,
+                monto_offset_usd=monto_offset_usd,
+                cotizacion_dolar=cot
+            )
+            db.add(consumo)
+            consumos_creados += 1
+            total_unidades += venta.cantidad
+            total_monto_ars += monto_offset_ars
+            total_monto_usd += monto_offset_usd
+
+    # Actualizar o crear resumen
+    resumen = db.query(OffsetGrupoResumen).filter(
+        OffsetGrupoResumen.grupo_id == grupo_id
+    ).first()
+
+    # Verificar si se alcanzó algún límite
+    offset_con_limite = next(
+        (o for o in offsets_grupo if o.max_unidades or o.max_monto_usd),
+        None
+    )
+
+    limite_alcanzado = None
+    if offset_con_limite:
+        if offset_con_limite.max_unidades and total_unidades >= offset_con_limite.max_unidades:
+            limite_alcanzado = 'unidades'
+        elif offset_con_limite.max_monto_usd and total_monto_usd >= offset_con_limite.max_monto_usd:
+            limite_alcanzado = 'monto'
+
+    if resumen:
+        resumen.total_unidades = total_unidades
+        resumen.total_monto_ars = total_monto_ars
+        resumen.total_monto_usd = total_monto_usd
+        resumen.cantidad_ventas = consumos_creados
+        resumen.limite_alcanzado = limite_alcanzado
+    else:
+        resumen = OffsetGrupoResumen(
+            grupo_id=grupo_id,
+            total_unidades=total_unidades,
+            total_monto_ars=total_monto_ars,
+            total_monto_usd=total_monto_usd,
+            cantidad_ventas=consumos_creados,
+            limite_alcanzado=limite_alcanzado
+        )
+        db.add(resumen)
+
+    db.commit()
+
+    return {
+        "mensaje": f"Recálculo completado para grupo {grupo.nombre}",
+        "consumos_creados": consumos_creados,
+        "total_unidades": total_unidades,
+        "total_monto_ars": total_monto_ars,
+        "total_monto_usd": total_monto_usd,
+        "limite_alcanzado": limite_alcanzado
+    }
