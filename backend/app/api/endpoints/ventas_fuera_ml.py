@@ -213,14 +213,15 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
         GROUP BY tit.it_isassociationgroup
     ),
     precio_venta AS (
-        -- Precio total del grupo/combo (suma de precios de componentes)
+        -- Precio total del grupo/combo (suma de precios de componentes) POR TRANSACCION
         SELECT
             tit.it_isassociationgroup AS group_id,
-            SUM(tit.it_price * (tit.it_qty / COALESCE(cqd.qtydivisor, 1))) AS precio_venta
+            tit.ct_transaction,
+            SUM(tit.it_price * tit.it_qty) AS precio_venta
         FROM tb_item_transactions tit
-        LEFT JOIN CTE_QtyDivisor cqd ON cqd.group_id = tit.it_isassociationgroup
         WHERE tit.it_isassociationgroup IS NOT NULL
-        GROUP BY tit.it_isassociationgroup
+          AND tit.it_price IS NOT NULL
+        GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     )
     SELECT DISTINCT
         tit.it_transaction as id_operacion,
@@ -362,6 +363,7 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
 
     LEFT JOIN precio_venta pv
         ON pv.group_id = tit.it_isassociationgroup
+        AND pv.ct_transaction = tit.ct_transaction
 
     LEFT JOIN CostoCalculado cc
         ON cc.it_transaction = tit.it_transaction
@@ -379,7 +381,7 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
                 WHEN tit.item_id IS NULL AND tit.it_item_id_origin IS NULL
                 THEN COALESCE(titd.itm_desc, '')
                 ELSE COALESCE(ti.item_desc, '')
-            END = 'Envio'
+            END ILIKE '%envio%'
         )
         -- Excluir componentes individuales de combos (solo mostrar el combo principal)
         AND NOT (
