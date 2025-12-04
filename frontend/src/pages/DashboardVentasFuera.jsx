@@ -324,6 +324,13 @@ export default function DashboardVentasFuera() {
         </div>
       </div>
 
+      {/* Alerta de productos sin costo */}
+      {stats && stats.productos_sin_costo > 0 && tabActivo === 'resumen' && (
+        <div className={styles.alertaSinCosto}>
+          ⚠️ El período seleccionado tiene <strong>{stats.productos_sin_costo} producto{stats.productos_sin_costo !== 1 ? 's' : ''}</strong> sin costo cargado, los cuales fueron excluidos de todas las métricas.
+        </div>
+      )}
+
       {tabActivo === 'admin' ? (
         <TabAdminVentasFuera />
       ) : tabActivo === 'rentabilidad' ? (

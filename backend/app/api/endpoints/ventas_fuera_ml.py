@@ -546,6 +546,16 @@ async def get_ventas_fuera_ml_stats(
     )
     SELECT
         COUNT(*) as total_ventas,
+        -- Contar productos sin costo
+        COUNT(*) FILTER (WHERE
+            CASE
+                WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccosto.costo_combo, 0)
+                ELSE CASE
+                    WHEN iclh.curr_id = 1 THEN COALESCE(iclh.iclh_price, 0) * tit.it_qty
+                    ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
+                END
+            END = 0
+        ) as productos_sin_costo,
         COALESCE(SUM(
             tit.it_qty * CASE
                 WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
@@ -583,7 +593,7 @@ async def get_ventas_fuera_ml_stats(
                  WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
                  ELSE 0 END
         ), 0) as costo_total,
-        -- Monto solo de productos CON costo (para calcular markup)
+        -- Monto solo de productos CON costo (sin IVA)
         COALESCE(SUM(
             CASE
                 WHEN (
@@ -605,6 +615,28 @@ async def get_ventas_fuera_ml_stats(
                 ELSE 0
             END
         ), 0) as monto_con_costo,
+        -- Monto solo de productos CON costo (con IVA)
+        COALESCE(SUM(
+            CASE
+                WHEN (
+                    CASE
+                        WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccosto.costo_combo, 0)
+                        ELSE CASE
+                            WHEN iclh.curr_id = 1 THEN COALESCE(iclh.iclh_price, 0) * tit.it_qty
+                            ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
+                        END
+                    END
+                ) > 0 THEN
+                    CASE
+                        WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN cp.precio_combo
+                        ELSE tit.it_price * tit.it_qty
+                    END * (1 + COALESCE(ttn.tax_percentage, 21.0) / 100) *
+                    CASE WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
+                         WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
+                         ELSE 0 END
+                ELSE 0
+            END
+        ), 0) as monto_con_costo_con_iva,
         -- Costo solo de productos CON costo (para calcular markup)
         COALESCE(SUM(
             CASE
@@ -671,14 +703,12 @@ async def get_ventas_fuera_ml_stats(
         {"from_date": from_date, "to_date": to_date + " 23:59:59"}
     ).fetchone()
 
-    # Extraer resultados
+    # Extraer resultados (solo productos con costo)
     total_ventas = result.total_ventas or 0
+    productos_sin_costo = result.productos_sin_costo or 0
     total_unidades = float(result.total_unidades or 0)
-    monto_sin_iva = float(result.monto_total_sin_iva or 0)
-    monto_con_iva = float(result.monto_total_con_iva or 0)
-    costo_total = float(result.costo_total or 0)
-    # Para markup: solo productos con costo
     monto_con_costo = float(result.monto_con_costo or 0)
+    monto_con_costo_con_iva = float(result.monto_con_costo_con_iva or 0)
     costo_con_costo = float(result.costo_con_costo or 0)
 
     # ========== Por sucursal: query unificada ==========
@@ -794,9 +824,10 @@ async def get_ventas_fuera_ml_stats(
         "total_ventas": total_ventas,
         "total_unidades": total_unidades,
         "monto_total_sin_iva": monto_con_costo,  # Solo productos con costo
-        "monto_total_con_iva": monto_con_iva,
+        "monto_total_con_iva": monto_con_costo_con_iva,  # Solo productos con costo
         "costo_total": costo_con_costo,  # Solo productos con costo
         "markup_promedio": markup_promedio,
+        "productos_sin_costo": productos_sin_costo,  # Para mostrar alerta en frontend
         "por_sucursal": sucursales_dict,
         "por_vendedor": vendedores_dict
     }
