@@ -231,21 +231,7 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
                 ELSE costo_unitario * tipo_cambio * it_qty
             END *
             CASE WHEN sd_id IN ({','.join(map(str, SD_DEVOLUCIONES))}) THEN -1 ELSE 1 END
-        ) as ganancia,
-
-        -- Markup promedio: ((precio_venta / costo) - 1) * 100
-        AVG(
-            CASE
-                WHEN costo_unitario = 0 THEN NULL
-                ELSE (
-                    (it_price * CASE WHEN bra_id = 35 THEN (1 + iva_porcentaje / 100) ELSE 0.95 END) /
-                    CASE
-                        WHEN costo_moneda = 1 THEN costo_unitario
-                        ELSE costo_unitario * tipo_cambio
-                    END - 1
-                ) * 100
-            END
-        ) as markup_promedio
+        ) as ganancia
 
     FROM costo_venta
     WHERE nombre IS NOT NULL
@@ -369,7 +355,9 @@ async def obtener_rentabilidad_fuera(
         monto_venta = float(r.monto_venta or 0)
         costo_total = float(r.costo_total or 0)
         ganancia = float(r.ganancia or 0)
-        markup_promedio = float(r.markup_promedio or 0)
+
+        # Calcular markup a partir de ganancia/costo (no promediar porcentajes)
+        markup_promedio = ((ganancia / costo_total) * 100) if costo_total > 0 else 0
 
         ganancia_con_offset = ganancia + offset_aplicable
         markup_con_offset = ((ganancia_con_offset / costo_total) * 100) if costo_total > 0 else 0
