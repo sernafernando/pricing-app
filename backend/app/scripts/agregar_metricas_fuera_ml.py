@@ -83,7 +83,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     ),
     combo_costos AS (
-        -- Costo total del combo por transacción
+        -- Costo total del combo por transacción (con multiplicador 1.065)
         SELECT
             tit.it_isassociationgroup AS group_id,
             tit.ct_transaction,
@@ -94,7 +94,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
                         ELSE iclh.iclh_price * COALESCE(ceh.ceh_exchange, 1)
                     END,
                     0
-                ) * tit.it_qty
+                ) * 1.065 * tit.it_qty
             ) AS costo_combo
         FROM tb_item_transactions tit
         INNER JOIN tb_commercial_transactions tct
@@ -135,7 +135,11 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
         tct.ct_docnumber as numero_comprobante,
         tct.ct_date as fecha_venta,
         tct.sd_id,
-        CASE WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1 ELSE -1 END as signo,
+        CASE
+            WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
+            WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
+            ELSE 1
+        END as signo,
 
         -- Cantidad
         tit.it_qty as cantidad,
@@ -159,24 +163,24 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
             ELSE tit.it_price * tit.it_qty
         END as monto_total,
 
-        -- Costo unitario (convertido a pesos)
+        -- Costo unitario (convertido a pesos, con multiplicador 1.065)
         CASE
             WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN
                 COALESCE(ccb.costo_combo, 0) / NULLIF(tit.it_qty, 0)
             ELSE
                 CASE
-                    WHEN COALESCE(iclh.curr_id, 1) = 1 THEN COALESCE(iclh.iclh_price, 0)
-                    ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1)
+                    WHEN COALESCE(iclh.curr_id, 1) = 1 THEN COALESCE(iclh.iclh_price, 0) * 1.065
+                    ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * 1.065
                 END
         END as costo_unitario,
 
-        -- Costo total
+        -- Costo total (con multiplicador 1.065)
         CASE
             WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0)
             ELSE
                 CASE
-                    WHEN COALESCE(iclh.curr_id, 1) = 1 THEN COALESCE(iclh.iclh_price, 0) * tit.it_qty
-                    ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
+                    WHEN COALESCE(iclh.curr_id, 1) = 1 THEN COALESCE(iclh.iclh_price, 0) * 1.065 * tit.it_qty
+                    ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * 1.065 * tit.it_qty
                 END
         END as costo_total,
 
@@ -223,7 +227,14 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
         AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
         AND tit.it_qty <> 0
         AND tct.sd_id IN ({SD_IDS_STR})
-        AND COALESCE(ti.item_desc, titd.itm_desc, '') NOT ILIKE '%envio%'
+        -- Excluir items "Envio" (lógica igual a query original)
+        AND NOT (
+            CASE
+                WHEN tit.item_id IS NULL AND tit.it_item_id_origin IS NULL
+                THEN COALESCE(titd.itm_desc, '')
+                ELSE COALESCE(ti.item_desc, '')
+            END ILIKE '%envio%'
+        )
         -- Excluir componentes de combos (solo mostrar el item principal)
         AND NOT (
             COALESCE(tit.it_isassociation, false) = true
