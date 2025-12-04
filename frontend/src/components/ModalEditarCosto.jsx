@@ -33,7 +33,9 @@ export default function ModalEditarCosto({
   const [busquedaProducto, setBusquedaProducto] = useState('');
   const [productosEncontrados, setProductosEncontrados] = useState([]);
   const [buscandoProductos, setBuscandoProductos] = useState(false);
-  const [productoSeleccionado, setProductoSeleccionado] = useState(null);
+
+  // Múltiples productos seleccionados
+  const [productosSeleccionados, setProductosSeleccionados] = useState([]);
 
   useEffect(() => {
     if (mostrar && operacion) {
@@ -44,7 +46,7 @@ export default function ModalEditarCosto({
         setCostoUnitario('');
       }
       setMonedaCosto('ARS');
-      setProductoSeleccionado(null);
+      setProductosSeleccionados([]);
       setProductosEncontrados([]);
       setBusquedaProducto('');
       setTipoCambio('');
@@ -99,16 +101,76 @@ export default function ModalEditarCosto({
     }
   };
 
-  const seleccionarProducto = (producto) => {
-    setProductoSeleccionado(producto);
-    // Si el producto tiene costo, usarlo en su moneda original
-    if (producto.costo_unitario && producto.costo_unitario > 0) {
-      setCostoUnitario(producto.costo_unitario.toFixed(2));
-      setMonedaCosto(producto.moneda_costo || 'ARS');
+  const agregarProducto = (producto) => {
+    // Verificar si ya está agregado
+    if (productosSeleccionados.find(p => p.item_id === producto.item_id)) {
+      return;
     }
+
+    const nuevoProducto = {
+      ...producto,
+      cantidad: 1 // Cantidad por defecto
+    };
+
+    const nuevosProductos = [...productosSeleccionados, nuevoProducto];
+    setProductosSeleccionados(nuevosProductos);
+
+    // Recalcular costo total
+    recalcularCostoTotal(nuevosProductos);
+
     setProductosEncontrados([]);
     setBusquedaProducto('');
   };
+
+  const quitarProducto = (itemId) => {
+    const nuevosProductos = productosSeleccionados.filter(p => p.item_id !== itemId);
+    setProductosSeleccionados(nuevosProductos);
+    recalcularCostoTotal(nuevosProductos);
+  };
+
+  const cambiarCantidadProducto = (itemId, nuevaCantidad) => {
+    const cantidad = parseInt(nuevaCantidad) || 1;
+    const nuevosProductos = productosSeleccionados.map(p =>
+      p.item_id === itemId ? { ...p, cantidad } : p
+    );
+    setProductosSeleccionados(nuevosProductos);
+    recalcularCostoTotal(nuevosProductos);
+  };
+
+  const recalcularCostoTotal = (productos) => {
+    if (productos.length === 0) {
+      setCostoUnitario('');
+      setMonedaCosto('ARS');
+      return;
+    }
+
+    const tc = parseFloat(tipoCambio) || 1;
+    let costoTotalARS = 0;
+    let hayUSD = false;
+
+    for (const p of productos) {
+      if (p.costo_unitario && p.costo_unitario > 0) {
+        const costoProducto = p.costo_unitario * p.cantidad;
+        if (p.moneda_costo === 'USD') {
+          hayUSD = true;
+          costoTotalARS += costoProducto * tc;
+        } else {
+          costoTotalARS += costoProducto;
+        }
+      }
+    }
+
+    // Siempre mostrar en ARS si hay mezcla o conversión
+    setCostoUnitario(costoTotalARS.toFixed(2));
+    setMonedaCosto('ARS');
+  };
+
+  // Recalcular cuando cambia el TC
+  useEffect(() => {
+    if (productosSeleccionados.length > 0) {
+      recalcularCostoTotal(productosSeleccionados);
+    }
+  }, [tipoCambio]);
 
   // Calcular costo en ARS para guardar
   const getCostoEnARS = () => {
@@ -169,7 +231,7 @@ export default function ModalEditarCosto({
 
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
         <h3>Editar Costo de Operacion</h3>
 
         {/* Info de la operación */}
@@ -187,9 +249,9 @@ export default function ModalEditarCosto({
 
         {/* Buscar producto para traer costo */}
         <div className={styles.offsetForm}>
-          <h4>Buscar costo de producto</h4>
+          <h4>Buscar productos para componer costo</h4>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-            Busca un producto para traer su costo del sistema
+            Busca uno o mas productos para sumar sus costos (productos compuestos)
           </p>
 
           <div className={styles.productoBusqueda}>
@@ -215,7 +277,8 @@ export default function ModalEditarCosto({
                 <div
                   key={producto.item_id}
                   className={styles.productoItem}
-                  onClick={() => seleccionarProducto(producto)}
+                  onClick={() => agregarProducto(producto)}
+                  style={{ cursor: 'pointer' }}
                 >
                   <div className={styles.productoInfo}>
                     <span className={styles.productoCodigo}>{producto.codigo}</span>
@@ -226,28 +289,105 @@ export default function ModalEditarCosto({
                         : 'Sin costo'}
                     </span>
                   </div>
+                  <span style={{ color: '#3b82f6', fontSize: '1.2rem', marginLeft: '0.5rem' }}>+</span>
                 </div>
               ))}
             </div>
           )}
 
-          {productoSeleccionado && (
+          {/* Lista de productos seleccionados */}
+          {productosSeleccionados.length > 0 && (
             <div style={{
-              marginTop: '0.5rem',
-              padding: '0.5rem',
-              background: 'rgba(59, 130, 246, 0.15)',
-              borderRadius: '4px',
-              fontSize: '0.85rem',
-              color: 'var(--text-primary)'
+              marginTop: '0.75rem',
+              border: '1px solid var(--border-color)',
+              borderRadius: '6px',
+              overflow: 'hidden'
             }}>
-              Costo de: <strong>{productoSeleccionado.codigo}</strong> - {productoSeleccionado.descripcion?.substring(0, 40)}
+              <div style={{
+                background: 'var(--bg-tertiary)',
+                padding: '0.5rem 0.75rem',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                borderBottom: '1px solid var(--border-color)'
+              }}>
+                Productos seleccionados ({productosSeleccionados.length})
+              </div>
+              {productosSeleccionados.map(producto => {
+                const tc = parseFloat(tipoCambio) || 1;
+                const costoEnARS = producto.moneda_costo === 'USD'
+                  ? (producto.costo_unitario || 0) * tc
+                  : (producto.costo_unitario || 0);
+                const subtotal = costoEnARS * producto.cantidad;
+
+                return (
+                  <div
+                    key={producto.item_id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '0.5rem 0.75rem',
+                      borderBottom: '1px solid var(--border-color)',
+                      gap: '0.5rem',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {producto.codigo}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {producto.descripcion?.substring(0, 50)}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Cant:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={producto.cantidad}
+                        onChange={(e) => cambiarCantidadProducto(producto.item_id, e.target.value)}
+                        style={{
+                          width: '50px',
+                          padding: '0.25rem',
+                          textAlign: 'center',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '4px'
+                        }}
+                      />
+                    </div>
+                    <div style={{ minWidth: '80px', textAlign: 'right' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {producto.moneda_costo === 'USD' ? `U$S ${producto.costo_unitario?.toFixed(2)}` : `$ ${producto.costo_unitario?.toFixed(0)}`}
+                      </div>
+                      <div style={{ fontWeight: 500, color: '#059669' }}>
+                        {formatMoney(subtotal)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => quitarProducto(producto.item_id)}
+                      style={{
+                        background: '#fee2e2',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '0.25rem 0.5rem',
+                        cursor: 'pointer',
+                        color: '#dc2626',
+                        fontSize: '0.8rem'
+                      }}
+                      title="Quitar producto"
+                    >
+                      X
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
           {/* Input de costo manual con selector de moneda */}
           <div className={styles.formRow} style={{ marginTop: '1rem' }}>
             <div style={{ flex: 2 }}>
-              <label>Costo Unitario:</label>
+              <label>Costo Unitario Total:</label>
               <input
                 type="number"
                 step="0.01"
@@ -264,6 +404,7 @@ export default function ModalEditarCosto({
                 value={monedaCosto}
                 onChange={e => setMonedaCosto(e.target.value)}
                 style={{ fontSize: '1.1rem', padding: '0.5rem', width: '100%' }}
+                disabled={productosSeleccionados.length > 0}
               >
                 <option value="ARS">ARS ($)</option>
                 <option value="USD">USD (U$S)</option>
@@ -271,8 +412,8 @@ export default function ModalEditarCosto({
             </div>
           </div>
 
-          {/* Tipo de cambio editable - solo mostrar si es USD */}
-          {monedaCosto === 'USD' && (
+          {/* Tipo de cambio editable - mostrar siempre si hay productos USD o si moneda es USD */}
+          {(monedaCosto === 'USD' || productosSeleccionados.some(p => p.moneda_costo === 'USD')) && (
             <div className={styles.formRow} style={{ marginTop: '0.75rem' }}>
               <div style={{ flex: 1 }}>
                 <label>
