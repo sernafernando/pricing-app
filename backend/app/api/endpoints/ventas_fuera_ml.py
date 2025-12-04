@@ -572,7 +572,7 @@ async def get_ventas_fuera_ml_stats(
         LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL
           AND tit.it_price IS NOT NULL
-          AND tct.ct_date BETWEEN :from_date AND :to_date + ' 23:59:59'
+          AND tct.ct_date BETWEEN :from_date AND :to_date
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     ),
     combo_costos AS (
@@ -601,7 +601,7 @@ async def get_ventas_fuera_ml_stats(
             ORDER BY ceh_cd DESC LIMIT 1
         ) ceh ON true
         WHERE tit.it_isassociationgroup IS NOT NULL
-          AND tct.ct_date BETWEEN :from_date AND :to_date + ' 23:59:59'
+          AND tct.ct_date BETWEEN :from_date AND :to_date
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     )
     SELECT
@@ -701,7 +701,7 @@ async def get_ventas_fuera_ml_stats(
         FROM tb_item_transactions tit
         LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL AND tit.it_price IS NOT NULL
-          AND tct.ct_date BETWEEN :from_date AND :to_date + ' 23:59:59'
+          AND tct.ct_date BETWEEN :from_date AND :to_date
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     )
     SELECT
@@ -776,7 +776,7 @@ async def get_ventas_fuera_ml_stats(
         FROM tb_item_transactions tit
         LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL AND tit.it_price IS NOT NULL
-          AND tct.ct_date BETWEEN :from_date AND :to_date + ' 23:59:59'
+          AND tct.ct_date BETWEEN :from_date AND :to_date
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     )
     SELECT
