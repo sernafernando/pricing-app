@@ -21,6 +21,7 @@ router = APIRouter()
 class VentaFueraMLResponse(BaseModel):
     """Respuesta detallada de una venta por fuera de ML"""
     id_operacion: int
+    metrica_id: Optional[int] = None  # ID en tabla de métricas para edición
     sucursal: Optional[str]
     cliente: Optional[str]
     clase_fiscal: Optional[str]
@@ -430,6 +431,105 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
 # Endpoints
 # ============================================================================
 
+@router.get("/ventas-fuera-ml/operaciones")
+async def get_operaciones_desde_metricas(
+    from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
+    to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedor"),
+    marca: Optional[str] = Query(None, description="Filtrar por marca"),
+    solo_sin_costo: bool = Query(False, description="Solo mostrar operaciones sin costo"),
+    limit: int = Query(1000, le=10000, description="Límite de resultados"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtiene operaciones desde la tabla de métricas pre-calculadas.
+    Más rápido que el endpoint original y devuelve metrica_id para edición.
+    """
+    # Construir query con filtros opcionales
+    where_clauses = ["fecha_venta BETWEEN :from_date AND :to_date"]
+    params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
+
+    if sucursal:
+        where_clauses.append("sucursal = :sucursal")
+        params["sucursal"] = sucursal
+    if vendedor:
+        where_clauses.append("vendedor = :vendedor")
+        params["vendedor"] = vendedor
+    if marca:
+        where_clauses.append("marca = :marca")
+        params["marca"] = marca
+    if solo_sin_costo:
+        where_clauses.append("(costo_total IS NULL OR costo_total = 0)")
+
+    where_sql = " AND ".join(where_clauses)
+
+    query = f"""
+    SELECT
+        id as metrica_id,
+        it_transaction as id_operacion,
+        sucursal,
+        cliente,
+        vendedor,
+        fecha_venta as fecha,
+        tipo_comprobante,
+        numero_comprobante,
+        marca,
+        categoria,
+        subcategoria,
+        codigo,
+        descripcion,
+        cantidad,
+        monto_unitario as precio_unitario_sin_iva,
+        iva_porcentaje,
+        monto_total as precio_final_sin_iva,
+        monto_iva,
+        monto_con_iva as precio_final_con_iva,
+        costo_unitario,
+        costo_total as costo_pesos_sin_iva,
+        markup_porcentaje as markup,
+        ganancia,
+        signo
+    FROM ventas_fuera_ml_metricas
+    WHERE {where_sql}
+    ORDER BY fecha_venta DESC, it_transaction
+    LIMIT :limit
+    """
+
+    result = db.execute(text(query), params).fetchall()
+
+    return [
+        {
+            "metrica_id": r.metrica_id,
+            "id_operacion": r.id_operacion,
+            "sucursal": r.sucursal,
+            "cliente": r.cliente,
+            "vendedor": r.vendedor,
+            "fecha": r.fecha.isoformat() if r.fecha else None,
+            "tipo_comprobante": r.tipo_comprobante,
+            "numero_comprobante": r.numero_comprobante,
+            "marca": r.marca,
+            "categoria": r.categoria,
+            "subcategoria": r.subcategoria,
+            "codigo_item": r.codigo,
+            "descripcion": r.descripcion,
+            "cantidad": float(r.cantidad) if r.cantidad else 0,
+            "precio_unitario_sin_iva": float(r.precio_unitario_sin_iva) if r.precio_unitario_sin_iva else 0,
+            "iva_porcentaje": float(r.iva_porcentaje) if r.iva_porcentaje else 21,
+            "precio_final_sin_iva": float(r.precio_final_sin_iva) if r.precio_final_sin_iva else 0,
+            "monto_iva": float(r.monto_iva) if r.monto_iva else 0,
+            "precio_final_con_iva": float(r.precio_final_con_iva) if r.precio_final_con_iva else 0,
+            "costo_unitario": float(r.costo_unitario) if r.costo_unitario else 0,
+            "costo_pesos_sin_iva": float(r.costo_pesos_sin_iva) if r.costo_pesos_sin_iva else 0,
+            "markup": float(r.markup) / 100 if r.markup else None,  # Convertir a decimal (0.15 en lugar de 15%)
+            "ganancia": float(r.ganancia) if r.ganancia else 0,
+            "signo": r.signo
+        }
+        for r in result
+    ]
+
+
 @router.get("/ventas-fuera-ml", response_model=List[VentaFueraMLResponse])
 async def get_ventas_fuera_ml(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
@@ -675,3 +775,108 @@ async def get_top_productos_fuera_ml(
         }
         for r in result
     ]
+
+
+# ============================================================================
+# Endpoint para actualizar costo manual de una operación
+# ============================================================================
+
+class ActualizarCostoRequest(BaseModel):
+    """Request para actualizar el costo de una operación"""
+    costo_unitario: float
+
+
+@router.put("/ventas-fuera-ml/metricas/{metrica_id}/costo")
+async def actualizar_costo_operacion(
+    metrica_id: int,
+    request: ActualizarCostoRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Actualiza el costo unitario de una operación en la tabla de métricas.
+    Recalcula automáticamente: costo_total, ganancia, markup_porcentaje.
+    """
+    from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
+
+    # Buscar la métrica
+    metrica = db.query(VentaFueraMLMetrica).filter(
+        VentaFueraMLMetrica.id == metrica_id
+    ).first()
+
+    if not metrica:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Operación no encontrada")
+
+    # Actualizar costo unitario
+    costo_unitario = Decimal(str(request.costo_unitario))
+    cantidad = metrica.cantidad or Decimal('1')
+    monto_total = metrica.monto_total or Decimal('0')
+
+    # Calcular costo total
+    costo_total = costo_unitario * cantidad
+
+    # Calcular ganancia
+    ganancia = monto_total - costo_total
+
+    # Calcular markup
+    markup_porcentaje = None
+    if costo_total > 0:
+        markup_porcentaje = ((monto_total / costo_total) - 1) * 100
+
+    # Actualizar campos
+    metrica.costo_unitario = costo_unitario
+    metrica.costo_total = costo_total
+    metrica.ganancia = ganancia
+    metrica.markup_porcentaje = Decimal(str(markup_porcentaje)) if markup_porcentaje is not None else None
+    metrica.moneda_costo = 'ARS'  # Costo manual siempre en ARS
+
+    db.commit()
+    db.refresh(metrica)
+
+    return {
+        "success": True,
+        "id": metrica.id,
+        "costo_unitario": float(metrica.costo_unitario),
+        "costo_total": float(metrica.costo_total),
+        "ganancia": float(metrica.ganancia),
+        "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None
+    }
+
+
+@router.get("/ventas-fuera-ml/metricas/{metrica_id}")
+async def get_metrica_detalle(
+    metrica_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtiene el detalle de una métrica específica.
+    """
+    from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
+
+    metrica = db.query(VentaFueraMLMetrica).filter(
+        VentaFueraMLMetrica.id == metrica_id
+    ).first()
+
+    if not metrica:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Operación no encontrada")
+
+    return {
+        "id": metrica.id,
+        "it_transaction": metrica.it_transaction,
+        "item_id": metrica.item_id,
+        "codigo": metrica.codigo,
+        "descripcion": metrica.descripcion,
+        "marca": metrica.marca,
+        "cantidad": float(metrica.cantidad) if metrica.cantidad else 0,
+        "monto_unitario": float(metrica.monto_unitario) if metrica.monto_unitario else 0,
+        "monto_total": float(metrica.monto_total) if metrica.monto_total else 0,
+        "costo_unitario": float(metrica.costo_unitario) if metrica.costo_unitario else 0,
+        "costo_total": float(metrica.costo_total) if metrica.costo_total else 0,
+        "ganancia": float(metrica.ganancia) if metrica.ganancia else 0,
+        "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None,
+        "moneda_costo": metrica.moneda_costo,
+        "fecha_venta": metrica.fecha_venta.isoformat() if metrica.fecha_venta else None
+    }

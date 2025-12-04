@@ -3,6 +3,7 @@ import axios from 'axios';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
 import TabRentabilidadFuera from '../components/TabRentabilidadFuera';
 import TabAdminVentasFuera from '../components/TabAdminVentasFuera';
+import ModalEditarCosto from '../components/ModalEditarCosto';
 import { useAuthStore } from '../store/authStore';
 
 export default function DashboardVentasFuera() {
@@ -26,6 +27,11 @@ export default function DashboardVentasFuera() {
   // Datos de operaciones detalladas
   const [operaciones, setOperaciones] = useState([]);
   const [busqueda, setBusqueda] = useState('');
+  const [soloSinCosto, setSoloSinCosto] = useState(false);
+
+  // Modal editar costo
+  const [modalCostoAbierto, setModalCostoAbierto] = useState(false);
+  const [operacionEditando, setOperacionEditando] = useState(null);
 
   // API base URL
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
@@ -51,7 +57,7 @@ export default function DashboardVentasFuera() {
         cargarOperaciones();
       }
     }
-  }, [fechaDesde, fechaHasta, sucursalSeleccionada, vendedorSeleccionado, tabActivo]);
+  }, [fechaDesde, fechaHasta, sucursalSeleccionada, vendedorSeleccionado, tabActivo, soloSinCosto]);
 
   const cargarDashboard = async () => {
     setLoading(true);
@@ -97,13 +103,15 @@ export default function DashboardVentasFuera() {
       const params = {
         from_date: fechaDesde,
         to_date: fechaHasta,
-        limit: 1000
+        limit: 1000,
+        solo_sin_costo: soloSinCosto
       };
 
       if (sucursalSeleccionada) params.sucursal = sucursalSeleccionada;
       if (vendedorSeleccionado) params.vendedor = vendedorSeleccionado;
 
-      const response = await axios.get(`${API_URL}/ventas-fuera-ml`, { params, headers });
+      // Usar nuevo endpoint que lee de tabla de metricas (mas rapido y con metrica_id)
+      const response = await axios.get(`${API_URL}/ventas-fuera-ml/operaciones`, { params, headers });
       setOperaciones(response.data || []);
     } catch (error) {
       console.error('Error cargando operaciones:', error);
@@ -111,6 +119,21 @@ export default function DashboardVentasFuera() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const abrirModalCosto = (operacion) => {
+    setOperacionEditando(operacion);
+    setModalCostoAbierto(true);
+  };
+
+  const cerrarModalCosto = () => {
+    setModalCostoAbierto(false);
+    setOperacionEditando(null);
+  };
+
+  const onCostoGuardado = () => {
+    // Recargar operaciones para ver el cambio
+    cargarOperaciones();
   };
 
   const formatearMoneda = (monto) => {
@@ -313,6 +336,15 @@ export default function DashboardVentasFuera() {
                   ))}
                 </select>
               </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={soloSinCosto}
+                  onChange={(e) => setSoloSinCosto(e.target.checked)}
+                />
+                Solo sin costo
+              </label>
             </>
           )}
 
@@ -361,7 +393,7 @@ export default function DashboardVentasFuera() {
                   <th>Sucursal</th>
                   <th>Cliente</th>
                   <th>Vendedor</th>
-                  <th>Código</th>
+                  <th>Codigo</th>
                   <th>Producto</th>
                   <th>Marca</th>
                   <th>Cant</th>
@@ -372,30 +404,52 @@ export default function DashboardVentasFuera() {
                   <th>Costo</th>
                   <th>Markup%</th>
                   <th>Comprobante</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {operacionesFiltradas.map((op, idx) => (
-                  <tr key={idx}>
-                    <td>{formatearFecha(op.fecha)}</td>
-                    <td>{op.sucursal || '-'}</td>
-                    <td className={styles.descripcion}>{op.cliente || '-'}</td>
-                    <td>{op.vendedor || '-'}</td>
-                    <td>{op.codigo_item || '-'}</td>
-                    <td className={styles.descripcion}>{op.descripcion || '-'}</td>
-                    <td>{op.marca || '-'}</td>
-                    <td className={styles.centrado}>{op.cantidad}</td>
-                    <td className={styles.monto}>{formatearMoneda(op.precio_unitario_sin_iva)}</td>
-                    <td className={styles.centrado}>{op.iva_porcentaje}%</td>
-                    <td className={styles.monto}>{formatearMoneda(op.precio_final_sin_iva)}</td>
-                    <td className={styles.monto}>{formatearMoneda(op.precio_final_con_iva)}</td>
-                    <td className={styles.monto}>{formatearMoneda(op.costo_pesos_sin_iva)}</td>
-                    <td className={`${styles.centrado} ${op.markup !== null && parseFloat(op.markup) < 0 ? styles.negativo : ''}`}>
-                      {formatearPorcentaje(op.markup)}
-                    </td>
-                    <td>{op.tipo_comprobante} {op.punto_de_venta}-{op.numero_comprobante}</td>
-                  </tr>
-                ))}
+                {operacionesFiltradas.map((op, idx) => {
+                  const sinCosto = !op.costo_pesos_sin_iva || op.costo_pesos_sin_iva === 0;
+                  return (
+                    <tr key={op.metrica_id || idx} style={sinCosto ? { backgroundColor: '#fef2f2' } : {}}>
+                      <td>{formatearFecha(op.fecha)}</td>
+                      <td>{op.sucursal || '-'}</td>
+                      <td className={styles.descripcion}>{op.cliente || '-'}</td>
+                      <td>{op.vendedor || '-'}</td>
+                      <td>{op.codigo_item || '-'}</td>
+                      <td className={styles.descripcion}>{op.descripcion || '-'}</td>
+                      <td>{op.marca || '-'}</td>
+                      <td className={styles.centrado}>{op.cantidad}</td>
+                      <td className={styles.monto}>{formatearMoneda(op.precio_unitario_sin_iva)}</td>
+                      <td className={styles.centrado}>{op.iva_porcentaje}%</td>
+                      <td className={styles.monto}>{formatearMoneda(op.precio_final_sin_iva)}</td>
+                      <td className={styles.monto}>{formatearMoneda(op.precio_final_con_iva)}</td>
+                      <td className={styles.monto} style={sinCosto ? { color: '#ef4444', fontWeight: 'bold' } : {}}>
+                        {sinCosto ? 'Sin costo' : formatearMoneda(op.costo_pesos_sin_iva)}
+                      </td>
+                      <td className={`${styles.centrado} ${op.markup !== null && parseFloat(op.markup) < 0 ? styles.negativo : ''}`}>
+                        {formatearPorcentaje(op.markup)}
+                      </td>
+                      <td>{op.tipo_comprobante} {op.numero_comprobante}</td>
+                      <td>
+                        <button
+                          onClick={() => abrirModalCosto(op)}
+                          style={{
+                            padding: '0.25rem 0.5rem',
+                            fontSize: '0.8rem',
+                            cursor: 'pointer',
+                            background: sinCosto ? '#fbbf24' : '#e5e7eb',
+                            border: 'none',
+                            borderRadius: '4px'
+                          }}
+                          title={sinCosto ? 'Agregar costo' : 'Editar costo'}
+                        >
+                          {sinCosto ? '+$' : '✏️'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -625,6 +679,14 @@ export default function DashboardVentasFuera() {
       ) : (
         <div className={styles.noData}>No hay datos disponibles</div>
       )}
+
+      {/* Modal para editar costo */}
+      <ModalEditarCosto
+        mostrar={modalCostoAbierto}
+        onClose={cerrarModalCosto}
+        onSave={onCostoGuardado}
+        operacion={operacionEditando}
+      />
     </div>
   );
 }
