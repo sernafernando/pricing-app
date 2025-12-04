@@ -23,7 +23,11 @@ export default function ModalEditarCosto({
   const [costoUnitario, setCostoUnitario] = useState('');
   const [monedaCosto, setMonedaCosto] = useState('ARS'); // ARS o USD
   const [guardando, setGuardando] = useState(false);
-  const [tipoCambioHoy, setTipoCambioHoy] = useState(null);
+
+  // Tipo de cambio
+  const [tipoCambio, setTipoCambio] = useState('');
+  const [tipoCambioOriginal, setTipoCambioOriginal] = useState(null);
+  const [fechaTipoCambio, setFechaTipoCambio] = useState(null);
 
   // Búsqueda de productos en ERP
   const [busquedaProducto, setBusquedaProducto] = useState('');
@@ -43,20 +47,40 @@ export default function ModalEditarCosto({
       setProductoSeleccionado(null);
       setProductosEncontrados([]);
       setBusquedaProducto('');
+      setTipoCambio('');
+      setTipoCambioOriginal(null);
+      setFechaTipoCambio(null);
 
-      // Cargar tipo de cambio actual
-      cargarTipoCambio();
+      // Cargar tipo de cambio de la fecha de la operación
+      if (operacion.fecha) {
+        cargarTipoCambioFecha(operacion.fecha);
+      }
     }
   }, [mostrar, operacion]);
 
-  const cargarTipoCambio = async () => {
+  const cargarTipoCambioFecha = async (fecha) => {
     try {
-      const response = await api.get('/api/tipo-cambio/actual');
+      // Extraer solo la fecha (YYYY-MM-DD)
+      const fechaStr = fecha.split('T')[0];
+      const response = await api.get(`/api/tipo-cambio/fecha/${fechaStr}`);
       if (response.data.venta) {
-        setTipoCambioHoy(response.data.venta);
+        setTipoCambio(response.data.venta.toString());
+        setTipoCambioOriginal(response.data.venta);
+        setFechaTipoCambio(response.data.fecha);
       }
     } catch (error) {
       console.error('Error cargando tipo de cambio:', error);
+      // Fallback: cargar TC actual
+      try {
+        const response = await api.get('/api/tipo-cambio/actual');
+        if (response.data.venta) {
+          setTipoCambio(response.data.venta.toString());
+          setTipoCambioOriginal(response.data.venta);
+          setFechaTipoCambio(response.data.fecha);
+        }
+      } catch (err) {
+        console.error('Error cargando TC actual:', err);
+      }
     }
   };
 
@@ -90,8 +114,9 @@ export default function ModalEditarCosto({
   const getCostoEnARS = () => {
     if (!costoUnitario || parseFloat(costoUnitario) <= 0) return 0;
     const costo = parseFloat(costoUnitario);
-    if (monedaCosto === 'USD' && tipoCambioHoy) {
-      return costo * tipoCambioHoy;
+    const tc = parseFloat(tipoCambio) || 0;
+    if (monedaCosto === 'USD' && tc > 0) {
+      return costo * tc;
     }
     return costo;
   };
@@ -100,6 +125,11 @@ export default function ModalEditarCosto({
     const costoARS = getCostoEnARS();
     if (costoARS <= 0) {
       alert('Debe ingresar un costo válido mayor a 0');
+      return;
+    }
+
+    if (monedaCosto === 'USD' && (!tipoCambio || parseFloat(tipoCambio) <= 0)) {
+      alert('Debe ingresar un tipo de cambio válido para convertir USD a ARS');
       return;
     }
 
@@ -241,19 +271,60 @@ export default function ModalEditarCosto({
             </div>
           </div>
 
-          {tipoCambioHoy && (
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-              TC actual: <strong>$ {tipoCambioHoy.toFixed(2)}</strong>
-              {monedaCosto === 'USD' && costoUnitario && parseFloat(costoUnitario) > 0 && (
-                <span style={{ marginLeft: '1rem', color: '#3b82f6' }}>
-                  = {formatMoney(costoUnitarioARS)} ARS
-                </span>
+          {/* Tipo de cambio editable - solo mostrar si es USD */}
+          {monedaCosto === 'USD' && (
+            <div className={styles.formRow} style={{ marginTop: '0.75rem' }}>
+              <div style={{ flex: 1 }}>
+                <label>
+                  Tipo de Cambio (USD/ARS):
+                  {fechaTipoCambio && (
+                    <span style={{ fontWeight: 'normal', marginLeft: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      (TC del {new Date(fechaTipoCambio).toLocaleDateString('es-AR')})
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Ej: 1050"
+                  value={tipoCambio}
+                  onChange={e => setTipoCambio(e.target.value)}
+                  style={{ fontSize: '1.1rem', padding: '0.5rem' }}
+                />
+              </div>
+              {tipoCambioOriginal && tipoCambio !== tipoCambioOriginal.toString() && (
+                <div style={{ flex: 0, alignSelf: 'flex-end', marginBottom: '0.25rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setTipoCambio(tipoCambioOriginal.toString())}
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      fontSize: '0.8rem',
+                      background: 'var(--bg-tertiary)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      color: 'var(--text-secondary)'
+                    }}
+                    title="Restaurar TC original"
+                  >
+                    Restaurar
+                  </button>
+                </div>
               )}
+            </div>
+          )}
+
+          {/* Mostrar conversión si es USD */}
+          {monedaCosto === 'USD' && costoUnitario && parseFloat(costoUnitario) > 0 && tipoCambio && parseFloat(tipoCambio) > 0 && (
+            <p style={{ fontSize: '0.85rem', color: '#3b82f6', marginTop: '0.5rem', fontWeight: 500 }}>
+              U$S {parseFloat(costoUnitario).toFixed(2)} x ${parseFloat(tipoCambio).toFixed(2)} = {formatMoney(costoUnitarioARS)}
             </p>
           )}
 
           {/* Preview de cálculos */}
-          {costoUnitario && parseFloat(costoUnitario) > 0 && (
+          {costoUnitario && parseFloat(costoUnitario) > 0 && (monedaCosto === 'ARS' || (monedaCosto === 'USD' && tipoCambio && parseFloat(tipoCambio) > 0)) && (
             <div style={{
               marginTop: '1rem',
               padding: '1rem',
@@ -284,7 +355,7 @@ export default function ModalEditarCosto({
           <div className={styles.formRow} style={{ marginTop: '1rem' }}>
             <button
               onClick={guardarCosto}
-              disabled={guardando || !costoUnitario || parseFloat(costoUnitario) <= 0}
+              disabled={guardando || !costoUnitario || parseFloat(costoUnitario) <= 0 || (monedaCosto === 'USD' && (!tipoCambio || parseFloat(tipoCambio) <= 0))}
               className={styles.btnGuardar}
             >
               {guardando ? 'Guardando...' : 'Guardar Costo'}

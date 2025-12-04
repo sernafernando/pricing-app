@@ -61,19 +61,61 @@ async def sincronizar_tipo_cambio(db: Session = Depends(get_db)):
 async def obtener_tipo_cambio_actual_endpoint(db: Session = Depends(get_db)):
     """Obtiene el tipo de cambio más reciente"""
     from app.models.tipo_cambio import TipoCambio
-    
+
     tc = db.query(TipoCambio).filter(
         TipoCambio.moneda == "USD"
     ).order_by(TipoCambio.fecha.desc()).first()
-    
+
     if not tc:
         return {"error": "No hay tipo de cambio disponible"}
-    
+
     return {
         "moneda": tc.moneda,
         "compra": tc.compra,
         "venta": tc.venta,
         "fecha": tc.fecha.isoformat()
+    }
+
+
+@router.get("/tipo-cambio/fecha/{fecha}")
+async def obtener_tipo_cambio_por_fecha(
+    fecha: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene el tipo de cambio para una fecha específica.
+    Si no hay TC para esa fecha exacta, busca el más cercano anterior.
+    """
+    from app.models.tipo_cambio import TipoCambio
+    from datetime import datetime
+
+    try:
+        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+    except ValueError:
+        return {"error": "Formato de fecha inválido. Use YYYY-MM-DD"}
+
+    # Primero buscar TC exacto para la fecha
+    tc = db.query(TipoCambio).filter(
+        TipoCambio.moneda == "USD",
+        TipoCambio.fecha == fecha_obj
+    ).first()
+
+    # Si no existe, buscar el más cercano anterior
+    if not tc:
+        tc = db.query(TipoCambio).filter(
+            TipoCambio.moneda == "USD",
+            TipoCambio.fecha <= fecha_obj
+        ).order_by(TipoCambio.fecha.desc()).first()
+
+    if not tc:
+        return {"error": "No hay tipo de cambio disponible para esa fecha"}
+
+    return {
+        "moneda": tc.moneda,
+        "compra": float(tc.compra) if tc.compra else None,
+        "venta": float(tc.venta) if tc.venta else None,
+        "fecha": tc.fecha.isoformat(),
+        "fecha_solicitada": fecha
     }
 
 @router.post("/recalcular-markups")
