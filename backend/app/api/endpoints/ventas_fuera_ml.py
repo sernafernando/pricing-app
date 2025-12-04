@@ -262,8 +262,11 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
             ELSE 1
         END as cantidad,
 
-        -- Precio unitario sin IVA (si es combo, usa precio_venta del grupo)
-        COALESCE(pv.precio_venta, tit.it_price) * CASE
+        -- Precio unitario sin IVA (solo usa precio_venta del grupo si el item NO tiene precio propio)
+        CASE
+            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta
+            ELSE tit.it_price
+        END * CASE
             WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
             ELSE 1
@@ -273,21 +276,30 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
         tct.ct_acurrencyexchange as cambio_al_momento,
 
         -- Precio final sin IVA
-        COALESCE(pv.precio_venta, tit.it_price) * tit.it_qty * CASE
+        CASE
+            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta
+            ELSE tit.it_price * tit.it_qty
+        END * CASE
             WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
             ELSE 1
         END as precio_final_sin_iva,
 
         -- Monto IVA
-        (COALESCE(pv.precio_venta, tit.it_price) * COALESCE(ttn.tax_percentage, 21.0) / 100) * tit.it_qty * CASE
+        (CASE
+            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta
+            ELSE tit.it_price * tit.it_qty
+        END * COALESCE(ttn.tax_percentage, 21.0) / 100) * CASE
             WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
             ELSE 1
         END as monto_iva,
 
         -- Precio final con IVA
-        COALESCE(pv.precio_venta, tit.it_price) * (1 + COALESCE(ttn.tax_percentage, 21.0) / 100) * tit.it_qty * CASE
+        CASE
+            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta
+            ELSE tit.it_price * tit.it_qty
+        END * (1 + COALESCE(ttn.tax_percentage, 21.0) / 100) * CASE
             WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
             ELSE 1
@@ -295,8 +307,11 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
 
         tsm.sm_name as vendedor,
 
-        -- Costo en pesos sin IVA (para combos usa la suma de costos de componentes)
-        COALESCE(ccb.costo_combo, COALESCE(cc.costo_unitario, 0) * tit.it_qty) * CASE
+        -- Costo en pesos sin IVA (solo usa costo_combo si el item NO tiene precio propio, es decir, es un combo)
+        CASE
+            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0)
+            ELSE COALESCE(cc.costo_unitario, 0) * tit.it_qty
+        END * CASE
             WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
             ELSE 1
@@ -304,8 +319,11 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
 
         -- Markup: (precio_venta * 0.95 / costo) - 1
         CASE
-            WHEN COALESCE(ccb.costo_combo, COALESCE(cc.costo_unitario, 0) * tit.it_qty) = 0 THEN NULL
-            ELSE (COALESCE(pv.precio_venta, tit.it_price * tit.it_qty) * 0.95 / COALESCE(ccb.costo_combo, cc.costo_unitario * tit.it_qty)) - 1
+            WHEN (CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0) ELSE COALESCE(cc.costo_unitario, 0) * tit.it_qty END) = 0 THEN NULL
+            ELSE (
+                CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta ELSE tit.it_price * tit.it_qty END * 0.95
+                / CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN ccb.costo_combo ELSE cc.costo_unitario * tit.it_qty END
+            ) - 1
         END as markup
 
     FROM tb_item ti
