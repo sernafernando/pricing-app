@@ -222,6 +222,17 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
         WHERE tit.it_isassociationgroup IS NOT NULL
           AND tit.it_price IS NOT NULL
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
+    ),
+    costo_combo AS (
+        -- Costo total del combo (suma de costos de componentes) POR TRANSACCION
+        SELECT
+            tit.it_isassociationgroup AS group_id,
+            tit.ct_transaction,
+            SUM(cc.costo_unitario * tit.it_qty) AS costo_combo
+        FROM tb_item_transactions tit
+        LEFT JOIN CostoCalculado cc ON cc.it_transaction = tit.it_transaction
+        WHERE tit.it_isassociationgroup IS NOT NULL
+        GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     )
     SELECT DISTINCT
         tit.it_transaction as id_operacion,
@@ -284,8 +295,8 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
 
         tsm.sm_name as vendedor,
 
-        -- Costo en pesos sin IVA
-        COALESCE(cc.costo_unitario, 0) * tit.it_qty * CASE
+        -- Costo en pesos sin IVA (para combos usa la suma de costos de componentes)
+        COALESCE(ccb.costo_combo, COALESCE(cc.costo_unitario, 0) * tit.it_qty) * CASE
             WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
             ELSE 1
@@ -293,8 +304,8 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
 
         -- Markup: (precio_venta * 0.95 / costo) - 1
         CASE
-            WHEN COALESCE(cc.costo_unitario, 0) = 0 THEN NULL
-            ELSE (COALESCE(pv.precio_venta, tit.it_price) * 0.95 / cc.costo_unitario) - 1
+            WHEN COALESCE(ccb.costo_combo, COALESCE(cc.costo_unitario, 0) * tit.it_qty) = 0 THEN NULL
+            ELSE (COALESCE(pv.precio_venta, tit.it_price * tit.it_qty) * 0.95 / COALESCE(ccb.costo_combo, cc.costo_unitario * tit.it_qty)) - 1
         END as markup
 
     FROM tb_item ti
@@ -367,6 +378,10 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
 
     LEFT JOIN CostoCalculado cc
         ON cc.it_transaction = tit.it_transaction
+
+    LEFT JOIN costo_combo ccb
+        ON ccb.group_id = tit.it_isassociationgroup
+        AND ccb.ct_transaction = tit.ct_transaction
 
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
         AND tct.df_id IN ({DF_IDS_STR})
