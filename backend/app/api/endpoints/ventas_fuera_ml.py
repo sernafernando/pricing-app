@@ -317,11 +317,11 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
             ELSE 1
         END as costo_pesos_sin_iva,
 
-        -- Markup: (precio_venta * 0.95 / costo) - 1
+        -- Markup: (precio_venta / costo) - 1 (sin comisión porque es fuera de ML)
         CASE
             WHEN (CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0) ELSE COALESCE(cc.costo_unitario, 0) * tit.it_qty END) = 0 THEN NULL
             ELSE (
-                CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta ELSE tit.it_price * tit.it_qty END * 0.95
+                CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta ELSE tit.it_price * tit.it_qty END
                 / CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN ccb.costo_combo ELSE cc.costo_unitario * tit.it_qty END
             ) - 1
         END as markup
@@ -735,10 +735,10 @@ async def get_ventas_fuera_ml_stats(
         if v.vendedor:
             vendedores_dict[v.vendedor] = {"ventas": v.total_ventas, "unidades": float(v.unidades or 0), "monto": float(v.monto or 0)}
 
-    # Calcular markup promedio si hay datos
+    # Calcular markup promedio si hay datos (sin comisión ML porque es venta directa)
     markup_promedio = None
     if monto_sin_iva > 0 and costo_total > 0:
-        markup_promedio = (monto_sin_iva * 0.95 / costo_total) - 1
+        markup_promedio = (monto_sin_iva / costo_total) - 1
 
     return {
         "total_ventas": total_ventas,
@@ -838,13 +838,13 @@ async def get_ventas_fuera_ml_por_marca(
         {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
     ).fetchall()
 
-    # Calcular markup desde totales (no promediar porcentajes)
+    # Calcular markup desde totales (sin comisión ML porque es venta directa)
     marcas = []
     for r in result:
         monto = float(r.monto_sin_iva or 0)
         costo = float(r.costo_total or 0)
-        # Markup = (monto * 0.95 / costo) - 1
-        markup = ((monto * 0.95 / costo) - 1) if costo > 0 else None
+        # Markup = (monto / costo) - 1 (sin el *0.95 porque no hay comisión ML)
+        markup = ((monto / costo) - 1) if costo > 0 else None
         marcas.append({
             "marca": r.marca,
             "total_ventas": r.total_ventas,
