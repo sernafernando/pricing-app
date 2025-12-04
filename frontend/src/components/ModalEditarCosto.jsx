@@ -230,7 +230,7 @@ export default function ModalEditarCosto({
   const markupPreview = costoTotal > 0 ? ((montoTotal / costoTotal) - 1) * 100 : null;
 
   return (
-    <div className={styles.modalOverlay} onClick={onClose}>
+    <div className={styles.modalOverlay}>
       <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
         <h3>Editar Costo de Operacion</h3>
 
