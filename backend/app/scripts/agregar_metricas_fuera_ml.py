@@ -316,8 +316,8 @@ def process_and_insert(db: Session, rows):
                 'cotizacion_dolar': Decimal(str(row.cotizacion_dolar)) if row.cotizacion_dolar else None,
                 'ganancia': Decimal(str(ganancia)),
                 'markup_porcentaje': Decimal(str(markup_porcentaje)) if markup_porcentaje is not None else None,
-                'es_combo': row.es_combo,
-                'combo_group_id': row.combo_group_id
+                'es_combo': bool(row.es_combo) if row.es_combo is not None else False,
+                'combo_group_id': int(row.combo_group_id) if row.combo_group_id else None
             }
 
             if existente:
