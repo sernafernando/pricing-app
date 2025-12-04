@@ -1,7 +1,7 @@
 """Create offset_grupo_consumo and offset_grupo_resumen tables
 
-Revision ID: create_offset_grupo_consumo_tables
-Revises: create_ventas_fuera_ml_metricas
+Revision ID: offset_grupo_consumo
+Revises: ventas_fuera_ml_metricas
 Create Date: 2025-12-04
 
 """
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'create_offset_grupo_consumo_tables'
-down_revision: Union[str, None] = 'create_ventas_fuera_ml_metricas'
+revision: str = 'offset_grupo_consumo'
+down_revision: Union[str, None] = 'ventas_fuera_ml_metricas'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

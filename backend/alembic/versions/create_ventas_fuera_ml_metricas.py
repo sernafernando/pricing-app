@@ -1,7 +1,7 @@
 """Create ventas_fuera_ml_metricas table
 
-Revision ID: create_ventas_fuera_ml_metricas
-Revises: create_tb_state_table
+Revision ID: ventas_fuera_ml_metricas
+Revises: create_tb_state
 Create Date: 2025-12-04
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'create_ventas_fuera_ml_metricas'
+revision: str = 'ventas_fuera_ml_metricas'
 down_revision: Union[str, None] = 'create_tb_state'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
