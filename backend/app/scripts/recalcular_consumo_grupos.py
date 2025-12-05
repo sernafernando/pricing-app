@@ -243,7 +243,82 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
 
         except Exception as e:
             if verbose:
-                print(f"  - Advertencia: No se pudo consultar ventas_fuera_ml: {e}")
+                print(f"  - Advertencia: No se pudo consultar ventas_fuera_ml (tabla puede no existir)")
+            # Hacer rollback para limpiar la transacción fallida
+            db.rollback()
+            # Volver a agregar los consumos ML que se perdieron con el rollback
+            # Para esto, re-procesamos las ventas ML
+            if verbose:
+                print(f"  - Re-procesando ventas ML después de rollback...")
+
+            # Eliminar consumos existentes del grupo (por si quedaron)
+            db.query(OffsetGrupoConsumo).filter(
+                OffsetGrupoConsumo.grupo_id == grupo_id
+            ).delete()
+
+            # Reset contadores
+            consumos_creados = 0
+            total_unidades = 0
+            total_monto_ars = Decimal('0')
+            total_monto_usd = Decimal('0')
+
+            # Re-procesar ventas ML
+            ventas_ml = db.execute(ventas_ml_query, {
+                "item_ids": item_ids,
+                "fecha_inicio": fecha_inicio
+            }).fetchall()
+
+            for venta in ventas_ml:
+                offset_aplicable = next(
+                    (o for o in offsets_grupo if o.item_id == venta.item_id),
+                    None
+                )
+                if not offset_aplicable:
+                    continue
+
+                cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+                costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
+
+                if offset_aplicable.tipo_offset == 'monto_fijo':
+                    monto_offset = float(offset_aplicable.monto or 0)
+                    if offset_aplicable.moneda == 'USD':
+                        monto_offset_ars = monto_offset * cot
+                        monto_offset_usd = monto_offset
+                    else:
+                        monto_offset_ars = monto_offset
+                        monto_offset_usd = monto_offset / cot if cot > 0 else 0
+                elif offset_aplicable.tipo_offset == 'monto_por_unidad':
+                    monto_por_u = float(offset_aplicable.monto or 0)
+                    if offset_aplicable.moneda == 'USD':
+                        monto_offset_ars = monto_por_u * venta.cantidad * cot
+                        monto_offset_usd = monto_por_u * venta.cantidad
+                    else:
+                        monto_offset_ars = monto_por_u * venta.cantidad
+                        monto_offset_usd = monto_por_u * venta.cantidad / cot if cot > 0 else 0
+                elif offset_aplicable.tipo_offset == 'porcentaje_costo':
+                    porcentaje = float(offset_aplicable.porcentaje or 0)
+                    monto_offset_ars = costo * (porcentaje / 100)
+                    monto_offset_usd = monto_offset_ars / cot if cot > 0 else 0
+                else:
+                    continue
+
+                consumo = OffsetGrupoConsumo(
+                    grupo_id=grupo_id,
+                    id_operacion=venta.id_operacion,
+                    tipo_venta='ml',
+                    fecha_venta=venta.fecha_venta,
+                    item_id=venta.item_id,
+                    cantidad=venta.cantidad,
+                    offset_id=offset_aplicable.id,
+                    monto_offset_aplicado=monto_offset_ars,
+                    monto_offset_usd=monto_offset_usd,
+                    cotizacion_dolar=cot
+                )
+                db.add(consumo)
+                consumos_creados += 1
+                total_unidades += venta.cantidad
+                total_monto_ars += Decimal(str(monto_offset_ars))
+                total_monto_usd += Decimal(str(monto_offset_usd))
 
     # Actualizar o crear resumen
     resumen = db.query(OffsetGrupoResumen).filter(
