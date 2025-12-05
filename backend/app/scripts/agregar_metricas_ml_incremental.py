@@ -20,13 +20,16 @@ load_dotenv(dotenv_path=env_path)
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 from sqlalchemy.orm import Session
-from sqlalchemy import text, and_, func, case, desc
+from sqlalchemy import text, and_, or_, func, case, desc
 
 from app.core.database import SessionLocal
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.notificacion import Notificacion
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario, RolUsuario
+from app.models.offset_ganancia import OffsetGanancia
+from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
+from app.models.cur_exch_history import CurExchHistory
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
 
@@ -489,6 +492,189 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
     return False
 
 
+def registrar_consumo_grupo_offset(db: Session, row, es_nuevo: bool):
+    """
+    Registra el consumo de offset de grupo para una venta ML.
+    Solo registra si el item pertenece a un grupo con límites.
+
+    Args:
+        db: Sesión de base de datos
+        row: Datos de la venta
+        es_nuevo: True si es una nueva venta, False si es actualización
+
+    Returns:
+        True si se registró consumo, False si no
+    """
+    try:
+        # Buscar si el item tiene un offset con grupo que tiene límites
+        offset = db.query(OffsetGanancia).filter(
+            OffsetGanancia.item_id == row.item_id,
+            OffsetGanancia.grupo_id.isnot(None),
+            OffsetGanancia.aplica_ml == True,
+            OffsetGanancia.fecha_desde <= row.fecha_venta.date() if hasattr(row.fecha_venta, 'date') else row.fecha_venta,
+            or_(
+                OffsetGanancia.fecha_hasta.is_(None),
+                OffsetGanancia.fecha_hasta >= row.fecha_venta.date() if hasattr(row.fecha_venta, 'date') else row.fecha_venta
+            ),
+            or_(
+                OffsetGanancia.max_unidades.isnot(None),
+                OffsetGanancia.max_monto_usd.isnot(None)
+            )
+        ).first()
+
+        if not offset:
+            return False
+
+        # Verificar si ya existe un registro de consumo para esta operación
+        consumo_existente = db.query(OffsetGrupoConsumo).filter(
+            OffsetGrupoConsumo.id_operacion == row.id_operacion
+        ).first()
+
+        if consumo_existente:
+            # Si existe y no es nuevo, actualizar si cambió la cantidad
+            if not es_nuevo and consumo_existente.cantidad != row.cantidad:
+                # Recalcular monto
+                cotizacion = float(row.cambio_momento) if row.cambio_momento else 1000.0
+                monto_offset_ars, monto_offset_usd = calcular_monto_offset(
+                    offset, row.cantidad, row.costo_sin_iva, cotizacion
+                )
+
+                # Actualizar resumen (restar viejo, sumar nuevo)
+                actualizar_resumen_grupo(
+                    db, offset.grupo_id,
+                    consumo_existente.cantidad, float(consumo_existente.monto_offset_aplicado or 0),
+                    float(consumo_existente.monto_offset_usd or 0),
+                    restar=True
+                )
+
+                consumo_existente.cantidad = row.cantidad
+                consumo_existente.monto_offset_aplicado = monto_offset_ars
+                consumo_existente.monto_offset_usd = monto_offset_usd
+                consumo_existente.cotizacion_dolar = cotizacion
+
+                actualizar_resumen_grupo(
+                    db, offset.grupo_id,
+                    row.cantidad, monto_offset_ars, monto_offset_usd,
+                    restar=False
+                )
+            return True
+
+        # Calcular monto del offset
+        cotizacion = float(row.cambio_momento) if row.cambio_momento else 1000.0
+        monto_offset_ars, monto_offset_usd = calcular_monto_offset(
+            offset, row.cantidad, row.costo_sin_iva, cotizacion
+        )
+
+        # Crear registro de consumo
+        consumo = OffsetGrupoConsumo(
+            grupo_id=offset.grupo_id,
+            id_operacion=row.id_operacion,
+            tipo_venta='ml',
+            fecha_venta=row.fecha_venta,
+            item_id=row.item_id,
+            cantidad=row.cantidad,
+            offset_id=offset.id,
+            monto_offset_aplicado=monto_offset_ars,
+            monto_offset_usd=monto_offset_usd,
+            cotizacion_dolar=cotizacion
+        )
+        db.add(consumo)
+
+        # Actualizar resumen del grupo
+        actualizar_resumen_grupo(
+            db, offset.grupo_id,
+            row.cantidad, monto_offset_ars, monto_offset_usd,
+            restar=False, offset=offset
+        )
+
+        return True
+
+    except Exception as e:
+        # No fallar el proceso principal por error en consumo
+        print(f"  ⚠️  Error registrando consumo offset para op {row.id_operacion}: {e}")
+        return False
+
+
+def calcular_monto_offset(offset, cantidad, costo_sin_iva, cotizacion):
+    """Calcula el monto del offset en ARS y USD"""
+    costo = float(costo_sin_iva) if costo_sin_iva else 0
+
+    if offset.tipo_offset == 'monto_fijo':
+        monto_offset = float(offset.monto or 0)
+        if offset.moneda == 'USD':
+            monto_offset_ars = monto_offset * cotizacion
+            monto_offset_usd = monto_offset
+        else:
+            monto_offset_ars = monto_offset
+            monto_offset_usd = monto_offset / cotizacion if cotizacion > 0 else 0
+    elif offset.tipo_offset == 'monto_por_unidad':
+        monto_por_u = float(offset.monto or 0)
+        if offset.moneda == 'USD':
+            monto_offset_ars = monto_por_u * cantidad * cotizacion
+            monto_offset_usd = monto_por_u * cantidad
+        else:
+            monto_offset_ars = monto_por_u * cantidad
+            monto_offset_usd = monto_por_u * cantidad / cotizacion if cotizacion > 0 else 0
+    elif offset.tipo_offset == 'porcentaje_costo':
+        porcentaje = float(offset.porcentaje or 0)
+        monto_offset_ars = costo * cantidad * (porcentaje / 100)
+        monto_offset_usd = monto_offset_ars / cotizacion if cotizacion > 0 else 0
+    else:
+        monto_offset_ars = 0
+        monto_offset_usd = 0
+
+    return monto_offset_ars, monto_offset_usd
+
+
+def actualizar_resumen_grupo(db: Session, grupo_id: int, cantidad: int,
+                              monto_ars: float, monto_usd: float,
+                              restar: bool = False, offset=None):
+    """Actualiza o crea el resumen del grupo"""
+    resumen = db.query(OffsetGrupoResumen).filter(
+        OffsetGrupoResumen.grupo_id == grupo_id
+    ).first()
+
+    factor = -1 if restar else 1
+
+    if resumen:
+        resumen.total_unidades = (resumen.total_unidades or 0) + (cantidad * factor)
+        resumen.total_monto_ars = float(resumen.total_monto_ars or 0) + (monto_ars * factor)
+        resumen.total_monto_usd = float(resumen.total_monto_usd or 0) + (monto_usd * factor)
+        resumen.cantidad_ventas = (resumen.cantidad_ventas or 0) + factor
+        resumen.ultima_venta_fecha = datetime.now()
+
+        # Verificar límites si se está sumando
+        if not restar and offset:
+            if offset.max_unidades and resumen.total_unidades >= offset.max_unidades:
+                if not resumen.limite_alcanzado:
+                    resumen.limite_alcanzado = 'unidades'
+                    resumen.fecha_limite_alcanzado = datetime.now()
+            elif offset.max_monto_usd and resumen.total_monto_usd >= offset.max_monto_usd:
+                if not resumen.limite_alcanzado:
+                    resumen.limite_alcanzado = 'monto'
+                    resumen.fecha_limite_alcanzado = datetime.now()
+    else:
+        # Crear nuevo resumen
+        resumen = OffsetGrupoResumen(
+            grupo_id=grupo_id,
+            total_unidades=cantidad,
+            total_monto_ars=monto_ars,
+            total_monto_usd=monto_usd,
+            cantidad_ventas=1,
+            ultima_venta_fecha=datetime.now()
+        )
+        db.add(resumen)
+
+        # Verificar límites
+        if offset:
+            if offset.max_unidades and cantidad >= offset.max_unidades:
+                resumen.limite_alcanzado = 'unidades'
+                resumen.fecha_limite_alcanzado = datetime.now()
+            elif offset.max_monto_usd and monto_usd >= offset.max_monto_usd:
+                resumen.limite_alcanzado = 'monto'
+                resumen.fecha_limite_alcanzado = datetime.now()
+
+
 def process_and_insert(db: Session, rows):
     """Procesa los registros y los inserta en ml_ventas_metricas"""
 
@@ -560,6 +746,10 @@ def process_and_insert(db: Session, rows):
                 nueva_metrica = MLVentaMetrica(**data)
                 db.add(nueva_metrica)
                 total_insertados += 1
+
+            # Registrar consumo de offset de grupo (si aplica)
+            es_nuevo = not existente
+            registrar_consumo_grupo_offset(db, row, es_nuevo)
 
             # Verificar markup y crear notificación si es necesario
             # NOTA: Requiere que tb_cur_exch_history esté sincronizado con el ERP
