@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
-from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, producto_banlist, ventas_ml, ventas_fuera_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog, tienda_nube, gbp_parser, notificaciones, offsets_ganancia, rentabilidad, rentabilidad_fuera, vendedores_excluidos
+from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, producto_banlist, ventas_ml, ventas_fuera_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog, tienda_nube, gbp_parser, notificaciones, offsets_ganancia, rentabilidad, rentabilidad_fuera, vendedores_excluidos, ventas_tienda_nube, rentabilidad_tienda_nube
 
 app = FastAPI(
     title="Pricing API",
@@ -49,6 +49,8 @@ app.include_router(offsets_ganancia.router, prefix="/api", tags=["offsets-gananc
 app.include_router(rentabilidad.router, prefix="/api", tags=["rentabilidad"])
 app.include_router(rentabilidad_fuera.router, prefix="/api", tags=["rentabilidad-fuera"])
 app.include_router(vendedores_excluidos.router, prefix="/api", tags=["vendedores-excluidos"])
+app.include_router(ventas_tienda_nube.router, prefix="/api", tags=["ventas-tienda-nube"])
+app.include_router(rentabilidad_tienda_nube.router, prefix="/api", tags=["rentabilidad-tienda-nube"])
 
 @app.get("/")
 async def root():

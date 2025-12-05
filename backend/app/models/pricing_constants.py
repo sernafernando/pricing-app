@@ -16,6 +16,7 @@ class PricingConstants(Base):
     varios_porcentaje = Column(Numeric(5, 2), nullable=False, default=6.5)
     grupo_comision_default = Column(Integer, nullable=False, default=1)
     markup_adicional_cuotas = Column(Numeric(5, 2), nullable=False, default=4.0)
+    comision_tienda_nube = Column(Numeric(5, 2), nullable=False, default=1.0)  # Comisión de Tienda Nube en porcentaje
     fecha_desde = Column(Date, nullable=False)
     fecha_hasta = Column(Date)
     fecha_creacion = Column(DateTime, default=func.now())

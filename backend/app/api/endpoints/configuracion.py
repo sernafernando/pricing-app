@@ -22,6 +22,7 @@ class PricingConstantsResponse(BaseModel):
     varios_porcentaje: float
     grupo_comision_default: int
     markup_adicional_cuotas: float
+    comision_tienda_nube: float
     fecha_desde: date
     fecha_hasta: Optional[date]
 
@@ -35,6 +36,7 @@ class PricingConstantsCreate(BaseModel):
     varios_porcentaje: float
     grupo_comision_default: int
     markup_adicional_cuotas: float
+    comision_tienda_nube: float = 1.0
     fecha_desde: date
 
 @router.get("/pricing-constants", response_model=List[PricingConstantsResponse])
@@ -75,7 +77,8 @@ async def obtener_pricing_constants_actual(
         "comision_tier3": float(constants.comision_tier3),
         "varios_porcentaje": float(constants.varios_porcentaje),
         "grupo_comision_default": constants.grupo_comision_default,
-        "markup_adicional_cuotas": float(constants.markup_adicional_cuotas)
+        "markup_adicional_cuotas": float(constants.markup_adicional_cuotas),
+        "comision_tienda_nube": float(constants.comision_tienda_nube)
     }
 
 @router.post("/pricing-constants")
@@ -119,6 +122,7 @@ async def crear_pricing_constants(
         varios_porcentaje=data.varios_porcentaje,
         grupo_comision_default=data.grupo_comision_default,
         markup_adicional_cuotas=data.markup_adicional_cuotas,
+        comision_tienda_nube=data.comision_tienda_nube,
         fecha_desde=data.fecha_desde,
         creado_por=current_user.id
     )
