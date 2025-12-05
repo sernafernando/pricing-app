@@ -252,8 +252,11 @@ async def obtener_rentabilidad(
                     )
 
                 # Calcular consumo del período filtrado
+                # IMPORTANTE: Solo contar ventas desde que el offset empezó a aplicar
+                # Si el offset empieza después del inicio del filtro, usar la fecha del offset
+                periodo_inicio_dt = max(fecha_desde_dt, offset_inicio_dt)
                 periodo_unidades, periodo_offset, _ = calcular_consumo_grupo_desde_tabla(
-                    offset.grupo_id, fecha_desde_dt, fecha_hasta_dt
+                    offset.grupo_id, periodo_inicio_dt, fecha_hasta_dt
                 )
 
                 # Verificar si el límite ya se agotó
@@ -369,8 +372,11 @@ async def obtener_rentabilidad(
                 )
 
             # Consumo del período filtrado
+            # IMPORTANTE: Solo contar ventas desde que el offset empezó a aplicar
+            # Si el offset empieza después del inicio del filtro, usar la fecha del offset
+            periodo_inicio_dt = max(fecha_desde_dt, offset_inicio_dt)
             periodo_unidades, periodo_offset, _ = calcular_consumo_individual_desde_tabla(
-                offset.id, fecha_desde_dt, fecha_hasta_dt
+                offset.id, periodo_inicio_dt, fecha_hasta_dt
             )
 
             limite_agotado_previo = False
@@ -521,6 +527,52 @@ async def obtener_rentabilidad(
             return (float(offset.porcentaje or 0) / 100) * costo_total
         else:
             return float(offset.monto or 0)
+
+    # Función para obtener cantidad/costo de ventas en el período efectivo del offset
+    def obtener_ventas_periodo_offset(offset, filtro_condicion, filtro_valor=None):
+        """
+        Obtiene cantidad y costo de ventas para un offset, considerando su fecha_desde.
+        Solo cuenta ventas desde max(fecha_desde_filtro, fecha_desde_offset).
+
+        filtro_condicion puede ser:
+        - Un campo de SQLAlchemy (ej: MLVentaMetrica.marca) con filtro_valor como valor
+        - Una condición SQLAlchemy compuesta (ej: and_(...)) cuando filtro_valor es True
+        """
+        offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
+        periodo_inicio = max(fecha_desde_dt, offset_inicio_dt)
+
+        # Si el offset empieza después del período filtrado, no hay ventas aplicables
+        if periodo_inicio >= fecha_hasta_dt:
+            return 0, 0.0
+
+        query = db.query(
+            func.count(MLVentaMetrica.id).label('cantidad'),
+            func.sum(MLVentaMetrica.costo_total_sin_iva).label('costo')
+        ).filter(
+            MLVentaMetrica.fecha_venta >= periodo_inicio,
+            MLVentaMetrica.fecha_venta < fecha_hasta_dt
+        )
+
+        # Aplicar filtros de la selección del usuario
+        if lista_productos:
+            query = query.filter(MLVentaMetrica.item_id.in_(lista_productos))
+        if lista_marcas:
+            query = query.filter(MLVentaMetrica.marca.in_(lista_marcas))
+        if lista_categorias:
+            query = query.filter(MLVentaMetrica.categoria.in_(lista_categorias))
+        if lista_subcategorias:
+            query = query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
+
+        # Aplicar filtro específico del offset (marca, categoría, item, etc.)
+        if filtro_valor is True:
+            # filtro_condicion es una condición compuesta (and_, or_, etc.)
+            query = query.filter(filtro_condicion)
+        elif filtro_condicion is not None and filtro_valor is not None:
+            # filtro_condicion es un campo, filtro_valor es el valor
+            query = query.filter(filtro_condicion == filtro_valor)
+
+        result = query.first()
+        return int(result.cantidad or 0), float(result.costo or 0)
 
     def get_offset_nivel_nombre(offset):
         """Obtiene el nivel y nombre del offset para el desglose"""
@@ -691,84 +743,113 @@ async def obtener_rentabilidad(
                 continue  # Skip normal processing for pre-calculated individual offsets
 
             # Offsets SIN grupo y SIN límites - procesar normalmente
+            # IMPORTANTE: Usar la fecha de inicio del offset para calcular cantidad/costo
+            # Solo se cuentan ventas desde max(fecha_filtro, fecha_offset)
             if nivel == "marca":
                 # Offset directo por marca
                 if offset.marca and offset.marca == card_nombre and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
-                    valor_offset = calcular_valor_offset(offset, cantidad_vendida, costo_total)
-                    aplica = True
+                    # Obtener cantidad/costo solo para el período donde aplica el offset
+                    cant_offset, costo_offset = obtener_ventas_periodo_offset(offset, MLVentaMetrica.marca, card_nombre)
+                    if cant_offset > 0:
+                        valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
+                        aplica = True
                 # Offsets de categorías dentro de esta marca
                 elif offset.categoria and not offset.subcategoria_id and not offset.item_id:
-                    # Sumar ventas de productos de esta marca en esa categoría
-                    for item_id, detalle in productos_detalle.items():
-                        if detalle['marca'] == card_nombre and detalle['categoria'] == offset.categoria:
-                            valor_offset += calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
-                    if valor_offset > 0:
+                    # Obtener ventas de esta marca + categoría del offset, solo en período aplicable
+                    cant_offset, costo_offset = obtener_ventas_periodo_offset(
+                        offset,
+                        and_(MLVentaMetrica.marca == card_nombre, MLVentaMetrica.categoria == offset.categoria),
+                        True  # dummy value since we use compound filter
+                    )
+                    if cant_offset > 0:
+                        valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
                         aplica = True
                         nombre_nivel = f"Cat: {offset.categoria}"
                 # Offsets de productos dentro de esta marca
                 elif offset.item_id:
                     detalle = productos_detalle.get(offset.item_id)
                     if detalle and detalle['marca'] == card_nombre:
-                        valor_offset = calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
-                        aplica = True
-                        nombre_nivel = f"Prod: {offset.item_id}"
+                        cant_offset, costo_offset = obtener_ventas_periodo_offset(offset, MLVentaMetrica.item_id, offset.item_id)
+                        if cant_offset > 0:
+                            valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
+                            aplica = True
+                            nombre_nivel = f"Prod: {offset.item_id}"
 
             elif nivel == "categoria":
                 # Offset directo por categoría
                 if offset.categoria and offset.categoria == card_nombre and not offset.subcategoria_id and not offset.item_id:
-                    valor_offset = calcular_valor_offset(offset, cantidad_vendida, costo_total)
-                    aplica = True
+                    cant_offset, costo_offset = obtener_ventas_periodo_offset(offset, MLVentaMetrica.categoria, card_nombre)
+                    if cant_offset > 0:
+                        valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
+                        aplica = True
                 # Offset de marca que aplica a esta categoría
                 elif offset.marca and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
-                    # Sumar ventas de productos de esa marca en esta categoría
-                    for item_id, detalle in productos_detalle.items():
-                        if detalle['categoria'] == card_nombre and detalle['marca'] == offset.marca:
-                            valor_offset += calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
-                    if valor_offset > 0:
+                    # Obtener ventas de esta categoría + marca del offset
+                    cant_offset, costo_offset = obtener_ventas_periodo_offset(
+                        offset,
+                        and_(MLVentaMetrica.categoria == card_nombre, MLVentaMetrica.marca == offset.marca),
+                        True
+                    )
+                    if cant_offset > 0:
+                        valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
                         aplica = True
                         nombre_nivel = f"Marca: {offset.marca}"
                 # Offsets de productos dentro de esta categoría
                 elif offset.item_id:
                     detalle = productos_detalle.get(offset.item_id)
                     if detalle and detalle['categoria'] == card_nombre:
-                        valor_offset = calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
-                        aplica = True
-                        nombre_nivel = f"Prod: {offset.item_id}"
+                        cant_offset, costo_offset = obtener_ventas_periodo_offset(offset, MLVentaMetrica.item_id, offset.item_id)
+                        if cant_offset > 0:
+                            valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
+                            aplica = True
+                            nombre_nivel = f"Prod: {offset.item_id}"
 
             elif nivel == "subcategoria":
                 # Offset directo por subcategoría
                 if offset.subcategoria_id and str(offset.subcategoria_id) == str(card_identificador):
-                    valor_offset = calcular_valor_offset(offset, cantidad_vendida, costo_total)
-                    aplica = True
+                    cant_offset, costo_offset = obtener_ventas_periodo_offset(offset, MLVentaMetrica.subcategoria, card_nombre)
+                    if cant_offset > 0:
+                        valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
+                        aplica = True
                 # Offset de marca que aplica a esta subcategoría
                 elif offset.marca and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
-                    for item_id, detalle in productos_detalle.items():
-                        if detalle['subcategoria'] == card_nombre and detalle['marca'] == offset.marca:
-                            valor_offset += calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
-                    if valor_offset > 0:
+                    cant_offset, costo_offset = obtener_ventas_periodo_offset(
+                        offset,
+                        and_(MLVentaMetrica.subcategoria == card_nombre, MLVentaMetrica.marca == offset.marca),
+                        True
+                    )
+                    if cant_offset > 0:
+                        valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
                         aplica = True
                         nombre_nivel = f"Marca: {offset.marca}"
                 # Offset de categoría que aplica a esta subcategoría
                 elif offset.categoria and not offset.subcategoria_id and not offset.item_id:
-                    for item_id, detalle in productos_detalle.items():
-                        if detalle['subcategoria'] == card_nombre and detalle['categoria'] == offset.categoria:
-                            valor_offset += calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
-                    if valor_offset > 0:
+                    cant_offset, costo_offset = obtener_ventas_periodo_offset(
+                        offset,
+                        and_(MLVentaMetrica.subcategoria == card_nombre, MLVentaMetrica.categoria == offset.categoria),
+                        True
+                    )
+                    if cant_offset > 0:
+                        valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
                         aplica = True
                         nombre_nivel = f"Cat: {offset.categoria}"
                 # Offsets de productos dentro de esta subcategoría
                 elif offset.item_id:
                     detalle = productos_detalle.get(offset.item_id)
                     if detalle and detalle['subcategoria'] == card_nombre:
-                        valor_offset = calcular_valor_offset(offset, detalle['cantidad'], detalle['costo'])
-                        aplica = True
-                        nombre_nivel = f"Prod: {offset.item_id}"
+                        cant_offset, costo_offset = obtener_ventas_periodo_offset(offset, MLVentaMetrica.item_id, offset.item_id)
+                        if cant_offset > 0:
+                            valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
+                            aplica = True
+                            nombre_nivel = f"Prod: {offset.item_id}"
 
             elif nivel == "producto":
                 # Solo offsets directos del producto o de sus niveles superiores
                 if offset.item_id and str(offset.item_id) == str(card_identificador):
-                    valor_offset = calcular_valor_offset(offset, cantidad_vendida, costo_total)
-                    aplica = True
+                    cant_offset, costo_offset = obtener_ventas_periodo_offset(offset, MLVentaMetrica.item_id, int(card_identificador))
+                    if cant_offset > 0:
+                        valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
+                        aplica = True
 
             if aplica and valor_offset > 0:
                 offset_total += valor_offset
