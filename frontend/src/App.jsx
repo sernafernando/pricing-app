@@ -15,6 +15,7 @@ import ItemsSinMLA from './pages/ItemsSinMLA';
 import DashboardVentas from './pages/DashboardVentas';
 import DashboardMetricasML from './pages/DashboardMetricasML';
 import DashboardVentasFuera from './pages/DashboardVentasFuera';
+import DashboardTiendaNube from './pages/DashboardTiendaNube';
 import Calculos from './pages/Calculos';
 import TestStatsDinamicos from './pages/TestStatsDinamicos';
 import Notificaciones from './pages/Notificaciones';
@@ -109,6 +110,11 @@ function App() {
                 <Route path="/dashboard-ventas-fuera" element={
                   <ProtectedRoute>
                     <DashboardVentasFuera />
+                  </ProtectedRoute>
+                } />
+                <Route path="/dashboard-tienda-nube" element={
+                  <ProtectedRoute>
+                    <DashboardTiendaNube />
                   </ProtectedRoute>
                 } />
                 <Route path="/calculos" element={

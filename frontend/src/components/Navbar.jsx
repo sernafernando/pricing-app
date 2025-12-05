@@ -86,7 +86,7 @@ export default function Navbar() {
             onMouseLeave={() => setDropdownOpen(null)}
           >
             <div
-              className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-ventas', '/dashboard-metricas-ml', '/dashboard-ventas-fuera', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
+              className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-ventas', '/dashboard-metricas-ml', '/dashboard-ventas-fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
               onClick={() => setDropdownOpen(dropdownOpen === 'reportes' ? null : 'reportes')}
             >
               📊 Reportes ▾
@@ -116,6 +116,13 @@ export default function Navbar() {
                   onClick={() => setDropdownOpen(null)}
                 >
                   🏪 Ventas por Fuera
+                </Link>
+                <Link
+                  to="/dashboard-tienda-nube"
+                  className={`${styles.dropdownItem} ${isActive('/dashboard-tienda-nube') ? styles.activeDropdown : ''}`}
+                  onClick={() => setDropdownOpen(null)}
+                >
+                  🛒 Tienda Nube
                 </Link>
                 <Link
                   to="/calculos"
@@ -235,6 +242,14 @@ export default function Navbar() {
             onClick={handleLinkClick}
           >
             📊 Dashboard Ventas
+          </Link>
+
+          <Link
+            to="/dashboard-tienda-nube"
+            className={`${styles.mobileLink} ${isActive('/dashboard-tienda-nube') ? styles.active : ''}`}
+            onClick={handleLinkClick}
+          >
+            🛒 Tienda Nube
           </Link>
 
           <Link
