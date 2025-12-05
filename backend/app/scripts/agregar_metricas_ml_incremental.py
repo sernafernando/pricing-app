@@ -29,6 +29,7 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario, RolUsuario
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
+from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
 from app.models.cur_exch_history import CurExchHistory
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
@@ -675,6 +676,182 @@ def actualizar_resumen_grupo(db: Session, grupo_id: int, cantidad: int,
                 resumen.fecha_limite_alcanzado = datetime.now()
 
 
+def registrar_consumo_offset_individual(db: Session, row, es_nuevo: bool):
+    """
+    Registra el consumo de offsets individuales (sin grupo) con límites.
+    Aplica a offsets por producto, marca, categoría, subcategoría.
+
+    Args:
+        db: Sesión de base de datos
+        row: Datos de la venta
+        es_nuevo: True si es una nueva venta, False si es actualización
+
+    Returns:
+        int: Cantidad de consumos registrados
+    """
+    try:
+        fecha_venta = row.fecha_venta.date() if hasattr(row.fecha_venta, 'date') else row.fecha_venta
+
+        # Buscar offsets individuales (sin grupo) con límites que apliquen a esta venta
+        # Puede haber múltiples offsets aplicables (por producto, marca, categoría, etc.)
+        offsets = db.query(OffsetGanancia).filter(
+            OffsetGanancia.grupo_id.is_(None),  # Sin grupo
+            OffsetGanancia.aplica_ml == True,
+            OffsetGanancia.fecha_desde <= fecha_venta,
+            or_(
+                OffsetGanancia.fecha_hasta.is_(None),
+                OffsetGanancia.fecha_hasta >= fecha_venta
+            ),
+            or_(
+                OffsetGanancia.max_unidades.isnot(None),
+                OffsetGanancia.max_monto_usd.isnot(None)
+            ),
+            # Filtrar por criterios que apliquen a esta venta
+            or_(
+                OffsetGanancia.item_id == row.item_id,  # Por producto
+                and_(
+                    OffsetGanancia.marca == row.marca,
+                    OffsetGanancia.item_id.is_(None),
+                    OffsetGanancia.categoria.is_(None),
+                    OffsetGanancia.subcategoria_id.is_(None)
+                ),  # Por marca (sin producto específico)
+                and_(
+                    OffsetGanancia.categoria == row.categoria,
+                    OffsetGanancia.item_id.is_(None),
+                    OffsetGanancia.marca.is_(None),
+                    OffsetGanancia.subcategoria_id.is_(None)
+                ),  # Por categoría
+                and_(
+                    OffsetGanancia.subcategoria_id == row.subcat_id,
+                    OffsetGanancia.item_id.is_(None)
+                )  # Por subcategoría
+            )
+        ).all()
+
+        if not offsets:
+            return 0
+
+        cotizacion = float(row.cambio_momento) if row.cambio_momento else 1000.0
+        consumos_registrados = 0
+
+        for offset in offsets:
+            # Verificar si ya existe un registro de consumo para esta operación y offset
+            consumo_existente = db.query(OffsetIndividualConsumo).filter(
+                OffsetIndividualConsumo.id_operacion == row.id_operacion,
+                OffsetIndividualConsumo.offset_id == offset.id
+            ).first()
+
+            if consumo_existente:
+                # Si existe y no es nuevo, actualizar si cambió la cantidad
+                if not es_nuevo and consumo_existente.cantidad != row.cantidad:
+                    monto_offset_ars, monto_offset_usd = calcular_monto_offset(
+                        offset, row.cantidad, row.costo_sin_iva, cotizacion
+                    )
+
+                    # Actualizar resumen (restar viejo, sumar nuevo)
+                    actualizar_resumen_offset_individual(
+                        db, offset.id,
+                        consumo_existente.cantidad, float(consumo_existente.monto_offset_aplicado or 0),
+                        float(consumo_existente.monto_offset_usd or 0),
+                        restar=True
+                    )
+
+                    consumo_existente.cantidad = row.cantidad
+                    consumo_existente.monto_offset_aplicado = monto_offset_ars
+                    consumo_existente.monto_offset_usd = monto_offset_usd
+                    consumo_existente.cotizacion_dolar = cotizacion
+
+                    actualizar_resumen_offset_individual(
+                        db, offset.id,
+                        row.cantidad, monto_offset_ars, monto_offset_usd,
+                        restar=False, offset=offset
+                    )
+                continue
+
+            # Calcular monto del offset
+            monto_offset_ars, monto_offset_usd = calcular_monto_offset(
+                offset, row.cantidad, row.costo_sin_iva, cotizacion
+            )
+
+            # Crear registro de consumo
+            consumo = OffsetIndividualConsumo(
+                offset_id=offset.id,
+                id_operacion=row.id_operacion,
+                tipo_venta='ml',
+                fecha_venta=row.fecha_venta,
+                item_id=row.item_id,
+                cantidad=row.cantidad,
+                monto_offset_aplicado=monto_offset_ars,
+                monto_offset_usd=monto_offset_usd,
+                cotizacion_dolar=cotizacion
+            )
+            db.add(consumo)
+
+            # Actualizar resumen del offset
+            actualizar_resumen_offset_individual(
+                db, offset.id,
+                row.cantidad, monto_offset_ars, monto_offset_usd,
+                restar=False, offset=offset
+            )
+
+            consumos_registrados += 1
+
+        return consumos_registrados
+
+    except Exception as e:
+        print(f"  ⚠️  Error registrando consumo offset individual para op {row.id_operacion}: {e}")
+        return 0
+
+
+def actualizar_resumen_offset_individual(db: Session, offset_id: int, cantidad: int,
+                                          monto_ars: float, monto_usd: float,
+                                          restar: bool = False, offset=None):
+    """Actualiza o crea el resumen del offset individual"""
+    resumen = db.query(OffsetIndividualResumen).filter(
+        OffsetIndividualResumen.offset_id == offset_id
+    ).first()
+
+    factor = -1 if restar else 1
+
+    if resumen:
+        resumen.total_unidades = (resumen.total_unidades or 0) + (cantidad * factor)
+        resumen.total_monto_ars = float(resumen.total_monto_ars or 0) + (monto_ars * factor)
+        resumen.total_monto_usd = float(resumen.total_monto_usd or 0) + (monto_usd * factor)
+        resumen.cantidad_ventas = (resumen.cantidad_ventas or 0) + factor
+        resumen.ultima_venta_fecha = datetime.now()
+
+        # Verificar límites si se está sumando
+        if not restar and offset:
+            if offset.max_unidades and resumen.total_unidades >= offset.max_unidades:
+                if not resumen.limite_alcanzado:
+                    resumen.limite_alcanzado = 'unidades'
+                    resumen.fecha_limite_alcanzado = datetime.now()
+            elif offset.max_monto_usd and resumen.total_monto_usd >= offset.max_monto_usd:
+                if not resumen.limite_alcanzado:
+                    resumen.limite_alcanzado = 'monto'
+                    resumen.fecha_limite_alcanzado = datetime.now()
+    else:
+        # Crear nuevo resumen
+        resumen = OffsetIndividualResumen(
+            offset_id=offset_id,
+            total_unidades=cantidad,
+            total_monto_ars=monto_ars,
+            total_monto_usd=monto_usd,
+            cantidad_ventas=1,
+            ultima_venta_fecha=datetime.now()
+        )
+        db.add(resumen)
+
+        # Verificar límites
+        if offset:
+            if offset.max_unidades and cantidad >= offset.max_unidades:
+                resumen.limite_alcanzado = 'unidades'
+                resumen.fecha_limite_alcanzado = datetime.now()
+            elif offset.max_monto_usd and monto_usd >= offset.max_monto_usd:
+                resumen.limite_alcanzado = 'monto'
+                resumen.fecha_limite_alcanzado = datetime.now()
+
+
 def process_and_insert(db: Session, rows):
     """Procesa los registros y los inserta en ml_ventas_metricas"""
 
@@ -747,9 +924,10 @@ def process_and_insert(db: Session, rows):
                 db.add(nueva_metrica)
                 total_insertados += 1
 
-            # Registrar consumo de offset de grupo (si aplica)
+            # Registrar consumo de offsets (si aplica)
             es_nuevo = not existente
-            registrar_consumo_grupo_offset(db, row, es_nuevo)
+            registrar_consumo_grupo_offset(db, row, es_nuevo)  # Offsets de grupo
+            registrar_consumo_offset_individual(db, row, es_nuevo)  # Offsets individuales
 
             # Verificar markup y crear notificación si es necesario
             # NOTA: Requiere que tb_cur_exch_history esté sincronizado con el ERP

@@ -23,6 +23,7 @@ from app.models.tb_fiscal_class import TBFiscalClass
 from app.models.tb_tax_number_type import TBTaxNumberType
 from app.models.tb_state import TBState
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
+from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
 
 __all__ = [
     "ProductoERP",
@@ -54,5 +55,7 @@ __all__ = [
     "TBTaxNumberType",
     "TBState",
     "OffsetGrupoConsumo",
-    "OffsetGrupoResumen"
+    "OffsetGrupoResumen",
+    "OffsetIndividualConsumo",
+    "OffsetIndividualResumen"
 ]

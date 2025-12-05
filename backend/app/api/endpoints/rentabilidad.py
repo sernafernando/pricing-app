@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
+from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 
@@ -318,6 +319,116 @@ async def obtener_rentabilidad(
                     'sin_recalcular': True  # Flag para indicar que falta recalcular
                 }
 
+    # Pre-calcular offsets INDIVIDUALES (sin grupo) con límites
+    offsets_individuales_calculados = {}  # offset_id -> {'offset_total': X, 'limite_aplicado': bool, etc}
+
+    def calcular_consumo_individual_desde_tabla(offset_id, desde_dt, hasta_dt):
+        """Calcula unidades y monto para un offset individual en un rango de fechas"""
+        consumo = db.query(
+            func.sum(OffsetIndividualConsumo.cantidad).label('total_unidades'),
+            func.sum(OffsetIndividualConsumo.monto_offset_aplicado).label('total_monto_ars'),
+            func.sum(OffsetIndividualConsumo.monto_offset_usd).label('total_monto_usd')
+        ).filter(
+            OffsetIndividualConsumo.offset_id == offset_id,
+            OffsetIndividualConsumo.fecha_venta >= desde_dt,
+            OffsetIndividualConsumo.fecha_venta < hasta_dt
+        ).first()
+
+        return (
+            int(consumo.total_unidades or 0),
+            float(consumo.total_monto_ars or 0),
+            float(consumo.total_monto_usd or 0)
+        )
+
+    for offset in offsets:
+        # Solo procesar offsets individuales (sin grupo) que tengan límites
+        if offset.grupo_id is not None:
+            continue
+        if not offset.max_unidades and not offset.max_monto_usd:
+            continue
+
+        tc = float(offset.tipo_cambio) if offset.tipo_cambio else 1.0
+
+        resumen = db.query(OffsetIndividualResumen).filter(
+            OffsetIndividualResumen.offset_id == offset.id
+        ).first()
+
+        offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
+
+        if resumen:
+            acum_unidades = resumen.total_unidades or 0
+            acum_offset_usd = float(resumen.total_monto_usd or 0)
+            acum_offset_ars = float(resumen.total_monto_ars or 0)
+
+            # Consumo previo al período filtrado
+            consumo_previo_unidades = 0
+            consumo_previo_offset = 0.0
+            if offset_inicio_dt < fecha_desde_dt:
+                consumo_previo_unidades, consumo_previo_offset, _ = calcular_consumo_individual_desde_tabla(
+                    offset.id, offset_inicio_dt, fecha_desde_dt
+                )
+
+            # Consumo del período filtrado
+            periodo_unidades, periodo_offset, _ = calcular_consumo_individual_desde_tabla(
+                offset.id, fecha_desde_dt, fecha_hasta_dt
+            )
+
+            limite_agotado_previo = False
+            limite_aplicado = False
+            max_monto_ars = (float(offset.max_monto_usd) * tc) if offset.max_monto_usd else None
+
+            if resumen.limite_alcanzado:
+                if offset.max_unidades is not None and consumo_previo_unidades >= offset.max_unidades:
+                    limite_agotado_previo = True
+                if max_monto_ars is not None and consumo_previo_offset >= max_monto_ars:
+                    limite_agotado_previo = True
+
+            if limite_agotado_previo:
+                offset_total = 0.0
+                limite_aplicado = True
+            else:
+                offset_total = periodo_offset
+
+                if offset.max_unidades is not None:
+                    unidades_disponibles = offset.max_unidades - consumo_previo_unidades
+                    if periodo_unidades >= unidades_disponibles:
+                        if offset.tipo_offset == 'monto_por_unidad':
+                            monto_base = float(offset.monto or 0)
+                            if offset.moneda == 'USD' and offset.tipo_cambio:
+                                monto_base *= float(offset.tipo_cambio)
+                            offset_total = monto_base * max(0, unidades_disponibles)
+                        limite_aplicado = True
+
+                if max_monto_ars is not None:
+                    monto_disponible = max_monto_ars - consumo_previo_offset
+                    if offset_total >= monto_disponible:
+                        offset_total = max(0, monto_disponible)
+                        limite_aplicado = True
+
+            offsets_individuales_calculados[offset.id] = {
+                'offset_total': offset_total,
+                'descripcion': offset.descripcion or f"Offset {offset.id}",
+                'limite_aplicado': limite_aplicado,
+                'limite_agotado_previo': limite_agotado_previo,
+                'max_unidades': offset.max_unidades,
+                'max_monto_usd': float(offset.max_monto_usd) if offset.max_monto_usd else None,
+                'consumo_previo_offset': consumo_previo_offset,
+                'consumo_acumulado_offset': acum_offset_ars
+            }
+        else:
+            # Sin resumen - offset sin consumo registrado
+            offsets_individuales_calculados[offset.id] = {
+                'offset_total': 0.0,
+                'descripcion': offset.descripcion or f"Offset {offset.id}",
+                'limite_aplicado': False,
+                'limite_agotado_previo': False,
+                'max_unidades': offset.max_unidades,
+                'max_monto_usd': float(offset.max_monto_usd) if offset.max_monto_usd else None,
+                'consumo_previo_offset': 0.0,
+                'consumo_acumulado_offset': 0.0,
+                'sin_recalcular': True
+            }
+
     # Para propagar offsets de niveles inferiores, necesitamos saber qué productos
     # pertenecen a cada marca/categoría/subcategoría
     # Obtenemos una query detallada a nivel producto con sus atributos
@@ -528,7 +639,58 @@ async def obtener_rentabilidad(
 
                 continue  # Skip normal processing for grouped offsets
 
-            # Offsets SIN grupo - procesar normalmente
+            # Si el offset individual tiene límites y ya lo pre-calculamos, usar ese valor
+            if offset.id in offsets_individuales_calculados:
+                offset_info = offsets_individuales_calculados[offset.id]
+
+                # Verificar si aplica a esta card
+                aplica_a_card = False
+
+                if nivel == "marca":
+                    if offset.marca and offset.marca == card_nombre:
+                        aplica_a_card = True
+                    elif offset.item_id:
+                        detalle = productos_detalle.get(offset.item_id)
+                        if detalle and detalle['marca'] == card_nombre:
+                            aplica_a_card = True
+                elif nivel == "categoria":
+                    if offset.categoria and offset.categoria == card_nombre:
+                        aplica_a_card = True
+                    elif offset.item_id:
+                        detalle = productos_detalle.get(offset.item_id)
+                        if detalle and detalle['categoria'] == card_nombre:
+                            aplica_a_card = True
+                elif nivel == "subcategoria":
+                    if offset.subcategoria_id and str(offset.subcategoria_id) == str(card_identificador):
+                        aplica_a_card = True
+                    elif offset.item_id:
+                        detalle = productos_detalle.get(offset.item_id)
+                        if detalle and detalle['subcategoria'] == card_nombre:
+                            aplica_a_card = True
+                elif nivel == "producto":
+                    if offset.item_id and str(offset.item_id) == str(card_identificador):
+                        aplica_a_card = True
+
+                if aplica_a_card:
+                    limite_texto = ""
+                    if offset_info['limite_aplicado']:
+                        if offset_info.get('max_monto_usd'):
+                            limite_texto = f" (máx USD {offset_info['max_monto_usd']:,.0f})"
+                        elif offset_info.get('max_unidades'):
+                            limite_texto = f" (máx {offset_info['max_unidades']} un.)"
+
+                    desglose.append(DesgloseOffset(
+                        descripcion=f"{offset_info['descripcion']}{limite_texto}",
+                        nivel=nivel_offset,
+                        nombre_nivel=nombre_nivel,
+                        tipo_offset=offset.tipo_offset or 'monto_fijo',
+                        monto=offset_info['offset_total']
+                    ))
+                    offset_total += offset_info['offset_total']
+
+                continue  # Skip normal processing for pre-calculated individual offsets
+
+            # Offsets SIN grupo y SIN límites - procesar normalmente
             if nivel == "marca":
                 # Offset directo por marca
                 if offset.marca and offset.marca == card_nombre and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
