@@ -452,7 +452,7 @@ export default function DashboardTiendaNube() {
                 <div className={styles.kpiValue}>{formatearMoneda(calcularGanancia())}</div>
                 <div className={styles.kpiStats}>
                   <span className={styles.kpiHighlight}>
-                    {stats.markup_promedio !== null ? `${(stats.markup_promedio * 100).toFixed(1)}% markup prom` : 'Sin datos'}
+                    {stats.markup_promedio !== null ? `${(stats.markup_promedio * 100).toFixed(1)}% markup` : 'Sin datos'}
                   </span>
                   <span className={styles.kpiDivider}>•</span>
                   <span>Costo: {formatearMoneda(stats.costo_total)}</span>
