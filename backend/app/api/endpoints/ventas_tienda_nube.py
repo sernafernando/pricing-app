@@ -307,6 +307,7 @@ def get_ventas_tienda_nube_query():
         END as costo_pesos_sin_iva,
 
         CASE
+            WHEN tct.sd_id IN (3, 6, 23, 66) THEN NULL  -- No calcular markup para devoluciones
             WHEN (CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0) ELSE COALESCE(cc.costo_unitario, 0) * tit.it_qty END) = 0 THEN NULL
             ELSE (
                 CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta ELSE tit.it_price * tit.it_qty END
