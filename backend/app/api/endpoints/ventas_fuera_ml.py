@@ -89,9 +89,10 @@ SD_DEVOLUCIONES = [3, 6, 23, 66]
 
 # df_id permitidos para ventas (facturas, NC, ND, etc.)
 # Sucursal 45 (Grupo Gauss): 105, 106, 109, 111, 115, 116, 117, 118, 124
+# Facturas en dólares: 103, 122, 124, 125, 126, 127
 # Excluimos: 107, 110 (Remitos), 112 (Recibos), 113, 114 (TN), 129-132 (MercadoLibre)
 DF_PERMITIDOS = [1, 2, 3, 4, 5, 6, 63, 85, 86, 87, 65, 67, 68, 69, 70, 71, 72, 73, 74, 81,
-                 105, 106, 109, 111, 115, 116, 117, 118, 124]
+                 103, 105, 106, 109, 111, 115, 116, 117, 118, 122, 124, 125, 126, 127]
 
 # Clientes excluidos
 CLIENTES_EXCLUIDOS = [11, 3900]
