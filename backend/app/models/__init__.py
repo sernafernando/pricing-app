@@ -22,6 +22,7 @@ from app.models.tb_document_file import TBDocumentFile
 from app.models.tb_fiscal_class import TBFiscalClass
 from app.models.tb_tax_number_type import TBTaxNumberType
 from app.models.tb_state import TBState
+from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
@@ -55,6 +56,7 @@ __all__ = [
     "TBFiscalClass",
     "TBTaxNumberType",
     "TBState",
+    "OffsetGanancia",
     "OffsetGrupo",
     "OffsetGrupoConsumo",
     "OffsetGrupoResumen",
