@@ -36,7 +36,7 @@ SD_TODOS = SD_VENTAS + SD_DEVOLUCIONES
 SD_IDS_STR = ','.join(map(str, SD_TODOS))
 
 DF_PERMITIDOS = [1, 2, 3, 4, 5, 6, 63, 85, 86, 87, 65, 67, 68, 69, 70, 71, 72, 73, 74, 81,
-                 105, 106, 109, 111, 115, 116, 117, 118, 124]
+                 103, 105, 106, 109, 111, 115, 116, 117, 118, 122, 124, 125, 126, 127]
 DF_IDS_STR = ','.join(map(str, DF_PERMITIDOS))
 
 CLIENTES_EXCLUIDOS = [11, 3900]
