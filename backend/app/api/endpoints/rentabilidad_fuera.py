@@ -124,12 +124,13 @@ def get_vendedores_excluidos_str(db) -> str:
 
 
 # ============================================================================
-# Query base
+# Query base - Usa tabla de métricas pre-calculadas
 # ============================================================================
 
 def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_excluidos_str: str = "10,11,12") -> str:
     """
     Query base para obtener ventas agrupadas por el nivel especificado.
+    Usa la tabla ventas_fuera_ml_metricas pre-calculada para consistencia con el dashboard.
     grupo_by puede ser: 'marca', 'categoria', 'subcategoria', 'producto'
     """
 
@@ -146,134 +147,23 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
         group_by = "subcategoria"
         where_not_null = "subcategoria IS NOT NULL"
     else:  # producto
-        select_campos = "CONCAT(item_code, ' - ', item_desc) as nombre, item_id::text as identificador"
-        group_by = "item_id, item_code, item_desc"
+        select_campos = "CONCAT(codigo, ' - ', descripcion) as nombre, item_id::text as identificador"
+        group_by = "item_id, codigo, descripcion"
         where_not_null = "item_id IS NOT NULL"
 
     return f"""
-    WITH costo_venta AS (
-        SELECT
-            tit.it_transaction,
-            tit.item_id,
-            tct.ct_date,
-            tit.it_qty,
-            tit.it_price,
-            tct.sd_id,
-            tct.bra_id,
-            tbd.brand_desc as marca,
-            tcc.cat_desc as categoria,
-            tsc.subcat_desc as subcategoria,
-            ti.item_code,
-            ti.item_desc,
-            COALESCE(ttn.tax_percentage, 21.0) as iva_porcentaje,
-
-            -- Costo histórico
-            COALESCE(iclh.iclh_price, 0) as costo_unitario,
-            COALESCE(iclh.curr_id, 1) as costo_moneda,
-            COALESCE(ceh.ceh_exchange, 1) as tipo_cambio
-
-        FROM tb_item ti
-
-        LEFT JOIN tb_item_transactions tit
-            ON tit.comp_id = ti.comp_id AND tit.item_id = ti.item_id
-
-        LEFT JOIN tb_commercial_transactions tct
-            ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-
-        LEFT JOIN tb_brand tbd
-            ON tbd.comp_id = ti.comp_id AND tbd.brand_id = ti.brand_id
-
-        LEFT JOIN tb_category tcc
-            ON tcc.comp_id = ti.comp_id AND tcc.cat_id = ti.cat_id
-
-        LEFT JOIN tb_subcategory tsc
-            ON tsc.comp_id = ti.comp_id AND tsc.cat_id = ti.cat_id AND tsc.subcat_id = ti.subcat_id
-
-        LEFT JOIN tb_item_taxes titx
-            ON titx.comp_id = ti.comp_id AND titx.item_id = ti.item_id
-
-        LEFT JOIN tb_tax_name ttn
-            ON ttn.comp_id = ti.comp_id AND ttn.tax_id = titx.tax_id
-
-        LEFT JOIN LATERAL (
-            SELECT iclh_price, curr_id
-            FROM tb_item_cost_list_history
-            WHERE item_id = tit.item_id AND iclh_cd <= tct.ct_date AND coslis_id = 1
-            ORDER BY iclh_id DESC LIMIT 1
-        ) iclh ON true
-
-        LEFT JOIN LATERAL (
-            SELECT ceh_exchange
-            FROM tb_cur_exch_history
-            WHERE ceh_cd <= tct.ct_date
-            ORDER BY ceh_cd DESC LIMIT 1
-        ) ceh ON true
-
-        WHERE tct.ct_date BETWEEN :from_date AND :to_date
-            AND tct.df_id IN ({','.join(map(str, DF_PERMITIDOS))})
-            AND (tit.item_id NOT IN ({','.join(map(str, ITEMS_EXCLUIDOS))}) OR tit.item_id IS NULL)
-            AND tct.cust_id NOT IN ({','.join(map(str, CLIENTES_EXCLUIDOS))})
-            AND tct.sm_id NOT IN ({vendedores_excluidos_str})
-            AND tit.it_price <> 0
-            AND tit.it_qty <> 0
-            AND tct.sd_id IN ({','.join(map(str, SD_TODOS))})
-            {filtros_extra}
-    )
     SELECT
         {select_campos},
-        COUNT(*) as total_ventas,
-
-        -- Monto venta (sin IVA, con signo)
-        SUM(
-            it_price * it_qty *
-            CASE WHEN bra_id = 35 THEN (1 + iva_porcentaje / 100) ELSE 1 END *
-            CASE WHEN sd_id IN ({','.join(map(str, SD_DEVOLUCIONES))}) THEN -1 ELSE 1 END
-        ) as monto_venta,
-
-        -- Costo total
-        SUM(
-            CASE
-                WHEN costo_moneda = 1 THEN costo_unitario * it_qty
-                ELSE costo_unitario * tipo_cambio * it_qty
-            END *
-            CASE WHEN sd_id IN ({','.join(map(str, SD_DEVOLUCIONES))}) THEN -1 ELSE 1 END
-        ) as costo_total,
-
-        -- Ganancia simple (monto - costo)
-        SUM(
-            it_price * it_qty *
-            CASE WHEN bra_id = 35 THEN (1 + iva_porcentaje / 100) ELSE 1 END *
-            CASE WHEN sd_id IN ({','.join(map(str, SD_DEVOLUCIONES))}) THEN -1 ELSE 1 END
-        ) - SUM(
-            CASE
-                WHEN costo_moneda = 1 THEN costo_unitario * it_qty
-                ELSE costo_unitario * tipo_cambio * it_qty
-            END *
-            CASE WHEN sd_id IN ({','.join(map(str, SD_DEVOLUCIONES))}) THEN -1 ELSE 1 END
-        ) as ganancia,
-
-        -- Monto solo de productos CON costo (para calcular markup)
-        SUM(
-            CASE WHEN costo_unitario > 0 THEN
-                it_price * it_qty *
-                CASE WHEN bra_id = 35 THEN (1 + iva_porcentaje / 100) ELSE 1 END *
-                CASE WHEN sd_id IN ({','.join(map(str, SD_DEVOLUCIONES))}) THEN -1 ELSE 1 END
-            ELSE 0 END
-        ) as monto_con_costo,
-
-        -- Costo solo de productos CON costo (para calcular markup)
-        SUM(
-            CASE WHEN costo_unitario > 0 THEN
-                CASE
-                    WHEN costo_moneda = 1 THEN costo_unitario * it_qty
-                    ELSE costo_unitario * tipo_cambio * it_qty
-                END *
-                CASE WHEN sd_id IN ({','.join(map(str, SD_DEVOLUCIONES))}) THEN -1 ELSE 1 END
-            ELSE 0 END
-        ) as costo_con_costo
-
-    FROM costo_venta
-    WHERE {where_not_null}
+        SUM(cantidad * signo) as total_ventas,
+        SUM(monto_total * signo) as monto_venta,
+        SUM(costo_total * signo) as costo_total,
+        SUM(ganancia * signo) as ganancia,
+        SUM(monto_total * signo) as monto_con_costo,
+        SUM(costo_total * signo) as costo_con_costo
+    FROM ventas_fuera_ml_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+        AND {where_not_null}
+        {filtros_extra}
     GROUP BY {group_by}
     ORDER BY monto_venta DESC
     """
@@ -330,16 +220,16 @@ async def obtener_rentabilidad_fuera(
     }
 
     if lista_productos:
-        filtros_extra += f" AND ti.item_id IN ({','.join(map(str, lista_productos))})"
+        filtros_extra += f" AND item_id IN ({','.join(map(str, lista_productos))})"
     if lista_marcas:
         marcas_quoted = "','".join(lista_marcas)
-        filtros_extra += f" AND tbd.brand_desc IN ('{marcas_quoted}')"
+        filtros_extra += f" AND marca IN ('{marcas_quoted}')"
     if lista_categorias:
         cats_quoted = "','".join(lista_categorias)
-        filtros_extra += f" AND tcc.cat_desc IN ('{cats_quoted}')"
+        filtros_extra += f" AND categoria IN ('{cats_quoted}')"
     if lista_subcategorias:
         subcats_quoted = "','".join(lista_subcategorias)
-        filtros_extra += f" AND tsc.subcat_desc IN ('{subcats_quoted}')"
+        filtros_extra += f" AND subcategoria IN ('{subcats_quoted}')"
 
     # Obtener vendedores excluidos dinámicamente
     vendedores_excluidos = get_vendedores_excluidos_str(db)
@@ -611,7 +501,7 @@ async def obtener_rentabilidad_fuera(
     def obtener_ventas_periodo_offset_fuera(offset, filtro_sql_extra=""):
         """
         Obtiene cantidad y costo de ventas FUERA de ML para un offset,
-        considerando su fecha_desde.
+        considerando su fecha_desde. Usa tabla de métricas pre-calculada.
         """
         offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
         periodo_inicio = max(fecha_desde_dt, offset_inicio_dt)
@@ -621,43 +511,10 @@ async def obtener_rentabilidad_fuera(
 
         query_ventas = f"""
         SELECT
-            COUNT(*) as cantidad,
-            SUM(
-                CASE
-                    WHEN iclh.curr_id = 1 THEN iclh.iclh_price * tit.it_qty
-                    ELSE iclh.iclh_price * COALESCE(ceh.ceh_exchange, 1) * tit.it_qty
-                END *
-                CASE WHEN tct.sd_id IN ({','.join(map(str, SD_DEVOLUCIONES))}) THEN -1 ELSE 1 END
-            ) as costo
-        FROM tb_item ti
-        LEFT JOIN tb_item_transactions tit
-            ON tit.comp_id = ti.comp_id AND tit.item_id = ti.item_id
-        LEFT JOIN tb_commercial_transactions tct
-            ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-        LEFT JOIN tb_brand tbd
-            ON tbd.comp_id = ti.comp_id AND tbd.brand_id = ti.brand_id
-        LEFT JOIN tb_category tcc
-            ON tcc.comp_id = ti.comp_id AND tcc.cat_id = ti.cat_id
-        LEFT JOIN tb_subcategory tsc
-            ON tsc.comp_id = ti.comp_id AND tsc.cat_id = ti.cat_id AND tsc.subcat_id = ti.subcat_id
-        LEFT JOIN LATERAL (
-            SELECT iclh_price, curr_id
-            FROM tb_item_cost_list_history
-            WHERE item_id = tit.item_id AND iclh_cd <= tct.ct_date AND coslis_id = 1
-            ORDER BY iclh_id DESC LIMIT 1
-        ) iclh ON true
-        LEFT JOIN LATERAL (
-            SELECT ceh_exchange
-            FROM tb_cur_exch_history
-            WHERE ceh_cd <= tct.ct_date
-            ORDER BY ceh_cd DESC LIMIT 1
-        ) ceh ON true
-        WHERE tct.ct_date >= :periodo_inicio AND tct.ct_date < :periodo_fin
-            AND tct.df_id IN ({','.join(map(str, DF_PERMITIDOS))})
-            AND tct.cust_id NOT IN ({','.join(map(str, CLIENTES_EXCLUIDOS))})
-            AND tct.sm_id NOT IN ({vendedores_excluidos})
-            AND tct.sd_id IN ({','.join(map(str, SD_TODOS))})
-            {filtros_extra}
+            SUM(cantidad * signo) as cantidad,
+            SUM(costo_total * signo) as costo
+        FROM ventas_fuera_ml_metricas
+        WHERE fecha_venta >= :periodo_inicio AND fecha_venta < :periodo_fin
             {filtro_sql_extra}
         """
 
@@ -757,17 +614,17 @@ async def obtener_rentabilidad_fuera(
 
             # Offsets sin grupo y sin límites - usar fecha de inicio del offset
             if nivel == "marca" and offset.marca == card_nombre and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
-                cant, costo = obtener_ventas_periodo_offset_fuera(offset, f" AND tbd.brand_desc = '{card_nombre}'")
+                cant, costo = obtener_ventas_periodo_offset_fuera(offset, f" AND marca = '{card_nombre}'")
                 if cant > 0:
                     valor_offset = calcular_valor_offset(offset, cant, costo)
                     aplica = True
             elif nivel == "categoria" and offset.categoria == card_nombre and not offset.subcategoria_id and not offset.item_id:
-                cant, costo = obtener_ventas_periodo_offset_fuera(offset, f" AND tcc.cat_desc = '{card_nombre}'")
+                cant, costo = obtener_ventas_periodo_offset_fuera(offset, f" AND categoria = '{card_nombre}'")
                 if cant > 0:
                     valor_offset = calcular_valor_offset(offset, cant, costo)
                     aplica = True
             elif nivel == "producto" and offset.item_id and str(offset.item_id) == str(card_identificador):
-                cant, costo = obtener_ventas_periodo_offset_fuera(offset, f" AND ti.item_id = {offset.item_id}")
+                cant, costo = obtener_ventas_periodo_offset_fuera(offset, f" AND item_id = {offset.item_id}")
                 if cant > 0:
                     valor_offset = calcular_valor_offset(offset, cant, costo)
                     aplica = True
@@ -899,32 +756,20 @@ async def buscar_productos_fuera(
 ):
     """
     Busca productos por código o descripción que tengan ventas en el período.
+    Usa tabla de métricas pre-calculada.
     """
     search_term = f"%{q}%"
-    vendedores_excluidos = get_vendedores_excluidos_str(db)
 
-    query = f"""
+    query = """
     SELECT DISTINCT
-        ti.item_id,
-        ti.item_code as codigo,
-        ti.item_desc as descripcion,
-        tbd.brand_desc as marca,
-        tcc.cat_desc as categoria
-    FROM tb_item ti
-    LEFT JOIN tb_item_transactions tit
-        ON tit.comp_id = ti.comp_id AND tit.item_id = ti.item_id
-    LEFT JOIN tb_commercial_transactions tct
-        ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-    LEFT JOIN tb_brand tbd
-        ON tbd.comp_id = ti.comp_id AND tbd.brand_id = ti.brand_id
-    LEFT JOIN tb_category tcc
-        ON tcc.comp_id = ti.comp_id AND tcc.cat_id = ti.cat_id
-    WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN ({','.join(map(str, DF_PERMITIDOS))})
-        AND tct.cust_id NOT IN ({','.join(map(str, CLIENTES_EXCLUIDOS))})
-        AND tct.sm_id NOT IN ({vendedores_excluidos})
-        AND tct.sd_id IN ({','.join(map(str, SD_TODOS))})
-        AND (ti.item_code ILIKE :search OR ti.item_desc ILIKE :search)
+        item_id,
+        codigo,
+        descripcion,
+        marca,
+        categoria
+    FROM ventas_fuera_ml_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+        AND (codigo ILIKE :search OR descripcion ILIKE :search)
     LIMIT 50
     """
 
@@ -961,46 +806,34 @@ async def obtener_filtros_disponibles_fuera(
 ):
     """
     Obtiene los valores disponibles para los filtros basado en los datos del período.
+    Usa tabla de métricas pre-calculada.
     """
     lista_marcas = [m.strip() for m in marcas.split(',')] if marcas else []
     lista_categorias = [c.strip() for c in categorias.split(',')] if categorias else []
     lista_subcategorias = [s.strip() for s in subcategorias.split(',')] if subcategorias else []
-
-    vendedores_excluidos = get_vendedores_excluidos_str(db)
 
     params = {
         "from_date": fecha_desde.isoformat(),
         "to_date": (fecha_hasta + timedelta(days=1)).isoformat()
     }
 
-    base_where = f"""
-        WHERE tct.ct_date BETWEEN :from_date AND :to_date
-            AND tct.df_id IN ({','.join(map(str, DF_PERMITIDOS))})
-            AND tct.cust_id NOT IN ({','.join(map(str, CLIENTES_EXCLUIDOS))})
-            AND tct.sm_id NOT IN ({vendedores_excluidos})
-            AND tct.sd_id IN ({','.join(map(str, SD_TODOS))})
-    """
+    base_where = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
 
     # Marcas
     marcas_where = base_where
     if lista_categorias:
         cats_quoted = "','".join(lista_categorias)
-        marcas_where += f" AND tcc.cat_desc IN ('{cats_quoted}')"
+        marcas_where += f" AND categoria IN ('{cats_quoted}')"
     if lista_subcategorias:
         subcats_quoted = "','".join(lista_subcategorias)
-        marcas_where += f" AND tsc.subcat_desc IN ('{subcats_quoted}')"
+        marcas_where += f" AND subcategoria IN ('{subcats_quoted}')"
 
     marcas_query = f"""
-    SELECT DISTINCT tbd.brand_desc as marca
-    FROM tb_item ti
-    LEFT JOIN tb_item_transactions tit ON tit.comp_id = ti.comp_id AND tit.item_id = ti.item_id
-    LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-    LEFT JOIN tb_brand tbd ON tbd.comp_id = ti.comp_id AND tbd.brand_id = ti.brand_id
-    LEFT JOIN tb_category tcc ON tcc.comp_id = ti.comp_id AND tcc.cat_id = ti.cat_id
-    LEFT JOIN tb_subcategory tsc ON tsc.comp_id = ti.comp_id AND tsc.cat_id = ti.cat_id AND tsc.subcat_id = ti.subcat_id
+    SELECT DISTINCT marca
+    FROM ventas_fuera_ml_metricas
     {marcas_where}
-        AND tbd.brand_desc IS NOT NULL
-    ORDER BY tbd.brand_desc
+        AND marca IS NOT NULL
+    ORDER BY marca
     """
     marcas_result = db.execute(text(marcas_query), params).fetchall()
 
@@ -1008,22 +841,17 @@ async def obtener_filtros_disponibles_fuera(
     cats_where = base_where
     if lista_marcas:
         marcas_quoted = "','".join(lista_marcas)
-        cats_where += f" AND tbd.brand_desc IN ('{marcas_quoted}')"
+        cats_where += f" AND marca IN ('{marcas_quoted}')"
     if lista_subcategorias:
         subcats_quoted = "','".join(lista_subcategorias)
-        cats_where += f" AND tsc.subcat_desc IN ('{subcats_quoted}')"
+        cats_where += f" AND subcategoria IN ('{subcats_quoted}')"
 
     cats_query = f"""
-    SELECT DISTINCT tcc.cat_desc as categoria
-    FROM tb_item ti
-    LEFT JOIN tb_item_transactions tit ON tit.comp_id = ti.comp_id AND tit.item_id = ti.item_id
-    LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-    LEFT JOIN tb_brand tbd ON tbd.comp_id = ti.comp_id AND tbd.brand_id = ti.brand_id
-    LEFT JOIN tb_category tcc ON tcc.comp_id = ti.comp_id AND tcc.cat_id = ti.cat_id
-    LEFT JOIN tb_subcategory tsc ON tsc.comp_id = ti.comp_id AND tsc.cat_id = ti.cat_id AND tsc.subcat_id = ti.subcat_id
+    SELECT DISTINCT categoria
+    FROM ventas_fuera_ml_metricas
     {cats_where}
-        AND tcc.cat_desc IS NOT NULL
-    ORDER BY tcc.cat_desc
+        AND categoria IS NOT NULL
+    ORDER BY categoria
     """
     cats_result = db.execute(text(cats_query), params).fetchall()
 
@@ -1031,22 +859,17 @@ async def obtener_filtros_disponibles_fuera(
     subcats_where = base_where
     if lista_marcas:
         marcas_quoted = "','".join(lista_marcas)
-        subcats_where += f" AND tbd.brand_desc IN ('{marcas_quoted}')"
+        subcats_where += f" AND marca IN ('{marcas_quoted}')"
     if lista_categorias:
         cats_quoted = "','".join(lista_categorias)
-        subcats_where += f" AND tcc.cat_desc IN ('{cats_quoted}')"
+        subcats_where += f" AND categoria IN ('{cats_quoted}')"
 
     subcats_query = f"""
-    SELECT DISTINCT tsc.subcat_desc as subcategoria
-    FROM tb_item ti
-    LEFT JOIN tb_item_transactions tit ON tit.comp_id = ti.comp_id AND tit.item_id = ti.item_id
-    LEFT JOIN tb_commercial_transactions tct ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-    LEFT JOIN tb_brand tbd ON tbd.comp_id = ti.comp_id AND tbd.brand_id = ti.brand_id
-    LEFT JOIN tb_category tcc ON tcc.comp_id = ti.comp_id AND tcc.cat_id = ti.cat_id
-    LEFT JOIN tb_subcategory tsc ON tsc.comp_id = ti.comp_id AND tsc.cat_id = ti.cat_id AND tsc.subcat_id = ti.subcat_id
+    SELECT DISTINCT subcategoria
+    FROM ventas_fuera_ml_metricas
     {subcats_where}
-        AND tsc.subcat_desc IS NOT NULL
-    ORDER BY tsc.subcat_desc
+        AND subcategoria IS NOT NULL
+    ORDER BY subcategoria
     """
     subcats_result = db.execute(text(subcats_query), params).fetchall()
 

@@ -113,150 +113,25 @@ class RentabilidadResponse(BaseModel):
 # ============================================================================
 
 def get_ventas_tienda_nube_base_query():
-    """Query base para obtener ventas de Tienda Nube con métricas"""
-    return f"""
-    WITH CostoCalculado AS (
-        SELECT
-            tit.it_transaction,
-            tit.item_id,
-            tit.it_qty,
-            CASE
-                WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
-                WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
-                ELSE 0
-            END as signo,
-            tct.ct_date,
-            (
-                COALESCE(
-                    (SELECT iclh.iclh_price
-                     FROM tb_item_cost_list_history iclh
-                     WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                       AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
-                     ORDER BY iclh.iclh_id DESC LIMIT 1),
-                    (SELECT ticl.coslis_price
-                     FROM tb_item_cost_list ticl
-                     WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                       AND ticl.coslis_id = 1
-                     ORDER BY ticl.coslis_cd DESC LIMIT 1),
-                    0
-                ) *
-                CASE
-                    WHEN COALESCE(
-                        (SELECT iclh.curr_id FROM tb_item_cost_list_history iclh
-                         WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                           AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
-                         ORDER BY iclh.iclh_id DESC LIMIT 1),
-                        (SELECT ticl.curr_id FROM tb_item_cost_list ticl
-                         WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                           AND ticl.coslis_id = 1
-                         ORDER BY ticl.coslis_cd DESC LIMIT 1),
-                        1
-                    ) = 1 THEN 1
-                    ELSE COALESCE(
-                        (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh
-                         WHERE ceh.ceh_cd <= tct.ct_date ORDER BY ceh.ceh_cd DESC LIMIT 1),
-                        1
-                    )
-                END
-            ) * 1.065 AS costo_unitario
-        FROM tb_item_transactions tit
-        LEFT JOIN tb_commercial_transactions tct ON tct.ct_transaction = tit.ct_transaction
-        WHERE tct.ct_date BETWEEN :from_date AND :to_date
-          AND tct.sd_id IN ({SD_IDS_STR})
-          AND tct.df_id IN ({DF_IDS_STR})
-    ),
-    precio_venta AS (
-        SELECT
-            tit.it_isassociationgroup AS group_id,
-            tit.ct_transaction,
-            SUM(tit.it_price * tit.it_qty) AS precio_venta
-        FROM tb_item_transactions tit
-        WHERE tit.it_isassociationgroup IS NOT NULL
-          AND tit.it_price IS NOT NULL
-        GROUP BY tit.it_isassociationgroup, tit.ct_transaction
-    ),
-    costo_combo AS (
-        SELECT
-            tit.it_isassociationgroup AS group_id,
-            tit.ct_transaction,
-            SUM(cc.costo_unitario * tit.it_qty) AS costo_combo
-        FROM tb_item_transactions tit
-        LEFT JOIN CostoCalculado cc ON cc.it_transaction = tit.it_transaction
-        WHERE tit.it_isassociationgroup IS NOT NULL
-        GROUP BY tit.it_isassociationgroup, tit.ct_transaction
-    )
+    """Query base para obtener ventas de Tienda Nube desde tabla de métricas pre-calculadas"""
+    return """
     SELECT
-        tit.it_transaction as id_operacion,
-        ti.item_id,
-        ti.item_code as codigo,
-        COALESCE(ti.item_desc, titd.itm_desc) as descripcion,
-        tbd.brand_desc as marca,
-        tcc.cat_desc as categoria,
-        tsc.subcat_desc as subcategoria,
-        tsc.subcat_id,
-
-        tit.it_qty * cc.signo as cantidad,
-
-        CASE
-            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta
-            ELSE tit.it_price * tit.it_qty
-        END * cc.signo as monto_total,
-
-        CASE
-            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0)
-            ELSE COALESCE(cc.costo_unitario, 0) * tit.it_qty
-        END * cc.signo as costo_total,
-
-        cc.signo
-
-    FROM tb_item_transactions tit
-
-    LEFT JOIN tb_commercial_transactions tct
-        ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-
-    LEFT JOIN tb_item ti
-        ON ti.comp_id = tit.comp_id
-        AND ti.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-
-    LEFT JOIN tb_category tcc
-        ON tcc.comp_id = ti.comp_id AND tcc.cat_id = ti.cat_id
-
-    LEFT JOIN tb_subcategory tsc
-        ON tsc.comp_id = ti.comp_id AND tsc.cat_id = ti.cat_id AND tsc.subcat_id = ti.subcat_id
-
-    LEFT JOIN tb_brand tbd
-        ON tbd.comp_id = ti.comp_id AND tbd.brand_id = ti.brand_id
-
-    LEFT JOIN tb_item_transaction_details titd
-        ON titd.comp_id = tit.comp_id AND titd.bra_id = tit.bra_id AND titd.it_transaction = tit.it_transaction
-
-    LEFT JOIN precio_venta pv
-        ON pv.group_id = tit.it_isassociationgroup AND pv.ct_transaction = tit.ct_transaction
-
-    LEFT JOIN CostoCalculado cc
-        ON cc.it_transaction = tit.it_transaction
-
-    LEFT JOIN costo_combo ccb
-        ON ccb.group_id = tit.it_isassociationgroup AND ccb.ct_transaction = tit.ct_transaction
-
-    WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN ({DF_IDS_STR})
-        AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
-        AND tct.sd_id IN ({SD_IDS_STR})
-        AND tit.it_qty <> 0
-        AND NOT (
-            CASE
-                WHEN tit.item_id IS NULL AND tit.it_item_id_origin IS NULL
-                THEN COALESCE(titd.itm_desc, '')
-                ELSE COALESCE(ti.item_desc, '')
-            END ILIKE '%envio%'
-        )
-        AND NOT (
-            COALESCE(tit.it_isassociation, false) = true
-            AND COALESCE(tit.it_order, 1) <> 1
-            AND tit.it_isassociationgroup IS NOT NULL
-        )
+        it_transaction as id_operacion,
+        item_id,
+        codigo,
+        descripcion,
+        marca,
+        categoria,
+        subcategoria,
+        subcat_id,
+        cantidad * signo as cantidad,
+        monto_total * signo as monto_total,
+        costo_total * signo as costo_total,
+        comision_monto * signo as comision_monto,
+        ganancia * signo as ganancia,
+        signo
+    FROM ventas_tienda_nube_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
     """
 
 
