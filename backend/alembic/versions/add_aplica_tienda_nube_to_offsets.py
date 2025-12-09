@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'add_aplica_tienda_nube'
-down_revision = 'create_offset_indiv_consumo'
+down_revision = 'offset_indiv_consumo'
 branch_labels = None
 depends_on = None
 
