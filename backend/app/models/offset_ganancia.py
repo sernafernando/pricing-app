@@ -51,6 +51,7 @@ class OffsetGanancia(Base):
     # Aplicación por canal
     aplica_ml = Column(Boolean, default=True)         # Aplica a Métricas ML
     aplica_fuera = Column(Boolean, default=True)      # Aplica a Ventas por Fuera de ML
+    aplica_tienda_nube = Column(Boolean, default=True)  # Aplica a Tienda Nube
 
     # Auditoría
     usuario_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
