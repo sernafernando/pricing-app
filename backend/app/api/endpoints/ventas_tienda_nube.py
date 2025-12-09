@@ -492,119 +492,212 @@ async def get_ventas_tienda_nube_stats(
 ):
     """
     Obtiene estadísticas agregadas de ventas de Tienda Nube.
-    Calcula directamente desde la query base.
+    Usa la tabla de métricas pre-calculadas para mayor performance.
     """
-    # Query para stats agregadas
-    stats_query = f"""
-    WITH ventas AS (
-        {get_ventas_tienda_nube_query()}
-    )
-    SELECT
-        COUNT(*) as total_ventas,
-        COUNT(*) FILTER (WHERE costo_pesos_sin_iva = 0 OR costo_pesos_sin_iva IS NULL) as productos_sin_costo,
-        COALESCE(SUM(cantidad), 0) as total_unidades,
-        COALESCE(SUM(precio_final_sin_iva), 0) as monto_total_sin_iva,
-        COALESCE(SUM(precio_final_con_iva), 0) as monto_total_con_iva,
-        COALESCE(SUM(costo_pesos_sin_iva), 0) as costo_total,
-        COALESCE(SUM(CASE WHEN costo_pesos_sin_iva > 0 THEN precio_final_sin_iva ELSE 0 END), 0) as monto_con_costo,
-        COALESCE(SUM(CASE WHEN costo_pesos_sin_iva > 0 THEN costo_pesos_sin_iva ELSE 0 END), 0) as costo_con_costo
-    FROM ventas
-    """
-
-    result = db.execute(
-        text(stats_query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
-    ).first()
-
-    # Stats por sucursal
-    sucursal_query = f"""
-    WITH ventas AS (
-        {get_ventas_tienda_nube_query()}
-    )
+    # Query única con GROUPING SETS para stats totales, por sucursal y por vendedor
+    combined_query = """
     SELECT
         sucursal,
-        COUNT(*) as ventas,
-        COALESCE(SUM(cantidad), 0) as unidades,
-        COALESCE(SUM(precio_final_sin_iva), 0) as monto
-    FROM ventas
-    WHERE sucursal IS NOT NULL
-    GROUP BY sucursal
-    """
-
-    sucursales = db.execute(
-        text(sucursal_query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
-    ).fetchall()
-
-    sucursales_dict = {
-        r.sucursal: {
-            "ventas": r.ventas,
-            "unidades": float(r.unidades or 0),
-            "monto": float(r.monto or 0)
-        }
-        for r in sucursales
-    }
-
-    # Stats por vendedor
-    vendedor_query = f"""
-    WITH ventas AS (
-        {get_ventas_tienda_nube_query()}
-    )
-    SELECT
         vendedor,
-        COUNT(*) as ventas,
-        COALESCE(SUM(cantidad), 0) as unidades,
-        COALESCE(SUM(precio_final_sin_iva), 0) as monto
-    FROM ventas
-    WHERE vendedor IS NOT NULL
-    GROUP BY vendedor
+        GROUPING(sucursal) as is_sucursal_total,
+        GROUPING(vendedor) as is_vendedor_total,
+        COUNT(*) as total_ventas,
+        COUNT(*) FILTER (WHERE costo_total = 0 OR costo_total IS NULL) as productos_sin_costo,
+        COALESCE(SUM(cantidad * signo), 0) as total_unidades,
+        COALESCE(SUM(monto_total * signo), 0) as monto_total_sin_iva,
+        COALESCE(SUM(monto_con_iva * signo), 0) as monto_total_con_iva,
+        COALESCE(SUM(costo_total * signo), 0) as costo_total,
+        COALESCE(SUM(comision_monto * signo), 0) as comision_total,
+        COALESCE(SUM(ganancia * signo), 0) as ganancia_total,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN monto_total * signo ELSE 0 END), 0) as monto_con_costo,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN monto_con_iva * signo ELSE 0 END), 0) as monto_con_costo_con_iva,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN costo_total * signo ELSE 0 END), 0) as costo_con_costo,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN comision_monto * signo ELSE 0 END), 0) as comision_con_costo,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN ganancia * signo ELSE 0 END), 0) as ganancia_con_costo
+    FROM ventas_tienda_nube_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+    GROUP BY GROUPING SETS (
+        (),
+        (sucursal),
+        (vendedor)
+    )
     """
 
-    vendedores = db.execute(
-        text(vendedor_query),
+    results = db.execute(
+        text(combined_query),
         {"from_date": from_date, "to_date": to_date + " 23:59:59"}
     ).fetchall()
 
-    vendedores_dict = {
-        r.vendedor: {
-            "ventas": r.ventas,
-            "unidades": float(r.unidades or 0),
-            "monto": float(r.monto or 0)
-        }
-        for r in vendedores
-    }
+    # Inicializar variables
+    total_ventas = 0
+    productos_sin_costo = 0
+    total_unidades = 0.0
+    monto_con_costo = 0.0
+    monto_con_costo_con_iva = 0.0
+    costo_con_costo = 0.0
+    comision_con_costo = 0.0
+    ganancia_con_costo = 0.0
+    sucursales_dict = {}
+    vendedores_dict = {}
 
-    # Obtener comisión de TN vigente
+    for row in results:
+        # Row con ambos GROUPING = 1 es el total general
+        if row.is_sucursal_total == 1 and row.is_vendedor_total == 1:
+            total_ventas = row.total_ventas or 0
+            productos_sin_costo = row.productos_sin_costo or 0
+            total_unidades = float(row.total_unidades or 0)
+            monto_con_costo = float(row.monto_con_costo or 0)
+            monto_con_costo_con_iva = float(row.monto_con_costo_con_iva or 0)
+            costo_con_costo = float(row.costo_con_costo or 0)
+            comision_con_costo = float(row.comision_con_costo or 0)
+            ganancia_con_costo = float(row.ganancia_con_costo or 0)
+        # Row con is_sucursal_total = 0 es agrupado por sucursal
+        elif row.is_sucursal_total == 0 and row.is_vendedor_total == 1:
+            if row.sucursal:
+                sucursales_dict[row.sucursal] = {
+                    "ventas": row.total_ventas,
+                    "unidades": float(row.total_unidades or 0),
+                    "monto": float(row.monto_total_sin_iva or 0)
+                }
+        # Row con is_vendedor_total = 0 es agrupado por vendedor
+        elif row.is_sucursal_total == 1 and row.is_vendedor_total == 0:
+            if row.vendedor:
+                vendedores_dict[row.vendedor] = {
+                    "ventas": row.total_ventas,
+                    "unidades": float(row.total_unidades or 0),
+                    "monto": float(row.monto_total_sin_iva or 0)
+                }
+
+    # Calcular markup promedio: ganancia / costo
+    markup_promedio = None
+    if costo_con_costo > 0:
+        markup_promedio = ganancia_con_costo / costo_con_costo
+
+    # Obtener comisión de TN vigente (para mostrar el %)
     fecha_desde = datetime.strptime(from_date, "%Y-%m-%d").date()
     comision_tn_pct = get_comision_tienda_nube(db, fecha_desde)
 
-    # Calcular métricas con comisión
-    monto_con_costo = float(result.monto_con_costo or 0)
-    costo_con_costo = float(result.costo_con_costo or 0)
-
-    # Comisión de TN sobre el monto total
-    comision_tn_total = monto_con_costo * (comision_tn_pct / 100)
-    monto_limpio_total = monto_con_costo - comision_tn_total
-    ganancia_total = monto_limpio_total - costo_con_costo
-
-    # Markup calculado sobre ganancia / costo
-    markup_promedio = ((ganancia_total / costo_con_costo)) if costo_con_costo > 0 else None
+    # Monto limpio = monto - comisión
+    monto_limpio_total = monto_con_costo - comision_con_costo
 
     return {
-        "total_ventas": result.total_ventas or 0,
-        "total_unidades": float(result.total_unidades or 0),
+        "total_ventas": total_ventas,
+        "total_unidades": total_unidades,
         "monto_total_sin_iva": monto_con_costo,
-        "monto_total_con_iva": float(result.monto_total_con_iva or 0),
+        "monto_total_con_iva": monto_con_costo_con_iva,
         "comision_tn_porcentaje": comision_tn_pct,
-        "comision_tn_total": comision_tn_total,
+        "comision_tn_total": comision_con_costo,
         "monto_limpio_total": monto_limpio_total,
         "costo_total": costo_con_costo,
-        "ganancia_total": ganancia_total,
+        "ganancia_total": ganancia_con_costo,
         "markup_promedio": markup_promedio,
-        "productos_sin_costo": result.productos_sin_costo or 0,
+        "productos_sin_costo": productos_sin_costo,
         "por_sucursal": sucursales_dict,
         "por_vendedor": vendedores_dict
     }
+
+
+@router.get("/ventas-tienda-nube/operaciones")
+async def get_operaciones_tn_desde_metricas(
+    from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
+    to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedor"),
+    marca: Optional[str] = Query(None, description="Filtrar por marca"),
+    solo_sin_costo: bool = Query(False, description="Solo mostrar operaciones sin costo"),
+    limit: int = Query(1000, le=10000, description="Límite de resultados"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtiene operaciones desde la tabla de métricas pre-calculadas.
+    Más rápido que el endpoint original y devuelve metrica_id para edición.
+    """
+    # Construir query con filtros opcionales
+    where_clauses = ["fecha_venta BETWEEN :from_date AND :to_date"]
+    params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
+
+    if sucursal:
+        where_clauses.append("sucursal = :sucursal")
+        params["sucursal"] = sucursal
+    if vendedor:
+        where_clauses.append("vendedor = :vendedor")
+        params["vendedor"] = vendedor
+    if marca:
+        where_clauses.append("marca = :marca")
+        params["marca"] = marca
+    if solo_sin_costo:
+        where_clauses.append("(costo_total IS NULL OR costo_total = 0)")
+
+    where_sql = " AND ".join(where_clauses)
+
+    query = f"""
+    SELECT
+        id as metrica_id,
+        it_transaction as id_operacion,
+        sucursal,
+        cliente,
+        vendedor,
+        fecha_venta as fecha,
+        tipo_comprobante,
+        numero_comprobante,
+        marca,
+        categoria,
+        subcategoria,
+        codigo,
+        descripcion,
+        cantidad,
+        monto_unitario as precio_unitario_sin_iva,
+        iva_porcentaje,
+        monto_total as precio_final_sin_iva,
+        monto_iva,
+        monto_con_iva as precio_final_con_iva,
+        costo_unitario,
+        costo_total as costo_pesos_sin_iva,
+        comision_porcentaje,
+        comision_monto,
+        markup_porcentaje as markup,
+        ganancia,
+        signo
+    FROM ventas_tienda_nube_metricas
+    WHERE {where_sql}
+    ORDER BY fecha_venta DESC, it_transaction
+    LIMIT :limit
+    """
+
+    result = db.execute(text(query), params).fetchall()
+
+    return [
+        {
+            "metrica_id": r.metrica_id,
+            "id_operacion": r.id_operacion,
+            "sucursal": r.sucursal,
+            "cliente": r.cliente,
+            "vendedor": r.vendedor,
+            "fecha": r.fecha.isoformat() if r.fecha else None,
+            "tipo_comprobante": r.tipo_comprobante,
+            "numero_comprobante": r.numero_comprobante,
+            "marca": r.marca,
+            "categoria": r.categoria,
+            "subcategoria": r.subcategoria,
+            "codigo_item": r.codigo,
+            "descripcion": r.descripcion,
+            "cantidad": float(r.cantidad) if r.cantidad else 0,
+            "precio_unitario_sin_iva": float(r.precio_unitario_sin_iva) if r.precio_unitario_sin_iva else 0,
+            "iva_porcentaje": float(r.iva_porcentaje) if r.iva_porcentaje else 21,
+            "precio_final_sin_iva": float(r.precio_final_sin_iva) if r.precio_final_sin_iva else 0,
+            "monto_iva": float(r.monto_iva) if r.monto_iva else 0,
+            "precio_final_con_iva": float(r.precio_final_con_iva) if r.precio_final_con_iva else 0,
+            "costo_unitario": float(r.costo_unitario) if r.costo_unitario else 0,
+            "costo_pesos_sin_iva": float(r.costo_pesos_sin_iva) if r.costo_pesos_sin_iva else 0,
+            "comision_tn_porcentaje": float(r.comision_porcentaje) if r.comision_porcentaje else 0,
+            "comision_tn_pesos": float(r.comision_monto) if r.comision_monto else 0,
+            "markup": float(r.markup) / 100 if r.markup else None,  # Convertir a decimal (0.15 en lugar de 15%)
+            "ganancia": float(r.ganancia) if r.ganancia else 0,
+            "signo": r.signo
+        }
+        for r in result
+    ]
 
 
 @router.get("/ventas-tienda-nube/por-marca", response_model=List[VentaTiendaNubePorMarcaResponse])
@@ -617,18 +710,18 @@ async def get_ventas_tienda_nube_por_marca(
 ):
     """
     Obtiene ventas de Tienda Nube agrupadas por marca.
+    Usa la tabla de métricas pre-calculadas para mayor performance.
     """
-    query = f"""
-    WITH ventas AS (
-        {get_ventas_tienda_nube_query()}
-    )
+    query = """
     SELECT
         marca,
         COUNT(*) as total_ventas,
-        COALESCE(SUM(cantidad), 0) as unidades_vendidas,
-        COALESCE(SUM(CASE WHEN costo_pesos_sin_iva > 0 THEN precio_final_sin_iva ELSE 0 END), 0) as monto_con_costo,
-        COALESCE(SUM(CASE WHEN costo_pesos_sin_iva > 0 THEN costo_pesos_sin_iva ELSE 0 END), 0) as costo_con_costo
-    FROM ventas
+        COALESCE(SUM(cantidad * signo), 0) as unidades_vendidas,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN monto_total * signo ELSE 0 END), 0) as monto_con_costo,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN costo_total * signo ELSE 0 END), 0) as costo_con_costo,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN ganancia * signo ELSE 0 END), 0) as ganancia_con_costo
+    FROM ventas_tienda_nube_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
     GROUP BY marca
     ORDER BY monto_con_costo DESC
     LIMIT :limit
@@ -643,7 +736,9 @@ async def get_ventas_tienda_nube_por_marca(
     for r in result:
         monto_con_costo = float(r.monto_con_costo or 0)
         costo_con_costo = float(r.costo_con_costo or 0)
-        markup = ((monto_con_costo / costo_con_costo) - 1) if costo_con_costo > 0 else None
+        ganancia_con_costo = float(r.ganancia_con_costo or 0)
+        # Markup = ganancia / costo
+        markup = (ganancia_con_costo / costo_con_costo) if costo_con_costo > 0 else None
         marcas.append({
             "marca": r.marca,
             "total_ventas": r.total_ventas,
@@ -665,22 +760,21 @@ async def get_top_productos_tienda_nube(
 ):
     """
     Obtiene los productos más vendidos en Tienda Nube.
+    Usa la tabla de métricas pre-calculadas para mayor performance.
     """
-    query = f"""
-    WITH ventas AS (
-        {get_ventas_tienda_nube_query()}
-    )
+    query = """
     SELECT
         item_id,
-        codigo_item as codigo,
+        codigo,
         descripcion,
         marca,
-        COALESCE(SUM(cantidad), 0) as unidades_vendidas,
-        COALESCE(SUM(precio_final_sin_iva), 0) as monto_total,
+        COALESCE(SUM(cantidad * signo), 0) as unidades_vendidas,
+        COALESCE(SUM(monto_total * signo), 0) as monto_total,
         COUNT(*) as cantidad_operaciones
-    FROM ventas
-    WHERE item_id IS NOT NULL
-    GROUP BY item_id, codigo_item, descripcion, marca
+    FROM ventas_tienda_nube_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+      AND item_id IS NOT NULL
+    GROUP BY item_id, codigo, descripcion, marca
     ORDER BY unidades_vendidas DESC
     LIMIT :limit
     """
@@ -714,21 +808,21 @@ async def get_ventas_tienda_nube_por_categoria(
 ):
     """
     Obtiene ventas de Tienda Nube agrupadas por categoría.
+    Usa la tabla de métricas pre-calculadas para mayor performance.
     """
-    query = f"""
-    WITH ventas AS (
-        {get_ventas_tienda_nube_query()}
-    )
+    query = """
     SELECT
         categoria,
         COUNT(*) as total_ventas,
-        COALESCE(SUM(cantidad), 0) as unidades_vendidas,
-        COALESCE(SUM(precio_final_sin_iva), 0) as monto_total,
-        COALESCE(SUM(costo_pesos_sin_iva), 0) as costo_total
-    FROM ventas
-    WHERE categoria IS NOT NULL
+        COALESCE(SUM(cantidad * signo), 0) as unidades_vendidas,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN monto_total * signo ELSE 0 END), 0) as monto_con_costo,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN costo_total * signo ELSE 0 END), 0) as costo_con_costo,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN ganancia * signo ELSE 0 END), 0) as ganancia_con_costo
+    FROM ventas_tienda_nube_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+      AND categoria IS NOT NULL
     GROUP BY categoria
-    ORDER BY monto_total DESC
+    ORDER BY monto_con_costo DESC
     LIMIT :limit
     """
 
@@ -742,9 +836,9 @@ async def get_ventas_tienda_nube_por_categoria(
             "categoria": r.categoria,
             "total_ventas": r.total_ventas,
             "unidades_vendidas": float(r.unidades_vendidas or 0),
-            "monto_total": float(r.monto_total or 0),
-            "costo_total": float(r.costo_total or 0),
-            "markup": ((float(r.monto_total or 0) / float(r.costo_total)) - 1) if float(r.costo_total or 0) > 0 else None
+            "monto_total": float(r.monto_con_costo or 0),
+            "costo_total": float(r.costo_con_costo or 0),
+            "markup": (float(r.ganancia_con_costo or 0) / float(r.costo_con_costo)) if float(r.costo_con_costo or 0) > 0 else None
         }
         for r in result
     ]
@@ -761,45 +855,45 @@ async def get_ventas_tienda_nube_por_subcategoria(
 ):
     """
     Obtiene ventas de Tienda Nube agrupadas por subcategoría.
+    Usa la tabla de métricas pre-calculadas para mayor performance.
     """
-    categoria_filter = ""
+    # Construir filtro de categoría de forma segura
+    where_clauses = ["fecha_venta BETWEEN :from_date AND :to_date", "subcategoria IS NOT NULL"]
+    params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
+
     if categoria:
-        categoria_filter = f"AND categoria = '{categoria}'"
+        where_clauses.append("categoria = :categoria")
+        params["categoria"] = categoria
+
+    where_sql = " AND ".join(where_clauses)
 
     query = f"""
-    WITH ventas AS (
-        {get_ventas_tienda_nube_query()}
-    )
     SELECT
         subcategoria,
-        subcat_id,
         categoria,
         COUNT(*) as total_ventas,
-        COALESCE(SUM(cantidad), 0) as unidades_vendidas,
-        COALESCE(SUM(precio_final_sin_iva), 0) as monto_total,
-        COALESCE(SUM(costo_pesos_sin_iva), 0) as costo_total
-    FROM ventas
-    WHERE subcategoria IS NOT NULL {categoria_filter}
-    GROUP BY subcategoria, subcat_id, categoria
-    ORDER BY monto_total DESC
+        COALESCE(SUM(cantidad * signo), 0) as unidades_vendidas,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN monto_total * signo ELSE 0 END), 0) as monto_con_costo,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN costo_total * signo ELSE 0 END), 0) as costo_con_costo,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN ganancia * signo ELSE 0 END), 0) as ganancia_con_costo
+    FROM ventas_tienda_nube_metricas
+    WHERE {where_sql}
+    GROUP BY subcategoria, categoria
+    ORDER BY monto_con_costo DESC
     LIMIT :limit
     """
 
-    result = db.execute(
-        text(query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
-    ).fetchall()
+    result = db.execute(text(query), params).fetchall()
 
     return [
         {
             "subcategoria": r.subcategoria,
-            "subcat_id": r.subcat_id,
             "categoria": r.categoria,
             "total_ventas": r.total_ventas,
             "unidades_vendidas": float(r.unidades_vendidas or 0),
-            "monto_total": float(r.monto_total or 0),
-            "costo_total": float(r.costo_total or 0),
-            "markup": ((float(r.monto_total or 0) / float(r.costo_total)) - 1) if float(r.costo_total or 0) > 0 else None
+            "monto_total": float(r.monto_con_costo or 0),
+            "costo_total": float(r.costo_con_costo or 0),
+            "markup": (float(r.ganancia_con_costo or 0) / float(r.costo_con_costo)) if float(r.costo_con_costo or 0) > 0 else None
         }
         for r in result
     ]

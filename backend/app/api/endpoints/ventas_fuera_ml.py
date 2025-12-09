@@ -701,7 +701,8 @@ async def get_ventas_fuera_ml_por_marca(
         COUNT(*) as total_ventas,
         COALESCE(SUM(cantidad * signo), 0) as unidades_vendidas,
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN monto_total * signo ELSE 0 END), 0) as monto_con_costo,
-        COALESCE(SUM(CASE WHEN costo_total > 0 THEN costo_total * signo ELSE 0 END), 0) as costo_con_costo
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN costo_total * signo ELSE 0 END), 0) as costo_con_costo,
+        COALESCE(SUM(CASE WHEN costo_total > 0 THEN ganancia * signo ELSE 0 END), 0) as ganancia_con_costo
     FROM ventas_fuera_ml_metricas
     WHERE fecha_venta BETWEEN :from_date AND :to_date
     GROUP BY marca
@@ -714,12 +715,13 @@ async def get_ventas_fuera_ml_por_marca(
         {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
     ).fetchall()
 
-    # Calcular markup desde totales
+    # Calcular markup desde totales: ganancia / costo
     marcas = []
     for r in result:
         monto_con_costo = float(r.monto_con_costo or 0)
         costo_con_costo = float(r.costo_con_costo or 0)
-        markup = ((monto_con_costo / costo_con_costo) - 1) if costo_con_costo > 0 else None
+        ganancia_con_costo = float(r.ganancia_con_costo or 0)
+        markup = (ganancia_con_costo / costo_con_costo) if costo_con_costo > 0 else None
         marcas.append({
             "marca": r.marca,
             "total_ventas": r.total_ventas,
