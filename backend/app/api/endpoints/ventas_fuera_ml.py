@@ -788,6 +788,16 @@ class ActualizarCostoRequest(BaseModel):
     costo_unitario: float
 
 
+class ActualizarMetricaRequest(BaseModel):
+    """Request para actualizar campos de una métrica"""
+    costo_unitario: Optional[float] = None
+    marca: Optional[str] = None
+    categoria: Optional[str] = None
+    subcategoria: Optional[str] = None
+    descripcion: Optional[str] = None
+    codigo: Optional[str] = None
+
+
 @router.put("/ventas-fuera-ml/metricas/{metrica_id}/costo")
 async def actualizar_costo_operacion(
     metrica_id: int,
@@ -843,6 +853,95 @@ async def actualizar_costo_operacion(
         "costo_total": float(metrica.costo_total),
         "ganancia": float(metrica.ganancia),
         "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None
+    }
+
+
+@router.patch("/ventas-fuera-ml/metricas/{metrica_id}")
+async def actualizar_metrica(
+    metrica_id: int,
+    request: ActualizarMetricaRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Actualiza campos de una métrica de venta por fuera de ML.
+    Permite actualizar: costo_unitario, marca, categoria, subcategoria, descripcion, codigo.
+    Si se actualiza el costo, recalcula automáticamente: costo_total, ganancia, markup_porcentaje.
+    """
+    from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
+    from fastapi import HTTPException
+
+    metrica = db.query(VentaFueraMLMetrica).filter(
+        VentaFueraMLMetrica.id == metrica_id
+    ).first()
+
+    if not metrica:
+        raise HTTPException(status_code=404, detail="Operación no encontrada")
+
+    campos_actualizados = []
+
+    # Actualizar campos de texto si se proporcionan
+    if request.marca is not None:
+        metrica.marca = request.marca
+        campos_actualizados.append("marca")
+
+    if request.categoria is not None:
+        metrica.categoria = request.categoria
+        campos_actualizados.append("categoria")
+
+    if request.subcategoria is not None:
+        metrica.subcategoria = request.subcategoria
+        campos_actualizados.append("subcategoria")
+
+    if request.descripcion is not None:
+        metrica.descripcion = request.descripcion
+        campos_actualizados.append("descripcion")
+
+    if request.codigo is not None:
+        metrica.codigo = request.codigo
+        campos_actualizados.append("codigo")
+
+    # Actualizar costo y recalcular
+    if request.costo_unitario is not None:
+        costo_unitario = Decimal(str(request.costo_unitario))
+        cantidad = metrica.cantidad or Decimal('1')
+        monto_total = metrica.monto_total or Decimal('0')
+
+        costo_total = costo_unitario * cantidad
+        ganancia = monto_total - costo_total
+
+        markup_porcentaje = None
+        if costo_total > 0:
+            markup_porcentaje = ((monto_total / costo_total) - 1) * 100
+
+        metrica.costo_unitario = costo_unitario
+        metrica.costo_total = costo_total
+        metrica.ganancia = ganancia
+        metrica.markup_porcentaje = Decimal(str(markup_porcentaje)) if markup_porcentaje is not None else None
+        metrica.moneda_costo = 'ARS'
+        campos_actualizados.append("costo_unitario")
+
+    if not campos_actualizados:
+        raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
+
+    db.commit()
+    db.refresh(metrica)
+
+    return {
+        "success": True,
+        "id": metrica.id,
+        "campos_actualizados": campos_actualizados,
+        "metrica": {
+            "codigo": metrica.codigo,
+            "descripcion": metrica.descripcion,
+            "marca": metrica.marca,
+            "categoria": metrica.categoria,
+            "subcategoria": metrica.subcategoria,
+            "costo_unitario": float(metrica.costo_unitario) if metrica.costo_unitario else None,
+            "costo_total": float(metrica.costo_total) if metrica.costo_total else None,
+            "ganancia": float(metrica.ganancia) if metrica.ganancia else None,
+            "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None
+        }
     }
 
 

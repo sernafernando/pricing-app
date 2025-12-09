@@ -803,3 +803,214 @@ async def get_ventas_tienda_nube_por_subcategoria(
         }
         for r in result
     ]
+
+
+# ============================================================================
+# Endpoints para actualización de métricas
+# ============================================================================
+
+class ActualizarCostoTNRequest(BaseModel):
+    """Request para actualizar el costo de una operación de TN"""
+    costo_unitario: float
+
+
+class ActualizarMetricaTNRequest(BaseModel):
+    """Request para actualizar campos de una métrica de TN"""
+    costo_unitario: Optional[float] = None
+    marca: Optional[str] = None
+    categoria: Optional[str] = None
+    subcategoria: Optional[str] = None
+    descripcion: Optional[str] = None
+    codigo: Optional[str] = None
+
+
+@router.put("/ventas-tienda-nube/metricas/{metrica_id}/costo")
+async def actualizar_costo_operacion_tn(
+    metrica_id: int,
+    request: ActualizarCostoTNRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Actualiza el costo unitario de una operación de Tienda Nube.
+    Recalcula automáticamente: costo_total, ganancia, markup_porcentaje.
+    """
+    from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
+    from fastapi import HTTPException
+
+    metrica = db.query(VentaTiendaNubeMetrica).filter(
+        VentaTiendaNubeMetrica.id == metrica_id
+    ).first()
+
+    if not metrica:
+        raise HTTPException(status_code=404, detail="Operación no encontrada")
+
+    # Actualizar costo unitario
+    costo_unitario = Decimal(str(request.costo_unitario))
+    cantidad = metrica.cantidad or Decimal('1')
+    monto_total = metrica.monto_total or Decimal('0')
+    comision_monto = metrica.comision_monto or Decimal('0')
+
+    # Calcular costo total
+    costo_total = costo_unitario * cantidad
+
+    # Ganancia = monto - costo - comisión
+    ganancia = monto_total - costo_total - comision_monto
+
+    # Markup = (monto / (costo + comisión)) - 1
+    markup_porcentaje = None
+    base_costo = costo_total + comision_monto
+    if base_costo > 0:
+        markup_porcentaje = ((monto_total / base_costo) - 1) * 100
+
+    # Actualizar campos
+    metrica.costo_unitario = costo_unitario
+    metrica.costo_total = costo_total
+    metrica.ganancia = ganancia
+    metrica.markup_porcentaje = Decimal(str(markup_porcentaje)) if markup_porcentaje is not None else None
+    metrica.moneda_costo = 'ARS'
+
+    db.commit()
+    db.refresh(metrica)
+
+    return {
+        "success": True,
+        "id": metrica.id,
+        "costo_unitario": float(metrica.costo_unitario),
+        "costo_total": float(metrica.costo_total),
+        "ganancia": float(metrica.ganancia),
+        "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None
+    }
+
+
+@router.patch("/ventas-tienda-nube/metricas/{metrica_id}")
+async def actualizar_metrica_tn(
+    metrica_id: int,
+    request: ActualizarMetricaTNRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Actualiza campos de una métrica de venta de Tienda Nube.
+    Permite actualizar: costo_unitario, marca, categoria, subcategoria, descripcion, codigo.
+    Si se actualiza el costo, recalcula automáticamente: costo_total, ganancia, markup_porcentaje.
+    """
+    from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
+    from fastapi import HTTPException
+
+    metrica = db.query(VentaTiendaNubeMetrica).filter(
+        VentaTiendaNubeMetrica.id == metrica_id
+    ).first()
+
+    if not metrica:
+        raise HTTPException(status_code=404, detail="Operación no encontrada")
+
+    campos_actualizados = []
+
+    # Actualizar campos de texto si se proporcionan
+    if request.marca is not None:
+        metrica.marca = request.marca
+        campos_actualizados.append("marca")
+
+    if request.categoria is not None:
+        metrica.categoria = request.categoria
+        campos_actualizados.append("categoria")
+
+    if request.subcategoria is not None:
+        metrica.subcategoria = request.subcategoria
+        campos_actualizados.append("subcategoria")
+
+    if request.descripcion is not None:
+        metrica.descripcion = request.descripcion
+        campos_actualizados.append("descripcion")
+
+    if request.codigo is not None:
+        metrica.codigo = request.codigo
+        campos_actualizados.append("codigo")
+
+    # Actualizar costo y recalcular
+    if request.costo_unitario is not None:
+        costo_unitario = Decimal(str(request.costo_unitario))
+        cantidad = metrica.cantidad or Decimal('1')
+        monto_total = metrica.monto_total or Decimal('0')
+        comision_monto = metrica.comision_monto or Decimal('0')
+
+        costo_total = costo_unitario * cantidad
+        ganancia = monto_total - costo_total - comision_monto
+
+        markup_porcentaje = None
+        base_costo = costo_total + comision_monto
+        if base_costo > 0:
+            markup_porcentaje = ((monto_total / base_costo) - 1) * 100
+
+        metrica.costo_unitario = costo_unitario
+        metrica.costo_total = costo_total
+        metrica.ganancia = ganancia
+        metrica.markup_porcentaje = Decimal(str(markup_porcentaje)) if markup_porcentaje is not None else None
+        metrica.moneda_costo = 'ARS'
+        campos_actualizados.append("costo_unitario")
+
+    if not campos_actualizados:
+        raise HTTPException(status_code=400, detail="No se proporcionaron campos para actualizar")
+
+    db.commit()
+    db.refresh(metrica)
+
+    return {
+        "success": True,
+        "id": metrica.id,
+        "campos_actualizados": campos_actualizados,
+        "metrica": {
+            "codigo": metrica.codigo,
+            "descripcion": metrica.descripcion,
+            "marca": metrica.marca,
+            "categoria": metrica.categoria,
+            "subcategoria": metrica.subcategoria,
+            "costo_unitario": float(metrica.costo_unitario) if metrica.costo_unitario else None,
+            "costo_total": float(metrica.costo_total) if metrica.costo_total else None,
+            "ganancia": float(metrica.ganancia) if metrica.ganancia else None,
+            "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None
+        }
+    }
+
+
+@router.get("/ventas-tienda-nube/metricas/{metrica_id}")
+async def get_metrica_detalle_tn(
+    metrica_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtiene el detalle de una métrica específica de Tienda Nube.
+    """
+    from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
+    from fastapi import HTTPException
+
+    metrica = db.query(VentaTiendaNubeMetrica).filter(
+        VentaTiendaNubeMetrica.id == metrica_id
+    ).first()
+
+    if not metrica:
+        raise HTTPException(status_code=404, detail="Operación no encontrada")
+
+    return {
+        "id": metrica.id,
+        "it_transaction": metrica.it_transaction,
+        "item_id": metrica.item_id,
+        "codigo": metrica.codigo,
+        "descripcion": metrica.descripcion,
+        "marca": metrica.marca,
+        "categoria": metrica.categoria,
+        "subcategoria": metrica.subcategoria,
+        "cantidad": float(metrica.cantidad) if metrica.cantidad else 0,
+        "monto_unitario": float(metrica.monto_unitario) if metrica.monto_unitario else 0,
+        "monto_total": float(metrica.monto_total) if metrica.monto_total else 0,
+        "costo_unitario": float(metrica.costo_unitario) if metrica.costo_unitario else 0,
+        "costo_total": float(metrica.costo_total) if metrica.costo_total else 0,
+        "comision_porcentaje": float(metrica.comision_porcentaje) if metrica.comision_porcentaje else 0,
+        "comision_monto": float(metrica.comision_monto) if metrica.comision_monto else 0,
+        "ganancia": float(metrica.ganancia) if metrica.ganancia else 0,
+        "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None,
+        "moneda_costo": metrica.moneda_costo,
+        "fecha_venta": metrica.fecha_venta.isoformat() if metrica.fecha_venta else None
+    }
