@@ -54,7 +54,8 @@ export default function ModalOffset({
     max_unidades: '',
     max_monto_usd: '',
     aplica_ml: true,
-    aplica_fuera: true
+    aplica_fuera: true,
+    aplica_tienda_nube: true
   });
 
   useEffect(() => {
@@ -156,7 +157,8 @@ export default function ModalOffset({
       max_unidades: '',
       max_monto_usd: '',
       aplica_ml: true,
-      aplica_fuera: true
+      aplica_fuera: true,
+      aplica_tienda_nube: true
     });
     setProductosOffsetSeleccionados([]);
     setProductosOffsetEncontrados([]);
@@ -220,6 +222,7 @@ export default function ModalOffset({
       // Canales de aplicación
       payload.aplica_ml = nuevoOffset.aplica_ml;
       payload.aplica_fuera = nuevoOffset.aplica_fuera;
+      payload.aplica_tienda_nube = nuevoOffset.aplica_tienda_nube;
 
       // Configurar nivel de aplicación
       if (nuevoOffset.tipo === 'producto' && productosOffsetSeleccionados.length > 0) {
@@ -278,7 +281,8 @@ export default function ModalOffset({
       max_unidades: offset.max_unidades?.toString() || '',
       max_monto_usd: offset.max_monto_usd?.toString() || '',
       aplica_ml: offset.aplica_ml !== false,
-      aplica_fuera: offset.aplica_fuera !== false
+      aplica_fuera: offset.aplica_fuera !== false,
+      aplica_tienda_nube: offset.aplica_tienda_nube !== false
     });
   };
 
@@ -665,6 +669,14 @@ export default function ModalOffset({
                 />
                 Aplica en Ventas por Fuera
               </label>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={nuevoOffset.aplica_tienda_nube}
+                  onChange={e => setNuevoOffset({ ...nuevoOffset, aplica_tienda_nube: e.target.checked })}
+                />
+                Aplica en Tienda Nube
+              </label>
             </div>
           </div>
 
@@ -711,9 +723,11 @@ export default function ModalOffset({
                     ? `${offset.porcentaje}%`
                     : `${offset.moneda === 'USD' ? 'U$' : '$'}${offset.monto}`;
 
-                  const canalStr = offset.aplica_ml && offset.aplica_fuera ? 'Ambos' :
-                                  offset.aplica_ml ? 'ML' :
-                                  offset.aplica_fuera ? 'Fuera' : '-';
+                  const canales = [];
+                  if (offset.aplica_ml) canales.push('ML');
+                  if (offset.aplica_fuera) canales.push('Fuera');
+                  if (offset.aplica_tienda_nube) canales.push('TN');
+                  const canalStr = canales.length === 3 ? 'Todos' : canales.join(', ') || '-';
 
                   return (
                     <tr key={offset.id} className={editandoOffset === offset.id ? styles.editando : ''}>

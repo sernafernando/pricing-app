@@ -52,6 +52,7 @@ class OffsetGananciaCreate(BaseModel):
     # Canales de aplicación
     aplica_ml: bool = True
     aplica_fuera: bool = True
+    aplica_tienda_nube: bool = True
 
 
 class OffsetGananciaUpdate(BaseModel):
@@ -74,6 +75,7 @@ class OffsetGananciaUpdate(BaseModel):
     # Canales de aplicación
     aplica_ml: Optional[bool] = None
     aplica_fuera: Optional[bool] = None
+    aplica_tienda_nube: Optional[bool] = None
 
 
 class OffsetGananciaResponse(BaseModel):
@@ -99,6 +101,7 @@ class OffsetGananciaResponse(BaseModel):
     # Canales de aplicación
     aplica_ml: bool = True
     aplica_fuera: bool = True
+    aplica_tienda_nube: bool = True
 
     class Config:
         from_attributes = True
@@ -213,7 +216,8 @@ async def listar_offsets(
             max_unidades=o.max_unidades,
             max_monto_usd=o.max_monto_usd,
             aplica_ml=o.aplica_ml if o.aplica_ml is not None else True,
-            aplica_fuera=o.aplica_fuera if o.aplica_fuera is not None else True
+            aplica_fuera=o.aplica_fuera if o.aplica_fuera is not None else True,
+            aplica_tienda_nube=o.aplica_tienda_nube if o.aplica_tienda_nube is not None else True
         )
         for o in offsets
     ]
@@ -257,6 +261,7 @@ async def crear_offset(
                 max_monto_usd=offset.max_monto_usd,
                 aplica_ml=offset.aplica_ml,
                 aplica_fuera=offset.aplica_fuera,
+                aplica_tienda_nube=offset.aplica_tienda_nube,
                 usuario_id=current_user.id
             )
             db.add(nuevo_offset)
@@ -296,6 +301,7 @@ async def crear_offset(
         max_monto_usd=offset.max_monto_usd,
         aplica_ml=offset.aplica_ml,
         aplica_fuera=offset.aplica_fuera,
+        aplica_tienda_nube=offset.aplica_tienda_nube,
         usuario_id=current_user.id
     )
 
@@ -323,7 +329,8 @@ async def crear_offset(
         max_unidades=nuevo_offset.max_unidades,
         max_monto_usd=nuevo_offset.max_monto_usd,
         aplica_ml=nuevo_offset.aplica_ml if nuevo_offset.aplica_ml is not None else True,
-        aplica_fuera=nuevo_offset.aplica_fuera if nuevo_offset.aplica_fuera is not None else True
+        aplica_fuera=nuevo_offset.aplica_fuera if nuevo_offset.aplica_fuera is not None else True,
+        aplica_tienda_nube=nuevo_offset.aplica_tienda_nube if nuevo_offset.aplica_tienda_nube is not None else True
     )
 
 
@@ -395,6 +402,8 @@ async def actualizar_offset(
         offset.aplica_ml = offset_update.aplica_ml
     if offset_update.aplica_fuera is not None:
         offset.aplica_fuera = offset_update.aplica_fuera
+    if offset_update.aplica_tienda_nube is not None:
+        offset.aplica_tienda_nube = offset_update.aplica_tienda_nube
 
     db.commit()
     db.refresh(offset)
@@ -419,7 +428,8 @@ async def actualizar_offset(
         max_unidades=offset.max_unidades,
         max_monto_usd=offset.max_monto_usd,
         aplica_ml=offset.aplica_ml if offset.aplica_ml is not None else True,
-        aplica_fuera=offset.aplica_fuera if offset.aplica_fuera is not None else True
+        aplica_fuera=offset.aplica_fuera if offset.aplica_fuera is not None else True,
+        aplica_tienda_nube=offset.aplica_tienda_nube if offset.aplica_tienda_nube is not None else True
     )
 
 
