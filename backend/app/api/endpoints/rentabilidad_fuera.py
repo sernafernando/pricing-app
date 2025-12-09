@@ -92,9 +92,10 @@ SD_TODOS = SD_VENTAS + SD_DEVOLUCIONES
 
 # df_id permitidos para ventas (facturas, NC, ND, etc.)
 # Sucursal 45 (Grupo Gauss): 105, 106, 109, 111, 115, 116, 117, 118, 124
+# Facturas en dólares: 103, 122, 124, 125, 126, 127
 # Excluimos: 107, 110 (Remitos), 112 (Recibos), 113, 114 (TN), 129-132 (MercadoLibre)
 DF_PERMITIDOS = [1, 2, 3, 4, 5, 6, 63, 85, 86, 87, 65, 67, 68, 69, 70, 71, 72, 73, 74, 81,
-                 105, 106, 109, 111, 115, 116, 117, 118, 124]
+                 103, 105, 106, 109, 111, 115, 116, 117, 118, 122, 124, 125, 126, 127]
 
 # Exclusiones
 CLIENTES_EXCLUIDOS = [11, 3900]
@@ -133,17 +134,21 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
     """
 
     if grupo_by == 'marca':
-        select_campos = "tbd.brand_desc as nombre, tbd.brand_desc as identificador"
-        group_by = "tbd.brand_desc"
+        select_campos = "marca as nombre, marca as identificador"
+        group_by = "marca"
+        where_not_null = "marca IS NOT NULL"
     elif grupo_by == 'categoria':
-        select_campos = "tcc.cat_desc as nombre, tcc.cat_desc as identificador"
-        group_by = "tcc.cat_desc"
+        select_campos = "categoria as nombre, categoria as identificador"
+        group_by = "categoria"
+        where_not_null = "categoria IS NOT NULL"
     elif grupo_by == 'subcategoria':
-        select_campos = "tsc.subcat_desc as nombre, tsc.subcat_desc as identificador"
-        group_by = "tsc.subcat_desc"
+        select_campos = "subcategoria as nombre, subcategoria as identificador"
+        group_by = "subcategoria"
+        where_not_null = "subcategoria IS NOT NULL"
     else:  # producto
-        select_campos = "CONCAT(ti.item_code, ' - ', ti.item_desc) as nombre, ti.item_id::text as identificador"
-        group_by = "ti.item_id, ti.item_code, ti.item_desc"
+        select_campos = "CONCAT(item_code, ' - ', item_desc) as nombre, item_id::text as identificador"
+        group_by = "item_id, item_code, item_desc"
+        where_not_null = "item_id IS NOT NULL"
 
     return f"""
     WITH costo_venta AS (
@@ -268,7 +273,7 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
         ) as costo_con_costo
 
     FROM costo_venta
-    WHERE nombre IS NOT NULL
+    WHERE {where_not_null}
     GROUP BY {group_by}
     ORDER BY monto_venta DESC
     """
