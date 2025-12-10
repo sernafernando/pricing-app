@@ -451,12 +451,12 @@ async def obtener_opciones_filtros(
         if subcat_id:
             subcategorias_ids.add(subcat_id)
 
-    # Obtener nombres de subcategorías
+    # Obtener nombres de subcategorías (usar subcat_id, no id)
     subcategorias_info = {}
     if subcategorias_ids:
-        subcats = db.query(Subcategoria).filter(Subcategoria.id.in_(subcategorias_ids)).all()
+        subcats = db.query(Subcategoria).filter(Subcategoria.subcat_id.in_(subcategorias_ids)).all()
         for s in subcats:
-            subcategorias_info[s.id] = s.nombre
+            subcategorias_info[s.subcat_id] = s.nombre
 
     # Convertir sets a listas ordenadas
     return {
