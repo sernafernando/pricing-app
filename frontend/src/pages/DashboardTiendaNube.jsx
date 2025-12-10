@@ -32,6 +32,12 @@ export default function DashboardTiendaNube() {
   const [comisionTarjeta, setComisionTarjeta] = useState(3.0);
   const [comisionEfectivo, setComisionEfectivo] = useState(1.0);
 
+  // Overrides de marca/categoría/subcategoría
+  const [overrides, setOverrides] = useState({});
+  const [marcasDisponibles, setMarcasDisponibles] = useState([]);
+  const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
+  const [subcategoriasDisponibles, setSubcategoriasDisponibles] = useState([]);
+
   // API base URL
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
@@ -108,15 +114,23 @@ export default function DashboardTiendaNube() {
       if (sucursalSeleccionada) params.sucursal = sucursalSeleccionada;
       if (vendedorSeleccionado) params.vendedor = vendedorSeleccionado;
 
-      // Cargar operaciones y métodos de pago en paralelo
-      const [operacionesRes, metodosPagoRes, constantesRes] = await Promise.all([
+      // Cargar operaciones, métodos de pago, overrides y opciones en paralelo
+      const [operacionesRes, metodosPagoRes, constantesRes, overridesRes, marcasRes, categoriasRes, subcategoriasRes] = await Promise.all([
         axios.get(`${API_URL}/ventas-tienda-nube`, { params, headers }),
         axios.get(`${API_URL}/ventas-tienda-nube/metodos-pago`, { params: { from_date: fechaDesde, to_date: fechaHasta }, headers }),
-        axios.get(`${API_URL}/pricing-constants/actual`, { headers })
+        axios.get(`${API_URL}/pricing-constants/actual`, { headers }),
+        axios.get(`${API_URL}/ventas-tienda-nube/overrides`, { params: { from_date: fechaDesde, to_date: fechaHasta }, headers }),
+        axios.get(`${API_URL}/marcas`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API_URL}/categorias`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API_URL}/subcategorias`, { headers }).catch(() => ({ data: [] }))
       ]);
 
       setOperaciones(operacionesRes.data || []);
       setMetodosPago(metodosPagoRes.data || {});
+      setOverrides(overridesRes.data || {});
+      setMarcasDisponibles(marcasRes.data || []);
+      setCategoriasDisponibles(categoriasRes.data || []);
+      setSubcategoriasDisponibles(subcategoriasRes.data || []);
 
       if (constantesRes.data) {
         setComisionEfectivo(constantesRes.data.comision_tienda_nube || 1.0);
@@ -146,6 +160,39 @@ export default function DashboardTiendaNube() {
       console.error('Error guardando método de pago:', error);
       alert('Error al guardar el método de pago');
     }
+  };
+
+  const guardarOverride = async (itTransaction, campo, valor) => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      await axios.post(`${API_URL}/ventas-tienda-nube/override`, {
+        it_transaction: itTransaction,
+        [campo]: valor
+      }, { headers });
+
+      // Actualizar estado local
+      setOverrides(prev => ({
+        ...prev,
+        [itTransaction]: {
+          ...(prev[itTransaction] || {}),
+          [campo]: valor || null
+        }
+      }));
+    } catch (error) {
+      console.error('Error guardando override:', error);
+      alert('Error al guardar el cambio');
+    }
+  };
+
+  // Obtener valor efectivo (override o valor original)
+  const getValorEfectivo = (op, campo) => {
+    const override = overrides[op.id_operacion];
+    if (override && override[campo] !== undefined && override[campo] !== null) {
+      return override[campo];
+    }
+    return op[campo] || '';
   };
 
   const formatearMoneda = (monto) => {
@@ -399,6 +446,8 @@ export default function DashboardTiendaNube() {
                   <th>Codigo</th>
                   <th>Producto</th>
                   <th>Marca</th>
+                  <th>Categoría</th>
+                  <th>Subcategoría</th>
                   <th>Cant</th>
                   <th>Precio Unit</th>
                   <th>IVA%</th>
@@ -425,6 +474,12 @@ export default function DashboardTiendaNube() {
                   const gananciaCalculada = montoLimpio - costoSinIva;
                   const markupCalculado = costoSinIva > 0 ? gananciaCalculada / costoSinIva : null;
 
+                  // Valores efectivos (override o original)
+                  const marcaEfectiva = getValorEfectivo(op, 'marca');
+                  const categoriaEfectiva = getValorEfectivo(op, 'categoria');
+                  const subcategoriaEfectiva = getValorEfectivo(op, 'subcategoria');
+                  const tieneOverride = overrides[op.id_operacion];
+
                   return (
                     <tr key={op.id_operacion || idx} className={sinCosto ? styles.rowSinCosto : ''}>
                       <td>{formatearFecha(op.fecha)}</td>
@@ -433,7 +488,60 @@ export default function DashboardTiendaNube() {
                       <td>{op.vendedor || '-'}</td>
                       <td>{op.codigo_item || '-'}</td>
                       <td className={styles.descripcion}>{op.descripcion || '-'}</td>
-                      <td>{op.marca || '-'}</td>
+                      <td>
+                        <select
+                          value={marcaEfectiva}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'marca', e.target.value)}
+                          className={styles.selectEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.marca ? '#fef3c7' : 'transparent'
+                          }}
+                        >
+                          <option value="">Sin marca</option>
+                          {marcasDisponibles.map(m => (
+                            <option key={m.brand_id || m} value={m.brand_desc || m}>{m.brand_desc || m}</option>
+                          ))}
+                          {marcaEfectiva && !marcasDisponibles.find(m => (m.brand_desc || m) === marcaEfectiva) && (
+                            <option value={marcaEfectiva}>{marcaEfectiva}</option>
+                          )}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          value={categoriaEfectiva}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'categoria', e.target.value)}
+                          className={styles.selectEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.categoria ? '#fef3c7' : 'transparent'
+                          }}
+                        >
+                          <option value="">Sin categoría</option>
+                          {categoriasDisponibles.map(c => (
+                            <option key={c.cat_id || c} value={c.cat_desc || c}>{c.cat_desc || c}</option>
+                          ))}
+                          {categoriaEfectiva && !categoriasDisponibles.find(c => (c.cat_desc || c) === categoriaEfectiva) && (
+                            <option value={categoriaEfectiva}>{categoriaEfectiva}</option>
+                          )}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          value={subcategoriaEfectiva}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'subcategoria', e.target.value)}
+                          className={styles.selectEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.subcategoria ? '#fef3c7' : 'transparent'
+                          }}
+                        >
+                          <option value="">Sin subcategoría</option>
+                          {subcategoriasDisponibles.map(s => (
+                            <option key={s.subcat_id || s} value={s.subcat_desc || s}>{s.subcat_desc || s}</option>
+                          ))}
+                          {subcategoriaEfectiva && !subcategoriasDisponibles.find(s => (s.subcat_desc || s) === subcategoriaEfectiva) && (
+                            <option value={subcategoriaEfectiva}>{subcategoriaEfectiva}</option>
+                          )}
+                        </select>
+                      </td>
                       <td className={styles.centrado}>{op.cantidad}</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_unitario_sin_iva)}</td>
                       <td className={styles.centrado}>{op.iva_porcentaje}%</td>
@@ -442,13 +550,9 @@ export default function DashboardTiendaNube() {
                         <select
                           value={metodoPagoActual}
                           onChange={(e) => cambiarMetodoPago(op.id_operacion, e.target.value)}
+                          className={styles.selectEditable}
                           style={{
-                            padding: '0.25rem',
-                            fontSize: '0.8rem',
-                            borderRadius: '4px',
-                            border: '1px solid #d1d5db',
-                            backgroundColor: metodoPagoActual === 'tarjeta' ? '#fef3c7' : '#d1fae5',
-                            cursor: 'pointer'
+                            backgroundColor: metodoPagoActual === 'tarjeta' ? '#fef3c7' : '#d1fae5'
                           }}
                         >
                           <option value="efectivo">Efectivo ({comisionEfectivo}%)</option>

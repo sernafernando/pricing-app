@@ -33,6 +33,12 @@ export default function DashboardVentasFuera() {
   const [modalCostoAbierto, setModalCostoAbierto] = useState(false);
   const [operacionEditando, setOperacionEditando] = useState(null);
 
+  // Overrides de marca/categoría/subcategoría
+  const [overrides, setOverrides] = useState({});
+  const [marcasDisponibles, setMarcasDisponibles] = useState([]);
+  const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
+  const [subcategoriasDisponibles, setSubcategoriasDisponibles] = useState([]);
+
   // API base URL
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
@@ -110,9 +116,20 @@ export default function DashboardVentasFuera() {
       if (sucursalSeleccionada) params.sucursal = sucursalSeleccionada;
       if (vendedorSeleccionado) params.vendedor = vendedorSeleccionado;
 
-      // Usar nuevo endpoint que lee de tabla de metricas (mas rapido y con metrica_id)
-      const response = await axios.get(`${API_URL}/ventas-fuera-ml/operaciones`, { params, headers });
-      setOperaciones(response.data || []);
+      // Cargar operaciones, overrides y opciones en paralelo
+      const [operacionesRes, overridesRes, marcasRes, categoriasRes, subcategoriasRes] = await Promise.all([
+        axios.get(`${API_URL}/ventas-fuera-ml/operaciones`, { params, headers }),
+        axios.get(`${API_URL}/ventas-fuera-ml/overrides`, { params: { from_date: fechaDesde, to_date: fechaHasta }, headers }),
+        axios.get(`${API_URL}/marcas`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API_URL}/categorias`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`${API_URL}/subcategorias`, { headers }).catch(() => ({ data: [] }))
+      ]);
+
+      setOperaciones(operacionesRes.data || []);
+      setOverrides(overridesRes.data || {});
+      setMarcasDisponibles(marcasRes.data || []);
+      setCategoriasDisponibles(categoriasRes.data || []);
+      setSubcategoriasDisponibles(subcategoriasRes.data || []);
     } catch (error) {
       console.error('Error cargando operaciones:', error);
       alert('Error al cargar las operaciones');
@@ -134,6 +151,39 @@ export default function DashboardVentasFuera() {
   const onCostoGuardado = () => {
     // Recargar operaciones para ver el cambio
     cargarOperaciones();
+  };
+
+  const guardarOverride = async (itTransaction, campo, valor) => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      await axios.post(`${API_URL}/ventas-fuera-ml/override`, {
+        it_transaction: itTransaction,
+        [campo]: valor
+      }, { headers });
+
+      // Actualizar estado local
+      setOverrides(prev => ({
+        ...prev,
+        [itTransaction]: {
+          ...(prev[itTransaction] || {}),
+          [campo]: valor || null
+        }
+      }));
+    } catch (error) {
+      console.error('Error guardando override:', error);
+      alert('Error al guardar el cambio');
+    }
+  };
+
+  // Obtener valor efectivo (override o valor original)
+  const getValorEfectivo = (op, campo) => {
+    const override = overrides[op.id_operacion];
+    if (override && override[campo] !== undefined && override[campo] !== null) {
+      return override[campo];
+    }
+    return op[campo] || '';
   };
 
   const formatearMoneda = (monto) => {
@@ -396,6 +446,8 @@ export default function DashboardVentasFuera() {
                   <th>Codigo</th>
                   <th>Producto</th>
                   <th>Marca</th>
+                  <th>Categoría</th>
+                  <th>Subcategoría</th>
                   <th>Cant</th>
                   <th>Precio Unit</th>
                   <th>IVA%</th>
@@ -410,6 +462,13 @@ export default function DashboardVentasFuera() {
               <tbody>
                 {operacionesFiltradas.map((op, idx) => {
                   const sinCosto = !op.costo_pesos_sin_iva || op.costo_pesos_sin_iva === 0;
+
+                  // Valores efectivos (override o original)
+                  const marcaEfectiva = getValorEfectivo(op, 'marca');
+                  const categoriaEfectiva = getValorEfectivo(op, 'categoria');
+                  const subcategoriaEfectiva = getValorEfectivo(op, 'subcategoria');
+                  const tieneOverride = overrides[op.id_operacion];
+
                   return (
                     <tr key={op.metrica_id || idx} className={sinCosto ? styles.rowSinCosto : ''}>
                       <td>{formatearFecha(op.fecha)}</td>
@@ -418,7 +477,60 @@ export default function DashboardVentasFuera() {
                       <td>{op.vendedor || '-'}</td>
                       <td>{op.codigo_item || '-'}</td>
                       <td className={styles.descripcion}>{op.descripcion || '-'}</td>
-                      <td>{op.marca || '-'}</td>
+                      <td>
+                        <select
+                          value={marcaEfectiva}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'marca', e.target.value)}
+                          className={styles.selectEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.marca ? '#fef3c7' : 'transparent'
+                          }}
+                        >
+                          <option value="">Sin marca</option>
+                          {marcasDisponibles.map(m => (
+                            <option key={m.brand_id || m} value={m.brand_desc || m}>{m.brand_desc || m}</option>
+                          ))}
+                          {marcaEfectiva && !marcasDisponibles.find(m => (m.brand_desc || m) === marcaEfectiva) && (
+                            <option value={marcaEfectiva}>{marcaEfectiva}</option>
+                          )}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          value={categoriaEfectiva}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'categoria', e.target.value)}
+                          className={styles.selectEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.categoria ? '#fef3c7' : 'transparent'
+                          }}
+                        >
+                          <option value="">Sin categoría</option>
+                          {categoriasDisponibles.map(c => (
+                            <option key={c.cat_id || c} value={c.cat_desc || c}>{c.cat_desc || c}</option>
+                          ))}
+                          {categoriaEfectiva && !categoriasDisponibles.find(c => (c.cat_desc || c) === categoriaEfectiva) && (
+                            <option value={categoriaEfectiva}>{categoriaEfectiva}</option>
+                          )}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          value={subcategoriaEfectiva}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'subcategoria', e.target.value)}
+                          className={styles.selectEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.subcategoria ? '#fef3c7' : 'transparent'
+                          }}
+                        >
+                          <option value="">Sin subcategoría</option>
+                          {subcategoriasDisponibles.map(s => (
+                            <option key={s.subcat_id || s} value={s.subcat_desc || s}>{s.subcat_desc || s}</option>
+                          ))}
+                          {subcategoriaEfectiva && !subcategoriasDisponibles.find(s => (s.subcat_desc || s) === subcategoriaEfectiva) && (
+                            <option value={subcategoriaEfectiva}>{subcategoriaEfectiva}</option>
+                          )}
+                        </select>
+                      </td>
                       <td className={styles.centrado}>{op.cantidad}</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_unitario_sin_iva)}</td>
                       <td className={styles.centrado}>{op.iva_porcentaje}%</td>

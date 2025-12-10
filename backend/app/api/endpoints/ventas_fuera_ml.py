@@ -983,3 +983,135 @@ async def get_metrica_detalle(
         "moneda_costo": metrica.moneda_costo,
         "fecha_venta": metrica.fecha_venta.isoformat() if metrica.fecha_venta else None
     }
+
+
+# ============================================================================
+# Endpoints para Overrides manuales de marca/categoría/subcategoría
+# Estos datos NO se sobreescriben cuando se recalculan las métricas
+# ============================================================================
+
+class VentaFueraOverrideRequest(BaseModel):
+    """Request para crear/actualizar override de datos"""
+    it_transaction: int
+    marca: Optional[str] = None
+    categoria: Optional[str] = None
+    subcategoria: Optional[str] = None
+
+
+class VentaFueraOverrideResponse(BaseModel):
+    """Response de override"""
+    it_transaction: int
+    marca: Optional[str] = None
+    categoria: Optional[str] = None
+    subcategoria: Optional[str] = None
+
+
+@router.get("/ventas-fuera-ml/overrides")
+async def get_overrides_fuera_ml(
+    from_date: str = Query(...),
+    to_date: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtiene todos los overrides de ventas fuera ML para un rango de fechas.
+    Devuelve un diccionario con it_transaction como clave.
+    """
+    from app.models.venta_override import VentaFueraMLOverride
+
+    # Primero obtener los it_transaction del período
+    query = text("""
+        SELECT DISTINCT it_transaction
+        FROM ventas_fuera_ml_metricas
+        WHERE fecha_venta >= :from_date AND fecha_venta < :to_date::date + 1
+    """)
+
+    result = db.execute(query, {"from_date": from_date, "to_date": to_date}).fetchall()
+    it_transactions = [r[0] for r in result]
+
+    if not it_transactions:
+        return {}
+
+    # Obtener overrides
+    overrides = db.query(VentaFueraMLOverride).filter(
+        VentaFueraMLOverride.it_transaction.in_(it_transactions)
+    ).all()
+
+    return {
+        o.it_transaction: {
+            "marca": o.marca,
+            "categoria": o.categoria,
+            "subcategoria": o.subcategoria
+        }
+        for o in overrides
+    }
+
+
+@router.post("/ventas-fuera-ml/override")
+async def set_override_fuera_ml(
+    request: VentaFueraOverrideRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Guarda o actualiza el override de marca/categoría/subcategoría para una venta fuera ML.
+    """
+    from app.models.venta_override import VentaFueraMLOverride
+    from fastapi import HTTPException
+
+    # Buscar si ya existe
+    override_existente = db.query(VentaFueraMLOverride).filter(
+        VentaFueraMLOverride.it_transaction == request.it_transaction
+    ).first()
+
+    if override_existente:
+        # Actualizar solo los campos que vienen con valor
+        if request.marca is not None:
+            override_existente.marca = request.marca if request.marca != '' else None
+        if request.categoria is not None:
+            override_existente.categoria = request.categoria if request.categoria != '' else None
+        if request.subcategoria is not None:
+            override_existente.subcategoria = request.subcategoria if request.subcategoria != '' else None
+        override_existente.usuario_id = current_user.id if hasattr(current_user, 'id') else None
+    else:
+        nuevo_override = VentaFueraMLOverride(
+            it_transaction=request.it_transaction,
+            marca=request.marca if request.marca != '' else None,
+            categoria=request.categoria if request.categoria != '' else None,
+            subcategoria=request.subcategoria if request.subcategoria != '' else None,
+            usuario_id=current_user.id if hasattr(current_user, 'id') else None
+        )
+        db.add(nuevo_override)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "it_transaction": request.it_transaction,
+        "marca": request.marca,
+        "categoria": request.categoria,
+        "subcategoria": request.subcategoria
+    }
+
+
+@router.delete("/ventas-fuera-ml/override/{it_transaction}")
+async def delete_override_fuera_ml(
+    it_transaction: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Elimina un override de venta fuera ML."""
+    from app.models.venta_override import VentaFueraMLOverride
+    from fastapi import HTTPException
+
+    override = db.query(VentaFueraMLOverride).filter(
+        VentaFueraMLOverride.it_transaction == it_transaction
+    ).first()
+
+    if not override:
+        raise HTTPException(status_code=404, detail="Override no encontrado")
+
+    db.delete(override)
+    db.commit()
+
+    return {"success": True, "it_transaction": it_transaction}
