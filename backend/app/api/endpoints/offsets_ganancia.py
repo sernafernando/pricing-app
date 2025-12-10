@@ -590,15 +590,22 @@ async def crear_offset(
 
         return {"mensaje": f"Se crearon {len(offsets_creados)} offsets", "cantidad": len(offsets_creados)}
 
-    # Validar que al menos un nivel esté definido para offset individual
+    # Validar que al menos un nivel esté definido para offset individual (solo si no es de grupo)
     niveles = [offset.marca, offset.categoria, offset.subcategoria_id, offset.item_id]
     niveles_definidos = [n for n in niveles if n is not None]
 
-    if len(niveles_definidos) == 0:
-        raise HTTPException(400, "Debe especificar al menos un nivel (marca, categoría, subcategoría o producto)")
+    # Si es offset de grupo, no necesita niveles individuales
+    if offset.grupo_id:
+        # Offset de grupo: no debe tener niveles individuales definidos
+        if len(niveles_definidos) > 0:
+            raise HTTPException(400, "Los offsets de grupo no deben especificar marca, categoría, subcategoría o producto individual")
+    else:
+        # Offset individual: debe tener exactamente un nivel
+        if len(niveles_definidos) == 0:
+            raise HTTPException(400, "Debe especificar al menos un nivel (marca, categoría, subcategoría o producto)")
 
-    if len(niveles_definidos) > 1:
-        raise HTTPException(400, "Solo puede especificar un nivel por offset")
+        if len(niveles_definidos) > 1:
+            raise HTTPException(400, "Solo puede especificar un nivel por offset")
 
     nuevo_offset = OffsetGanancia(
         marca=offset.marca,
