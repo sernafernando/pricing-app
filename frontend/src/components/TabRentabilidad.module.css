@@ -1187,6 +1187,8 @@
   display: flex;
   gap: 0.25rem;
   white-space: nowrap;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .tdSmall {

@@ -1220,7 +1220,7 @@ async def recalcular_consumo_grupo(
                 v.fecha_venta,
                 v.item_id,
                 v.cantidad,
-                v.costo_total_sin_iva,
+                v.costo_total,
                 v.cotizacion_dolar,
                 v.marca,
                 v.categoria
@@ -1244,7 +1244,7 @@ async def recalcular_consumo_grupo(
                 continue
 
             cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
-            costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
+            costo = float(venta.costo_total) if venta.costo_total else 0
             monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_aplicable, venta.cantidad, costo, cot)
 
             if monto_offset_ars == 0 and monto_offset_usd == 0:
@@ -1293,7 +1293,7 @@ async def recalcular_consumo_grupo(
                     v.fecha_venta,
                     v.item_id,
                     v.cantidad,
-                    v.costo_total_sin_iva,
+                    v.costo_total,
                     v.cotizacion_dolar,
                     v.marca,
                     v.categoria
@@ -1312,7 +1312,7 @@ async def recalcular_consumo_grupo(
                     continue
 
                 cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
-                costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
+                costo = float(venta.costo_total) if venta.costo_total else 0
                 monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_ref, venta.cantidad, costo, cot)
 
                 if monto_offset_ars == 0 and monto_offset_usd == 0:
