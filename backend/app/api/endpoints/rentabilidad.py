@@ -10,6 +10,7 @@ from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
+from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 
@@ -195,6 +196,45 @@ async def obtener_rentabilidad(
         ),
         OffsetGanancia.aplica_ml == True
     ).all()
+
+    # Obtener filtros de grupo para todos los grupos con offsets
+    grupo_ids = list(set(o.grupo_id for o in offsets if o.grupo_id))
+    filtros_por_grupo = {}  # grupo_id -> [filtros]
+    if grupo_ids:
+        filtros_grupo = db.query(OffsetGrupoFiltro).filter(
+            OffsetGrupoFiltro.grupo_id.in_(grupo_ids)
+        ).all()
+        for filtro in filtros_grupo:
+            if filtro.grupo_id not in filtros_por_grupo:
+                filtros_por_grupo[filtro.grupo_id] = []
+            filtros_por_grupo[filtro.grupo_id].append(filtro)
+
+    # Función auxiliar para verificar si un producto matchea con los filtros de un grupo
+    def producto_matchea_filtros_grupo(grupo_id, marca=None, categoria=None, subcategoria=None, item_id=None):
+        """
+        Verifica si un producto matchea con al menos un filtro del grupo.
+        Si el grupo no tiene filtros, retorna False (debe matchear por offset individual).
+        """
+        filtros = filtros_por_grupo.get(grupo_id, [])
+        if not filtros:
+            return False
+
+        for filtro in filtros:
+            matchea = True
+            # Todos los campos del filtro que no son None deben coincidir
+            if filtro.marca and (not marca or filtro.marca != marca):
+                matchea = False
+            if filtro.categoria and (not categoria or filtro.categoria != categoria):
+                matchea = False
+            if filtro.subcategoria_id and (not subcategoria or str(filtro.subcategoria_id) != str(subcategoria)):
+                matchea = False
+            if filtro.item_id and (not item_id or filtro.item_id != item_id):
+                matchea = False
+
+            if matchea:
+                return True
+
+        return False
 
     # Calcular el offset total por grupo/offset CON límites aplicados
     # IMPORTANTE: El límite se calcula sobre el ACUMULADO desde que empezó el offset,
@@ -615,40 +655,79 @@ async def obtener_rentabilidad(
                 # Solo procesar si este offset aplica a la card actual
                 aplica_a_card = False
 
-                if nivel == "marca":
-                    if offset.marca and offset.marca == card_nombre:
-                        aplica_a_card = True
-                    elif offset.item_id:
-                        detalle = productos_detalle.get(offset.item_id)
-                        if detalle and detalle['marca'] == card_nombre:
-                            aplica_a_card = True
-                    elif offset.categoria:
-                        for item_id, detalle in productos_detalle.items():
-                            if detalle['marca'] == card_nombre and detalle['categoria'] == offset.categoria:
+                # PRIMERO: Verificar si la card matchea con los filtros del grupo
+                if offset.grupo_id in filtros_por_grupo and filtros_por_grupo[offset.grupo_id]:
+                    # El grupo tiene filtros, verificar si la card matchea
+                    if nivel == "marca":
+                        # Para card de marca, verificar si algún filtro matchea esta marca
+                        for filtro in filtros_por_grupo[offset.grupo_id]:
+                            if filtro.marca and filtro.marca == card_nombre:
                                 aplica_a_card = True
                                 break
-                elif nivel == "categoria":
-                    if offset.categoria and offset.categoria == card_nombre:
-                        aplica_a_card = True
-                    elif offset.item_id:
-                        detalle = productos_detalle.get(offset.item_id)
-                        if detalle and detalle['categoria'] == card_nombre:
-                            aplica_a_card = True
-                    elif offset.marca:
-                        for item_id, detalle in productos_detalle.items():
-                            if detalle['categoria'] == card_nombre and detalle['marca'] == offset.marca:
+                    elif nivel == "categoria":
+                        # Para card de categoría, verificar si algún filtro matchea esta categoría
+                        for filtro in filtros_por_grupo[offset.grupo_id]:
+                            if filtro.categoria and filtro.categoria == card_nombre:
                                 aplica_a_card = True
                                 break
-                elif nivel == "subcategoria":
-                    if offset.subcategoria_id and str(offset.subcategoria_id) == str(card_identificador):
-                        aplica_a_card = True
-                    elif offset.item_id:
-                        detalle = productos_detalle.get(offset.item_id)
-                        if detalle and detalle['subcategoria'] == card_nombre:
+                    elif nivel == "subcategoria":
+                        # Para card de subcategoría
+                        for filtro in filtros_por_grupo[offset.grupo_id]:
+                            if filtro.subcategoria_id and str(filtro.subcategoria_id) == str(card_identificador):
+                                aplica_a_card = True
+                                break
+                    elif nivel == "producto":
+                        # Para card de producto, verificar si matchea con filtros
+                        detalle = productos_detalle.get(int(card_identificador)) if card_identificador else None
+                        if detalle:
+                            for filtro in filtros_por_grupo[offset.grupo_id]:
+                                matchea = True
+                                if filtro.marca and filtro.marca != detalle.get('marca'):
+                                    matchea = False
+                                if filtro.categoria and filtro.categoria != detalle.get('categoria'):
+                                    matchea = False
+                                if filtro.item_id and filtro.item_id != int(card_identificador):
+                                    matchea = False
+                                if matchea:
+                                    aplica_a_card = True
+                                    break
+
+                # SEGUNDO: Si no matcheó por filtros, verificar por offset individual (lógica original)
+                if not aplica_a_card:
+                    if nivel == "marca":
+                        if offset.marca and offset.marca == card_nombre:
                             aplica_a_card = True
-                elif nivel == "producto":
-                    if offset.item_id and str(offset.item_id) == str(card_identificador):
-                        aplica_a_card = True
+                        elif offset.item_id:
+                            detalle = productos_detalle.get(offset.item_id)
+                            if detalle and detalle['marca'] == card_nombre:
+                                aplica_a_card = True
+                        elif offset.categoria:
+                            for item_id, detalle in productos_detalle.items():
+                                if detalle['marca'] == card_nombre and detalle['categoria'] == offset.categoria:
+                                    aplica_a_card = True
+                                    break
+                    elif nivel == "categoria":
+                        if offset.categoria and offset.categoria == card_nombre:
+                            aplica_a_card = True
+                        elif offset.item_id:
+                            detalle = productos_detalle.get(offset.item_id)
+                            if detalle and detalle['categoria'] == card_nombre:
+                                aplica_a_card = True
+                        elif offset.marca:
+                            for item_id, detalle in productos_detalle.items():
+                                if detalle['categoria'] == card_nombre and detalle['marca'] == offset.marca:
+                                    aplica_a_card = True
+                                    break
+                    elif nivel == "subcategoria":
+                        if offset.subcategoria_id and str(offset.subcategoria_id) == str(card_identificador):
+                            aplica_a_card = True
+                        elif offset.item_id:
+                            detalle = productos_detalle.get(offset.item_id)
+                            if detalle and detalle['subcategoria'] == card_nombre:
+                                aplica_a_card = True
+                    elif nivel == "producto":
+                        if offset.item_id and str(offset.item_id) == str(card_identificador):
+                            aplica_a_card = True
 
                 if aplica_a_card:
                     # Marcar grupo como procesado para esta card

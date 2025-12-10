@@ -38,6 +38,13 @@ export default function ModalOffset({
   const [mostrarFormGrupo, setMostrarFormGrupo] = useState(false);
   const [nuevoGrupoNombre, setNuevoGrupoNombre] = useState('');
 
+  // Filtros de grupo
+  const [filtrosGrupo, setFiltrosGrupo] = useState([]);
+  const [nuevoFiltro, setNuevoFiltro] = useState({ marca: '', categoria: '', subcategoria_id: '', item_id: '' });
+  const [busquedaFiltroProducto, setBusquedaFiltroProducto] = useState('');
+  const [productosFiltroEncontrados, setProductosFiltroEncontrados] = useState([]);
+  const [buscandoFiltroProducto, setBuscandoFiltroProducto] = useState(false);
+
   const [nuevoOffset, setNuevoOffset] = useState({
     modo: 'individual', // 'individual' o 'grupo'
     tipo: 'marca',
@@ -114,6 +121,81 @@ export default function ModalOffset({
     }
   };
 
+  // Funciones para filtros de grupo
+  const cargarFiltrosGrupo = async (grupoId) => {
+    if (!grupoId) {
+      setFiltrosGrupo([]);
+      return;
+    }
+    try {
+      const response = await api.get(`/api/offset-grupos/${grupoId}/filtros`);
+      setFiltrosGrupo(response.data);
+    } catch (error) {
+      console.error('Error cargando filtros:', error);
+    }
+  };
+
+  const agregarFiltroGrupo = async () => {
+    if (!nuevoOffset.grupo_id) {
+      alert('Seleccione un grupo primero');
+      return;
+    }
+    const filtro = { ...nuevoFiltro };
+    // Limpiar campos vacíos
+    if (!filtro.marca) delete filtro.marca;
+    if (!filtro.categoria) delete filtro.categoria;
+    if (!filtro.subcategoria_id) delete filtro.subcategoria_id;
+    if (!filtro.item_id) delete filtro.item_id;
+
+    if (Object.keys(filtro).length === 0) {
+      alert('Debe especificar al menos un campo para el filtro');
+      return;
+    }
+
+    try {
+      await api.post(`/api/offset-grupos/${nuevoOffset.grupo_id}/filtros`, filtro);
+      setNuevoFiltro({ marca: '', categoria: '', subcategoria_id: '', item_id: '' });
+      setBusquedaFiltroProducto('');
+      setProductosFiltroEncontrados([]);
+      await cargarFiltrosGrupo(nuevoOffset.grupo_id);
+      await cargarGrupos();
+    } catch (error) {
+      console.error('Error agregando filtro:', error);
+      alert(error.response?.data?.detail || 'Error al agregar el filtro');
+    }
+  };
+
+  const eliminarFiltroGrupo = async (filtroId) => {
+    try {
+      await api.delete(`/api/offset-grupos/${nuevoOffset.grupo_id}/filtros/${filtroId}`);
+      await cargarFiltrosGrupo(nuevoOffset.grupo_id);
+      await cargarGrupos();
+    } catch (error) {
+      console.error('Error eliminando filtro:', error);
+    }
+  };
+
+  const buscarProductoFiltro = async () => {
+    if (busquedaFiltroProducto.length < 2) return;
+    setBuscandoFiltroProducto(true);
+    try {
+      const response = await api.get('/api/buscar-productos-erp', {
+        params: { q: busquedaFiltroProducto }
+      });
+      setProductosFiltroEncontrados(response.data);
+    } catch (error) {
+      console.error('Error buscando productos:', error);
+    } finally {
+      setBuscandoFiltroProducto(false);
+    }
+  };
+
+  const seleccionarProductoFiltro = (producto) => {
+    setNuevoFiltro({ ...nuevoFiltro, item_id: producto.item_id });
+    setBusquedaFiltroProducto(producto.codigo + ' - ' + producto.descripcion);
+    setProductosFiltroEncontrados([]);
+  };
+
   const buscarProductosOffset = async () => {
     if (busquedaOffsetProducto.length < 2) return;
     setBuscandoProductosOffset(true);
@@ -165,6 +247,10 @@ export default function ModalOffset({
     setBusquedaOffsetProducto('');
     setEditandoOffset(null);
     setMostrarFormGrupo(false);
+    setFiltrosGrupo([]);
+    setNuevoFiltro({ marca: '', categoria: '', subcategoria_id: '', item_id: '' });
+    setBusquedaFiltroProducto('');
+    setProductosFiltroEncontrados([]);
   };
 
   const formatMoney = (valor) => {
@@ -545,11 +631,15 @@ export default function ModalOffset({
                   <div className={styles.grupoSelector}>
                     <select
                       value={nuevoOffset.grupo_id}
-                      onChange={e => setNuevoOffset({ ...nuevoOffset, grupo_id: e.target.value })}
+                      onChange={e => {
+                        const grupoId = e.target.value;
+                        setNuevoOffset({ ...nuevoOffset, grupo_id: grupoId });
+                        cargarFiltrosGrupo(grupoId);
+                      }}
                     >
                       <option value="">Seleccionar o crear grupo...</option>
                       {grupos.map(g => (
-                        <option key={g.id} value={g.id}>{g.nombre}</option>
+                        <option key={g.id} value={g.id}>{g.nombre} {g.filtros?.length > 0 ? `(${g.filtros.length} filtros)` : ''}</option>
                       ))}
                     </select>
                     <button
@@ -581,6 +671,105 @@ export default function ModalOffset({
                     </button>
                     <button onClick={() => setMostrarFormGrupo(false)} className={styles.btnCancelar}>
                       X
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Filtros del grupo */}
+              {nuevoOffset.grupo_id && (
+                <div className={styles.filtrosGrupoContainer} style={{ marginTop: '15px', padding: '10px', backgroundColor: '#f0f9ff', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 10px 0' }}>Filtros del grupo (el offset aplica a ventas que coincidan con AL MENOS un filtro):</h5>
+
+                  {/* Filtros existentes */}
+                  {filtrosGrupo.length > 0 && (
+                    <div style={{ marginBottom: '10px' }}>
+                      {filtrosGrupo.map(f => (
+                        <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px', padding: '5px', backgroundColor: '#fff', borderRadius: '4px' }}>
+                          <span style={{ flex: 1 }}>
+                            {f.marca && <span style={{ backgroundColor: '#dbeafe', padding: '2px 6px', borderRadius: '4px', marginRight: '4px' }}>Marca: {f.marca}</span>}
+                            {f.categoria && <span style={{ backgroundColor: '#dcfce7', padding: '2px 6px', borderRadius: '4px', marginRight: '4px' }}>Cat: {f.categoria}</span>}
+                            {f.subcategoria_id && <span style={{ backgroundColor: '#fef3c7', padding: '2px 6px', borderRadius: '4px', marginRight: '4px' }}>Subcat: {f.subcategoria_id}</span>}
+                            {f.item_id && <span style={{ backgroundColor: '#fce7f3', padding: '2px 6px', borderRadius: '4px' }}>Producto: {f.producto_descripcion || f.item_id}</span>}
+                          </span>
+                          <button
+                            onClick={() => eliminarFiltroGrupo(f.id)}
+                            style={{ padding: '2px 8px', backgroundColor: '#fee2e2', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                          >
+                            x
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Agregar nuevo filtro */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-end' }}>
+                    <div style={{ flex: '1 1 150px' }}>
+                      <label style={{ fontSize: '12px' }}>Marca:</label>
+                      <select
+                        value={nuevoFiltro.marca}
+                        onChange={e => setNuevoFiltro({ ...nuevoFiltro, marca: e.target.value })}
+                        style={{ width: '100%', padding: '4px' }}
+                      >
+                        <option value="">-</option>
+                        {filtrosDisponibles.marcas.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ flex: '1 1 150px' }}>
+                      <label style={{ fontSize: '12px' }}>Categoría:</label>
+                      <select
+                        value={nuevoFiltro.categoria}
+                        onChange={e => setNuevoFiltro({ ...nuevoFiltro, categoria: e.target.value })}
+                        style={{ width: '100%', padding: '4px' }}
+                      >
+                        <option value="">-</option>
+                        {filtrosDisponibles.categorias.map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ flex: '1 1 200px' }}>
+                      <label style={{ fontSize: '12px' }}>Producto (buscar):</label>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <input
+                          type="text"
+                          placeholder="Buscar..."
+                          value={busquedaFiltroProducto}
+                          onChange={e => {
+                            setBusquedaFiltroProducto(e.target.value);
+                            if (e.target.value.length < 2) {
+                              setNuevoFiltro({ ...nuevoFiltro, item_id: '' });
+                            }
+                          }}
+                          onKeyDown={e => e.key === 'Enter' && buscarProductoFiltro()}
+                          style={{ flex: 1, padding: '4px' }}
+                        />
+                        <button onClick={buscarProductoFiltro} disabled={buscandoFiltroProducto} style={{ padding: '4px 8px' }}>
+                          {buscandoFiltroProducto ? '...' : '🔍'}
+                        </button>
+                      </div>
+                      {productosFiltroEncontrados.length > 0 && (
+                        <div style={{ position: 'absolute', zIndex: 100, backgroundColor: '#fff', border: '1px solid #ccc', borderRadius: '4px', maxHeight: '150px', overflow: 'auto', width: '250px' }}>
+                          {productosFiltroEncontrados.map(p => (
+                            <div
+                              key={p.item_id}
+                              onClick={() => seleccionarProductoFiltro(p)}
+                              style={{ padding: '4px 8px', cursor: 'pointer', borderBottom: '1px solid #eee' }}
+                            >
+                              <strong>{p.codigo}</strong> - {p.descripcion}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={agregarFiltroGrupo}
+                      style={{ padding: '4px 12px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                    >
+                      + Agregar filtro
                     </button>
                   </div>
                 </div>

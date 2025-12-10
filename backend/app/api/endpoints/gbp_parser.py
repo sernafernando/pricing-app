@@ -61,7 +61,8 @@ SCRIPT_CONFIG = {
     "scriptDocumentFile": ["dfID", "braID"],
     "scriptFiscalClass": ["fcID"],
     "scriptTaxNumberType": ["tntID"],
-    "scriptState": ["countryID", "stateID"]
+    "scriptState": ["countryID", "stateID"],
+    "scriptItemAssociation": ["itemAID", "itemAID4update", "itemID", "item1ID"]
 }
 
 # Configuración de operaciones

@@ -23,3 +23,4 @@ class OffsetGrupo(Base):
     # Relaciones
     usuario = relationship("Usuario", foreign_keys=[usuario_id])
     offsets = relationship("OffsetGanancia", back_populates="grupo")
+    filtros = relationship("OffsetGrupoFiltro", back_populates="grupo", cascade="all, delete-orphan")

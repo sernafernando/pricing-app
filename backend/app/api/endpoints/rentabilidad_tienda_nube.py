@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
+from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.pricing_constants import PricingConstants
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
@@ -244,6 +245,18 @@ async def obtener_rentabilidad_tienda_nube(
         ),
         OffsetGanancia.aplica_tienda_nube == True
     ).all()
+
+    # Obtener filtros de grupo para todos los grupos con offsets
+    grupo_ids = list(set(o.grupo_id for o in offsets if o.grupo_id))
+    filtros_por_grupo = {}  # grupo_id -> [filtros]
+    if grupo_ids:
+        filtros_grupo = db.query(OffsetGrupoFiltro).filter(
+            OffsetGrupoFiltro.grupo_id.in_(grupo_ids)
+        ).all()
+        for filtro in filtros_grupo:
+            if filtro.grupo_id not in filtros_por_grupo:
+                filtros_por_grupo[filtro.grupo_id] = []
+            filtros_por_grupo[filtro.grupo_id].append(filtro)
 
     # Función para calcular consumo ACUMULADO de un grupo (ML + fuera_ml + tienda_nube)
     # NO filtramos por tipo_venta para que sume todas las ventas

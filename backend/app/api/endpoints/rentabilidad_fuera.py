@@ -14,6 +14,7 @@ from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
+from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 
@@ -239,21 +240,27 @@ async def obtener_rentabilidad_fuera(
     result = db.execute(text(query_str), params)
     resultados = result.fetchall()
 
-    # Obtener offsets vigentes (solo los que NO son exclusivos de ML)
+    # Obtener offsets vigentes (solo los que aplican a fuera de ML)
     offsets = db.query(OffsetGanancia).filter(
         OffsetGanancia.fecha_desde <= fecha_hasta,
         or_(
             OffsetGanancia.fecha_hasta.is_(None),
             OffsetGanancia.fecha_hasta >= fecha_desde
         ),
-        # Excluir offsets que solo aplican a ML
-        or_(
-            OffsetGanancia.aplica_ml.is_(None),
-            OffsetGanancia.aplica_ml == False,
-            # Si aplica_ml es True pero no hay campo exclusivo, incluir
-            and_(OffsetGanancia.aplica_ml == True, OffsetGanancia.grupo_id.isnot(None))
-        )
+        OffsetGanancia.aplica_fuera == True
     ).all()
+
+    # Obtener filtros de grupo para todos los grupos con offsets
+    grupo_ids = list(set(o.grupo_id for o in offsets if o.grupo_id))
+    filtros_por_grupo = {}  # grupo_id -> [filtros]
+    if grupo_ids:
+        filtros_grupo = db.query(OffsetGrupoFiltro).filter(
+            OffsetGrupoFiltro.grupo_id.in_(grupo_ids)
+        ).all()
+        for filtro in filtros_grupo:
+            if filtro.grupo_id not in filtros_por_grupo:
+                filtros_por_grupo[filtro.grupo_id] = []
+            filtros_por_grupo[filtro.grupo_id].append(filtro)
 
     # ========================================================================
     # FUNCIONES AUXILIARES PARA CONSUMO ACUMULATIVO (ML + FUERA_ML)

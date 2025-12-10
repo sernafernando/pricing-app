@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
+from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
 from app.models.usuario import Usuario
@@ -17,15 +18,37 @@ from app.api.deps import get_current_user
 router = APIRouter()
 
 
+class OffsetGrupoFiltroCreate(BaseModel):
+    marca: Optional[str] = None
+    categoria: Optional[str] = None
+    subcategoria_id: Optional[int] = None
+    item_id: Optional[int] = None
+
+
+class OffsetGrupoFiltroResponse(BaseModel):
+    id: int
+    grupo_id: int
+    marca: Optional[str] = None
+    categoria: Optional[str] = None
+    subcategoria_id: Optional[int] = None
+    item_id: Optional[int] = None
+    producto_descripcion: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class OffsetGrupoCreate(BaseModel):
     nombre: str
     descripcion: Optional[str] = None
+    filtros: Optional[List[OffsetGrupoFiltroCreate]] = None
 
 
 class OffsetGrupoResponse(BaseModel):
     id: int
     nombre: str
     descripcion: Optional[str]
+    filtros: List[OffsetGrupoFiltroResponse] = []
 
     class Config:
         from_attributes = True
@@ -112,27 +135,89 @@ async def listar_grupos(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Lista todos los grupos de offsets"""
+    """Lista todos los grupos de offsets con sus filtros"""
     grupos = db.query(OffsetGrupo).order_by(OffsetGrupo.nombre).all()
-    return grupos
+
+    resultado = []
+    for grupo in grupos:
+        filtros_response = []
+        for f in grupo.filtros:
+            filtro_dict = {
+                "id": f.id,
+                "grupo_id": f.grupo_id,
+                "marca": f.marca,
+                "categoria": f.categoria,
+                "subcategoria_id": f.subcategoria_id,
+                "item_id": f.item_id,
+                "producto_descripcion": f.producto.descripcion if f.producto else None
+            }
+            filtros_response.append(filtro_dict)
+
+        resultado.append({
+            "id": grupo.id,
+            "nombre": grupo.nombre,
+            "descripcion": grupo.descripcion,
+            "filtros": filtros_response
+        })
+
+    return resultado
 
 
-@router.post("/offset-grupos", response_model=OffsetGrupoResponse)
+@router.post("/offset-grupos")
 async def crear_grupo(
     grupo: OffsetGrupoCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Crea un nuevo grupo de offsets"""
+    """Crea un nuevo grupo de offsets con filtros opcionales"""
     nuevo_grupo = OffsetGrupo(
         nombre=grupo.nombre,
         descripcion=grupo.descripcion,
         usuario_id=current_user.id
     )
     db.add(nuevo_grupo)
+    db.flush()  # Para obtener el ID
+
+    # Crear filtros si se enviaron
+    filtros_creados = []
+    if grupo.filtros:
+        for filtro_data in grupo.filtros:
+            # Validar que al menos un campo esté definido
+            if not any([filtro_data.marca, filtro_data.categoria, filtro_data.subcategoria_id, filtro_data.item_id]):
+                continue
+
+            nuevo_filtro = OffsetGrupoFiltro(
+                grupo_id=nuevo_grupo.id,
+                marca=filtro_data.marca,
+                categoria=filtro_data.categoria,
+                subcategoria_id=filtro_data.subcategoria_id,
+                item_id=filtro_data.item_id
+            )
+            db.add(nuevo_filtro)
+            filtros_creados.append(nuevo_filtro)
+
     db.commit()
     db.refresh(nuevo_grupo)
-    return nuevo_grupo
+
+    # Construir respuesta
+    filtros_response = []
+    for f in nuevo_grupo.filtros:
+        filtros_response.append({
+            "id": f.id,
+            "grupo_id": f.grupo_id,
+            "marca": f.marca,
+            "categoria": f.categoria,
+            "subcategoria_id": f.subcategoria_id,
+            "item_id": f.item_id,
+            "producto_descripcion": f.producto.descripcion if f.producto else None
+        })
+
+    return {
+        "id": nuevo_grupo.id,
+        "nombre": nuevo_grupo.nombre,
+        "descripcion": nuevo_grupo.descripcion,
+        "filtros": filtros_response
+    }
 
 
 @router.delete("/offset-grupos/{grupo_id}")
@@ -151,9 +236,150 @@ async def eliminar_grupo(
     if offsets_count > 0:
         raise HTTPException(400, f"No se puede eliminar el grupo, tiene {offsets_count} offsets asociados")
 
+    # Los filtros se eliminan automáticamente por el cascade
     db.delete(grupo)
     db.commit()
     return {"mensaje": "Grupo eliminado"}
+
+
+# ==================== ENDPOINTS PARA FILTROS DE GRUPO ====================
+
+@router.post("/offset-grupos/{grupo_id}/filtros")
+async def agregar_filtro_a_grupo(
+    grupo_id: int,
+    filtro: OffsetGrupoFiltroCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Agrega un filtro a un grupo existente"""
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    if not grupo:
+        raise HTTPException(404, "Grupo no encontrado")
+
+    # Validar que al menos un campo esté definido
+    if not any([filtro.marca, filtro.categoria, filtro.subcategoria_id, filtro.item_id]):
+        raise HTTPException(400, "Debe especificar al menos un campo (marca, categoría, subcategoría o producto)")
+
+    nuevo_filtro = OffsetGrupoFiltro(
+        grupo_id=grupo_id,
+        marca=filtro.marca,
+        categoria=filtro.categoria,
+        subcategoria_id=filtro.subcategoria_id,
+        item_id=filtro.item_id
+    )
+    db.add(nuevo_filtro)
+    db.commit()
+    db.refresh(nuevo_filtro)
+
+    return {
+        "id": nuevo_filtro.id,
+        "grupo_id": nuevo_filtro.grupo_id,
+        "marca": nuevo_filtro.marca,
+        "categoria": nuevo_filtro.categoria,
+        "subcategoria_id": nuevo_filtro.subcategoria_id,
+        "item_id": nuevo_filtro.item_id,
+        "producto_descripcion": nuevo_filtro.producto.descripcion if nuevo_filtro.producto else None
+    }
+
+
+@router.delete("/offset-grupos/{grupo_id}/filtros/{filtro_id}")
+async def eliminar_filtro_de_grupo(
+    grupo_id: int,
+    filtro_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Elimina un filtro de un grupo"""
+    filtro = db.query(OffsetGrupoFiltro).filter(
+        OffsetGrupoFiltro.id == filtro_id,
+        OffsetGrupoFiltro.grupo_id == grupo_id
+    ).first()
+
+    if not filtro:
+        raise HTTPException(404, "Filtro no encontrado")
+
+    db.delete(filtro)
+    db.commit()
+    return {"mensaje": "Filtro eliminado"}
+
+
+@router.put("/offset-grupos/{grupo_id}/filtros")
+async def actualizar_filtros_grupo(
+    grupo_id: int,
+    filtros: List[OffsetGrupoFiltroCreate],
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Reemplaza todos los filtros de un grupo con los nuevos"""
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    if not grupo:
+        raise HTTPException(404, "Grupo no encontrado")
+
+    # Eliminar filtros existentes
+    db.query(OffsetGrupoFiltro).filter(OffsetGrupoFiltro.grupo_id == grupo_id).delete()
+
+    # Crear nuevos filtros
+    filtros_creados = []
+    for filtro_data in filtros:
+        if not any([filtro_data.marca, filtro_data.categoria, filtro_data.subcategoria_id, filtro_data.item_id]):
+            continue
+
+        nuevo_filtro = OffsetGrupoFiltro(
+            grupo_id=grupo_id,
+            marca=filtro_data.marca,
+            categoria=filtro_data.categoria,
+            subcategoria_id=filtro_data.subcategoria_id,
+            item_id=filtro_data.item_id
+        )
+        db.add(nuevo_filtro)
+        filtros_creados.append(nuevo_filtro)
+
+    db.commit()
+
+    # Refrescar para obtener las relaciones
+    for f in filtros_creados:
+        db.refresh(f)
+
+    return {
+        "mensaje": f"Se actualizaron {len(filtros_creados)} filtros",
+        "filtros": [
+            {
+                "id": f.id,
+                "grupo_id": f.grupo_id,
+                "marca": f.marca,
+                "categoria": f.categoria,
+                "subcategoria_id": f.subcategoria_id,
+                "item_id": f.item_id,
+                "producto_descripcion": f.producto.descripcion if f.producto else None
+            }
+            for f in filtros_creados
+        ]
+    }
+
+
+@router.get("/offset-grupos/{grupo_id}/filtros")
+async def obtener_filtros_grupo(
+    grupo_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Obtiene todos los filtros de un grupo"""
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    if not grupo:
+        raise HTTPException(404, "Grupo no encontrado")
+
+    return [
+        {
+            "id": f.id,
+            "grupo_id": f.grupo_id,
+            "marca": f.marca,
+            "categoria": f.categoria,
+            "subcategoria_id": f.subcategoria_id,
+            "item_id": f.item_id,
+            "producto_descripcion": f.producto.descripcion if f.producto else None
+        }
+        for f in grupo.filtros
+    ]
 
 
 @router.get("/offsets-ganancia", response_model=List[OffsetGananciaResponse])
