@@ -416,6 +416,15 @@ export default function DashboardTiendaNube() {
                   const sinCosto = !op.costo_pesos_sin_iva || op.costo_pesos_sin_iva === 0;
                   const metodoPagoActual = metodosPago[op.id_operacion] || 'efectivo';
                   const comisionAplicada = metodoPagoActual === 'tarjeta' ? comisionTarjeta : comisionEfectivo;
+
+                  // Recalcular comisión, ganancia y markup basado en el método de pago actual
+                  const montoSinIva = parseFloat(op.precio_final_sin_iva) || 0;
+                  const costoSinIva = parseFloat(op.costo_pesos_sin_iva) || 0;
+                  const comisionCalculada = montoSinIva * (comisionAplicada / 100);
+                  const montoLimpio = montoSinIva - comisionCalculada;
+                  const gananciaCalculada = montoLimpio - costoSinIva;
+                  const markupCalculado = costoSinIva > 0 ? gananciaCalculada / costoSinIva : null;
+
                   return (
                     <tr key={op.id_operacion || idx} className={sinCosto ? styles.rowSinCosto : ''}>
                       <td>{formatearFecha(op.fecha)}</td>
@@ -447,7 +456,7 @@ export default function DashboardTiendaNube() {
                         </select>
                       </td>
                       <td className={styles.monto} style={{ color: '#f59e0b' }}>
-                        {formatearMoneda(op.comision_tn_pesos)} ({comisionAplicada}%)
+                        {formatearMoneda(comisionCalculada)} ({comisionAplicada}%)
                       </td>
                       <td className={styles.monto}>
                         {sinCosto
@@ -455,11 +464,11 @@ export default function DashboardTiendaNube() {
                           : formatearMoneda(op.costo_pesos_sin_iva)
                         }
                       </td>
-                      <td className={styles.monto} style={{ color: op.ganancia >= 0 ? '#22c55e' : '#ef4444' }}>
-                        {formatearMoneda(op.ganancia)}
+                      <td className={styles.monto} style={{ color: gananciaCalculada >= 0 ? '#22c55e' : '#ef4444' }}>
+                        {formatearMoneda(gananciaCalculada)}
                       </td>
-                      <td className={`${styles.centrado} ${op.markup !== null && parseFloat(op.markup) < 0 ? styles.negativo : ''}`}>
-                        {formatearPorcentaje(op.markup)}
+                      <td className={`${styles.centrado} ${markupCalculado !== null && markupCalculado < 0 ? styles.negativo : ''}`}>
+                        {formatearPorcentaje(markupCalculado)}
                       </td>
                       <td>{op.tipo_comprobante} {op.numero_comprobante}</td>
                     </tr>
