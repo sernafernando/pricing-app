@@ -121,6 +121,8 @@ class OffsetGananciaResponse(BaseModel):
     grupo_nombre: Optional[str] = None
     max_unidades: Optional[int] = None
     max_monto_usd: Optional[float] = None
+    # Monto consumido
+    monto_consumido: Optional[float] = None
     # Canales de aplicación
     aplica_ml: bool = True
     aplica_fuera: bool = True
@@ -532,6 +534,7 @@ async def listar_offsets(
             grupo_nombre=o.grupo.nombre if o.grupo else None,
             max_unidades=o.max_unidades,
             max_monto_usd=o.max_monto_usd,
+            monto_consumido=o.monto_consumido,
             aplica_ml=o.aplica_ml if o.aplica_ml is not None else True,
             aplica_fuera=o.aplica_fuera if o.aplica_fuera is not None else True,
             aplica_tienda_nube=o.aplica_tienda_nube if o.aplica_tienda_nube is not None else True
@@ -652,6 +655,7 @@ async def crear_offset(
         grupo_nombre=nuevo_offset.grupo.nombre if nuevo_offset.grupo else None,
         max_unidades=nuevo_offset.max_unidades,
         max_monto_usd=nuevo_offset.max_monto_usd,
+        monto_consumido=nuevo_offset.monto_consumido,
         aplica_ml=nuevo_offset.aplica_ml if nuevo_offset.aplica_ml is not None else True,
         aplica_fuera=nuevo_offset.aplica_fuera if nuevo_offset.aplica_fuera is not None else True,
         aplica_tienda_nube=nuevo_offset.aplica_tienda_nube if nuevo_offset.aplica_tienda_nube is not None else True
@@ -751,6 +755,7 @@ async def actualizar_offset(
         grupo_nombre=offset.grupo.nombre if offset.grupo else None,
         max_unidades=offset.max_unidades,
         max_monto_usd=offset.max_monto_usd,
+        monto_consumido=offset.monto_consumido,
         aplica_ml=offset.aplica_ml if offset.aplica_ml is not None else True,
         aplica_fuera=offset.aplica_fuera if offset.aplica_fuera is not None else True,
         aplica_tienda_nube=offset.aplica_tienda_nube if offset.aplica_tienda_nube is not None else True
@@ -1026,13 +1031,8 @@ async def recalcular_consumo_grupo(
         OffsetGrupoFiltro.grupo_id == grupo_id
     ).all()
 
-    print(f"[DEBUG] Grupo {grupo_id} - {len(filtros_grupo)} filtros encontrados:")
-    for f in filtros_grupo:
-        print(f"[DEBUG]   Filtro: marca={f.marca}, categoria={f.categoria}, item_id={f.item_id}")
-
     # Determinar fecha de inicio (la más antigua de los offsets)
     fecha_inicio = min(o.fecha_desde for o in offsets_grupo)
-    print(f"[DEBUG] Fecha inicio: {fecha_inicio}")
 
     # Obtener item_ids directos de los offsets
     item_ids_directos = [o.item_id for o in offsets_grupo if o.item_id]
@@ -1164,7 +1164,6 @@ async def recalcular_consumo_grupo(
 
         if condiciones_filtro:
             where_filtros = " OR ".join(condiciones_filtro)
-            print(f"[DEBUG] Ventas ML - WHERE: {where_filtros}")
             ventas_ml_filtros_query = text(f"""
                 SELECT
                     m.id_operacion,
@@ -1184,7 +1183,6 @@ async def recalcular_consumo_grupo(
             ventas_ml_filtros = db.execute(ventas_ml_filtros_query, {
                 "fecha_inicio": fecha_inicio
             }).fetchall()
-            print(f"[DEBUG] Ventas ML encontradas: {len(ventas_ml_filtros)}")
 
             for venta in ventas_ml_filtros:
                 # Skip si ya se procesó
@@ -1294,7 +1292,6 @@ async def recalcular_consumo_grupo(
 
         if condiciones_filtro:
             where_filtros = " OR ".join(condiciones_filtro)
-            print(f"[DEBUG] Ventas fuera ML - WHERE: {where_filtros}")
             ventas_fuera_filtros_query = text(f"""
                 SELECT
                     v.id,
@@ -1314,7 +1311,6 @@ async def recalcular_consumo_grupo(
             ventas_fuera_filtros = db.execute(ventas_fuera_filtros_query, {
                 "fecha_inicio": fecha_inicio
             }).fetchall()
-            print(f"[DEBUG] Ventas fuera ML encontradas: {len(ventas_fuera_filtros)}")
 
             for venta in ventas_fuera_filtros:
                 if ('fuera', venta.id) in operaciones_procesadas:
@@ -1380,6 +1376,10 @@ async def recalcular_consumo_grupo(
             limite_alcanzado=limite_alcanzado
         )
         db.add(resumen)
+
+    # Actualizar monto_consumido en todos los offsets del grupo
+    for offset in offsets_grupo:
+        offset.monto_consumido = total_monto_ars
 
     db.commit()
 
@@ -1698,6 +1698,9 @@ async def recalcular_consumo_offset_individual(
             limite_alcanzado=limite_alcanzado
         )
         db.add(resumen)
+
+    # Actualizar monto_consumido en el offset
+    offset.monto_consumido = total_monto_ars
 
     db.commit()
 

@@ -260,6 +260,80 @@ async def obtener_rentabilidad(
             float(consumo.total_monto_usd or 0)
         )
 
+    # Función para calcular el offset de un grupo EN TIEMPO REAL desde las ventas
+    # Se usa cuando el grupo tiene filtros pero no hay datos precalculados
+    def calcular_offset_grupo_en_tiempo_real(grupo_id, offset, desde_dt, hasta_dt, tc):
+        """
+        Calcula el offset de un grupo sumando las ventas que matchean sus filtros.
+        Retorna (total_unidades, total_offset_ars, total_offset_usd)
+        """
+        filtros = filtros_por_grupo.get(grupo_id, [])
+        if not filtros:
+            return 0, 0.0, 0.0
+
+        # Construir condiciones para los filtros
+        condiciones_filtro = []
+        for f in filtros:
+            conds = []
+            if f.marca:
+                conds.append(f"marca = '{f.marca}'")
+            if f.categoria:
+                conds.append(f"categoria = '{f.categoria}'")
+            if f.item_id:
+                conds.append(f"item_id = {f.item_id}")
+            if conds:
+                condiciones_filtro.append(f"({' AND '.join(conds)})")
+
+        if not condiciones_filtro:
+            return 0, 0.0, 0.0
+
+        where_filtros = " OR ".join(condiciones_filtro)
+
+        # Sumar ventas de ML
+        query_ml = text(f"""
+            SELECT
+                COALESCE(SUM(cantidad), 0) as total_unidades,
+                COALESCE(SUM(costo_total_sin_iva), 0) as total_costo
+            FROM ml_ventas_metricas
+            WHERE ({where_filtros})
+            AND fecha_venta >= :desde AND fecha_venta < :hasta
+        """)
+        result_ml = db.execute(query_ml, {"desde": desde_dt, "hasta": hasta_dt}).first()
+
+        # Sumar ventas fuera de ML
+        query_fuera = text(f"""
+            SELECT
+                COALESCE(SUM(cantidad), 0) as total_unidades,
+                COALESCE(SUM(costo_total), 0) as total_costo
+            FROM ventas_fuera_ml_metricas
+            WHERE ({where_filtros})
+            AND fecha_venta >= :desde AND fecha_venta < :hasta
+        """)
+        result_fuera = db.execute(query_fuera, {"desde": desde_dt, "hasta": hasta_dt}).first()
+
+        total_unidades = int(result_ml.total_unidades or 0) + int(result_fuera.total_unidades or 0)
+        total_costo = float(result_ml.total_costo or 0) + float(result_fuera.total_costo or 0)
+
+        # Calcular el monto del offset según su tipo
+        if offset.tipo_offset == 'monto_fijo':
+            monto_offset = float(offset.monto or 0)
+            if offset.moneda == 'USD':
+                return total_unidades, monto_offset * tc, monto_offset
+            else:
+                return total_unidades, monto_offset, monto_offset / tc if tc > 0 else 0
+        elif offset.tipo_offset == 'monto_por_unidad':
+            monto_por_u = float(offset.monto or 0)
+            if offset.moneda == 'USD':
+                return total_unidades, monto_por_u * total_unidades * tc, monto_por_u * total_unidades
+            else:
+                return total_unidades, monto_por_u * total_unidades, monto_por_u * total_unidades / tc if tc > 0 else 0
+        elif offset.tipo_offset == 'porcentaje_costo':
+            porcentaje = float(offset.porcentaje or 0)
+            monto_ars = total_costo * (porcentaje / 100)
+            return total_unidades, monto_ars, monto_ars / tc if tc > 0 else 0
+
+        return 0, 0.0, 0.0
+
     # Pre-calcular offsets por grupo para aplicar límites a nivel grupo
     for offset in offsets:
         if not offset.grupo_id:
@@ -348,18 +422,27 @@ async def obtener_rentabilidad(
                     'consumo_acumulado_usd': acum_offset_usd
                 }
             else:
-                # No hay resumen todavía - grupo sin consumo registrado o sin recalcular
-                # El offset aplica completo para el período
+                # No hay resumen todavía - calcular EN TIEMPO REAL desde las ventas
+                # Fecha inicio del offset
+                offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
+                periodo_inicio_dt = max(fecha_desde_dt, offset_inicio_dt)
+
+                # Calcular el offset sumando ventas que matchean los filtros
+                total_unidades, total_offset_ars, total_offset_usd = calcular_offset_grupo_en_tiempo_real(
+                    offset.grupo_id, offset, periodo_inicio_dt, fecha_hasta_dt, tc
+                )
+
                 offsets_grupo_calculados[offset.grupo_id] = {
-                    'offset_total': 0.0,  # Se calculará en calcular_offsets_para_card
+                    'offset_total': total_offset_ars,
                     'descripcion': offset.descripcion or f"Grupo {offset.grupo_id}",
                     'limite_aplicado': False,
                     'limite_agotado_previo': False,
                     'max_unidades': offset.max_unidades,
                     'max_monto_usd': offset.max_monto_usd,
                     'consumo_previo_offset': 0.0,
-                    'consumo_acumulado_offset': 0.0,
-                    'sin_recalcular': True  # Flag para indicar que falta recalcular
+                    'consumo_acumulado_offset': total_offset_ars,
+                    'consumo_acumulado_usd': total_offset_usd,
+                    'calculado_en_tiempo_real': True
                 }
 
     # Pre-calcular offsets INDIVIDUALES (sin grupo) con límites

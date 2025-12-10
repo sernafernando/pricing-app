@@ -48,6 +48,9 @@ class OffsetGanancia(Base):
     max_unidades = Column(Integer, nullable=True)  # Máximo de unidades que aplica el offset
     max_monto_usd = Column(Float, nullable=True)   # Máximo monto en USD que aplica el offset
 
+    # Monto consumido (calculado, se actualiza periódicamente)
+    monto_consumido = Column(Float, nullable=True, default=0)  # Monto total consumido en ARS
+
     # Aplicación por canal
     aplica_ml = Column(Boolean, default=True)         # Aplica a Métricas ML
     aplica_fuera = Column(Boolean, default=True)      # Aplica a Ventas por Fuera de ML
