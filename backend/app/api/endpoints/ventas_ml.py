@@ -12,10 +12,26 @@ from app.models.tb_subcategory import TBSubCategory
 from app.models.tb_item import TBItem
 from app.models.tb_tax_name import TBTaxName
 from app.models.tb_item_taxes import TBItemTaxes
+from app.models.usuario import Usuario, RolUsuario
+from app.models.marca_pm import MarcaPM
 from app.api.deps import get_current_user
 from pydantic import BaseModel
 from decimal import Decimal
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
+
+
+def get_marcas_usuario_ventas(db: Session, usuario: Usuario) -> Optional[List[str]]:
+    """
+    Obtiene las marcas asignadas al usuario si no es admin/gerente.
+    Retorna None si el usuario puede ver todas las marcas.
+    """
+    roles_completos = [RolUsuario.SUPERADMIN, RolUsuario.ADMIN, RolUsuario.GERENTE]
+
+    if usuario.rol in roles_completos:
+        return None
+
+    marcas = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id == usuario.id).all()
+    return [m[0] for m in marcas] if marcas else []
 
 router = APIRouter()
 
@@ -505,15 +521,16 @@ async def get_operaciones_con_metricas(
     limit: int = Query(1000, le=5000, description="Límite de resultados"),
     offset: int = Query(0, description="Offset para paginación"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Obtiene operaciones de ML con todas las métricas calculadas (comisión, markup, etc.)
-    Similar al output de Streamlit para poder verificar los cálculos
+    Si el usuario no es admin/gerente, solo ve sus marcas asignadas.
     """
 
-    # Usar la misma query que el script agregar_metricas_ml_local.py
-    # Ejecutar directamente via connection para evitar text() parameter escaping
+    # Obtener marcas del usuario para filtrar
+    marcas_usuario = get_marcas_usuario_ventas(db, current_user)
+
     to_date_full = to_date + ' 23:59:59'
 
     query_str = """
@@ -722,6 +739,13 @@ async def get_operaciones_con_metricas(
     # Procesar cada fila y calcular métricas
     operaciones = []
     for row in rows:
+        # Filtrar por marcas del PM si no es admin/gerente
+        if marcas_usuario is not None:
+            if len(marcas_usuario) == 0:
+                continue  # Sin marcas asignadas, no ve nada
+            if row.marca not in marcas_usuario:
+                continue
+
         # Aplicar filtros adicionales si se especificaron
         if ml_id and row.ml_id != ml_id:
             continue
