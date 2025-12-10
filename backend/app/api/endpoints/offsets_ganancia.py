@@ -364,18 +364,18 @@ async def obtener_filtros_grupo(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene todos los filtros de un grupo"""
-    from app.models.subcategoria import Subcategoria
+    from app.models.tb_subcategory import TBSubCategory
 
     grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
 
-    # Obtener nombres de subcategorías (usar subcat_id, no id)
+    # Obtener nombres de subcategorías desde tb_subcategory
     subcat_ids = [f.subcategoria_id for f in grupo.filtros if f.subcategoria_id]
     subcategorias_map = {}
     if subcat_ids:
-        subcats = db.query(Subcategoria).filter(Subcategoria.subcat_id.in_(subcat_ids)).all()
-        subcategorias_map = {s.subcat_id: s.nombre for s in subcats}
+        subcats = db.query(TBSubCategory).filter(TBSubCategory.subcat_id.in_(subcat_ids)).all()
+        subcategorias_map = {s.subcat_id: s.subcat_desc for s in subcats}
 
     return [
         {
@@ -451,12 +451,13 @@ async def obtener_opciones_filtros(
         if subcat_id:
             subcategorias_ids.add(subcat_id)
 
-    # Obtener nombres de subcategorías (usar subcat_id, no id)
+    # Obtener nombres de subcategorías desde tb_subcategory
+    from app.models.tb_subcategory import TBSubCategory
     subcategorias_info = {}
     if subcategorias_ids:
-        subcats = db.query(Subcategoria).filter(Subcategoria.subcat_id.in_(subcategorias_ids)).all()
+        subcats = db.query(TBSubCategory).filter(TBSubCategory.subcat_id.in_(subcategorias_ids)).all()
         for s in subcats:
-            subcategorias_info[s.subcat_id] = s.nombre
+            subcategorias_info[s.subcat_id] = s.subcat_desc
 
     # Convertir sets a listas ordenadas
     return {
