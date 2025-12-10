@@ -53,7 +53,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmloh.mlo_cd as fecha_venta,
             COALESCE(tb.brand_desc, pe.marca) as marca,
             COALESCE(tc.cat_desc, pe.categoria) as categoria,
-            COALESCE(tsc.subcat_desc, pe.subcategoria) as subcategoria,
+            COALESCE(tsc.subcat_desc, (SELECT s.subcat_desc FROM tb_subcategory s WHERE s.subcat_id = pe.subcategoria_id LIMIT 1)) as subcategoria,
             COALESCE(ti.item_code, pe.codigo) as codigo,
             COALESCE(UPPER(ti.item_desc), UPPER(pe.descripcion)) as descripcion,
             tmlod.mlo_quantity as cantidad,

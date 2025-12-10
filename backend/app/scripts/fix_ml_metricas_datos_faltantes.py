@@ -102,15 +102,16 @@ def main():
         db.commit()
         print(f"  Actualizados: {result.rowcount}")
 
-        # Actualizar subcategoria desde productos_erp
+        # Actualizar subcategoria desde tb_subcategory usando subcategoria_id de productos_erp
         print("\nActualizando subcategoria...")
         update_subcategoria = text("""
             UPDATE ml_ventas_metricas m
-            SET subcategoria = pe.subcategoria
+            SET subcategoria = tsc.subcat_desc
             FROM productos_erp pe
+            JOIN tb_subcategory tsc ON tsc.subcat_id = pe.subcategoria_id
             WHERE m.item_id = pe.item_id
               AND (m.subcategoria IS NULL OR m.subcategoria = '')
-              AND pe.subcategoria IS NOT NULL
+              AND pe.subcategoria_id IS NOT NULL
         """)
         result = db.execute(update_subcategoria)
         db.commit()
