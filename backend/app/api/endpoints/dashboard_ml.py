@@ -72,7 +72,7 @@ class TopProductoResponse(BaseModel):
     """Top productos más vendidos"""
     item_id: int
     codigo: Optional[str]
-    descripcion: str
+    descripcion: Optional[str]
     marca: Optional[str]
     total_ventas: Decimal
     total_ganancia: Decimal
