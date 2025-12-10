@@ -678,23 +678,23 @@ export default function ModalOffset({
 
               {/* Filtros del grupo */}
               {nuevoOffset.grupo_id && (
-                <div className={styles.filtrosGrupoContainer} style={{ marginTop: '15px', padding: '10px', backgroundColor: '#f0f9ff', borderRadius: '8px' }}>
-                  <h5 style={{ margin: '0 0 10px 0' }}>Filtros del grupo (el offset aplica a ventas que coincidan con AL MENOS un filtro):</h5>
+                <div className={styles.filtrosGrupoContainer}>
+                  <h5>Filtros del grupo (el offset aplica a ventas que coincidan con AL MENOS un filtro):</h5>
 
                   {/* Filtros existentes */}
                   {filtrosGrupo.length > 0 && (
-                    <div style={{ marginBottom: '10px' }}>
+                    <div className={styles.filtrosExistentes}>
                       {filtrosGrupo.map(f => (
-                        <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px', padding: '5px', backgroundColor: '#fff', borderRadius: '4px' }}>
-                          <span style={{ flex: 1 }}>
-                            {f.marca && <span style={{ backgroundColor: '#dbeafe', padding: '2px 6px', borderRadius: '4px', marginRight: '4px' }}>Marca: {f.marca}</span>}
-                            {f.categoria && <span style={{ backgroundColor: '#dcfce7', padding: '2px 6px', borderRadius: '4px', marginRight: '4px' }}>Cat: {f.categoria}</span>}
-                            {f.subcategoria_id && <span style={{ backgroundColor: '#fef3c7', padding: '2px 6px', borderRadius: '4px', marginRight: '4px' }}>Subcat: {f.subcategoria_id}</span>}
-                            {f.item_id && <span style={{ backgroundColor: '#fce7f3', padding: '2px 6px', borderRadius: '4px' }}>Producto: {f.producto_descripcion || f.item_id}</span>}
+                        <div key={f.id} className={styles.filtroItem}>
+                          <span>
+                            {f.marca && <span className={`${styles.filtroTag} ${styles.filtroTagMarca}`}>Marca: {f.marca}</span>}
+                            {f.categoria && <span className={`${styles.filtroTag} ${styles.filtroTagCategoria}`}>Cat: {f.categoria}</span>}
+                            {f.subcategoria_id && <span className={`${styles.filtroTag} ${styles.filtroTagSubcat}`}>Subcat: {f.subcategoria_id}</span>}
+                            {f.item_id && <span className={`${styles.filtroTag} ${styles.filtroTagProducto}`}>Producto: {f.producto_descripcion || f.item_id}</span>}
                           </span>
                           <button
                             onClick={() => eliminarFiltroGrupo(f.id)}
-                            style={{ padding: '2px 8px', backgroundColor: '#fee2e2', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                            className={styles.filtroDeleteBtn}
                           >
                             x
                           </button>
@@ -704,13 +704,12 @@ export default function ModalOffset({
                   )}
 
                   {/* Agregar nuevo filtro */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-end' }}>
-                    <div style={{ flex: '1 1 150px' }}>
-                      <label style={{ fontSize: '12px' }}>Marca:</label>
+                  <div className={styles.agregarFiltroRow}>
+                    <div className={styles.filtroField}>
+                      <label>Marca:</label>
                       <select
                         value={nuevoFiltro.marca}
                         onChange={e => setNuevoFiltro({ ...nuevoFiltro, marca: e.target.value })}
-                        style={{ width: '100%', padding: '4px' }}
                       >
                         <option value="">-</option>
                         {filtrosDisponibles.marcas.map(m => (
@@ -718,12 +717,11 @@ export default function ModalOffset({
                         ))}
                       </select>
                     </div>
-                    <div style={{ flex: '1 1 150px' }}>
-                      <label style={{ fontSize: '12px' }}>Categoría:</label>
+                    <div className={styles.filtroField}>
+                      <label>Categoría:</label>
                       <select
                         value={nuevoFiltro.categoria}
                         onChange={e => setNuevoFiltro({ ...nuevoFiltro, categoria: e.target.value })}
-                        style={{ width: '100%', padding: '4px' }}
                       >
                         <option value="">-</option>
                         {filtrosDisponibles.categorias.map(c => (
@@ -731,9 +729,9 @@ export default function ModalOffset({
                         ))}
                       </select>
                     </div>
-                    <div style={{ flex: '1 1 200px' }}>
-                      <label style={{ fontSize: '12px' }}>Producto (buscar):</label>
-                      <div style={{ display: 'flex', gap: '4px' }}>
+                    <div className={`${styles.filtroField} ${styles.filtroFieldProducto}`}>
+                      <label>Producto (buscar):</label>
+                      <div className={styles.filtroSearchRow}>
                         <input
                           type="text"
                           placeholder="Buscar..."
@@ -745,19 +743,18 @@ export default function ModalOffset({
                             }
                           }}
                           onKeyDown={e => e.key === 'Enter' && buscarProductoFiltro()}
-                          style={{ flex: 1, padding: '4px' }}
                         />
-                        <button onClick={buscarProductoFiltro} disabled={buscandoFiltroProducto} style={{ padding: '4px 8px' }}>
+                        <button onClick={buscarProductoFiltro} disabled={buscandoFiltroProducto}>
                           {buscandoFiltroProducto ? '...' : '🔍'}
                         </button>
                       </div>
                       {productosFiltroEncontrados.length > 0 && (
-                        <div style={{ position: 'absolute', zIndex: 100, backgroundColor: '#fff', border: '1px solid #ccc', borderRadius: '4px', maxHeight: '150px', overflow: 'auto', width: '250px' }}>
+                        <div className={styles.filtroSearchResults}>
                           {productosFiltroEncontrados.map(p => (
                             <div
                               key={p.item_id}
                               onClick={() => seleccionarProductoFiltro(p)}
-                              style={{ padding: '4px 8px', cursor: 'pointer', borderBottom: '1px solid #eee' }}
+                              className={styles.filtroSearchItem}
                             >
                               <strong>{p.codigo}</strong> - {p.descripcion}
                             </div>
@@ -767,7 +764,7 @@ export default function ModalOffset({
                     </div>
                     <button
                       onClick={agregarFiltroGrupo}
-                      style={{ padding: '4px 12px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                      className={styles.btnAgregarFiltro}
                     >
                       + Agregar filtro
                     </button>
