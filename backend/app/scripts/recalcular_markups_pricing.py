@@ -18,8 +18,7 @@ env_path = backend_path / '.env'
 load_dotenv(dotenv_path=env_path)
 
 from app.core.database import SessionLocal
-from app.models.producto_erp import ProductoERP
-from app.models.producto_pricing import ProductoPricing
+from app.models.producto import ProductoERP, ProductoPricing
 from app.services.pricing_calculator import (
     obtener_constantes_pricing,
     obtener_tipo_cambio_actual,
