@@ -413,6 +413,17 @@ export default function ModalOffset({
     onClose();
   };
 
+  // Cerrar con ESC
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && mostrar) {
+        handleClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [mostrar]);
+
   if (!mostrar) return null;
 
   const esGrupo = nuevoOffset.modo === 'grupo';
@@ -420,6 +431,7 @@ export default function ModalOffset({
   return (
     <div className={styles.modalOverlay}>
       <div className={styles.modal}>
+        <button className={styles.modalCloseBtn} onClick={handleClose} title="Cerrar (ESC)">&times;</button>
         <h3>Gestionar Offsets de Ganancia</h3>
         <p className={styles.tcActual}>
           TC actual: {tipoCambioHoy ? `$${tipoCambioHoy.toFixed(2)}` : 'Cargando...'}
