@@ -146,18 +146,6 @@ export default function ModalOffset({
     }
   };
 
-  const recalcularGrupo = async (grupoId, grupoNombre) => {
-    if (!confirm(`¿Recalcular consumo del grupo "${grupoNombre}"? Esto puede tardar unos segundos.`)) return;
-    try {
-      const response = await api.post(`/api/offset-grupos/${grupoId}/recalcular`);
-      alert(`Recálculo completado: ${response.data.consumos_creados} ventas procesadas, $${Math.round(response.data.total_monto_ars || 0).toLocaleString()} ARS`);
-      if (onSave) onSave(); // Refrescar datos del dashboard
-    } catch (error) {
-      console.error('Error recalculando grupo:', error);
-      alert(error.response?.data?.detail || 'Error al recalcular el grupo');
-    }
-  };
-
   // Funciones para filtros de grupo
   const cargarFiltrosGrupo = async (grupoId) => {
     if (!grupoId) {
@@ -1045,9 +1033,6 @@ export default function ModalOffset({
                       </td>
                       <td className={styles.tdSmall}>{canalStr}</td>
                       <td className={styles.accionesOffset}>
-                        {offset.grupo_id && (
-                          <button onClick={() => recalcularGrupo(offset.grupo_id, offset.grupo_nombre || `Grupo ${offset.grupo_id}`)} className={styles.btnEditar} title="Recalcular consumo del grupo">🔄</button>
-                        )}
                         <button onClick={() => clonarOffset(offset)} className={styles.btnClonar} title="Clonar">📋</button>
                         <button onClick={() => editarOffset(offset)} className={styles.btnEditar} title="Editar">✏️</button>
                         <button onClick={() => eliminarOffset(offset.id)} className={styles.btnEliminar} title="Eliminar">🗑️</button>
@@ -1068,13 +1053,6 @@ export default function ModalOffset({
               {grupos.map(g => (
                 <div key={g.id} className={styles.grupoChip}>
                   <span>{g.nombre}</span>
-                  <button
-                    onClick={() => recalcularGrupo(g.id, g.nombre)}
-                    title="Recalcular consumo del grupo"
-                    style={{ marginRight: '4px' }}
-                  >
-                    🔄
-                  </button>
                   <button
                     onClick={() => eliminarGrupo(g.id)}
                     title="Eliminar grupo"
