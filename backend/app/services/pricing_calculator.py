@@ -381,12 +381,16 @@ def calcular_precio_producto(
     adicional_markup: float = 4.0
 ) -> Dict:
     """Calcula precio usando comisiones de la base de datos"""
-    
+
     costo_ars = convertir_a_pesos(costo, moneda_costo, tipo_cambio)
-    
+
+    # Obtener constantes de pricing de la BD
+    constantes = obtener_constantes_pricing(db)
+    varios = constantes["varios"]
+
     # Obtener grupo (usa grupo 1 si no está asignado)
     grupo_id = obtener_grupo_subcategoria(db, subcategoria_id)
-    
+
     # Obtener comisión base
     comision_base = obtener_comision_base(db, pricelist_id, grupo_id)
     if comision_base is None:
@@ -395,7 +399,7 @@ def calcular_precio_producto(
             "costo_ars": round(costo_ars, 2),
             "grupo_id": grupo_id
         }
-    
+
     markup_total = markup_objetivo + adicional_markup
 
     precio = precio_por_markup_goalseek(
@@ -403,13 +407,13 @@ def calcular_precio_producto(
         markup_objetivo=markup_total,
         iva=iva,
         comision_ml=comision_base,
-        varios=VARIOS_DEFAULT,
+        varios=varios,
         costo_envio=envio,
         db=db,
         grupo_id=grupo_id
     )
 
-    comisiones = calcular_comision_ml_total(precio, comision_base, iva, VARIOS_DEFAULT)
+    comisiones = calcular_comision_ml_total(precio, comision_base, iva, db=db)
     limpio = calcular_limpio(precio, iva, envio, comisiones["comision_total"], db=db, grupo_id=grupo_id)
     markup_real = calcular_markup(limpio, costo_ars)
 
