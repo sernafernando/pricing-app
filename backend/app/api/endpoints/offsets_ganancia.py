@@ -1026,8 +1026,13 @@ async def recalcular_consumo_grupo(
         OffsetGrupoFiltro.grupo_id == grupo_id
     ).all()
 
+    print(f"[DEBUG] Grupo {grupo_id} - {len(filtros_grupo)} filtros encontrados:")
+    for f in filtros_grupo:
+        print(f"[DEBUG]   Filtro: marca={f.marca}, categoria={f.categoria}, item_id={f.item_id}")
+
     # Determinar fecha de inicio (la más antigua de los offsets)
     fecha_inicio = min(o.fecha_desde for o in offsets_grupo)
+    print(f"[DEBUG] Fecha inicio: {fecha_inicio}")
 
     # Obtener item_ids directos de los offsets
     item_ids_directos = [o.item_id for o in offsets_grupo if o.item_id]
@@ -1159,6 +1164,7 @@ async def recalcular_consumo_grupo(
 
         if condiciones_filtro:
             where_filtros = " OR ".join(condiciones_filtro)
+            print(f"[DEBUG] Ventas ML - WHERE: {where_filtros}")
             ventas_ml_filtros_query = text(f"""
                 SELECT
                     m.id_operacion,
@@ -1178,6 +1184,7 @@ async def recalcular_consumo_grupo(
             ventas_ml_filtros = db.execute(ventas_ml_filtros_query, {
                 "fecha_inicio": fecha_inicio
             }).fetchall()
+            print(f"[DEBUG] Ventas ML encontradas: {len(ventas_ml_filtros)}")
 
             for venta in ventas_ml_filtros:
                 # Skip si ya se procesó
@@ -1287,6 +1294,7 @@ async def recalcular_consumo_grupo(
 
         if condiciones_filtro:
             where_filtros = " OR ".join(condiciones_filtro)
+            print(f"[DEBUG] Ventas fuera ML - WHERE: {where_filtros}")
             ventas_fuera_filtros_query = text(f"""
                 SELECT
                     v.id,
@@ -1306,6 +1314,7 @@ async def recalcular_consumo_grupo(
             ventas_fuera_filtros = db.execute(ventas_fuera_filtros_query, {
                 "fecha_inicio": fecha_inicio
             }).fetchall()
+            print(f"[DEBUG] Ventas fuera ML encontradas: {len(ventas_fuera_filtros)}")
 
             for venta in ventas_fuera_filtros:
                 if ('fuera', venta.id) in operaciones_procesadas:
