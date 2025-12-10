@@ -28,11 +28,10 @@ export default function Navbar() {
   const [facturadoHoy, setFacturadoHoy] = useState(null);
   const puedeVerAdmin = ['SUPERADMIN', 'ADMIN'].includes(user?.rol);
   const puedeVerHistorial = ['SUPERADMIN', 'ADMIN', 'GERENTE'].includes(user?.rol);
-  const puedeVerFacturado = ['SUPERADMIN', 'ADMIN', 'GERENTE'].includes(user?.rol);
 
-  // Cargar facturado del día para gerentes/admins
+  // Cargar facturado del día para todos los usuarios (el backend filtra por marcas del PM)
   useEffect(() => {
-    if (puedeVerFacturado) {
+    if (user) {
       const hoy = new Date().toISOString().split('T')[0];
       api.get(`/api/dashboard-ml/metricas-generales?fecha_desde=${hoy}&fecha_hasta=${hoy}`)
         .then(res => {
@@ -42,7 +41,7 @@ export default function Navbar() {
           console.error('Error cargando facturado:', err);
         });
     }
-  }, [puedeVerFacturado]);
+  }, [user]);
 
   const isDropdownActive = (paths) => {
     return paths.some(path => location.pathname === path);
@@ -75,7 +74,7 @@ export default function Navbar() {
           <a href="/productos" onClick={(e) => { e.preventDefault(); window.location.href = '/productos'; }}>
             <img src={logo} alt="Logo" className={styles.logo} />
           </a>
-          {puedeVerFacturado && facturadoHoy !== null ? (
+          {facturadoHoy !== null ? (
             <Link to="/dashboard-metricas-ml" className={styles.facturadoHoy} title="Facturado ML hoy - Click para ver métricas">
               <span className={styles.facturadoLabel}>Hoy ML:</span>
               <span className={styles.facturadoMonto}>${Number(facturadoHoy).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
