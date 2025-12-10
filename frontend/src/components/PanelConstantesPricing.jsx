@@ -21,6 +21,8 @@ export default function PanelConstantesPricing() {
     varios_porcentaje: 6.5,
     grupo_comision_default: 1,
     markup_adicional_cuotas: 4.0,
+    comision_tienda_nube: 1.0,
+    comision_tienda_nube_tarjeta: 3.0,
     fecha_desde: new Date().toISOString().split('T')[0]
   });
 
@@ -188,6 +190,18 @@ export default function PanelConstantesPricing() {
               <span>{constanteActual.markup_adicional_cuotas}%</span>
             </div>
           </div>
+
+          <h4 style={{marginTop: '20px', marginBottom: '10px'}}>Comisiones Tienda Nube</h4>
+          <div className="constantes-grid">
+            <div className="constante-item">
+              <label>Comisión Efectivo/Transferencia (%):</label>
+              <span>{constanteActual.comision_tienda_nube || 1.0}%</span>
+            </div>
+            <div className="constante-item">
+              <label>Comisión Tarjeta (%):</label>
+              <span>{constanteActual.comision_tienda_nube_tarjeta || 3.0}%</span>
+            </div>
+          </div>
         </div>
       )}
 
@@ -296,6 +310,28 @@ export default function PanelConstantesPricing() {
                     step="0.1"
                     value={nuevaVersion.markup_adicional_cuotas}
                     onChange={e => setNuevaVersion({...nuevaVersion, markup_adicional_cuotas: parseFloat(e.target.value)})}
+                  />
+                </div>
+              </div>
+
+              <h4>Comisiones Tienda Nube</h4>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Comisión Efectivo/Transferencia (%):</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={nuevaVersion.comision_tienda_nube}
+                    onChange={e => setNuevaVersion({...nuevaVersion, comision_tienda_nube: parseFloat(e.target.value)})}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Comisión Tarjeta (%):</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={nuevaVersion.comision_tienda_nube_tarjeta}
+                    onChange={e => setNuevaVersion({...nuevaVersion, comision_tienda_nube_tarjeta: parseFloat(e.target.value)})}
                   />
                 </div>
               </div>

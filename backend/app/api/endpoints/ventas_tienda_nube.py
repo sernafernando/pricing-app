@@ -1108,3 +1108,150 @@ async def get_metrica_detalle_tn(
         "moneda_costo": metrica.moneda_costo,
         "fecha_venta": metrica.fecha_venta.isoformat() if metrica.fecha_venta else None
     }
+
+
+# ============================================================================
+# Endpoints para método de pago
+# ============================================================================
+
+class MetodoPagoRequest(BaseModel):
+    it_transaction: int
+    metodo_pago: str  # 'efectivo' o 'tarjeta'
+
+
+class MetodoPagoBulkRequest(BaseModel):
+    operaciones: List[MetodoPagoRequest]
+
+
+@router.get("/ventas-tienda-nube/metodos-pago")
+async def get_metodos_pago_tn(
+    from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
+    to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtiene los métodos de pago guardados para operaciones TN en un período.
+    Devuelve un diccionario con it_transaction como clave y metodo_pago como valor.
+    """
+    from app.models.metodo_pago_tn import MetodoPagoTN
+
+    # Obtener it_transactions del período desde la tabla de métricas
+    metricas_query = """
+    SELECT it_transaction FROM ventas_tienda_nube_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+    """
+    metricas_result = db.execute(
+        text(metricas_query),
+        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+    ).fetchall()
+
+    it_transactions = [r.it_transaction for r in metricas_result]
+
+    if not it_transactions:
+        return {}
+
+    # Obtener métodos de pago guardados
+    metodos = db.query(MetodoPagoTN).filter(
+        MetodoPagoTN.it_transaction.in_(it_transactions)
+    ).all()
+
+    return {m.it_transaction: m.metodo_pago for m in metodos}
+
+
+@router.post("/ventas-tienda-nube/metodo-pago")
+async def set_metodo_pago_tn(
+    request: MetodoPagoRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Guarda o actualiza el método de pago para una operación TN.
+    """
+    from app.models.metodo_pago_tn import MetodoPagoTN
+    from fastapi import HTTPException
+
+    if request.metodo_pago not in ['efectivo', 'tarjeta']:
+        raise HTTPException(status_code=400, detail="Método de pago debe ser 'efectivo' o 'tarjeta'")
+
+    # Buscar si ya existe
+    metodo_existente = db.query(MetodoPagoTN).filter(
+        MetodoPagoTN.it_transaction == request.it_transaction
+    ).first()
+
+    if metodo_existente:
+        metodo_existente.metodo_pago = request.metodo_pago
+        metodo_existente.usuario_id = current_user.id if hasattr(current_user, 'id') else None
+    else:
+        nuevo_metodo = MetodoPagoTN(
+            it_transaction=request.it_transaction,
+            metodo_pago=request.metodo_pago,
+            usuario_id=current_user.id if hasattr(current_user, 'id') else None
+        )
+        db.add(nuevo_metodo)
+
+    db.commit()
+
+    return {"success": True, "it_transaction": request.it_transaction, "metodo_pago": request.metodo_pago}
+
+
+@router.post("/ventas-tienda-nube/metodos-pago/bulk")
+async def set_metodos_pago_bulk_tn(
+    request: MetodoPagoBulkRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Guarda o actualiza métodos de pago para múltiples operaciones TN.
+    """
+    from app.models.metodo_pago_tn import MetodoPagoTN
+    from fastapi import HTTPException
+
+    actualizados = 0
+    creados = 0
+
+    for op in request.operaciones:
+        if op.metodo_pago not in ['efectivo', 'tarjeta']:
+            continue
+
+        metodo_existente = db.query(MetodoPagoTN).filter(
+            MetodoPagoTN.it_transaction == op.it_transaction
+        ).first()
+
+        if metodo_existente:
+            if metodo_existente.metodo_pago != op.metodo_pago:
+                metodo_existente.metodo_pago = op.metodo_pago
+                metodo_existente.usuario_id = current_user.id if hasattr(current_user, 'id') else None
+                actualizados += 1
+        else:
+            nuevo_metodo = MetodoPagoTN(
+                it_transaction=op.it_transaction,
+                metodo_pago=op.metodo_pago,
+                usuario_id=current_user.id if hasattr(current_user, 'id') else None
+            )
+            db.add(nuevo_metodo)
+            creados += 1
+
+    db.commit()
+
+    return {"success": True, "actualizados": actualizados, "creados": creados}
+
+
+def get_comision_tienda_nube_tarjeta(db: Session, fecha: date = None) -> float:
+    """Obtiene la comisión de Tienda Nube para tarjeta vigente para una fecha"""
+    if fecha is None:
+        fecha = date.today()
+
+    constants = db.query(PricingConstants).filter(
+        and_(
+            PricingConstants.fecha_desde <= fecha,
+            or_(
+                PricingConstants.fecha_hasta.is_(None),
+                PricingConstants.fecha_hasta >= fecha
+            )
+        )
+    ).order_by(PricingConstants.fecha_desde.desc()).first()
+
+    if constants and constants.comision_tienda_nube_tarjeta is not None:
+        return float(constants.comision_tienda_nube_tarjeta)
+    return 3.0  # Default 3%

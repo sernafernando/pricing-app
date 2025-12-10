@@ -27,6 +27,11 @@ export default function DashboardTiendaNube() {
   const [busqueda, setBusqueda] = useState('');
   const [soloSinCosto, setSoloSinCosto] = useState(false);
 
+  // Métodos de pago por operación
+  const [metodosPago, setMetodosPago] = useState({});
+  const [comisionTarjeta, setComisionTarjeta] = useState(3.0);
+  const [comisionEfectivo, setComisionEfectivo] = useState(1.0);
+
   // API base URL
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
@@ -103,13 +108,43 @@ export default function DashboardTiendaNube() {
       if (sucursalSeleccionada) params.sucursal = sucursalSeleccionada;
       if (vendedorSeleccionado) params.vendedor = vendedorSeleccionado;
 
-      const response = await axios.get(`${API_URL}/ventas-tienda-nube`, { params, headers });
-      setOperaciones(response.data || []);
+      // Cargar operaciones y métodos de pago en paralelo
+      const [operacionesRes, metodosPagoRes, constantesRes] = await Promise.all([
+        axios.get(`${API_URL}/ventas-tienda-nube`, { params, headers }),
+        axios.get(`${API_URL}/ventas-tienda-nube/metodos-pago`, { params: { from_date: fechaDesde, to_date: fechaHasta }, headers }),
+        axios.get(`${API_URL}/pricing-constants/actual`, { headers })
+      ]);
+
+      setOperaciones(operacionesRes.data || []);
+      setMetodosPago(metodosPagoRes.data || {});
+
+      if (constantesRes.data) {
+        setComisionEfectivo(constantesRes.data.comision_tienda_nube || 1.0);
+        setComisionTarjeta(constantesRes.data.comision_tienda_nube_tarjeta || 3.0);
+      }
     } catch (error) {
       console.error('Error cargando operaciones:', error);
       alert('Error al cargar las operaciones');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const cambiarMetodoPago = async (itTransaction, nuevoMetodo) => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      await axios.post(`${API_URL}/ventas-tienda-nube/metodo-pago`, {
+        it_transaction: itTransaction,
+        metodo_pago: nuevoMetodo
+      }, { headers });
+
+      // Actualizar estado local
+      setMetodosPago(prev => ({ ...prev, [itTransaction]: nuevoMetodo }));
+    } catch (error) {
+      console.error('Error guardando método de pago:', error);
+      alert('Error al guardar el método de pago');
     }
   };
 
@@ -368,8 +403,8 @@ export default function DashboardTiendaNube() {
                   <th>Precio Unit</th>
                   <th>IVA%</th>
                   <th>Total s/IVA</th>
+                  <th>Método Pago</th>
                   <th>Comisión TN</th>
-                  <th>Monto Limpio</th>
                   <th>Costo</th>
                   <th>Ganancia</th>
                   <th>Markup%</th>
@@ -379,6 +414,8 @@ export default function DashboardTiendaNube() {
               <tbody>
                 {operacionesFiltradas.map((op, idx) => {
                   const sinCosto = !op.costo_pesos_sin_iva || op.costo_pesos_sin_iva === 0;
+                  const metodoPagoActual = metodosPago[op.id_operacion] || 'efectivo';
+                  const comisionAplicada = metodoPagoActual === 'tarjeta' ? comisionTarjeta : comisionEfectivo;
                   return (
                     <tr key={op.id_operacion || idx} className={sinCosto ? styles.rowSinCosto : ''}>
                       <td>{formatearFecha(op.fecha)}</td>
@@ -392,10 +429,26 @@ export default function DashboardTiendaNube() {
                       <td className={styles.monto}>{formatearMoneda(op.precio_unitario_sin_iva)}</td>
                       <td className={styles.centrado}>{op.iva_porcentaje}%</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_final_sin_iva)}</td>
-                      <td className={styles.monto} style={{ color: '#f59e0b' }}>
-                        {formatearMoneda(op.comision_tn_pesos)} ({op.comision_tn_porcentaje}%)
+                      <td>
+                        <select
+                          value={metodoPagoActual}
+                          onChange={(e) => cambiarMetodoPago(op.id_operacion, e.target.value)}
+                          style={{
+                            padding: '0.25rem',
+                            fontSize: '0.8rem',
+                            borderRadius: '4px',
+                            border: '1px solid #d1d5db',
+                            backgroundColor: metodoPagoActual === 'tarjeta' ? '#fef3c7' : '#d1fae5',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <option value="efectivo">Efectivo ({comisionEfectivo}%)</option>
+                          <option value="tarjeta">Tarjeta ({comisionTarjeta}%)</option>
+                        </select>
                       </td>
-                      <td className={styles.monto}>{formatearMoneda(op.monto_limpio)}</td>
+                      <td className={styles.monto} style={{ color: '#f59e0b' }}>
+                        {formatearMoneda(op.comision_tn_pesos)} ({comisionAplicada}%)
+                      </td>
                       <td className={styles.monto}>
                         {sinCosto
                           ? <span className={styles.alertDanger}>Sin costo</span>
