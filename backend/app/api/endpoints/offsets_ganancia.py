@@ -406,12 +406,13 @@ async def obtener_opciones_filtros(
     from app.models.subcategoria import Subcategoria
 
     # Obtener todas las combinaciones únicas de marca-categoría-subcategoría
+    # No filtramos por activo para incluir todos los productos
     combinaciones = db.query(
         ProductoERP.marca,
         ProductoERP.categoria,
         ProductoERP.subcategoria_id
     ).filter(
-        ProductoERP.activo == True
+        ProductoERP.marca.isnot(None)
     ).distinct().all()
 
     # Construir estructura de relaciones
