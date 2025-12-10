@@ -91,7 +91,8 @@ def main():
                     float(pricing.precio_lista_ml),
                     comision_base,
                     float(producto_erp.iva),
-                    db=db  # Esto obtiene las constantes actualizadas
+                    db=db,  # Esto obtiene las constantes actualizadas
+                    constantes=constantes  # Pasar explícitamente
                 )
 
                 # Calcular limpio
@@ -108,9 +109,23 @@ def main():
                 markup = calcular_markup(limpio, costo_ars)
                 markup_porcentaje = round(markup * 100, 2)
 
-                # Solo actualizar si cambió
-                if pricing.markup_calculado is None or abs(float(pricing.markup_calculado) - markup_porcentaje) > 0.01:
-                    pricing.markup_calculado = markup_porcentaje
+                # Debug para el producto específico
+                if producto_erp.codigo == '6957939002176':
+                    print(f"\n  DEBUG producto 6957939002176:")
+                    print(f"    Precio: ${float(pricing.precio_lista_ml):,.2f}")
+                    print(f"    Costo ARS: ${costo_ars:,.2f}")
+                    print(f"    Comisión base: {comision_base}%")
+                    print(f"    Comisión total: ${comisiones['comision_total']:,.2f}")
+                    print(f"    Tier: ${comisiones['tier']:,.2f}")
+                    print(f"    Varios: ${comisiones['comision_varios']:,.2f}")
+                    print(f"    Limpio: ${limpio:,.2f}")
+                    print(f"    Markup actual: {float(pricing.markup_calculado) if pricing.markup_calculado else 'N/A'}%")
+                    print(f"    Markup nuevo: {markup_porcentaje}%")
+
+                # Actualizar siempre (forzar recálculo)
+                old_markup = float(pricing.markup_calculado) if pricing.markup_calculado else None
+                pricing.markup_calculado = markup_porcentaje
+                if old_markup is None or abs(old_markup - markup_porcentaje) > 0.01:
                     actualizados += 1
 
             except Exception as e:
