@@ -134,6 +134,11 @@ export default function ModalOffset({
     if (!confirm('¿Eliminar este grupo?')) return;
     try {
       await api.delete(`/api/offset-grupos/${grupoId}`);
+      // Limpiar selección si era el grupo seleccionado
+      if (nuevoOffset.grupo_id === grupoId.toString()) {
+        setNuevoOffset({ ...nuevoOffset, grupo_id: '' });
+        setFiltrosGrupo([]);
+      }
       await cargarGrupos();
     } catch (error) {
       console.error('Error eliminando grupo:', error);
@@ -662,6 +667,16 @@ export default function ModalOffset({
                         <option key={g.id} value={g.id}>{g.nombre} {g.filtros?.length > 0 ? `(${g.filtros.length} filtros)` : ''}</option>
                       ))}
                     </select>
+                    {nuevoOffset.grupo_id && (
+                      <button
+                        type="button"
+                        onClick={() => eliminarGrupo(parseInt(nuevoOffset.grupo_id))}
+                        className={styles.btnEliminarGrupo}
+                        title="Eliminar grupo seleccionado"
+                      >
+                        🗑️
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setMostrarFormGrupo(!mostrarFormGrupo)}
