@@ -1004,6 +1004,7 @@ async def recalcular_consumo_grupo(
     """
     Recalcula el consumo de un grupo desde cero.
     Lee las ventas ML y fuera de ML y recalcula todo el consumo del grupo.
+    Soporta tanto offsets con item_id directo como filtros de grupo (marca, categoría, etc.)
     """
     grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
     if not grupo:
@@ -1020,11 +1021,16 @@ async def recalcular_consumo_grupo(
     if not offsets_grupo:
         return {"mensaje": "No hay offsets en este grupo", "consumos_creados": 0}
 
+    # Obtener filtros del grupo
+    filtros_grupo = db.query(OffsetGrupoFiltro).filter(
+        OffsetGrupoFiltro.grupo_id == grupo_id
+    ).all()
+
     # Determinar fecha de inicio (la más antigua de los offsets)
     fecha_inicio = min(o.fecha_desde for o in offsets_grupo)
 
-    # Obtener item_ids del grupo
-    item_ids = [o.item_id for o in offsets_grupo if o.item_id]
+    # Obtener item_ids directos de los offsets
+    item_ids_directos = [o.item_id for o in offsets_grupo if o.item_id]
 
     # Obtener tipo cambio actual para conversiones
     tc_actual = db.query(CurExchHistory).order_by(CurExchHistory.ceh_cd.desc()).first()
@@ -1034,9 +1040,51 @@ async def recalcular_consumo_grupo(
     total_unidades = 0
     total_monto_ars = 0
     total_monto_usd = 0
+    operaciones_procesadas = set()  # Para evitar duplicados
 
-    if item_ids:
-        # Obtener ventas ML
+    # Tomar el primer offset del grupo para obtener tipo y valores (asumimos todos tienen el mismo tipo)
+    offset_ref = offsets_grupo[0]
+
+    def calcular_monto_offset(offset, cantidad, costo, cot):
+        """Calcula el monto del offset según su tipo"""
+        if offset.tipo_offset == 'monto_fijo':
+            monto_offset = float(offset.monto or 0)
+            if offset.moneda == 'USD':
+                return monto_offset * cot, monto_offset
+            else:
+                return monto_offset, monto_offset / cot if cot > 0 else 0
+        elif offset.tipo_offset == 'monto_por_unidad':
+            monto_por_u = float(offset.monto or 0)
+            if offset.moneda == 'USD':
+                return monto_por_u * cantidad * cot, monto_por_u * cantidad
+            else:
+                return monto_por_u * cantidad, monto_por_u * cantidad / cot if cot > 0 else 0
+        elif offset.tipo_offset == 'porcentaje_costo':
+            porcentaje = float(offset.porcentaje or 0)
+            monto_ars = costo * (porcentaje / 100)
+            return monto_ars, monto_ars / cot if cot > 0 else 0
+        return 0, 0
+
+    def venta_matchea_filtros(marca, categoria, item_id):
+        """Verifica si una venta matchea con algún filtro del grupo"""
+        if not filtros_grupo:
+            return False
+        for f in filtros_grupo:
+            matchea = True
+            if f.marca and f.marca != marca:
+                matchea = False
+            if f.categoria and f.categoria != categoria:
+                matchea = False
+            if f.item_id and f.item_id != item_id:
+                matchea = False
+            if matchea:
+                return True
+        return False
+
+    # ============================================
+    # Procesar ventas ML con item_ids directos
+    # ============================================
+    if item_ids_directos:
         ventas_ml_query = text("""
             SELECT
                 m.id_operacion,
@@ -1044,7 +1092,9 @@ async def recalcular_consumo_grupo(
                 m.item_id,
                 m.cantidad,
                 m.costo_total_sin_iva,
-                m.cotizacion_dolar
+                m.cotizacion_dolar,
+                m.marca,
+                m.categoria
             FROM ml_ventas_metricas m
             WHERE m.item_id = ANY(:item_ids)
             AND m.fecha_venta >= :fecha_inicio
@@ -1052,48 +1102,25 @@ async def recalcular_consumo_grupo(
         """)
 
         ventas_ml = db.execute(ventas_ml_query, {
-            "item_ids": item_ids,
+            "item_ids": item_ids_directos,
             "fecha_inicio": fecha_inicio
         }).fetchall()
 
         for venta in ventas_ml:
-            # Encontrar el offset aplicable
             offset_aplicable = next(
                 (o for o in offsets_grupo if o.item_id == venta.item_id),
                 None
             )
-
             if not offset_aplicable:
                 continue
 
-            # Calcular monto del offset
             cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
             costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
+            monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_aplicable, venta.cantidad, costo, cot)
 
-            if offset_aplicable.tipo_offset == 'monto_fijo':
-                monto_offset = float(offset_aplicable.monto or 0)
-                if offset_aplicable.moneda == 'USD':
-                    monto_offset_ars = monto_offset * cot
-                    monto_offset_usd = monto_offset
-                else:
-                    monto_offset_ars = monto_offset
-                    monto_offset_usd = monto_offset / cot if cot > 0 else 0
-            elif offset_aplicable.tipo_offset == 'monto_por_unidad':
-                monto_por_u = float(offset_aplicable.monto or 0)
-                if offset_aplicable.moneda == 'USD':
-                    monto_offset_ars = monto_por_u * venta.cantidad * cot
-                    monto_offset_usd = monto_por_u * venta.cantidad
-                else:
-                    monto_offset_ars = monto_por_u * venta.cantidad
-                    monto_offset_usd = monto_por_u * venta.cantidad / cot if cot > 0 else 0
-            elif offset_aplicable.tipo_offset == 'porcentaje_costo':
-                porcentaje = float(offset_aplicable.porcentaje or 0)
-                monto_offset_ars = costo * (porcentaje / 100)
-                monto_offset_usd = monto_offset_ars / cot if cot > 0 else 0
-            else:
+            if monto_offset_ars == 0 and monto_offset_usd == 0:
                 continue
 
-            # Crear registro de consumo
             consumo = OffsetGrupoConsumo(
                 grupo_id=grupo_id,
                 id_operacion=venta.id_operacion,
@@ -1107,12 +1134,86 @@ async def recalcular_consumo_grupo(
                 cotizacion_dolar=cot
             )
             db.add(consumo)
+            operaciones_procesadas.add(('ml', venta.id_operacion))
             consumos_creados += 1
             total_unidades += venta.cantidad
             total_monto_ars += monto_offset_ars
             total_monto_usd += monto_offset_usd
 
-        # Obtener ventas fuera de ML
+    # ============================================
+    # Procesar ventas ML con filtros de grupo
+    # ============================================
+    if filtros_grupo:
+        # Construir query dinámica basada en filtros
+        condiciones_filtro = []
+        for f in filtros_grupo:
+            conds = []
+            if f.marca:
+                conds.append(f"m.marca = '{f.marca}'")
+            if f.categoria:
+                conds.append(f"m.categoria = '{f.categoria}'")
+            if f.item_id:
+                conds.append(f"m.item_id = {f.item_id}")
+            if conds:
+                condiciones_filtro.append(f"({' AND '.join(conds)})")
+
+        if condiciones_filtro:
+            where_filtros = " OR ".join(condiciones_filtro)
+            ventas_ml_filtros_query = text(f"""
+                SELECT
+                    m.id_operacion,
+                    m.fecha_venta,
+                    m.item_id,
+                    m.cantidad,
+                    m.costo_total_sin_iva,
+                    m.cotizacion_dolar,
+                    m.marca,
+                    m.categoria
+                FROM ml_ventas_metricas m
+                WHERE ({where_filtros})
+                AND m.fecha_venta >= :fecha_inicio
+                ORDER BY m.fecha_venta
+            """)
+
+            ventas_ml_filtros = db.execute(ventas_ml_filtros_query, {
+                "fecha_inicio": fecha_inicio
+            }).fetchall()
+
+            for venta in ventas_ml_filtros:
+                # Skip si ya se procesó
+                if ('ml', venta.id_operacion) in operaciones_procesadas:
+                    continue
+
+                cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+                costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
+                monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_ref, venta.cantidad, costo, cot)
+
+                if monto_offset_ars == 0 and monto_offset_usd == 0:
+                    continue
+
+                consumo = OffsetGrupoConsumo(
+                    grupo_id=grupo_id,
+                    id_operacion=venta.id_operacion,
+                    tipo_venta='ml',
+                    fecha_venta=venta.fecha_venta,
+                    item_id=venta.item_id,
+                    cantidad=venta.cantidad,
+                    offset_id=offset_ref.id,
+                    monto_offset_aplicado=monto_offset_ars,
+                    monto_offset_usd=monto_offset_usd,
+                    cotizacion_dolar=cot
+                )
+                db.add(consumo)
+                operaciones_procesadas.add(('ml', venta.id_operacion))
+                consumos_creados += 1
+                total_unidades += venta.cantidad
+                total_monto_ars += monto_offset_ars
+                total_monto_usd += monto_offset_usd
+
+    # ============================================
+    # Procesar ventas fuera de ML con item_ids directos
+    # ============================================
+    if item_ids_directos:
         ventas_fuera_query = text("""
             SELECT
                 v.id,
@@ -1120,7 +1221,9 @@ async def recalcular_consumo_grupo(
                 v.item_id,
                 v.cantidad,
                 v.costo_total_sin_iva,
-                v.cotizacion_dolar
+                v.cotizacion_dolar,
+                v.marca,
+                v.categoria
             FROM ventas_fuera_ml v
             WHERE v.item_id = ANY(:item_ids)
             AND v.fecha_venta >= :fecha_inicio
@@ -1128,7 +1231,7 @@ async def recalcular_consumo_grupo(
         """)
 
         ventas_fuera = db.execute(ventas_fuera_query, {
-            "item_ids": item_ids,
+            "item_ids": item_ids_directos,
             "fecha_inicio": fecha_inicio
         }).fetchall()
 
@@ -1137,34 +1240,14 @@ async def recalcular_consumo_grupo(
                 (o for o in offsets_grupo if o.item_id == venta.item_id),
                 None
             )
-
             if not offset_aplicable:
                 continue
 
             cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
             costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
+            monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_aplicable, venta.cantidad, costo, cot)
 
-            if offset_aplicable.tipo_offset == 'monto_fijo':
-                monto_offset = float(offset_aplicable.monto or 0)
-                if offset_aplicable.moneda == 'USD':
-                    monto_offset_ars = monto_offset * cot
-                    monto_offset_usd = monto_offset
-                else:
-                    monto_offset_ars = monto_offset
-                    monto_offset_usd = monto_offset / cot if cot > 0 else 0
-            elif offset_aplicable.tipo_offset == 'monto_por_unidad':
-                monto_por_u = float(offset_aplicable.monto or 0)
-                if offset_aplicable.moneda == 'USD':
-                    monto_offset_ars = monto_por_u * venta.cantidad * cot
-                    monto_offset_usd = monto_por_u * venta.cantidad
-                else:
-                    monto_offset_ars = monto_por_u * venta.cantidad
-                    monto_offset_usd = monto_por_u * venta.cantidad / cot if cot > 0 else 0
-            elif offset_aplicable.tipo_offset == 'porcentaje_costo':
-                porcentaje = float(offset_aplicable.porcentaje or 0)
-                monto_offset_ars = costo * (porcentaje / 100)
-                monto_offset_usd = monto_offset_ars / cot if cot > 0 else 0
-            else:
+            if monto_offset_ars == 0 and monto_offset_usd == 0:
                 continue
 
             consumo = OffsetGrupoConsumo(
@@ -1180,10 +1263,79 @@ async def recalcular_consumo_grupo(
                 cotizacion_dolar=cot
             )
             db.add(consumo)
+            operaciones_procesadas.add(('fuera', venta.id))
             consumos_creados += 1
             total_unidades += venta.cantidad
             total_monto_ars += monto_offset_ars
             total_monto_usd += monto_offset_usd
+
+    # ============================================
+    # Procesar ventas fuera de ML con filtros de grupo
+    # ============================================
+    if filtros_grupo:
+        condiciones_filtro = []
+        for f in filtros_grupo:
+            conds = []
+            if f.marca:
+                conds.append(f"v.marca = '{f.marca}'")
+            if f.categoria:
+                conds.append(f"v.categoria = '{f.categoria}'")
+            if f.item_id:
+                conds.append(f"v.item_id = {f.item_id}")
+            if conds:
+                condiciones_filtro.append(f"({' AND '.join(conds)})")
+
+        if condiciones_filtro:
+            where_filtros = " OR ".join(condiciones_filtro)
+            ventas_fuera_filtros_query = text(f"""
+                SELECT
+                    v.id,
+                    v.fecha_venta,
+                    v.item_id,
+                    v.cantidad,
+                    v.costo_total_sin_iva,
+                    v.cotizacion_dolar,
+                    v.marca,
+                    v.categoria
+                FROM ventas_fuera_ml v
+                WHERE ({where_filtros})
+                AND v.fecha_venta >= :fecha_inicio
+                ORDER BY v.fecha_venta
+            """)
+
+            ventas_fuera_filtros = db.execute(ventas_fuera_filtros_query, {
+                "fecha_inicio": fecha_inicio
+            }).fetchall()
+
+            for venta in ventas_fuera_filtros:
+                if ('fuera', venta.id) in operaciones_procesadas:
+                    continue
+
+                cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+                costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
+                monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_ref, venta.cantidad, costo, cot)
+
+                if monto_offset_ars == 0 and monto_offset_usd == 0:
+                    continue
+
+                consumo = OffsetGrupoConsumo(
+                    grupo_id=grupo_id,
+                    venta_fuera_id=venta.id,
+                    tipo_venta='fuera_ml',
+                    fecha_venta=venta.fecha_venta,
+                    item_id=venta.item_id,
+                    cantidad=venta.cantidad,
+                    offset_id=offset_ref.id,
+                    monto_offset_aplicado=monto_offset_ars,
+                    monto_offset_usd=monto_offset_usd,
+                    cotizacion_dolar=cot
+                )
+                db.add(consumo)
+                operaciones_procesadas.add(('fuera', venta.id))
+                consumos_creados += 1
+                total_unidades += venta.cantidad
+                total_monto_ars += monto_offset_ars
+                total_monto_usd += monto_offset_usd
 
     # Actualizar o crear resumen
     resumen = db.query(OffsetGrupoResumen).filter(
