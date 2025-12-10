@@ -418,8 +418,8 @@ export default function ModalOffset({
   const esGrupo = nuevoOffset.modo === 'grupo';
 
   return (
-    <div className={styles.modalOverlay} onClick={handleClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+    <div className={styles.modalOverlay}>
+      <div className={styles.modal}>
         <h3>Gestionar Offsets de Ganancia</h3>
         <p className={styles.tcActual}>
           TC actual: {tipoCambioHoy ? `$${tipoCambioHoy.toFixed(2)}` : 'Cargando...'}
