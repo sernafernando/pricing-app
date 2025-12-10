@@ -48,6 +48,39 @@
   white-space: nowrap;
 }
 
+.facturadoHoy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-decoration: none;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  transition: all 0.2s ease;
+}
+
+.facturadoHoy:hover {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.5);
+  transform: translateY(-1px);
+}
+
+.facturadoLabel {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.facturadoMonto {
+  font-size: 18px;
+  font-weight: 700;
+  color: #22c55e;
+  line-height: 1.1;
+}
+
 .links {
   display: flex;
   gap: 4px;

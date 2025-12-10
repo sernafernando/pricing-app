@@ -1,10 +1,23 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import axios from 'axios';
 import styles from './Navbar.module.css';
 import logo from '../assets/white-g-logo.png';
 import { useAuthStore } from '../store/authStore';
 import ThemeToggle from './ThemeToggle';
 import NotificationBell from './NotificationBell';
+
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com.ar',
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export default function Navbar() {
   const location = useLocation();
@@ -12,8 +25,24 @@ export default function Navbar() {
   const user = useAuthStore((state) => state.user);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(null);
+  const [facturadoHoy, setFacturadoHoy] = useState(null);
   const puedeVerAdmin = ['SUPERADMIN', 'ADMIN'].includes(user?.rol);
   const puedeVerHistorial = ['SUPERADMIN', 'ADMIN', 'GERENTE'].includes(user?.rol);
+  const puedeVerFacturado = ['SUPERADMIN', 'ADMIN', 'GERENTE'].includes(user?.rol);
+
+  // Cargar facturado del día para gerentes/admins
+  useEffect(() => {
+    if (puedeVerFacturado) {
+      const hoy = new Date().toISOString().split('T')[0];
+      api.get(`/api/dashboard-ml/metricas-generales?fecha_desde=${hoy}&fecha_hasta=${hoy}`)
+        .then(res => {
+          setFacturadoHoy(res.data.total_ventas_ml);
+        })
+        .catch(err => {
+          console.error('Error cargando facturado:', err);
+        });
+    }
+  }, [puedeVerFacturado]);
 
   const isDropdownActive = (paths) => {
     return paths.some(path => location.pathname === path);
@@ -46,7 +75,14 @@ export default function Navbar() {
           <a href="/productos" onClick={(e) => { e.preventDefault(); window.location.href = '/productos'; }}>
             <img src={logo} alt="Logo" className={styles.logo} />
           </a>
-          <span className={styles.title}>Pricing App</span>
+          {puedeVerFacturado && facturadoHoy !== null ? (
+            <Link to="/dashboard-metricas-ml" className={styles.facturadoHoy} title="Facturado ML hoy - Click para ver métricas">
+              <span className={styles.facturadoLabel}>Hoy ML:</span>
+              <span className={styles.facturadoMonto}>${Number(facturadoHoy).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+            </Link>
+          ) : (
+            <span className={styles.title}>Pricing App</span>
+          )}
         </div>
 
         {/* Desktop Links */}
