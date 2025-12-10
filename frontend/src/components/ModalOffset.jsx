@@ -1046,7 +1046,7 @@ export default function ModalOffset({
                       <td className={styles.tdSmall}>{canalStr}</td>
                       <td className={styles.accionesOffset}>
                         {offset.grupo_id && (
-                          <button onClick={() => recalcularGrupo(offset.grupo_id, offset.grupo_nombre || `Grupo ${offset.grupo_id}`)} className={styles.btnClonar} title="Recalcular consumo del grupo">🔄</button>
+                          <button onClick={() => recalcularGrupo(offset.grupo_id, offset.grupo_nombre || `Grupo ${offset.grupo_id}`)} className={styles.btnEditar} title="Recalcular consumo del grupo">🔄</button>
                         )}
                         <button onClick={() => clonarOffset(offset)} className={styles.btnClonar} title="Clonar">📋</button>
                         <button onClick={() => editarOffset(offset)} className={styles.btnEditar} title="Editar">✏️</button>

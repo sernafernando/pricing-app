@@ -1224,7 +1224,7 @@ async def recalcular_consumo_grupo(
                 v.cotizacion_dolar,
                 v.marca,
                 v.categoria
-            FROM ventas_fuera_ml v
+            FROM ventas_fuera_ml_metricas v
             WHERE v.item_id = ANY(:item_ids)
             AND v.fecha_venta >= :fecha_inicio
             ORDER BY v.fecha_venta
@@ -1297,7 +1297,7 @@ async def recalcular_consumo_grupo(
                     v.cotizacion_dolar,
                     v.marca,
                     v.categoria
-                FROM ventas_fuera_ml v
+                FROM ventas_fuera_ml_metricas v
                 WHERE ({where_filtros})
                 AND v.fecha_venta >= :fecha_inicio
                 ORDER BY v.fecha_venta
