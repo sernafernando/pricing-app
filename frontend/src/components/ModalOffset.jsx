@@ -45,6 +45,16 @@ export default function ModalOffset({
   const [productosFiltroEncontrados, setProductosFiltroEncontrados] = useState([]);
   const [buscandoFiltroProducto, setBuscandoFiltroProducto] = useState(false);
 
+  // Opciones de filtro con relaciones (para filtros cascada)
+  const [opcionesFiltro, setOpcionesFiltro] = useState({
+    marcas: [],
+    categorias: [],
+    subcategorias: [],
+    categorias_por_marca: {},
+    subcategorias_por_categoria: {},
+    marcas_por_categoria: {}
+  });
+
   const [nuevoOffset, setNuevoOffset] = useState({
     modo: 'individual', // 'individual' o 'grupo'
     tipo: 'marca',
@@ -69,8 +79,18 @@ export default function ModalOffset({
     if (mostrar) {
       cargarOffsets();
       cargarGrupos();
+      cargarOpcionesFiltro();
     }
   }, [mostrar]);
+
+  const cargarOpcionesFiltro = async () => {
+    try {
+      const response = await api.get('/api/offset-filtros-opciones');
+      setOpcionesFiltro(response.data);
+    } catch (error) {
+      console.error('Error cargando opciones de filtro:', error);
+    }
+  };
 
   const cargarOffsets = async () => {
     try {
@@ -140,12 +160,12 @@ export default function ModalOffset({
       alert('Seleccione un grupo primero');
       return;
     }
-    const filtro = { ...nuevoFiltro };
-    // Limpiar campos vacíos
-    if (!filtro.marca) delete filtro.marca;
-    if (!filtro.categoria) delete filtro.categoria;
-    if (!filtro.subcategoria_id) delete filtro.subcategoria_id;
-    if (!filtro.item_id) delete filtro.item_id;
+    const filtro = {};
+    // Solo agregar campos con valor, convirtiendo IDs a enteros
+    if (nuevoFiltro.marca) filtro.marca = nuevoFiltro.marca;
+    if (nuevoFiltro.categoria) filtro.categoria = nuevoFiltro.categoria;
+    if (nuevoFiltro.subcategoria_id) filtro.subcategoria_id = parseInt(nuevoFiltro.subcategoria_id);
+    if (nuevoFiltro.item_id) filtro.item_id = parseInt(nuevoFiltro.item_id);
 
     if (Object.keys(filtro).length === 0) {
       alert('Debe especificar al menos un campo para el filtro');
@@ -514,8 +534,8 @@ export default function ModalOffset({
             </div>
           )}
 
-          {/* Busqueda de productos: modo individual con tipo producto O modo grupo */}
-          {((!esGrupo && nuevoOffset.tipo === 'producto') || esGrupo) && !editandoOffset && (
+          {/* Busqueda de productos: solo modo individual con tipo producto */}
+          {!esGrupo && nuevoOffset.tipo === 'producto' && !editandoOffset && (
             <>
               {productosOffsetSeleccionados.length > 0 && (
                 <div className={styles.productosSeleccionados}>
@@ -689,7 +709,7 @@ export default function ModalOffset({
                           <span>
                             {f.marca && <span className={`${styles.filtroTag} ${styles.filtroTagMarca}`}>Marca: {f.marca}</span>}
                             {f.categoria && <span className={`${styles.filtroTag} ${styles.filtroTagCategoria}`}>Cat: {f.categoria}</span>}
-                            {f.subcategoria_id && <span className={`${styles.filtroTag} ${styles.filtroTagSubcat}`}>Subcat: {f.subcategoria_id}</span>}
+                            {f.subcategoria_id && <span className={`${styles.filtroTag} ${styles.filtroTagSubcat}`}>Subcat: {f.subcategoria_nombre || f.subcategoria_id}</span>}
                             {f.item_id && <span className={`${styles.filtroTag} ${styles.filtroTagProducto}`}>Producto: {f.producto_descripcion || f.item_id}</span>}
                           </span>
                           <button
@@ -703,34 +723,88 @@ export default function ModalOffset({
                     </div>
                   )}
 
-                  {/* Agregar nuevo filtro */}
+                  {/* Agregar nuevo filtro con cascada */}
                   <div className={styles.agregarFiltroRow}>
                     <div className={styles.filtroField}>
                       <label>Marca:</label>
                       <select
                         value={nuevoFiltro.marca}
-                        onChange={e => setNuevoFiltro({ ...nuevoFiltro, marca: e.target.value })}
+                        onChange={e => {
+                          const marca = e.target.value;
+                          // Si cambia la marca, verificar si la categoría sigue siendo válida
+                          let nuevaCategoria = nuevoFiltro.categoria;
+                          if (marca && nuevaCategoria) {
+                            const categoriasValidas = opcionesFiltro.categorias_por_marca[marca] || [];
+                            if (!categoriasValidas.includes(nuevaCategoria)) {
+                              nuevaCategoria = '';
+                            }
+                          }
+                          setNuevoFiltro({ ...nuevoFiltro, marca, categoria: nuevaCategoria, subcategoria_id: '' });
+                        }}
                       >
                         <option value="">-</option>
-                        {filtrosDisponibles.marcas.map(m => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
+                        {(() => {
+                          // Si hay categoría seleccionada, filtrar marcas por esa categoría
+                          const marcasDisponibles = nuevoFiltro.categoria
+                            ? (opcionesFiltro.marcas_por_categoria[nuevoFiltro.categoria] || [])
+                            : opcionesFiltro.marcas;
+                          return marcasDisponibles.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ));
+                        })()}
                       </select>
                     </div>
                     <div className={styles.filtroField}>
                       <label>Categoría:</label>
                       <select
                         value={nuevoFiltro.categoria}
-                        onChange={e => setNuevoFiltro({ ...nuevoFiltro, categoria: e.target.value })}
+                        onChange={e => {
+                          const categoria = e.target.value;
+                          // Si cambia la categoría, verificar si la marca sigue siendo válida
+                          let nuevaMarca = nuevoFiltro.marca;
+                          if (categoria && nuevaMarca) {
+                            const marcasValidas = opcionesFiltro.marcas_por_categoria[categoria] || [];
+                            if (!marcasValidas.includes(nuevaMarca)) {
+                              nuevaMarca = '';
+                            }
+                          }
+                          setNuevoFiltro({ ...nuevoFiltro, categoria, marca: nuevaMarca, subcategoria_id: '' });
+                        }}
                       >
                         <option value="">-</option>
-                        {filtrosDisponibles.categorias.map(c => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
+                        {(() => {
+                          // Si hay marca seleccionada, filtrar categorías por esa marca
+                          const categoriasDisponibles = nuevoFiltro.marca
+                            ? (opcionesFiltro.categorias_por_marca[nuevoFiltro.marca] || [])
+                            : opcionesFiltro.categorias;
+                          return categoriasDisponibles.map(c => (
+                            <option key={c} value={c}>{c}</option>
+                          ));
+                        })()}
+                      </select>
+                    </div>
+                    <div className={styles.filtroField}>
+                      <label>Subcategoría:</label>
+                      <select
+                        value={nuevoFiltro.subcategoria_id}
+                        onChange={e => setNuevoFiltro({ ...nuevoFiltro, subcategoria_id: e.target.value })}
+                        disabled={!nuevoFiltro.categoria}
+                      >
+                        <option value="">-</option>
+                        {(() => {
+                          // Solo mostrar subcategorías de la categoría seleccionada
+                          if (!nuevoFiltro.categoria) return null;
+                          const subcatIds = opcionesFiltro.subcategorias_por_categoria[nuevoFiltro.categoria] || [];
+                          return opcionesFiltro.subcategorias
+                            .filter(s => subcatIds.includes(s.id))
+                            .map(s => (
+                              <option key={s.id} value={s.id}>{s.nombre}</option>
+                            ));
+                        })()}
                       </select>
                     </div>
                     <div className={`${styles.filtroField} ${styles.filtroFieldProducto}`}>
-                      <label>Producto (buscar):</label>
+                      <label>Producto:</label>
                       <div className={styles.filtroSearchRow}>
                         <input
                           type="text"
@@ -766,7 +840,7 @@ export default function ModalOffset({
                       onClick={agregarFiltroGrupo}
                       className={styles.btnAgregarFiltro}
                     >
-                      + Agregar filtro
+                      + Agregar
                     </button>
                   </div>
                 </div>
