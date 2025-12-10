@@ -618,30 +618,33 @@ export default function DashboardVentasFuera() {
               <div className={styles.rankingList}>
                 {(() => {
                   const maxVenta = ventasPorMarca[0]?.monto_sin_iva || 1;
-                  return ventasPorMarca.slice(0, 10).map((item, idx) => (
-                    <div key={idx} className={styles.rankingItem}>
-                      <div className={styles.rankingPosition}>{idx + 1}</div>
-                      <div className={styles.rankingContent}>
-                        <div className={styles.rankingHeader}>
-                          <span className={styles.rankingName}>{item.marca || 'Sin marca'}</span>
-                          <span className={styles.rankingAmount}>{formatearMoneda(item.monto_sin_iva)}</span>
-                        </div>
-                        <div className={styles.rankingBarBg}>
-                          <div
-                            className={styles.rankingBar}
-                            style={{ width: `${(parseFloat(item.monto_sin_iva) / maxVenta) * 100}%` }}
-                          />
-                        </div>
-                        <div className={styles.rankingMeta}>
-                          <span>Costo: {formatearMoneda(item.costo_total)}</span>
-                          <span className={item.markup_promedio !== null && parseFloat(item.markup_promedio) >= 0.15 ? styles.markupBueno : item.markup_promedio !== null && parseFloat(item.markup_promedio) >= 0 ? styles.markupRegular : styles.markupMalo}>
-                            {item.markup_promedio !== null ? `${(parseFloat(item.markup_promedio) * 100).toFixed(1)}% mkp` : '-'}
-                          </span>
-                          <span>{item.total_ventas} ops</span>
+                  return ventasPorMarca.slice(0, 10).map((item, idx) => {
+                    const ganancia = parseFloat(item.monto_sin_iva || 0) - parseFloat(item.costo_total || 0);
+                    return (
+                      <div key={idx} className={styles.rankingItem}>
+                        <div className={styles.rankingPosition}>{idx + 1}</div>
+                        <div className={styles.rankingContent}>
+                          <div className={styles.rankingHeader}>
+                            <span className={styles.rankingName}>{item.marca || 'Sin marca'}</span>
+                            <span className={styles.rankingAmount}>{formatearMoneda(item.monto_sin_iva)}</span>
+                          </div>
+                          <div className={styles.rankingBarBg}>
+                            <div
+                              className={styles.rankingBar}
+                              style={{ width: `${(parseFloat(item.monto_sin_iva) / maxVenta) * 100}%` }}
+                            />
+                          </div>
+                          <div className={styles.rankingMeta}>
+                            <span>Ganancia: {formatearMoneda(ganancia)}</span>
+                            <span className={item.markup_promedio !== null && parseFloat(item.markup_promedio) >= 0.15 ? styles.markupBueno : item.markup_promedio !== null && parseFloat(item.markup_promedio) >= 0 ? styles.markupRegular : styles.markupMalo}>
+                              {item.markup_promedio !== null ? `${(parseFloat(item.markup_promedio) * 100).toFixed(1)}% mkp` : '-'}
+                            </span>
+                            <span>{item.total_ventas} ops</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ));
+                    );
+                  });
                 })()}
               </div>
             </div>

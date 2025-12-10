@@ -95,16 +95,16 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
         fecha_hasta: fechaHasta
       };
       if (marcasSeleccionadas.length > 0) {
-        params.marcas = marcasSeleccionadas.join(',');
+        params.marcas = marcasSeleccionadas.join('|');
       }
       if (categoriasSeleccionadas.length > 0) {
-        params.categorias = categoriasSeleccionadas.join(',');
+        params.categorias = categoriasSeleccionadas.join('|');
       }
       if (subcategoriasSeleccionadas.length > 0) {
-        params.subcategorias = subcategoriasSeleccionadas.join(',');
+        params.subcategorias = subcategoriasSeleccionadas.join('|');
       }
       if (productosSeleccionados.length > 0) {
-        params.productos = productosSeleccionados.map(p => p.item_id).join(',');
+        params.productos = productosSeleccionados.map(p => p.item_id).join('|');
       }
 
       const response = await api.get('/api/rentabilidad-fuera', { params });
