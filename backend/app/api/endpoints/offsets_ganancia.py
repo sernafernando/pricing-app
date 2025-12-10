@@ -370,12 +370,12 @@ async def obtener_filtros_grupo(
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
 
-    # Obtener nombres de subcategorías
+    # Obtener nombres de subcategorías (usar subcat_id, no id)
     subcat_ids = [f.subcategoria_id for f in grupo.filtros if f.subcategoria_id]
     subcategorias_map = {}
     if subcat_ids:
-        subcats = db.query(Subcategoria).filter(Subcategoria.id.in_(subcat_ids)).all()
-        subcategorias_map = {s.id: s.nombre for s in subcats}
+        subcats = db.query(Subcategoria).filter(Subcategoria.subcat_id.in_(subcat_ids)).all()
+        subcategorias_map = {s.subcat_id: s.nombre for s in subcats}
 
     return [
         {
