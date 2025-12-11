@@ -399,6 +399,9 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                 ).first()
 
                 if not existe_notif:
+                    # DEBUG: Ver qué valores vienen
+                    print(f"DEBUG item_id={row.item_id}: moneda_costo={row.moneda_costo} (type={type(row.moneda_costo)}), cambio_momento={row.cambio_momento}")
+
                     # Obtener TC usado para la operación (de cambio_momento de la query)
                     # Solo se usa si el costo está en USD (curr_id = 2)
                     # Convertir a int para comparación segura (puede venir como Decimal)
@@ -407,6 +410,8 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                     tc_operacion = None
                     if es_usd and row.cambio_momento:
                         tc_operacion = float(row.cambio_momento)
+
+                    print(f"DEBUG: es_usd={es_usd}, tc_operacion={tc_operacion}")
 
                     # Obtener costo actual del producto desde ProductoERP
                     costo_actual = None
