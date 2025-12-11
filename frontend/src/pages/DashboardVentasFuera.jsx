@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
 import TabRentabilidadFuera from '../components/TabRentabilidadFuera';
@@ -147,7 +147,10 @@ export default function DashboardVentasFuera() {
     cargarOperaciones();
   };
 
-  const guardarOverride = async (itTransaction, campo, valor) => {
+  // Ref para debounce de overrides
+  const debounceTimers = useRef({});
+
+  const guardarOverrideAPI = useCallback(async (itTransaction, campo, valor) => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
@@ -156,20 +159,30 @@ export default function DashboardVentasFuera() {
         it_transaction: itTransaction,
         [campo]: valor
       }, { headers });
-
-      // Actualizar estado local
-      setOverrides(prev => ({
-        ...prev,
-        [itTransaction]: {
-          ...(prev[itTransaction] || {}),
-          [campo]: valor || null
-        }
-      }));
     } catch (error) {
       console.error('Error guardando override:', error);
-      alert('Error al guardar el cambio');
     }
-  };
+  }, []);
+
+  const guardarOverride = useCallback((itTransaction, campo, valor) => {
+    // Actualizar estado local inmediatamente
+    setOverrides(prev => ({
+      ...prev,
+      [itTransaction]: {
+        ...(prev[itTransaction] || {}),
+        [campo]: valor || null
+      }
+    }));
+
+    // Debounce la llamada al API (500ms)
+    const timerKey = `${itTransaction}-${campo}`;
+    if (debounceTimers.current[timerKey]) {
+      clearTimeout(debounceTimers.current[timerKey]);
+    }
+    debounceTimers.current[timerKey] = setTimeout(() => {
+      guardarOverrideAPI(itTransaction, campo, valor);
+    }, 500);
+  }, [guardarOverrideAPI]);
 
   // Obtener valor efectivo (override o valor original)
   const getValorEfectivo = (op, campo) => {
@@ -478,16 +491,53 @@ export default function DashboardVentasFuera() {
                   const marcaEfectiva = getValorEfectivo(op, 'marca');
                   const categoriaEfectiva = getValorEfectivo(op, 'categoria');
                   const subcategoriaEfectiva = getValorEfectivo(op, 'subcategoria');
+                  const clienteEfectivo = getValorEfectivo(op, 'cliente') || op.cliente || '';
+                  const codigoEfectivo = getValorEfectivo(op, 'codigo') || op.codigo_item || '';
+                  const descripcionEfectiva = getValorEfectivo(op, 'descripcion') || op.descripcion || '';
                   const tieneOverride = overrides[op.id_operacion];
 
                   return (
                     <tr key={op.metrica_id || idx} className={sinCosto ? styles.rowSinCosto : ''}>
                       <td>{formatearFecha(op.fecha)}</td>
                       <td>{op.sucursal || '-'}</td>
-                      <td className={styles.descripcion}>{op.cliente || '-'}</td>
+                      <td className={styles.descripcion}>
+                        <input
+                          type="text"
+                          value={clienteEfectivo}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'cliente', e.target.value)}
+                          className={styles.inputEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.cliente ? '#fef3c7' : 'transparent'
+                          }}
+                          placeholder="Cliente"
+                        />
+                      </td>
                       <td>{op.vendedor || '-'}</td>
-                      <td>{op.codigo_item || '-'}</td>
-                      <td className={styles.descripcion}>{op.descripcion || '-'}</td>
+                      <td>
+                        <input
+                          type="text"
+                          value={codigoEfectivo}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'codigo', e.target.value)}
+                          className={styles.inputEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.codigo ? '#fef3c7' : 'transparent',
+                            width: '80px'
+                          }}
+                          placeholder="Código"
+                        />
+                      </td>
+                      <td className={styles.descripcion}>
+                        <input
+                          type="text"
+                          value={descripcionEfectiva}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'descripcion', e.target.value)}
+                          className={styles.inputEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.descripcion ? '#fef3c7' : 'transparent'
+                          }}
+                          placeholder="Descripción"
+                        />
+                      </td>
                       <td>
                         <select
                           value={marcaEfectiva}
@@ -557,16 +607,51 @@ export default function DashboardVentasFuera() {
                           )}
                         </select>
                       </td>
-                      <td className={styles.centrado}>{op.cantidad}</td>
-                      <td className={styles.monto}>{formatearMoneda(op.precio_unitario_sin_iva)}</td>
+                      <td className={styles.centrado}>
+                        <input
+                          type="number"
+                          value={getValorEfectivo(op, 'cantidad') || op.cantidad || ''}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'cantidad', e.target.value ? parseFloat(e.target.value) : null)}
+                          className={styles.inputEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.cantidad ? '#fef3c7' : 'transparent',
+                            width: '60px',
+                            textAlign: 'center'
+                          }}
+                          step="0.01"
+                        />
+                      </td>
+                      <td className={styles.monto}>
+                        <input
+                          type="number"
+                          value={getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva || ''}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'precio_unitario', e.target.value ? parseFloat(e.target.value) : null)}
+                          className={styles.inputEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.precio_unitario ? '#fef3c7' : 'transparent',
+                            width: '90px',
+                            textAlign: 'right'
+                          }}
+                          step="0.01"
+                        />
+                      </td>
                       <td className={styles.centrado}>{op.iva_porcentaje}%</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_final_sin_iva)}</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_final_con_iva)}</td>
                       <td className={styles.monto}>
-                        {sinCosto
-                          ? <span className={styles.alertDanger}>Sin costo</span>
-                          : formatearMoneda(op.costo_pesos_sin_iva)
-                        }
+                        <input
+                          type="number"
+                          value={getValorEfectivo(op, 'costo_unitario') || op.costo_unitario || ''}
+                          onChange={(e) => guardarOverride(op.id_operacion, 'costo_unitario', e.target.value ? parseFloat(e.target.value) : null)}
+                          className={styles.inputEditable}
+                          style={{
+                            backgroundColor: tieneOverride?.costo_unitario ? '#fef3c7' : (sinCosto ? '#fee2e2' : 'transparent'),
+                            width: '90px',
+                            textAlign: 'right'
+                          }}
+                          step="0.01"
+                          placeholder={sinCosto ? 'Sin costo' : ''}
+                        />
                       </td>
                       <td className={`${styles.centrado} ${op.markup !== null && parseFloat(op.markup) < 0 ? styles.negativo : ''}`}>
                         {formatearPorcentaje(op.markup)}
