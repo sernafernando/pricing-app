@@ -1291,10 +1291,10 @@ async def get_overrides_tn(
     from app.models.venta_override import VentaTiendaNubeOverride
 
     # Primero obtener los it_transaction del período
-    query = text(f"""
+    query = text("""
         SELECT DISTINCT it_transaction
         FROM ventas_tienda_nube_metricas
-        WHERE fecha_venta >= :from_date AND fecha_venta < :to_date::date + 1
+        WHERE fecha_venta >= :from_date AND fecha_venta <= :to_date
     """)
 
     result = db.execute(query, {"from_date": from_date, "to_date": to_date}).fetchall()
