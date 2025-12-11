@@ -3,6 +3,7 @@ import axios from 'axios';
 import styles from './Admin.module.css';
 import PanelComisiones from '../components/PanelComisiones';
 import PanelConstantesPricing from '../components/PanelConstantesPricing';
+import PanelPermisos from '../components/PanelPermisos';
 
 export default function Admin() {
   const [tabActiva, setTabActiva] = useState('general');
@@ -293,6 +294,12 @@ export default function Admin() {
           onClick={() => setTabActiva('constantes')}
         >
           Constantes Pricing
+        </button>
+        <button
+          className={`${styles.tab} ${tabActiva === 'permisos' ? styles.tabActive : ''}`}
+          onClick={() => setTabActiva('permisos')}
+        >
+          Permisos
         </button>
       </div>
 
@@ -661,6 +668,10 @@ export default function Admin() {
 
       {tabActiva === 'constantes' && (
         <PanelConstantesPricing />
+      )}
+
+      {tabActiva === 'permisos' && (
+        <PanelPermisos />
       )}
 
       {/* Modal de confirmación de limpieza */}

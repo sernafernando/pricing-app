@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useAuthStore } from './store/authStore';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { PermisosProvider } from './contexts/PermisosContext';
 import Login from './pages/Login';
 import Layout from './components/Layout';
 import Productos from './pages/Productos';
@@ -55,8 +56,9 @@ function App() {
 
   return (
     <ThemeProvider>
-      <BrowserRouter>
-        <Routes>
+      <PermisosProvider>
+        <BrowserRouter>
+          <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<Navigate to="/productos" replace />} />
           <Route path="*" element={
@@ -140,8 +142,9 @@ function App() {
               </Routes>
             </ProtectedRoute>
           } />
-        </Routes>
-      </BrowserRouter>
+          </Routes>
+        </BrowserRouter>
+      </PermisosProvider>
     </ThemeProvider>
   );
 }
