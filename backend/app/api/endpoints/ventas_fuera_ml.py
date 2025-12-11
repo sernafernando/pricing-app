@@ -472,29 +472,30 @@ async def get_operaciones_desde_metricas(
         m.id as metrica_id,
         m.it_transaction as id_operacion,
         m.sucursal,
-        COALESCE(tc.cust_name, m.cliente) as cliente,
+        COALESCE(o.cliente, tc.cust_name, m.cliente) as cliente,
         m.vendedor,
         m.fecha_venta as fecha,
         m.tipo_comprobante,
         m.numero_comprobante,
-        m.marca,
-        m.categoria,
-        m.subcategoria,
-        m.codigo,
-        m.descripcion,
-        m.cantidad,
-        m.monto_unitario as precio_unitario_sin_iva,
+        COALESCE(o.marca, m.marca) as marca,
+        COALESCE(o.categoria, m.categoria) as categoria,
+        COALESCE(o.subcategoria, m.subcategoria) as subcategoria,
+        COALESCE(o.codigo, m.codigo) as codigo,
+        COALESCE(o.descripcion, m.descripcion) as descripcion,
+        COALESCE(o.cantidad, m.cantidad) as cantidad,
+        COALESCE(o.precio_unitario, m.monto_unitario) as precio_unitario_sin_iva,
         m.iva_porcentaje,
-        m.monto_total as precio_final_sin_iva,
+        COALESCE(o.precio_unitario * COALESCE(o.cantidad, m.cantidad), m.monto_total) as precio_final_sin_iva,
         m.monto_iva,
         m.monto_con_iva as precio_final_con_iva,
-        m.costo_unitario,
-        m.costo_total as costo_pesos_sin_iva,
+        COALESCE(o.costo_unitario, m.costo_unitario) as costo_unitario,
+        COALESCE(o.costo_unitario * COALESCE(o.cantidad, m.cantidad), m.costo_total) as costo_pesos_sin_iva,
         m.markup_porcentaje as markup,
         m.ganancia,
         m.signo
     FROM ventas_fuera_ml_metricas m
     LEFT JOIN tb_customer tc ON tc.cust_id = m.cust_id AND tc.comp_id = 1
+    LEFT JOIN ventas_fuera_ml_override o ON o.it_transaction = m.it_transaction
     WHERE {where_sql}
     ORDER BY m.fecha_venta DESC, m.it_transaction
     LIMIT :limit
@@ -994,17 +995,29 @@ async def get_metrica_detalle(
 class VentaFueraOverrideRequest(BaseModel):
     """Request para crear/actualizar override de datos"""
     it_transaction: int
+    codigo: Optional[str] = None
+    descripcion: Optional[str] = None
     marca: Optional[str] = None
     categoria: Optional[str] = None
     subcategoria: Optional[str] = None
+    cliente: Optional[str] = None
+    cantidad: Optional[Decimal] = None
+    precio_unitario: Optional[Decimal] = None
+    costo_unitario: Optional[Decimal] = None
 
 
 class VentaFueraOverrideResponse(BaseModel):
     """Response de override"""
     it_transaction: int
+    codigo: Optional[str] = None
+    descripcion: Optional[str] = None
     marca: Optional[str] = None
     categoria: Optional[str] = None
     subcategoria: Optional[str] = None
+    cliente: Optional[str] = None
+    cantidad: Optional[Decimal] = None
+    precio_unitario: Optional[Decimal] = None
+    costo_unitario: Optional[Decimal] = None
 
 
 @router.get("/ventas-fuera-ml/overrides")
@@ -1040,9 +1053,15 @@ async def get_overrides_fuera_ml(
 
     return {
         o.it_transaction: {
+            "codigo": o.codigo,
+            "descripcion": o.descripcion,
             "marca": o.marca,
             "categoria": o.categoria,
-            "subcategoria": o.subcategoria
+            "subcategoria": o.subcategoria,
+            "cliente": o.cliente,
+            "cantidad": float(o.cantidad) if o.cantidad else None,
+            "precio_unitario": float(o.precio_unitario) if o.precio_unitario else None,
+            "costo_unitario": float(o.costo_unitario) if o.costo_unitario else None
         }
         for o in overrides
     }
@@ -1055,33 +1074,51 @@ async def set_override_fuera_ml(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Guarda o actualiza el override de marca/categoría/subcategoría para una venta fuera ML.
+    Guarda o actualiza el override de datos para una venta fuera ML.
     Usa UPSERT para manejar concurrencia cuando se hacen múltiples llamadas simultáneas.
     """
     from sqlalchemy.dialects.postgresql import insert
+    from app.models.venta_override import VentaFueraMLOverride
 
     usuario_id = current_user.id if hasattr(current_user, 'id') else None
+
+    # Helper para limpiar strings vacíos
+    def clean_str(val):
+        if val is None or val == '':
+            return None
+        return val
 
     # Preparar valores para el upsert
     valores_insert = {
         'it_transaction': request.it_transaction,
-        'marca': request.marca if request.marca != '' else None,
-        'categoria': request.categoria if request.categoria != '' else None,
-        'subcategoria': request.subcategoria if request.subcategoria != '' else None,
+        'codigo': clean_str(request.codigo),
+        'descripcion': clean_str(request.descripcion),
+        'marca': clean_str(request.marca),
+        'categoria': clean_str(request.categoria),
+        'subcategoria': clean_str(request.subcategoria),
+        'cliente': clean_str(request.cliente),
+        'cantidad': request.cantidad,
+        'precio_unitario': request.precio_unitario,
+        'costo_unitario': request.costo_unitario,
         'usuario_id': usuario_id
     }
 
     # Preparar valores para update (solo campos que vinieron en el request)
     valores_update = {'usuario_id': usuario_id}
-    if request.marca is not None:
-        valores_update['marca'] = request.marca if request.marca != '' else None
-    if request.categoria is not None:
-        valores_update['categoria'] = request.categoria if request.categoria != '' else None
-    if request.subcategoria is not None:
-        valores_update['subcategoria'] = request.subcategoria if request.subcategoria != '' else None
+
+    # Campos de texto
+    for campo in ['codigo', 'descripcion', 'marca', 'categoria', 'subcategoria', 'cliente']:
+        val = getattr(request, campo)
+        if val is not None:
+            valores_update[campo] = clean_str(val)
+
+    # Campos numéricos
+    for campo in ['cantidad', 'precio_unitario', 'costo_unitario']:
+        val = getattr(request, campo)
+        if val is not None:
+            valores_update[campo] = val
 
     # UPSERT: INSERT ... ON CONFLICT DO UPDATE
-    from app.models.venta_override import VentaFueraMLOverride
     stmt = insert(VentaFueraMLOverride).values(**valores_insert)
     stmt = stmt.on_conflict_do_update(
         index_elements=['it_transaction'],
@@ -1093,10 +1130,7 @@ async def set_override_fuera_ml(
 
     return {
         "success": True,
-        "it_transaction": request.it_transaction,
-        "marca": request.marca,
-        "categoria": request.categoria,
-        "subcategoria": request.subcategoria
+        "it_transaction": request.it_transaction
     }
 
 

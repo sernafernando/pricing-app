@@ -1,8 +1,8 @@
 """
-Modelos para overrides manuales de marca/categoría/subcategoría en ventas
+Modelos para overrides manuales de datos en ventas
 Estos datos NO se sobreescriben cuando se recalculan las métricas
 """
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, ForeignKey, Numeric, Text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -15,10 +15,20 @@ class VentaTiendaNubeOverride(Base):
     id = Column(Integer, primary_key=True, index=True)
     it_transaction = Column(BigInteger, unique=True, index=True, nullable=False)
 
-    # Campos corregibles
+    # Campos corregibles - Producto
+    codigo = Column(String(100), nullable=True)
+    descripcion = Column(Text, nullable=True)
     marca = Column(String(255), nullable=True)
     categoria = Column(String(255), nullable=True)
     subcategoria = Column(String(255), nullable=True)
+
+    # Campos corregibles - Cliente
+    cliente = Column(String(255), nullable=True)
+
+    # Campos corregibles - Montos
+    cantidad = Column(Numeric(18, 4), nullable=True)
+    precio_unitario = Column(Numeric(18, 2), nullable=True)
+    costo_unitario = Column(Numeric(18, 6), nullable=True)
 
     # Auditoría
     usuario_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
@@ -39,10 +49,20 @@ class VentaFueraMLOverride(Base):
     id = Column(Integer, primary_key=True, index=True)
     it_transaction = Column(BigInteger, unique=True, index=True, nullable=False)
 
-    # Campos corregibles
+    # Campos corregibles - Producto
+    codigo = Column(String(100), nullable=True)
+    descripcion = Column(Text, nullable=True)
     marca = Column(String(255), nullable=True)
     categoria = Column(String(255), nullable=True)
     subcategoria = Column(String(255), nullable=True)
+
+    # Campos corregibles - Cliente
+    cliente = Column(String(255), nullable=True)
+
+    # Campos corregibles - Montos
+    cantidad = Column(Numeric(18, 4), nullable=True)
+    precio_unitario = Column(Numeric(18, 2), nullable=True)
+    costo_unitario = Column(Numeric(18, 6), nullable=True)
 
     # Auditoría
     usuario_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
