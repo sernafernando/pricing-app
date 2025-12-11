@@ -597,7 +597,8 @@ async def get_operaciones_con_metricas(
                 0
             ) as costo_sin_iva,
 
-            COALESCE(ttn.tax_percentage, 21.0) as iva,
+            -- IVA: SIEMPRE desde productos_erp (sin fallback que cause errores)
+            pe.iva as iva,
 
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
@@ -606,12 +607,13 @@ async def get_operaciones_con_metricas(
             pe.envio as envio_producto,
 
             -- Comisión base porcentaje
+            -- SIEMPRE usar pe.subcategoria_id (productos_erp) para evitar errores cuando tb_item no existe
             COALESCE(
                 (
                     SELECT clg.comision_porcentaje
                     FROM subcategorias_grupos sg
                     JOIN comisiones_lista_grupo clg ON clg.grupo_id = sg.grupo_id
-                    WHERE sg.subcat_id = tsc.subcat_id
+                    WHERE sg.subcat_id = COALESCE(tsc.subcat_id, pe.subcategoria_id)
                       AND clg.pricelist_id = COALESCE(
                           tsoh.prli_id,
                           CASE
@@ -627,7 +629,7 @@ async def get_operaciones_con_metricas(
                     FROM subcategorias_grupos sg
                     JOIN comisiones_base cb ON cb.grupo_id = sg.grupo_id
                     JOIN comisiones_versiones cv ON cv.id = cb.version_id
-                    WHERE sg.subcat_id = tsc.subcat_id
+                    WHERE sg.subcat_id = COALESCE(tsc.subcat_id, pe.subcategoria_id)
                       AND tmloh.mlo_cd::date BETWEEN cv.fecha_desde AND COALESCE(cv.fecha_hasta, '9999-12-31'::date)
                       AND cv.activo = TRUE
                     LIMIT 1
@@ -635,7 +637,8 @@ async def get_operaciones_con_metricas(
                 12.0
             ) as comision_base_porcentaje,
 
-            tsc.subcat_id,
+            -- subcat_id: SIEMPRE usar pe.subcategoria_id como fuente principal
+            COALESCE(tsc.subcat_id, pe.subcategoria_id) as subcat_id,
 
             -- Price list
             COALESCE(

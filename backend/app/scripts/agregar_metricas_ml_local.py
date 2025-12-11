@@ -147,7 +147,8 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                 0
             ) as costo_sin_iva,
 
-            COALESCE(ttn.tax_percentage, 21.0) as iva,
+            -- IVA: SIEMPRE desde productos_erp (sin fallback que cause errores)
+            pe.iva as iva,
 
             -- Tipo de cambio al momento de la venta (primero tipo_cambio, fallback tb_cur_exch_history)
             COALESCE(
@@ -163,13 +164,14 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             pe.envio as envio_producto,
 
             -- Obtener el porcentaje de comisión base para que el helper lo calcule
+            -- SIEMPRE usar pe.subcategoria_id (productos_erp) para evitar errores cuando tb_item no existe
             COALESCE(
                 -- Prioridad 1: Comisión específica por pricelist + grupo
                 (
                     SELECT clg.comision_porcentaje
                     FROM subcategorias_grupos sg
                     JOIN comisiones_lista_grupo clg ON clg.grupo_id = sg.grupo_id
-                    WHERE sg.subcat_id = tsc.subcat_id
+                    WHERE sg.subcat_id = COALESCE(tsc.subcat_id, pe.subcategoria_id)
                       AND clg.pricelist_id = COALESCE(
                           tsoh.prli_id,
                           CASE
@@ -186,7 +188,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                     FROM subcategorias_grupos sg
                     JOIN comisiones_base cb ON cb.grupo_id = sg.grupo_id
                     JOIN comisiones_versiones cv ON cv.id = cb.version_id
-                    WHERE sg.subcat_id = tsc.subcat_id
+                    WHERE sg.subcat_id = COALESCE(tsc.subcat_id, pe.subcategoria_id)
                       AND tmloh.mlo_cd::date BETWEEN cv.fecha_desde AND COALESCE(cv.fecha_hasta, '9999-12-31'::date)
                       AND cv.activo = TRUE
                     LIMIT 1
@@ -195,7 +197,8 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                 12.0
             ) as comision_base_porcentaje,
 
-            tsc.subcat_id,
+            -- subcat_id: SIEMPRE usar pe.subcategoria_id como fuente principal
+            COALESCE(tsc.subcat_id, pe.subcategoria_id) as subcat_id,
 
             -- Price list: Prioridad 1: SaleOrderHeader, Fallback: ML Items Publicados
             COALESCE(

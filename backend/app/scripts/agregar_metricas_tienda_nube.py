@@ -152,7 +152,8 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
         tit.it_qty as cantidad,
 
         -- IVA
-        COALESCE(ttn.tax_percentage, 21.0) as iva_porcentaje,
+        -- IVA: Primero tb_tax_name, fallback productos_erp
+        COALESCE(ttn.tax_percentage, pe.iva, 21.0) as iva_porcentaje,
 
         -- Es combo?
         CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN true ELSE false END as es_combo,
@@ -200,6 +201,8 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
         ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
     LEFT JOIN tb_item ti
         ON ti.comp_id = tit.comp_id AND ti.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
+    LEFT JOIN productos_erp pe
+        ON pe.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
     LEFT JOIN tb_item_transaction_details titd
         ON titd.comp_id = tit.comp_id AND titd.bra_id = tit.bra_id AND titd.it_transaction = tit.it_transaction
     LEFT JOIN tb_brand tbd ON tbd.comp_id = ti.comp_id AND tbd.brand_id = ti.brand_id
