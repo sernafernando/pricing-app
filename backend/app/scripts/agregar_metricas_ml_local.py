@@ -165,24 +165,8 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
 
             -- Obtener el porcentaje de comisión base para que el helper lo calcule
             -- SIEMPRE usar pe.subcategoria_id (productos_erp) para evitar errores cuando tb_item no existe
+            -- Usar comisiones versionadas (comisiones_base + comisiones_versiones)
             COALESCE(
-                -- Prioridad 1: Comisión específica por pricelist + grupo
-                (
-                    SELECT clg.comision_porcentaje
-                    FROM subcategorias_grupos sg
-                    JOIN comisiones_lista_grupo clg ON clg.grupo_id = sg.grupo_id
-                    WHERE sg.subcat_id = COALESCE(tsc.subcat_id, pe.subcategoria_id)
-                      AND clg.pricelist_id = COALESCE(
-                          tsoh.prli_id,
-                          CASE
-                              WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
-                              ELSE tmlip.prli_id
-                          END
-                      )
-                      AND clg.activo = TRUE
-                    LIMIT 1
-                ),
-                -- Fallback: Comisión base por grupo (versionada por fecha)
                 (
                     SELECT cb.comision_base
                     FROM subcategorias_grupos sg

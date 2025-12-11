@@ -150,8 +150,8 @@ def obtener_comision_versionada(db: Session, grupo_id: int, pricelist_id: int, f
     ).first()
 
     if not version:
-        # Fallback al sistema antiguo si no hay versión
-        return obtener_comision_base_legacy(db, pricelist_id, grupo_id)
+        # No hay versión activa para esta fecha
+        return None
 
     # Obtener comisión base para este grupo
     comision_base_obj = db.query(ComisionBase).filter(
