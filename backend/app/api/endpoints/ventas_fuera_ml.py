@@ -450,52 +450,53 @@ async def get_operaciones_desde_metricas(
     Más rápido que el endpoint original y devuelve metrica_id para edición.
     """
     # Construir query con filtros opcionales
-    where_clauses = ["fecha_venta BETWEEN :from_date AND :to_date"]
+    where_clauses = ["m.fecha_venta BETWEEN :from_date AND :to_date"]
     params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
 
     if sucursal:
-        where_clauses.append("sucursal = :sucursal")
+        where_clauses.append("m.sucursal = :sucursal")
         params["sucursal"] = sucursal
     if vendedor:
-        where_clauses.append("vendedor = :vendedor")
+        where_clauses.append("m.vendedor = :vendedor")
         params["vendedor"] = vendedor
     if marca:
-        where_clauses.append("marca = :marca")
+        where_clauses.append("m.marca = :marca")
         params["marca"] = marca
     if solo_sin_costo:
-        where_clauses.append("(costo_total IS NULL OR costo_total = 0)")
+        where_clauses.append("(m.costo_total IS NULL OR m.costo_total = 0)")
 
     where_sql = " AND ".join(where_clauses)
 
     query = f"""
     SELECT
-        id as metrica_id,
-        it_transaction as id_operacion,
-        sucursal,
-        cliente,
-        vendedor,
-        fecha_venta as fecha,
-        tipo_comprobante,
-        numero_comprobante,
-        marca,
-        categoria,
-        subcategoria,
-        codigo,
-        descripcion,
-        cantidad,
-        monto_unitario as precio_unitario_sin_iva,
-        iva_porcentaje,
-        monto_total as precio_final_sin_iva,
-        monto_iva,
-        monto_con_iva as precio_final_con_iva,
-        costo_unitario,
-        costo_total as costo_pesos_sin_iva,
-        markup_porcentaje as markup,
-        ganancia,
-        signo
-    FROM ventas_fuera_ml_metricas
+        m.id as metrica_id,
+        m.it_transaction as id_operacion,
+        m.sucursal,
+        COALESCE(tc.cust_name, m.cliente) as cliente,
+        m.vendedor,
+        m.fecha_venta as fecha,
+        m.tipo_comprobante,
+        m.numero_comprobante,
+        m.marca,
+        m.categoria,
+        m.subcategoria,
+        m.codigo,
+        m.descripcion,
+        m.cantidad,
+        m.monto_unitario as precio_unitario_sin_iva,
+        m.iva_porcentaje,
+        m.monto_total as precio_final_sin_iva,
+        m.monto_iva,
+        m.monto_con_iva as precio_final_con_iva,
+        m.costo_unitario,
+        m.costo_total as costo_pesos_sin_iva,
+        m.markup_porcentaje as markup,
+        m.ganancia,
+        m.signo
+    FROM ventas_fuera_ml_metricas m
+    LEFT JOIN tb_customer tc ON tc.cust_id = m.cust_id AND tc.comp_id = 1
     WHERE {where_sql}
-    ORDER BY fecha_venta DESC, it_transaction
+    ORDER BY m.fecha_venta DESC, m.it_transaction
     LIMIT :limit
     """
 
