@@ -28,6 +28,7 @@ export default function DashboardVentasFuera() {
   const [operaciones, setOperaciones] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [soloSinCosto, setSoloSinCosto] = useState(false);
+  const [soloModificadas, setSoloModificadas] = useState(false);
 
   // Modal editar costo
   const [modalCostoAbierto, setModalCostoAbierto] = useState(false);
@@ -279,8 +280,19 @@ export default function DashboardVentasFuera() {
     setFechaHasta(formatearFechaISO(hasta));
   };
 
-  // Filtrar operaciones por búsqueda
+  // Verificar si una operación tiene override
+  const tieneOverride = (opId) => {
+    const override = overrides[opId];
+    if (!override) return false;
+    return Object.values(override).some(v => v !== null && v !== undefined && v !== '');
+  };
+
+  // Filtrar operaciones por búsqueda y modificadas
   const operacionesFiltradas = operaciones.filter(op => {
+    // Filtro de modificadas
+    if (soloModificadas && !tieneOverride(op.id_operacion)) return false;
+
+    // Filtro de búsqueda
     if (!busqueda) return true;
     const searchLower = busqueda.toLowerCase();
     return (
@@ -419,6 +431,16 @@ export default function DashboardVentasFuera() {
                 />
                 Solo sin costo
               </label>
+              {tabActivo === 'operaciones' && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={soloModificadas}
+                    onChange={(e) => setSoloModificadas(e.target.checked)}
+                  />
+                  Solo modificadas
+                </label>
+              )}
             </>
           )}
 
@@ -486,6 +508,8 @@ export default function DashboardVentasFuera() {
               <tbody>
                 {operacionesFiltradas.map((op, idx) => {
                   const sinCosto = !op.costo_pesos_sin_iva || op.costo_pesos_sin_iva === 0;
+                  const override = overrides[op.id_operacion];
+                  const filaModificada = override && Object.values(override).some(v => v !== null && v !== undefined && v !== '');
 
                   // Valores efectivos (override o original)
                   const marcaEfectiva = getValorEfectivo(op, 'marca');
@@ -494,56 +518,75 @@ export default function DashboardVentasFuera() {
                   const clienteEfectivo = getValorEfectivo(op, 'cliente') || op.cliente || '';
                   const codigoEfectivo = getValorEfectivo(op, 'codigo') || op.codigo_item || '';
                   const descripcionEfectiva = getValorEfectivo(op, 'descripcion') || op.descripcion || '';
-                  const tieneOverride = overrides[op.id_operacion];
+
+                  // Helper para mostrar asterisco si campo modificado
+                  const asterisco = (campo) => override?.[campo] ? <span style={{ color: '#f59e0b', marginLeft: '2px' }}>*</span> : null;
 
                   return (
-                    <tr key={op.metrica_id || idx} className={sinCosto ? styles.rowSinCosto : ''}>
+                    <tr
+                      key={op.metrica_id || idx}
+                      className={sinCosto ? styles.rowSinCosto : ''}
+                      style={filaModificada ? { backgroundColor: 'rgba(59, 130, 246, 0.08)' } : {}}
+                    >
                       <td>{formatearFecha(op.fecha)}</td>
                       <td>{op.sucursal || '-'}</td>
-                      <td className={styles.descripcion}>
-                        <input
-                          type="text"
-                          value={clienteEfectivo}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'cliente', e.target.value)}
-                          className={styles.inputEditable}
+                      <td>
+                        <span
                           style={{
-                            backgroundColor: tieneOverride?.cliente ? '#fef3c7' : 'transparent'
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            borderRadius: '3px',
+                            backgroundColor: override?.cliente ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
                           }}
-                          placeholder="Cliente"
-                        />
+                          onClick={() => {
+                            const nuevoValor = prompt('Cliente:', clienteEfectivo);
+                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'cliente', nuevoValor);
+                          }}
+                          title="Click para editar"
+                        >
+                          {clienteEfectivo || '-'}{asterisco('cliente')}
+                        </span>
                       </td>
                       <td>{op.vendedor || '-'}</td>
                       <td>
-                        <input
-                          type="text"
-                          value={codigoEfectivo}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'codigo', e.target.value)}
-                          className={styles.inputEditable}
+                        <span
                           style={{
-                            backgroundColor: tieneOverride?.codigo ? '#fef3c7' : 'transparent',
-                            width: '80px'
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            borderRadius: '3px',
+                            backgroundColor: override?.codigo ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
                           }}
-                          placeholder="Código"
-                        />
+                          onClick={() => {
+                            const nuevoValor = prompt('Código:', codigoEfectivo);
+                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'codigo', nuevoValor);
+                          }}
+                          title="Click para editar"
+                        >
+                          {codigoEfectivo || '-'}{asterisco('codigo')}
+                        </span>
                       </td>
                       <td className={styles.descripcion}>
-                        <input
-                          type="text"
-                          value={descripcionEfectiva}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'descripcion', e.target.value)}
-                          className={styles.inputEditable}
+                        <span
                           style={{
-                            backgroundColor: tieneOverride?.descripcion ? '#fef3c7' : 'transparent'
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            borderRadius: '3px',
+                            backgroundColor: override?.descripcion ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
                           }}
-                          placeholder="Descripción"
-                        />
+                          onClick={() => {
+                            const nuevoValor = prompt('Descripción:', descripcionEfectiva);
+                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'descripcion', nuevoValor);
+                          }}
+                          title="Click para editar"
+                        >
+                          {descripcionEfectiva || '-'}{asterisco('descripcion')}
+                        </span>
                       </td>
                       <td>
                         <select
                           value={marcaEfectiva}
                           onChange={(e) => {
                             guardarOverride(op.id_operacion, 'marca', e.target.value);
-                            // Limpiar categoría y subcategoría si cambia la marca
                             if (e.target.value !== marcaEfectiva) {
                               guardarOverride(op.id_operacion, 'categoria', '');
                               guardarOverride(op.id_operacion, 'subcategoria', '');
@@ -551,10 +594,10 @@ export default function DashboardVentasFuera() {
                           }}
                           className={styles.selectEditable}
                           style={{
-                            backgroundColor: tieneOverride?.marca ? '#fef3c7' : 'transparent'
+                            backgroundColor: override?.marca ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
                           }}
                         >
-                          <option value="">Sin marca</option>
+                          <option value="">-</option>
                           {getMarcasDisponibles().map(m => (
                             <option key={m} value={m}>{m}</option>
                           ))}
@@ -562,24 +605,24 @@ export default function DashboardVentasFuera() {
                             <option value={marcaEfectiva}>{marcaEfectiva}</option>
                           )}
                         </select>
+                        {asterisco('marca')}
                       </td>
                       <td>
                         <select
                           value={categoriaEfectiva}
                           onChange={(e) => {
                             guardarOverride(op.id_operacion, 'categoria', e.target.value);
-                            // Limpiar subcategoría si cambia la categoría
                             if (e.target.value !== categoriaEfectiva) {
                               guardarOverride(op.id_operacion, 'subcategoria', '');
                             }
                           }}
                           className={styles.selectEditable}
                           style={{
-                            backgroundColor: tieneOverride?.categoria ? '#fef3c7' : 'transparent'
+                            backgroundColor: override?.categoria ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
                           }}
                           disabled={!marcaEfectiva}
                         >
-                          <option value="">{marcaEfectiva ? 'Sin categoría' : 'Seleccione marca primero'}</option>
+                          <option value="">-</option>
                           {getCategoriasParaMarca(marcaEfectiva).map(c => (
                             <option key={c} value={c}>{c}</option>
                           ))}
@@ -587,6 +630,7 @@ export default function DashboardVentasFuera() {
                             <option value={categoriaEfectiva}>{categoriaEfectiva}</option>
                           )}
                         </select>
+                        {asterisco('categoria')}
                       </td>
                       <td>
                         <select
@@ -594,11 +638,11 @@ export default function DashboardVentasFuera() {
                           onChange={(e) => guardarOverride(op.id_operacion, 'subcategoria', e.target.value)}
                           className={styles.selectEditable}
                           style={{
-                            backgroundColor: tieneOverride?.subcategoria ? '#fef3c7' : 'transparent'
+                            backgroundColor: override?.subcategoria ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
                           }}
                           disabled={!categoriaEfectiva}
                         >
-                          <option value="">{categoriaEfectiva ? 'Sin subcategoría' : 'Seleccione categoría primero'}</option>
+                          <option value="">-</option>
                           {getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva).map(s => (
                             <option key={s} value={s}>{s}</option>
                           ))}
@@ -606,52 +650,64 @@ export default function DashboardVentasFuera() {
                             <option value={subcategoriaEfectiva}>{subcategoriaEfectiva}</option>
                           )}
                         </select>
+                        {asterisco('subcategoria')}
                       </td>
                       <td className={styles.centrado}>
-                        <input
-                          type="number"
-                          value={getValorEfectivo(op, 'cantidad') || op.cantidad || ''}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'cantidad', e.target.value ? parseFloat(e.target.value) : null)}
-                          className={styles.inputEditable}
+                        <span
                           style={{
-                            backgroundColor: tieneOverride?.cantidad ? '#fef3c7' : 'transparent',
-                            width: '60px',
-                            textAlign: 'center'
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            borderRadius: '3px',
+                            backgroundColor: override?.cantidad ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
                           }}
-                          step="0.01"
-                        />
+                          onClick={() => {
+                            const valorActual = getValorEfectivo(op, 'cantidad') || op.cantidad || '';
+                            const nuevoValor = prompt('Cantidad:', valorActual);
+                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'cantidad', nuevoValor ? parseFloat(nuevoValor) : null);
+                          }}
+                          title="Click para editar"
+                        >
+                          {getValorEfectivo(op, 'cantidad') || op.cantidad || '-'}{asterisco('cantidad')}
+                        </span>
                       </td>
                       <td className={styles.monto}>
-                        <input
-                          type="number"
-                          value={getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva || ''}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'precio_unitario', e.target.value ? parseFloat(e.target.value) : null)}
-                          className={styles.inputEditable}
+                        <span
                           style={{
-                            backgroundColor: tieneOverride?.precio_unitario ? '#fef3c7' : 'transparent',
-                            width: '90px',
-                            textAlign: 'right'
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            borderRadius: '3px',
+                            backgroundColor: override?.precio_unitario ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
                           }}
-                          step="0.01"
-                        />
+                          onClick={() => {
+                            const valorActual = getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva || '';
+                            const nuevoValor = prompt('Precio unitario:', valorActual);
+                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'precio_unitario', nuevoValor ? parseFloat(nuevoValor) : null);
+                          }}
+                          title="Click para editar"
+                        >
+                          {formatearMoneda(getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva)}{asterisco('precio_unitario')}
+                        </span>
                       </td>
                       <td className={styles.centrado}>{op.iva_porcentaje}%</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_final_sin_iva)}</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_final_con_iva)}</td>
                       <td className={styles.monto}>
-                        <input
-                          type="number"
-                          value={getValorEfectivo(op, 'costo_unitario') || op.costo_unitario || ''}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'costo_unitario', e.target.value ? parseFloat(e.target.value) : null)}
-                          className={styles.inputEditable}
+                        <span
                           style={{
-                            backgroundColor: tieneOverride?.costo_unitario ? '#fef3c7' : (sinCosto ? '#fee2e2' : 'transparent'),
-                            width: '90px',
-                            textAlign: 'right'
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            borderRadius: '3px',
+                            backgroundColor: override?.costo_unitario ? 'rgba(245, 158, 11, 0.15)' : (sinCosto ? 'rgba(239, 68, 68, 0.15)' : 'transparent')
                           }}
-                          step="0.01"
-                          placeholder={sinCosto ? 'Sin costo' : ''}
-                        />
+                          onClick={() => {
+                            const valorActual = getValorEfectivo(op, 'costo_unitario') || op.costo_unitario || '';
+                            const nuevoValor = prompt('Costo unitario:', valorActual);
+                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'costo_unitario', nuevoValor ? parseFloat(nuevoValor) : null);
+                          }}
+                          title="Click para editar"
+                        >
+                          {(getValorEfectivo(op, 'costo_unitario') || op.costo_unitario) ? formatearMoneda(getValorEfectivo(op, 'costo_unitario') || op.costo_unitario) : 'Sin costo'}{asterisco('costo_unitario')}
+                        </span>
                       </td>
                       <td className={`${styles.centrado} ${op.markup !== null && parseFloat(op.markup) < 0 ? styles.negativo : ''}`}>
                         {formatearPorcentaje(op.markup)}
