@@ -400,7 +400,10 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
 
                 if not existe_notif:
                     # Obtener TC usado para la operación (de cambio_momento de la query)
-                    tc_operacion = float(row.cambio_momento) if row.cambio_momento else None
+                    # Solo se usa si el costo está en USD (curr_id = 2)
+                    tc_operacion = None
+                    if row.moneda_costo == 2 and row.cambio_momento:
+                        tc_operacion = float(row.cambio_momento)
 
                     # Obtener costo actual del producto desde ProductoERP
                     costo_actual = None
@@ -410,8 +413,8 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                             ProductoERP.item_id == row.item_id
                         ).first()
                         if producto_actual and producto_actual.costo is not None:
-                            # Convertir a ARS si está en USD
-                            if producto_actual.moneda_costo == 'USD':
+                            # Convertir a ARS si está en USD (curr_id = 2)
+                            if row.moneda_costo == 2:
                                 # Usar tabla tipo_cambio (TC actual del día)
                                 from app.models.tipo_cambio import TipoCambio
                                 tc = db.query(TipoCambio).filter(
