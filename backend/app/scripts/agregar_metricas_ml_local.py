@@ -381,8 +381,6 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                 ).first()
 
                 if not existe_notif:
-                    # DEBUG: Ver qué valores vienen de la query
-                    print(f"DEBUG QUERY item_id={row.item_id}: moneda_costo={row.moneda_costo}, cambio_momento={row.cambio_momento}, costo_sin_iva={row.costo_sin_iva}")
 
                     # Determinar si el costo está en USD (curr_id = 2)
                     es_usd = row.moneda_costo is not None and int(row.moneda_costo) == 2
@@ -420,8 +418,6 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                                 costo_actual = float(producto_actual.costo)
                     except:
                         pass
-
-                    print(f"DEBUG: es_usd={es_usd}, tc_operacion={tc_operacion}, tc_actual={tc_actual}")
 
                     # Obtener precio_lista_ml del producto
                     precio_lista_ml = None
