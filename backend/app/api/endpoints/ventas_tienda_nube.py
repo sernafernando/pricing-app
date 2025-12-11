@@ -330,7 +330,7 @@ def get_ventas_tienda_nube_query():
 
     LEFT JOIN tb_customer tc
         ON tc.comp_id = tct.comp_id
-        AND tc.cust_id = tct.cust_id
+        AND tc.cust_id = COALESCE(tct.cust_id, tct.ws_cust_id)
 
     LEFT JOIN tb_fiscal_class tfc
         ON tfc.fc_id = tc.fc_id
@@ -394,7 +394,7 @@ def get_ventas_tienda_nube_query():
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
         AND tct.df_id IN ({DF_IDS_STR})
         AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
+        AND COALESCE(tct.cust_id, tct.ws_cust_id) NOT IN ({CLIENTES_EXCLUIDOS_STR})
         AND tct.sd_id IN ({SD_IDS_STR})
         AND tit.it_qty <> 0
         AND NOT (
