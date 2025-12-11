@@ -399,10 +399,12 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                 ).first()
 
                 if not existe_notif:
+                    # Obtener TC usado para la operación (de cambio_momento de la query)
+                    tc_operacion = float(row.cambio_momento) if row.cambio_momento else None
+
                     # Obtener costo actual del producto desde ProductoERP
                     costo_actual = None
                     tc_actual = None  # TC usado para costo actual
-                    tc_operacion = None  # TC usado para costo operación
                     try:
                         producto_actual = db.query(ProductoERP).filter(
                             ProductoERP.item_id == row.item_id
@@ -427,10 +429,6 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                                 costo_actual = float(producto_actual.costo) * tc_actual
                             else:
                                 costo_actual = float(producto_actual.costo)
-
-                        # Obtener TC usado para la operación (de cambio_momento de la query)
-                        if row.cambio_momento:
-                            tc_operacion = float(row.cambio_momento)
                     except:
                         pass
 
