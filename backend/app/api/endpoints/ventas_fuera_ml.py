@@ -1055,34 +1055,39 @@ async def set_override_fuera_ml(
 ):
     """
     Guarda o actualiza el override de marca/categoría/subcategoría para una venta fuera ML.
+    Usa UPSERT para manejar concurrencia cuando se hacen múltiples llamadas simultáneas.
     """
+    from sqlalchemy.dialects.postgresql import insert
+
+    usuario_id = current_user.id if hasattr(current_user, 'id') else None
+
+    # Preparar valores para el upsert
+    valores_insert = {
+        'it_transaction': request.it_transaction,
+        'marca': request.marca if request.marca != '' else None,
+        'categoria': request.categoria if request.categoria != '' else None,
+        'subcategoria': request.subcategoria if request.subcategoria != '' else None,
+        'usuario_id': usuario_id
+    }
+
+    # Preparar valores para update (solo campos que vinieron en el request)
+    valores_update = {'usuario_id': usuario_id}
+    if request.marca is not None:
+        valores_update['marca'] = request.marca if request.marca != '' else None
+    if request.categoria is not None:
+        valores_update['categoria'] = request.categoria if request.categoria != '' else None
+    if request.subcategoria is not None:
+        valores_update['subcategoria'] = request.subcategoria if request.subcategoria != '' else None
+
+    # UPSERT: INSERT ... ON CONFLICT DO UPDATE
     from app.models.venta_override import VentaFueraMLOverride
-    from fastapi import HTTPException
+    stmt = insert(VentaFueraMLOverride).values(**valores_insert)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=['it_transaction'],
+        set_=valores_update
+    )
 
-    # Buscar si ya existe
-    override_existente = db.query(VentaFueraMLOverride).filter(
-        VentaFueraMLOverride.it_transaction == request.it_transaction
-    ).first()
-
-    if override_existente:
-        # Actualizar solo los campos que vienen con valor
-        if request.marca is not None:
-            override_existente.marca = request.marca if request.marca != '' else None
-        if request.categoria is not None:
-            override_existente.categoria = request.categoria if request.categoria != '' else None
-        if request.subcategoria is not None:
-            override_existente.subcategoria = request.subcategoria if request.subcategoria != '' else None
-        override_existente.usuario_id = current_user.id if hasattr(current_user, 'id') else None
-    else:
-        nuevo_override = VentaFueraMLOverride(
-            it_transaction=request.it_transaction,
-            marca=request.marca if request.marca != '' else None,
-            categoria=request.categoria if request.categoria != '' else None,
-            subcategoria=request.subcategoria if request.subcategoria != '' else None,
-            usuario_id=current_user.id if hasattr(current_user, 'id') else None
-        )
-        db.add(nuevo_override)
-
+    db.execute(stmt)
     db.commit()
 
     return {
