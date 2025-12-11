@@ -389,6 +389,9 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                 f"${float(row.monto_total):,.2f}"
             )
 
+            # DEBUG: Ver qué valores vienen de la query SQL
+            print(f"DEBUG QUERY item_id={row.item_id}: moneda_costo={row.moneda_costo} (type={type(row.moneda_costo)}), cambio_momento={row.cambio_momento}, costo_sin_iva={row.costo_sin_iva}")
+
             notificaciones_creadas = 0
             for usuario in usuarios_notificar:
                 # Verificar si ya existe una notificación para esta operación y usuario
@@ -399,8 +402,6 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                 ).first()
 
                 if not existe_notif:
-                    # DEBUG: Ver qué valores vienen
-                    print(f"DEBUG item_id={row.item_id}: moneda_costo={row.moneda_costo} (type={type(row.moneda_costo)}), cambio_momento={row.cambio_momento}")
 
                     # Obtener TC usado para la operación (de cambio_momento de la query)
                     # Solo se usa si el costo está en USD (curr_id = 2)
