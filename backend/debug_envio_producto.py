@@ -22,8 +22,7 @@ SELECT
     pe.codigo,
     pe.descripcion,
     pe.envio,
-    pe.costo,
-    pe.precio_lista_ml
+    pe.costo
 FROM productos_erp pe
 WHERE pe.codigo = '097855088789'
 """)
@@ -36,7 +35,6 @@ if row:
     print(f"Descripción: {row.descripcion}")
     print(f"Envío (productos_erp.envio): ${row.envio:,.2f}" if row.envio else "Envío: None")
     print(f"Costo: ${row.costo:,.2f}" if row.costo else "Costo: None")
-    print(f"Precio Lista ML: ${row.precio_lista_ml:,.2f}" if row.precio_lista_ml else "Precio: None")
 
     if row.envio:
         print(f"\nEnvío sin IVA (/ 1.21): ${row.envio / 1.21:,.2f}")
