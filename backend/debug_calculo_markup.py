@@ -113,6 +113,57 @@ print(f"Costo envío: ${metricas['costo_envio']:,.2f}")
 print(f"Monto limpio: ${metricas['monto_limpio']:,.2f}")
 print(f"Markup: {metricas['markup_porcentaje']:.2f}%")
 
+# Debug: Ver paso a paso qué hace el helper
+print("\n" + "=" * 80)
+print("DEBUG DETALLADO DEL HELPER")
+print("=" * 80)
+
+# Simular lo que hace el helper internamente
+monto_total = precio_unitario * cantidad
+total_sin_iva_helper = monto_total / (1 + iva / 100)
+print(f"total_sin_iva (helper): {total_sin_iva_helper:,.2f}")
+
+# Comisión base
+comision_base_sin_iva = (comision_base_pct / 100) / 1.21
+print(f"comision_base_sin_iva (factor): {comision_base_sin_iva:.6f}")
+
+# Tier
+if precio_unitario >= monto_tier3:
+    tier_fijo = 0
+else:
+    tier_fijo = 2810 / 1.21  # Usar valor de BD
+print(f"tier_fijo_sin_iva: {tier_fijo:,.2f}")
+
+# Varios
+varios_helper = total_sin_iva_helper * (7.0 / 100)  # Usar 7% de BD
+print(f"varios_sin_iva: {varios_helper:,.2f}")
+
+# Comisión total (como lo hace ml_commission_calculator.py línea 109)
+comision_total_helper = (precio_unitario * comision_base_sin_iva + tier_fijo) * cantidad + varios_helper
+print(f"comision_total (helper formula): {comision_total_helper:,.2f}")
+
+# Envío
+envio_unitario_helper = costo_envio / 1.21 if precio_unitario >= monto_tier3 else 0
+costo_envio_helper = envio_unitario_helper * cantidad
+print(f"envio_unitario_sin_iva: {envio_unitario_helper:,.2f}")
+print(f"costo_envio_total: {costo_envio_helper:,.2f}")
+
+# Limpio (como lo hace ml_metrics_calculator.py líneas 83-86)
+unitario_sin_iva_helper = precio_unitario / (1 + iva / 100)
+comision_unitaria_helper = comision_total_helper / cantidad
+limpio_unitario_helper = unitario_sin_iva_helper - envio_unitario_helper - comision_unitaria_helper
+monto_limpio_helper = limpio_unitario_helper * cantidad
+print(f"unitario_sin_iva: {unitario_sin_iva_helper:,.2f}")
+print(f"comision_unitaria: {comision_unitaria_helper:,.2f}")
+print(f"limpio_unitario: {limpio_unitario_helper:,.2f}")
+print(f"monto_limpio: {monto_limpio_helper:,.2f}")
+
+# Markup
+costo_total_sin_iva_helper = costo_sin_iva * cantidad
+markup_helper = ((monto_limpio_helper / costo_total_sin_iva_helper) - 1) * 100
+print(f"costo_total: {costo_total_sin_iva_helper:,.2f}")
+print(f"markup: {markup_helper:.2f}%")
+
 db.close()
 
 print("\n" + "=" * 80)
