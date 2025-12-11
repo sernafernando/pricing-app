@@ -1129,15 +1129,17 @@ async def get_jerarquia_productos(
     from collections import defaultdict
 
     # Obtener combinaciones únicas de marca, categoría, subcategoría
+    # productos_erp tiene subcategoria_id (integer), necesitamos JOIN con tb_subcategory
     query = text("""
         SELECT DISTINCT
             pe.marca,
             pe.categoria,
-            pe.subcategoria
+            ts.subcat_desc as subcategoria
         FROM productos_erp pe
+        LEFT JOIN tb_subcategory ts ON pe.subcategoria_id = ts.subcat_id
         WHERE pe.marca IS NOT NULL
           AND pe.categoria IS NOT NULL
-        ORDER BY pe.marca, pe.categoria, pe.subcategoria
+        ORDER BY pe.marca, pe.categoria, ts.subcat_desc
     """)
 
     result = db.execute(query).fetchall()

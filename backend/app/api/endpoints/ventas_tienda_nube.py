@@ -1288,31 +1288,45 @@ async def get_jerarquia_productos_tn(
 
     Retorna: { "MARCA": { "CATEGORIA": ["SUBCAT1", "SUBCAT2", ...] } }
     """
+    from collections import defaultdict
+
+    # productos_erp tiene subcategoria_id (integer), necesitamos JOIN con tb_subcategory
     query = text("""
-        SELECT DISTINCT pe.marca, pe.categoria, pe.subcategoria
+        SELECT DISTINCT
+            pe.marca,
+            pe.categoria,
+            ts.subcat_desc as subcategoria
         FROM productos_erp pe
+        LEFT JOIN tb_subcategory ts ON pe.subcategoria_id = ts.subcat_id
         WHERE pe.marca IS NOT NULL AND pe.categoria IS NOT NULL
-        ORDER BY pe.marca, pe.categoria, pe.subcategoria
+        ORDER BY pe.marca, pe.categoria, ts.subcat_desc
     """)
 
     result = db.execute(query).fetchall()
 
-    jerarquia = {}
+    # Construir jerarquía
+    jerarquia = defaultdict(lambda: defaultdict(set))
+
     for row in result:
-        marca = row[0]
-        categoria = row[1]
-        subcategoria = row[2]
+        marca = row.marca
+        categoria = row.categoria
+        subcategoria = row.subcategoria
 
-        if marca not in jerarquia:
-            jerarquia[marca] = {}
+        if marca and categoria:
+            if subcategoria:
+                jerarquia[marca][categoria].add(subcategoria)
+            else:
+                if categoria not in jerarquia[marca]:
+                    jerarquia[marca][categoria] = set()
 
-        if categoria not in jerarquia[marca]:
-            jerarquia[marca][categoria] = []
-
-        if subcategoria and subcategoria not in jerarquia[marca][categoria]:
-            jerarquia[marca][categoria].append(subcategoria)
-
-    return jerarquia
+    # Convertir a formato serializable
+    return {
+        marca: {
+            cat: sorted(list(subcats)) if subcats else []
+            for cat, subcats in cats.items()
+        }
+        for marca, cats in sorted(jerarquia.items())
+    }
 
 
 @router.get("/ventas-tienda-nube/overrides")
