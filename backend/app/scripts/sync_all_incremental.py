@@ -25,6 +25,7 @@ import asyncio
 from app.core.database import SessionLocal
 
 # Importar todas las funciones de sincronización
+from app.scripts.sync_erp_master_tables_incremental import main_async as sync_erp_master_tables
 from app.scripts.sync_commercial_transactions_incremental import sync_transacciones_incrementales
 from app.scripts.sync_item_transactions_incremental import sync_item_transactions_incremental
 from app.scripts.sync_item_transaction_details_incremental import sync_details_incremental
@@ -53,6 +54,13 @@ async def ejecutar_todas_sincronizaciones():
 
     # Lista de sincronizaciones a ejecutar
     sincronizaciones = [
+        {
+            "nombre": "Tablas Maestras ERP (tb_brand, tb_category, tb_subcategory, tb_tax_name, tb_item, tb_item_taxes)",
+            "emoji": "📋",
+            "funcion": sync_erp_master_tables,
+            "args_batch": False,
+            "skip_db": True  # Esta función maneja su propia conexión
+        },
         {
             "nombre": "Commercial Transactions",
             "emoji": "📊",
@@ -112,12 +120,16 @@ async def ejecutar_todas_sincronizaciones():
     ]
 
     for i, sync in enumerate(sincronizaciones, 1):
-        db = SessionLocal()
+        skip_db = sync.get('skip_db', False)
+        db = None if skip_db else SessionLocal()
         try:
             print(f"\n{sync['emoji']} [{i}/{len(sincronizaciones)}] Sincronizando {sync['nombre']}...")
 
-            # Ejecutar la función con o sin batch_size
-            if sync['args_batch']:
+            # Ejecutar la función según sus requerimientos
+            if skip_db:
+                # Función que maneja su propia conexión a DB
+                result = await sync['funcion']()
+            elif sync['args_batch']:
                 result = await sync['funcion'](db, batch_size=1000)
             else:
                 result = await sync['funcion'](db)
@@ -135,7 +147,8 @@ async def ejecutar_todas_sincronizaciones():
             print(f"❌ Error en {sync['nombre']}: {str(e)}")
             resultados["errores"].append(error_msg)
         finally:
-            db.close()
+            if db:
+                db.close()
 
     # Resumen final
     timestamp_fin = datetime.now()
