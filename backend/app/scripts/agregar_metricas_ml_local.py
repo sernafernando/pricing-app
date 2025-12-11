@@ -414,9 +414,16 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                     except:
                         pass
 
-                    # Obtener porcentaje de comisión base (solo para el frontend)
+                    # Obtener porcentaje de comisión usando el sistema versionado (base + adicional cuotas)
+                    from app.services.pricing_calculator import obtener_comision_versionada, obtener_grupo_subcategoria
                     comision_porcentaje = None
-                    if row.comision_base_porcentaje is not None:
+                    if row.subcat_id and row.pricelist_id:
+                        grupo_id = obtener_grupo_subcategoria(db, row.subcat_id)
+                        if grupo_id:
+                            fecha_venta = row.fecha_venta.date() if hasattr(row.fecha_venta, 'date') else row.fecha_venta
+                            comision_porcentaje = obtener_comision_versionada(db, grupo_id, row.pricelist_id, fecha_venta)
+                    # Fallback si no se pudo obtener
+                    if comision_porcentaje is None and row.comision_base_porcentaje is not None:
                         comision_porcentaje = float(row.comision_base_porcentaje)
 
                     # Obtener nombre de pricelist para tipo_publicacion
