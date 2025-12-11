@@ -94,17 +94,15 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             -- Costo sin IVA en PESOS (convierte USD a ARS usando tipo de cambio)
             -- Lógica: Si fecha_venta >= coslis_cd -> usar tb_item_cost_list
             --         Si no -> buscar en tb_item_cost_list_history
+            -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
             COALESCE(
                 -- Opción 1: Si fecha_venta >= coslis_cd, usar costo actual
                 (
                     SELECT CASE
                         WHEN ticl.curr_id = 2 THEN  -- USD
-                            ticl.coslis_price * (
-                                SELECT ceh.ceh_exchange
-                                FROM tb_cur_exch_history ceh
-                                WHERE ceh.ceh_cd <= tmloh.mlo_cd
-                                ORDER BY ceh.ceh_cd DESC
-                                LIMIT 1
+                            ticl.coslis_price * COALESCE(
+                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
                             )
                         ELSE  -- ARS
                             ticl.coslis_price
@@ -119,12 +117,9 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                 (
                     SELECT CASE
                         WHEN iclh.curr_id = 2 THEN  -- USD
-                            iclh.iclh_price * (
-                                SELECT ceh.ceh_exchange
-                                FROM tb_cur_exch_history ceh
-                                WHERE ceh.ceh_cd <= tmloh.mlo_cd
-                                ORDER BY ceh.ceh_cd DESC
-                                LIMIT 1
+                            iclh.iclh_price * COALESCE(
+                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
                             )
                         ELSE  -- ARS
                             iclh.iclh_price
@@ -141,12 +136,9 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                 (
                     SELECT CASE
                         WHEN ticl.curr_id = 2 THEN  -- USD
-                            ticl.coslis_price * (
-                                SELECT ceh.ceh_exchange
-                                FROM tb_cur_exch_history ceh
-                                WHERE ceh.ceh_cd <= tmloh.mlo_cd
-                                ORDER BY ceh.ceh_cd DESC
-                                LIMIT 1
+                            ticl.coslis_price * COALESCE(
+                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
                             )
                         ELSE  -- ARS
                             ticl.coslis_price
@@ -160,13 +152,25 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
 
             COALESCE(ttn.tax_percentage, 21.0) as iva,
 
-            -- Tipo de cambio al momento de la venta
-            (
-                SELECT ceh.ceh_exchange
-                FROM tb_cur_exch_history ceh
-                WHERE ceh.ceh_cd <= tmloh.mlo_cd
-                ORDER BY ceh.ceh_cd DESC
-                LIMIT 1
+            -- Tipo de cambio al momento de la venta (primero tipo_cambio, fallback tb_cur_exch_history)
+            COALESCE(
+                -- Opción 1: Buscar en tabla tipo_cambio por fecha de venta
+                (
+                    SELECT tc.venta
+                    FROM tipo_cambio tc
+                    WHERE tc.moneda = 'USD'
+                      AND tc.fecha <= tmloh.mlo_cd::date
+                    ORDER BY tc.fecha DESC
+                    LIMIT 1
+                ),
+                -- Fallback: tb_cur_exch_history
+                (
+                    SELECT ceh.ceh_exchange
+                    FROM tb_cur_exch_history ceh
+                    WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                    ORDER BY ceh.ceh_cd DESC
+                    LIMIT 1
+                )
             ) as cambio_momento,
 
             tmlos.ml_logistic_type as tipo_logistica,
@@ -397,6 +401,8 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                 if not existe_notif:
                     # Obtener costo actual del producto desde ProductoERP
                     costo_actual = None
+                    tc_actual = None  # TC usado para costo actual
+                    tc_operacion = None  # TC usado para costo operación
                     try:
                         producto_actual = db.query(ProductoERP).filter(
                             ProductoERP.item_id == row.item_id
@@ -404,19 +410,27 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         if producto_actual and producto_actual.costo is not None:
                             # Convertir a ARS si está en USD
                             if producto_actual.moneda_costo == 'USD':
-                                # Obtener último tipo de cambio
-                                from sqlalchemy import text
-                                tc_query = text("""
-                                    SELECT ceh_exchange
-                                    FROM tb_cur_exch_history
-                                    ORDER BY ceh_cd DESC
-                                    LIMIT 1
-                                """)
-                                tc_result = db.execute(tc_query).fetchone()
-                                tipo_cambio = float(tc_result[0]) if tc_result else 1.0
-                                costo_actual = float(producto_actual.costo) * tipo_cambio
+                                # Usar tabla tipo_cambio (TC actual del día)
+                                from app.models.tipo_cambio import TipoCambio
+                                tc = db.query(TipoCambio).filter(
+                                    TipoCambio.moneda == "USD"
+                                ).order_by(TipoCambio.fecha.desc()).first()
+                                if tc and tc.venta:
+                                    tc_actual = float(tc.venta)
+                                else:
+                                    # Fallback a tb_cur_exch_history
+                                    tc_query = text("""
+                                        SELECT ceh_exchange FROM tb_cur_exch_history ORDER BY ceh_cd DESC LIMIT 1
+                                    """)
+                                    tc_result = db.execute(tc_query).fetchone()
+                                    tc_actual = float(tc_result[0]) if tc_result else 1.0
+                                costo_actual = float(producto_actual.costo) * tc_actual
                             else:
                                 costo_actual = float(producto_actual.costo)
+
+                        # Obtener TC usado para la operación (de cambio_momento de la query)
+                        if row.cambio_momento:
+                            tc_operacion = float(row.cambio_momento)
                     except:
                         pass
 
@@ -502,6 +516,8 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         pm=pm_nombre,
                         costo_operacion=Decimal(str(costo_total_operacion)) if costo_total_operacion is not None else None,
                         costo_actual=Decimal(str(costo_actual)) if costo_actual is not None else None,
+                        tipo_cambio_operacion=Decimal(str(tc_operacion)) if tc_operacion is not None else None,
+                        tipo_cambio_actual=Decimal(str(tc_actual)) if tc_actual is not None else None,
                         precio_venta_unitario=Decimal(str(row.monto_unitario)) if row.monto_unitario is not None else None,
                         precio_publicacion=Decimal(str(precio_lista_ml)) if precio_lista_ml is not None else None,
                         tipo_publicacion=tipo_publicacion,
