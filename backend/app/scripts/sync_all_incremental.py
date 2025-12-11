@@ -34,6 +34,7 @@ from app.scripts.sync_ml_orders_shipping_incremental import sync_ml_orders_shipp
 from app.scripts.sync_ml_items_publicados_incremental import sync_items_publicados_incremental
 # ML Publications Snapshot removido - se ejecuta en cron separado
 from app.scripts.sync_item_cost_history import sync_item_cost_history_incremental
+from app.scripts.sync_item_cost_list import sync_item_cost_list_incremental
 
 
 async def ejecutar_todas_sincronizaciones():
@@ -68,6 +69,12 @@ async def ejecutar_todas_sincronizaciones():
             "nombre": "Item Transaction Details",
             "emoji": "📋",
             "funcion": sync_details_incremental,
+            "args_batch": False
+        },
+        {
+            "nombre": "Item Cost List",
+            "emoji": "💵",
+            "funcion": sync_item_cost_list_incremental,
             "args_batch": False
         },
         {

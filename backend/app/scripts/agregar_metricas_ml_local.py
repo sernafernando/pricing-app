@@ -57,54 +57,84 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmlod.mlo_unit_price as monto_unitario,
             tmlod.mlo_unit_price * tmlod.mlo_quantity as monto_total,
 
-            -- Costo: buscar el último costo antes de la fecha de venta
-            (
-                SELECT iclh.curr_id
-                FROM tb_item_cost_list_history iclh
-                WHERE iclh.item_id = tmlod.item_id
-                  AND iclh.iclh_cd <= tmloh.mlo_cd
-                  AND iclh.coslis_id = 1
-                ORDER BY iclh.iclh_id DESC
-                LIMIT 1
-            ) as moneda_costo,
-
-            -- Costo sin IVA en PESOS (convierte USD a ARS usando tipo de cambio)
+            -- Costo: Primero verificar si fecha_venta >= coslis_cd de tb_item_cost_list
+            -- Si es así, usar ese costo. Si no, buscar en histórico.
             COALESCE(
+                -- Opción 1: Si fecha_venta >= coslis_cd, usar costo actual
                 (
-                    SELECT CASE
-                        WHEN iclh.curr_id = 2 THEN  -- USD
-                            CASE
-                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price * (
-                                    SELECT ceh.ceh_exchange
-                                    FROM tb_cur_exch_history ceh
-                                    WHERE ceh.ceh_cd <= tmloh.mlo_cd
-                                    ORDER BY ceh.ceh_cd DESC
-                                    LIMIT 1
-                                )
-                                ELSE iclh.iclh_price * (
-                                    SELECT ceh.ceh_exchange
-                                    FROM tb_cur_exch_history ceh
-                                    WHERE ceh.ceh_cd <= tmloh.mlo_cd
-                                    ORDER BY ceh.ceh_cd DESC
-                                    LIMIT 1
-                                )
-                            END
-                        ELSE  -- ARS
-                            CASE
-                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price
-                                ELSE iclh.iclh_price
-                            END
-                    END
+                    SELECT ticl.curr_id
+                    FROM tb_item_cost_list ticl
+                    WHERE ticl.item_id = tmlod.item_id
+                      AND ticl.coslis_id = 1
+                      AND ticl.coslis_cd IS NOT NULL
+                      AND tmloh.mlo_cd >= ticl.coslis_cd
+                ),
+                -- Opción 2: Buscar en histórico
+                (
+                    SELECT iclh.curr_id
                     FROM tb_item_cost_list_history iclh
-                    LEFT JOIN tb_item_cost_list ticl
-                        ON ticl.item_id = iclh.item_id
-                        AND ticl.coslis_id = 1
                     WHERE iclh.item_id = tmlod.item_id
                       AND iclh.iclh_cd <= tmloh.mlo_cd
                       AND iclh.coslis_id = 1
                     ORDER BY iclh.iclh_id DESC
                     LIMIT 1
                 ),
+                -- Fallback: costo actual sin verificar fecha
+                (
+                    SELECT ticl.curr_id
+                    FROM tb_item_cost_list ticl
+                    WHERE ticl.item_id = tmlod.item_id
+                      AND ticl.coslis_id = 1
+                )
+            ) as moneda_costo,
+
+            -- Costo sin IVA en PESOS (convierte USD a ARS usando tipo de cambio)
+            -- Lógica: Si fecha_venta >= coslis_cd -> usar tb_item_cost_list
+            --         Si no -> buscar en tb_item_cost_list_history
+            COALESCE(
+                -- Opción 1: Si fecha_venta >= coslis_cd, usar costo actual
+                (
+                    SELECT CASE
+                        WHEN ticl.curr_id = 2 THEN  -- USD
+                            ticl.coslis_price * (
+                                SELECT ceh.ceh_exchange
+                                FROM tb_cur_exch_history ceh
+                                WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                                ORDER BY ceh.ceh_cd DESC
+                                LIMIT 1
+                            )
+                        ELSE  -- ARS
+                            ticl.coslis_price
+                    END
+                    FROM tb_item_cost_list ticl
+                    WHERE ticl.item_id = tmlod.item_id
+                      AND ticl.coslis_id = 1
+                      AND ticl.coslis_cd IS NOT NULL
+                      AND tmloh.mlo_cd >= ticl.coslis_cd
+                ),
+                -- Opción 2: Buscar en histórico el último costo antes de la venta
+                (
+                    SELECT CASE
+                        WHEN iclh.curr_id = 2 THEN  -- USD
+                            iclh.iclh_price * (
+                                SELECT ceh.ceh_exchange
+                                FROM tb_cur_exch_history ceh
+                                WHERE ceh.ceh_cd <= tmloh.mlo_cd
+                                ORDER BY ceh.ceh_cd DESC
+                                LIMIT 1
+                            )
+                        ELSE  -- ARS
+                            iclh.iclh_price
+                    END
+                    FROM tb_item_cost_list_history iclh
+                    WHERE iclh.item_id = tmlod.item_id
+                      AND iclh.iclh_cd <= tmloh.mlo_cd
+                      AND iclh.coslis_id = 1
+                      AND iclh.iclh_price > 0
+                    ORDER BY iclh.iclh_id DESC
+                    LIMIT 1
+                ),
+                -- Fallback: costo actual sin verificar fecha
                 (
                     SELECT CASE
                         WHEN ticl.curr_id = 2 THEN  -- USD

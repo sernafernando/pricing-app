@@ -115,6 +115,99 @@ def sync_item_cost_list(db: Session, data: list):
     return insertados, actualizados, errores
 
 
+async def sync_item_cost_list_incremental(db: Session):
+    """
+    Versión async para usar en sync_all_incremental.
+    Sincroniza la lista de costos actuales desde el ERP.
+
+    Args:
+        db: Sesión de base de datos
+
+    Returns:
+        tuple: (insertados, actualizados, errores)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    logger.info("=== Iniciando sincronización de Item Cost List ===")
+
+    try:
+        # Obtener datos del ERP
+        data = fetch_item_cost_list_from_erp()
+
+        if not data:
+            logger.info("No hay datos para sincronizar")
+            return (0, 0, 0)
+
+        logger.info(f"Sincronizando {len(data)} registros...")
+
+        insertados = 0
+        actualizados = 0
+        errores = 0
+
+        for record in data:
+            try:
+                # Buscar registro existente
+                existente = db.query(ItemCostList).filter(
+                    and_(
+                        ItemCostList.comp_id == record.get('comp_id'),
+                        ItemCostList.coslis_id == record.get('coslis_id'),
+                        ItemCostList.item_id == record.get('item_id')
+                    )
+                ).first()
+
+                # Convertir fecha si existe
+                coslis_cd = None
+                if record.get('coslis_cd'):
+                    try:
+                        coslis_cd = datetime.fromisoformat(record['coslis_cd'].replace('T', ' ').replace('Z', ''))
+                    except:
+                        pass
+
+                if existente:
+                    # Actualizar solo si cambió el precio o la fecha
+                    if (existente.coslis_price != record.get('coslis_price') or
+                        existente.curr_id != record.get('curr_id') or
+                        existente.coslis_cd != coslis_cd):
+                        existente.coslis_price = record.get('coslis_price')
+                        existente.curr_id = record.get('curr_id')
+                        existente.coslis_cd = coslis_cd
+                        actualizados += 1
+                else:
+                    # Insertar nuevo
+                    nuevo = ItemCostList(
+                        comp_id=record.get('comp_id'),
+                        coslis_id=record.get('coslis_id'),
+                        item_id=record.get('item_id'),
+                        coslis_price=record.get('coslis_price'),
+                        curr_id=record.get('curr_id'),
+                        coslis_cd=coslis_cd
+                    )
+                    db.add(nuevo)
+                    insertados += 1
+
+                # Commit cada 500 registros
+                if (insertados + actualizados) % 500 == 0:
+                    db.commit()
+
+            except Exception as e:
+                errores += 1
+                if errores <= 5:
+                    logger.warning(f"Error en registro: {str(e)}")
+                continue
+
+        # Commit final
+        db.commit()
+
+        logger.info(f"✅ Sincronización completada: {insertados} nuevos, {actualizados} actualizados, {errores} errores")
+        return (insertados, actualizados, errores)
+
+    except Exception as e:
+        logger.error(f"Error durante la sincronización: {e}")
+        db.rollback()
+        raise
+
+
 def main():
     print("=" * 60)
     print("SINCRONIZACIÓN DE ITEM COST LIST")
