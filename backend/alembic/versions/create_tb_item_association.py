@@ -1,7 +1,7 @@
 """Create tb_item_association table
 
 Revision ID: create_tb_item_association
-Revises: add_monto_consumido_to_offsets, create_permisos_system
+Revises: create_permisos_system
 Create Date: 2025-12-11
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'create_tb_item_association'
-down_revision = ('add_monto_consumido_to_offsets', 'create_permisos_system')
+down_revision = 'create_permisos_system'
 branch_labels = None
 depends_on = None
 

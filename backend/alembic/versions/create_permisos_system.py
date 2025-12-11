@@ -1,7 +1,7 @@
 """Create permisos system tables
 
 Revision ID: create_permisos_system
-Revises: add_override_fields
+Revises: add_monto_consumido_to_offsets, add_override_fields
 Create Date: 2025-12-11
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'create_permisos_system'
-down_revision = 'add_override_fields'
+down_revision = ('add_monto_consumido_to_offsets', 'add_override_fields')
 branch_labels = None
 depends_on = None
 
