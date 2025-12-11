@@ -35,6 +35,10 @@ class Notificacion(Base):
     cantidad = Column(Integer, nullable=True)  # Cantidad vendida
     costo_envio = Column(Numeric(12, 2), nullable=True)  # Costo de envío
 
+    # Tipos de cambio usados
+    tipo_cambio_operacion = Column(Numeric(12, 4), nullable=True)  # TC usado para costo_operacion
+    tipo_cambio_actual = Column(Numeric(12, 4), nullable=True)  # TC usado para costo_actual
+
     # Control de lectura
     leida = Column(Boolean, default=False, nullable=False, index=True)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
