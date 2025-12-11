@@ -549,24 +549,19 @@ async def get_operaciones_con_metricas(
             tmlod.mlo_unit_price * tmlod.mlo_quantity as monto_total,
 
             -- Costo sin IVA en PESOS (convierte USD a ARS usando tipo de cambio)
+            -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
             COALESCE(
                 (
                     SELECT CASE
                         WHEN iclh.curr_id = 2 THEN  -- USD
                             CASE
-                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price * (
-                                    SELECT ceh.ceh_exchange
-                                    FROM tb_cur_exch_history ceh
-                                    WHERE ceh.ceh_cd <= tmloh.mlo_cd
-                                    ORDER BY ceh.ceh_cd DESC
-                                    LIMIT 1
+                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price * COALESCE(
+                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
                                 )
-                                ELSE iclh.iclh_price * (
-                                    SELECT ceh.ceh_exchange
-                                    FROM tb_cur_exch_history ceh
-                                    WHERE ceh.ceh_cd <= tmloh.mlo_cd
-                                    ORDER BY ceh.ceh_cd DESC
-                                    LIMIT 1
+                                ELSE iclh.iclh_price * COALESCE(
+                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
                                 )
                             END
                         ELSE  -- ARS
@@ -588,12 +583,9 @@ async def get_operaciones_con_metricas(
                 (
                     SELECT CASE
                         WHEN ticl.curr_id = 2 THEN  -- USD
-                            ticl.coslis_price * (
-                                SELECT ceh.ceh_exchange
-                                FROM tb_cur_exch_history ceh
-                                WHERE ceh.ceh_cd <= tmloh.mlo_cd
-                                ORDER BY ceh.ceh_cd DESC
-                                LIMIT 1
+                            ticl.coslis_price * COALESCE(
+                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
                             )
                         ELSE  -- ARS
                             ticl.coslis_price

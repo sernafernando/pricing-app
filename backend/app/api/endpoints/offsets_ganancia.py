@@ -785,8 +785,17 @@ async def obtener_tipo_cambio(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Obtiene el tipo de cambio USD/ARS más reciente"""
-    # Traer el TC más reciente sin filtrar por curr_id (la tabla solo tiene USD/ARS)
+    """Obtiene el tipo de cambio USD/ARS más reciente (primero tipo_cambio, fallback CurExchHistory)"""
+    from app.models.tipo_cambio import TipoCambio
+    # Primero intentar con tipo_cambio
+    tc = db.query(TipoCambio).filter(TipoCambio.moneda == "USD").order_by(TipoCambio.fecha.desc()).first()
+    if tc and tc.venta:
+        return {
+            "tipo_cambio": float(tc.venta),
+            "fecha": tc.fecha.isoformat() if tc.fecha else None
+        }
+
+    # Fallback a CurExchHistory
     tipo_cambio = db.query(CurExchHistory).order_by(
         CurExchHistory.ceh_cd.desc()
     ).first()
@@ -1037,9 +1046,14 @@ async def recalcular_consumo_grupo(
     # Obtener item_ids directos de los offsets
     item_ids_directos = [o.item_id for o in offsets_grupo if o.item_id]
 
-    # Obtener tipo cambio actual para conversiones
-    tc_actual = db.query(CurExchHistory).order_by(CurExchHistory.ceh_cd.desc()).first()
-    cotizacion = float(tc_actual.ceh_exchange) if tc_actual else 1000.0
+    # Obtener tipo cambio actual para conversiones (primero tipo_cambio, fallback CurExchHistory)
+    from app.models.tipo_cambio import TipoCambio
+    tc = db.query(TipoCambio).filter(TipoCambio.moneda == "USD").order_by(TipoCambio.fecha.desc()).first()
+    if tc and tc.venta:
+        cotizacion = float(tc.venta)
+    else:
+        tc_actual = db.query(CurExchHistory).order_by(CurExchHistory.ceh_cd.desc()).first()
+        cotizacion = float(tc_actual.ceh_exchange) if tc_actual else 1000.0
 
     consumos_creados = 0
     total_unidades = 0
@@ -1572,9 +1586,14 @@ async def recalcular_consumo_offset_individual(
         OffsetIndividualConsumo.offset_id == offset_id
     ).delete()
 
-    # Obtener cotización
-    tc_actual = db.query(CurExchHistory).order_by(CurExchHistory.ceh_cd.desc()).first()
-    cotizacion = float(tc_actual.ceh_exchange) if tc_actual else 1000.0
+    # Obtener cotización (primero tipo_cambio, fallback CurExchHistory)
+    from app.models.tipo_cambio import TipoCambio
+    tc = db.query(TipoCambio).filter(TipoCambio.moneda == "USD").order_by(TipoCambio.fecha.desc()).first()
+    if tc and tc.venta:
+        cotizacion = float(tc.venta)
+    else:
+        tc_actual = db.query(CurExchHistory).order_by(CurExchHistory.ceh_cd.desc()).first()
+        cotizacion = float(tc_actual.ceh_exchange) if tc_actual else 1000.0
 
     fecha_inicio = offset.fecha_desde
 

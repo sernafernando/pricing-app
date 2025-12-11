@@ -36,9 +36,15 @@ from app.models.cur_exch_history import CurExchHistory
 
 
 def obtener_cotizacion_actual(db):
-    """Obtiene la cotización USD/ARS más reciente"""
-    tc = db.query(CurExchHistory).order_by(CurExchHistory.ceh_cd.desc()).first()
-    return float(tc.ceh_exchange) if tc else 1000.0
+    """Obtiene la cotización USD/ARS más reciente (primero tipo_cambio, fallback CurExchHistory)"""
+    from app.models.tipo_cambio import TipoCambio
+    # Primero intentar con tipo_cambio
+    tc = db.query(TipoCambio).filter(TipoCambio.moneda == "USD").order_by(TipoCambio.fecha.desc()).first()
+    if tc and tc.venta:
+        return float(tc.venta)
+    # Fallback a CurExchHistory
+    tc_fallback = db.query(CurExchHistory).order_by(CurExchHistory.ceh_cd.desc()).first()
+    return float(tc_fallback.ceh_exchange) if tc_fallback else 1000.0
 
 
 def calcular_monto_offset(offset, cantidad, costo, cotizacion):

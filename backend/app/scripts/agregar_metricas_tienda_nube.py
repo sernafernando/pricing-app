@@ -111,10 +111,11 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
             ORDER BY iclh_id DESC LIMIT 1
         ) iclh ON true
         LEFT JOIN LATERAL (
-            SELECT ceh_exchange
-            FROM tb_cur_exch_history
-            WHERE ceh_cd <= tct.ct_date
-            ORDER BY ceh_cd DESC LIMIT 1
+            -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
+            SELECT COALESCE(
+                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tct.ct_date::date ORDER BY tc.fecha DESC LIMIT 1),
+                (SELECT ceh_exchange FROM tb_cur_exch_history WHERE ceh_cd <= tct.ct_date ORDER BY ceh_cd DESC LIMIT 1)
+            ) as ceh_exchange
         ) ceh ON true
         WHERE tit.it_isassociationgroup IS NOT NULL
           AND tct.ct_date BETWEEN :from_date AND :to_date
@@ -220,10 +221,11 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
         ORDER BY iclh_id DESC LIMIT 1
     ) iclh ON true
     LEFT JOIN LATERAL (
-        SELECT ceh_exchange
-        FROM tb_cur_exch_history
-        WHERE ceh_cd <= tct.ct_date
-        ORDER BY ceh_cd DESC LIMIT 1
+        -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
+        SELECT COALESCE(
+            (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tct.ct_date::date ORDER BY tc.fecha DESC LIMIT 1),
+            (SELECT ceh_exchange FROM tb_cur_exch_history WHERE ceh_cd <= tct.ct_date ORDER BY ceh_cd DESC LIMIT 1)
+        ) as ceh_exchange
     ) ceh ON true
 
     WHERE tct.ct_date BETWEEN :from_date AND :to_date

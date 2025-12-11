@@ -181,8 +181,8 @@ def get_ventas_tienda_nube_query():
                         1
                     ) = 1 THEN 1
                     ELSE COALESCE(
-                        (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh
-                         WHERE ceh.ceh_cd <= tct.ct_date ORDER BY ceh.ceh_cd DESC LIMIT 1),
+                        (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tct.ct_date::date ORDER BY tc.fecha DESC LIMIT 1),
+                        (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tct.ct_date ORDER BY ceh.ceh_cd DESC LIMIT 1),
                         1
                     )
                 END
