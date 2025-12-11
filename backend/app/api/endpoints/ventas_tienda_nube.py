@@ -1277,6 +1277,44 @@ class VentaOverrideResponse(BaseModel):
     subcategoria: Optional[str] = None
 
 
+@router.get("/ventas-tienda-nube/jerarquia-productos")
+async def get_jerarquia_productos_tn(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtiene la jerarquía de productos (marca -> categoría -> subcategoría)
+    para los selects dependientes en el frontend.
+
+    Retorna: { "MARCA": { "CATEGORIA": ["SUBCAT1", "SUBCAT2", ...] } }
+    """
+    query = text("""
+        SELECT DISTINCT pe.marca, pe.categoria, pe.subcategoria
+        FROM productos_erp pe
+        WHERE pe.marca IS NOT NULL AND pe.categoria IS NOT NULL
+        ORDER BY pe.marca, pe.categoria, pe.subcategoria
+    """)
+
+    result = db.execute(query).fetchall()
+
+    jerarquia = {}
+    for row in result:
+        marca = row[0]
+        categoria = row[1]
+        subcategoria = row[2]
+
+        if marca not in jerarquia:
+            jerarquia[marca] = {}
+
+        if categoria not in jerarquia[marca]:
+            jerarquia[marca][categoria] = []
+
+        if subcategoria and subcategoria not in jerarquia[marca][categoria]:
+            jerarquia[marca][categoria].append(subcategoria)
+
+    return jerarquia
+
+
 @router.get("/ventas-tienda-nube/overrides")
 async def get_overrides_tn(
     from_date: str = Query(...),

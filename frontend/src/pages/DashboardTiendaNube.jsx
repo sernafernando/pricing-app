@@ -34,9 +34,7 @@ export default function DashboardTiendaNube() {
 
   // Overrides de marca/categoría/subcategoría
   const [overrides, setOverrides] = useState({});
-  const [marcasDisponibles, setMarcasDisponibles] = useState([]);
-  const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
-  const [subcategoriasDisponibles, setSubcategoriasDisponibles] = useState([]);
+  const [jerarquiaProductos, setJerarquiaProductos] = useState({}); // { marca: { categoria: [subcategorias] } }
 
   // API base URL
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
@@ -114,23 +112,19 @@ export default function DashboardTiendaNube() {
       if (sucursalSeleccionada) params.sucursal = sucursalSeleccionada;
       if (vendedorSeleccionado) params.vendedor = vendedorSeleccionado;
 
-      // Cargar operaciones, métodos de pago, overrides y opciones en paralelo
-      const [operacionesRes, metodosPagoRes, constantesRes, overridesRes, marcasRes, categoriasRes, subcategoriasRes] = await Promise.all([
+      // Cargar operaciones, métodos de pago, overrides y jerarquía en paralelo
+      const [operacionesRes, metodosPagoRes, constantesRes, overridesRes, jerarquiaRes] = await Promise.all([
         axios.get(`${API_URL}/ventas-tienda-nube`, { params, headers }),
         axios.get(`${API_URL}/ventas-tienda-nube/metodos-pago`, { params: { from_date: fechaDesde, to_date: fechaHasta }, headers }),
         axios.get(`${API_URL}/pricing-constants/actual`, { headers }),
         axios.get(`${API_URL}/ventas-tienda-nube/overrides`, { params: { from_date: fechaDesde, to_date: fechaHasta }, headers }),
-        axios.get(`${API_URL}/marcas`, { headers }).catch(() => ({ data: [] })),
-        axios.get(`${API_URL}/categorias`, { headers }).catch(() => ({ data: [] })),
-        axios.get(`${API_URL}/subcategorias`, { headers }).catch(() => ({ data: [] }))
+        axios.get(`${API_URL}/ventas-tienda-nube/jerarquia-productos`, { headers }).catch(() => ({ data: {} }))
       ]);
 
       setOperaciones(operacionesRes.data || []);
       setMetodosPago(metodosPagoRes.data || {});
       setOverrides(overridesRes.data || {});
-      setMarcasDisponibles(marcasRes.data?.marcas || []);
-      setCategoriasDisponibles(categoriasRes.data?.categorias || []);
-      setSubcategoriasDisponibles(subcategoriasRes.data?.subcategorias || []);
+      setJerarquiaProductos(jerarquiaRes.data || {});
 
       if (constantesRes.data) {
         setComisionEfectivo(constantesRes.data.comision_tienda_nube || 1.0);
@@ -193,6 +187,23 @@ export default function DashboardTiendaNube() {
       return override[campo];
     }
     return op[campo] || '';
+  };
+
+  // Obtener marcas disponibles de la jerarquía
+  const getMarcasDisponibles = () => {
+    return Object.keys(jerarquiaProductos).sort();
+  };
+
+  // Obtener categorías disponibles según la marca seleccionada
+  const getCategoriasParaMarca = (marca) => {
+    if (!marca || !jerarquiaProductos[marca]) return [];
+    return Object.keys(jerarquiaProductos[marca]).sort();
+  };
+
+  // Obtener subcategorías disponibles según marca y categoría
+  const getSubcategoriasParaCategoria = (marca, categoria) => {
+    if (!marca || !categoria || !jerarquiaProductos[marca] || !jerarquiaProductos[marca][categoria]) return [];
+    return jerarquiaProductos[marca][categoria].sort();
   };
 
   const formatearMoneda = (monto) => {
@@ -491,17 +502,24 @@ export default function DashboardTiendaNube() {
                       <td>
                         <select
                           value={marcaEfectiva}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'marca', e.target.value)}
+                          onChange={(e) => {
+                            guardarOverride(op.id_operacion, 'marca', e.target.value);
+                            // Limpiar categoría y subcategoría si cambia la marca
+                            if (e.target.value !== marcaEfectiva) {
+                              guardarOverride(op.id_operacion, 'categoria', '');
+                              guardarOverride(op.id_operacion, 'subcategoria', '');
+                            }
+                          }}
                           className={styles.selectEditable}
                           style={{
                             backgroundColor: tieneOverride?.marca ? '#fef3c7' : 'transparent'
                           }}
                         >
                           <option value="">Sin marca</option>
-                          {marcasDisponibles.map(m => (
-                            <option key={m.brand_id || m} value={m.brand_desc || m}>{m.brand_desc || m}</option>
+                          {getMarcasDisponibles().map(m => (
+                            <option key={m} value={m}>{m}</option>
                           ))}
-                          {marcaEfectiva && !marcasDisponibles.find(m => (m.brand_desc || m) === marcaEfectiva) && (
+                          {marcaEfectiva && !getMarcasDisponibles().includes(marcaEfectiva) && (
                             <option value={marcaEfectiva}>{marcaEfectiva}</option>
                           )}
                         </select>
@@ -509,17 +527,24 @@ export default function DashboardTiendaNube() {
                       <td>
                         <select
                           value={categoriaEfectiva}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'categoria', e.target.value)}
+                          onChange={(e) => {
+                            guardarOverride(op.id_operacion, 'categoria', e.target.value);
+                            // Limpiar subcategoría si cambia la categoría
+                            if (e.target.value !== categoriaEfectiva) {
+                              guardarOverride(op.id_operacion, 'subcategoria', '');
+                            }
+                          }}
                           className={styles.selectEditable}
                           style={{
                             backgroundColor: tieneOverride?.categoria ? '#fef3c7' : 'transparent'
                           }}
+                          disabled={!marcaEfectiva}
                         >
-                          <option value="">Sin categoría</option>
-                          {categoriasDisponibles.map(c => (
-                            <option key={c.cat_id || c} value={c.cat_desc || c}>{c.cat_desc || c}</option>
+                          <option value="">{marcaEfectiva ? 'Sin categoría' : 'Seleccione marca primero'}</option>
+                          {getCategoriasParaMarca(marcaEfectiva).map(c => (
+                            <option key={c} value={c}>{c}</option>
                           ))}
-                          {categoriaEfectiva && !categoriasDisponibles.find(c => (c.cat_desc || c) === categoriaEfectiva) && (
+                          {categoriaEfectiva && !getCategoriasParaMarca(marcaEfectiva).includes(categoriaEfectiva) && (
                             <option value={categoriaEfectiva}>{categoriaEfectiva}</option>
                           )}
                         </select>
@@ -532,12 +557,13 @@ export default function DashboardTiendaNube() {
                           style={{
                             backgroundColor: tieneOverride?.subcategoria ? '#fef3c7' : 'transparent'
                           }}
+                          disabled={!categoriaEfectiva}
                         >
-                          <option value="">Sin subcategoría</option>
-                          {subcategoriasDisponibles.map(s => (
-                            <option key={s.subcat_id || s} value={s.subcat_desc || s}>{s.subcat_desc || s}</option>
+                          <option value="">{categoriaEfectiva ? 'Sin subcategoría' : 'Seleccione categoría primero'}</option>
+                          {getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva).map(s => (
+                            <option key={s} value={s}>{s}</option>
                           ))}
-                          {subcategoriaEfectiva && !subcategoriasDisponibles.find(s => (s.subcat_desc || s) === subcategoriaEfectiva) && (
+                          {subcategoriaEfectiva && !getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva).includes(subcategoriaEfectiva) && (
                             <option value={subcategoriaEfectiva}>{subcategoriaEfectiva}</option>
                           )}
                         </select>

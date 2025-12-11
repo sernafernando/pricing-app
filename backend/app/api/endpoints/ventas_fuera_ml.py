@@ -1115,3 +1115,54 @@ async def delete_override_fuera_ml(
     db.commit()
 
     return {"success": True, "it_transaction": it_transaction}
+
+
+@router.get("/ventas-fuera-ml/jerarquia-productos")
+async def get_jerarquia_productos(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Devuelve la jerarquía de marca -> categorías -> subcategorías
+    basada en los productos existentes en el ERP.
+    """
+    from collections import defaultdict
+
+    # Obtener combinaciones únicas de marca, categoría, subcategoría
+    query = text("""
+        SELECT DISTINCT
+            pe.marca,
+            pe.categoria,
+            pe.subcategoria
+        FROM productos_erp pe
+        WHERE pe.marca IS NOT NULL
+          AND pe.categoria IS NOT NULL
+        ORDER BY pe.marca, pe.categoria, pe.subcategoria
+    """)
+
+    result = db.execute(query).fetchall()
+
+    # Construir jerarquía
+    jerarquia = defaultdict(lambda: defaultdict(set))
+
+    for row in result:
+        marca = row.marca
+        categoria = row.categoria
+        subcategoria = row.subcategoria
+
+        if marca and categoria:
+            if subcategoria:
+                jerarquia[marca][categoria].add(subcategoria)
+            else:
+                # Asegurar que la categoría exista aunque no tenga subcategorías
+                if categoria not in jerarquia[marca]:
+                    jerarquia[marca][categoria] = set()
+
+    # Convertir a formato serializable
+    return {
+        marca: {
+            cat: sorted(list(subcats)) if subcats else []
+            for cat, subcats in cats.items()
+        }
+        for marca, cats in sorted(jerarquia.items())
+    }
