@@ -127,9 +127,9 @@ export default function DashboardVentasFuera() {
 
       setOperaciones(operacionesRes.data || []);
       setOverrides(overridesRes.data || {});
-      setMarcasDisponibles(marcasRes.data || []);
-      setCategoriasDisponibles(categoriasRes.data || []);
-      setSubcategoriasDisponibles(subcategoriasRes.data || []);
+      setMarcasDisponibles(marcasRes.data?.marcas || []);
+      setCategoriasDisponibles(categoriasRes.data?.categorias || []);
+      setSubcategoriasDisponibles(subcategoriasRes.data?.subcategorias || []);
     } catch (error) {
       console.error('Error cargando operaciones:', error);
       alert('Error al cargar las operaciones');

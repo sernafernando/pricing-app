@@ -128,9 +128,9 @@ export default function DashboardTiendaNube() {
       setOperaciones(operacionesRes.data || []);
       setMetodosPago(metodosPagoRes.data || {});
       setOverrides(overridesRes.data || {});
-      setMarcasDisponibles(marcasRes.data || []);
-      setCategoriasDisponibles(categoriasRes.data || []);
-      setSubcategoriasDisponibles(subcategoriasRes.data || []);
+      setMarcasDisponibles(marcasRes.data?.marcas || []);
+      setCategoriasDisponibles(categoriasRes.data?.categorias || []);
+      setSubcategoriasDisponibles(subcategoriasRes.data?.subcategorias || []);
 
       if (constantesRes.data) {
         setComisionEfectivo(constantesRes.data.comision_tienda_nube || 1.0);
