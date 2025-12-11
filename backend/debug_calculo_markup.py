@@ -67,8 +67,23 @@ from datetime import datetime
 from app.core.database import SessionLocal
 from app.utils.ml_commission_calculator import calcular_comision_ml
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
+from app.models.pricing_constants import PricingConstants
 
 db = SessionLocal()
+
+# Ver qué constantes está usando
+constants = db.query(PricingConstants).filter(
+    PricingConstants.fecha_desde <= datetime.now().date()
+).order_by(PricingConstants.fecha_desde.desc()).first()
+
+print(f"\nConstantes de BD:")
+print(f"  monto_tier1: {constants.monto_tier1}")
+print(f"  monto_tier2: {constants.monto_tier2}")
+print(f"  monto_tier3: {constants.monto_tier3}")
+print(f"  comision_tier1: {constants.comision_tier1}")
+print(f"  comision_tier2: {constants.comision_tier2}")
+print(f"  comision_tier3: {constants.comision_tier3}")
+print(f"  varios_porcentaje: {constants.varios_porcentaje}")
 
 # Calcular comisión con el helper
 comision_helper = calcular_comision_ml(
