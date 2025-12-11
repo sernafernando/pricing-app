@@ -357,7 +357,7 @@ export default function Notificaciones() {
                         <span>${grupo.notificacion_reciente.costo_operacion ? parseFloat(grupo.notificacion_reciente.costo_operacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
                       </div>
                       <div className={styles.detalleItem}>
-                        <strong>Costo Envío:</strong>
+                        <strong>Costo Envío s/IVA:</strong>
                         <span>${grupo.notificacion_reciente.costo_envio ? parseFloat(grupo.notificacion_reciente.costo_envio).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0,00'}</span>
                       </div>
                       <div className={styles.detalleItem}>
@@ -519,7 +519,7 @@ export default function Notificaciones() {
                         <span>${notif.costo_operacion ? parseFloat(notif.costo_operacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
                       </div>
                       <div className={styles.detalleItem}>
-                        <strong>Costo Envío:</strong>
+                        <strong>Costo Envío s/IVA:</strong>
                         <span>${notif.costo_envio ? parseFloat(notif.costo_envio).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0,00'}</span>
                       </div>
                       <div className={styles.detalleItem}>

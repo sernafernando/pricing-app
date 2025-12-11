@@ -379,7 +379,7 @@ export default function DashboardMetricasML() {
                   <th>Costo Total</th>
                   <th>Comisión%</th>
                   <th>Comisión $</th>
-                  <th>Envío</th>
+                  <th>Envío s/IVA</th>
                   <th>Limpio</th>
                   <th>Markup%</th>
                   <th>Lista</th>
