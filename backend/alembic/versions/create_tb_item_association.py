@@ -1,8 +1,8 @@
 """Create tb_item_association table
 
 Revision ID: create_tb_item_association
-Revises: create_offset_grupo_filtros
-Create Date: 2025-12-10
+Revises: merge_heads
+Create Date: 2025-12-11
 
 """
 from alembic import op
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'create_tb_item_association'
-down_revision = 'create_offset_grupo_filtros'
+down_revision = 'merge_heads'
 branch_labels = None
 depends_on = None
 
