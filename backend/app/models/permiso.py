@@ -32,7 +32,8 @@ class Permiso(Base):
     codigo = Column(String(100), unique=True, nullable=False, index=True)
     nombre = Column(String(255), nullable=False)
     descripcion = Column(Text, nullable=True)
-    categoria = Column(SQLEnum(CategoriaPermiso), nullable=False)
+    # Usar String en vez de Enum para evitar problemas de caching de SQLAlchemy
+    categoria = Column(String(50), nullable=False)
 
     # Orden para mostrar en el panel
     orden = Column(Integer, default=0)
