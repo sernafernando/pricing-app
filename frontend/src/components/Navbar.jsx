@@ -4,6 +4,7 @@ import axios from 'axios';
 import styles from './Navbar.module.css';
 import logo from '../assets/white-g-logo.png';
 import { useAuthStore } from '../store/authStore';
+import { usePermisos } from '../contexts/PermisosContext';
 import ThemeToggle from './ThemeToggle';
 import NotificationBell from './NotificationBell';
 
@@ -23,11 +24,22 @@ export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
+  const { tienePermiso, tieneAlgunPermiso } = usePermisos();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(null);
   const [facturadoHoy, setFacturadoHoy] = useState(null);
-  const puedeVerAdmin = ['SUPERADMIN', 'ADMIN'].includes(user?.rol);
-  const puedeVerHistorial = ['SUPERADMIN', 'ADMIN', 'GERENTE'].includes(user?.rol);
+
+  // Permisos para el navbar
+  const puedeVerAdmin = tienePermiso('admin.ver_panel');
+  const puedeVerGestionPMs = tienePermiso('admin.gestionar_pms');
+  const puedeVerHistorial = tienePermiso('productos.ver_auditoria');
+  const puedeVerBanlist = tienePermiso('admin.gestionar_mla_banlist');
+  const puedeVerItemsSinMLA = tienePermiso('admin.gestionar_mla_banlist');
+  const puedeVerDashboardVentas = tieneAlgunPermiso(['ventas_ml.ver_dashboard', 'ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard']);
+  const puedeVerMetricasML = tienePermiso('ventas_ml.ver_dashboard');
+  const puedeVerVentasFuera = tienePermiso('ventas_fuera.ver_dashboard');
+  const puedeVerTiendaNube = tienePermiso('ventas_tn.ver_dashboard');
+  const puedeVerCalculos = tienePermiso('reportes.ver_calculadora');
 
   // Cargar facturado del día para todos los usuarios (el backend filtra por marcas del PM)
   useEffect(() => {
@@ -100,19 +112,23 @@ export default function Navbar() {
             💰 Precios por Lista
           </Link>
 
-          <Link
-            to="/mla-banlist"
-            className={`${styles.link} ${isActive('/mla-banlist') ? styles.active : ''}`}
-          >
-            🚫 Banlist
-          </Link>
+          {puedeVerBanlist && (
+            <Link
+              to="/mla-banlist"
+              className={`${styles.link} ${isActive('/mla-banlist') ? styles.active : ''}`}
+            >
+              🚫 Banlist
+            </Link>
+          )}
 
-          <Link
-            to="/items-sin-mla"
-            className={`${styles.link} ${isActive('/items-sin-mla') ? styles.active : ''}`}
-          >
-            📋 Items sin MLA
-          </Link>
+          {puedeVerItemsSinMLA && (
+            <Link
+              to="/items-sin-mla"
+              className={`${styles.link} ${isActive('/items-sin-mla') ? styles.active : ''}`}
+            >
+              📋 Items sin MLA
+            </Link>
+          )}
 
           {/* Dropdown Reportes */}
           <div
@@ -131,41 +147,51 @@ export default function Navbar() {
                 className={styles.dropdownMenu}
                 onMouseEnter={() => setDropdownOpen('reportes')}
               >
-                <Link
-                  to="/dashboard-ventas"
-                  className={`${styles.dropdownItem} ${isActive('/dashboard-ventas') ? styles.activeDropdown : ''}`}
-                  onClick={() => setDropdownOpen(null)}
-                >
-                  📊 Dashboard Ventas
-                </Link>
-                <Link
-                  to="/dashboard-metricas-ml"
-                  className={`${styles.dropdownItem} ${isActive('/dashboard-metricas-ml') ? styles.activeDropdown : ''}`}
-                  onClick={() => setDropdownOpen(null)}
-                >
-                  📈 Métricas ML
-                </Link>
-                <Link
-                  to="/dashboard-ventas-fuera"
-                  className={`${styles.dropdownItem} ${isActive('/dashboard-ventas-fuera') ? styles.activeDropdown : ''}`}
-                  onClick={() => setDropdownOpen(null)}
-                >
-                  🏪 Ventas por Fuera
-                </Link>
-                <Link
-                  to="/dashboard-tienda-nube"
-                  className={`${styles.dropdownItem} ${isActive('/dashboard-tienda-nube') ? styles.activeDropdown : ''}`}
-                  onClick={() => setDropdownOpen(null)}
-                >
-                  🛒 Tienda Nube
-                </Link>
-                <Link
-                  to="/calculos"
-                  className={`${styles.dropdownItem} ${isActive('/calculos') ? styles.activeDropdown : ''}`}
-                  onClick={() => setDropdownOpen(null)}
-                >
-                  🧮 Cálculos
-                </Link>
+                {puedeVerDashboardVentas && (
+                  <Link
+                    to="/dashboard-ventas"
+                    className={`${styles.dropdownItem} ${isActive('/dashboard-ventas') ? styles.activeDropdown : ''}`}
+                    onClick={() => setDropdownOpen(null)}
+                  >
+                    📊 Dashboard Ventas
+                  </Link>
+                )}
+                {puedeVerMetricasML && (
+                  <Link
+                    to="/dashboard-metricas-ml"
+                    className={`${styles.dropdownItem} ${isActive('/dashboard-metricas-ml') ? styles.activeDropdown : ''}`}
+                    onClick={() => setDropdownOpen(null)}
+                  >
+                    📈 Métricas ML
+                  </Link>
+                )}
+                {puedeVerVentasFuera && (
+                  <Link
+                    to="/dashboard-ventas-fuera"
+                    className={`${styles.dropdownItem} ${isActive('/dashboard-ventas-fuera') ? styles.activeDropdown : ''}`}
+                    onClick={() => setDropdownOpen(null)}
+                  >
+                    🏪 Ventas por Fuera
+                  </Link>
+                )}
+                {puedeVerTiendaNube && (
+                  <Link
+                    to="/dashboard-tienda-nube"
+                    className={`${styles.dropdownItem} ${isActive('/dashboard-tienda-nube') ? styles.activeDropdown : ''}`}
+                    onClick={() => setDropdownOpen(null)}
+                  >
+                    🛒 Tienda Nube
+                  </Link>
+                )}
+                {puedeVerCalculos && (
+                  <Link
+                    to="/calculos"
+                    className={`${styles.dropdownItem} ${isActive('/calculos') ? styles.activeDropdown : ''}`}
+                    onClick={() => setDropdownOpen(null)}
+                  >
+                    🧮 Cálculos
+                  </Link>
+                )}
                 {puedeVerHistorial && (
                   <Link
                     to="/ultimos-cambios"
@@ -179,8 +205,8 @@ export default function Navbar() {
             )}
           </div>
 
-          {/* Dropdown Gestión (solo para admins) */}
-          {puedeVerAdmin && (
+          {/* Dropdown Gestión (solo si tiene permisos de gestión) */}
+          {(puedeVerGestionPMs || puedeVerAdmin) && (
             <div
               className={styles.dropdown}
               onMouseEnter={() => setDropdownOpen('gestion')}
@@ -197,20 +223,24 @@ export default function Navbar() {
                   className={styles.dropdownMenu}
                   onMouseEnter={() => setDropdownOpen('gestion')}
                 >
-                  <Link
-                    to="/gestion-pm"
-                    className={`${styles.dropdownItem} ${isActive('/gestion-pm') ? styles.activeDropdown : ''}`}
-                    onClick={() => setDropdownOpen(null)}
-                  >
-                    👤 Gestión PMs
-                  </Link>
-                  <Link
-                    to="/admin"
-                    className={`${styles.dropdownItem} ${isActive('/admin') ? styles.activeDropdown : ''}`}
-                    onClick={() => setDropdownOpen(null)}
-                  >
-                    ⚙️ Admin
-                  </Link>
+                  {puedeVerGestionPMs && (
+                    <Link
+                      to="/gestion-pm"
+                      className={`${styles.dropdownItem} ${isActive('/gestion-pm') ? styles.activeDropdown : ''}`}
+                      onClick={() => setDropdownOpen(null)}
+                    >
+                      👤 Gestión PMs
+                    </Link>
+                  )}
+                  {puedeVerAdmin && (
+                    <Link
+                      to="/admin"
+                      className={`${styles.dropdownItem} ${isActive('/admin') ? styles.activeDropdown : ''}`}
+                      onClick={() => setDropdownOpen(null)}
+                    >
+                      ⚙️ Admin
+                    </Link>
+                  )}
                 </div>
               )}
             </div>
@@ -263,65 +293,94 @@ export default function Navbar() {
             💰 Precios por Lista
           </Link>
 
-          <Link
-            to="/mla-banlist"
-            className={`${styles.mobileLink} ${isActive('/mla-banlist') ? styles.active : ''}`}
-            onClick={handleLinkClick}
-          >
-            🚫 Banlist MLAs
-          </Link>
+          {puedeVerBanlist && (
+            <Link
+              to="/mla-banlist"
+              className={`${styles.mobileLink} ${isActive('/mla-banlist') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              🚫 Banlist MLAs
+            </Link>
+          )}
 
-          <Link
-            to="/dashboard-ventas"
-            className={`${styles.mobileLink} ${isActive('/dashboard-ventas') ? styles.active : ''}`}
-            onClick={handleLinkClick}
-          >
-            📊 Dashboard Ventas
-          </Link>
+          {puedeVerDashboardVentas && (
+            <Link
+              to="/dashboard-ventas"
+              className={`${styles.mobileLink} ${isActive('/dashboard-ventas') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              📊 Dashboard Ventas
+            </Link>
+          )}
 
-          <Link
-            to="/dashboard-tienda-nube"
-            className={`${styles.mobileLink} ${isActive('/dashboard-tienda-nube') ? styles.active : ''}`}
-            onClick={handleLinkClick}
-          >
-            🛒 Tienda Nube
-          </Link>
+          {puedeVerMetricasML && (
+            <Link
+              to="/dashboard-metricas-ml"
+              className={`${styles.mobileLink} ${isActive('/dashboard-metricas-ml') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              📈 Métricas ML
+            </Link>
+          )}
 
-          <Link
-            to="/calculos"
-            className={`${styles.mobileLink} ${isActive('/calculos') ? styles.active : ''}`}
-            onClick={handleLinkClick}
-          >
-            🧮 Cálculos
-          </Link>
+          {puedeVerVentasFuera && (
+            <Link
+              to="/dashboard-ventas-fuera"
+              className={`${styles.mobileLink} ${isActive('/dashboard-ventas-fuera') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              🏪 Ventas por Fuera
+            </Link>
+          )}
+
+          {puedeVerTiendaNube && (
+            <Link
+              to="/dashboard-tienda-nube"
+              className={`${styles.mobileLink} ${isActive('/dashboard-tienda-nube') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              🛒 Tienda Nube
+            </Link>
+          )}
+
+          {puedeVerCalculos && (
+            <Link
+              to="/calculos"
+              className={`${styles.mobileLink} ${isActive('/calculos') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              🧮 Cálculos
+            </Link>
+          )}
 
           {puedeVerHistorial && (
-          <Link
-            to="/ultimos-cambios"
-            className={`${styles.mobileLink} ${isActive('/ultimos-cambios') ? styles.active : ''}`}
-            onClick={handleLinkClick}
-          >
-            📋 Últimos Cambios
-          </Link>
+            <Link
+              to="/ultimos-cambios"
+              className={`${styles.mobileLink} ${isActive('/ultimos-cambios') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              📋 Últimos Cambios
+            </Link>
+          )}
+
+          {puedeVerGestionPMs && (
+            <Link
+              to="/gestion-pm"
+              className={`${styles.mobileLink} ${isActive('/gestion-pm') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              👤 Gestión PMs
+            </Link>
           )}
 
           {puedeVerAdmin && (
-          <>
-          <Link
-            to="/gestion-pm"
-            className={`${styles.mobileLink} ${isActive('/gestion-pm') ? styles.active : ''}`}
-            onClick={handleLinkClick}
-          >
-            👤 Gestión PMs
-          </Link>
-          <Link
-            to="/admin"
-            className={`${styles.mobileLink} ${isActive('/admin') ? styles.active : ''}`}
-            onClick={handleLinkClick}
-          >
-            ⚙️ Admin
-          </Link>
-          </>
+            <Link
+              to="/admin"
+              className={`${styles.mobileLink} ${isActive('/admin') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              ⚙️ Admin
+            </Link>
           )}
 
           {user && (

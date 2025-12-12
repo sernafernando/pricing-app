@@ -70,72 +70,72 @@ function App() {
               />
               <Routes>
                 <Route path="/productos" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute permiso="productos.ver">
                     <Productos />
                   </ProtectedRoute>
                 } />
                 <Route path="/precios-listas" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute permiso="productos.ver">
                     <PreciosListas />
                   </ProtectedRoute>
                 } />
                 <Route path="/ultimos-cambios" element={
-                  <ProtectedRoute allowedRoles={['SUPERADMIN', 'ADMIN', 'GERENTE']}>
+                  <ProtectedRoute permiso="productos.ver_auditoria">
                     <UltimosCambios />
                   </ProtectedRoute>
                 } />
                 <Route path="/admin" element={
-                  <ProtectedRoute allowedRoles={['SUPERADMIN', 'ADMIN']}>
+                  <ProtectedRoute permiso="admin.ver_panel">
                     <Admin />
                   </ProtectedRoute>
                 } />
                 <Route path="/gestion-pm" element={
-                  <ProtectedRoute allowedRoles={['SUPERADMIN', 'ADMIN']}>
+                  <ProtectedRoute permiso="admin.gestionar_pms">
                     <GestionPM />
                   </ProtectedRoute>
                 } />
                 <Route path="/mla-banlist" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute permiso="admin.gestionar_mla_banlist">
                     <Banlist />
                   </ProtectedRoute>
                 } />
                 <Route path="/dashboard-ventas" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute permisos={['ventas_ml.ver_dashboard', 'ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard']}>
                     <DashboardVentas />
                   </ProtectedRoute>
                 } />
                 <Route path="/dashboard-metricas-ml" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute permiso="ventas_ml.ver_dashboard">
                     <DashboardMetricasML />
                   </ProtectedRoute>
                 } />
                 <Route path="/dashboard-ventas-fuera" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute permiso="ventas_fuera.ver_dashboard">
                     <DashboardVentasFuera />
                   </ProtectedRoute>
                 } />
                 <Route path="/dashboard-tienda-nube" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute permiso="ventas_tn.ver_dashboard">
                     <DashboardTiendaNube />
                   </ProtectedRoute>
                 } />
                 <Route path="/calculos" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute permiso="reportes.ver_calculadora">
                     <Calculos />
                   </ProtectedRoute>
                 } />
                 <Route path="/items-sin-mla" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute permiso="admin.gestionar_mla_banlist">
                     <ItemsSinMLA />
                   </ProtectedRoute>
                 } />
                 <Route path="/test-stats-dinamicos" element={
-                  <ProtectedRoute allowedRoles={['SUPERADMIN', 'ADMIN']}>
+                  <ProtectedRoute permiso="admin.sincronizar">
                     <TestStatsDinamicos />
                   </ProtectedRoute>
                 } />
                 <Route path="/notificaciones" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute permiso="reportes.ver_notificaciones">
                     <Notificaciones />
                   </ProtectedRoute>
                 } />
