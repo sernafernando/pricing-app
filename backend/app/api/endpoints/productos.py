@@ -2821,7 +2821,7 @@ async def calcular_web_masivo(
 
         # Filtro de productos nuevos
         if request.filtros.get('nuevos_ultimos_7_dias'):
-            from datetime import datetime, timedelta, timezone
+            from datetime import timedelta, timezone
             fecha_limite = datetime.now(timezone.utc) - timedelta(days=7)
             query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
