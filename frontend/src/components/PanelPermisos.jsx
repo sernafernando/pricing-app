@@ -33,16 +33,27 @@ export default function PanelPermisos() {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
 
+      console.log('Cargando usuarios y catálogo de permisos...');
+
       const [usuariosRes, catalogoRes] = await Promise.all([
         axios.get(`${API_URL}/usuarios`, { headers }),
         axios.get(`${API_URL}/permisos/catalogo`, { headers })
       ]);
 
-      setUsuarios(usuariosRes.data.filter(u => u.activo));
-      setCatalogo(catalogoRes.data);
+      console.log('Usuarios recibidos:', usuariosRes.data);
+      console.log('Catálogo recibido:', catalogoRes.data);
+
+      // Filtrar usuarios activos, manejando el caso donde activo puede ser undefined
+      const usuariosActivos = Array.isArray(usuariosRes.data)
+        ? usuariosRes.data.filter(u => u.activo !== false)
+        : [];
+
+      setUsuarios(usuariosActivos);
+      setCatalogo(catalogoRes.data || {});
     } catch (error) {
       console.error('Error cargando datos:', error);
-      setMensaje({ tipo: 'error', texto: 'Error al cargar datos' });
+      console.error('Error response:', error.response?.data);
+      setMensaje({ tipo: 'error', texto: `Error al cargar datos: ${error.response?.data?.detail || error.message}` });
     } finally {
       setLoading(false);
     }
