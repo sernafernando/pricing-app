@@ -29,9 +29,19 @@ export default function ProtectedRoute({
     return <Navigate to="/login" replace />;
   }
 
-  // Mientras carga permisos, mostrar nada o un loader
+  // Mientras carga permisos, mostrar loader
   if (loading) {
-    return null;
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        color: 'var(--text-color, #fff)'
+      }}>
+        <div>Cargando permisos...</div>
+      </div>
+    );
   }
 
   // Verificar roles (sistema legacy - mantener compatibilidad)

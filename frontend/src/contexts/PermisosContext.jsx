@@ -43,9 +43,29 @@ export const PermisosProvider = ({ children }) => {
     } catch (err) {
       console.error('Error cargando permisos:', err);
       setError(err.message);
+
+      // En caso de error, intentar obtener el rol del usuario del authStore
+      // para mantener compatibilidad temporal
+      const token = localStorage.getItem('token');
+      if (token) {
+        try {
+          // Decodificar el token para obtener info básica
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          if (payload.rol) {
+            console.warn('Usando rol del token por error en API de permisos');
+            setRol(payload.rol);
+            setUsuarioId(payload.usuario_id);
+            // SUPERADMIN siempre tiene acceso
+            if (payload.rol === 'SUPERADMIN') {
+              setPermisos(new Set(['*'])); // Wildcard para indicar todos los permisos
+            }
+          }
+        } catch (tokenErr) {
+          console.error('Error decodificando token:', tokenErr);
+        }
+      }
+
       setPermisos(new Set());
-      setRol(null);
-      setUsuarioId(null);
     } finally {
       setLoading(false);
     }
