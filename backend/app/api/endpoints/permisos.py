@@ -210,6 +210,18 @@ async def eliminar_override(
             detail="No tienes permiso para modificar permisos"
         )
 
+    # Verificar que el usuario objetivo existe
+    usuario_objetivo = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario_objetivo:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # No permitir modificar permisos de SUPERADMIN si no eres SUPERADMIN
+    if usuario_objetivo.rol.value == 'SUPERADMIN' and current_user.rol.value != 'SUPERADMIN':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No puedes modificar permisos de un SUPERADMIN"
+        )
+
     service = PermisosService(db)
     eliminado = service.eliminar_override(usuario_id, permiso_codigo)
 
