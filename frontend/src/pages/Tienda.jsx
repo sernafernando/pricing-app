@@ -5,8 +5,10 @@ import PricingModal from '../components/PricingModal';
 import { useDebounce } from '../hooks/useDebounce';
 import './Tienda.css';
 import styles from './Productos.module.css';
+import dashboardStyles from './DashboardMetricasML.module.css';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
+import { usePermisos } from '../contexts/PermisosContext';
 import ExportModal from '../components/ExportModal';
 import xlsIcon from '../assets/xls.svg';
 import CalcularWebModal from '../components/CalcularWebModal';
@@ -14,6 +16,9 @@ import ModalInfoProducto from '../components/ModalInfoProducto';
 import './Productos.css';
 
 export default function Productos() {
+  const { tienePermiso } = usePermisos();
+  const puedeGestionarMarkups = tienePermiso('productos.gestionar_markups_tienda');
+  const [tabActivo, setTabActivo] = useState('productos'); // 'productos' o 'setup-markups'
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
@@ -1981,6 +1986,32 @@ export default function Productos() {
 
   return (
     <div className="productos-container">
+      {/* Tabs de navegación */}
+      <div className={dashboardStyles.tabs}>
+        <button
+          className={`${dashboardStyles.tab} ${tabActivo === 'productos' ? dashboardStyles.tabActivo : ''}`}
+          onClick={() => setTabActivo('productos')}
+        >
+          📦 Productos
+        </button>
+        {puedeGestionarMarkups && (
+          <button
+            className={`${dashboardStyles.tab} ${tabActivo === 'setup-markups' ? dashboardStyles.tabActivo : ''}`}
+            onClick={() => setTabActivo('setup-markups')}
+          >
+            ⚙️ Setup Markups
+          </button>
+        )}
+      </div>
+
+      {tabActivo === 'setup-markups' ? (
+        <div className={styles.setupMarkupsContainer}>
+          <h2>Configuración de Markups para Tienda</h2>
+          <p>Aquí podrás configurar los markups específicos para la tienda.</p>
+          {/* TODO: Implementar el contenido del tab de setup de markups */}
+        </div>
+      ) : (
+        <>
       <div className="stats-grid">
         <div className="stat-card clickable" title="Click para limpiar todos los filtros" onClick={limpiarFiltros}>
           <div className="stat-label">📦 Total Productos</div>
@@ -4129,6 +4160,8 @@ export default function Productos() {
         <div className={`${styles.toast} ${toast.type === 'error' ? styles.error : ''}`}>
           {toast.message}
         </div>
+      )}
+      </>
       )}
     </div>
       );
