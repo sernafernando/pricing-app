@@ -1,8 +1,8 @@
 """add productos.ver_tienda permiso
 
-Revision ID: 20251212_141908
-Revises:
-Create Date: 2025-12-12 14:19:08
+Revision ID: 20251212_142216
+Revises: 38aea5ee4513
+Create Date: 2025-12-12 14:22:16
 
 """
 from alembic import op
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '20251212_141908'
-down_revision = None  # Actualizar con la última migración
+revision = '20251212_142216'
+down_revision = '38aea5ee4513'
 branch_labels = None
 depends_on = None
 

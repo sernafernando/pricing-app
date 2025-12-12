@@ -35,6 +35,7 @@ export default function Navbar() {
   const puedeVerHistorial = tienePermiso('productos.ver_auditoria');
   const puedeVerBanlist = tienePermiso('admin.gestionar_mla_banlist');
   const puedeVerItemsSinMLA = tienePermiso('admin.gestionar_mla_banlist');
+  const puedeVerTienda = tienePermiso('productos.ver_tienda');
   const puedeVerDashboardVentas = tieneAlgunPermiso(['ventas_ml.ver_dashboard', 'ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard']);
   const puedeVerMetricasML = tienePermiso('ventas_ml.ver_dashboard');
   const puedeVerVentasFuera = tienePermiso('ventas_fuera.ver_dashboard');
@@ -104,6 +105,15 @@ export default function Navbar() {
           >
             📦 Productos
           </Link>
+
+          {puedeVerTienda && (
+            <Link
+              to="/tienda"
+              className={`${styles.link} ${isActive('/tienda') ? styles.active : ''}`}
+            >
+              🛒 Tienda
+            </Link>
+          )}
 
           <Link
             to="/precios-listas"
@@ -284,6 +294,16 @@ export default function Navbar() {
           >
             📦 Productos
           </Link>
+
+          {puedeVerTienda && (
+            <Link
+              to="/tienda"
+              className={`${styles.mobileLink} ${isActive('/tienda') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              🛒 Tienda
+            </Link>
+          )}
 
           <Link
             to="/precios-listas"
