@@ -6,6 +6,7 @@ import { PermisosProvider } from './contexts/PermisosContext';
 import Login from './pages/Login';
 import Layout from './components/Layout';
 import Productos from './pages/Productos';
+import Tienda from './pages/Tienda';
 import Navbar from './components/Navbar';
 import Admin from './pages/Admin';
 import UltimosCambios from './pages/UltimosCambios';
@@ -72,6 +73,11 @@ function App() {
                 <Route path="/productos" element={
                   <ProtectedRoute permiso="productos.ver">
                     <Productos />
+                  </ProtectedRoute>
+                } />
+                <Route path="/tienda" element={
+                  <ProtectedRoute permiso="productos.ver_tienda">
+                    <Tienda />
                   </ProtectedRoute>
                 } />
                 <Route path="/precios-listas" element={

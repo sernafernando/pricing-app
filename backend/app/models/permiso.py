@@ -117,39 +117,46 @@ PERMISOS_SISTEMA = [
         "orden": 1
     },
     {
+        "codigo": "productos.ver_tienda",
+        "nombre": "Ver tienda",
+        "descripcion": "Acceso a la vista de tienda de productos",
+        "categoria": CategoriaPermiso.PRODUCTOS,
+        "orden": 2
+    },
+    {
         "codigo": "productos.editar_precios",
         "nombre": "Editar precios",
         "descripcion": "Modificar precios clásica, cuotas y web transferencia",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 2
+        "orden": 3
     },
     {
         "codigo": "productos.editar_rebate",
         "nombre": "Gestionar Rebate",
         "descripcion": "Activar/desactivar rebate y modificar porcentaje",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 3
+        "orden": 4
     },
     {
         "codigo": "productos.editar_web_transferencia",
         "nombre": "Gestionar Web Transferencia",
         "descripcion": "Activar/desactivar web transferencia y modificar porcentaje",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 4
+        "orden": 5
     },
     {
         "codigo": "productos.editar_out_of_cards",
         "nombre": "Marcar Out of Cards",
         "descripcion": "Marcar/desmarcar productos como out of cards",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 5
+        "orden": 6
     },
     {
         "codigo": "productos.banear",
         "nombre": "Banear productos",
         "descripcion": "Agregar productos a la banlist",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 6,
+        "orden": 7,
         "es_critico": True
     },
     {
@@ -157,21 +164,21 @@ PERMISOS_SISTEMA = [
         "nombre": "Exportar productos",
         "descripcion": "Exportar listado de productos a Excel",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 7
+        "orden": 8
     },
     {
         "codigo": "productos.ver_costos",
         "nombre": "Ver costos",
         "descripcion": "Ver columnas de costo en productos",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 8
+        "orden": 9
     },
     {
         "codigo": "productos.ver_auditoria",
         "nombre": "Ver auditoría de productos",
         "descripcion": "Ver historial de cambios por producto",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 9
+        "orden": 10
     },
 
     # =========================================================================
