@@ -3,7 +3,7 @@ Endpoints para gestión de markups de tienda
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from typing import List, Optional
 from pydantic import BaseModel
 
@@ -83,7 +83,8 @@ async def listar_brands_con_markups(
         )
 
     # Query base para obtener marcas de tb_brand
-    query = db.execute("""
+    where_clause = f"AND LOWER(b.brand_desc) LIKE LOWER('%{busqueda}%')" if busqueda else ""
+    query = db.execute(text(f"""
         SELECT DISTINCT
             b.comp_id,
             b.brand_id,
@@ -97,9 +98,7 @@ async def listar_brands_con_markups(
         WHERE 1=1
         {where_clause}
         ORDER BY b.brand_desc
-    """.format(
-        where_clause=f"AND LOWER(b.brand_desc) LIKE LOWER('%{busqueda}%')" if busqueda else ""
-    ))
+    """))
 
     results = []
     for row in query:
@@ -217,7 +216,7 @@ async def obtener_estadisticas_markups(
             detail="No tienes permiso para gestionar markups de tienda"
         )
 
-    total_marcas = db.execute("SELECT COUNT(DISTINCT brand_id) FROM tb_brand").scalar()
+    total_marcas = db.execute(text("SELECT COUNT(DISTINCT brand_id) FROM tb_brand")).scalar()
     total_con_markup = db.query(func.count(MarkupTiendaBrand.id)).filter(
         MarkupTiendaBrand.activo == True
     ).scalar()
