@@ -103,6 +103,15 @@ export default function Productos() {
     recalcular_cuotas_auto: null,
     markup_adicional_cuotas_custom: null
   });
+
+  // Estados para Setup Markups
+  const [brandsConMarkups, setBrandsConMarkups] = useState([]);
+  const [loadingMarkups, setLoadingMarkups] = useState(false);
+  const [busquedaBrand, setBusquedaBrand] = useState('');
+  const [soloConMarkup, setSoloConMarkup] = useState(false);
+  const [editandoMarkup, setEditandoMarkup] = useState(null); // { comp_id, brand_id }
+  const [markupTemp, setMarkupTemp] = useState('');
+  const [statsMarkups, setStatsMarkups] = useState(null);
   // Modal de información
   const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
   const [productoInfo, setProductoInfo] = useState(null);
@@ -1984,6 +1993,98 @@ export default function Productos() {
     setPage(1);
   };
 
+  // =============================================================================
+  // FUNCIONES PARA SETUP MARKUPS
+  // =============================================================================
+
+  const cargarBrandsConMarkups = async () => {
+    setLoadingMarkups(true);
+    try {
+      const params = new URLSearchParams();
+      if (busquedaBrand) params.append('busqueda', busquedaBrand);
+      if (soloConMarkup) params.append('solo_con_markup', 'true');
+
+      const response = await axios.get(
+        `https://pricing.gaussonline.com.ar/api/markups-tienda/brands?${params}`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      setBrandsConMarkups(response.data);
+    } catch (error) {
+      console.error('Error cargando brands con markups:', error);
+      setToast({ message: 'Error al cargar marcas', type: 'error' });
+    } finally {
+      setLoadingMarkups(false);
+    }
+  };
+
+  const cargarStatsMarkups = async () => {
+    try {
+      const response = await axios.get(
+        'https://pricing.gaussonline.com.ar/api/markups-tienda/stats',
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      setStatsMarkups(response.data);
+    } catch (error) {
+      console.error('Error cargando stats markups:', error);
+    }
+  };
+
+  const guardarMarkup = async (comp_id, brand_id, brand_desc) => {
+    if (!markupTemp || isNaN(parseFloat(markupTemp))) {
+      setToast({ message: 'Ingresá un markup válido', type: 'error' });
+      return;
+    }
+
+    try {
+      await axios.post(
+        `https://pricing.gaussonline.com.ar/api/markups-tienda/brands/${comp_id}/${brand_id}/markup`,
+        {
+          comp_id,
+          brand_id,
+          brand_desc,
+          markup_porcentaje: parseFloat(markupTemp),
+          activo: true
+        },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+
+      setToast({ message: 'Markup guardado correctamente', type: 'success' });
+      setEditandoMarkup(null);
+      setMarkupTemp('');
+      cargarBrandsConMarkups();
+      cargarStatsMarkups();
+    } catch (error) {
+      console.error('Error guardando markup:', error);
+      setToast({ message: 'Error al guardar markup', type: 'error' });
+    }
+  };
+
+  const eliminarMarkup = async (comp_id, brand_id) => {
+    if (!confirm('¿Estás seguro de eliminar este markup?')) return;
+
+    try {
+      await axios.delete(
+        `https://pricing.gaussonline.com.ar/api/markups-tienda/brands/${comp_id}/${brand_id}/markup`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+
+      setToast({ message: 'Markup eliminado correctamente', type: 'success' });
+      cargarBrandsConMarkups();
+      cargarStatsMarkups();
+    } catch (error) {
+      console.error('Error eliminando markup:', error);
+      setToast({ message: 'Error al eliminar markup', type: 'error' });
+    }
+  };
+
+  // Cargar datos cuando se activa el tab de markups
+  useEffect(() => {
+    if (tabActivo === 'setup-markups') {
+      cargarBrandsConMarkups();
+      cargarStatsMarkups();
+    }
+  }, [tabActivo, busquedaBrand, soloConMarkup]);
+
   return (
     <div className="productos-container">
       {/* Tabs de navegación */}
@@ -2005,10 +2106,216 @@ export default function Productos() {
       </div>
 
       {tabActivo === 'setup-markups' ? (
-        <div className={styles.setupMarkupsContainer}>
-          <h2>Configuración de Markups para Tienda</h2>
-          <p>Aquí podrás configurar los markups específicos para la tienda.</p>
-          {/* TODO: Implementar el contenido del tab de setup de markups */}
+        <div className="productos-container" style={{ padding: '20px' }}>
+          <h2 style={{ marginBottom: '20px' }}>⚙️ Configuración de Markups por Marca</h2>
+
+          {/* Estadísticas */}
+          {statsMarkups && (
+            <div className="stats-grid" style={{ marginBottom: '30px' }}>
+              <div className="stat-card">
+                <div className="stat-label">📊 Total Marcas</div>
+                <div className="stat-value">{statsMarkups.total_marcas}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">✅ Con Markup</div>
+                <div className="stat-value green">{statsMarkups.total_con_markup}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">❌ Sin Markup</div>
+                <div className="stat-value red">{statsMarkups.total_sin_markup}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">📈 Markup Promedio</div>
+                <div className="stat-value blue">{statsMarkups.markup_promedio}%</div>
+              </div>
+            </div>
+          )}
+
+          {/* Filtros */}
+          <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', alignItems: 'center' }}>
+            <input
+              type="text"
+              placeholder="🔍 Buscar marca..."
+              value={busquedaBrand}
+              onChange={(e) => setBusquedaBrand(e.target.value)}
+              style={{
+                padding: '10px',
+                borderRadius: '5px',
+                border: '1px solid #ddd',
+                flex: 1,
+                maxWidth: '400px'
+              }}
+            />
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={soloConMarkup}
+                onChange={(e) => setSoloConMarkup(e.target.checked)}
+              />
+              <span>Solo con markup</span>
+            </label>
+          </div>
+
+          {/* Tabla de marcas */}
+          {loadingMarkups ? (
+            <div style={{ textAlign: 'center', padding: '40px' }}>Cargando marcas...</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="productos-table" style={{ width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th>Marca</th>
+                    <th>Brand ID</th>
+                    <th>Markup (%)</th>
+                    <th>Estado</th>
+                    <th>Notas</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {brandsConMarkups.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" style={{ textAlign: 'center', padding: '40px' }}>
+                        No se encontraron marcas
+                      </td>
+                    </tr>
+                  ) : (
+                    brandsConMarkups.map((brand) => (
+                      <tr key={`${brand.comp_id}-${brand.brand_id}`}>
+                        <td><strong>{brand.brand_desc}</strong></td>
+                        <td>{brand.brand_id}</td>
+                        <td>
+                          {editandoMarkup?.comp_id === brand.comp_id && editandoMarkup?.brand_id === brand.brand_id ? (
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={markupTemp}
+                              onChange={(e) => setMarkupTemp(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  guardarMarkup(brand.comp_id, brand.brand_id, brand.brand_desc);
+                                }
+                                if (e.key === 'Escape') {
+                                  setEditandoMarkup(null);
+                                  setMarkupTemp('');
+                                }
+                              }}
+                              autoFocus
+                              style={{
+                                width: '80px',
+                                padding: '5px',
+                                border: '2px solid #4CAF50',
+                                borderRadius: '3px'
+                              }}
+                            />
+                          ) : (
+                            <span
+                              onClick={() => {
+                                setEditandoMarkup({ comp_id: brand.comp_id, brand_id: brand.brand_id });
+                                setMarkupTemp(brand.markup_porcentaje?.toString() || '');
+                              }}
+                              style={{
+                                cursor: 'pointer',
+                                color: brand.markup_porcentaje ? '#4CAF50' : '#999',
+                                fontWeight: brand.markup_porcentaje ? 'bold' : 'normal'
+                              }}
+                            >
+                              {brand.markup_porcentaje ? `${brand.markup_porcentaje}%` : 'Sin markup'}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {brand.markup_activo !== null && (
+                            <span style={{
+                              padding: '4px 8px',
+                              borderRadius: '3px',
+                              backgroundColor: brand.markup_activo ? '#4CAF50' : '#f44336',
+                              color: 'white',
+                              fontSize: '12px'
+                            }}>
+                              {brand.markup_activo ? 'Activo' : 'Inactivo'}
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ fontSize: '12px', color: '#666' }}>
+                          {brand.markup_notas || '-'}
+                        </td>
+                        <td>
+                          {editandoMarkup?.comp_id === brand.comp_id && editandoMarkup?.brand_id === brand.brand_id ? (
+                            <div style={{ display: 'flex', gap: '5px' }}>
+                              <button
+                                onClick={() => guardarMarkup(brand.comp_id, brand.brand_id, brand.brand_desc)}
+                                style={{
+                                  padding: '5px 10px',
+                                  backgroundColor: '#4CAF50',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ✓
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditandoMarkup(null);
+                                  setMarkupTemp('');
+                                }}
+                                style={{
+                                  padding: '5px 10px',
+                                  backgroundColor: '#999',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', gap: '5px' }}>
+                              <button
+                                onClick={() => {
+                                  setEditandoMarkup({ comp_id: brand.comp_id, brand_id: brand.brand_id });
+                                  setMarkupTemp(brand.markup_porcentaje?.toString() || '');
+                                }}
+                                style={{
+                                  padding: '5px 10px',
+                                  backgroundColor: '#2196F3',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ✏️ Editar
+                              </button>
+                              {brand.markup_id && (
+                                <button
+                                  onClick={() => eliminarMarkup(brand.comp_id, brand.brand_id)}
+                                  style={{
+                                    padding: '5px 10px',
+                                    backgroundColor: '#f44336',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '3px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  🗑️
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       ) : (
         <>
