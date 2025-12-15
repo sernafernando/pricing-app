@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
-from app.models.markup_tienda import MarkupTiendaBrand
+from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
 from app.services.permisos_service import verificar_permiso
 
 router = APIRouter(prefix="/markups-tienda", tags=["markups-tienda"])
@@ -59,6 +59,31 @@ class BrandWithMarkup(BaseModel):
     markup_porcentaje: Optional[float] = None
     markup_activo: Optional[bool] = None
     markup_notas: Optional[str] = None
+
+
+class MarkupProductoCreate(BaseModel):
+    item_id: int
+    codigo: Optional[str] = None
+    descripcion: Optional[str] = None
+    marca: Optional[str] = None
+    markup_porcentaje: float
+    activo: bool = True
+    notas: Optional[str] = None
+
+
+class MarkupProductoResponse(BaseModel):
+    id: int
+    item_id: int
+    codigo: Optional[str]
+    descripcion: Optional[str]
+    marca: Optional[str]
+    markup_porcentaje: float
+    activo: bool
+    notas: Optional[str]
+    markup_id: Optional[int] = None  # Alias para compatibilidad con el frontend
+
+    class Config:
+        from_attributes = True
 
 
 # =============================================================================
@@ -228,10 +253,156 @@ async def obtener_estadisticas_markups(
         MarkupTiendaBrand.activo == True
     ).scalar()
 
+    # Estadísticas de productos
+    total_productos_con_markup = db.query(func.count(MarkupTiendaProducto.id)).filter(
+        MarkupTiendaProducto.activo == True
+    ).scalar()
+
     return {
         "total_marcas": total_marcas,
         "total_con_markup": total_con_markup,
         "total_sin_markup": total_marcas - total_con_markup - total_inactivos,
         "total_inactivos": total_inactivos,
-        "markup_promedio": round(float(markup_promedio or 0), 2)
+        "markup_promedio": round(float(markup_promedio or 0), 2),
+        "total_productos_con_markup": total_productos_con_markup
     }
+
+
+# =============================================================================
+# ENDPOINTS PRODUCTOS INDIVIDUALES
+# =============================================================================
+
+@router.get("/productos", response_model=List[MarkupProductoResponse])
+async def listar_productos_con_markup(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Lista todos los productos con markups individuales configurados.
+    """
+    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para gestionar markups de tienda"
+        )
+
+    productos = db.query(MarkupTiendaProducto).filter(
+        MarkupTiendaProducto.activo == True
+    ).order_by(MarkupTiendaProducto.codigo).all()
+
+    return [
+        MarkupProductoResponse(
+            id=p.id,
+            item_id=p.item_id,
+            codigo=p.codigo,
+            descripcion=p.descripcion,
+            marca=p.marca,
+            markup_porcentaje=p.markup_porcentaje,
+            activo=p.activo,
+            notas=p.notas,
+            markup_id=p.id  # Para compatibilidad con el frontend
+        )
+        for p in productos
+    ]
+
+
+@router.post("/productos/{item_id}/markup", response_model=MarkupProductoResponse)
+async def crear_o_actualizar_markup_producto(
+    item_id: int,
+    data: MarkupProductoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Crea o actualiza el markup para un producto específico.
+    """
+    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para gestionar markups de tienda"
+        )
+
+    # Verificar si ya existe un markup para este producto
+    existing = db.query(MarkupTiendaProducto).filter(
+        MarkupTiendaProducto.item_id == item_id
+    ).first()
+
+    if existing:
+        # Actualizar existente
+        existing.markup_porcentaje = data.markup_porcentaje
+        existing.activo = data.activo
+        existing.notas = data.notas
+        existing.codigo = data.codigo
+        existing.descripcion = data.descripcion
+        existing.marca = data.marca
+        existing.updated_by_id = current_user.id
+        db.commit()
+        db.refresh(existing)
+        return MarkupProductoResponse(
+            id=existing.id,
+            item_id=existing.item_id,
+            codigo=existing.codigo,
+            descripcion=existing.descripcion,
+            marca=existing.marca,
+            markup_porcentaje=existing.markup_porcentaje,
+            activo=existing.activo,
+            notas=existing.notas,
+            markup_id=existing.id
+        )
+    else:
+        # Crear nuevo
+        nuevo_markup = MarkupTiendaProducto(
+            item_id=data.item_id,
+            codigo=data.codigo,
+            descripcion=data.descripcion,
+            marca=data.marca,
+            markup_porcentaje=data.markup_porcentaje,
+            activo=data.activo,
+            notas=data.notas,
+            created_by_id=current_user.id
+        )
+        db.add(nuevo_markup)
+        db.commit()
+        db.refresh(nuevo_markup)
+        return MarkupProductoResponse(
+            id=nuevo_markup.id,
+            item_id=nuevo_markup.item_id,
+            codigo=nuevo_markup.codigo,
+            descripcion=nuevo_markup.descripcion,
+            marca=nuevo_markup.marca,
+            markup_porcentaje=nuevo_markup.markup_porcentaje,
+            activo=nuevo_markup.activo,
+            notas=nuevo_markup.notas,
+            markup_id=nuevo_markup.id
+        )
+
+
+@router.delete("/productos/{item_id}/markup")
+async def eliminar_markup_producto(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Elimina el markup de un producto específico.
+    """
+    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para gestionar markups de tienda"
+        )
+
+    markup = db.query(MarkupTiendaProducto).filter(
+        MarkupTiendaProducto.item_id == item_id
+    ).first()
+
+    if not markup:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Markup no encontrado"
+        )
+
+    db.delete(markup)
+    db.commit()
+
+    return {"success": True, "message": "Markup eliminado correctamente"}
