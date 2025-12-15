@@ -1108,6 +1108,7 @@ class ProductoTiendaResponse(BaseModel):
     mejor_oferta_fecha_hasta: Optional[date] = None
     out_of_cards: Optional[bool] = False
     color_marcado: Optional[str] = None
+    color_marcado_tienda: Optional[str] = None
     precio_3_cuotas: Optional[float] = None
     precio_6_cuotas: Optional[float] = None
     precio_9_cuotas: Optional[float] = None
@@ -1229,7 +1230,7 @@ async def listar_productos_tienda(
     if out_of_cards is True:
         query = query.filter(ProductoPricing.out_of_cards == True)
     if colores:
-        query = query.filter(ProductoPricing.color_marcado.in_([c.strip() for c in colores.split(',')]))
+        query = query.filter(ProductoPricing.color_marcado_tienda.in_([c.strip() for c in colores.split(',')]))
     if markup_clasica_positivo is True:
         query = query.filter(ProductoPricing.markup_calculado >= 0)
     if markup_rebate_positivo is True:
@@ -1374,6 +1375,7 @@ async def listar_productos_tienda(
             mejor_oferta_porcentaje_rebate=mejor_oferta_porcentaje, mejor_oferta_fecha_hasta=mejor_oferta_fecha_hasta,
             out_of_cards=producto_pricing.out_of_cards if producto_pricing else False,
             color_marcado=producto_pricing.color_marcado if producto_pricing else None,
+            color_marcado_tienda=producto_pricing.color_marcado_tienda if producto_pricing else None,
             precio_3_cuotas=float(producto_pricing.precio_3_cuotas) if producto_pricing and producto_pricing.precio_3_cuotas else None,
             precio_6_cuotas=float(producto_pricing.precio_6_cuotas) if producto_pricing and producto_pricing.precio_6_cuotas else None,
             precio_9_cuotas=float(producto_pricing.precio_9_cuotas) if producto_pricing and producto_pricing.precio_9_cuotas else None,
@@ -3358,6 +3360,40 @@ async def actualizar_color_producto(
         "color_nuevo": color
     }
 
+@router.patch("/productos/{item_id}/color-tienda")
+async def actualizar_color_producto_tienda(
+    item_id: int,
+    request: dict,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Actualiza el color de marcado de tienda de un producto"""
+
+    color = request.get('color')
+
+    # Validar color
+    colores_validos = ['rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris', None]
+    if color not in colores_validos:
+        raise HTTPException(status_code=400, detail=f"Color inválido: {color}. Válidos: {colores_validos}")
+
+    # Buscar producto pricing
+    producto_pricing = db.query(ProductoPricing).filter(
+        ProductoPricing.item_id == item_id
+    ).first()
+
+    if not producto_pricing:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    color_anterior = producto_pricing.color_marcado_tienda
+    producto_pricing.color_marcado_tienda = color
+    db.commit()
+
+    return {
+        "mensaje": "Color tienda actualizado",
+        "color_anterior": color_anterior,
+        "color_nuevo": color
+    }
+
 class ConfigCuotasRequest(BaseModel):
     recalcular_cuotas_auto: Optional[bool] = None
     markup_adicional_cuotas_custom: Optional[float] = None
@@ -3437,6 +3473,29 @@ async def actualizar_color_productos_lote(
     db.commit()
 
     return {"mensaje": f"{count} productos actualizados", "count": count}
+
+@router.post("/productos/actualizar-color-tienda-lote")
+async def actualizar_color_productos_tienda_lote(
+    request: ColorLoteRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Actualiza el color de marcado tienda de múltiples productos"""
+
+    if not request.item_ids:
+        raise HTTPException(status_code=400, detail="Debe proporcionar al menos un item_id")
+
+    colores_validos = ['rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris', None]
+    if request.color not in colores_validos:
+        raise HTTPException(status_code=400, detail=f"Color inválido")
+
+    count = db.query(ProductoPricing).filter(
+        ProductoPricing.item_id.in_(request.item_ids)
+    ).update({'color_marcado_tienda': request.color}, synchronize_session=False)
+
+    db.commit()
+
+    return {"mensaje": f"{count} productos actualizados (tienda)", "count": count}
 
 @router.get("/productos/{item_id}/detalle")
 async def obtener_detalle_producto(

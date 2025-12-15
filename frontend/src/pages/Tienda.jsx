@@ -1046,7 +1046,7 @@ export default function Productos() {
       const token = localStorage.getItem('token');
       console.log('Cambiando color desde dropdown:', { itemId, color });
       await axios.patch(
-        `${API_URL}/productos/${itemId}/color`,
+        `${API_URL}/productos/${itemId}/color-tienda`,
         { color },  // Enviar en el body, no en params
         {
           headers: { Authorization: `Bearer ${token}` }
@@ -1220,7 +1220,7 @@ export default function Productos() {
       const token = localStorage.getItem('token');
 
       await axios.post(
-        'https://pricing.gaussonline.com.ar/api/productos/actualizar-color-lote',
+        'https://pricing.gaussonline.com.ar/api/productos/actualizar-color-tienda-lote',
         {
           item_ids: Array.from(productosSeleccionados),
           color: color
@@ -1230,7 +1230,7 @@ export default function Productos() {
 
       setProductos(prods => prods.map(p =>
         productosSeleccionados.has(p.item_id)
-          ? { ...p, color_marcado: color }
+          ? { ...p, color_marcado_tienda: color }
           : p
       ));
 
@@ -3005,11 +3005,11 @@ export default function Productos() {
               <tbody className="table-body">
                 {productosOrdenados.map((p, rowIndex) => {
                   const isRowActive = modoNavegacion && celdaActiva?.rowIndex === rowIndex;
-                  const colorClass = p.color_marcado ? `row-color-${p.color_marcado}` : '';
+                  const colorClass = p.color_marcado_tienda ? `row-color-${p.color_marcado_tienda}` : '';
                   return (
                   <tr
                     key={p.item_id}
-                    className={`${colorClass} ${p.color_marcado ? 'row-colored' : ''} ${isRowActive ? 'keyboard-row-active' : ''}`}
+                    className={`${colorClass} ${p.color_marcado_tienda ? 'row-colored' : ''} ${isRowActive ? 'keyboard-row-active' : ''}`}
                   >
                     <td style={{ textAlign: 'center' }}>
                       <input
@@ -3060,47 +3060,17 @@ export default function Productos() {
                     <td>{p.stock}</td>
                     <td>{p.moneda_costo} ${p.costo?.toFixed(2)}</td>
                     <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
-                      {editandoPrecio === p.item_id ? (
-                        <div className="inline-edit">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={precioTemp}
-                            onChange={(e) => setPrecioTemp(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                guardarPrecio(p.item_id);
-                              }
-                            }}
-                            onFocus={(e) => e.target.select()}
-                            autoFocus
-                          />
-                          <button onClick={() => guardarPrecio(p.item_id)} onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              guardarPrecio(p.item_id);
-                            }
-                          }}>✓</button>
-                          <button onClick={() => setEditandoPrecio(null)} onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              setEditandoPrecio(null);
-                            }
-                          }}>✗</button>
+                      {/* Precio solo lectura en Tienda */}
+                      <div>
+                        <div>
+                          {p.precio_lista_ml ? `$${p.precio_lista_ml.toLocaleString('es-AR')}` : 'Sin precio'}
                         </div>
-                      ) : (
-                        <div onClick={() => puedeEditar && iniciarEdicion(p)}>
-                          <div className={puedeEditar ? 'editable-field' : ''}>
-                            {p.precio_lista_ml ? `$${p.precio_lista_ml.toLocaleString('es-AR')}` : 'Sin precio'}
+                        {p.markup !== null && p.markup !== undefined && (
+                          <div className="markup-display" style={{ color: getMarkupColor(p.markup) }}>
+                            {p.markup}%
                           </div>
-                          {p.markup !== null && p.markup !== undefined && (
-                            <div className="markup-display" style={{ color: getMarkupColor(p.markup) }}>
-                              {p.markup}%
-                            </div>
-                          )}
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </td>
 
                     {/* Vista Normal: Gremio, Oferta, Web Transf */}
@@ -3475,7 +3445,7 @@ export default function Productos() {
                                   style={{
                                     backgroundColor: c.color,
                                     color: c.colorTexto,
-                                    border: c.id === p.color_marcado ? '2px solid #000' : '1px solid #ccc'
+                                    border: c.id === p.color_marcado_tienda ? '2px solid #000' : '1px solid #ccc'
                                   }}
                                   onClick={() => cambiarColorProducto(p.item_id, c.id)}
                                   title={c.nombre}

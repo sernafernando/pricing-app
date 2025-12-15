@@ -71,6 +71,7 @@ class ProductoPricing(Base):
     publicado_tiendanube = Column(Boolean, default=False)
 
     color_marcado = Column(String(20), default=None)  # rojo, naranja, amarillo, verde, azul, purpura, gris, NULL
+    color_marcado_tienda = Column(String(20), default=None)  # Color separado para página Tienda
 
     # Configuración individual de recálculo de cuotas y markup adicional
     recalcular_cuotas_auto = Column(Boolean, default=None)  # NULL = usar global, TRUE/FALSE = override
