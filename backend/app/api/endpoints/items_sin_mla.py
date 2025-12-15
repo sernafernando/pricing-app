@@ -410,17 +410,10 @@ async def get_comparacion_listas(
     Compara las listas/campañas del sistema con las campañas de MercadoLibre
     Devuelve solo los items donde HAY DIFERENCIAS (no coinciden)
     """
-    from datetime import datetime
-
-    # Obtener el snapshot más reciente
-    today = datetime.now().date()
-
-    # Subquery para obtener los snapshots más recientes de cada publicación
+    # Subquery para obtener el snapshot más reciente de cada publicación (sin filtrar por fecha)
     latest_snapshots = db.query(
         MLPublicationSnapshot.mla_id,
         func.max(MLPublicationSnapshot.snapshot_date).label('max_date')
-    ).filter(
-        func.date(MLPublicationSnapshot.snapshot_date) == today
     ).group_by(MLPublicationSnapshot.mla_id).subquery()
 
     # Query principal: obtener snapshots con sus publicaciones
