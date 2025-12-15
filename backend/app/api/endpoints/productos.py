@@ -5266,6 +5266,7 @@ async def exportar_lista_gremio(
     from openpyxl.styles import Font, Alignment, PatternFill
     from io import BytesIO
     from fastapi.responses import StreamingResponse
+    from sqlalchemy import text
     from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
     from app.services.pricing_calculator import obtener_constantes_pricing, obtener_tipo_cambio_actual
 
