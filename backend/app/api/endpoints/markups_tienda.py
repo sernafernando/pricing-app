@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from typing import List, Optional
+from datetime import datetime
 from pydantic import BaseModel
 
 from app.core.database import get_db
@@ -43,8 +44,8 @@ class MarkupBrandResponse(BaseModel):
     markup_porcentaje: float
     activo: bool
     notas: Optional[str]
-    created_at: Optional[str]
-    updated_at: Optional[str]
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
