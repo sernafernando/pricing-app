@@ -1068,6 +1068,357 @@ async def listar_productos_con_precios_listas(
     }
 
 
+# ========== ENDPOINT TIENDA ==========
+# Response model para Tienda con precio_gremio
+class ProductoTiendaResponse(BaseModel):
+    item_id: int
+    codigo: str
+    descripcion: str
+    marca: Optional[str]
+    categoria: Optional[str]
+    subcategoria_id: Optional[int]
+    moneda_costo: Optional[str]
+    costo: float
+    costo_ars: Optional[float]
+    iva: float
+    stock: int
+    precio_lista_ml: Optional[float]
+    markup: Optional[float]
+    usuario_modifico: Optional[str]
+    fecha_modificacion: Optional[datetime]
+    tiene_precio: bool
+    necesita_revision: bool
+    participa_rebate: Optional[bool] = False
+    porcentaje_rebate: Optional[float] = 3.8
+    precio_rebate: Optional[float] = None
+    markup_rebate: Optional[float] = None
+    precio_gremio_sin_iva: Optional[float] = None
+    precio_gremio_con_iva: Optional[float] = None
+    markup_gremio: Optional[float] = None
+    participa_web_transferencia: Optional[bool] = False
+    porcentaje_markup_web: Optional[float] = 6.0
+    precio_web_transferencia: Optional[float] = None
+    markup_web_real: Optional[float] = None
+    preservar_porcentaje_web: Optional[bool] = False
+    mejor_oferta_precio: Optional[float] = None
+    mejor_oferta_monto_rebate: Optional[float] = None
+    mejor_oferta_pvp_seller: Optional[float] = None
+    mejor_oferta_markup: Optional[float] = None
+    mejor_oferta_porcentaje_rebate: Optional[float] = None
+    mejor_oferta_fecha_hasta: Optional[date] = None
+    out_of_cards: Optional[bool] = False
+    color_marcado: Optional[str] = None
+    precio_3_cuotas: Optional[float] = None
+    precio_6_cuotas: Optional[float] = None
+    precio_9_cuotas: Optional[float] = None
+    precio_12_cuotas: Optional[float] = None
+    markup_3_cuotas: Optional[float] = None
+    markup_6_cuotas: Optional[float] = None
+    markup_9_cuotas: Optional[float] = None
+    markup_12_cuotas: Optional[float] = None
+    recalcular_cuotas_auto: Optional[bool] = None
+    markup_adicional_cuotas_custom: Optional[float] = None
+    catalog_status: Optional[str] = None
+    has_catalog: Optional[bool] = None
+    catalog_price_to_win: Optional[float] = None
+    catalog_winner_price: Optional[float] = None
+    tn_price: Optional[float] = None
+    tn_promotional_price: Optional[float] = None
+    tn_has_promotion: Optional[bool] = None
+
+    class Config:
+        from_attributes = True
+
+class ProductoTiendaListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    productos: List[ProductoTiendaResponse]
+
+
+@router.get("/productos/tienda", response_model=ProductoTiendaListResponse)
+async def listar_productos_tienda(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=10000),
+    search: Optional[str] = None,
+    categoria: Optional[str] = None,
+    marcas: Optional[str] = None,
+    subcategorias: Optional[str] = None,
+    con_stock: Optional[bool] = None,
+    con_precio: Optional[bool] = None,
+    orden_campos: Optional[str] = None,
+    orden_direcciones: Optional[str] = None,
+    audit_usuarios: Optional[str] = None,
+    audit_tipos_accion: Optional[str] = None,
+    audit_fecha_desde: Optional[str] = None,
+    audit_fecha_hasta: Optional[str] = None,
+    con_rebate: Optional[bool] = None,
+    con_oferta: Optional[bool] = None,
+    con_web_transf: Optional[bool] = None,
+    tn_con_descuento: Optional[bool] = None,
+    tn_sin_descuento: Optional[bool] = None,
+    tn_no_publicado: Optional[bool] = None,
+    markup_clasica_positivo: Optional[bool] = None,
+    markup_rebate_positivo: Optional[bool] = None,
+    markup_oferta_positivo: Optional[bool] = None,
+    markup_web_transf_positivo: Optional[bool] = None,
+    out_of_cards: Optional[bool] = None,
+    colores: Optional[str] = None,
+    pms: Optional[str] = None,
+    con_mla: Optional[bool] = None,
+    estado_mla: Optional[str] = None,
+    nuevos_ultimos_7_dias: Optional[bool] = None,
+    db: Session = Depends(get_db)
+):
+    """Endpoint específico para la página de Tienda con precio_gremio."""
+    from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
+    from app.services.pricing_calculator import obtener_constantes_pricing
+    from sqlalchemy import text
+
+    query = db.query(ProductoERP, ProductoPricing).outerjoin(
+        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
+    )
+
+    # EXCLUIR PRODUCTOS BANEADOS
+    from app.models.producto_banlist import ProductoBanlist
+    productos_baneados_item_ids = db.query(ProductoBanlist.item_id).filter(
+        ProductoBanlist.activo == True, ProductoBanlist.item_id.isnot(None)
+    ).all()
+    productos_baneados_eans = db.query(ProductoBanlist.ean).filter(
+        ProductoBanlist.activo == True, ProductoBanlist.ean.isnot(None)
+    ).all()
+
+    filtros_ban = []
+    if productos_baneados_item_ids:
+        banned_ids = [pid[0] for pid in productos_baneados_item_ids]
+        filtros_ban.append(ProductoERP.item_id.in_(banned_ids))
+    if productos_baneados_eans:
+        banned_eans = [ean[0] for ean in productos_baneados_eans]
+        filtros_ban.append(and_(ProductoERP.ean.in_(banned_eans), ProductoERP.ean.isnot(None), ProductoERP.ean != ''))
+    if filtros_ban:
+        query = query.filter(~or_(*filtros_ban))
+
+    # Aplicar filtros
+    if search:
+        search_normalized = search.replace('-', '').replace(' ', '').upper()
+        query = query.filter(or_(
+            func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+            func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+            func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
+        ))
+    if categoria:
+        query = query.filter(ProductoERP.categoria == categoria)
+    if marcas:
+        query = query.filter(ProductoERP.marca.in_([m.strip() for m in marcas.split(',')]))
+    if subcategorias:
+        query = query.filter(ProductoERP.subcategoria_id.in_([int(s.strip()) for s in subcategorias.split(',')]))
+    if con_stock is True:
+        query = query.filter(ProductoERP.stock > 0)
+    elif con_stock is False:
+        query = query.filter(ProductoERP.stock == 0)
+    if con_precio is True:
+        query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+    elif con_precio is False:
+        query = query.filter(or_(ProductoPricing.precio_lista_ml.is_(None), ProductoPricing.item_id.is_(None)))
+    if con_rebate is True:
+        query = query.filter(ProductoPricing.participa_rebate == True)
+    elif con_rebate is False:
+        query = query.filter(or_(ProductoPricing.participa_rebate == False, ProductoPricing.participa_rebate.is_(None)))
+    if con_web_transf is True:
+        query = query.filter(ProductoPricing.participa_web_transferencia == True)
+    if out_of_cards is True:
+        query = query.filter(ProductoPricing.out_of_cards == True)
+    if colores:
+        query = query.filter(ProductoPricing.color_marcado.in_([c.strip() for c in colores.split(',')]))
+    if markup_clasica_positivo is True:
+        query = query.filter(ProductoPricing.markup_calculado >= 0)
+    if markup_rebate_positivo is True:
+        query = query.filter(ProductoPricing.markup_rebate >= 0)
+    if markup_web_transf_positivo is True:
+        query = query.filter(ProductoPricing.markup_web_real >= 0)
+
+    total = query.count()
+    offset = (page - 1) * page_size
+    results = query.offset(offset).limit(page_size).all()
+
+    # Obtener constantes de pricing (VARIOS)
+    constantes_pricing = obtener_constantes_pricing(db)
+    varios_porcentaje = constantes_pricing.get("varios", 6.5)
+
+    # Precargar markups de tienda
+    item_ids_results = [r[0].item_id for r in results]
+    markups_producto_dict = {}
+    if item_ids_results:
+        markups_producto = db.query(MarkupTiendaProducto).filter(
+            MarkupTiendaProducto.item_id.in_(item_ids_results), MarkupTiendaProducto.activo == True
+        ).all()
+        markups_producto_dict = {m.item_id: m.markup_porcentaje for m in markups_producto}
+
+    marcas_unicas = list(set([r[0].marca for r in results if r[0].marca]))
+    markups_marca_dict = {}
+    if marcas_unicas:
+        brand_query = db.execute(text("SELECT brand_desc, brand_id FROM tb_brand WHERE brand_desc = ANY(:marcas)"), {"marcas": marcas_unicas}).fetchall()
+        marca_to_brand_id = {row[0]: row[1] for row in brand_query}
+        brand_ids = list(marca_to_brand_id.values())
+        if brand_ids:
+            markups_marca = db.query(MarkupTiendaBrand).filter(MarkupTiendaBrand.brand_id.in_(brand_ids), MarkupTiendaBrand.activo == True).all()
+            brand_id_to_markup = {m.brand_id: m.markup_porcentaje for m in markups_marca}
+            for marca, brand_id in marca_to_brand_id.items():
+                if brand_id in brand_id_to_markup:
+                    markups_marca_dict[marca] = brand_id_to_markup[brand_id]
+
+    from app.models.oferta_ml import OfertaML
+    from app.models.publicacion_ml import PublicacionML
+    from app.services.pricing_calculator import obtener_tipo_cambio_actual, convertir_a_pesos, obtener_grupo_subcategoria, obtener_comision_base, calcular_comision_ml_total, calcular_limpio, calcular_markup
+
+    hoy = date.today()
+    productos = []
+
+    for producto_erp, producto_pricing in results:
+        costo_ars = producto_erp.costo if producto_erp.moneda_costo == "ARS" else None
+
+        # Mejor oferta
+        mejor_oferta_precio, mejor_oferta_monto, mejor_oferta_pvp, mejor_oferta_markup, mejor_oferta_porcentaje, mejor_oferta_fecha_hasta = None, None, None, None, None, None
+        pubs = db.query(PublicacionML).filter(PublicacionML.item_id == producto_erp.item_id).all()
+        mejor_oferta, mejor_pub = None, None
+        for pub in pubs:
+            oferta = db.query(OfertaML).filter(OfertaML.mla == pub.mla, OfertaML.fecha_desde <= hoy, OfertaML.fecha_hasta >= hoy, OfertaML.pvp_seller.isnot(None)).order_by(OfertaML.fecha_desde.desc()).first()
+            if oferta and not mejor_oferta:
+                mejor_oferta, mejor_pub = oferta, pub
+        if mejor_oferta and mejor_pub:
+            mejor_oferta_precio = float(mejor_oferta.precio_final) if mejor_oferta.precio_final else None
+            mejor_oferta_pvp = float(mejor_oferta.pvp_seller) if mejor_oferta.pvp_seller else None
+            mejor_oferta_porcentaje = float(mejor_oferta.aporte_meli_porcentaje) if mejor_oferta.aporte_meli_porcentaje else None
+            mejor_oferta_fecha_hasta = mejor_oferta.fecha_hasta
+            if mejor_oferta_precio and mejor_oferta_pvp:
+                mejor_oferta_monto = mejor_oferta_pvp - mejor_oferta_precio
+            if mejor_oferta_pvp and mejor_oferta_pvp > 0:
+                tipo_cambio = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
+                costo_calc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
+                grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+                comision_base = obtener_comision_base(db, mejor_pub.pricelist_id, grupo_id)
+                if comision_base:
+                    comisiones = calcular_comision_ml_total(mejor_oferta_pvp, comision_base, producto_erp.iva, db=db)
+                    limpio = calcular_limpio(mejor_oferta_pvp, producto_erp.iva, producto_erp.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
+                    mejor_oferta_markup = calcular_markup(limpio, costo_calc)
+
+        # Rebate
+        precio_rebate, markup_rebate = None, None
+        if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate:
+            porcentaje_rebate_val = float(producto_pricing.porcentaje_rebate if producto_pricing.porcentaje_rebate is not None else 3.8)
+            precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
+            tipo_cambio_rebate = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
+            costo_rebate = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_rebate)
+            grupo_id_rebate = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+            comision_base_rebate = obtener_comision_base(db, 4, grupo_id_rebate)
+            if comision_base_rebate and precio_rebate > 0:
+                comisiones_rebate = calcular_comision_ml_total(precio_rebate, comision_base_rebate, producto_erp.iva, db=db)
+                limpio_rebate = calcular_limpio(precio_rebate, producto_erp.iva, producto_erp.envio or 0, comisiones_rebate["comision_total"], db=db, grupo_id=grupo_id_rebate)
+                markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
+
+        if producto_pricing and producto_pricing.out_of_cards and precio_rebate is not None and markup_rebate is not None:
+            mejor_oferta_precio, mejor_oferta_pvp = precio_rebate, precio_rebate
+            mejor_oferta_markup = markup_rebate / 100
+            mejor_oferta_porcentaje, mejor_oferta_monto, mejor_oferta_fecha_hasta = None, None, None
+
+        # Precio Gremio
+        precio_gremio_sin_iva, precio_gremio_con_iva, markup_gremio = None, None, None
+        if producto_erp.item_id in markups_producto_dict:
+            markup_gremio = markups_producto_dict[producto_erp.item_id]
+        elif producto_erp.marca and producto_erp.marca in markups_marca_dict:
+            markup_gremio = markups_marca_dict[producto_erp.marca]
+        if markup_gremio is not None and costo_ars and costo_ars > 0:
+            precio_gremio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_gremio / 100)
+            iva_producto = producto_erp.iva if producto_erp.iva else 21.0
+            precio_gremio_con_iva = precio_gremio_sin_iva * (1 + iva_producto / 100)
+
+        # Markups cuotas
+        markup_3_cuotas, markup_6_cuotas, markup_9_cuotas, markup_12_cuotas = None, None, None, None
+        if producto_pricing:
+            for precio_cuota, pricelist_id, nombre in [(producto_pricing.precio_3_cuotas, 17, '3'), (producto_pricing.precio_6_cuotas, 14, '6'), (producto_pricing.precio_9_cuotas, 13, '9'), (producto_pricing.precio_12_cuotas, 23, '12')]:
+                if precio_cuota and float(precio_cuota) > 0:
+                    try:
+                        tc = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
+                        cc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tc)
+                        gi = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+                        cb = obtener_comision_base(db, pricelist_id, gi)
+                        if cb:
+                            com = calcular_comision_ml_total(float(precio_cuota), cb, producto_erp.iva, db=db)
+                            lim = calcular_limpio(float(precio_cuota), producto_erp.iva, producto_erp.envio or 0, com["comision_total"], db=db, grupo_id=gi)
+                            mc = calcular_markup(lim, cc) * 100
+                            if nombre == '3': markup_3_cuotas = mc
+                            elif nombre == '6': markup_6_cuotas = mc
+                            elif nombre == '9': markup_9_cuotas = mc
+                            elif nombre == '12': markup_12_cuotas = mc
+                    except: pass
+
+        productos.append(ProductoTiendaResponse(
+            item_id=producto_erp.item_id, codigo=producto_erp.codigo, descripcion=producto_erp.descripcion,
+            marca=producto_erp.marca, categoria=producto_erp.categoria, subcategoria_id=producto_erp.subcategoria_id,
+            moneda_costo=producto_erp.moneda_costo, costo=producto_erp.costo, costo_ars=costo_ars, iva=producto_erp.iva, stock=producto_erp.stock,
+            precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
+            markup=producto_pricing.markup_calculado if producto_pricing else None, usuario_modifico=None,
+            fecha_modificacion=producto_pricing.fecha_modificacion if producto_pricing else None,
+            tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False, necesita_revision=False,
+            participa_rebate=producto_pricing.participa_rebate if producto_pricing else False,
+            porcentaje_rebate=float(producto_pricing.porcentaje_rebate) if producto_pricing and producto_pricing.porcentaje_rebate is not None else 3.8,
+            precio_rebate=precio_rebate, markup_rebate=markup_rebate,
+            precio_gremio_sin_iva=precio_gremio_sin_iva, precio_gremio_con_iva=precio_gremio_con_iva, markup_gremio=markup_gremio,
+            participa_web_transferencia=producto_pricing.participa_web_transferencia if producto_pricing else False,
+            porcentaje_markup_web=float(producto_pricing.porcentaje_markup_web) if producto_pricing and producto_pricing.porcentaje_markup_web else 6.0,
+            precio_web_transferencia=float(producto_pricing.precio_web_transferencia) if producto_pricing and producto_pricing.precio_web_transferencia else None,
+            markup_web_real=float(producto_pricing.markup_web_real) if producto_pricing and producto_pricing.markup_web_real else None,
+            preservar_porcentaje_web=producto_pricing.preservar_porcentaje_web if producto_pricing else False,
+            mejor_oferta_precio=mejor_oferta_precio, mejor_oferta_monto_rebate=mejor_oferta_monto,
+            mejor_oferta_pvp_seller=mejor_oferta_pvp, mejor_oferta_markup=mejor_oferta_markup,
+            mejor_oferta_porcentaje_rebate=mejor_oferta_porcentaje, mejor_oferta_fecha_hasta=mejor_oferta_fecha_hasta,
+            out_of_cards=producto_pricing.out_of_cards if producto_pricing else False,
+            color_marcado=producto_pricing.color_marcado if producto_pricing else None,
+            precio_3_cuotas=float(producto_pricing.precio_3_cuotas) if producto_pricing and producto_pricing.precio_3_cuotas else None,
+            precio_6_cuotas=float(producto_pricing.precio_6_cuotas) if producto_pricing and producto_pricing.precio_6_cuotas else None,
+            precio_9_cuotas=float(producto_pricing.precio_9_cuotas) if producto_pricing and producto_pricing.precio_9_cuotas else None,
+            precio_12_cuotas=float(producto_pricing.precio_12_cuotas) if producto_pricing and producto_pricing.precio_12_cuotas else None,
+            markup_3_cuotas=markup_3_cuotas, markup_6_cuotas=markup_6_cuotas, markup_9_cuotas=markup_9_cuotas, markup_12_cuotas=markup_12_cuotas,
+            recalcular_cuotas_auto=producto_pricing.recalcular_cuotas_auto if producto_pricing else None,
+            markup_adicional_cuotas_custom=float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing and producto_pricing.markup_adicional_cuotas_custom else None,
+            catalog_status=None, has_catalog=None
+        ))
+
+    # Catalog status
+    if productos:
+        item_ids = [p.item_id for p in productos]
+        mla_query = db.query(PublicacionML.item_id, PublicacionML.mla).filter(PublicacionML.item_id.in_(item_ids)).all()
+        item_to_mlas, all_mlas = {}, []
+        for item_id, mla in mla_query:
+            item_to_mlas.setdefault(item_id, []).append(mla)
+            all_mlas.append(mla)
+        if all_mlas:
+            catalog_statuses = db.execute(text("SELECT mla, catalog_product_id, status, price_to_win, winner_price FROM v_ml_catalog_status_latest WHERE mla = ANY(:mla_ids)"), {"mla_ids": all_mlas}).fetchall()
+            mla_to_catalog = {mla: {'status': status, 'price_to_win': float(ptw) if ptw else None, 'winner_price': float(wp) if wp else None} for mla, _, status, ptw, wp in catalog_statuses}
+            for producto in productos:
+                if producto.item_id in item_to_mlas:
+                    for mla in item_to_mlas[producto.item_id]:
+                        if mla in mla_to_catalog:
+                            producto.catalog_status = mla_to_catalog[mla]['status']
+                            producto.catalog_price_to_win = mla_to_catalog[mla]['price_to_win']
+                            producto.catalog_winner_price = mla_to_catalog[mla]['winner_price']
+                            producto.has_catalog = True
+                            break
+
+    # Tienda Nube
+    if productos:
+        item_ids = [p.item_id for p in productos]
+        tn_precios = db.execute(text("SELECT item_id, price, promotional_price, CASE WHEN promotional_price IS NOT NULL AND promotional_price > 0 THEN true ELSE false END FROM tienda_nube_productos WHERE item_id = ANY(:item_ids) AND activo = true"), {"item_ids": item_ids}).fetchall()
+        tn_dict = {item_id: {'price': float(price) if price else None, 'promotional_price': float(pp) if pp else None, 'has_promotion': hp} for item_id, price, pp, hp in tn_precios}
+        for producto in productos:
+            if producto.item_id in tn_dict:
+                producto.tn_price = tn_dict[producto.item_id]['price']
+                producto.tn_promotional_price = tn_dict[producto.item_id]['promotional_price']
+                producto.tn_has_promotion = tn_dict[producto.item_id]['has_promotion']
+
+    return ProductoTiendaListResponse(total=total, page=page, page_size=page_size, productos=productos)
+
+
 @router.get("/productos/{item_id}", response_model=ProductoResponse)
 async def obtener_producto(item_id: int, db: Session = Depends(get_db)):
     result = db.query(ProductoERP, ProductoPricing).outerjoin(
@@ -4833,524 +5184,3 @@ async def exportar_vista_actual(
         print(f"Error en exportar_vista_actual: {str(e)}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error al exportar vista actual: {str(e)}")
-
-
-# ========== ENDPOINT TIENDA ==========
-# Response model para Tienda con precio_gremio
-class ProductoTiendaResponse(BaseModel):
-    item_id: int
-    codigo: str
-    descripcion: str
-    marca: Optional[str]
-    categoria: Optional[str]
-    subcategoria_id: Optional[int]
-    moneda_costo: Optional[str]
-    costo: float
-    costo_ars: Optional[float]
-    iva: float
-    stock: int
-    precio_lista_ml: Optional[float]
-    markup: Optional[float]
-    usuario_modifico: Optional[str]
-    fecha_modificacion: Optional[datetime]
-    tiene_precio: bool
-    necesita_revision: bool
-    participa_rebate: Optional[bool] = False
-    porcentaje_rebate: Optional[float] = 3.8
-    precio_rebate: Optional[float] = None
-    markup_rebate: Optional[float] = None
-    # Precio Gremio (nuevo para Tienda)
-    precio_gremio_sin_iva: Optional[float] = None
-    precio_gremio_con_iva: Optional[float] = None
-    markup_gremio: Optional[float] = None
-    participa_web_transferencia: Optional[bool] = False
-    porcentaje_markup_web: Optional[float] = 6.0
-    precio_web_transferencia: Optional[float] = None
-    markup_web_real: Optional[float] = None
-    preservar_porcentaje_web: Optional[bool] = False
-    mejor_oferta_precio: Optional[float] = None
-    mejor_oferta_monto_rebate: Optional[float] = None
-    mejor_oferta_pvp_seller: Optional[float] = None
-    mejor_oferta_markup: Optional[float] = None
-    mejor_oferta_porcentaje_rebate: Optional[float] = None
-    mejor_oferta_fecha_hasta: Optional[date] = None
-    out_of_cards: Optional[bool] = False
-    color_marcado: Optional[str] = None
-    precio_3_cuotas: Optional[float] = None
-    precio_6_cuotas: Optional[float] = None
-    precio_9_cuotas: Optional[float] = None
-    precio_12_cuotas: Optional[float] = None
-    markup_3_cuotas: Optional[float] = None
-    markup_6_cuotas: Optional[float] = None
-    markup_9_cuotas: Optional[float] = None
-    markup_12_cuotas: Optional[float] = None
-    recalcular_cuotas_auto: Optional[bool] = None
-    markup_adicional_cuotas_custom: Optional[float] = None
-    catalog_status: Optional[str] = None
-    has_catalog: Optional[bool] = None
-    catalog_price_to_win: Optional[float] = None
-    catalog_winner_price: Optional[float] = None
-    tn_price: Optional[float] = None
-    tn_promotional_price: Optional[float] = None
-    tn_has_promotion: Optional[bool] = None
-
-    class Config:
-        from_attributes = True
-
-class ProductoTiendaListResponse(BaseModel):
-    total: int
-    page: int
-    page_size: int
-    productos: List[ProductoTiendaResponse]
-
-
-@router.get("/productos/tienda", response_model=ProductoTiendaListResponse)
-async def listar_productos_tienda(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=10000),
-    search: Optional[str] = None,
-    categoria: Optional[str] = None,
-    marcas: Optional[str] = None,
-    subcategorias: Optional[str] = None,
-    con_stock: Optional[bool] = None,
-    con_precio: Optional[bool] = None,
-    orden_campos: Optional[str] = None,
-    orden_direcciones: Optional[str] = None,
-    audit_usuarios: Optional[str] = None,
-    audit_tipos_accion: Optional[str] = None,
-    audit_fecha_desde: Optional[str] = None,
-    audit_fecha_hasta: Optional[str] = None,
-    con_rebate: Optional[bool] = None,
-    con_oferta: Optional[bool] = None,
-    con_web_transf: Optional[bool] = None,
-    tn_con_descuento: Optional[bool] = None,
-    tn_sin_descuento: Optional[bool] = None,
-    tn_no_publicado: Optional[bool] = None,
-    markup_clasica_positivo: Optional[bool] = None,
-    markup_rebate_positivo: Optional[bool] = None,
-    markup_oferta_positivo: Optional[bool] = None,
-    markup_web_transf_positivo: Optional[bool] = None,
-    out_of_cards: Optional[bool] = None,
-    colores: Optional[str] = None,
-    pms: Optional[str] = None,
-    con_mla: Optional[bool] = None,
-    estado_mla: Optional[str] = None,
-    nuevos_ultimos_7_dias: Optional[bool] = None,
-    db: Session = Depends(get_db)
-):
-    """
-    Endpoint específico para la página de Tienda.
-    Incluye cálculo de precio_gremio basado en markups de tienda.
-    """
-    from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
-    from app.services.pricing_calculator import obtener_constantes_pricing
-    from sqlalchemy import text
-
-    query = db.query(ProductoERP, ProductoPricing).outerjoin(
-        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
-    )
-
-    # EXCLUIR PRODUCTOS BANEADOS
-    from app.models.producto_banlist import ProductoBanlist
-
-    productos_baneados_item_ids = db.query(ProductoBanlist.item_id).filter(
-        ProductoBanlist.activo == True,
-        ProductoBanlist.item_id.isnot(None)
-    ).all()
-
-    productos_baneados_eans = db.query(ProductoBanlist.ean).filter(
-        ProductoBanlist.activo == True,
-        ProductoBanlist.ean.isnot(None)
-    ).all()
-
-    filtros_ban = []
-    if productos_baneados_item_ids:
-        banned_ids = [pid[0] for pid in productos_baneados_item_ids]
-        filtros_ban.append(ProductoERP.item_id.in_(banned_ids))
-
-    if productos_baneados_eans:
-        banned_eans = [ean[0] for ean in productos_baneados_eans]
-        filtros_ban.append(and_(
-            ProductoERP.ean.in_(banned_eans),
-            ProductoERP.ean.isnot(None),
-            ProductoERP.ean != ''
-        ))
-
-    if filtros_ban:
-        query = query.filter(~or_(*filtros_ban))
-
-    # Aplicar filtros básicos
-    if search:
-        search_normalized = search.replace('-', '').replace(' ', '').upper()
-        query = query.filter(
-            or_(
-                func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
-                func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
-                func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
-            )
-        )
-
-    if categoria:
-        query = query.filter(ProductoERP.categoria == categoria)
-
-    if marcas:
-        lista_marcas = [m.strip() for m in marcas.split(',')]
-        query = query.filter(ProductoERP.marca.in_(lista_marcas))
-
-    if subcategorias:
-        lista_subcats = [int(s.strip()) for s in subcategorias.split(',')]
-        query = query.filter(ProductoERP.subcategoria_id.in_(lista_subcats))
-
-    if con_stock is True:
-        query = query.filter(ProductoERP.stock > 0)
-    elif con_stock is False:
-        query = query.filter(ProductoERP.stock == 0)
-
-    if con_precio is True:
-        query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
-    elif con_precio is False:
-        query = query.filter(or_(ProductoPricing.precio_lista_ml.is_(None), ProductoPricing.item_id.is_(None)))
-
-    if con_rebate is True:
-        query = query.filter(ProductoPricing.participa_rebate == True)
-    elif con_rebate is False:
-        query = query.filter(or_(ProductoPricing.participa_rebate == False, ProductoPricing.participa_rebate.is_(None)))
-
-    if con_web_transf is True:
-        query = query.filter(ProductoPricing.participa_web_transferencia == True)
-
-    if out_of_cards is True:
-        query = query.filter(ProductoPricing.out_of_cards == True)
-
-    if colores:
-        lista_colores = [c.strip() for c in colores.split(',')]
-        query = query.filter(ProductoPricing.color_marcado.in_(lista_colores))
-
-    if markup_clasica_positivo is True:
-        query = query.filter(ProductoPricing.markup_calculado >= 0)
-    if markup_rebate_positivo is True:
-        query = query.filter(ProductoPricing.markup_rebate >= 0)
-    if markup_web_transf_positivo is True:
-        query = query.filter(ProductoPricing.markup_web_real >= 0)
-
-    # Contar total y paginar
-    total = query.count()
-    offset = (page - 1) * page_size
-    results = query.offset(offset).limit(page_size).all()
-
-    # Obtener constantes de pricing (VARIOS)
-    constantes_pricing = obtener_constantes_pricing(db)
-    varios_porcentaje = constantes_pricing.get("varios", 6.5)
-
-    # Precargar markups de tienda por producto
-    item_ids_results = [r[0].item_id for r in results]
-    markups_producto_dict = {}
-    if item_ids_results:
-        markups_producto = db.query(MarkupTiendaProducto).filter(
-            MarkupTiendaProducto.item_id.in_(item_ids_results),
-            MarkupTiendaProducto.activo == True
-        ).all()
-        markups_producto_dict = {m.item_id: m.markup_porcentaje for m in markups_producto}
-
-    # Precargar markups de tienda por marca
-    marcas_unicas = list(set([r[0].marca for r in results if r[0].marca]))
-    markups_marca_dict = {}
-    if marcas_unicas:
-        brand_query = db.execute(text("""
-            SELECT brand_desc, brand_id FROM tb_brand WHERE brand_desc = ANY(:marcas)
-        """), {"marcas": marcas_unicas}).fetchall()
-        marca_to_brand_id = {row[0]: row[1] for row in brand_query}
-
-        brand_ids = list(marca_to_brand_id.values())
-        if brand_ids:
-            markups_marca = db.query(MarkupTiendaBrand).filter(
-                MarkupTiendaBrand.brand_id.in_(brand_ids),
-                MarkupTiendaBrand.activo == True
-            ).all()
-            brand_id_to_markup = {m.brand_id: m.markup_porcentaje for m in markups_marca}
-            for marca, brand_id in marca_to_brand_id.items():
-                if brand_id in brand_id_to_markup:
-                    markups_marca_dict[marca] = brand_id_to_markup[brand_id]
-
-    from app.models.oferta_ml import OfertaML
-    from app.models.publicacion_ml import PublicacionML
-    from app.services.pricing_calculator import (
-        obtener_tipo_cambio_actual,
-        convertir_a_pesos,
-        obtener_grupo_subcategoria,
-        obtener_comision_base,
-        calcular_comision_ml_total,
-        calcular_limpio,
-        calcular_markup
-    )
-
-    hoy = date.today()
-    productos = []
-
-    for producto_erp, producto_pricing in results:
-        costo_ars = producto_erp.costo if producto_erp.moneda_costo == "ARS" else None
-
-        # Buscar mejor oferta vigente
-        mejor_oferta_precio = None
-        mejor_oferta_monto = None
-        mejor_oferta_pvp = None
-        mejor_oferta_markup = None
-        mejor_oferta_porcentaje = None
-        mejor_oferta_fecha_hasta = None
-
-        pubs = db.query(PublicacionML).filter(PublicacionML.item_id == producto_erp.item_id).all()
-        mejor_oferta = None
-        mejor_pub = None
-
-        for pub in pubs:
-            oferta = db.query(OfertaML).filter(
-                OfertaML.mla == pub.mla,
-                OfertaML.fecha_desde <= hoy,
-                OfertaML.fecha_hasta >= hoy,
-                OfertaML.pvp_seller.isnot(None)
-            ).order_by(OfertaML.fecha_desde.desc()).first()
-
-            if oferta and not mejor_oferta:
-                mejor_oferta = oferta
-                mejor_pub = pub
-
-        if mejor_oferta and mejor_pub:
-            mejor_oferta_precio = float(mejor_oferta.precio_final) if mejor_oferta.precio_final else None
-            mejor_oferta_pvp = float(mejor_oferta.pvp_seller) if mejor_oferta.pvp_seller else None
-            mejor_oferta_porcentaje = float(mejor_oferta.aporte_meli_porcentaje) if mejor_oferta.aporte_meli_porcentaje else None
-            mejor_oferta_fecha_hasta = mejor_oferta.fecha_hasta
-
-            if mejor_oferta_precio and mejor_oferta_pvp:
-                mejor_oferta_monto = mejor_oferta_pvp - mejor_oferta_precio
-
-            if mejor_oferta_pvp and mejor_oferta_pvp > 0:
-                tipo_cambio = None
-                if producto_erp.moneda_costo == "USD":
-                    tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
-
-                costo_calc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
-                grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-                comision_base = obtener_comision_base(db, mejor_pub.pricelist_id, grupo_id)
-
-                if comision_base:
-                    comisiones = calcular_comision_ml_total(mejor_oferta_pvp, comision_base, producto_erp.iva, db=db)
-                    limpio = calcular_limpio(mejor_oferta_pvp, producto_erp.iva, producto_erp.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
-                    mejor_oferta_markup = calcular_markup(limpio, costo_calc)
-
-        # Calcular precio_rebate y markup_rebate
-        precio_rebate = None
-        markup_rebate = None
-        if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate:
-            porcentaje_rebate_val = float(producto_pricing.porcentaje_rebate if producto_pricing.porcentaje_rebate is not None else 3.8)
-            precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
-
-            tipo_cambio_rebate = None
-            if producto_erp.moneda_costo == "USD":
-                tipo_cambio_rebate = obtener_tipo_cambio_actual(db, "USD")
-
-            costo_rebate = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_rebate)
-            grupo_id_rebate = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-            comision_base_rebate = obtener_comision_base(db, 4, grupo_id_rebate)
-
-            if comision_base_rebate and precio_rebate > 0:
-                comisiones_rebate = calcular_comision_ml_total(precio_rebate, comision_base_rebate, producto_erp.iva, db=db)
-                limpio_rebate = calcular_limpio(precio_rebate, producto_erp.iva, producto_erp.envio or 0, comisiones_rebate["comision_total"], db=db, grupo_id=grupo_id_rebate)
-                markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
-
-        # Si out_of_cards, replicar rebate a mejor_oferta
-        if producto_pricing and producto_pricing.out_of_cards and precio_rebate is not None and markup_rebate is not None:
-            mejor_oferta_precio = precio_rebate
-            mejor_oferta_pvp = precio_rebate
-            mejor_oferta_markup = markup_rebate / 100
-            mejor_oferta_porcentaje = None
-            mejor_oferta_monto = None
-            mejor_oferta_fecha_hasta = None
-
-        # ========== CALCULAR PRECIO GREMIO ==========
-        precio_gremio_sin_iva = None
-        precio_gremio_con_iva = None
-        markup_gremio = None
-
-        # Obtener markup: primero producto, luego marca
-        if producto_erp.item_id in markups_producto_dict:
-            markup_gremio = markups_producto_dict[producto_erp.item_id]
-        elif producto_erp.marca and producto_erp.marca in markups_marca_dict:
-            markup_gremio = markups_marca_dict[producto_erp.marca]
-
-        if markup_gremio is not None and costo_ars and costo_ars > 0:
-            # precio_gremio_sin_iva = costo_ars * (1 + VARIOS/100) * (1 + markup/100)
-            precio_gremio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_gremio / 100)
-            # precio_gremio_con_iva = precio_sin_iva * (1 + iva/100)
-            iva_producto = producto_erp.iva if producto_erp.iva else 21.0
-            precio_gremio_con_iva = precio_gremio_sin_iva * (1 + iva_producto / 100)
-
-        # Calcular markups de cuotas
-        markup_3_cuotas = None
-        markup_6_cuotas = None
-        markup_9_cuotas = None
-        markup_12_cuotas = None
-
-        if producto_pricing:
-            cuotas_config = [
-                (producto_pricing.precio_3_cuotas, 17, '3_cuotas'),
-                (producto_pricing.precio_6_cuotas, 14, '6_cuotas'),
-                (producto_pricing.precio_9_cuotas, 13, '9_cuotas'),
-                (producto_pricing.precio_12_cuotas, 23, '12_cuotas')
-            ]
-
-            for precio_cuota, pricelist_id, nombre_cuota in cuotas_config:
-                if precio_cuota and float(precio_cuota) > 0:
-                    try:
-                        tipo_cambio_cuota = None
-                        if producto_erp.moneda_costo == "USD":
-                            tipo_cambio_cuota = obtener_tipo_cambio_actual(db, "USD")
-
-                        costo_cuota = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota)
-                        grupo_id_cuota = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-                        comision_base_cuota = obtener_comision_base(db, pricelist_id, grupo_id_cuota)
-
-                        if comision_base_cuota:
-                            comisiones_cuota = calcular_comision_ml_total(float(precio_cuota), comision_base_cuota, producto_erp.iva, db=db)
-                            limpio_cuota = calcular_limpio(float(precio_cuota), producto_erp.iva, producto_erp.envio or 0, comisiones_cuota["comision_total"], db=db, grupo_id=grupo_id_cuota)
-                            markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
-
-                            if nombre_cuota == '3_cuotas':
-                                markup_3_cuotas = markup_calculado
-                            elif nombre_cuota == '6_cuotas':
-                                markup_6_cuotas = markup_calculado
-                            elif nombre_cuota == '9_cuotas':
-                                markup_9_cuotas = markup_calculado
-                            elif nombre_cuota == '12_cuotas':
-                                markup_12_cuotas = markup_calculado
-                    except Exception:
-                        pass
-
-        producto_obj = ProductoTiendaResponse(
-            item_id=producto_erp.item_id,
-            codigo=producto_erp.codigo,
-            descripcion=producto_erp.descripcion,
-            marca=producto_erp.marca,
-            categoria=producto_erp.categoria,
-            subcategoria_id=producto_erp.subcategoria_id,
-            moneda_costo=producto_erp.moneda_costo,
-            costo=producto_erp.costo,
-            costo_ars=costo_ars,
-            iva=producto_erp.iva,
-            stock=producto_erp.stock,
-            precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
-            markup=producto_pricing.markup_calculado if producto_pricing else None,
-            usuario_modifico=None,
-            fecha_modificacion=producto_pricing.fecha_modificacion if producto_pricing else None,
-            tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False,
-            necesita_revision=False,
-            participa_rebate=producto_pricing.participa_rebate if producto_pricing else False,
-            porcentaje_rebate=float(producto_pricing.porcentaje_rebate) if producto_pricing and producto_pricing.porcentaje_rebate is not None else 3.8,
-            precio_rebate=precio_rebate,
-            markup_rebate=markup_rebate,
-            precio_gremio_sin_iva=precio_gremio_sin_iva,
-            precio_gremio_con_iva=precio_gremio_con_iva,
-            markup_gremio=markup_gremio,
-            participa_web_transferencia=producto_pricing.participa_web_transferencia if producto_pricing else False,
-            porcentaje_markup_web=float(producto_pricing.porcentaje_markup_web) if producto_pricing and producto_pricing.porcentaje_markup_web else 6.0,
-            precio_web_transferencia=float(producto_pricing.precio_web_transferencia) if producto_pricing and producto_pricing.precio_web_transferencia else None,
-            markup_web_real=float(producto_pricing.markup_web_real) if producto_pricing and producto_pricing.markup_web_real else None,
-            preservar_porcentaje_web=producto_pricing.preservar_porcentaje_web if producto_pricing else False,
-            mejor_oferta_precio=mejor_oferta_precio,
-            mejor_oferta_monto_rebate=mejor_oferta_monto,
-            mejor_oferta_pvp_seller=mejor_oferta_pvp,
-            mejor_oferta_markup=mejor_oferta_markup,
-            mejor_oferta_porcentaje_rebate=mejor_oferta_porcentaje,
-            mejor_oferta_fecha_hasta=mejor_oferta_fecha_hasta,
-            out_of_cards=producto_pricing.out_of_cards if producto_pricing else False,
-            color_marcado=producto_pricing.color_marcado if producto_pricing else None,
-            precio_3_cuotas=float(producto_pricing.precio_3_cuotas) if producto_pricing and producto_pricing.precio_3_cuotas else None,
-            precio_6_cuotas=float(producto_pricing.precio_6_cuotas) if producto_pricing and producto_pricing.precio_6_cuotas else None,
-            precio_9_cuotas=float(producto_pricing.precio_9_cuotas) if producto_pricing and producto_pricing.precio_9_cuotas else None,
-            precio_12_cuotas=float(producto_pricing.precio_12_cuotas) if producto_pricing and producto_pricing.precio_12_cuotas else None,
-            markup_3_cuotas=markup_3_cuotas,
-            markup_6_cuotas=markup_6_cuotas,
-            markup_9_cuotas=markup_9_cuotas,
-            markup_12_cuotas=markup_12_cuotas,
-            recalcular_cuotas_auto=producto_pricing.recalcular_cuotas_auto if producto_pricing else None,
-            markup_adicional_cuotas_custom=float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing and producto_pricing.markup_adicional_cuotas_custom else None,
-            catalog_status=None,
-            has_catalog=None,
-        )
-
-        productos.append(producto_obj)
-
-    # Obtener catalog status
-    if productos:
-        from app.models.publicacion_ml import PublicacionML
-        item_ids = [p.item_id for p in productos]
-
-        mla_query = db.query(PublicacionML.item_id, PublicacionML.mla).filter(
-            PublicacionML.item_id.in_(item_ids)
-        ).all()
-
-        item_to_mlas = {}
-        all_mlas = []
-        for item_id, mla in mla_query:
-            if item_id not in item_to_mlas:
-                item_to_mlas[item_id] = []
-            item_to_mlas[item_id].append(mla)
-            all_mlas.append(mla)
-
-        if all_mlas:
-            catalog_statuses = db.execute(text("""
-                SELECT mla, catalog_product_id, status, price_to_win, winner_price
-                FROM v_ml_catalog_status_latest
-                WHERE mla = ANY(:mla_ids)
-            """), {"mla_ids": all_mlas}).fetchall()
-
-            mla_to_catalog = {}
-            for mla, catalog_id, status, price_to_win, winner_price in catalog_statuses:
-                mla_to_catalog[mla] = {
-                    'status': status,
-                    'price_to_win': float(price_to_win) if price_to_win else None,
-                    'winner_price': float(winner_price) if winner_price else None
-                }
-
-            for producto in productos:
-                if producto.item_id in item_to_mlas:
-                    mlas = item_to_mlas[producto.item_id]
-                    for mla in mlas:
-                        if mla in mla_to_catalog:
-                            catalog_data = mla_to_catalog[mla]
-                            producto.catalog_status = catalog_data['status']
-                            producto.catalog_price_to_win = catalog_data['price_to_win']
-                            producto.catalog_winner_price = catalog_data['winner_price']
-                            producto.has_catalog = True
-                            break
-
-    # Obtener precios Tienda Nube
-    if productos:
-        item_ids = [p.item_id for p in productos]
-
-        tn_precios = db.execute(text("""
-            SELECT
-                item_id,
-                price,
-                promotional_price,
-                CASE WHEN promotional_price IS NOT NULL AND promotional_price > 0 THEN true ELSE false END as has_promotion
-            FROM tienda_nube_productos
-            WHERE item_id = ANY(:item_ids)
-            AND activo = true
-        """), {"item_ids": item_ids}).fetchall()
-
-        tn_dict = {}
-        for item_id, price, promo_price, has_promo in tn_precios:
-            tn_dict[item_id] = {
-                'price': float(price) if price else None,
-                'promotional_price': float(promo_price) if promo_price else None,
-                'has_promotion': has_promo
-            }
-
-        for producto in productos:
-            if producto.item_id in tn_dict:
-                tn_data = tn_dict[producto.item_id]
-                producto.tn_price = tn_data['price']
-                producto.tn_promotional_price = tn_data['promotional_price']
-                producto.tn_has_promotion = tn_data['has_promotion']
-
-    return ProductoTiendaListResponse(total=total, page=page, page_size=page_size, productos=productos)
