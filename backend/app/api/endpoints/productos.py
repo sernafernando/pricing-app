@@ -1275,8 +1275,17 @@ async def listar_productos_tienda(
     hoy = date.today()
     productos = []
 
+    # Obtener tipo de cambio para productos en USD
+    tipo_cambio_usd = obtener_tipo_cambio_actual(db, "USD")
+
     for producto_erp, producto_pricing in results:
-        costo_ars = producto_erp.costo if producto_erp.moneda_costo == "ARS" else None
+        # Calcular costo en ARS (convertir si está en USD)
+        if producto_erp.moneda_costo == "ARS":
+            costo_ars = producto_erp.costo
+        elif producto_erp.moneda_costo == "USD" and tipo_cambio_usd:
+            costo_ars = producto_erp.costo * tipo_cambio_usd
+        else:
+            costo_ars = None
 
         # Mejor oferta
         mejor_oferta_precio, mejor_oferta_monto, mejor_oferta_pvp, mejor_oferta_markup, mejor_oferta_porcentaje, mejor_oferta_fecha_hasta = None, None, None, None, None, None
