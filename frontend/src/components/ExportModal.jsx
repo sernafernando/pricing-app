@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './ExportModal.module.css';
 
-export default function ExportModal({ onClose, filtrosActivos, showToast }) {
-  const [tab, setTab] = useState('rebate');
+export default function ExportModal({ onClose, filtrosActivos, showToast, esTienda = false }) {
+  const [tab, setTab] = useState(esTienda ? 'lista_gremio' : 'rebate');
   const [exportando, setExportando] = useState(false);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
   const [porcentajeClasica, setPorcentajeClasica] = useState('0');
@@ -408,6 +408,48 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
     }
   };
 
+  const exportarListaGremio = async () => {
+    setExportando(true);
+    try {
+      const token = localStorage.getItem('token');
+      let params = `con_precio_gremio=true`;
+
+      if (aplicarFiltros) {
+        if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
+        if (filtrosActivos.con_stock === true) params += `&con_stock=true`;
+        if (filtrosActivos.con_stock === false) params += `&con_stock=false`;
+        if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
+        if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
+        if (filtrosActivos.coloresSeleccionados?.length > 0) params += `&colores=${filtrosActivos.coloresSeleccionados.join(',')}`;
+      }
+
+      const response = await axios.get(
+        `https://pricing.gaussonline.com.ar/api/exportar-lista-gremio?${params}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'blob'
+        }
+      );
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      const ahora = new Date();
+      const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const nombreArchivo = `lista_gremio_${timestamp}.xlsx`;
+      link.setAttribute('download', nombreArchivo);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      showToast('✅ Exportación completada');
+      onClose();
+    } catch (error) {
+      console.error('Error exportando:', error);
+      showToast('❌ Error al exportar Lista Gremio', 'error');
+    } finally {
+      setExportando(false);
+    }
+  };
+
   const exportarWebTransf = async () => {
     setExportando(true);
     try {
@@ -502,12 +544,21 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
           >
             Vista Actual
           </button>
-          <button
-            onClick={() => setTab('rebate')}
-            className={`${styles.tab} ${tab === 'rebate' ? styles.active : ''}`}
-          >
-            Rebate ML
-          </button>
+          {esTienda ? (
+            <button
+              onClick={() => setTab('lista_gremio')}
+              className={`${styles.tab} ${tab === 'lista_gremio' ? styles.active : ''}`}
+            >
+              Lista Gremio
+            </button>
+          ) : (
+            <button
+              onClick={() => setTab('rebate')}
+              className={`${styles.tab} ${tab === 'rebate' ? styles.active : ''}`}
+            >
+              Rebate ML
+            </button>
+          )}
           <button
             onClick={() => setTab('web_transf')}
             className={`${styles.tab} ${tab === 'web_transf' ? styles.active : ''}`}
@@ -551,6 +602,39 @@ export default function ExportModal({ onClose, filtrosActivos, showToast }) {
                 </button>
                 <button onClick={exportarVistaActual} disabled={exportando} className={`${styles.button} ${styles.buttonPrimary}`}>
                   {exportando ? '⏳ Exportando...' : '📥 Exportar Vista Actual'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {tab === 'lista_gremio' && (
+            <div>
+              {hayFiltros && (
+                <div className={styles.filterCheckbox}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={aplicarFiltros}
+                      onChange={(e) => setAplicarFiltros(e.target.checked)}
+                    />
+                    Exportar solo productos filtrados
+                  </label>
+                  {aplicarFiltros && <FiltrosActivosDisplay />}
+                </div>
+              )}
+
+              <p className={styles.description}>
+                Exporta la lista de precios Gremio para productos con precio configurado.
+                <br />
+                <strong>Incluye:</strong> Marca, Categoría, Subcategoría, Código, Descripción, Precio Gremio s/IVA, Precio Gremio c/IVA
+              </p>
+
+              <div className={styles.buttonGroup}>
+                <button onClick={onClose} disabled={exportando} className={`${styles.button} ${styles.buttonSecondary}`}>
+                  Cancelar
+                </button>
+                <button onClick={exportarListaGremio} disabled={exportando} className={`${styles.button} ${styles.buttonPrimary}`}>
+                  {exportando ? '⏳ Exportando...' : '📥 Exportar Lista Gremio'}
                 </button>
               </div>
             </div>

@@ -3655,6 +3655,7 @@ export default function Productos() {
             audit_fecha_hasta: filtrosAuditoria.fecha_hasta
           }}
           showToast={showToast}
+          esTienda={true}
         />
       )}
 

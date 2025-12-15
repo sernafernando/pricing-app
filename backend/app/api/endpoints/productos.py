@@ -5247,3 +5247,156 @@ async def exportar_vista_actual(
         print(f"Error en exportar_vista_actual: {str(e)}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error al exportar vista actual: {str(e)}")
+
+
+# ========== EXPORTAR LISTA GREMIO ==========
+@router.get("/exportar-lista-gremio")
+async def exportar_lista_gremio(
+    search: Optional[str] = None,
+    con_stock: Optional[bool] = None,
+    marcas: Optional[str] = None,
+    subcategorias: Optional[str] = None,
+    colores: Optional[str] = None,
+    con_precio_gremio: Optional[bool] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Exporta Lista Gremio a Excel con precios calculados."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+    from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
+    from app.services.pricing_calculator import obtener_constantes_pricing
+    from app.services.tipo_cambio_service import obtener_tipo_cambio_actual
+
+    try:
+        # Obtener constantes y tipo de cambio
+        constantes = obtener_constantes_pricing(db)
+        varios_porcentaje = constantes.get('varios', {}).get('porcentaje', 6.5)
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+
+        # Cargar markups de tienda
+        markups_marca = db.query(MarkupTiendaBrand).filter(MarkupTiendaBrand.activo == True).all()
+        markups_marca_dict = {m.brand_desc.upper(): m.markup_porcentaje for m in markups_marca if m.brand_desc}
+
+        markups_producto = db.query(MarkupTiendaProducto).filter(MarkupTiendaProducto.activo == True).all()
+        markups_producto_dict = {m.item_id: m.markup_porcentaje for m in markups_producto}
+
+        # Query base
+        query = db.query(ProductoERP, ProductoPricing).outerjoin(
+            ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
+        )
+
+        # Aplicar filtros
+        if search:
+            search_normalized = search.replace('-', '').replace(' ', '').upper()
+            query = query.filter(
+                or_(
+                    func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                    func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
+                    func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
+                )
+            )
+
+        if con_stock is not None:
+            query = query.filter(ProductoERP.stock > 0 if con_stock else ProductoERP.stock == 0)
+
+        if marcas:
+            marcas_list = [m.strip().upper() for m in marcas.split(',')]
+            query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
+
+        if subcategorias:
+            subcat_list = [int(s.strip()) for s in subcategorias.split(',')]
+            query = query.filter(ProductoERP.subcategoria_id.in_(subcat_list))
+
+        if colores:
+            colores_list = colores.split(',')
+            query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
+
+        # Ejecutar query
+        results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()
+
+        # Función para convertir a pesos
+        def convertir_a_pesos(costo, moneda):
+            if costo is None:
+                return None
+            costo_float = float(costo)
+            if moneda and moneda.upper() == 'USD' and tipo_cambio:
+                return costo_float * tipo_cambio
+            return costo_float
+
+        # Crear Excel
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Lista Gremio"
+
+        # Headers
+        headers = ["Marca", "Categoría", "Subcategoría", "Código", "Descripción", "Precio Gremio s/IVA", "Precio Gremio c/IVA"]
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+
+        # Datos
+        row_num = 2
+        for producto_erp, producto_pricing in results:
+            # Calcular costo en ARS
+            costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo)
+
+            # Calcular precio gremio
+            precio_gremio_sin_iva = None
+            precio_gremio_con_iva = None
+            markup_gremio = None
+
+            # Primero buscar markup por producto
+            if producto_erp.item_id in markups_producto_dict:
+                markup_gremio = markups_producto_dict[producto_erp.item_id]
+            # Si no, buscar por marca
+            elif producto_erp.marca and producto_erp.marca.upper() in markups_marca_dict:
+                markup_gremio = markups_marca_dict[producto_erp.marca.upper()]
+
+            if markup_gremio is not None and costo_ars and costo_ars > 0:
+                precio_gremio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_gremio / 100)
+                iva_producto = producto_erp.iva if producto_erp.iva else 21.0
+                precio_gremio_con_iva = precio_gremio_sin_iva * (1 + iva_producto / 100)
+
+            # Filtro de solo productos con precio gremio
+            if con_precio_gremio and precio_gremio_sin_iva is None:
+                continue
+
+            ws.cell(row=row_num, column=1, value=producto_erp.marca or "")
+            ws.cell(row=row_num, column=2, value=producto_erp.categoria or "")
+            ws.cell(row=row_num, column=3, value=producto_erp.subcategoria or "")
+            ws.cell(row=row_num, column=4, value=producto_erp.codigo or "")
+            ws.cell(row=row_num, column=5, value=producto_erp.descripcion or "")
+            ws.cell(row=row_num, column=6, value=round(precio_gremio_sin_iva, 2) if precio_gremio_sin_iva else None)
+            ws.cell(row=row_num, column=7, value=round(precio_gremio_con_iva, 2) if precio_gremio_con_iva else None)
+
+            row_num += 1
+
+        # Ajustar anchos de columna
+        column_widths = [15, 20, 20, 15, 50, 18, 18]
+        for i, width in enumerate(column_widths, 1):
+            ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
+
+        # Guardar en BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=lista_gremio.xlsx"}
+        )
+
+    except Exception as e:
+        import traceback
+        print(f"Error en exportar_lista_gremio: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error al exportar lista gremio: {str(e)}")
