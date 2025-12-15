@@ -5267,8 +5267,7 @@ async def exportar_lista_gremio(
     from io import BytesIO
     from fastapi.responses import StreamingResponse
     from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
-    from app.services.pricing_calculator import obtener_constantes_pricing
-    from app.services.tipo_cambio_service import obtener_tipo_cambio_actual
+    from app.services.pricing_calculator import obtener_constantes_pricing, obtener_tipo_cambio_actual
 
     try:
         # Obtener constantes y tipo de cambio
