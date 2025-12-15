@@ -967,6 +967,34 @@
   font-weight: 600;
 }
 
+/* Precio Gremio */
+.gremio-info {
+  padding: 4px;
+}
+
+.gremio-price {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--success);
+}
+
+.gremio-price-iva {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--info);
+}
+
+.gremio-price-iva .iva-label {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.gremio-markup {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 /* Web transferencia */
 .web-transf-edit {
   display: flex;
@@ -1827,7 +1855,11 @@
 .row-colored .mejor-oferta-precio,
 .row-colored .mejor-oferta-detalle,
 .row-colored .mejor-oferta-rebate,
-.row-colored .mejor-oferta-info {
+.row-colored .mejor-oferta-info,
+.row-colored .gremio-info,
+.row-colored .gremio-price,
+.row-colored .gremio-price-iva,
+.row-colored .gremio-markup {
   color: inherit !important;
   opacity: 0.75;
 }
@@ -1843,7 +1875,10 @@
 .row-colored .rebate-info span,
 .row-colored .mejor-oferta-info [style*="color"],
 .row-colored .mejor-oferta-info div,
-.row-colored .mejor-oferta-info span {
+.row-colored .mejor-oferta-info span,
+.row-colored .gremio-info [style*="color"],
+.row-colored .gremio-info div,
+.row-colored .gremio-info span {
   color: inherit !important;
   opacity: 0.85;
 }

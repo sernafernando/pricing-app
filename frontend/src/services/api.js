@@ -19,6 +19,7 @@ export const authAPI = {
 
 export const productosAPI = {
   listar: (params) => api.get('/productos', { params }),
+  listarTienda: (params) => api.get('/productos/tienda', { params }),
   stats: (params) => api.get('/stats', { params }),
   statsDinamicos: (params) => api.get('/stats-dinamicos', { params }),
   marcas: (params) => api.get('/marcas', { params }),

@@ -123,7 +123,7 @@ export default function Productos() {
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
 
   // Columnas navegables según la vista activa
-  const columnasNavegablesNormal = ['precio_clasica', 'precio_rebate', 'mejor_oferta', 'precio_web_transf'];
+  const columnasNavegablesNormal = ['precio_clasica', 'precio_gremio', 'mejor_oferta', 'precio_web_transf'];
   const columnasNavegablesCuotas = ['precio_clasica', 'cuotas_3', 'cuotas_6', 'cuotas_9', 'cuotas_12'];
   const columnasEditables = vistaModoCuotas ? columnasNavegablesCuotas : columnasNavegablesNormal;
 
@@ -444,14 +444,14 @@ export default function Productos() {
       if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
 
       // Primero traer el total para saber cuántos productos filtrados hay
-      const countRes = await productosAPI.listar({ ...params, page: 1, page_size: 1 });
+      const countRes = await productosAPI.listarTienda({ ...params, page: 1, page_size: 1 });
       const totalFiltrados = countRes.data.total || 0;
 
       // Ahora traer TODOS los productos filtrados
       params.page = 1;
       params.page_size = totalFiltrados || 9999;
 
-      const todosRes = await productosAPI.listar(params);
+      const todosRes = await productosAPI.listarTienda(params);
       const todosProductos = todosRes.data.productos;
 
       // Calcular estadísticas sobre TODOS los productos filtrados
@@ -922,7 +922,7 @@ export default function Productos() {
         params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
       }
 
-      const productosRes = await productosAPI.listar(params);
+      const productosRes = await productosAPI.listarTienda(params);
       setTotalProductos(productosRes.data.total || productosRes.data.productos.length);
       setProductos(productosRes.data.productos);
 
@@ -1785,12 +1785,9 @@ export default function Productos() {
     if (columna === 'precio_clasica') {
       setEditandoPrecio(producto.item_id);
       setPrecioTemp(producto.precio_lista_ml || '');
-    } else if (columna === 'precio_rebate') {
-      setEditandoRebate(producto.item_id);
-      setRebateTemp({
-        participa: producto.participa_rebate || false,
-        porcentaje: producto.porcentaje_rebate || 3.8
-      });
+    } else if (columna === 'precio_gremio') {
+      // Precio Gremio es solo lectura - no se edita directamente
+      // El markup se configura desde el tab de Admin/Markups
     } else if (columna === 'precio_web_transf') {
       setEditandoWebTransf(producto.item_id);
       setWebTransfTemp({
@@ -2975,8 +2972,8 @@ export default function Productos() {
 
                   {!vistaModoCuotas ? (
                     <>
-                      <th onClick={(e) => handleOrdenar('precio_rebate', e)}>
-                        Precio Rebate {getIconoOrden('precio_rebate')} {getNumeroOrden('precio_rebate') && <span>{getNumeroOrden('precio_rebate')}</span>}
+                      <th onClick={(e) => handleOrdenar('precio_gremio', e)}>
+                        Precio Gremio {getIconoOrden('precio_gremio')} {getNumeroOrden('precio_gremio') && <span>{getNumeroOrden('precio_gremio')}</span>}
                       </th>
                       <th onClick={(e) => handleOrdenar('mejor_oferta', e)}>
                         Mejor Oferta {getIconoOrden('mejor_oferta')} {getNumeroOrden('mejor_oferta') && <span>{getNumeroOrden('mejor_oferta')}</span>}
@@ -3106,98 +3103,28 @@ export default function Productos() {
                       )}
                     </td>
 
-                    {/* Vista Normal: Rebate, Oferta, Web Transf */}
+                    {/* Vista Normal: Gremio, Oferta, Web Transf */}
                     {!vistaModoCuotas ? (
                       <>
                     <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
-                      {editandoRebate === p.item_id ? (
-                        <div className="rebate-edit">
-                          <label className="rebate-checkbox">
-                            <input
-                              type="checkbox"
-                              checked={rebateTemp.participa}
-                              onChange={(e) => setRebateTemp({ ...rebateTemp, participa: e.target.checked })}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  guardarRebate(p.item_id);
-                                }
-                              }}
-                            />
-                            <span>Rebate</span>
-                          </label>
-                          {rebateTemp.participa && (
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={rebateTemp.porcentaje}
-                              onChange={(e) => setRebateTemp({ ...rebateTemp, porcentaje: e.target.value })}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  guardarRebate(p.item_id);
-                                }
-                              }}
-                              onFocus={(e) => e.target.select()}
-                              placeholder="%"
-                              autoFocus
-                            />
-                          )}
-                          <div className="inline-edit">
-                            <button onClick={() => guardarRebate(p.item_id)} onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                guardarRebate(p.item_id);
-                              }
-                            }}>✓</button>
-                            <button onClick={() => setEditandoRebate(null)} onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                setEditandoRebate(null);
-                              }
-                            }}>✗</button>
+                      {p.precio_gremio_sin_iva ? (
+                        <div className="gremio-info">
+                          <div className="gremio-price">
+                            ${p.precio_gremio_sin_iva.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </div>
+                          <div className="gremio-price-iva">
+                            ${p.precio_gremio_con_iva?.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <span className="iva-label"> c/IVA</span>
+                          </div>
+                          {p.markup_gremio !== null && p.markup_gremio !== undefined && (
+                            <div className="gremio-markup">
+                              Markup: {p.markup_gremio.toFixed(1)}%
+                            </div>
+                          )}
                         </div>
                       ) : (
-                        <div className="rebate-info" onClick={() => iniciarEdicionRebate(p)}>
-                          {p.participa_rebate && p.precio_rebate ? (
-                            <div>
-                              <div className="rebate-price">
-                                ${p.precio_rebate.toFixed(2).toLocaleString('es-AR')}
-                              </div>
-                              <div className="rebate-percentage">
-                                {p.porcentaje_rebate}% rebate
-                              </div>
-                              <label
-                                className="out-of-cards-checkbox"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={p.out_of_cards || false}
-                                  onChange={async (e) => {
-                                    e.stopPropagation();
-                                    try {
-                                      await axios.patch(
-                                        `${API_URL}/productos/${p.item_id}/out-of-cards`,
-                                        { out_of_cards: e.target.checked },
-                                        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-                                      );
-                                      await cargarProductos();
-                                    } catch (error) {
-                                      console.error('Error:', error);
-                                      alert(`Error: ${error.response?.data?.detail || error.message}`);
-                                    }
-                                  }}
-                                />
-                                Out of Cards
-                              </label>
-                            </div>
-                          ) : (
-                            <div className="text-muted editable-field">
-                              Sin rebate
-                            </div>
-                          )}
+                        <div className="text-muted">
+                          Sin markup
                         </div>
                       )}
                     </td>
