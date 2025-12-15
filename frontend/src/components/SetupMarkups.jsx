@@ -105,6 +105,16 @@ export default function SetupMarkups() {
     }
   };
 
+  const iniciarEdicionMarca = (brand) => {
+    setEditandoMarkupMarca({ comp_id: brand.comp_id, brand_id: brand.brand_id });
+    setMarkupTempMarca(brand.markup_porcentaje?.toString() || '');
+  };
+
+  const cancelarEdicionMarca = () => {
+    setEditandoMarkupMarca(null);
+    setMarkupTempMarca('');
+  };
+
   // ========== FUNCIONES PRODUCTOS ==========
   const buscarProductos = async () => {
     if (busquedaProducto.length < 2) return;
@@ -199,83 +209,109 @@ export default function SetupMarkups() {
 
   return (
     <div className={styles.container}>
-      {/* Stats compactas */}
-      {stats && (
-        <div className={styles.statsRow}>
-          <div className={styles.statItem}>
-            <span className={styles.statNumber}>{stats.total_marcas}</span>
-            <span className={styles.statLabel}>Marcas</span>
+      {/* Header con estadísticas */}
+      <div className={styles.header}>
+        {stats && (
+          <div className={styles.statsGrid}>
+            <div className={styles.statCard}>
+              <div className={styles.statIcon}>📊</div>
+              <div className={styles.statContent}>
+                <div className={styles.statLabel}>Total Marcas</div>
+                <div className={styles.statValue}>{stats.total_marcas}</div>
+              </div>
+            </div>
+            <div className={`${styles.statCard} ${styles.statSuccess}`}>
+              <div className={styles.statIcon}>✅</div>
+              <div className={styles.statContent}>
+                <div className={styles.statLabel}>Con Markup</div>
+                <div className={styles.statValue}>{stats.total_con_markup}</div>
+              </div>
+            </div>
+            <div className={`${styles.statCard} ${styles.statWarning}`}>
+              <div className={styles.statIcon}>❌</div>
+              <div className={styles.statContent}>
+                <div className={styles.statLabel}>Sin Markup</div>
+                <div className={styles.statValue}>{stats.total_sin_markup}</div>
+              </div>
+            </div>
+            <div className={`${styles.statCard} ${styles.statInfo}`}>
+              <div className={styles.statIcon}>📈</div>
+              <div className={styles.statContent}>
+                <div className={styles.statLabel}>Markup Promedio</div>
+                <div className={styles.statValue}>{stats.markup_promedio}%</div>
+              </div>
+            </div>
           </div>
-          <div className={styles.statDivider} />
-          <div className={styles.statItem}>
-            <span className={`${styles.statNumber} ${styles.green}`}>{stats.total_con_markup}</span>
-            <span className={styles.statLabel}>Con Markup</span>
-          </div>
-          <div className={styles.statDivider} />
-          <div className={styles.statItem}>
-            <span className={`${styles.statNumber} ${styles.red}`}>{stats.total_sin_markup}</span>
-            <span className={styles.statLabel}>Sin Markup</span>
-          </div>
-          <div className={styles.statDivider} />
-          <div className={styles.statItem}>
-            <span className={`${styles.statNumber} ${styles.blue}`}>{stats.markup_promedio}%</span>
-            <span className={styles.statLabel}>Promedio</span>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Sección Marcas */}
+      {/* ========== SECCIÓN MARCAS ========== */}
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>Markups por Marca</h3>
 
-        <div className={styles.filtersRow}>
+        {/* Filtros */}
+        <div className={styles.filters}>
           <div className={styles.searchBox}>
+            <span className={styles.searchIcon}>🔍</span>
             <input
               type="text"
               placeholder="Buscar marca..."
               value={busquedaMarca}
               onChange={(e) => setBusquedaMarca(e.target.value)}
+              className={styles.searchInput}
             />
             {busquedaMarca && (
-              <button onClick={() => setBusquedaMarca('')} className={styles.clearBtn}>✕</button>
+              <button onClick={() => setBusquedaMarca('')} className={styles.clearButton}>
+                ✕
+              </button>
             )}
           </div>
-          <label className={styles.checkboxLabel}>
+
+          <label className={styles.checkbox}>
             <input
               type="checkbox"
               checked={soloConMarkup}
               onChange={(e) => setSoloConMarkup(e.target.checked)}
             />
-            Solo con markup
+            <span>Solo con markup</span>
           </label>
         </div>
 
-        <div className={styles.tableWrapper}>
-          {loadingBrands ? (
-            <div className={styles.loading}>Cargando...</div>
-          ) : (
+        {/* Tabla de marcas */}
+        {loadingBrands ? (
+          <div className={styles.loading}>
+            <div className={styles.spinner}></div>
+            <p>Cargando marcas...</p>
+          </div>
+        ) : (
+          <div className={styles.tableContainer}>
             <table className={styles.table}>
               <thead>
                 <tr>
                   <th>Marca</th>
-                  <th style={{width: '120px'}}>Markup</th>
-                  <th style={{width: '80px'}}>Estado</th>
-                  <th style={{width: '100px'}}>Acciones</th>
+                  <th>Markup (%)</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {brands.length === 0 ? (
-                  <tr><td colSpan="4" className={styles.noData}>No se encontraron marcas</td></tr>
+                  <tr>
+                    <td colSpan="4" className={styles.emptyState}>
+                      <div className={styles.emptyIcon}>📦</div>
+                      <p>No se encontraron marcas</p>
+                    </td>
+                  </tr>
                 ) : (
                   brands.map((brand) => (
-                    <tr key={`${brand.comp_id}-${brand.brand_id}`}>
-                      <td>
+                    <tr key={`${brand.comp_id}-${brand.brand_id}`} className={styles.row}>
+                      <td className={styles.brandName}>
                         <strong>{brand.brand_desc}</strong>
-                        <span className={styles.subText}>ID: {brand.brand_id}</span>
+                        <span className={styles.brandId}>ID: {brand.brand_id}</span>
                       </td>
                       <td>
-                        {editandoMarkupMarca?.brand_id === brand.brand_id ? (
-                          <div className={styles.inputGroup}>
+                        {editandoMarkupMarca?.comp_id === brand.comp_id && editandoMarkupMarca?.brand_id === brand.brand_id ? (
+                          <div className={styles.editInput}>
                             <input
                               type="number"
                               step="0.1"
@@ -283,49 +319,71 @@ export default function SetupMarkups() {
                               onChange={(e) => setMarkupTempMarca(e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') guardarMarkupMarca(brand);
-                                if (e.key === 'Escape') setEditandoMarkupMarca(null);
+                                if (e.key === 'Escape') cancelarEdicionMarca();
                               }}
                               autoFocus
-                              placeholder="0"
+                              placeholder="0.0"
                             />
-                            <span>%</span>
+                            <span className={styles.percentSign}>%</span>
                           </div>
                         ) : (
-                          <span
-                            className={`${styles.markupValue} ${brand.markup_porcentaje ? styles.hasValue : styles.noValue}`}
-                            onClick={() => {
-                              setEditandoMarkupMarca(brand);
-                              setMarkupTempMarca(brand.markup_porcentaje?.toString() || '');
-                            }}
+                          <div
+                            className={`${styles.markupDisplay} ${brand.markup_porcentaje ? styles.hasMarkup : styles.noMarkup}`}
+                            onClick={() => iniciarEdicionMarca(brand)}
                           >
-                            {brand.markup_porcentaje ? `${brand.markup_porcentaje}%` : '—'}
-                          </span>
+                            {brand.markup_porcentaje ? (
+                              <>
+                                <span className={styles.markupValue}>{brand.markup_porcentaje}</span>
+                                <span className={styles.percentSign}>%</span>
+                              </>
+                            ) : (
+                              <span className={styles.addMarkup}>+ Agregar markup</span>
+                            )}
+                          </div>
                         )}
                       </td>
                       <td>
                         {brand.markup_id && (
-                          <span className={`${styles.badge} ${brand.markup_activo ? styles.active : styles.inactive}`}>
+                          <span className={`${styles.badge} ${brand.markup_activo ? styles.badgeActive : styles.badgeInactive}`}>
                             {brand.markup_activo ? 'Activo' : 'Inactivo'}
                           </span>
                         )}
                       </td>
                       <td>
-                        {editandoMarkupMarca?.brand_id === brand.brand_id ? (
-                          <div className={styles.actionBtns}>
-                            <button onClick={() => guardarMarkupMarca(brand)} className={styles.btnSave}>✓</button>
-                            <button onClick={() => setEditandoMarkupMarca(null)} className={styles.btnCancel}>✕</button>
+                        {editandoMarkupMarca?.comp_id === brand.comp_id && editandoMarkupMarca?.brand_id === brand.brand_id ? (
+                          <div className={styles.actions}>
+                            <button
+                              onClick={() => guardarMarkupMarca(brand)}
+                              className={`${styles.btn} ${styles.btnSave}`}
+                              title="Guardar (Enter)"
+                            >
+                              ✓
+                            </button>
+                            <button
+                              onClick={cancelarEdicionMarca}
+                              className={`${styles.btn} ${styles.btnCancel}`}
+                              title="Cancelar (Esc)"
+                            >
+                              ✕
+                            </button>
                           </div>
                         ) : (
-                          <div className={styles.actionBtns}>
+                          <div className={styles.actions}>
                             <button
-                              onClick={() => {
-                                setEditandoMarkupMarca(brand);
-                                setMarkupTempMarca(brand.markup_porcentaje?.toString() || '');
-                              }}
-                              className={styles.btnEdit}
-                            >✏️</button>
+                              onClick={() => iniciarEdicionMarca(brand)}
+                              className={`${styles.btn} ${styles.btnEdit}`}
+                              title="Editar markup"
+                            >
+                              ✏️
+                            </button>
                             {brand.markup_id && (
-                              <button onClick={() => eliminarMarkupMarca(brand)} className={styles.btnDelete}>🗑️</button>
+                              <button
+                                onClick={() => eliminarMarkupMarca(brand)}
+                                className={`${styles.btn} ${styles.btnDelete}`}
+                                title="Eliminar markup"
+                              >
+                                🗑️
+                              </button>
                             )}
                           </div>
                         )}
@@ -335,31 +393,38 @@ export default function SetupMarkups() {
                 )}
               </tbody>
             </table>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Sección Productos */}
+      {/* ========== SECCIÓN PRODUCTOS ========== */}
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>Markups por Producto Individual</h3>
 
         {/* Buscador de productos */}
         <div className={styles.productSearch}>
           <div className={styles.searchBox}>
+            <span className={styles.searchIcon}>🔍</span>
             <input
               type="text"
               placeholder="Buscar producto por código o descripción..."
               value={busquedaProducto}
               onChange={(e) => setBusquedaProducto(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && buscarProductos()}
+              className={styles.searchInput}
             />
+            {busquedaProducto && (
+              <button onClick={() => { setBusquedaProducto(''); setProductosEncontrados([]); }} className={styles.clearButton}>
+                ✕
+              </button>
+            )}
           </div>
           <button
             onClick={buscarProductos}
             disabled={busquedaProducto.length < 2 || buscandoProductos}
             className={styles.btnBuscar}
           >
-            {buscandoProductos ? '...' : 'Buscar'}
+            {buscandoProductos ? 'Buscando...' : 'Buscar'}
           </button>
         </div>
 
@@ -390,7 +455,7 @@ export default function SetupMarkups() {
               <span className={styles.productCode}>{editandoMarkupProducto.codigo}</span>
               <span className={styles.productName}>{editandoMarkupProducto.descripcion}</span>
             </div>
-            <div className={styles.inputGroup}>
+            <div className={styles.editInput}>
               <input
                 type="number"
                 step="0.1"
@@ -403,39 +468,46 @@ export default function SetupMarkups() {
                 autoFocus
                 placeholder="Markup %"
               />
-              <span>%</span>
+              <span className={styles.percentSign}>%</span>
             </div>
-            <button onClick={() => guardarMarkupProducto(editandoMarkupProducto)} className={styles.btnSave}>Guardar</button>
-            <button onClick={() => setEditandoMarkupProducto(null)} className={styles.btnCancel}>Cancelar</button>
+            <button onClick={() => guardarMarkupProducto(editandoMarkupProducto)} className={`${styles.btn} ${styles.btnSave}`}>
+              Guardar
+            </button>
+            <button onClick={() => setEditandoMarkupProducto(null)} className={`${styles.btn} ${styles.btnCancel}`}>
+              Cancelar
+            </button>
           </div>
         )}
 
         {/* Lista de productos con markup */}
-        <div className={styles.tableWrapper}>
-          {loadingProductos ? (
-            <div className={styles.loading}>Cargando...</div>
-          ) : productosConMarkup.length === 0 ? (
-            <div className={styles.noData}>No hay productos con markup individual</div>
-          ) : (
+        {loadingProductos ? (
+          <div className={styles.loading}>
+            <div className={styles.spinner}></div>
+            <p>Cargando productos...</p>
+          </div>
+        ) : productosConMarkup.length === 0 ? (
+          <div className={styles.noData}>No hay productos con markup individual</div>
+        ) : (
+          <div className={styles.tableContainer}>
             <table className={styles.table}>
               <thead>
                 <tr>
                   <th>Código</th>
                   <th>Descripción</th>
                   <th>Marca</th>
-                  <th style={{width: '100px'}}>Markup</th>
-                  <th style={{width: '80px'}}>Acciones</th>
+                  <th>Markup</th>
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {productosConMarkup.map((producto) => (
-                  <tr key={producto.item_id}>
+                  <tr key={producto.item_id} className={styles.row}>
                     <td><strong>{producto.codigo}</strong></td>
                     <td className={styles.descripcionCell}>{producto.descripcion}</td>
                     <td>{producto.marca}</td>
                     <td>
                       {editandoMarkupProducto?.item_id === producto.item_id ? (
-                        <div className={styles.inputGroup}>
+                        <div className={styles.editInput}>
                           <input
                             type="number"
                             step="0.1"
@@ -447,36 +519,37 @@ export default function SetupMarkups() {
                             }}
                             autoFocus
                           />
-                          <span>%</span>
+                          <span className={styles.percentSign}>%</span>
                         </div>
                       ) : (
-                        <span
-                          className={`${styles.markupValue} ${styles.hasValue}`}
+                        <div
+                          className={`${styles.markupDisplay} ${styles.hasMarkup}`}
                           onClick={() => {
                             setEditandoMarkupProducto(producto);
                             setMarkupTempProducto(producto.markup_porcentaje?.toString() || '');
                           }}
                         >
-                          {producto.markup_porcentaje}%
-                        </span>
+                          <span className={styles.markupValue}>{producto.markup_porcentaje}</span>
+                          <span className={styles.percentSign}>%</span>
+                        </div>
                       )}
                     </td>
                     <td>
                       {editandoMarkupProducto?.item_id === producto.item_id ? (
-                        <div className={styles.actionBtns}>
-                          <button onClick={() => guardarMarkupProducto(producto)} className={styles.btnSave}>✓</button>
-                          <button onClick={() => setEditandoMarkupProducto(null)} className={styles.btnCancel}>✕</button>
+                        <div className={styles.actions}>
+                          <button onClick={() => guardarMarkupProducto(producto)} className={`${styles.btn} ${styles.btnSave}`}>✓</button>
+                          <button onClick={() => setEditandoMarkupProducto(null)} className={`${styles.btn} ${styles.btnCancel}`}>✕</button>
                         </div>
                       ) : (
-                        <div className={styles.actionBtns}>
+                        <div className={styles.actions}>
                           <button
                             onClick={() => {
                               setEditandoMarkupProducto(producto);
                               setMarkupTempProducto(producto.markup_porcentaje?.toString() || '');
                             }}
-                            className={styles.btnEdit}
+                            className={`${styles.btn} ${styles.btnEdit}`}
                           >✏️</button>
-                          <button onClick={() => eliminarMarkupProducto(producto)} className={styles.btnDelete}>🗑️</button>
+                          <button onClick={() => eliminarMarkupProducto(producto)} className={`${styles.btn} ${styles.btnDelete}`}>🗑️</button>
                         </div>
                       )}
                     </td>
@@ -484,13 +557,13 @@ export default function SetupMarkups() {
                 ))}
               </tbody>
             </table>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Toast */}
       {toast && (
-        <div className={`${styles.toast} ${toast.tipo === 'success' ? styles.toastSuccess : styles.toastError}`}>
+        <div className={`${styles.toast} ${styles[`toast${toast.tipo === 'success' ? 'Success' : 'Error'}`]}`}>
           {toast.tipo === 'success' ? '✓' : '✕'} {toast.mensaje}
         </div>
       )}
