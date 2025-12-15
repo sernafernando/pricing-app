@@ -288,10 +288,10 @@ export default function SetupMarkups() {
             <table className={styles.table}>
               <thead>
                 <tr>
-                  <th style={{width: '40%'}}>Marca</th>
-                  <th style={{width: '25%'}}>Markup (%)</th>
-                  <th style={{width: '15%'}}>Estado</th>
-                  <th style={{width: '20%'}}>Acciones</th>
+                  <th>Marca</th>
+                  <th style={{width: '150px'}}>Markup (%)</th>
+                  <th style={{width: '100px'}}>Estado</th>
+                  <th style={{width: '120px'}}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
