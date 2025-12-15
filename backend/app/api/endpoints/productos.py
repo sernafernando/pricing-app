@@ -5282,6 +5282,10 @@ async def exportar_lista_gremio(
         markups_producto = db.query(MarkupTiendaProducto).filter(MarkupTiendaProducto.activo == True).all()
         markups_producto_dict = {m.item_id: m.markup_porcentaje for m in markups_producto}
 
+        # Cargar nombres de subcategorías
+        subcats_result = db.execute(text("SELECT subcat_id, subcat_desc FROM tb_subcategory"))
+        subcats_dict = {row.subcat_id: row.subcat_desc for row in subcats_result}
+
         # Query base
         query = db.query(ProductoERP, ProductoPricing).outerjoin(
             ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
@@ -5370,7 +5374,7 @@ async def exportar_lista_gremio(
 
             ws.cell(row=row_num, column=1, value=producto_erp.marca or "")
             ws.cell(row=row_num, column=2, value=producto_erp.categoria or "")
-            ws.cell(row=row_num, column=3, value=producto_erp.subcategoria or "")
+            ws.cell(row=row_num, column=3, value=subcats_dict.get(producto_erp.subcategoria_id, "") or "")
             ws.cell(row=row_num, column=4, value=producto_erp.codigo or "")
             ws.cell(row=row_num, column=5, value=producto_erp.descripcion or "")
             ws.cell(row=row_num, column=6, value=round(precio_gremio_sin_iva, 2) if precio_gremio_sin_iva else None)
