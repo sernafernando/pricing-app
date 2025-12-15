@@ -215,14 +215,10 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
-  table-layout: fixed;
 }
 
 .table thead {
   background: var(--bg-tertiary);
-  position: sticky;
-  top: 0;
-  z-index: 1;
 }
 
 .table th {
