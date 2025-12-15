@@ -5272,7 +5272,7 @@ async def exportar_lista_gremio(
     try:
         # Obtener constantes y tipo de cambio
         constantes = obtener_constantes_pricing(db)
-        varios_porcentaje = constantes.get('varios', {}).get('porcentaje', 6.5)
+        varios_porcentaje = constantes.get('varios', 7)
         tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
 
         # Cargar markups de tienda
