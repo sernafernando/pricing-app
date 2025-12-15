@@ -58,14 +58,20 @@ export const PermisosProvider = ({ children }) => {
             // SUPERADMIN siempre tiene acceso
             if (payload.rol === 'SUPERADMIN') {
               setPermisos(new Set(['*'])); // Wildcard para indicar todos los permisos
+            } else {
+              // Para otros roles, dejar permisos vacíos si la API falló
+              setPermisos(new Set());
             }
+          } else {
+            setPermisos(new Set());
           }
         } catch (tokenErr) {
           console.error('Error decodificando token:', tokenErr);
+          setPermisos(new Set());
         }
+      } else {
+        setPermisos(new Set());
       }
-
-      setPermisos(new Set());
     } finally {
       setLoading(false);
     }
