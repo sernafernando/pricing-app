@@ -1710,8 +1710,10 @@ export default function Productos() {
           return;
         }
 
-        // Números 1-7: Selección rápida de colores (solo si NO estamos editando nada)
-        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[0-7]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        // Números 1-7: Selección rápida de colores (solo si NO estamos editando nada y no estamos en un input)
+        const activeElement = document.activeElement;
+        const isInputFocused = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA');
+        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[0-7]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && !isInputFocused) {
           e.preventDefault();
           e.stopPropagation();
           if (puedeEditar && productos[rowIndex]) {
