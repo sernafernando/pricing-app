@@ -289,9 +289,9 @@ export default function SetupMarkups() {
               <thead>
                 <tr>
                   <th>Marca</th>
-                  <th style={{width: '150px'}}>Markup (%)</th>
-                  <th style={{width: '100px'}}>Estado</th>
-                  <th style={{width: '120px'}}>Acciones</th>
+                  <th style={{width: '180px'}}>Markup (%)</th>
+                  <th style={{width: '80px'}}>Estado</th>
+                  <th style={{width: '100px'}}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
