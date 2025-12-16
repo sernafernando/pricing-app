@@ -573,13 +573,23 @@ export default function Productos() {
     cargarSubcategorias();
   }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
 
-  // Copiar enlaces al clipboard con Ctrl+F1, Ctrl+F2 y Ctrl+F3
+  // Copiar enlaces al clipboard con Ctrl+F1/F2/F3 o Ctrl+Shift+1/2/3 (alternativa para Linux)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Solo capturar F1, F2 o F3 con Ctrl
-      if ((e.key === 'F1' || e.key === 'F2' || e.key === 'F3') && e.ctrlKey) {
+      // Detectar qué acción ejecutar (1=código, 2=enlace1, 3=enlace2)
+      let accion = null;
+
+      // Ctrl+F1/F2/F3
+      if (e.ctrlKey && !e.shiftKey && (e.key === 'F1' || e.key === 'F2' || e.key === 'F3')) {
+        accion = e.key === 'F1' ? 1 : e.key === 'F2' ? 2 : 3;
+      }
+      // Ctrl+Shift+1/2/3 (alternativa para sistemas que capturan F1/F2)
+      if (e.ctrlKey && e.shiftKey && (e.key === '!' || e.key === '@' || e.key === '#' || e.key === '1' || e.key === '2' || e.key === '3')) {
+        accion = (e.key === '1' || e.key === '!') ? 1 : (e.key === '2' || e.key === '@') ? 2 : 3;
+      }
+
+      if (accion) {
         // Prevenir comportamiento por defecto del navegador INMEDIATAMENTE
-        // (F1 abre ayuda del navegador, F2 puede tener otros comportamientos)
         e.preventDefault();
         e.stopPropagation();
 
@@ -623,8 +633,8 @@ export default function Productos() {
 
         const itemCode = producto.codigo;
 
-        // Ctrl+F1: copiar solo el código
-        if (e.key === 'F1') {
+        // Acción 1: copiar solo el código
+        if (accion === 1) {
           navigator.clipboard.writeText(itemCode).then(() => {
             showToast(`✅ Código copiado: ${itemCode}`);
           }).catch(err => {
@@ -633,8 +643,8 @@ export default function Productos() {
           });
         }
 
-        // Ctrl+F2: primer enlace
-        if (e.key === 'F2') {
+        // Acción 2: primer enlace
+        if (accion === 2) {
           const url = `https://listado.mercadolibre.com.ar/${itemCode}_OrderId_PRICE_NoIndex_True`;
           navigator.clipboard.writeText(url).then(() => {
             showToast(`✅ Enlace 1 copiado: ${itemCode}`);
@@ -644,8 +654,8 @@ export default function Productos() {
           });
         }
 
-        // Ctrl+F3: segundo enlace
-        if (e.key === 'F3') {
+        // Acción 3: segundo enlace
+        if (accion === 3) {
           const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?filters=official_store-57997&page=1&search=${itemCode}&sort=lowest_price`;
           navigator.clipboard.writeText(url).then(() => {
             showToast(`✅ Enlace 2 copiado: ${itemCode}`);
@@ -3960,15 +3970,15 @@ export default function Productos() {
                   <span>Toggle Out of Cards</span>
                 </div>
                 <div className="shortcut-item">
-                  <kbd>Ctrl</kbd>+<kbd>F1</kbd>
+                  <kbd>Ctrl</kbd>+<kbd>F1</kbd> o <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>1</kbd>
                   <span>Copiar código del producto</span>
                 </div>
                 <div className="shortcut-item">
-                  <kbd>Ctrl</kbd>+<kbd>F2</kbd>
+                  <kbd>Ctrl</kbd>+<kbd>F2</kbd> o <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>2</kbd>
                   <span>Copiar primer enlace ML</span>
                 </div>
                 <div className="shortcut-item">
-                  <kbd>Ctrl</kbd>+<kbd>F3</kbd>
+                  <kbd>Ctrl</kbd>+<kbd>F3</kbd> o <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>3</kbd>
                   <span>Copiar segundo enlace ML</span>
                 </div>
               </div>
