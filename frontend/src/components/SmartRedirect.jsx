@@ -6,9 +6,10 @@ import { usePermisos } from '../contexts/PermisosContext';
  * Evita loops infinitos cuando el usuario no tiene acceso a /productos
  */
 export default function SmartRedirect() {
-  const { tienePermiso, tieneAlgunPermiso, loading } = usePermisos();
+  const { tienePermiso, tieneAlgunPermiso, loading, initialized } = usePermisos();
 
-  if (loading) {
+  // Esperar hasta que los permisos estén completamente cargados
+  if (loading || !initialized) {
     return (
       <div style={{
         display: 'flex',
@@ -17,7 +18,7 @@ export default function SmartRedirect() {
         height: '100vh',
         color: 'var(--text-color, #fff)'
       }}>
-        <div>Cargando...</div>
+        <div>Cargando permisos...</div>
       </div>
     );
   }

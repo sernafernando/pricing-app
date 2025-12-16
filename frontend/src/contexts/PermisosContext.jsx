@@ -18,6 +18,7 @@ export const PermisosProvider = ({ children }) => {
   const [rol, setRol] = useState(null);
   const [usuarioId, setUsuarioId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState(null);
 
   const cargarPermisos = useCallback(async () => {
@@ -40,6 +41,7 @@ export const PermisosProvider = ({ children }) => {
       setRol(res.data.rol);
       setUsuarioId(res.data.usuario_id);
       setError(null);
+      setInitialized(true);
     } catch (err) {
       console.error('Error cargando permisos:', err);
       setError(err.message);
@@ -74,6 +76,7 @@ export const PermisosProvider = ({ children }) => {
       }
     } finally {
       setLoading(false);
+      setInitialized(true);
     }
   }, []);
 
@@ -120,6 +123,7 @@ export const PermisosProvider = ({ children }) => {
     tieneAlgunPermiso,
     tieneTodosPermisos,
     loading,
+    initialized,
     error,
     recargar: cargarPermisos
   };

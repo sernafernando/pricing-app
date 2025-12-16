@@ -22,7 +22,7 @@ export default function ProtectedRoute({
 }) {
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
-  const { tienePermiso, tieneAlgunPermiso, tieneTodosPermisos, loading, rol } = usePermisos();
+  const { tienePermiso, tieneAlgunPermiso, tieneTodosPermisos, loading, initialized, rol } = usePermisos();
 
   // Si no hay token, redirigir a login
   if (!token) {
@@ -30,7 +30,7 @@ export default function ProtectedRoute({
   }
 
   // Mientras carga permisos, mostrar loader
-  if (loading) {
+  if (loading || !initialized) {
     return (
       <div style={{
         display: 'flex',
