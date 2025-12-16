@@ -221,6 +221,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
 
               {/* COSTOS */}
               {puedeVerInfoPricing && (
+              <>
               <section className="info-section">
                 <h3>💰 Costos</h3>
                 <div className="info-grid">
@@ -433,6 +434,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                   </div>
                 </section>
               )}
+              </>
               )}
                 </>
               )}
