@@ -728,13 +728,8 @@ const ItemsSinMLA = () => {
                       <tr
                         key={item.item_id}
                         className={itemsSeleccionados.has(item.item_id) ? 'fila-seleccionada' : ''}
-                        onClick={(e) => {
-                          if (e.target.type !== 'checkbox' && e.target.tagName !== 'BUTTON') {
-                            handleSeleccionarItem(item.item_id, e);
-                          }
-                        }}
                       >
-                        <td className="checkbox-col" onClick={(e) => e.stopPropagation()}>
+                        <td className="checkbox-col">
                           <input
                             type="checkbox"
                             checked={itemsSeleccionados.has(item.item_id)}
@@ -945,13 +940,8 @@ const ItemsSinMLA = () => {
                       <tr
                         key={item.id}
                         className={baneadosSeleccionados.has(item.id) ? 'fila-seleccionada' : ''}
-                        onClick={(e) => {
-                          if (e.target.type !== 'checkbox' && e.target.tagName !== 'BUTTON') {
-                            handleSeleccionarBaneado(item.id, e);
-                          }
-                        }}
                       >
-                        <td className="checkbox-col" onClick={(e) => e.stopPropagation()}>
+                        <td className="checkbox-col">
                           <input
                             type="checkbox"
                             checked={baneadosSeleccionados.has(item.id)}
