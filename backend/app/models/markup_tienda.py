@@ -76,3 +76,25 @@ class MarkupTiendaProducto(Base):
 
     def __repr__(self):
         return f"<MarkupTiendaProducto(item_id={self.item_id}, codigo='{self.codigo}', markup={self.markup_porcentaje}%)>"
+
+
+class TiendaConfig(Base):
+    """
+    Configuración global para la tienda.
+    Almacena settings como markup_web_tarjeta.
+    """
+    __tablename__ = "tienda_config"
+
+    id = Column(Integer, primary_key=True, index=True)
+    clave = Column(String(100), nullable=False, unique=True, index=True)
+    valor = Column(Float, nullable=False, default=0)
+    descripcion = Column(String(255), nullable=True)
+
+    # Auditoría
+    updated_by_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    updated_by = relationship("Usuario", foreign_keys=[updated_by_id])
+
+    def __repr__(self):
+        return f"<TiendaConfig(clave='{self.clave}', valor={self.valor})>"

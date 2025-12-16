@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
-from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
+from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto, TiendaConfig
 from app.services.permisos_service import verificar_permiso
 
 router = APIRouter(prefix="/markups-tienda", tags=["markups-tienda"])
@@ -407,3 +407,78 @@ async def eliminar_markup_producto(
     db.commit()
 
     return {"success": True, "message": "Markup eliminado correctamente"}
+
+
+# =============================================================================
+# ENDPOINTS CONFIGURACIÓN TIENDA
+# =============================================================================
+
+class ConfigUpdate(BaseModel):
+    valor: float
+
+
+@router.get("/config")
+async def obtener_config_tienda(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Obtiene toda la configuración de tienda.
+    """
+    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para gestionar markups de tienda"
+        )
+
+    configs = db.query(TiendaConfig).all()
+    return {c.clave: c.valor for c in configs}
+
+
+@router.get("/config/{clave}")
+async def obtener_config_valor(
+    clave: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Obtiene un valor de configuración específico.
+    """
+    config = db.query(TiendaConfig).filter(TiendaConfig.clave == clave).first()
+    if not config:
+        return {"clave": clave, "valor": 0}
+    return {"clave": config.clave, "valor": config.valor}
+
+
+@router.put("/config/{clave}")
+async def actualizar_config_valor(
+    clave: str,
+    data: ConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Actualiza o crea un valor de configuración.
+    """
+    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para gestionar markups de tienda"
+        )
+
+    config = db.query(TiendaConfig).filter(TiendaConfig.clave == clave).first()
+    if config:
+        config.valor = data.valor
+        config.updated_by_id = current_user.id
+    else:
+        config = TiendaConfig(
+            clave=clave,
+            valor=data.valor,
+            updated_by_id=current_user.id
+        )
+        db.add(config)
+
+    db.commit()
+    db.refresh(config)
+
+    return {"success": True, "clave": config.clave, "valor": config.valor}

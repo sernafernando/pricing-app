@@ -35,6 +35,41 @@ export default function SetupMarkups() {
 
   const [toast, setToast] = useState(null);
 
+  // Estados para configuración global
+  const [markupWebTarjeta, setMarkupWebTarjeta] = useState('');
+  const [editandoWebTarjeta, setEditandoWebTarjeta] = useState(false);
+  const [guardandoWebTarjeta, setGuardandoWebTarjeta] = useState(false);
+
+  // ========== FUNCIONES CONFIGURACIÓN ==========
+  const cargarConfig = async () => {
+    try {
+      const response = await api.get('/api/markups-tienda/config/markup_web_tarjeta');
+      setMarkupWebTarjeta(response.data.valor?.toString() || '0');
+    } catch (error) {
+      console.error('Error cargando config:', error);
+    }
+  };
+
+  const guardarWebTarjeta = async () => {
+    const valor = parseFloat(markupWebTarjeta.replace(',', '.'));
+    if (isNaN(valor)) {
+      mostrarToast('Ingresá un valor válido', 'error');
+      return;
+    }
+
+    setGuardandoWebTarjeta(true);
+    try {
+      await api.put('/api/markups-tienda/config/markup_web_tarjeta', { valor });
+      mostrarToast('Configuración guardada', 'success');
+      setEditandoWebTarjeta(false);
+    } catch (error) {
+      console.error('Error guardando config:', error);
+      mostrarToast('Error al guardar', 'error');
+    } finally {
+      setGuardandoWebTarjeta(false);
+    }
+  };
+
   // ========== FUNCIONES MARCAS ==========
   const cargarBrands = async () => {
     setLoadingBrands(true);
@@ -201,6 +236,7 @@ export default function SetupMarkups() {
     cargarBrands();
     cargarStats();
     cargarProductosConMarkup();
+    cargarConfig();
   }, []);
 
   useEffect(() => {
@@ -243,6 +279,64 @@ export default function SetupMarkups() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ========== SECCIÓN CONFIGURACIÓN GLOBAL ========== */}
+      <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Configuración Global</h3>
+        <div className={styles.configRow}>
+          <div className={styles.configLabel}>
+            <span className={styles.configIcon}>💳</span>
+            <div>
+              <strong>Web Tarjeta %</strong>
+              <small>Porcentaje adicional sobre Web Transf</small>
+            </div>
+          </div>
+          <div className={styles.configValue}>
+            {editandoWebTarjeta ? (
+              <div className={styles.editInput}>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={markupWebTarjeta}
+                  onChange={(e) => setMarkupWebTarjeta(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') guardarWebTarjeta();
+                    if (e.key === 'Escape') {
+                      setEditandoWebTarjeta(false);
+                      cargarConfig();
+                    }
+                  }}
+                  autoFocus
+                  placeholder="0"
+                />
+                <span className={styles.percentSign}>%</span>
+                <button
+                  onClick={guardarWebTarjeta}
+                  disabled={guardandoWebTarjeta}
+                  className={`${styles.btn} ${styles.btnSave}`}
+                >
+                  {guardandoWebTarjeta ? '...' : '✓'}
+                </button>
+                <button
+                  onClick={() => { setEditandoWebTarjeta(false); cargarConfig(); }}
+                  className={`${styles.btn} ${styles.btnCancel}`}
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <div
+                className={`${styles.markupDisplay} ${styles.hasMarkup}`}
+                onClick={() => setEditandoWebTarjeta(true)}
+              >
+                <span className={styles.markupValue}>{markupWebTarjeta || '0'}</span>
+                <span className={styles.percentSign}>%</span>
+                <button className={`${styles.btn} ${styles.btnEdit}`}>✏️</button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* ========== SECCIÓN MARCAS ========== */}

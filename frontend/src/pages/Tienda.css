@@ -967,6 +967,24 @@
   font-weight: 600;
 }
 
+/* Web Tarjeta */
+.web-tarjeta-info {
+  font-size: 12px;
+  padding: 4px;
+}
+
+.web-tarjeta-precio {
+  font-size: 14px;
+  font-weight: 600;
+  color: #7c3aed;
+}
+
+.web-tarjeta-markup {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
 /* Precio Gremio */
 .gremio-info {
   padding: 4px;
@@ -1859,7 +1877,10 @@
 .row-colored .gremio-info,
 .row-colored .gremio-price,
 .row-colored .gremio-price-iva,
-.row-colored .gremio-markup {
+.row-colored .gremio-markup,
+.row-colored .web-tarjeta-info,
+.row-colored .web-tarjeta-precio,
+.row-colored .web-tarjeta-markup {
   color: inherit !important;
   opacity: 0.75;
 }

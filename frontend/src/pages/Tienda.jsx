@@ -119,11 +119,14 @@ export default function Productos() {
   const [palabraObjetivo, setPalabraObjetivo] = useState('');
   const [motivoBan, setMotivoBan] = useState('');
 
+  // Estado para Web Tarjeta (porcentaje adicional sobre Web Transf)
+  const [markupWebTarjeta, setMarkupWebTarjeta] = useState(0);
+
   const user = useAuthStore((state) => state.user);
   const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
 
   // Columnas navegables según la vista activa
-  const columnasNavegablesNormal = ['precio_clasica', 'precio_gremio', 'mejor_oferta', 'precio_web_transf'];
+  const columnasNavegablesNormal = ['precio_clasica', 'precio_gremio', 'precio_web_transf', 'web_tarjeta'];
   const columnasNavegablesCuotas = ['precio_clasica', 'cuotas_3', 'cuotas_6', 'cuotas_9', 'cuotas_12'];
   const columnasEditables = vistaModoCuotas ? columnasNavegablesCuotas : columnasNavegablesNormal;
 
@@ -541,10 +544,23 @@ export default function Productos() {
     }
   };
 
+  // Cargar configuración de Web Tarjeta
+  const cargarConfigWebTarjeta = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/markups-tienda/config/markup_web_tarjeta`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      setMarkupWebTarjeta(response.data.valor || 0);
+    } catch (error) {
+      console.error('Error cargando config web tarjeta:', error);
+    }
+  };
+
   useEffect(() => {
     cargarUsuariosAuditoria();
     cargarTiposAccion();
     cargarPMs();
+    cargarConfigWebTarjeta();
   }, []);
 
   // Recargar marcas cuando cambien filtros (excepto marcasSeleccionadas)
@@ -2975,11 +2991,11 @@ export default function Productos() {
                       <th onClick={(e) => handleOrdenar('precio_gremio', e)}>
                         Precio Gremio {getIconoOrden('precio_gremio')} {getNumeroOrden('precio_gremio') && <span>{getNumeroOrden('precio_gremio')}</span>}
                       </th>
-                      <th onClick={(e) => handleOrdenar('mejor_oferta', e)}>
-                        Mejor Oferta {getIconoOrden('mejor_oferta')} {getNumeroOrden('mejor_oferta') && <span>{getNumeroOrden('mejor_oferta')}</span>}
-                      </th>
                       <th onClick={(e) => handleOrdenar('web_transf', e)}>
                         Web Transf. {getIconoOrden('web_transf')} {getNumeroOrden('web_transf') && <span>{getNumeroOrden('web_transf')}</span>}
+                      </th>
+                      <th onClick={(e) => handleOrdenar('web_tarjeta', e)}>
+                        Web Tarjeta {getIconoOrden('web_tarjeta')} {getNumeroOrden('web_tarjeta') && <span>{getNumeroOrden('web_tarjeta')}</span>}
                       </th>
                     </>
                   ) : (
@@ -3099,42 +3115,6 @@ export default function Productos() {
                       )}
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 2 ? 'keyboard-cell-active' : ''}>
-                      {p.mejor_oferta_precio ? (
-                        <div className="mejor-oferta-info">
-                          <div className="mejor-oferta-precio">
-                            ${p.mejor_oferta_precio.toLocaleString('es-AR')}
-                          </div>
-                          {p.mejor_oferta_porcentaje_rebate && (
-                            <div className="mejor-oferta-rebate">
-                              {p.mejor_oferta_porcentaje_rebate.toFixed(2)}%
-                            </div>
-                          )}
-                          {p.mejor_oferta_monto_rebate && (
-                            <div className="mejor-oferta-rebate">
-                              Rebate: ${p.mejor_oferta_monto_rebate.toLocaleString('es-AR')}
-                            </div>
-                          )}
-                          {p.mejor_oferta_fecha_hasta && (
-                            <div className="mejor-oferta-detalle">
-                              Hasta {new Date(p.mejor_oferta_fecha_hasta).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
-                            </div>
-                          )}
-                          {p.mejor_oferta_pvp_seller && (
-                            <div className="mejor-oferta-detalle">
-                              PVP: ${p.mejor_oferta_pvp_seller.toLocaleString('es-AR')}
-                            </div>
-                          )}
-                          {p.mejor_oferta_markup !== null && (
-                            <div className="mejor-oferta-detalle" style={{ color: getMarkupColor(p.mejor_oferta_markup * 100) }}>
-                              Markup: {(p.mejor_oferta_markup * 100).toFixed(2)}%
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-muted">-</span>
-                      )}
-                    </td>
-                    <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
                       <div>
                         {/* Mostrar precios de Tienda Nube si existen */}
                         {(p.tn_price || p.tn_promotional_price) && (
@@ -3251,6 +3231,29 @@ export default function Productos() {
                         </div>
                         )}
                       </div>
+                    </td>
+                    <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
+                      {p.precio_web_transferencia && markupWebTarjeta > 0 ? (
+                        <div className="web-tarjeta-info">
+                          <div className="web-tarjeta-precio">
+                            ${(p.precio_web_transferencia * (1 + markupWebTarjeta / 100)).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                          </div>
+                          <div className="web-tarjeta-markup">
+                            +{markupWebTarjeta}%
+                          </div>
+                        </div>
+                      ) : p.precio_web_transferencia ? (
+                        <div className="web-tarjeta-info">
+                          <div className="web-tarjeta-precio">
+                            ${p.precio_web_transferencia.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                          </div>
+                          <div className="web-tarjeta-markup text-muted">
+                            Sin markup
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-muted">-</span>
+                      )}
                     </td>
                     </>
                     ) : (
