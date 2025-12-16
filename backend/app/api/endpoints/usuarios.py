@@ -6,6 +6,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.models.usuario import RolUsuario
+from app.models.rol import Rol
 from passlib.context import CryptContext
 
 router = APIRouter()
@@ -61,13 +62,19 @@ async def crear_usuario(
     existe = db.query(Usuario).filter(Usuario.email == usuario.email).first()
     if existe:
         raise HTTPException(400, "El email ya está registrado")
-    
+
+    # Buscar el rol por código para obtener rol_id
+    rol_obj = db.query(Rol).filter(Rol.codigo == usuario.rol.upper()).first()
+    if not rol_obj:
+        raise HTTPException(400, f"Rol '{usuario.rol}' no existe")
+
     # Crear usuario
     nuevo_usuario = Usuario(
         email=usuario.email,
         nombre=usuario.nombre,
         password_hash=pwd_context.hash(usuario.password),
         rol=usuario.rol,
+        rol_id=rol_obj.id,
         auth_provider="local",
         activo=True
     )
@@ -107,11 +114,16 @@ async def actualizar_usuario(
     
     if datos.activo is not None:
         usuario.activo = datos.activo
-    
-    if datos.rol is not None:
-        usuario.rol = datos.rol
 
-    if datos.nombre is not None:  # ← AGREGAR ESTAS 2 LÍNEAS
+    if datos.rol is not None:
+        # Buscar el rol por código para obtener rol_id
+        rol_obj = db.query(Rol).filter(Rol.codigo == datos.rol.upper()).first()
+        if not rol_obj:
+            raise HTTPException(400, f"Rol '{datos.rol}' no existe")
+        usuario.rol = datos.rol
+        usuario.rol_id = rol_obj.id
+
+    if datos.nombre is not None:
         usuario.nombre = datos.nombre
     
     db.commit()

@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.core.config import settings
 from app.models.usuario import Usuario, RolUsuario, AuthProvider
+from app.models.rol import Rol
 from app.api.deps import get_current_user
 
 router = APIRouter()
@@ -82,12 +83,21 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
             detail="Email ya registrado"
         )
     
+    # Buscar el rol VENTAS por defecto para nuevos registros
+    rol_default = db.query(Rol).filter(Rol.codigo == "VENTAS").first()
+    if not rol_default:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error de configuración: rol VENTAS no existe"
+        )
+
     # Crear usuario
     nuevo_usuario = Usuario(
         email=request.email,
         nombre=request.nombre,
         password_hash=get_password_hash(request.password),
-        rol=RolUsuario.ANALISTA,  # Por defecto analista
+        rol=RolUsuario.VENTAS,  # Por defecto ventas
+        rol_id=rol_default.id,
         auth_provider=AuthProvider.LOCAL,
         activo=True
     )
