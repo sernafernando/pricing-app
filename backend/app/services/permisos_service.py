@@ -255,7 +255,8 @@ class PermisosService:
             if categoria not in resultado:
                 resultado[categoria] = []
 
-            tiene_por_rol = p.codigo in permisos_rol
+            # SUPERADMIN tiene todos los permisos por rol por definición
+            tiene_por_rol = True if es_superadmin else p.codigo in permisos_rol
             override = overrides.get(p.codigo)
 
             # Calcular estado efectivo
