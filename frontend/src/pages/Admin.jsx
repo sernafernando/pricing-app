@@ -4,6 +4,7 @@ import styles from './Admin.module.css';
 import PanelComisiones from '../components/PanelComisiones';
 import PanelConstantesPricing from '../components/PanelConstantesPricing';
 import PanelPermisos from '../components/PanelPermisos';
+import PanelRoles from '../components/PanelRoles';
 
 export default function Admin() {
   const [tabActiva, setTabActiva] = useState('general');
@@ -300,6 +301,12 @@ export default function Admin() {
           onClick={() => setTabActiva('permisos')}
         >
           Permisos
+        </button>
+        <button
+          className={`${styles.tab} ${tabActiva === 'roles' ? styles.tabActive : ''}`}
+          onClick={() => setTabActiva('roles')}
+        >
+          Roles
         </button>
       </div>
 
@@ -672,6 +679,10 @@ export default function Admin() {
 
       {tabActiva === 'permisos' && (
         <PanelPermisos />
+      )}
+
+      {tabActiva === 'roles' && (
+        <PanelRoles />
       )}
 
       {/* Modal de confirmación de limpieza */}

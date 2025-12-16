@@ -29,6 +29,7 @@ from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
 from app.models.markup_tienda import MarkupTiendaBrand
+from app.models.rol import Rol
 
 __all__ = [
     "ProductoERP",
@@ -67,5 +68,6 @@ __all__ = [
     "OffsetGrupoResumen",
     "OffsetIndividualConsumo",
     "OffsetIndividualResumen",
-    "MarkupTiendaBrand"
+    "MarkupTiendaBrand",
+    "Rol"
 ]

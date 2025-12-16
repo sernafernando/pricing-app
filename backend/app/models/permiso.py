@@ -55,17 +55,21 @@ class RolPermisoBase(Base):
     __tablename__ = "roles_permisos_base"
 
     id = Column(Integer, primary_key=True, index=True)
-    rol = Column(String(50), nullable=False, index=True)  # SUPERADMIN, ADMIN, GERENTE, PRICING, VENTAS
+
+    # Nuevo: FK a tabla roles
+    rol_id = Column(Integer, ForeignKey('roles.id', ondelete='CASCADE'), nullable=False, index=True)
+
     permiso_id = Column(Integer, ForeignKey('permisos.id', ondelete='CASCADE'), nullable=False)
 
-    # Relación
+    # Relaciones
+    rol_obj = relationship("Rol", back_populates="permisos_base")
     permiso = relationship("Permiso")
 
     class Meta:
-        unique_together = ('rol', 'permiso_id')
+        unique_together = ('rol_id', 'permiso_id')
 
     def __repr__(self):
-        return f"<RolPermisoBase(rol={self.rol}, permiso_id={self.permiso_id})>"
+        return f"<RolPermisoBase(rol_id={self.rol_id}, permiso_id={self.permiso_id})>"
 
 
 class UsuarioPermisoOverride(Base):

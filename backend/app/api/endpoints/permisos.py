@@ -93,7 +93,8 @@ async def obtener_mis_permisos(
     permisos = service.obtener_permisos_usuario(current_user)
     return {
         "usuario_id": current_user.id,
-        "rol": current_user.rol.value,
+        "rol": current_user.rol_codigo,
+        "rol_id": current_user.rol_id,
         "permisos": list(permisos)
     }
 
@@ -125,7 +126,8 @@ async def obtener_permisos_usuario(
     return {
         "usuario_id": usuario.id,
         "usuario_nombre": usuario.nombre,
-        "rol": usuario.rol.value,
+        "rol": usuario.rol_codigo,
+        "rol_id": usuario.rol_id,
         "permisos": list(permisos),
         "permisos_detallados": permisos_detallados
     }
@@ -169,7 +171,7 @@ async def crear_override(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     # No permitir modificar permisos de SUPERADMIN si no eres SUPERADMIN
-    if usuario_objetivo.rol.value == 'SUPERADMIN' and current_user.rol.value != 'SUPERADMIN':
+    if usuario_objetivo.es_superadmin and not current_user.es_superadmin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No puedes modificar permisos de un SUPERADMIN"
@@ -216,7 +218,7 @@ async def eliminar_override(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     # No permitir modificar permisos de SUPERADMIN si no eres SUPERADMIN
-    if usuario_objetivo.rol.value == 'SUPERADMIN' and current_user.rol.value != 'SUPERADMIN':
+    if usuario_objetivo.es_superadmin and not current_user.es_superadmin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No puedes modificar permisos de un SUPERADMIN"
@@ -267,27 +269,35 @@ async def verificar_multiples_permisos(
     }
 
 
-@router.get("/roles/{rol}/permisos")
+@router.get("/roles/{rol_codigo}/permisos")
 async def obtener_permisos_rol(
-    rol: str,
+    rol_codigo: str,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Obtiene los permisos base de un rol"""
+    """Obtiene los permisos base de un rol por código"""
+    from app.models.rol import Rol
+
     if not verificar_permiso(db, current_user, 'admin.gestionar_permisos'):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tienes permiso para ver permisos de roles"
         )
 
+    # Buscar rol por código
+    rol = db.query(Rol).filter(Rol.codigo == rol_codigo).first()
+    if not rol:
+        raise HTTPException(status_code=404, detail="Rol no encontrado")
+
     permisos = db.query(Permiso).join(
         RolPermisoBase, RolPermisoBase.permiso_id == Permiso.id
     ).filter(
-        RolPermisoBase.rol == rol
+        RolPermisoBase.rol_id == rol.id
     ).order_by(Permiso.orden).all()
 
     return {
-        "rol": rol,
+        "rol": rol_codigo,
+        "rol_id": rol.id,
         "permisos": [
             {
                 "codigo": p.codigo,

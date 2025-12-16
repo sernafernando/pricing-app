@@ -25,8 +25,11 @@ class PermisosService:
         Returns:
             Set de códigos de permisos que el usuario tiene
         """
-        # Obtener permisos base del rol
-        permisos_rol = self._obtener_permisos_rol(usuario.rol.value)
+        # Obtener permisos base del rol (usando rol_id si existe, sino fallback a rol enum)
+        if usuario.rol_id:
+            permisos_rol = self._obtener_permisos_rol_por_id(usuario.rol_id)
+        else:
+            permisos_rol = self._obtener_permisos_rol_por_codigo(usuario.rol.value if usuario.rol else "VENTAS")
 
         # Obtener overrides del usuario
         overrides = self.db.query(UsuarioPermisoOverride).filter(
@@ -46,20 +49,36 @@ class PermisosService:
 
         return permisos_finales
 
-    def _obtener_permisos_rol(self, rol: str) -> List[str]:
-        """Obtiene los permisos base de un rol"""
-        if rol in self._cache_permisos_rol:
-            return self._cache_permisos_rol[rol]
+    def _obtener_permisos_rol_por_id(self, rol_id: int) -> List[str]:
+        """Obtiene los permisos base de un rol por ID"""
+        cache_key = f"id_{rol_id}"
+        if cache_key in self._cache_permisos_rol:
+            return self._cache_permisos_rol[cache_key]
 
         permisos = self.db.query(Permiso.codigo).join(
             RolPermisoBase, RolPermisoBase.permiso_id == Permiso.id
         ).filter(
-            RolPermisoBase.rol == rol
+            RolPermisoBase.rol_id == rol_id
         ).all()
 
         codigos = [p.codigo for p in permisos]
-        self._cache_permisos_rol[rol] = codigos
+        self._cache_permisos_rol[cache_key] = codigos
         return codigos
+
+    def _obtener_permisos_rol_por_codigo(self, rol_codigo: str) -> List[str]:
+        """Obtiene los permisos base de un rol por código (compatibilidad)"""
+        from app.models.rol import Rol
+
+        cache_key = f"codigo_{rol_codigo}"
+        if cache_key in self._cache_permisos_rol:
+            return self._cache_permisos_rol[cache_key]
+
+        # Buscar el rol por código
+        rol = self.db.query(Rol).filter(Rol.codigo == rol_codigo).first()
+        if not rol:
+            return []
+
+        return self._obtener_permisos_rol_por_id(rol.id)
 
     def tiene_permiso(self, usuario: Usuario, permiso_codigo: str) -> bool:
         """
@@ -73,7 +92,7 @@ class PermisosService:
             True si el usuario tiene el permiso
         """
         # SUPERADMIN siempre tiene todos los permisos
-        if usuario.rol.value == 'SUPERADMIN':
+        if usuario.es_superadmin:
             return True
 
         permisos = self.obtener_permisos_usuario(usuario)
@@ -81,7 +100,7 @@ class PermisosService:
 
     def tiene_algun_permiso(self, usuario: Usuario, permisos: List[str]) -> bool:
         """Verifica si el usuario tiene al menos uno de los permisos listados"""
-        if usuario.rol.value == 'SUPERADMIN':
+        if usuario.es_superadmin:
             return True
 
         permisos_usuario = self.obtener_permisos_usuario(usuario)
@@ -89,7 +108,7 @@ class PermisosService:
 
     def tiene_todos_los_permisos(self, usuario: Usuario, permisos: List[str]) -> bool:
         """Verifica si el usuario tiene todos los permisos listados"""
-        if usuario.rol.value == 'SUPERADMIN':
+        if usuario.es_superadmin:
             return True
 
         permisos_usuario = self.obtener_permisos_usuario(usuario)
@@ -211,7 +230,10 @@ class PermisosService:
         Obtiene información detallada de permisos de un usuario.
         Incluye qué permisos vienen del rol y cuáles son overrides.
         """
-        permisos_rol = set(self._obtener_permisos_rol(usuario.rol.value))
+        if usuario.rol_id:
+            permisos_rol = set(self._obtener_permisos_rol_por_id(usuario.rol_id))
+        else:
+            permisos_rol = set(self._obtener_permisos_rol_por_codigo(usuario.rol.value if usuario.rol else "VENTAS"))
         overrides = {o.permiso.codigo: o.concedido
                      for o in self.db.query(UsuarioPermisoOverride).join(Permiso).filter(
                          UsuarioPermisoOverride.usuario_id == usuario.id

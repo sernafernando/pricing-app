@@ -34,4 +34,24 @@ export const pricingAPI = {
   setearPrecio: (data) => api.post('/precios/set', data),
 };
 
+export const rolesAPI = {
+  listar: (incluirInactivos = false) => api.get('/roles', { params: { incluir_inactivos: incluirInactivos } }),
+  obtener: (rolId) => api.get(`/roles/${rolId}`),
+  crear: (data) => api.post('/roles', data),
+  actualizar: (rolId, data) => api.patch(`/roles/${rolId}`, data),
+  eliminar: (rolId) => api.delete(`/roles/${rolId}`),
+  obtenerPermisos: (rolId) => api.get(`/roles/${rolId}/permisos`),
+  setPermisos: (rolId, permisos) => api.put(`/roles/${rolId}/permisos`, { permisos }),
+  clonar: (rolId, data) => api.post(`/roles/${rolId}/clonar`, data),
+  obtenerUsuarios: (rolId) => api.get(`/roles/${rolId}/usuarios`),
+};
+
+export const permisosAPI = {
+  catalogo: () => api.get('/permisos/catalogo'),
+  misPermisos: () => api.get('/permisos/mis-permisos'),
+  permisosPorUsuario: (usuarioId) => api.get(`/permisos/usuario/${usuarioId}`),
+  verificar: (permisoCodigo) => api.get(`/permisos/verificar/${permisoCodigo}`),
+  verificarMultiples: (permisos) => api.post('/permisos/verificar-multiples', permisos),
+};
+
 export default api;
