@@ -1,4 +1,5 @@
 import { Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 
 /**
@@ -6,10 +7,26 @@ import { usePermisos } from '../contexts/PermisosContext';
  * Evita loops infinitos cuando el usuario no tiene acceso a /productos
  */
 export default function SmartRedirect() {
-  const { tienePermiso, tieneAlgunPermiso, loading, initialized } = usePermisos();
+  const { tienePermiso, tieneAlgunPermiso, loading, initialized, permisos, recargar } = usePermisos();
+  const [retryCount, setRetryCount] = useState(0);
+
+  // Debug: ver qué está pasando
+  console.log('SmartRedirect state:', { loading, initialized, permisosCount: permisos?.length, permisos, retryCount });
+
+  // Si initialized pero permisos vacío, intentar recargar (máximo 2 veces)
+  useEffect(() => {
+    if (initialized && !loading && permisos?.length === 0 && retryCount < 2) {
+      console.log('SmartRedirect: permisos vacíos, recargando...');
+      const timer = setTimeout(() => {
+        setRetryCount(r => r + 1);
+        recargar();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [initialized, loading, permisos, retryCount, recargar]);
 
   // Esperar hasta que los permisos estén completamente cargados
-  if (loading || !initialized) {
+  if (loading || !initialized || (permisos?.length === 0 && retryCount < 2)) {
     return (
       <div style={{
         display: 'flex',
