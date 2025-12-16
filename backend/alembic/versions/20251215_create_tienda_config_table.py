@@ -1,7 +1,7 @@
 """create tienda_config table
 
 Revision ID: g1h2i3j4k5l6
-Revises: e8f3c4d5a6b2
+Revises: 20251215_color_tienda
 Create Date: 2025-12-15 15:00:00.000000
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'g1h2i3j4k5l6'
-down_revision = 'e8f3c4d5a6b2'
+down_revision = '20251215_color_tienda'
 branch_labels = None
 depends_on = None
 
