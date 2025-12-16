@@ -554,6 +554,11 @@ export default function Productos() {
     const handleKeyDown = (e) => {
       // Solo capturar F1, F2 o F3 con Ctrl
       if ((e.key === 'F1' || e.key === 'F2' || e.key === 'F3') && e.ctrlKey) {
+        // Prevenir comportamiento por defecto del navegador INMEDIATAMENTE
+        // (F1 abre ayuda del navegador, F2 puede tener otros comportamientos)
+        e.preventDefault();
+        e.stopPropagation();
+
         // Verificar si hay algo en modo edición O si hay una celda activa (navegación)
         const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
         const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
@@ -593,8 +598,6 @@ export default function Productos() {
         }
 
         const itemCode = producto.codigo;
-        e.preventDefault();
-        e.stopPropagation();
 
         // Ctrl+F1: copiar solo el código
         if (e.key === 'F1') {
@@ -4023,6 +4026,18 @@ export default function Productos() {
                 <div className="shortcut-item">
                   <kbd>O</kbd>
                   <span>Toggle Out of Cards</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd>+<kbd>F1</kbd>
+                  <span>Copiar código del producto</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd>+<kbd>F2</kbd>
+                  <span>Copiar primer enlace ML</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd>+<kbd>F3</kbd>
+                  <span>Copiar segundo enlace ML</span>
                 </div>
               </div>
 
