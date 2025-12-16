@@ -85,10 +85,10 @@ def convertir_fecha(valor):
 
 async def sync_items_publicados_full(db: Session):
     """
-    Sincroniza TODAS las publicaciones ACTIVAS de ML
-    Filtra por optval_statusId = 2 (activas)
+    Sincroniza TODAS las publicaciones de ML (sin filtrar por status)
+    Para sync diario completo
     """
-    print(f"📅 Sincronizando todas las publicaciones activas (status=2)...")
+    print(f"📅 Sincronizando TODAS las publicaciones (sin filtro de status)...")
 
     # Traer todas las publicaciones activas de GBP
     # Usamos un rango amplio de fechas para capturar todo
@@ -108,11 +108,7 @@ async def sync_items_publicados_full(db: Session):
             print("   ⚠️  No se encontraron items publicados")
             return 0, 0, 0
 
-        print(f"   📦 Recibidos {len(data)} items de GBP")
-
-        # Filtrar solo publicaciones activas (optval_statusId = 2)
-        data = [item for item in data if convertir_a_entero(item.get('optval_statusId')) == 2]
-        print(f"   ✓ {len(data)} publicaciones activas (status=2)")
+        print(f"   📦 Recibidos {len(data)} items de GBP para procesar")
 
         insertados = 0
         actualizados = 0
