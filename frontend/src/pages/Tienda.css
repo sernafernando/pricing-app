@@ -976,7 +976,7 @@
 .web-tarjeta-precio {
   font-size: 14px;
   font-weight: 600;
-  color: #8b5cf6;
+  color: var(--info);
 }
 
 .web-tarjeta-markup {
