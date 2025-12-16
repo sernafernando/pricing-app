@@ -8,26 +8,42 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  
+  const [loginExitoso, setLoginExitoso] = useState(false);
+
   const login = useAuthStore((state) => state.login);
   const navigate = useNavigate();
-  
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-    
+
     const result = await login(email, password);
-    
+
     if (result.success) {
-      navigate('/');
+      setLoginExitoso(true);
+      // Pequeña pausa para mostrar feedback antes de navegar
+      setTimeout(() => {
+        navigate('/');
+      }, 300);
     } else {
       setError(result.error);
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
   
+  // Mostrar pantalla de carga después de login exitoso
+  if (loginExitoso) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.loadingOverlay}>
+          <div className={styles.spinner}></div>
+          <p>Cargando tu sesión...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.container}>
       <div className={styles.card}>
@@ -36,7 +52,7 @@ export default function Login() {
           <h1 className={styles.title}>Pricing App</h1>
           <p className={styles.subtitle}>Sistema de gestión de precios</p>
         </div>
-        
+
         <form onSubmit={handleSubmit} className={styles.form}>
           <div className={styles.formGroup}>
             <label className={styles.label}>Email</label>
