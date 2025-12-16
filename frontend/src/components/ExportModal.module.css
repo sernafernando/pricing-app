@@ -231,3 +231,17 @@
   margin-bottom: 4px;
   color: var(--text-secondary);
 }
+
+.noPermiso {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.description {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}

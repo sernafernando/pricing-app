@@ -1,15 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import '../styles/ModalInfoProducto.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
+import { usePermisos } from '../contexts/PermisosContext';
 
 const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const { overlayRef, handleOverlayMouseDown, handleOverlayClick } = useModalClickOutside(onClose);
+  const { tienePermiso } = usePermisos();
+
+  // Permisos para tabs
+  const puedeVerInfoBasica = tienePermiso('productos.ver_info_basica');
+  const puedeVerInfoPricing = tienePermiso('productos.ver_info_pricing');
+  const puedeVerInfoML = tienePermiso('productos.ver_info_mercadolibre');
+  const puedeVerInfoVentas = tienePermiso('productos.ver_info_ventas');
+  const puedeVerInfoCompras = tienePermiso('productos.ver_info_compras');
+
+  // Tab info requiere al menos info básica o pricing
+  const puedeVerTabInfo = puedeVerInfoBasica || puedeVerInfoPricing;
+
+  // Determinar tab inicial según permisos
+  const tabInicial = useMemo(() => {
+    if (puedeVerTabInfo) return 'info';
+    if (puedeVerInfoML) return 'ml';
+    if (puedeVerInfoVentas) return 'ventas';
+    if (puedeVerInfoCompras) return 'proveedor';
+    return null;
+  }, [puedeVerTabInfo, puedeVerInfoML, puedeVerInfoVentas, puedeVerInfoCompras]);
+
   const [detalle, setDetalle] = useState(null);
   const [datosMl, setDatosMl] = useState(null);
   const [cargando, setCargando] = useState(false);
   const [cargandoMl, setCargandoMl] = useState(false);
-  const [tabActiva, setTabActiva] = useState('info'); // 'info', 'ml', 'ventas', 'proveedor'
+  const [tabActiva, setTabActiva] = useState(tabInicial); // 'info', 'ml', 'ventas', 'proveedor'
 
   useEffect(() => {
     if (isOpen && itemId) {
@@ -112,27 +134,33 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
         </div>
 
         {/* TABS */}
-        {!cargando && detalle && (
+        {!cargando && detalle && tabInicial && (
           <div className="modal-tabs">
-            <button
-              className={`tab-button ${tabActiva === 'info' ? 'active' : ''}`}
-              onClick={() => setTabActiva('info')}
-            >
-              📦 Información
-            </button>
-            <button
-              className={`tab-button ${tabActiva === 'ml' ? 'active' : ''}`}
-              onClick={() => setTabActiva('ml')}
-            >
-              📢 MercadoLibre {datosMl?.publicaciones_ml?.length > 0 && `(${datosMl.publicaciones_ml.length})`}
-            </button>
-            <button
-              className={`tab-button ${tabActiva === 'ventas' ? 'active' : ''}`}
-              onClick={() => setTabActiva('ventas')}
-            >
-              📊 Ventas
-            </button>
-            {detalle.ultimas_compras && detalle.ultimas_compras.length > 0 && (
+            {puedeVerTabInfo && (
+              <button
+                className={`tab-button ${tabActiva === 'info' ? 'active' : ''}`}
+                onClick={() => setTabActiva('info')}
+              >
+                📦 Información
+              </button>
+            )}
+            {puedeVerInfoML && (
+              <button
+                className={`tab-button ${tabActiva === 'ml' ? 'active' : ''}`}
+                onClick={() => setTabActiva('ml')}
+              >
+                📢 MercadoLibre {datosMl?.publicaciones_ml?.length > 0 && `(${datosMl.publicaciones_ml.length})`}
+              </button>
+            )}
+            {puedeVerInfoVentas && (
+              <button
+                className={`tab-button ${tabActiva === 'ventas' ? 'active' : ''}`}
+                onClick={() => setTabActiva('ventas')}
+              >
+                📊 Ventas
+              </button>
+            )}
+            {puedeVerInfoCompras && detalle.ultimas_compras && detalle.ultimas_compras.length > 0 && (
               <button
                 className={`tab-button ${tabActiva === 'proveedor' ? 'active' : ''}`}
                 onClick={() => setTabActiva('proveedor')}
@@ -143,15 +171,23 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
           </div>
         )}
 
+        {/* Mensaje sin permisos */}
+        {!tabInicial && !cargando && (
+          <div className="no-permiso-modal">
+            No tienes permisos para ver información del producto.
+          </div>
+        )}
+
         <div className="modal-body">
           {cargando ? (
             <p>Cargando...</p>
           ) : detalle ? (
             <>
               {/* TAB: INFORMACIÓN */}
-              {tabActiva === 'info' && (
+              {tabActiva === 'info' && puedeVerTabInfo && (
                 <>
                   {/* INFORMACIÓN BÁSICA */}
+                  {puedeVerInfoBasica && (
                   <section className="info-section">
                 <h3>📦 Información Básica</h3>
                 <div className="info-grid">
@@ -181,8 +217,10 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                   </div>
                 </div>
               </section>
+                  )}
 
               {/* COSTOS */}
+              {puedeVerInfoPricing && (
               <section className="info-section">
                 <h3>💰 Costos</h3>
                 <div className="info-grid">
@@ -395,11 +433,12 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                   </div>
                 </section>
               )}
+              )}
                 </>
               )}
 
               {/* TAB: MERCADOLIBRE */}
-              {tabActiva === 'ml' && (
+              {tabActiva === 'ml' && puedeVerInfoML && (
                 <>
                   {cargandoMl ? (
                     <div className="cargando-ml">
@@ -511,7 +550,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
               )}
 
               {/* TAB: ÚLTIMAS COMPRAS */}
-              {tabActiva === 'proveedor' && detalle.ultimas_compras && detalle.ultimas_compras.length > 0 && (
+              {tabActiva === 'proveedor' && puedeVerInfoCompras && detalle.ultimas_compras && detalle.ultimas_compras.length > 0 && (
                 <section className="info-section">
                   <h3>🏭 Últimas 5 Compras</h3>
                   <div style={{ overflowX: 'auto' }}>
@@ -554,7 +593,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
               )}
 
               {/* TAB: VENTAS */}
-              {tabActiva === 'ventas' && (
+              {tabActiva === 'ventas' && puedeVerInfoVentas && (
                 <>
                   {cargandoMl ? (
                     <div className="cargando-ml">
@@ -646,7 +685,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
               )}
 
               {/* AUDITORÍA */}
-              {detalle.pricing.usuario_modifico && (
+              {puedeVerInfoBasica && detalle.pricing.usuario_modifico && (
                 <section className="info-section">
                   <h3>📝 Última Modificación</h3>
                   <div className="info-grid">

@@ -6,6 +6,7 @@ import { useDebounce } from '../hooks/useDebounce';
 import styles from './Productos.module.css';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
+import { usePermisos } from '../contexts/PermisosContext';
 import ExportModal from '../components/ExportModal';
 import xlsIcon from '../assets/xls.svg';
 import CalcularWebModal from '../components/CalcularWebModal';
@@ -112,7 +113,20 @@ export default function Productos() {
   const [motivoBan, setMotivoBan] = useState('');
 
   const user = useAuthStore((state) => state.user);
-  const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
+  const { tienePermiso } = usePermisos();
+
+  // Permisos granulares de edición
+  const puedeEditarPrecioClasica = tienePermiso('productos.editar_precio_clasica');
+  const puedeEditarCuotas = tienePermiso('productos.editar_precio_cuotas');
+  const puedeToggleRebate = tienePermiso('productos.toggle_rebate');
+  const puedeToggleWebTransf = tienePermiso('productos.toggle_web_transferencia');
+  const puedeMarcarColor = tienePermiso('productos.marcar_color');
+  const puedeMarcarColorLote = tienePermiso('productos.marcar_color_lote');
+  const puedeCalcularWebMasivo = tienePermiso('productos.calcular_web_masivo');
+  const puedeToggleOutOfCards = tienePermiso('productos.toggle_out_of_cards');
+
+  // Legacy: puedeEditar es true si tiene al menos un permiso de edición
+  const puedeEditar = puedeEditarPrecioClasica || puedeEditarCuotas || puedeToggleRebate || puedeToggleWebTransf;
 
   // Columnas navegables según la vista activa
   const columnasNavegablesNormal = ['precio_clasica', 'precio_rebate', 'mejor_oferta', 'precio_web_transf'];
@@ -1591,8 +1605,8 @@ export default function Productos() {
         return;
       }
 
-      // Ctrl+K: Abrir modal de calcular web
-      if (e.ctrlKey && e.key === 'k') {
+      // Ctrl+K: Abrir modal de calcular web (requiere permiso)
+      if (e.ctrlKey && e.key === 'k' && puedeCalcularWebMasivo) {
         e.preventDefault();
         setMostrarCalcularWebModal(true);
         return;
@@ -1721,7 +1735,7 @@ export default function Productos() {
         if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[0-7]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && !isInputFocused) {
           e.preventDefault();
           e.stopPropagation();
-          if (puedeEditar && productos[rowIndex]) {
+          if (puedeMarcarColor && productos[rowIndex]) {
             // Colores válidos según el backend
             const colores = [null, 'rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
             const colorIndex = parseInt(e.key);
@@ -1736,7 +1750,7 @@ export default function Productos() {
         }
 
         // R: Toggle rebate (solo si NO estamos editando nada)
-        if (e.key === 'r' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
+        if (e.key === 'r' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeToggleRebate) {
           e.preventDefault();
           const producto = productos[rowIndex];
           toggleRebateRapido(producto);
@@ -1744,7 +1758,7 @@ export default function Productos() {
         }
 
         // W: Toggle web transferencia (solo si NO estamos editando nada)
-        if (e.key === 'w' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
+        if (e.key === 'w' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeToggleWebTransf) {
           e.preventDefault();
           const producto = productos[rowIndex];
           toggleWebTransfRapido(producto);
@@ -1752,7 +1766,7 @@ export default function Productos() {
         }
 
         // O: Toggle out of cards (solo si NO estamos editando nada)
-        if (e.key === 'o' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
+        if (e.key === 'o' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeToggleOutOfCards) {
           e.preventDefault();
           const producto = productos[rowIndex];
           toggleOutOfCardsRapido(producto);
@@ -1763,7 +1777,7 @@ export default function Productos() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, mostrarFiltrosAvanzados, vistaModoCuotas, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarModalConfig, mostrarModalInfo]);
+  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, puedeMarcarColor, puedeToggleRebate, puedeToggleWebTransf, puedeToggleOutOfCards, puedeCalcularWebMasivo, mostrarFiltrosAvanzados, vistaModoCuotas, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarModalConfig, mostrarModalInfo]);
 
   // Scroll automático para seguir la celda activa
   useEffect(() => {
@@ -2228,12 +2242,14 @@ export default function Productos() {
             Exportar
           </button>
 
+          {puedeCalcularWebMasivo && (
           <button
             onClick={() => setMostrarCalcularWebModal(true)}
             className="btn-action calculate"
           >
             🧮 Calcular Web Transf.
           </button>
+          )}
         </div>
       </div>
 
@@ -3513,6 +3529,7 @@ export default function Productos() {
                             ⚙️
                           </button>
                         )}
+                        {puedeMarcarColor && (
                         <div style={{ position: 'relative', display: 'inline-block' }}>
                           <button
                             onClick={() => setColorDropdownAbierto(colorDropdownAbierto === p.item_id ? null : p.item_id)}
@@ -3541,6 +3558,7 @@ export default function Productos() {
                             </div>
                           )}
                         </div>
+                        )}
                         {['SUPERADMIN', 'ADMIN'].includes(user?.rol) && (
                           <button
                             onClick={() => abrirModalBan(p)}
@@ -3827,6 +3845,7 @@ export default function Productos() {
           <span style={{ fontWeight: 'bold' }}>
             {productosSeleccionados.size} producto{productosSeleccionados.size !== 1 ? 's' : ''} seleccionado{productosSeleccionados.size !== 1 ? 's' : ''}
           </span>
+          {puedeMarcarColorLote && (
           <div style={{ display: 'flex', gap: '8px' }}>
             {COLORES_DISPONIBLES.map(c => (
               <button
@@ -3849,6 +3868,7 @@ export default function Productos() {
               </button>
             ))}
           </div>
+          )}
           <button
             onClick={limpiarSeleccion}
             style={{

@@ -123,7 +123,18 @@ export default function Productos() {
   const [markupWebTarjeta, setMarkupWebTarjeta] = useState(0);
 
   const user = useAuthStore((state) => state.user);
-  const puedeEditar = ['SUPERADMIN', 'ADMIN', 'GERENTE', 'PRICING'].includes(user?.rol);
+
+  // Permisos granulares de edición para Tienda
+  const puedeEditarPrecioGremio = tienePermiso('tienda.editar_precio_gremio');
+  const puedeEditarWebTransf = tienePermiso('tienda.editar_precio_web_transf');
+  const puedeEditarCuotas = tienePermiso('productos.editar_precio_cuotas');
+  const puedeOcultarProductos = tienePermiso('tienda.toggle_ocultar');
+  const puedeMarcarColor = tienePermiso('productos.marcar_color');
+  const puedeMarcarColorLote = tienePermiso('productos.marcar_color_lote');
+  const puedeCalcularWebMasivo = tienePermiso('productos.calcular_web_masivo');
+
+  // Legacy: puedeEditar es true si tiene al menos un permiso de edición
+  const puedeEditar = puedeEditarPrecioGremio || puedeEditarWebTransf || puedeEditarCuotas;
 
   // Columnas navegables según la vista activa
   const columnasNavegablesNormal = ['precio_clasica', 'precio_gremio', 'precio_web_transf', 'web_tarjeta'];
@@ -1615,8 +1626,8 @@ export default function Productos() {
         return;
       }
 
-      // Ctrl+K: Abrir modal de calcular web
-      if (e.ctrlKey && e.key === 'k') {
+      // Ctrl+K: Abrir modal de calcular web (requiere permiso)
+      if (e.ctrlKey && e.key === 'k' && puedeCalcularWebMasivo) {
         e.preventDefault();
         setMostrarCalcularWebModal(true);
         return;
@@ -1745,7 +1756,7 @@ export default function Productos() {
         if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[0-7]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && !isInputFocused) {
           e.preventDefault();
           e.stopPropagation();
-          if (puedeEditar && productos[rowIndex]) {
+          if (puedeMarcarColor && productos[rowIndex]) {
             // Colores válidos según el backend
             const colores = [null, 'rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
             const colorIndex = parseInt(e.key);
@@ -1759,7 +1770,7 @@ export default function Productos() {
           return;
         }
 
-        // R: Toggle rebate (solo si NO estamos editando nada)
+        // R: Toggle rebate (solo si NO estamos editando nada - en Tienda no hay rebate)
         if (e.key === 'r' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
@@ -1768,7 +1779,7 @@ export default function Productos() {
         }
 
         // W: Toggle web transferencia (solo si NO estamos editando nada)
-        if (e.key === 'w' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
+        if (e.key === 'w' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditarWebTransf) {
           e.preventDefault();
           const producto = productos[rowIndex];
           toggleWebTransfRapido(producto);
@@ -1787,7 +1798,7 @@ export default function Productos() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, mostrarFiltrosAvanzados, vistaModoCuotas, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarModalConfig, mostrarModalInfo]);
+  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, puedeMarcarColor, puedeEditarWebTransf, puedeCalcularWebMasivo, mostrarFiltrosAvanzados, vistaModoCuotas, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarModalConfig, mostrarModalInfo]);
 
   // Scroll automático para seguir la celda activa
   useEffect(() => {
@@ -2272,12 +2283,14 @@ export default function Productos() {
             Exportar
           </button>
 
+          {puedeCalcularWebMasivo && (
           <button
             onClick={() => setMostrarCalcularWebModal(true)}
             className="btn-action calculate"
           >
             🧮 Calcular Web Transf.
           </button>
+          )}
         </div>
       </div>
 
@@ -3444,6 +3457,7 @@ export default function Productos() {
                             ⚙️
                           </button>
                         )}
+                        {puedeMarcarColor && (
                         <div style={{ position: 'relative', display: 'inline-block' }}>
                           <button
                             onClick={() => setColorDropdownAbierto(colorDropdownAbierto === p.item_id ? null : p.item_id)}
@@ -3472,6 +3486,7 @@ export default function Productos() {
                             </div>
                           )}
                         </div>
+                        )}
                         {['SUPERADMIN', 'ADMIN'].includes(user?.rol) && (
                           <button
                             onClick={() => abrirModalBan(p)}
@@ -3759,6 +3774,7 @@ export default function Productos() {
           <span style={{ fontWeight: 'bold' }}>
             {productosSeleccionados.size} producto{productosSeleccionados.size !== 1 ? 's' : ''} seleccionado{productosSeleccionados.size !== 1 ? 's' : ''}
           </span>
+          {puedeMarcarColorLote && (
           <div style={{ display: 'flex', gap: '8px' }}>
             {COLORES_DISPONIBLES.map(c => (
               <button
@@ -3781,6 +3797,7 @@ export default function Productos() {
               </button>
             ))}
           </div>
+          )}
           <button
             onClick={limpiarSeleccion}
             style={{

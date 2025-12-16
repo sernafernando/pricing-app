@@ -1,9 +1,29 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './ExportModal.module.css';
+import { usePermisos } from '../contexts/PermisosContext';
 
 export default function ExportModal({ onClose, filtrosActivos, showToast, esTienda = false }) {
-  const [tab, setTab] = useState(esTienda ? 'lista_gremio' : 'rebate');
+  const { tienePermiso } = usePermisos();
+
+  // Permisos de exportación
+  const puedeExportarVistaActual = tienePermiso('productos.exportar_vista_actual');
+  const puedeExportarRebate = tienePermiso('productos.exportar_rebate');
+  const puedeExportarWebTransf = tienePermiso('productos.exportar_web_transferencia');
+  const puedeExportarClasica = tienePermiso('productos.exportar_clasica');
+  const puedeExportarGremio = tienePermiso('tienda.exportar_lista_gremio');
+
+  // Determinar tabs disponibles según permisos y contexto
+  const tabsDisponibles = [];
+  if (puedeExportarVistaActual) tabsDisponibles.push('vista_actual');
+  if (esTienda && puedeExportarGremio) tabsDisponibles.push('lista_gremio');
+  if (!esTienda && puedeExportarRebate) tabsDisponibles.push('rebate');
+  if (puedeExportarWebTransf) tabsDisponibles.push('web_transf');
+  if (puedeExportarClasica) tabsDisponibles.push('clasica');
+
+  // Tab inicial: primera disponible o ninguna
+  const tabInicial = tabsDisponibles.length > 0 ? tabsDisponibles[0] : null;
+  const [tab, setTab] = useState(tabInicial);
   const [exportando, setExportando] = useState(false);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
   const [porcentajeClasica, setPorcentajeClasica] = useState('0');
@@ -537,44 +557,58 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
           <button onClick={onClose} className={styles.closeButton}>×</button>
         </div>
 
-        <div className={styles.tabs}>
-          <button
-            onClick={() => setTab('vista_actual')}
-            className={`${styles.tab} ${tab === 'vista_actual' ? styles.active : ''}`}
-          >
-            Vista Actual
-          </button>
-          {esTienda ? (
-            <button
-              onClick={() => setTab('lista_gremio')}
-              className={`${styles.tab} ${tab === 'lista_gremio' ? styles.active : ''}`}
-            >
-              Lista Gremio
-            </button>
-          ) : (
-            <button
-              onClick={() => setTab('rebate')}
-              className={`${styles.tab} ${tab === 'rebate' ? styles.active : ''}`}
-            >
-              Rebate ML
-            </button>
-          )}
-          <button
-            onClick={() => setTab('web_transf')}
-            className={`${styles.tab} ${tab === 'web_transf' ? styles.active : ''}`}
-          >
-            Web Transferencia
-          </button>
-          <button
-            onClick={() => setTab('clasica')}
-            className={`${styles.tab} ${tab === 'clasica' ? styles.active : ''}`}
-          >
-            Clásica
-          </button>
-        </div>
+        {tabsDisponibles.length === 0 ? (
+          <div className={styles.noPermiso}>
+            No tienes permisos para exportar datos.
+          </div>
+        ) : (
+          <div className={styles.tabs}>
+            {puedeExportarVistaActual && (
+              <button
+                onClick={() => setTab('vista_actual')}
+                className={`${styles.tab} ${tab === 'vista_actual' ? styles.active : ''}`}
+              >
+                Vista Actual
+              </button>
+            )}
+            {esTienda && puedeExportarGremio && (
+              <button
+                onClick={() => setTab('lista_gremio')}
+                className={`${styles.tab} ${tab === 'lista_gremio' ? styles.active : ''}`}
+              >
+                Lista Gremio
+              </button>
+            )}
+            {!esTienda && puedeExportarRebate && (
+              <button
+                onClick={() => setTab('rebate')}
+                className={`${styles.tab} ${tab === 'rebate' ? styles.active : ''}`}
+              >
+                Rebate ML
+              </button>
+            )}
+            {puedeExportarWebTransf && (
+              <button
+                onClick={() => setTab('web_transf')}
+                className={`${styles.tab} ${tab === 'web_transf' ? styles.active : ''}`}
+              >
+                Web Transferencia
+              </button>
+            )}
+            {puedeExportarClasica && (
+              <button
+                onClick={() => setTab('clasica')}
+                className={`${styles.tab} ${tab === 'clasica' ? styles.active : ''}`}
+              >
+                Clásica
+              </button>
+            )}
+          </div>
+        )}
 
+        {tabsDisponibles.length > 0 && (
         <div className={styles.content}>
-          {tab === 'vista_actual' && (
+          {tab === 'vista_actual' && puedeExportarVistaActual && (
             <div>
               {hayFiltros && (
                 <div className={styles.filterCheckbox}>
@@ -607,7 +641,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
             </div>
           )}
 
-          {tab === 'lista_gremio' && (
+          {tab === 'lista_gremio' && puedeExportarGremio && (
             <div>
               {hayFiltros && (
                 <div className={styles.filterCheckbox}>
@@ -640,7 +674,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
             </div>
           )}
 
-          {tab === 'rebate' && (
+          {tab === 'rebate' && puedeExportarRebate && (
             <div>
               {hayFiltros && (
                 <div className={styles.filterCheckbox}>
@@ -692,7 +726,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
             </div>
           )}
 
-          {tab === 'web_transf' && (
+          {tab === 'web_transf' && puedeExportarWebTransf && (
             <div>
               {hayFiltros && (
                 <div className={styles.filterCheckbox}>
@@ -796,7 +830,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
             </div>
           )}
 
-          {tab === 'clasica' && (
+          {tab === 'clasica' && puedeExportarClasica && (
             <div>
               {hayFiltros && (
                 <div className={styles.filterCheckbox}>
@@ -913,6 +947,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );
