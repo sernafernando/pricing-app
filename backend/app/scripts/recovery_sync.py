@@ -38,6 +38,7 @@ from app.scripts.sync_ml_orders_shipping_incremental import sync_ml_orders_shipp
 from app.scripts.sync_ml_items_publicados_incremental import sync_items_publicados_incremental
 from app.scripts.sync_ml_items_publicados_full import sync_items_publicados_full
 from app.scripts.sync_ml_publications_incremental import sync_ml_publications_incremental
+from app.scripts.sync_ml_publications_full import sync_ml_publications_full
 from app.scripts.sync_item_cost_history import sync_item_cost_history_incremental
 from app.scripts.sync_item_cost_list import sync_item_cost_list_incremental
 from app.scripts.sync_customers_incremental import sync_customers_incremental
@@ -122,13 +123,7 @@ async def run_recovery():
             "emoji": "📢",
             "funcion": sync_items_publicados_incremental
         },
-        # 12. ML Publications Snapshots
-        {
-            "nombre": "ML Publications Snapshots",
-            "emoji": "📸",
-            "funcion": sync_ml_publications_incremental
-        },
-        # 13. Customers
+        # 12. Customers
         {
             "nombre": "Customers",
             "emoji": "👥",

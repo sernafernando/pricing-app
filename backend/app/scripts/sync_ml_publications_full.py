@@ -1,19 +1,24 @@
 """
-Script para sincronizar publicaciones de MercadoLibre de forma INCREMENTAL
-Solo actualiza publicaciones ACTIVAS (optval_statusId = 2)
+Script para sincronizar TODAS las publicaciones de MercadoLibre
+Procesa en batches para evitar timeouts con grandes volúmenes
 
 Estrategia:
-- Sincronización completa: 1 vez al día (sync_ml_publications_full.py - TODAS en batches)
-- Sincronización incremental: cada hora (este script - solo ACTIVAS)
+- Sincronización completa: 1 vez al día (este script - TODAS las publicaciones)
+- Sincronización incremental: cada hora (sync_ml_publications_incremental.py - solo ACTIVAS)
+
+Ejecutar:
+    cd /var/www/html/pricing-app/backend
+    python -m app.scripts.sync_ml_publications_full
 """
 
 import sys
 import os
 from pathlib import Path
 
-# Cargar variables de entorno desde .env ANTES de importar settings
 if __name__ == "__main__":
     backend_path = Path(__file__).resolve().parent.parent.parent
+    if str(backend_path) not in sys.path:
+        sys.path.insert(0, str(backend_path))
     from dotenv import load_dotenv
     env_path = backend_path / '.env'
     load_dotenv(dotenv_path=env_path)
@@ -83,34 +88,31 @@ async def call_meli(endpoint: str, retry=True):
         return response.json()
 
 
-async def obtener_mla_ids_activos(db: Session) -> list:
+async def obtener_todos_mla_ids(db: Session) -> list:
     """
-    Obtiene los MLA IDs de publicaciones ACTIVAS (optval_statusId = 2)
-    Solo sincroniza publicaciones que están activas en GBP
+    Obtiene TODOS los MLA IDs de todas las publicaciones en mercadolibre_items_publicados
     """
-    print("Obteniendo MLA IDs de publicaciones ACTIVAS...")
+    print("Obteniendo TODOS los MLA IDs...")
 
-    # Obtener MLA IDs de publicaciones activas en mercadolibre_items_publicados
     mla_ids = db.query(MercadoLibreItemPublicado.mlp_publicationID).filter(
-        MercadoLibreItemPublicado.optval_statusId == 2
+        MercadoLibreItemPublicado.mlp_publicationID.isnot(None)
     ).distinct().all()
 
-    ids = [row[0] for row in mla_ids if row[0]]  # Filtrar nulos
-    print(f"✓ Encontradas {len(ids)} publicaciones ACTIVAS para sincronizar")
+    ids = [row[0] for row in mla_ids if row[0]]
+    print(f"✓ Encontradas {len(ids)} publicaciones TOTALES para sincronizar")
 
     return ids
 
 
-async def traer_detalles_batch(ids: list, db: Session):
-    """Obtiene detalles de publicaciones en batches y los guarda en la DB"""
-    chunk_size = 20
-    total_saved = 0
-    total_updated = 0
+async def procesar_batch(ids_batch: list, db: Session, batch_num: int, total_batches: int):
+    """Procesa un batch de MLA IDs"""
+    chunk_size = 20  # ML API permite hasta 20 items por request
+    saved = 0
+    updated = 0
+    errors = 0
 
-    print(f"Procesando {len(ids)} publicaciones en batches de {chunk_size}...")
-
-    for i in range(0, len(ids), chunk_size):
-        chunk = ids[i:i + chunk_size]
+    for i in range(0, len(ids_batch), chunk_size):
+        chunk = ids_batch[i:i + chunk_size]
         ids_str = ",".join(chunk)
 
         try:
@@ -129,7 +131,7 @@ async def traer_detalles_batch(ids: list, db: Session):
                         campaign = term.get("value_name")
                         break
 
-                # Lógica condicional de campaña según las especificaciones
+                # Lógica condicional de campaña
                 if item.get("listing_type_id") == "gold_special":
                     campaign = "Clásica"
                 elif not campaign and item.get("listing_type_id") == "gold_pro":
@@ -145,14 +147,14 @@ async def traer_detalles_batch(ids: list, db: Session):
                         seller_sku = attr.get("value_id")
                         break
 
-                # Intentar obtener item_id del SKU (si es numérico)
+                # Intentar obtener item_id del SKU
                 item_id = None
                 if seller_sku and seller_sku.isdigit():
                     item_id = int(seller_sku)
 
                 mla_id = item.get("id")
 
-                # Verificar si ya existe un snapshot del día de hoy para este MLA_ID
+                # Verificar si ya existe un snapshot del día de hoy
                 today = datetime.now().date()
                 existing = db.query(MLPublicationSnapshot).filter(
                     MLPublicationSnapshot.mla_id == mla_id,
@@ -160,7 +162,6 @@ async def traer_detalles_batch(ids: list, db: Session):
                 ).first()
 
                 if existing:
-                    # Actualizar el existente
                     existing.title = item.get("title")
                     existing.price = item.get("price")
                     existing.base_price = item.get("base_price")
@@ -173,9 +174,8 @@ async def traer_detalles_batch(ids: list, db: Session):
                     existing.seller_sku = seller_sku
                     existing.item_id = item_id
                     existing.snapshot_date = datetime.now()
-                    total_updated += 1
+                    updated += 1
                 else:
-                    # Crear nuevo registro de snapshot
                     snapshot = MLPublicationSnapshot(
                         mla_id=mla_id,
                         title=item.get("title"),
@@ -192,65 +192,95 @@ async def traer_detalles_batch(ids: list, db: Session):
                         snapshot_date=datetime.now()
                     )
                     db.add(snapshot)
-                    total_saved += 1
+                    saved += 1
 
-            # Commit cada batch
             db.commit()
-            print(f"  Procesados {min(i + chunk_size, len(ids))}/{len(ids)} - Nuevos: {total_saved}, Actualizados: {total_updated}")
 
         except Exception as e:
-            print(f"  Error en batch {i//chunk_size + 1}: {str(e)}")
+            errors += 1
             db.rollback()
             continue
 
         # Pequeña pausa para no saturar la API
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
 
-    print(f"✓ Sincronización incremental completada: {total_saved} nuevos, {total_updated} actualizados")
-    return total_saved, total_updated
+    return saved, updated, errors
 
 
-async def sync_ml_publications_incremental(db: Session = None):
+async def sync_ml_publications_full(db: Session = None):
     """
-    Función principal de sincronización INCREMENTAL
-    Solo actualiza publicaciones ACTIVAS (optval_statusId = 2)
+    Sincronización COMPLETA de TODAS las publicaciones
+    Procesa en batches grandes para manejar el volumen
     """
-    print("=" * 60)
-    print("SINCRONIZACIÓN INCREMENTAL - SOLO ACTIVAS")
-    print("=" * 60)
+    print("=" * 70)
+    print("SINCRONIZACIÓN COMPLETA - TODAS LAS PUBLICACIONES")
+    print("=" * 70)
     print(f"Inicio: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print()
 
-    # Si no se proporciona una sesión, crear una nueva
     db_was_provided = db is not None
     if not db:
         db = SessionLocal()
 
     try:
-        # 1. Obtener MLA IDs de publicaciones ACTIVAS
-        ids = await obtener_mla_ids_activos(db)
+        # 1. Obtener TODOS los MLA IDs
+        all_ids = await obtener_todos_mla_ids(db)
 
-        if not ids:
-            print("⚠️  No hay publicaciones activas para sincronizar")
-            return 0, 0
+        if not all_ids:
+            print("⚠️  No hay publicaciones para sincronizar")
+            return 0, 0, 0
 
-        # 2. Traer detalles y actualizar
-        result = await traer_detalles_batch(ids, db)
+        # 2. Dividir en batches grandes (1000 por batch)
+        batch_size = 1000
+        total_batches = (len(all_ids) + batch_size - 1) // batch_size
 
-        return result
+        print(f"Procesando en {total_batches} batches de {batch_size} publicaciones...")
+        print()
+
+        total_saved = 0
+        total_updated = 0
+        total_errors = 0
+
+        for batch_num in range(total_batches):
+            start_idx = batch_num * batch_size
+            end_idx = min(start_idx + batch_size, len(all_ids))
+            batch_ids = all_ids[start_idx:end_idx]
+
+            print(f"📦 Batch {batch_num + 1}/{total_batches} ({len(batch_ids)} publicaciones)...")
+
+            saved, updated, errors = await procesar_batch(
+                batch_ids, db, batch_num + 1, total_batches
+            )
+
+            total_saved += saved
+            total_updated += updated
+            total_errors += errors
+
+            print(f"   ✓ Nuevos: {saved}, Actualizados: {updated}, Errores: {errors}")
+
+            # Pausa entre batches
+            if batch_num < total_batches - 1:
+                await asyncio.sleep(1)
+
+        print()
+        print("=" * 70)
+        print("RESUMEN SINCRONIZACIÓN COMPLETA")
+        print("=" * 70)
+        print(f"Total nuevos: {total_saved}")
+        print(f"Total actualizados: {total_updated}")
+        print(f"Total errores: {total_errors}")
+        print(f"Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("=" * 70)
+
+        return total_saved, total_updated, total_errors
 
     except Exception as e:
         print(f"❌ Error durante la sincronización: {str(e)}")
         raise
     finally:
-        # Solo cerrar la sesión si fue creada internamente
         if not db_was_provided:
             db.close()
 
-    print()
-    print(f"Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 60)
-
 
 if __name__ == "__main__":
-    asyncio.run(sync_ml_publications_incremental())
+    asyncio.run(sync_ml_publications_full())
