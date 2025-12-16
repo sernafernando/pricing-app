@@ -23,6 +23,7 @@ import TestStatsDinamicos from './pages/TestStatsDinamicos';
 import Notificaciones from './pages/Notificaciones';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
+import SmartRedirect from './components/SmartRedirect';
 import './styles/theme.css';
 
 function PrivateRoute({ children }) {
@@ -61,7 +62,7 @@ function App() {
         <BrowserRouter>
           <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Navigate to="/productos" replace />} />
+          <Route path="/" element={<ProtectedRoute><SmartRedirect /></ProtectedRoute>} />
           <Route path="*" element={
             <ProtectedRoute>
               <Navbar />

@@ -1,0 +1,72 @@
+import { Navigate } from 'react-router-dom';
+import { usePermisos } from '../contexts/PermisosContext';
+
+/**
+ * Redirige al usuario a la primera página que tenga acceso
+ * Evita loops infinitos cuando el usuario no tiene acceso a /productos
+ */
+export default function SmartRedirect() {
+  const { tienePermiso, tieneAlgunPermiso, loading } = usePermisos();
+
+  if (loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        color: 'var(--text-color, #fff)'
+      }}>
+        <div>Cargando...</div>
+      </div>
+    );
+  }
+
+  // Lista de rutas en orden de prioridad con sus permisos requeridos
+  const rutas = [
+    { path: '/productos', permiso: 'productos.ver' },
+    { path: '/tienda', permiso: 'productos.ver_tienda' },
+    { path: '/dashboard-ventas', permisos: ['ventas_ml.ver_dashboard', 'ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard'] },
+    { path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
+    { path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },
+    { path: '/dashboard-tienda-nube', permiso: 'ventas_tn.ver_dashboard' },
+    { path: '/ultimos-cambios', permiso: 'productos.ver_auditoria' },
+    { path: '/calculos', permiso: 'reportes.ver_calculadora' },
+    { path: '/notificaciones', permiso: 'reportes.ver_notificaciones' },
+    { path: '/admin', permiso: 'admin.ver_panel' },
+    { path: '/gestion-pm', permiso: 'admin.gestionar_pms' },
+    { path: '/mla-banlist', permiso: 'admin.gestionar_mla_banlist' },
+    { path: '/items-sin-mla', permiso: 'admin.gestionar_mla_banlist' },
+  ];
+
+  // Buscar la primera ruta a la que tenga acceso
+  for (const ruta of rutas) {
+    if (ruta.permisos) {
+      if (tieneAlgunPermiso(ruta.permisos)) {
+        return <Navigate to={ruta.path} replace />;
+      }
+    } else if (ruta.permiso) {
+      if (tienePermiso(ruta.permiso)) {
+        return <Navigate to={ruta.path} replace />;
+      }
+    }
+  }
+
+  // Si no tiene acceso a ninguna ruta, mostrar mensaje
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: '100vh',
+      color: 'var(--text-color, #fff)',
+      textAlign: 'center',
+      padding: '20px'
+    }}>
+      <h2>Sin acceso</h2>
+      <p>No tienes permisos para acceder a ninguna sección del sistema.</p>
+      <p>Contacta al administrador para que te asigne los permisos necesarios.</p>
+    </div>
+  );
+}
