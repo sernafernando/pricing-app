@@ -569,8 +569,9 @@ export default function Productos() {
       // Detectar qué acción ejecutar (1=código, 2=enlace1, 3=enlace2)
       let accion = null;
 
-      // Ctrl+F1/F2/F3
-      if (e.ctrlKey && !e.shiftKey && (e.key === 'F1' || e.key === 'F2' || e.key === 'F3')) {
+      // Ctrl+F1/F2/F3 (con o sin Shift)
+      if (e.ctrlKey && (e.key === 'F1' || e.key === 'F2' || e.key === 'F3')) {
+        console.log('🔑 Detectado Ctrl+' + e.key, { ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, key: e.key });
         accion = e.key === 'F1' ? 1 : e.key === 'F2' ? 2 : 3;
       }
       // Ctrl+Shift+1/2/3 (alternativa para sistemas que capturan F1/F2)
@@ -587,8 +588,10 @@ export default function Productos() {
         const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
         const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
 
+        console.log('🔑 Estado shortcuts:', { accion, enModoEdicion, hayProductoSeleccionado, celdaActiva, modoNavegacion });
+
         if (!enModoEdicion && !hayProductoSeleccionado) {
-          showToast('⚠️ Debes posicionarte sobre un producto para usar este atajo', 'error');
+          showToast('⚠️ Debes posicionarte sobre un producto para usar este atajo (Enter para activar navegación)', 'error');
           return;
         }
 
