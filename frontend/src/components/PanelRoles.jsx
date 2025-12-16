@@ -39,6 +39,9 @@ export default function PanelRoles() {
     descripcion: ''
   });
 
+  // Estado para categorías colapsables
+  const [categoriasExpandidas, setCategoriasExpandidas] = useState({});
+
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
   useEffect(() => {
@@ -238,6 +241,25 @@ export default function PanelRoles() {
       orden: rol.orden
     });
     setMostrarFormRol(true);
+  };
+
+  const toggleCategoria = (categoria) => {
+    setCategoriasExpandidas(prev => ({
+      ...prev,
+      [categoria]: !prev[categoria]
+    }));
+  };
+
+  const expandirTodas = () => {
+    const todas = {};
+    Object.keys(catalogo).forEach(cat => {
+      todas[cat] = true;
+    });
+    setCategoriasExpandidas(todas);
+  };
+
+  const colapsarTodas = () => {
+    setCategoriasExpandidas({});
   };
 
   if (loading) {
@@ -450,52 +472,92 @@ export default function PanelRoles() {
         </div>
 
         {/* Panel derecho: Permisos del rol seleccionado */}
-        <div className={styles.section}>
+        <div className={styles.section} style={{ display: 'flex', flexDirection: 'column', maxHeight: '75vh' }}>
           {rolSeleccionado ? (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <div>
-                  <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>Permisos de: {rolSeleccionado.nombre}</h3>
-                  {rolSeleccionado.codigo === 'SUPERADMIN' && (
-                    <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      SUPERADMIN tiene todos los permisos por defecto
-                    </p>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {rolSeleccionado.codigo !== 'SUPERADMIN' && (
-                    <>
+              <div style={{
+                position: 'sticky',
+                top: 0,
+                background: 'var(--bg-primary)',
+                paddingBottom: '16px',
+                marginBottom: '16px',
+                borderBottom: '1px solid var(--border-primary)',
+                zIndex: 10
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                  <div>
+                    <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>Permisos de: {rolSeleccionado.nombre}</h3>
+                    {rolSeleccionado.codigo === 'SUPERADMIN' && (
+                      <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        SUPERADMIN tiene todos los permisos por defecto
+                      </p>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '4px', marginRight: '8px' }}>
                       <button
-                        onClick={() => setMostrarClonar(true)}
+                        onClick={expandirTodas}
                         style={{
-                          padding: '8px 16px',
-                          background: 'var(--purple)',
-                          color: 'var(--text-inverse)',
-                          border: 'none',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          fontSize: '13px'
+                          padding: '4px 8px',
+                          fontSize: '11px',
+                          background: 'var(--bg-tertiary)',
+                          color: 'var(--text-secondary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: '4px',
+                          cursor: 'pointer'
                         }}
                       >
-                        Clonar Rol
+                        Expandir
                       </button>
                       <button
-                        onClick={guardarPermisosRol}
-                        disabled={guardando}
+                        onClick={colapsarTodas}
                         style={{
-                          padding: '8px 16px',
-                          background: 'var(--success)',
-                          color: 'var(--text-inverse)',
-                          border: 'none',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          fontSize: '13px'
+                          padding: '4px 8px',
+                          fontSize: '11px',
+                          background: 'var(--bg-tertiary)',
+                          color: 'var(--text-secondary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: '4px',
+                          cursor: 'pointer'
                         }}
                       >
-                        {guardando ? 'Guardando...' : 'Guardar Permisos'}
+                        Colapsar
                       </button>
-                    </>
-                  )}
+                    </div>
+                    {rolSeleccionado.codigo !== 'SUPERADMIN' && (
+                      <>
+                        <button
+                          onClick={() => setMostrarClonar(true)}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--purple)',
+                            color: 'var(--text-inverse)',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '13px'
+                          }}
+                        >
+                          Clonar Rol
+                        </button>
+                        <button
+                          onClick={guardarPermisosRol}
+                          disabled={guardando}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--success)',
+                            color: 'var(--text-inverse)',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '13px'
+                          }}
+                        >
+                          {guardando ? 'Guardando...' : 'Guardar Permisos'}
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -583,23 +645,52 @@ export default function PanelRoles() {
               )}
 
               {/* Lista de permisos por categoria */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {Object.entries(catalogo).map(([categoria, permisos]) => (
+              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {Object.entries(catalogo).map(([categoria, permisos]) => {
+                  const expandida = categoriasExpandidas[categoria] || false;
+                  const permisosActivos = permisos.filter(p => permisosRol.includes(p.codigo)).length;
+
+                  return (
                   <div key={categoria} style={{
                     border: '1px solid var(--border-primary)',
                     borderRadius: '8px',
                     overflow: 'hidden'
                   }}>
-                    <div style={{
-                      padding: '10px 16px',
-                      background: 'var(--bg-secondary)',
-                      fontWeight: '600',
-                      borderBottom: '1px solid var(--border-primary)',
-                      color: 'var(--text-primary)'
-                    }}>
-                      {CATEGORIAS_NOMBRE[categoria] || categoria}
+                    <div
+                      onClick={() => toggleCategoria(categoria)}
+                      style={{
+                        padding: '10px 16px',
+                        background: 'var(--bg-secondary)',
+                        fontWeight: '600',
+                        borderBottom: expandida ? '1px solid var(--border-primary)' : 'none',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        userSelect: 'none'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{
+                          display: 'inline-block',
+                          transition: 'transform 0.2s',
+                          transform: expandida ? 'rotate(90deg)' : 'rotate(0deg)'
+                        }}>
+                          ▶
+                        </span>
+                        {CATEGORIAS_NOMBRE[categoria] || categoria}
+                      </div>
+                      <span style={{
+                        fontSize: '12px',
+                        color: 'var(--text-secondary)',
+                        fontWeight: 'normal'
+                      }}>
+                        {permisosActivos}/{permisos.length}
+                      </span>
                     </div>
-                    <div style={{ padding: '8px 16px', background: 'var(--bg-primary)' }}>
+                    {expandida && (
+                    <div style={{ padding: '8px 16px', background: 'var(--bg-primary)', maxHeight: '300px', overflowY: 'auto' }}>
                       {permisos.map(permiso => {
                         const tienePermiso = permisosRol.includes(permiso.codigo);
                         const esSuperadmin = rolSeleccionado.codigo === 'SUPERADMIN';
@@ -656,8 +747,10 @@ export default function PanelRoles() {
                         );
                       })}
                     </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           ) : (

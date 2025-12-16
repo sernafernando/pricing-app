@@ -21,6 +21,7 @@ export default function PanelPermisos() {
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState(null);
   const [filtroUsuario, setFiltroUsuario] = useState('');
+  const [categoriasExpandidas, setCategoriasExpandidas] = useState({});
 
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
@@ -121,6 +122,27 @@ export default function PanelPermisos() {
     u.rol.toLowerCase().includes(filtroUsuario.toLowerCase())
   );
 
+  const toggleCategoria = (categoria) => {
+    setCategoriasExpandidas(prev => ({
+      ...prev,
+      [categoria]: !prev[categoria]
+    }));
+  };
+
+  const expandirTodas = () => {
+    if (permisosUsuario) {
+      const todas = {};
+      Object.keys(permisosUsuario.permisos_detallados).forEach(cat => {
+        todas[cat] = true;
+      });
+      setCategoriasExpandidas(todas);
+    }
+  };
+
+  const colapsarTodas = () => {
+    setCategoriasExpandidas({});
+  };
+
   if (loading) {
     return (
       <div className={styles.section}>
@@ -218,22 +240,58 @@ export default function PanelPermisos() {
                 borderBottom: '1px solid var(--border-primary)',
                 zIndex: 10
               }}>
-                <h3 style={{ margin: '0 0 8px 0', color: 'var(--text-primary)' }}>
-                  Permisos de: {permisosUsuario?.usuario_nombre || usuarioSeleccionado.nombre}
-                </h3>
-                <div style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '12px' }}>
-                  Rol base: <strong style={{ color: 'var(--text-primary)' }}>{permisosUsuario?.rol || usuarioSeleccionado.rol}</strong>
-                  {permisosUsuario?.rol === 'SUPERADMIN' && (
-                    <span style={{
-                      marginLeft: '10px',
-                      padding: '2px 8px',
-                      background: 'var(--warning-bg)',
-                      color: 'var(--warning-text)',
-                      borderRadius: '4px',
-                      fontSize: '11px'
-                    }}>
-                      Todos los permisos
-                    </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                  <div>
+                    <h3 style={{ margin: '0 0 8px 0', color: 'var(--text-primary)' }}>
+                      Permisos de: {permisosUsuario?.usuario_nombre || usuarioSeleccionado.nombre}
+                    </h3>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                      Rol base: <strong style={{ color: 'var(--text-primary)' }}>{permisosUsuario?.rol || usuarioSeleccionado.rol}</strong>
+                      {permisosUsuario?.rol === 'SUPERADMIN' && (
+                        <span style={{
+                          marginLeft: '10px',
+                          padding: '2px 8px',
+                          background: 'var(--warning-bg)',
+                          color: 'var(--warning-text)',
+                          borderRadius: '4px',
+                          fontSize: '11px'
+                        }}>
+                          Todos los permisos
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {permisosUsuario && (
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        onClick={expandirTodas}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '11px',
+                          background: 'var(--bg-tertiary)',
+                          color: 'var(--text-secondary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: '4px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Expandir
+                      </button>
+                      <button
+                        onClick={colapsarTodas}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '11px',
+                          background: 'var(--bg-tertiary)',
+                          color: 'var(--text-secondary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: '4px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Colapsar
+                      </button>
+                    </div>
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
@@ -261,23 +319,52 @@ export default function PanelPermisos() {
                   Cargando permisos...
                 </div>
               ) : (
-                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {Object.entries(permisosUsuario.permisos_detallados).map(([categoria, permisos]) => (
+                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {Object.entries(permisosUsuario.permisos_detallados).map(([categoria, permisos]) => {
+                    const expandida = categoriasExpandidas[categoria] || false;
+                    const permisosActivos = permisos.filter(p => p.efectivo).length;
+
+                    return (
                     <div key={categoria} style={{
                       border: '1px solid var(--border-primary)',
                       borderRadius: '8px',
                       overflow: 'hidden'
                     }}>
-                      <div style={{
-                        padding: '10px 16px',
-                        background: 'var(--bg-secondary)',
-                        fontWeight: '600',
-                        borderBottom: '1px solid var(--border-primary)',
-                        color: 'var(--text-primary)'
-                      }}>
-                        {CATEGORIAS_NOMBRE[categoria] || categoria}
+                      <div
+                        onClick={() => toggleCategoria(categoria)}
+                        style={{
+                          padding: '10px 16px',
+                          background: 'var(--bg-secondary)',
+                          fontWeight: '600',
+                          borderBottom: expandida ? '1px solid var(--border-primary)' : 'none',
+                          color: 'var(--text-primary)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          userSelect: 'none'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            transition: 'transform 0.2s',
+                            transform: expandida ? 'rotate(90deg)' : 'rotate(0deg)'
+                          }}>
+                            ▶
+                          </span>
+                          {CATEGORIAS_NOMBRE[categoria] || categoria}
+                        </div>
+                        <span style={{
+                          fontSize: '12px',
+                          color: 'var(--text-secondary)',
+                          fontWeight: 'normal'
+                        }}>
+                          {permisosActivos}/{permisos.length}
+                        </span>
                       </div>
-                      <div style={{ padding: '8px 16px', background: 'var(--bg-primary)' }}>
+                      {expandida && (
+                      <div style={{ padding: '8px 16px', background: 'var(--bg-primary)', maxHeight: '300px', overflowY: 'auto' }}>
                         {permisos.map(permiso => {
                           const tieneOverride = permiso.override !== null;
                           const esOverridePositivo = permiso.override === true;
@@ -408,8 +495,10 @@ export default function PanelPermisos() {
                           );
                         })}
                       </div>
+                      )}
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               )}
             </>
