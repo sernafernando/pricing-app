@@ -25,6 +25,11 @@ class PermisosService:
         Returns:
             Set de códigos de permisos que el usuario tiene
         """
+        # SUPERADMIN siempre tiene TODOS los permisos
+        if usuario.es_superadmin:
+            todos_permisos = self.db.query(Permiso.codigo).all()
+            return {p.codigo for p in todos_permisos}
+
         # Obtener permisos base del rol (usando rol_id si existe, sino fallback a rol enum)
         if usuario.rol_id:
             permisos_rol = self._obtener_permisos_rol_por_id(usuario.rol_id)
@@ -230,10 +235,13 @@ class PermisosService:
         Obtiene información detallada de permisos de un usuario.
         Incluye qué permisos vienen del rol y cuáles son overrides.
         """
+        es_superadmin = usuario.es_superadmin
+
         if usuario.rol_id:
             permisos_rol = set(self._obtener_permisos_rol_por_id(usuario.rol_id))
         else:
             permisos_rol = set(self._obtener_permisos_rol_por_codigo(usuario.rol.value if usuario.rol else "VENTAS"))
+
         overrides = {o.permiso.codigo: o.concedido
                      for o in self.db.query(UsuarioPermisoOverride).join(Permiso).filter(
                          UsuarioPermisoOverride.usuario_id == usuario.id
@@ -251,7 +259,11 @@ class PermisosService:
             override = overrides.get(p.codigo)
 
             # Calcular estado efectivo
-            if override is not None:
+            # SUPERADMIN siempre tiene todos los permisos efectivos
+            if es_superadmin:
+                efectivo = True
+                origen = 'superadmin'
+            elif override is not None:
                 efectivo = override
                 origen = 'override_agregado' if override else 'override_quitado'
             else:
