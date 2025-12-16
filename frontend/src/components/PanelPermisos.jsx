@@ -208,10 +208,10 @@ export default function PanelPermisos() {
               borderRadius: '6px',
               cursor: 'pointer',
               backgroundColor: usuarioSeleccionado?.id === usuario.id
-                ? 'var(--primary-color)'
+                ? 'var(--primary)'
                 : 'var(--bg-secondary)',
               color: usuarioSeleccionado?.id === usuario.id
-                ? 'white'
+                ? 'var(--text-inverse)'
                 : 'var(--text-primary)',
               transition: 'all 0.2s'
             }}
@@ -243,8 +243,8 @@ export default function PanelPermisos() {
             padding: '10px 15px',
             marginBottom: '15px',
             borderRadius: '6px',
-            backgroundColor: mensaje.tipo === 'error' ? '#fee2e2' : '#d1fae5',
-            color: mensaje.tipo === 'error' ? '#dc2626' : '#059669'
+            backgroundColor: mensaje.tipo === 'error' ? 'var(--error-bg)' : 'var(--success-bg)',
+            color: mensaje.tipo === 'error' ? 'var(--error-text)' : 'var(--success-text)'
           }}>
             {mensaje.texto}
           </div>
@@ -276,19 +276,19 @@ export default function PanelPermisos() {
               </div>
               <div style={{ marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' }}>
                 <span style={{ marginRight: '15px' }}>
-                  <span style={{ display: 'inline-block', width: '12px', height: '12px', backgroundColor: '#22c55e', borderRadius: '2px', marginRight: '5px' }}></span>
+                  <span style={{ display: 'inline-block', width: '12px', height: '12px', backgroundColor: 'var(--success)', borderRadius: '2px', marginRight: '5px' }}></span>
                   Permiso activo
                 </span>
                 <span style={{ marginRight: '15px' }}>
-                  <span style={{ display: 'inline-block', width: '12px', height: '12px', backgroundColor: '#ef4444', borderRadius: '2px', marginRight: '5px' }}></span>
+                  <span style={{ display: 'inline-block', width: '12px', height: '12px', backgroundColor: 'var(--error)', borderRadius: '2px', marginRight: '5px' }}></span>
                   Sin permiso
                 </span>
                 <span style={{ marginRight: '15px' }}>
-                  <span style={{ display: 'inline-block', width: '12px', height: '12px', backgroundColor: '#3b82f6', borderRadius: '2px', marginRight: '5px' }}></span>
+                  <span style={{ display: 'inline-block', width: '12px', height: '12px', backgroundColor: 'var(--primary)', borderRadius: '2px', marginRight: '5px' }}></span>
                   Override agregado
                 </span>
                 <span>
-                  <span style={{ display: 'inline-block', width: '12px', height: '12px', backgroundColor: '#f59e0b', borderRadius: '2px', marginRight: '5px' }}></span>
+                  <span style={{ display: 'inline-block', width: '12px', height: '12px', backgroundColor: 'var(--warning)', borderRadius: '2px', marginRight: '5px' }}></span>
                   Override quitado
                 </span>
               </div>
@@ -314,11 +314,11 @@ export default function PanelPermisos() {
                     let borderColor = 'transparent';
 
                     if (esOverridePositivo) {
-                      bgColor = 'rgba(59, 130, 246, 0.1)';
-                      borderColor = '#3b82f6';
+                      bgColor = 'var(--info-bg)';
+                      borderColor = 'var(--primary)';
                     } else if (esOverrideNegativo) {
-                      bgColor = 'rgba(245, 158, 11, 0.1)';
-                      borderColor = '#f59e0b';
+                      bgColor = 'var(--warning-bg)';
+                      borderColor = 'var(--warning)';
                     }
 
                     return (
@@ -348,8 +348,8 @@ export default function PanelPermisos() {
                               <span style={{
                                 fontSize: '10px',
                                 padding: '2px 5px',
-                                backgroundColor: '#fee2e2',
-                                color: '#dc2626',
+                                backgroundColor: 'var(--error-bg)',
+                                color: 'var(--error-text)',
                                 borderRadius: '3px'
                               }}>
                                 CRÍTICO
@@ -359,8 +359,8 @@ export default function PanelPermisos() {
                               <span style={{
                                 fontSize: '10px',
                                 padding: '2px 5px',
-                                backgroundColor: esOverridePositivo ? '#dbeafe' : '#fef3c7',
-                                color: esOverridePositivo ? '#1d4ed8' : '#b45309',
+                                backgroundColor: esOverridePositivo ? 'var(--info-bg)' : 'var(--warning-bg)',
+                                color: esOverridePositivo ? 'var(--info-text)' : 'var(--warning-text)',
                                 borderRadius: '3px'
                               }}>
                                 {esOverridePositivo ? 'AGREGADO' : 'QUITADO'}
@@ -413,8 +413,8 @@ export default function PanelPermisos() {
                                   style={{
                                     padding: '5px 10px',
                                     fontSize: '12px',
-                                    backgroundColor: '#fef3c7',
-                                    color: '#b45309',
+                                    backgroundColor: 'var(--warning-bg)',
+                                    color: 'var(--warning-text)',
                                     border: 'none',
                                     borderRadius: '4px',
                                     cursor: guardando ? 'not-allowed' : 'pointer'
@@ -430,8 +430,8 @@ export default function PanelPermisos() {
                                   style={{
                                     padding: '5px 10px',
                                     fontSize: '12px',
-                                    backgroundColor: '#dbeafe',
-                                    color: '#1d4ed8',
+                                    backgroundColor: 'var(--info-bg)',
+                                    color: 'var(--info-text)',
                                     border: 'none',
                                     borderRadius: '4px',
                                     cursor: guardando ? 'not-allowed' : 'pointer'
@@ -449,11 +449,11 @@ export default function PanelPermisos() {
                             width: '24px',
                             height: '24px',
                             borderRadius: '4px',
-                            backgroundColor: permiso.efectivo ? '#22c55e' : '#ef4444',
+                            backgroundColor: permiso.efectivo ? 'var(--success)' : 'var(--error)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            color: 'white',
+                            color: 'var(--text-inverse)',
                             fontSize: '14px',
                             fontWeight: 'bold'
                           }}>

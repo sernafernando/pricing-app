@@ -23,6 +23,10 @@
   --brand-primary: #3b82f6;
   --brand-primary-hover: #2563eb;
   --brand-primary-light: #dbeafe;
+  --primary: #3b82f6;
+  --primary-light: #eff6ff;
+  --danger: #ef4444;
+  --purple: #8b5cf6;
 
   /* Accent */
   --accent-bg: #dbeafe;
@@ -33,6 +37,7 @@
   --success-hover: #059669;
   --success-light: #d1fae5;
   --success-text: #065f46;
+  --success-bg: #dcfce7;
 
   /* Warning */
   --warning: #f59e0b;
@@ -46,12 +51,14 @@
   --error-hover: #dc2626;
   --error-light: #fee2e2;
   --error-text: #991b1b;
+  --error-bg: #fee2e2;
 
   /* Info */
   --info: #8b5cf6;
   --info-hover: #7c3aed;
   --info-light: #ede9fe;
   --info-text: #5b21b6;
+  --info-bg: #dbeafe;
 
   /* Shadows */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
@@ -93,6 +100,10 @@
   --brand-primary: #60a5fa;
   --brand-primary-hover: #3b82f6;
   --brand-primary-light: #1e3a8a;
+  --primary: #60a5fa;
+  --primary-light: #1e3a5a;
+  --danger: #f87171;
+  --purple: #a78bfa;
 
   /* Accent */
   --accent-bg: #1e3a8a;
@@ -103,6 +114,7 @@
   --success-hover: #10b981;
   --success-light: #064e3b;
   --success-text: #6ee7b7;
+  --success-bg: #064e3b;
 
   /* Warning - ajustado para dark mode */
   --warning: #fbbf24;
@@ -116,12 +128,14 @@
   --error-hover: #ef4444;
   --error-light: #7f1d1d;
   --error-text: #fca5a5;
+  --error-bg: #7f1d1d;
 
   /* Info - ajustado para dark mode */
   --info: #a78bfa;
   --info-hover: #8b5cf6;
   --info-light: #4c1d95;
   --info-text: #c4b5fd;
+  --info-bg: #1e3a5a;
 
   /* Shadows - más sutiles en dark mode */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);

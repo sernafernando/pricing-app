@@ -257,8 +257,8 @@ export default function PanelRoles() {
           padding: '12px 16px',
           marginBottom: '16px',
           borderRadius: '8px',
-          background: mensaje.tipo === 'success' ? '#dcfce7' : '#fee2e2',
-          color: mensaje.tipo === 'success' ? '#166534' : '#991b1b',
+          background: mensaje.tipo === 'success' ? 'var(--success-bg)' : 'var(--error-bg)',
+          color: mensaje.tipo === 'success' ? 'var(--success-text)' : 'var(--error-text)',
           fontWeight: '500'
         }}>
           {mensaje.texto}
@@ -278,8 +278,8 @@ export default function PanelRoles() {
               }}
               style={{
                 padding: '6px 12px',
-                background: '#3b82f6',
-                color: 'white',
+                background: 'var(--primary)',
+                color: 'var(--text-inverse)',
                 border: 'none',
                 borderRadius: '4px',
                 cursor: 'pointer',
@@ -293,13 +293,13 @@ export default function PanelRoles() {
           {/* Form crear/editar rol */}
           {mostrarFormRol && (
             <div style={{
-              background: '#f9fafb',
+              background: 'var(--bg-secondary)',
               padding: '16px',
               borderRadius: '8px',
               marginBottom: '16px',
-              border: '1px solid #e5e7eb'
+              border: '1px solid var(--border-primary)'
             }}>
-              <h4 style={{ margin: '0 0 12px 0' }}>
+              <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)' }}>
                 {editandoRol ? 'Editar Rol' : 'Nuevo Rol'}
               </h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -312,8 +312,9 @@ export default function PanelRoles() {
                   style={{
                     padding: '8px',
                     borderRadius: '4px',
-                    border: '1px solid #d1d5db',
-                    background: editandoRol ? '#f3f4f6' : 'white'
+                    border: '1px solid var(--border-secondary)',
+                    background: editandoRol ? 'var(--bg-tertiary)' : 'var(--bg-primary)',
+                    color: 'var(--text-primary)'
                   }}
                 />
                 <input
@@ -321,14 +322,14 @@ export default function PanelRoles() {
                   placeholder="Nombre"
                   value={formRol.nombre}
                   onChange={(e) => setFormRol({ ...formRol, nombre: e.target.value })}
-                  style={{ padding: '8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+                  style={{ padding: '8px', borderRadius: '4px', border: '1px solid var(--border-secondary)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
                 />
                 <textarea
                   placeholder="Descripcion (opcional)"
                   value={formRol.descripcion}
                   onChange={(e) => setFormRol({ ...formRol, descripcion: e.target.value })}
                   rows={2}
-                  style={{ padding: '8px', borderRadius: '4px', border: '1px solid #d1d5db', resize: 'vertical' }}
+                  style={{ padding: '8px', borderRadius: '4px', border: '1px solid var(--border-secondary)', background: 'var(--bg-primary)', color: 'var(--text-primary)', resize: 'vertical' }}
                 />
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
@@ -337,8 +338,8 @@ export default function PanelRoles() {
                     style={{
                       flex: 1,
                       padding: '8px',
-                      background: '#10b981',
-                      color: 'white',
+                      background: 'var(--success)',
+                      color: 'var(--text-inverse)',
                       border: 'none',
                       borderRadius: '4px',
                       cursor: 'pointer'
@@ -354,8 +355,8 @@ export default function PanelRoles() {
                     }}
                     style={{
                       padding: '8px 16px',
-                      background: '#ef4444',
-                      color: 'white',
+                      background: 'var(--danger)',
+                      color: 'var(--text-inverse)',
                       border: 'none',
                       borderRadius: '4px',
                       cursor: 'pointer'
@@ -377,29 +378,29 @@ export default function PanelRoles() {
                 style={{
                   padding: '12px',
                   borderRadius: '8px',
-                  border: `2px solid ${rolSeleccionado?.id === rol.id ? '#3b82f6' : '#e5e7eb'}`,
-                  background: rolSeleccionado?.id === rol.id ? '#eff6ff' : 'white',
+                  border: `2px solid ${rolSeleccionado?.id === rol.id ? 'var(--primary)' : 'var(--border-primary)'}`,
+                  background: rolSeleccionado?.id === rol.id ? 'var(--primary-light)' : 'var(--bg-primary)',
                   cursor: 'pointer',
                   transition: 'all 0.15s'
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
-                    <div style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-primary)' }}>
                       {rol.nombre}
                       {rol.es_sistema && (
                         <span style={{
                           fontSize: '10px',
                           padding: '2px 6px',
-                          background: '#fef3c7',
-                          color: '#92400e',
+                          background: 'var(--warning-bg)',
+                          color: 'var(--warning-text)',
                           borderRadius: '4px'
                         }}>
                           SISTEMA
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                       {rol.codigo} - {rol.usuarios_count || 0} usuarios
                     </div>
                   </div>
@@ -410,8 +411,8 @@ export default function PanelRoles() {
                         title="Editar"
                         style={{
                           padding: '4px 8px',
-                          background: '#dbeafe',
-                          color: '#1e40af',
+                          background: 'var(--info-bg)',
+                          color: 'var(--info-text)',
                           border: 'none',
                           borderRadius: '4px',
                           cursor: 'pointer',
@@ -425,8 +426,8 @@ export default function PanelRoles() {
                         title="Eliminar"
                         style={{
                           padding: '4px 8px',
-                          background: '#fee2e2',
-                          color: '#991b1b',
+                          background: 'var(--error-bg)',
+                          color: 'var(--error-text)',
                           border: 'none',
                           borderRadius: '4px',
                           cursor: 'pointer',
@@ -439,7 +440,7 @@ export default function PanelRoles() {
                   )}
                 </div>
                 {rol.descripcion && (
-                  <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
                     {rol.descripcion}
                   </div>
                 )}
@@ -454,9 +455,9 @@ export default function PanelRoles() {
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <div>
-                  <h3 style={{ margin: 0 }}>Permisos de: {rolSeleccionado.nombre}</h3>
+                  <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>Permisos de: {rolSeleccionado.nombre}</h3>
                   {rolSeleccionado.codigo === 'SUPERADMIN' && (
-                    <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#6b7280' }}>
+                    <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
                       SUPERADMIN tiene todos los permisos por defecto
                     </p>
                   )}
@@ -468,8 +469,8 @@ export default function PanelRoles() {
                         onClick={() => setMostrarClonar(true)}
                         style={{
                           padding: '8px 16px',
-                          background: '#8b5cf6',
-                          color: 'white',
+                          background: 'var(--purple)',
+                          color: 'var(--text-inverse)',
                           border: 'none',
                           borderRadius: '6px',
                           cursor: 'pointer',
@@ -483,8 +484,8 @@ export default function PanelRoles() {
                         disabled={guardando}
                         style={{
                           padding: '8px 16px',
-                          background: '#10b981',
-                          color: 'white',
+                          background: 'var(--success)',
+                          color: 'var(--text-inverse)',
                           border: 'none',
                           borderRadius: '6px',
                           cursor: 'pointer',
@@ -513,34 +514,35 @@ export default function PanelRoles() {
                   zIndex: 1000
                 }}>
                   <div style={{
-                    background: 'white',
+                    background: 'var(--bg-primary)',
                     padding: '24px',
                     borderRadius: '12px',
                     width: '400px',
-                    maxWidth: '90%'
+                    maxWidth: '90%',
+                    border: '1px solid var(--border-primary)'
                   }}>
-                    <h3 style={{ margin: '0 0 16px' }}>Clonar Rol: {rolSeleccionado.nombre}</h3>
+                    <h3 style={{ margin: '0 0 16px', color: 'var(--text-primary)' }}>Clonar Rol: {rolSeleccionado.nombre}</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       <input
                         type="text"
                         placeholder="Codigo del nuevo rol"
                         value={clonarData.nuevo_codigo}
                         onChange={(e) => setClonarData({ ...clonarData, nuevo_codigo: e.target.value.toUpperCase() })}
-                        style={{ padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                        style={{ padding: '10px', borderRadius: '6px', border: '1px solid var(--border-secondary)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
                       />
                       <input
                         type="text"
                         placeholder="Nombre del nuevo rol"
                         value={clonarData.nuevo_nombre}
                         onChange={(e) => setClonarData({ ...clonarData, nuevo_nombre: e.target.value })}
-                        style={{ padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                        style={{ padding: '10px', borderRadius: '6px', border: '1px solid var(--border-secondary)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
                       />
                       <textarea
                         placeholder="Descripcion (opcional)"
                         value={clonarData.descripcion}
                         onChange={(e) => setClonarData({ ...clonarData, descripcion: e.target.value })}
                         rows={2}
-                        style={{ padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', resize: 'vertical' }}
+                        style={{ padding: '10px', borderRadius: '6px', border: '1px solid var(--border-secondary)', background: 'var(--bg-primary)', color: 'var(--text-primary)', resize: 'vertical' }}
                       />
                       <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                         <button
@@ -549,8 +551,8 @@ export default function PanelRoles() {
                           style={{
                             flex: 1,
                             padding: '10px',
-                            background: '#8b5cf6',
-                            color: 'white',
+                            background: 'var(--purple)',
+                            color: 'var(--text-inverse)',
                             border: 'none',
                             borderRadius: '6px',
                             cursor: 'pointer'
@@ -565,8 +567,8 @@ export default function PanelRoles() {
                           }}
                           style={{
                             padding: '10px 20px',
-                            background: '#6b7280',
-                            color: 'white',
+                            background: 'var(--text-secondary)',
+                            color: 'var(--text-inverse)',
                             border: 'none',
                             borderRadius: '6px',
                             cursor: 'pointer'
@@ -584,19 +586,20 @@ export default function PanelRoles() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {Object.entries(catalogo).map(([categoria, permisos]) => (
                   <div key={categoria} style={{
-                    border: '1px solid #e5e7eb',
+                    border: '1px solid var(--border-primary)',
                     borderRadius: '8px',
                     overflow: 'hidden'
                   }}>
                     <div style={{
                       padding: '10px 16px',
-                      background: '#f9fafb',
+                      background: 'var(--bg-secondary)',
                       fontWeight: '600',
-                      borderBottom: '1px solid #e5e7eb'
+                      borderBottom: '1px solid var(--border-primary)',
+                      color: 'var(--text-primary)'
                     }}>
                       {CATEGORIAS_NOMBRE[categoria] || categoria}
                     </div>
-                    <div style={{ padding: '8px 16px' }}>
+                    <div style={{ padding: '8px 16px', background: 'var(--bg-primary)' }}>
                       {permisos.map(permiso => {
                         const tienePermiso = permisosRol.includes(permiso.codigo);
                         const esSuperadmin = rolSeleccionado.codigo === 'SUPERADMIN';
@@ -609,25 +612,25 @@ export default function PanelRoles() {
                               alignItems: 'center',
                               justifyContent: 'space-between',
                               padding: '8px 0',
-                              borderBottom: '1px solid #f3f4f6'
+                              borderBottom: '1px solid var(--bg-tertiary)'
                             }}
                           >
                             <div style={{ flex: 1 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontWeight: '500' }}>{permiso.nombre}</span>
+                                <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>{permiso.nombre}</span>
                                 {permiso.es_critico && (
                                   <span style={{
                                     fontSize: '10px',
                                     padding: '2px 6px',
-                                    background: '#fee2e2',
-                                    color: '#991b1b',
+                                    background: 'var(--error-bg)',
+                                    color: 'var(--error-text)',
                                     borderRadius: '4px'
                                   }}>
                                     CRITICO
                                   </span>
                                 )}
                               </div>
-                              <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                                 {permiso.codigo}
                                 {permiso.descripcion && ` - ${permiso.descripcion}`}
                               </div>
@@ -658,7 +661,7 @@ export default function PanelRoles() {
               </div>
             </>
           ) : (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#6b7280' }}>
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)' }}>
               <p style={{ fontSize: '16px' }}>Selecciona un rol para ver y editar sus permisos</p>
             </div>
           )}
