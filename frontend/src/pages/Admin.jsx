@@ -12,19 +12,6 @@ export default function Admin() {
   const [logSync, setLogSync] = useState([]);
   const [comisiones, setComisiones] = useState([]);
   const [tipoCambio, setTipoCambio] = useState(null);
-  const [usuarios, setUsuarios] = useState([]);
-  const [usuarioActual, setUsuarioActual] = useState(null);
-  const [mostrarFormUsuario, setMostrarFormUsuario] = useState(false);
-  const [nuevoUsuario, setNuevoUsuario] = useState({
-    email: '',
-    nombre: '',
-    password: '',
-    rol: 'user'
-  });
-  const [editandoUsuario, setEditandoUsuario] = useState(null);
-  const [datosEdicion, setDatosEdicion] = useState({});
-  const [cambiandoPassword, setCambiandoPassword] = useState(null);
-  const [nuevaPassword, setNuevaPassword] = useState('');
 
   // Modal de confirmación de limpieza
   const [mostrarModalLimpieza, setMostrarModalLimpieza] = useState(false);
@@ -39,33 +26,11 @@ export default function Admin() {
   const cargarDatos = async () => {
     try {
       const token = localStorage.getItem('token');
-      
+
       // Cargar tipo de cambio actual
-      const tcRes = await axios.get('https://pricing.gaussonline.com.ar/api/tipo-cambio/actual', 
+      const tcRes = await axios.get('https://pricing.gaussonline.com.ar/api/tipo-cambio/actual',
         { headers: { Authorization: `Bearer ${token}` }});
       setTipoCambio(tcRes.data);
-
-      // Obtener usuario actual
-	  const meRes = await axios.get('https://pricing.gaussonline.com.ar/api/auth/me',
-	    { headers: { Authorization: `Bearer ${token}` }});
-	    
-	  const currentUser = meRes.data;
-	    
-	  // Cargar usuarios
-	  const usuariosRes = await axios.get('https://pricing.gaussonline.com.ar/api/usuarios',
-	    { headers: { Authorization: `Bearer ${token}` }});
-	    
-	  let usuariosFiltrados = usuariosRes.data;
-	    
-	  // Si es ADMIN, no puede ver SUPERADMIN
-      if (currentUser.rol === 'ADMIN') {
-	    usuariosFiltrados = usuariosFiltrados.filter(u => u.rol !== 'SUPERADMIN');
-	  }
-	   
-	  setUsuarios(usuariosFiltrados);
-	  setUsuarioActual(currentUser);
-
-      // TODO: Cargar comisiones cuando esté el endpoint
     } catch (error) {
       console.error('Error cargando datos:', error);
     }
@@ -146,83 +111,6 @@ export default function Admin() {
     }
   };
 
-  const guardarEdicion = async (usuarioId) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      // Solo enviar los campos que cambiaron
-      const cambios = {};
-      if (datosEdicion.nombre !== undefined) cambios.nombre = datosEdicion.nombre;
-      if (datosEdicion.rol !== undefined) cambios.rol = datosEdicion.rol;
-      
-      console.log('Guardando cambios:', cambios); // Debug
-      
-      await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/usuarios/${usuarioId}`,
-        cambios,
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
-  
-      alert('✅ Usuario actualizado');
-      setEditandoUsuario(null);
-      setDatosEdicion({});
-      cargarDatos();
-    } catch (error) {
-      console.error('Error completo:', error.response); // Debug
-      alert('❌ Error: ' + (error.response?.data?.detail || error.message));
-    }
-  };
-  
-  const crearUsuario = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.post('https://pricing.gaussonline.com.ar/api/usuarios', nuevoUsuario, 
-        { headers: { Authorization: `Bearer ${token}` }});
-      
-      alert('✅ Usuario creado');
-      setMostrarFormUsuario(false);
-      setNuevoUsuario({ email: '', nombre: '', password: '', rol: 'user' });
-      cargarDatos();
-    } catch (error) {
-      alert('❌ Error: ' + (error.response?.data?.detail || error.message));
-    }
-  };
-  
-  const toggleUsuario = async (id, activo) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.patch(`https://pricing.gaussonline.com.ar/api/usuarios/${id}`,
-        { activo: !activo },
-        { headers: { Authorization: `Bearer ${token}` }});
-
-      cargarDatos();
-    } catch (error) {
-      alert('❌ Error al modificar usuario');
-    }
-  };
-
-  const cambiarPassword = async (usuarioId) => {
-    if (!nuevaPassword || nuevaPassword.length < 6) {
-      alert('❌ La contraseña debe tener al menos 6 caracteres');
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem('token');
-      await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/usuarios/${usuarioId}/password`,
-        { nueva_password: nuevaPassword },
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
-
-      alert('✅ Contraseña actualizada correctamente');
-      setCambiandoPassword(null);
-      setNuevaPassword('');
-    } catch (error) {
-      alert('❌ Error: ' + (error.response?.data?.detail || error.message));
-    }
-  };
-
   const abrirModalLimpieza = (tipo) => {
     // Palabras fijas para cada tipo de limpieza
     const palabrasPorTipo = {
@@ -300,7 +188,7 @@ export default function Admin() {
           className={`${styles.tab} ${tabActiva === 'permisos' ? styles.tabActive : ''}`}
           onClick={() => setTabActiva('permisos')}
         >
-          Permisos
+          Usuarios
         </button>
         <button
           className={`${styles.tab} ${tabActiva === 'roles' ? styles.tabActive : ''}`}
@@ -388,284 +276,7 @@ export default function Admin() {
 	  	      🧹 Limpiar Web Transferencia
 	  	    </button>
 	  	  </div>
-	  	</div>	
-    	  
-
-     {/* Sección Usuarios */}
-      <div className={styles.section}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 className={styles.sectionTitle}>Gestión de Usuarios</h2>
-          <button 
-            onClick={() => setMostrarFormUsuario(!mostrarFormUsuario)}
-            className={styles.syncButton}
-            style={{ padding: '8px 16px', fontSize: '14px' }}
-          >
-            {mostrarFormUsuario ? '❌ Cancelar' : '➕ Nuevo Usuario'}
-          </button>
-        </div>
-      
-        {mostrarFormUsuario && (
-          <div style={{ 
-            background: '#f9fafb', 
-            padding: '20px', 
-            borderRadius: '8px', 
-            marginBottom: '20px',
-            border: '1px solid #e5e7eb'
-          }}>
-            <h3 style={{ marginBottom: '16px' }}>Crear Nuevo Usuario</h3>
-            <div style={{ display: 'grid', gap: '12px' }}>
-              <input
-                type="email"
-                placeholder="Email"
-                value={nuevoUsuario.email}
-                onChange={(e) => setNuevoUsuario({...nuevoUsuario, email: e.target.value})}
-                style={{ padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db' }}
-              />
-              <input
-                type="text"
-                placeholder="Nombre completo"
-                value={nuevoUsuario.nombre}
-                onChange={(e) => setNuevoUsuario({...nuevoUsuario, nombre: e.target.value})}
-                style={{ padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db' }}
-              />
-              <input
-                type="password"
-                placeholder="Contraseña"
-                value={nuevoUsuario.password}
-                onChange={(e) => setNuevoUsuario({...nuevoUsuario, password: e.target.value})}
-                style={{ padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db' }}
-              />
-              <select
-                value={nuevoUsuario.rol || datosEdicion.rol}
-                onChange={(e) => nuevoUsuario.rol 
-                  ? setNuevoUsuario({...nuevoUsuario, rol: e.target.value})
-                  : setDatosEdicion({...datosEdicion, rol: e.target.value})
-                }
-                style={{ padding: '8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
-              >
-                {usuarioActual?.rol === 'SUPERADMIN' && <option value="SUPERADMIN">Superadmin</option>}
-                <option value="ADMIN">Admin</option>
-                <option value="GERENTE">Gerente</option>
-                <option value="PRICING">Pricing</option>
-                <option value="VENTAS">Ventas</option>
-              </select>
-              <button 
-                onClick={crearUsuario}
-                className={styles.syncButton}
-              >
-                Crear Usuario
-              </button>
-            </div>
-          </div>
-        )}
-      
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left' }}>
-              <th style={{ padding: '12px' }}>Email</th>
-              <th style={{ padding: '12px' }}>Nombre</th>
-              <th style={{ padding: '12px' }}>Rol</th>
-              <th style={{ padding: '12px' }}>Estado</th>
-              <th style={{ padding: '12px' }}>Acciones</th>
-            </tr>
-          </thead>
-         <tbody>
-            {usuarios.map(user => (
-              <tr key={user.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                <td style={{ padding: '12px' }}>{user.email}</td>
-                
-                {/* Nombre editable */}
-                <td style={{ padding: '12px' }}>
-                  {editandoUsuario === user.id ? (
-                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                      <input
-                        type="text"
-                        value={datosEdicion.nombre ?? user.nombre}
-                        onChange={(e) => setDatosEdicion({...datosEdicion, nombre: e.target.value})}
-                        style={{ padding: '6px', borderRadius: '4px', border: '1px solid #d1d5db', flex: 1 }}
-                      />
-                      <button
-                        onClick={() => guardarEdicion(user.id)}
-                        style={{
-                          padding: '6px 10px',
-                          background: '#10b981',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        ✓
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEditandoUsuario(null);
-                          setDatosEdicion({});
-                        }}
-                        style={{
-                          padding: '6px 10px',
-                          background: '#ef4444',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        ✗
-                      </button>
-                    </div>
-                  ) : (
-                    <span 
-                      onClick={() => setEditandoUsuario(user.id)}
-                      style={{ cursor: 'pointer', borderBottom: '1px dashed #ccc' }}
-                    >
-                      {user.nombre}
-                    </span>
-                  )}
-                </td>
-                
-                {/* Rol editable */}
-                <td style={{ padding: '12px' }}>
-                  {editandoUsuario === user.id ? (
-                    <select
-                      value={datosEdicion.rol ?? user.rol}
-                      onChange={(e) => setDatosEdicion({...datosEdicion, rol: e.target.value})}
-                      style={{ padding: '6px', borderRadius: '4px', border: '1px solid #d1d5db' }}
-                    >
-                      {usuarioActual?.rol === 'SUPERADMIN' && <option value="SUPERADMIN">Superadmin</option>}
-                      <option value="ADMIN">Admin</option>
-                      <option value="GERENTE">Gerente</option>
-                      <option value="PRICING">Pricing</option>
-                      <option value="VENTAS">Ventas</option>
-                    </select>
-                  ) : (
-                    <span style={{
-                      padding: '4px 8px',
-                      borderRadius: '4px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      background:
-                        user.rol === 'SUPERADMIN' ? '#fef3c7' :
-                        user.rol === 'ADMIN' ? '#dbeafe' :
-                        user.rol === 'GERENTE' ? '#e0e7ff' :
-                        user.rol === 'PRICING' ? '#d1fae5' : 
-                        user.rol === 'VENTAS' ? '#fce7f3' : '#f3f4f6',
-                      color:
-                        user.rol === 'SUPERADMIN' ? '#92400e' :
-                        user.rol === 'ADMIN' ? '#1e40af' :
-                        user.rol === 'GERENTE' ? '#4338ca' :
-                        user.rol === 'PRICING' ? '#065f46' :
-                        user.rol === 'VENTAS' ? '#be185d' : '#374151'
-                    }}>
-                      {user.rol === 'SUPERADMIN' ? '👑 Superadmin' :
-                       user.rol === 'ADMIN' ? '⚙️ Admin' :
-                       user.rol === 'GERENTE' ? '📊 Gerente' :
-                       user.rol === 'PRICING' ? '💰 Pricing' : 
-                       user.rol === 'VENTAS' ? '🤝 Ventas' : user.rol}
-                    </span>
-                  )}
-                </td>
-                
-                {/* Estado */}
-                <td style={{ padding: '12px' }}>
-                  <span style={{
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    background: user.activo ? '#dcfce7' : '#fee2e2',
-                    color: user.activo ? '#166534' : '#991b1b'
-                  }}>
-                    {user.activo ? '✅ Activo' : '❌ Inactivo'}
-                  </span>
-                </td>
-                
-                {/* Acciones */}
-                <td style={{ padding: '12px' }}>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button
-                      onClick={() => toggleUsuario(user.id, user.activo)}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        background: user.activo ? '#fee2e2' : '#dcfce7',
-                        color: user.activo ? '#991b1b' : '#166534',
-                        cursor: 'pointer',
-                        fontSize: '13px'
-                      }}
-                    >
-                      {user.activo ? 'Desactivar' : 'Activar'}
-                    </button>
-
-                    {cambiandoPassword === user.id ? (
-                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                        <input
-                          type="password"
-                          placeholder="Nueva contraseña"
-                          value={nuevaPassword}
-                          onChange={(e) => setNuevaPassword(e.target.value)}
-                          style={{
-                            padding: '6px',
-                            borderRadius: '4px',
-                            border: '1px solid #d1d5db',
-                            fontSize: '13px',
-                            width: '150px'
-                          }}
-                        />
-                        <button
-                          onClick={() => cambiarPassword(user.id)}
-                          style={{
-                            padding: '6px 10px',
-                            background: '#10b981',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          ✓
-                        </button>
-                        <button
-                          onClick={() => {
-                            setCambiandoPassword(null);
-                            setNuevaPassword('');
-                          }}
-                          style={{
-                            padding: '6px 10px',
-                            background: '#ef4444',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          ✗
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setCambiandoPassword(user.id)}
-                        style={{
-                          padding: '6px 12px',
-                          borderRadius: '4px',
-                          border: 'none',
-                          background: '#dbeafe',
-                          color: '#1e40af',
-                          cursor: 'pointer',
-                          fontSize: '13px'
-                        }}
-                      >
-                        🔑 Cambiar Password
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+	  	</div>
       </>
       )}
 
@@ -689,10 +300,10 @@ export default function Admin() {
       {mostrarModalLimpieza && (
         <div className={styles.modalOverlay}>
           <div className={styles.modalContent}>
-            <h2 className={styles.modalTitle}>⚠️ Confirmar Limpieza Masiva</h2>
+            <h2 className={styles.modalTitle}>Confirmar Limpieza Masiva</h2>
 
             <div className={styles.modalInfo}>
-              <p><strong>Acción:</strong> {tipoLimpieza === 'rebate' ? 'Limpiar Rebate' : 'Limpiar Web Transferencia'}</p>
+              <p><strong>Accion:</strong> {tipoLimpieza === 'rebate' ? 'Limpiar Rebate' : 'Limpiar Web Transferencia'}</p>
               <p><strong>Afectará:</strong> TODOS los productos</p>
               <p style={{ color: '#dc2626', fontWeight: 'bold' }}>
                 Esta acción {tipoLimpieza === 'rebate' ? 'desactivará el rebate' : 'desactivará la web transferencia'} en todos los productos de la base de datos.
