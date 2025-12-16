@@ -42,15 +42,21 @@ export default function SmartRedirect() {
   // Buscar la primera ruta a la que tenga acceso
   for (const ruta of rutas) {
     if (ruta.permisos) {
-      if (tieneAlgunPermiso(ruta.permisos)) {
+      const tiene = tieneAlgunPermiso(ruta.permisos);
+      console.log(`SmartRedirect: ${ruta.path} (permisos: ${ruta.permisos.join(', ')}) = ${tiene}`);
+      if (tiene) {
         return <Navigate to={ruta.path} replace />;
       }
     } else if (ruta.permiso) {
-      if (tienePermiso(ruta.permiso)) {
+      const tiene = tienePermiso(ruta.permiso);
+      console.log(`SmartRedirect: ${ruta.path} (permiso: ${ruta.permiso}) = ${tiene}`);
+      if (tiene) {
         return <Navigate to={ruta.path} replace />;
       }
     }
   }
+
+  console.log('SmartRedirect: No se encontró ninguna ruta con permiso');
 
   // Si no tiene acceso a ninguna ruta, mostrar mensaje
   return (

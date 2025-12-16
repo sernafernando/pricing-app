@@ -30,12 +30,14 @@ export default function Navbar() {
   const [facturadoHoy, setFacturadoHoy] = useState(null);
 
   // Permisos para el navbar
+  const puedeVerProductos = tienePermiso('productos.ver');
   const puedeVerAdmin = tienePermiso('admin.ver_panel');
   const puedeVerGestionPMs = tienePermiso('admin.gestionar_pms');
   const puedeVerHistorial = tienePermiso('productos.ver_auditoria');
   const puedeVerBanlist = tienePermiso('admin.gestionar_mla_banlist');
   const puedeVerItemsSinMLA = tienePermiso('admin.gestionar_mla_banlist');
   const puedeVerTienda = tienePermiso('productos.ver_tienda');
+  const puedeVerPreciosListas = tienePermiso('productos.ver');
   const puedeVerDashboardVentas = tieneAlgunPermiso(['ventas_ml.ver_dashboard', 'ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard']);
   const puedeVerMetricasML = tienePermiso('ventas_ml.ver_dashboard');
   const puedeVerVentasFuera = tienePermiso('ventas_fuera.ver_dashboard');
@@ -99,12 +101,14 @@ export default function Navbar() {
 
         {/* Desktop Links */}
         <div className={styles.links}>
-          <Link
-            to="/productos"
-            className={`${styles.link} ${isActive('/productos') ? styles.active : ''}`}
-          >
-            📦 Productos
-          </Link>
+          {puedeVerProductos && (
+            <Link
+              to="/productos"
+              className={`${styles.link} ${isActive('/productos') ? styles.active : ''}`}
+            >
+              📦 Productos
+            </Link>
+          )}
 
           {puedeVerTienda && (
             <Link
@@ -115,12 +119,14 @@ export default function Navbar() {
             </Link>
           )}
 
-          <Link
-            to="/precios-listas"
-            className={`${styles.link} ${isActive('/precios-listas') ? styles.active : ''}`}
-          >
-            💰 Precios por Lista
-          </Link>
+          {puedeVerPreciosListas && (
+            <Link
+              to="/precios-listas"
+              className={`${styles.link} ${isActive('/precios-listas') ? styles.active : ''}`}
+            >
+              💰 Precios por Lista
+            </Link>
+          )}
 
           {puedeVerBanlist && (
             <Link
@@ -287,13 +293,15 @@ export default function Navbar() {
       {/* Mobile Menu */}
       {mobileMenuOpen && (
         <div className={styles.mobileMenu}>
-          <Link
-            to="/productos"
-            className={`${styles.mobileLink} ${isActive('/productos') ? styles.active : ''}`}
-            onClick={handleLinkClick}
-          >
-            📦 Productos
-          </Link>
+          {puedeVerProductos && (
+            <Link
+              to="/productos"
+              className={`${styles.mobileLink} ${isActive('/productos') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              📦 Productos
+            </Link>
+          )}
 
           {puedeVerTienda && (
             <Link
@@ -305,13 +313,15 @@ export default function Navbar() {
             </Link>
           )}
 
-          <Link
-            to="/precios-listas"
-            className={`${styles.mobileLink} ${isActive('/precios-listas') ? styles.active : ''}`}
-            onClick={handleLinkClick}
-          >
-            💰 Precios por Lista
-          </Link>
+          {puedeVerPreciosListas && (
+            <Link
+              to="/precios-listas"
+              className={`${styles.mobileLink} ${isActive('/precios-listas') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              💰 Precios por Lista
+            </Link>
+          )}
 
           {puedeVerBanlist && (
             <Link
