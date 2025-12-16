@@ -92,11 +92,11 @@ def sync_tienda_nube():
     db = SessionLocal()
 
     try:
-        # Desactivar todos los productos existentes
-        db.execute(text("UPDATE tienda_nube_productos SET activo = false"))
+        # Limpiar tabla completamente antes de insertar
+        print("🗑️  Limpiando tabla tienda_nube_productos...")
+        db.execute(text("TRUNCATE TABLE tienda_nube_productos RESTART IDENTITY"))
 
         productos_insertados = 0
-        productos_actualizados = 0
         productos_relacionados = 0
 
         for product in all_products:
@@ -144,72 +144,34 @@ def sync_tienda_nube():
                         item_id = result[0]
                         productos_relacionados += 1
 
-                # Verificar si existe
-                existing = db.execute(
+                # Insertar directamente (ya limpiamos la tabla)
+                db.execute(
                     text("""
-                        SELECT id FROM tienda_nube_productos
-                        WHERE product_id = :product_id AND variant_id = :variant_id
+                        INSERT INTO tienda_nube_productos (
+                            product_id, product_name, variant_id, variant_sku,
+                            price, compare_at_price, promotional_price, item_id, activo
+                        ) VALUES (
+                            :product_id, :product_name, :variant_id, :variant_sku,
+                            :price, :compare_at_price, :promotional_price, :item_id, true
+                        )
                     """),
-                    {"product_id": product_id, "variant_id": variant_id}
-                ).fetchone()
-
-                if existing:
-                    # Actualizar
-                    db.execute(
-                        text("""
-                            UPDATE tienda_nube_productos SET
-                                product_name = :product_name,
-                                variant_sku = :variant_sku,
-                                price = :price,
-                                compare_at_price = :compare_at_price,
-                                promotional_price = :promotional_price,
-                                item_id = :item_id,
-                                activo = true,
-                                fecha_actualizacion = NOW()
-                            WHERE product_id = :product_id AND variant_id = :variant_id
-                        """),
-                        {
-                            "product_id": product_id,
-                            "variant_id": variant_id,
-                            "product_name": product_name,
-                            "variant_sku": variant_sku,
-                            "price": price,
-                            "compare_at_price": compare_at_price,
-                            "promotional_price": promotional_price,
-                            "item_id": item_id
-                        }
-                    )
-                    productos_actualizados += 1
-                else:
-                    # Insertar
-                    db.execute(
-                        text("""
-                            INSERT INTO tienda_nube_productos (
-                                product_id, product_name, variant_id, variant_sku,
-                                price, compare_at_price, promotional_price, item_id, activo
-                            ) VALUES (
-                                :product_id, :product_name, :variant_id, :variant_sku,
-                                :price, :compare_at_price, :promotional_price, :item_id, true
-                            )
-                        """),
-                        {
-                            "product_id": product_id,
-                            "product_name": product_name,
-                            "variant_id": variant_id,
-                            "variant_sku": variant_sku,
-                            "price": price,
-                            "compare_at_price": compare_at_price,
-                            "promotional_price": promotional_price,
-                            "item_id": item_id
-                        }
-                    )
-                    productos_insertados += 1
+                    {
+                        "product_id": product_id,
+                        "product_name": product_name,
+                        "variant_id": variant_id,
+                        "variant_sku": variant_sku,
+                        "price": price,
+                        "compare_at_price": compare_at_price,
+                        "promotional_price": promotional_price,
+                        "item_id": item_id
+                    }
+                )
+                productos_insertados += 1
 
         db.commit()
 
         print("\n✅ Sincronización completada:")
-        print(f"  📝 Productos nuevos: {productos_insertados}")
-        print(f"  🔄 Productos actualizados: {productos_actualizados}")
+        print(f"  📝 Productos insertados: {productos_insertados}")
         print(f"  🔗 Productos relacionados con ERP: {productos_relacionados}")
 
     except Exception as e:
