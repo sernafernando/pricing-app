@@ -565,17 +565,24 @@ export default function Productos() {
 
   // Copiar enlaces al clipboard con Ctrl+F1/F2/F3 o Ctrl+Shift+1/2/3 (alternativa para Linux)
   useEffect(() => {
+    console.log('🔧 useEffect shortcuts F1/F2/F3 montado');
     const handleKeyDown = (e) => {
+      // DEBUG: Log de todas las teclas con Ctrl
+      if (e.ctrlKey) {
+        console.log('🔑 Tecla con Ctrl:', { key: e.key, code: e.code, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey });
+      }
+
       // Detectar qué acción ejecutar (1=código, 2=enlace1, 3=enlace2)
       let accion = null;
 
       // Ctrl+F1/F2/F3 (con o sin Shift)
       if (e.ctrlKey && (e.key === 'F1' || e.key === 'F2' || e.key === 'F3')) {
-        console.log('🔑 Detectado Ctrl+' + e.key, { ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, key: e.key });
+        console.log('🔑 Detectado Ctrl+' + e.key);
         accion = e.key === 'F1' ? 1 : e.key === 'F2' ? 2 : 3;
       }
       // Ctrl+Shift+1/2/3 (alternativa para sistemas que capturan F1/F2)
       if (e.ctrlKey && e.shiftKey && (e.key === '!' || e.key === '@' || e.key === '#' || e.key === '1' || e.key === '2' || e.key === '3')) {
+        console.log('🔑 Detectado Ctrl+Shift+' + e.key);
         accion = (e.key === '1' || e.key === '!') ? 1 : (e.key === '2' || e.key === '@') ? 2 : 3;
       }
 
