@@ -175,8 +175,8 @@ export default function PanelPermisos() {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
 
-      await axios.patch(`${API_URL}/usuarios/${usuarioSeleccionado.id}`, {
-        password: nuevaPassword
+      await axios.patch(`${API_URL}/usuarios/${usuarioSeleccionado.id}/password`, {
+        nueva_password: nuevaPassword
       }, { headers });
 
       setMensaje({ tipo: 'success', texto: 'Contraseña actualizada correctamente' });
