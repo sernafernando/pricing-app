@@ -38,7 +38,7 @@ SCRIPT_CONFIG = {
     "scriptMLOrdersHeader": ["fromDate", "toDate", "mloId"],
     "scriptMLOrdersDetail": ["fromDate", "toDate", "mlodId"],
     "scriptMLOrdersShipping": ["fromDate", "toDate", "mlmId", "mloId", "MLshippingID"],
-    "scriptMLItemsPublicados": ["fromDate", "toDate", "mlpId", "itemID"],
+    "scriptMLItemsPublicados": ["fromDate", "toDate", "mlpId", "itemID", "mlaID"],
     "scriptItemCostListHistory": ["fromDate", "toDate", "iclhID"],
     "scriptItemCostList": ["fromDate", "toDate", "coslisID"],
     "scriptCurExchHistory": ["fromDate", "toDate","cehID"],
