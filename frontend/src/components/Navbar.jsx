@@ -146,80 +146,82 @@ export default function Navbar() {
             </Link>
           )}
 
-          {/* Dropdown Reportes */}
-          <div
-            className={styles.dropdown}
-            onMouseEnter={() => setDropdownOpen('reportes')}
-            onMouseLeave={() => setDropdownOpen(null)}
-          >
+          {/* Dropdown Reportes (solo si tiene algún permiso de reportes) */}
+          {(puedeVerDashboardVentas || puedeVerMetricasML || puedeVerVentasFuera || puedeVerTiendaNube || puedeVerCalculos || puedeVerHistorial) && (
             <div
-              className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-ventas', '/dashboard-metricas-ml', '/dashboard-ventas-fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
-              onClick={() => setDropdownOpen(dropdownOpen === 'reportes' ? null : 'reportes')}
+              className={styles.dropdown}
+              onMouseEnter={() => setDropdownOpen('reportes')}
+              onMouseLeave={() => setDropdownOpen(null)}
             >
-              📊 Reportes ▾
-            </div>
-            {dropdownOpen === 'reportes' && (
               <div
-                className={styles.dropdownMenu}
-                onMouseEnter={() => setDropdownOpen('reportes')}
+                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-ventas', '/dashboard-metricas-ml', '/dashboard-ventas-fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
+                onClick={() => setDropdownOpen(dropdownOpen === 'reportes' ? null : 'reportes')}
               >
-                {puedeVerDashboardVentas && (
-                  <Link
-                    to="/dashboard-ventas"
-                    className={`${styles.dropdownItem} ${isActive('/dashboard-ventas') ? styles.activeDropdown : ''}`}
-                    onClick={() => setDropdownOpen(null)}
-                  >
-                    📊 Dashboard Ventas
-                  </Link>
-                )}
-                {puedeVerMetricasML && (
-                  <Link
-                    to="/dashboard-metricas-ml"
-                    className={`${styles.dropdownItem} ${isActive('/dashboard-metricas-ml') ? styles.activeDropdown : ''}`}
-                    onClick={() => setDropdownOpen(null)}
-                  >
-                    📈 Métricas ML
-                  </Link>
-                )}
-                {puedeVerVentasFuera && (
-                  <Link
-                    to="/dashboard-ventas-fuera"
-                    className={`${styles.dropdownItem} ${isActive('/dashboard-ventas-fuera') ? styles.activeDropdown : ''}`}
-                    onClick={() => setDropdownOpen(null)}
-                  >
-                    🏪 Ventas por Fuera
-                  </Link>
-                )}
-                {puedeVerTiendaNube && (
-                  <Link
-                    to="/dashboard-tienda-nube"
-                    className={`${styles.dropdownItem} ${isActive('/dashboard-tienda-nube') ? styles.activeDropdown : ''}`}
-                    onClick={() => setDropdownOpen(null)}
-                  >
-                    🛒 Tienda Nube
-                  </Link>
-                )}
-                {puedeVerCalculos && (
-                  <Link
-                    to="/calculos"
-                    className={`${styles.dropdownItem} ${isActive('/calculos') ? styles.activeDropdown : ''}`}
-                    onClick={() => setDropdownOpen(null)}
-                  >
-                    🧮 Cálculos
-                  </Link>
-                )}
-                {puedeVerHistorial && (
-                  <Link
-                    to="/ultimos-cambios"
-                    className={`${styles.dropdownItem} ${isActive('/ultimos-cambios') ? styles.activeDropdown : ''}`}
-                    onClick={() => setDropdownOpen(null)}
-                  >
-                    📋 Últimos Cambios
-                  </Link>
-                )}
+                📊 Reportes ▾
               </div>
-            )}
-          </div>
+              {dropdownOpen === 'reportes' && (
+                <div
+                  className={styles.dropdownMenu}
+                  onMouseEnter={() => setDropdownOpen('reportes')}
+                >
+                  {puedeVerDashboardVentas && (
+                    <Link
+                      to="/dashboard-ventas"
+                      className={`${styles.dropdownItem} ${isActive('/dashboard-ventas') ? styles.activeDropdown : ''}`}
+                      onClick={() => setDropdownOpen(null)}
+                    >
+                      📊 Dashboard Ventas
+                    </Link>
+                  )}
+                  {puedeVerMetricasML && (
+                    <Link
+                      to="/dashboard-metricas-ml"
+                      className={`${styles.dropdownItem} ${isActive('/dashboard-metricas-ml') ? styles.activeDropdown : ''}`}
+                      onClick={() => setDropdownOpen(null)}
+                    >
+                      📈 Métricas ML
+                    </Link>
+                  )}
+                  {puedeVerVentasFuera && (
+                    <Link
+                      to="/dashboard-ventas-fuera"
+                      className={`${styles.dropdownItem} ${isActive('/dashboard-ventas-fuera') ? styles.activeDropdown : ''}`}
+                      onClick={() => setDropdownOpen(null)}
+                    >
+                      🏪 Ventas por Fuera
+                    </Link>
+                  )}
+                  {puedeVerTiendaNube && (
+                    <Link
+                      to="/dashboard-tienda-nube"
+                      className={`${styles.dropdownItem} ${isActive('/dashboard-tienda-nube') ? styles.activeDropdown : ''}`}
+                      onClick={() => setDropdownOpen(null)}
+                    >
+                      🛒 Tienda Nube
+                    </Link>
+                  )}
+                  {puedeVerCalculos && (
+                    <Link
+                      to="/calculos"
+                      className={`${styles.dropdownItem} ${isActive('/calculos') ? styles.activeDropdown : ''}`}
+                      onClick={() => setDropdownOpen(null)}
+                    >
+                      🧮 Cálculos
+                    </Link>
+                  )}
+                  {puedeVerHistorial && (
+                    <Link
+                      to="/ultimos-cambios"
+                      className={`${styles.dropdownItem} ${isActive('/ultimos-cambios') ? styles.activeDropdown : ''}`}
+                      onClick={() => setDropdownOpen(null)}
+                    >
+                      📋 Últimos Cambios
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Dropdown Gestión (solo si tiene permisos de gestión) */}
           {(puedeVerGestionPMs || puedeVerAdmin) && (
