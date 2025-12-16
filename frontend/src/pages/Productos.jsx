@@ -565,25 +565,29 @@ export default function Productos() {
 
   // Copiar enlaces al clipboard con Ctrl+F1/F2/F3 o Ctrl+Shift+1/2/3 (alternativa para Linux)
   useEffect(() => {
-    console.log('🔧 useEffect shortcuts F1/F2/F3 montado');
     const handleKeyDown = (e) => {
-      // DEBUG: Log de todas las teclas con Ctrl
-      if (e.ctrlKey) {
-        console.log('🔑 Tecla con Ctrl:', { key: e.key, code: e.code, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey });
-      }
-
       // Detectar qué acción ejecutar (1=código, 2=enlace1, 3=enlace2)
       let accion = null;
 
       // Ctrl+F1/F2/F3 (con o sin Shift)
       if (e.ctrlKey && (e.key === 'F1' || e.key === 'F2' || e.key === 'F3')) {
-        console.log('🔑 Detectado Ctrl+' + e.key);
         accion = e.key === 'F1' ? 1 : e.key === 'F2' ? 2 : 3;
       }
       // Ctrl+Shift+1/2/3 (alternativa para sistemas que capturan F1/F2)
-      if (e.ctrlKey && e.shiftKey && (e.key === '!' || e.key === '@' || e.key === '#' || e.key === '1' || e.key === '2' || e.key === '3')) {
-        console.log('🔑 Detectado Ctrl+Shift+' + e.key);
-        accion = (e.key === '1' || e.key === '!') ? 1 : (e.key === '2' || e.key === '@') ? 2 : 3;
+      // Soporta layouts: en_US, es_AR, es_ES
+      // - en_US: Shift+1=!, Shift+2=@, Shift+3=#
+      // - es_AR/es_ES: Shift+1=!, Shift+2=", Shift+3=·
+      // - e.code es independiente del layout (Digit1/2/3)
+      if (e.ctrlKey && e.shiftKey) {
+        if (e.key === '!' || e.code === 'Digit1') {
+          accion = 1;
+        }
+        if (e.key === '"' || e.key === '@' || e.code === 'Digit2') {
+          accion = 2;
+        }
+        if (e.key === '·' || e.key === '#' || e.code === 'Digit3') {
+          accion = 3;
+        }
       }
 
       if (accion) {
@@ -594,8 +598,6 @@ export default function Productos() {
         // Verificar si hay algo en modo edición O si hay una celda activa (navegación)
         const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
         const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
-
-        console.log('🔑 Estado shortcuts:', { accion, enModoEdicion, hayProductoSeleccionado, celdaActiva, modoNavegacion });
 
         if (!enModoEdicion && !hayProductoSeleccionado) {
           showToast('⚠️ Debes posicionarte sobre un producto para usar este atajo (Enter para activar navegación)', 'error');
