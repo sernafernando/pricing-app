@@ -16,6 +16,7 @@ export default function PedidosPreparacion() {
   const [marcaIds, setMarcaIds] = useState([]);
   const [categoriaIds, setCategoriaIds] = useState([]);
   const [tipoEnvio, setTipoEnvio] = useState('');
+  const [estadoMl, setEstadoMl] = useState('');
   const [search, setSearch] = useState('');
   const [soloCombos, setSoloCombos] = useState(false);
 
@@ -50,6 +51,7 @@ export default function PedidosPreparacion() {
       if (marcaIds.length > 0) params.append('marca_ids', marcaIds.join(','));
       if (categoriaIds.length > 0) params.append('categoria_ids', categoriaIds.join(','));
       if (tipoEnvio) params.append('logistic_type', tipoEnvio);
+      if (estadoMl) params.append('estado_ml', estadoMl);
       if (search) params.append('search', search);
       if (soloCombos) params.append('solo_combos', 'true');
 
@@ -69,7 +71,7 @@ export default function PedidosPreparacion() {
     } finally {
       setLoading(false);
     }
-  }, [vista, marcaIds, categoriaIds, tipoEnvio, search, soloCombos]);
+  }, [vista, marcaIds, categoriaIds, tipoEnvio, estadoMl, search, soloCombos]);
 
   useEffect(() => {
     cargarFiltros();
@@ -114,9 +116,17 @@ export default function PedidosPreparacion() {
     }
   };
 
-  const getEstadoBadge = (estado) => {
-    if (estado === 20) return { text: 'Pendiente', class: styles.estadoPendiente };
-    return { text: 'Ready to Ship', class: styles.estadoReady };
+  const getEstadoBadge = (status) => {
+    switch (status) {
+      case 'ready_to_ship':
+        return { text: 'Ready to Ship', class: styles.estadoReady };
+      case 'paid':
+        return { text: 'Pagado', class: styles.estadoPendiente };
+      case 'shipped':
+        return { text: 'Enviado', class: styles.estadoEnviado };
+      default:
+        return { text: status || 'N/A', class: styles.badgeDefault };
+    }
   };
 
   return (
@@ -139,6 +149,13 @@ export default function PedidosPreparacion() {
             <div className={styles.statValue}>{Math.round(estadisticas.total_unidades)}</div>
             <div className={styles.statLabel}>Unidades</div>
           </div>
+          {estadisticas.por_estado_ml?.map((est) => (
+            <div key={est.estado} className={styles.statCard}>
+              <div className={styles.statValue}>{est.pedidos}</div>
+              <div className={styles.statLabel}>{est.estado === 'ready_to_ship' ? 'Ready to Ship' : est.estado}</div>
+              <div className={styles.statSub}>{Math.round(est.unidades)} uds</div>
+            </div>
+          ))}
           {estadisticas.por_tipo_envio?.map((tipo) => (
             <div key={tipo.tipo} className={styles.statCard}>
               <div className={styles.statValue}>{tipo.pedidos}</div>
@@ -206,6 +223,19 @@ export default function PedidosPreparacion() {
             ))}
           </select>
 
+          <select
+            value={estadoMl}
+            onChange={(e) => setEstadoMl(e.target.value)}
+            className={styles.select}
+          >
+            <option value="">Todos los estados</option>
+            <option value="ready_to_ship">Ready to Ship</option>
+            <option value="paid">Pagado</option>
+            {filtros?.estados_ml?.filter(e => !['ready_to_ship', 'paid'].includes(e)).map((e) => (
+              <option key={e} value={e}>{e}</option>
+            ))}
+          </select>
+
           <input
             type="text"
             placeholder="Buscar código, descripción, cliente..."
@@ -248,7 +278,7 @@ export default function PedidosPreparacion() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>Estado</th>
+                <th>Estado ML</th>
                 <th>Producto</th>
                 <th>Cant</th>
                 <th>Tipo Envío</th>
@@ -265,7 +295,7 @@ export default function PedidosPreparacion() {
                 </tr>
               ) : (
                 pedidos.map((p, idx) => {
-                  const estadoInfo = getEstadoBadge(p.estado_orden);
+                  const estadoInfo = getEstadoBadge(p.mlo_status);
                   return (
                     <tr key={`${p.mlo_id}-${p.item_id}-${idx}`}>
                       <td>

@@ -320,6 +320,11 @@
   color: white;
 }
 
+.estadoEnviado {
+  background: #0ea5e9;
+  color: white;
+}
+
 /* Celdas */
 .producto {
   display: flex;

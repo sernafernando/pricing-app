@@ -1,19 +1,18 @@
 """
-Endpoint para gestión de pedidos en preparación (estado pendiente = 20)
+Endpoint para gestión de pedidos en preparación
+Usa directamente las tablas de MercadoLibre (mlo_status = 'ready_to_ship')
 """
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_, case, text
+from sqlalchemy import func, and_, or_, case
 from typing import List, Optional
 from datetime import datetime
-from decimal import Decimal
 from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
-from app.models.sale_order_header import SaleOrderHeader
 from app.models.tb_item import TBItem
 from app.models.tb_brand import TBBrand
 from app.models.tb_category import TBCategory
@@ -29,6 +28,7 @@ class PedidoDetalleResponse(BaseModel):
     mlo_id: int
     ml_pack_id: Optional[str]
     ml_order_id: Optional[str]
+    mlo_status: Optional[str]
 
     # Datos del producto
     item_id: Optional[int]
@@ -59,9 +59,6 @@ class PedidoDetalleResponse(BaseModel):
     marca: Optional[str]
     categoria: Optional[str]
 
-    # Estado de la orden
-    estado_orden: Optional[int]
-
     class Config:
         from_attributes = True
 
@@ -86,6 +83,11 @@ class FiltrosResponse(BaseModel):
     marcas: List[dict]
     categorias: List[dict]
     tipos_envio: List[str]
+    estados_ml: List[str]
+
+
+# Estados de ML que indican "en preparación" (no enviados, no cancelados)
+ESTADOS_PREPARACION = ['ready_to_ship', 'paid']
 
 
 @router.get("/pedidos-preparacion/filtros", response_model=FiltrosResponse)
@@ -94,9 +96,10 @@ async def obtener_filtros(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Obtiene las opciones disponibles para los filtros (pedidos con estado 20)
+    Obtiene las opciones disponibles para los filtros
+    Basado en órdenes de MercadoLibre con status ready_to_ship o paid (no canceladas, no enviadas)
     """
-    # Marcas que tienen pedidos en preparación (estado 20)
+    # Marcas que tienen pedidos en preparación
     marcas_query = db.query(
         TBBrand.brand_id,
         TBBrand.brand_desc
@@ -108,15 +111,16 @@ async def obtener_filtros(
     ).join(
         MercadoLibreOrderDetail, MercadoLibreOrderDetail.item_id == TBItem.item_id
     ).join(
-        SaleOrderHeader, and_(
-            SaleOrderHeader.mlo_id == MercadoLibreOrderDetail.mlo_id,
-            SaleOrderHeader.comp_id == MercadoLibreOrderDetail.comp_id
+        MercadoLibreOrderHeader, and_(
+            MercadoLibreOrderHeader.mlo_id == MercadoLibreOrderDetail.mlo_id,
+            MercadoLibreOrderHeader.comp_id == MercadoLibreOrderDetail.comp_id
         )
     ).filter(
-        SaleOrderHeader.soh_statusof == 20
+        MercadoLibreOrderHeader.mlo_status.in_(ESTADOS_PREPARACION),
+        MercadoLibreOrderHeader.mlo_isdelivered == False
     ).distinct().all()
 
-    # Categorías que tienen pedidos en preparación (estado 20)
+    # Categorías que tienen pedidos en preparación
     categorias_query = db.query(
         TBCategory.cat_id,
         TBCategory.cat_desc
@@ -128,31 +132,43 @@ async def obtener_filtros(
     ).join(
         MercadoLibreOrderDetail, MercadoLibreOrderDetail.item_id == TBItem.item_id
     ).join(
-        SaleOrderHeader, and_(
-            SaleOrderHeader.mlo_id == MercadoLibreOrderDetail.mlo_id,
-            SaleOrderHeader.comp_id == MercadoLibreOrderDetail.comp_id
+        MercadoLibreOrderHeader, and_(
+            MercadoLibreOrderHeader.mlo_id == MercadoLibreOrderDetail.mlo_id,
+            MercadoLibreOrderHeader.comp_id == MercadoLibreOrderDetail.comp_id
         )
     ).filter(
-        SaleOrderHeader.soh_statusof == 20
+        MercadoLibreOrderHeader.mlo_status.in_(ESTADOS_PREPARACION),
+        MercadoLibreOrderHeader.mlo_isdelivered == False
     ).distinct().all()
 
-    # Tipos de envío disponibles para pedidos con estado 20
+    # Tipos de envío disponibles
     tipos_query = db.query(
         MercadoLibreOrderShipping.ml_logistic_type
     ).join(
-        SaleOrderHeader, and_(
-            SaleOrderHeader.mlo_id == MercadoLibreOrderShipping.mlo_id,
-            SaleOrderHeader.comp_id == MercadoLibreOrderShipping.comp_id
+        MercadoLibreOrderHeader, and_(
+            MercadoLibreOrderHeader.mlo_id == MercadoLibreOrderShipping.mlo_id,
+            MercadoLibreOrderHeader.comp_id == MercadoLibreOrderShipping.comp_id
         )
     ).filter(
-        SaleOrderHeader.soh_statusof == 20,
+        MercadoLibreOrderHeader.mlo_status.in_(ESTADOS_PREPARACION),
+        MercadoLibreOrderHeader.mlo_isdelivered == False,
         MercadoLibreOrderShipping.ml_logistic_type.isnot(None)
+    ).distinct().all()
+
+    # Estados ML disponibles
+    estados_query = db.query(
+        MercadoLibreOrderHeader.mlo_status
+    ).filter(
+        MercadoLibreOrderHeader.mlo_status.isnot(None),
+        MercadoLibreOrderHeader.mlo_isdelivered == False,
+        MercadoLibreOrderHeader.mlo_status != 'cancelled'
     ).distinct().all()
 
     return {
         "marcas": [{"id": m.brand_id, "nombre": m.brand_desc} for m in marcas_query],
         "categorias": [{"id": c.cat_id, "nombre": c.cat_desc} for c in categorias_query],
-        "tipos_envio": [t[0] for t in tipos_query if t[0]]
+        "tipos_envio": [t[0] for t in tipos_query if t[0]],
+        "estados_ml": [e[0] for e in estados_query if e[0]]
     }
 
 
@@ -166,24 +182,26 @@ async def obtener_pedidos_detalle(
     logistic_type: Optional[str] = Query(None, description="Filtrar por tipo de envío"),
     search: Optional[str] = Query(None, description="Buscar por código, descripción o nombre cliente"),
     solo_combos: bool = Query(False, description="Solo mostrar items que son combos"),
+    estado_ml: Optional[str] = Query(None, description="Filtrar por estado ML específico"),
     limit: int = Query(500, ge=1, le=2000),
     offset: int = Query(0, ge=0)
 ):
     """
-    Obtiene el detalle de pedidos en preparación (estado 20).
+    Obtiene el detalle de pedidos en preparación.
+    Usa directamente mlo_status de MercadoLibre (ready_to_ship, paid).
     """
 
-    # Construir query base
+    # Construir query base desde MercadoLibreOrderHeader
     logistic_type_case = case(
         (MercadoLibreOrderShipping.mlshipping_method_id == '515282', 'Turbo'),
         else_=MercadoLibreOrderShipping.ml_logistic_type
     )
 
     query = db.query(
-        SaleOrderHeader.soh_id,
-        SaleOrderHeader.mlo_id,
+        MercadoLibreOrderHeader.mlo_id,
         MercadoLibreOrderHeader.ml_pack_id,
         MercadoLibreOrderHeader.mlorder_id.label('ml_order_id'),
+        MercadoLibreOrderHeader.mlo_status,
         MercadoLibreOrderDetail.item_id,
         TBItem.item_code,
         TBItem.item_desc,
@@ -202,24 +220,18 @@ async def obtener_pedidos_detalle(
         MercadoLibreOrderHeader.ml_date_created.label('fecha_creacion'),
         MercadoLibreOrderShipping.mlestimated_handling_limit.label('fecha_limite_despacho'),
         TBBrand.brand_desc.label('marca'),
-        TBCategory.cat_desc.label('categoria'),
-        SaleOrderHeader.soh_statusof.label('estado_orden')
+        TBCategory.cat_desc.label('categoria')
     ).select_from(
-        SaleOrderHeader
+        MercadoLibreOrderHeader
     ).outerjoin(
         MercadoLibreOrderShipping, and_(
-            MercadoLibreOrderShipping.mlo_id == SaleOrderHeader.mlo_id,
-            MercadoLibreOrderShipping.comp_id == SaleOrderHeader.comp_id
+            MercadoLibreOrderShipping.mlo_id == MercadoLibreOrderHeader.mlo_id,
+            MercadoLibreOrderShipping.comp_id == MercadoLibreOrderHeader.comp_id
         )
     ).outerjoin(
         MercadoLibreOrderDetail, and_(
-            MercadoLibreOrderDetail.mlo_id == SaleOrderHeader.mlo_id,
-            MercadoLibreOrderDetail.comp_id == SaleOrderHeader.comp_id
-        )
-    ).outerjoin(
-        MercadoLibreOrderHeader, and_(
-            MercadoLibreOrderHeader.mlo_id == SaleOrderHeader.mlo_id,
-            MercadoLibreOrderHeader.comp_id == SaleOrderHeader.comp_id
+            MercadoLibreOrderDetail.mlo_id == MercadoLibreOrderHeader.mlo_id,
+            MercadoLibreOrderDetail.comp_id == MercadoLibreOrderHeader.comp_id
         )
     ).outerjoin(
         TBItem, and_(
@@ -238,8 +250,13 @@ async def obtener_pedidos_detalle(
         )
     )
 
-    # Filtro principal: solo pedidos con estado 20
-    query = query.filter(SaleOrderHeader.soh_statusof == 20)
+    # Filtro principal: órdenes ready_to_ship o paid, no entregadas
+    if estado_ml:
+        query = query.filter(MercadoLibreOrderHeader.mlo_status == estado_ml)
+    else:
+        query = query.filter(MercadoLibreOrderHeader.mlo_status.in_(ESTADOS_PREPARACION))
+
+    query = query.filter(MercadoLibreOrderHeader.mlo_isdelivered == False)
 
     # Aplicar filtros múltiples
     if marca_ids:
@@ -276,7 +293,6 @@ async def obtener_pedidos_detalle(
 
     # Filtro de combos: items que tienen asociaciones
     if solo_combos:
-        # Subquery para obtener items que son combos
         combo_items_subq = db.query(TbItemAssociation.item_id).distinct().subquery()
         query = query.filter(MercadoLibreOrderDetail.item_id.in_(combo_items_subq))
 
@@ -291,6 +307,7 @@ async def obtener_pedidos_detalle(
             mlo_id=r.mlo_id,
             ml_pack_id=r.ml_pack_id,
             ml_order_id=r.ml_order_id,
+            mlo_status=r.mlo_status,
             item_id=r.item_id,
             item_code=r.item_code,
             item_desc=r.item_desc,
@@ -309,8 +326,7 @@ async def obtener_pedidos_detalle(
             fecha_creacion=r.fecha_creacion,
             fecha_limite_despacho=r.fecha_limite_despacho,
             marca=r.marca,
-            categoria=r.categoria,
-            estado_orden=r.estado_orden
+            categoria=r.categoria
         )
         for r in results
     ]
@@ -325,10 +341,11 @@ async def obtener_resumen_productos(
     item_ids: Optional[str] = Query(None, description="IDs de items separados por coma"),
     logistic_type: Optional[str] = Query(None, description="Filtrar por tipo de envío"),
     search: Optional[str] = Query(None, description="Buscar por código o descripción"),
-    solo_combos: bool = Query(False, description="Solo mostrar items que son combos")
+    solo_combos: bool = Query(False, description="Solo mostrar items que son combos"),
+    estado_ml: Optional[str] = Query(None, description="Filtrar por estado ML específico")
 ):
     """
-    Obtiene resumen agrupado por producto de pedidos en preparación (estado 20).
+    Obtiene resumen agrupado por producto de pedidos en preparación.
     """
 
     logistic_type_case = case(
@@ -342,25 +359,20 @@ async def obtener_resumen_productos(
         TBItem.item_desc,
         func.sum(MercadoLibreOrderDetail.mlo_quantity).label('cantidad_total'),
         logistic_type_case.label('logistic_type'),
-        func.count(func.distinct(SaleOrderHeader.soh_id)).label('cantidad_paquetes'),
+        func.count(func.distinct(MercadoLibreOrderHeader.mlo_id)).label('cantidad_paquetes'),
         TBBrand.brand_desc.label('marca'),
         TBCategory.cat_desc.label('categoria')
     ).select_from(
-        SaleOrderHeader
+        MercadoLibreOrderHeader
     ).outerjoin(
         MercadoLibreOrderShipping, and_(
-            MercadoLibreOrderShipping.mlo_id == SaleOrderHeader.mlo_id,
-            MercadoLibreOrderShipping.comp_id == SaleOrderHeader.comp_id
+            MercadoLibreOrderShipping.mlo_id == MercadoLibreOrderHeader.mlo_id,
+            MercadoLibreOrderShipping.comp_id == MercadoLibreOrderHeader.comp_id
         )
     ).outerjoin(
         MercadoLibreOrderDetail, and_(
-            MercadoLibreOrderDetail.mlo_id == SaleOrderHeader.mlo_id,
-            MercadoLibreOrderDetail.comp_id == SaleOrderHeader.comp_id
-        )
-    ).outerjoin(
-        MercadoLibreOrderHeader, and_(
-            MercadoLibreOrderHeader.mlo_id == SaleOrderHeader.mlo_id,
-            MercadoLibreOrderHeader.comp_id == SaleOrderHeader.comp_id
+            MercadoLibreOrderDetail.mlo_id == MercadoLibreOrderHeader.mlo_id,
+            MercadoLibreOrderDetail.comp_id == MercadoLibreOrderHeader.comp_id
         )
     ).outerjoin(
         TBItem, and_(
@@ -377,9 +389,15 @@ async def obtener_resumen_productos(
             TBCategory.cat_id == TBItem.cat_id,
             TBCategory.comp_id == TBItem.comp_id
         )
-    ).filter(
-        SaleOrderHeader.soh_statusof == 20
     )
+
+    # Filtro principal
+    if estado_ml:
+        query = query.filter(MercadoLibreOrderHeader.mlo_status == estado_ml)
+    else:
+        query = query.filter(MercadoLibreOrderHeader.mlo_status.in_(ESTADOS_PREPARACION))
+
+    query = query.filter(MercadoLibreOrderHeader.mlo_isdelivered == False)
 
     # Aplicar filtros múltiples
     if marca_ids:
@@ -452,29 +470,49 @@ async def obtener_estadisticas(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Obtiene estadísticas generales de pedidos en preparación (estado 20)
+    Obtiene estadísticas generales de pedidos en preparación
+    Basado en órdenes de MercadoLibre (mlo_status ready_to_ship/paid, no entregadas)
     """
 
-    # Total de pedidos (estado 20)
+    # Total de pedidos
     total_pedidos = db.query(
-        func.count(func.distinct(SaleOrderHeader.soh_id))
+        func.count(func.distinct(MercadoLibreOrderHeader.mlo_id))
     ).filter(
-        SaleOrderHeader.soh_statusof == 20
+        MercadoLibreOrderHeader.mlo_status.in_(ESTADOS_PREPARACION),
+        MercadoLibreOrderHeader.mlo_isdelivered == False
     ).scalar() or 0
 
     # Total de unidades
     total_unidades = db.query(
         func.sum(MercadoLibreOrderDetail.mlo_quantity)
     ).select_from(
-        SaleOrderHeader
+        MercadoLibreOrderHeader
     ).outerjoin(
         MercadoLibreOrderDetail, and_(
-            MercadoLibreOrderDetail.mlo_id == SaleOrderHeader.mlo_id,
-            MercadoLibreOrderDetail.comp_id == SaleOrderHeader.comp_id
+            MercadoLibreOrderDetail.mlo_id == MercadoLibreOrderHeader.mlo_id,
+            MercadoLibreOrderDetail.comp_id == MercadoLibreOrderHeader.comp_id
         )
     ).filter(
-        SaleOrderHeader.soh_statusof == 20
+        MercadoLibreOrderHeader.mlo_status.in_(ESTADOS_PREPARACION),
+        MercadoLibreOrderHeader.mlo_isdelivered == False
     ).scalar() or 0
+
+    # Por estado ML
+    por_estado = db.query(
+        MercadoLibreOrderHeader.mlo_status.label('estado'),
+        func.count(func.distinct(MercadoLibreOrderHeader.mlo_id)).label('pedidos'),
+        func.sum(MercadoLibreOrderDetail.mlo_quantity).label('unidades')
+    ).outerjoin(
+        MercadoLibreOrderDetail, and_(
+            MercadoLibreOrderDetail.mlo_id == MercadoLibreOrderHeader.mlo_id,
+            MercadoLibreOrderDetail.comp_id == MercadoLibreOrderHeader.comp_id
+        )
+    ).filter(
+        MercadoLibreOrderHeader.mlo_status.in_(ESTADOS_PREPARACION),
+        MercadoLibreOrderHeader.mlo_isdelivered == False
+    ).group_by(
+        MercadoLibreOrderHeader.mlo_status
+    ).all()
 
     # Por tipo de envío
     logistic_type_case = case(
@@ -484,22 +522,23 @@ async def obtener_estadisticas(
 
     por_tipo = db.query(
         logistic_type_case.label('tipo'),
-        func.count(func.distinct(SaleOrderHeader.soh_id)).label('pedidos'),
+        func.count(func.distinct(MercadoLibreOrderHeader.mlo_id)).label('pedidos'),
         func.sum(MercadoLibreOrderDetail.mlo_quantity).label('unidades')
     ).select_from(
-        SaleOrderHeader
+        MercadoLibreOrderHeader
     ).outerjoin(
         MercadoLibreOrderShipping, and_(
-            MercadoLibreOrderShipping.mlo_id == SaleOrderHeader.mlo_id,
-            MercadoLibreOrderShipping.comp_id == SaleOrderHeader.comp_id
+            MercadoLibreOrderShipping.mlo_id == MercadoLibreOrderHeader.mlo_id,
+            MercadoLibreOrderShipping.comp_id == MercadoLibreOrderHeader.comp_id
         )
     ).outerjoin(
         MercadoLibreOrderDetail, and_(
-            MercadoLibreOrderDetail.mlo_id == SaleOrderHeader.mlo_id,
-            MercadoLibreOrderDetail.comp_id == SaleOrderHeader.comp_id
+            MercadoLibreOrderDetail.mlo_id == MercadoLibreOrderHeader.mlo_id,
+            MercadoLibreOrderDetail.comp_id == MercadoLibreOrderHeader.comp_id
         )
     ).filter(
-        SaleOrderHeader.soh_statusof == 20
+        MercadoLibreOrderHeader.mlo_status.in_(ESTADOS_PREPARACION),
+        MercadoLibreOrderHeader.mlo_isdelivered == False
     ).group_by(
         logistic_type_case
     ).all()
@@ -507,6 +546,14 @@ async def obtener_estadisticas(
     return {
         "total_pedidos": total_pedidos,
         "total_unidades": float(total_unidades) if total_unidades else 0,
+        "por_estado_ml": [
+            {
+                "estado": e.estado or 'N/A',
+                "pedidos": e.pedidos,
+                "unidades": float(e.unidades) if e.unidades else 0
+            }
+            for e in por_estado
+        ],
         "por_tipo_envio": [
             {
                 "tipo": t.tipo or 'N/A',
