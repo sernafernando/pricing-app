@@ -52,8 +52,12 @@ async def fetch_query_67() -> list:
 
 def truncate_cache(db: Session):
     """Trunca la tabla de cache"""
-    db.execute(text("TRUNCATE TABLE pedido_preparacion_cache"))
+    # Usar DELETE en lugar de TRUNCATE para mejor compatibilidad
+    db.execute(text("DELETE FROM pedido_preparacion_cache"))
+    # Reiniciar la secuencia del autoincrement
+    db.execute(text("ALTER SEQUENCE pedido_preparacion_cache_id_seq RESTART WITH 1"))
     db.commit()
+    print(f"   Tabla truncada correctamente")
 
 
 def insert_cache(db: Session, data: list) -> int:
