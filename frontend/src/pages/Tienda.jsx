@@ -93,6 +93,12 @@ export default function Productos() {
   const [editandoCuota, setEditandoCuota] = useState(null); // {item_id, tipo: '3'|'6'|'9'|'12'}
   const [cuotaTemp, setCuotaTemp] = useState('');
 
+  // Estados para vista de precio gremio en USD
+  const [vistaModoPrecioGremioUSD, setVistaModoPrecioGremioUSD] = useState(false); // false = ARS, true = USD
+  const [editandoPrecioGremio, setEditandoPrecioGremio] = useState(null); // item_id del producto siendo editado
+  const [precioGremioTemp, setPrecioGremioTemp] = useState({ sin_iva: '', con_iva: '' });
+  const [dolarVenta, setDolarVenta] = useState(null);
+
   // Selección múltiple
   const [productosSeleccionados, setProductosSeleccionados] = useState(new Set());
   const [ultimoSeleccionado, setUltimoSeleccionado] = useState(null);
@@ -126,6 +132,7 @@ export default function Productos() {
 
   // Permisos granulares de edición para Tienda
   const puedeEditarPrecioGremio = tienePermiso('tienda.editar_precio_gremio');
+  const puedeEditarPrecioGremioManual = tienePermiso('tienda.editar_precio_gremio_manual');
   const puedeEditarWebTransf = tienePermiso('tienda.editar_precio_web_transf');
   const puedeEditarCuotas = tienePermiso('productos.editar_precio_cuotas');
   const puedeOcultarProductos = tienePermiso('tienda.toggle_ocultar');
@@ -567,11 +574,24 @@ export default function Productos() {
     }
   };
 
+  const cargarDolarVenta = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/tipo-cambio/actual`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setDolarVenta(response.data.venta);
+    } catch (error) {
+      console.error('Error cargando dólar venta:', error);
+    }
+  };
+
   useEffect(() => {
     cargarUsuariosAuditoria();
     cargarTiposAccion();
     cargarPMs();
     cargarConfigWebTarjeta();
+    cargarDolarVenta();
   }, []);
 
   // Recargar marcas cuando cambien filtros (excepto marcasSeleccionadas)
@@ -1213,6 +1233,67 @@ export default function Productos() {
     }
   };
 
+  const iniciarEdicionPrecioGremio = (producto) => {
+    setEditandoPrecioGremio(producto.item_id);
+    setPrecioGremioTemp({
+      sin_iva: producto.precio_gremio_sin_iva || '',
+      con_iva: producto.precio_gremio_con_iva || ''
+    });
+  };
+
+  const guardarPrecioGremio = async (itemId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const sinIvaNormalizado = parseFloat(precioGremioTemp.sin_iva.toString().replace(',', '.'));
+      const conIvaNormalizado = parseFloat(precioGremioTemp.con_iva.toString().replace(',', '.'));
+
+      await axios.patch(
+        `${API_URL}/productos/${itemId}/precio-gremio-override?precio_sin_iva=${sinIvaNormalizado}&precio_con_iva=${conIvaNormalizado}`,
+        null,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+
+      // Actualizar localmente
+      setProductos(prods => prods.map(p =>
+        p.item_id === itemId
+          ? {
+              ...p,
+              precio_gremio_sin_iva: sinIvaNormalizado,
+              precio_gremio_con_iva: conIvaNormalizado,
+              tiene_override_gremio: true
+            }
+          : p
+      ));
+
+      setEditandoPrecioGremio(null);
+      showToast('✅ Precio gremio actualizado');
+    } catch (error) {
+      console.error('Error al guardar precio gremio:', error);
+      showToast('❌ Error al guardar precio gremio', 'error');
+    }
+  };
+
+  const eliminarPrecioGremioManual = async (itemId) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(
+        `${API_URL}/productos/${itemId}/precio-gremio-override`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+
+      // Recargar producto para obtener precio calculado
+      await cargarProductos();
+      showToast('✅ Precio manual eliminado, vuelve al cálculo automático');
+    } catch (error) {
+      console.error('Error al eliminar precio gremio manual:', error);
+      showToast('❌ Error al eliminar precio manual', 'error');
+    }
+  };
+
   // Funciones de selección múltiple
   const toggleSeleccion = (itemId, shiftKey) => {
     const nuevaSeleccion = new Set(productosSeleccionados);
@@ -1616,6 +1697,13 @@ export default function Productos() {
         const nuevoValor = !recalcularCuotasAuto;
         setRecalcularCuotasAuto(nuevoValor);
         localStorage.setItem('recalcularCuotasAuto', JSON.stringify(nuevoValor));
+        return;
+      }
+
+      // Alt+D: Toggle Precio Gremio ARS / USD
+      if (e.altKey && e.key === 'd') {
+        e.preventDefault();
+        setVistaModoPrecioGremioUSD(!vistaModoPrecioGremioUSD);
         return;
       }
 
@@ -2257,6 +2345,19 @@ export default function Productos() {
             />
             <span className="filter-checkbox-text">
               {vistaModoCuotas ? '📊 Cuotas' : '📋 Normal'}
+            </span>
+          </label>
+
+          {/* Toggle Precio Gremio ARS/USD */}
+          <label className="filter-checkbox-label" title="Alt+D para cambiar">
+            <input
+              type="checkbox"
+              checked={vistaModoPrecioGremioUSD}
+              onChange={(e) => setVistaModoPrecioGremioUSD(e.target.checked)}
+              className="filter-checkbox"
+            />
+            <span className="filter-checkbox-text">
+              {vistaModoPrecioGremioUSD ? '💵 Gremio USD' : '💰 Gremio ARS'}
             </span>
           </label>
 
@@ -3015,7 +3116,7 @@ export default function Productos() {
                   {!vistaModoCuotas ? (
                     <>
                       <th onClick={(e) => handleOrdenar('precio_gremio', e)}>
-                        Precio Gremio {getIconoOrden('precio_gremio')} {getNumeroOrden('precio_gremio') && <span>{getNumeroOrden('precio_gremio')}</span>}
+                        Precio Gremio {vistaModoPrecioGremioUSD ? 'USD' : 'ARS'} {getIconoOrden('precio_gremio')} {getNumeroOrden('precio_gremio') && <span>{getNumeroOrden('precio_gremio')}</span>}
                       </th>
                       <th onClick={(e) => handleOrdenar('web_transf', e)}>
                         Web Transf. {getIconoOrden('web_transf')} {getNumeroOrden('web_transf') && <span>{getNumeroOrden('web_transf')}</span>}
@@ -3119,24 +3220,84 @@ export default function Productos() {
                     {!vistaModoCuotas ? (
                       <>
                     <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
-                      {p.precio_gremio_sin_iva ? (
-                        <div className="gremio-info">
-                          <div className="gremio-price">
-                            ${p.precio_gremio_sin_iva.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </div>
-                          <div className="gremio-price-iva">
-                            ${p.precio_gremio_con_iva?.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            <span className="iva-label"> c/IVA</span>
-                          </div>
-                          {p.markup_gremio !== null && p.markup_gremio !== undefined && (
-                            <div className="gremio-markup">
-                              Markup: {p.markup_gremio.toFixed(1)}%
+                      {editandoPrecioGremio === p.item_id && puedeEditarPrecioGremioManual ? (
+                        <div className="inline-edit gremio-edit">
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              placeholder="Sin IVA"
+                              value={precioGremioTemp.sin_iva}
+                              onChange={(e) => setPrecioGremioTemp({ ...precioGremioTemp, sin_iva: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') guardarPrecioGremio(p.item_id);
+                                if (e.key === 'Escape') setEditandoPrecioGremio(null);
+                              }}
+                              style={{ width: '100px' }}
+                              autoFocus
+                            />
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              placeholder="Con IVA"
+                              value={precioGremioTemp.con_iva}
+                              onChange={(e) => setPrecioGremioTemp({ ...precioGremioTemp, con_iva: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') guardarPrecioGremio(p.item_id);
+                                if (e.key === 'Escape') setEditandoPrecioGremio(null);
+                              }}
+                              style={{ width: '100px' }}
+                            />
+                            <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                              <button onClick={() => guardarPrecioGremio(p.item_id)} style={{ padding: '2px 6px', fontSize: '12px' }}>✓</button>
+                              <button onClick={() => setEditandoPrecioGremio(null)} style={{ padding: '2px 6px', fontSize: '12px' }}>✗</button>
+                              {p.tiene_override_gremio && (
+                                <button 
+                                  onClick={() => eliminarPrecioGremioManual(p.item_id)} 
+                                  style={{ padding: '2px 6px', fontSize: '12px', background: '#f59e0b' }}
+                                  title="Volver al cálculo automático"
+                                >
+                                  ⟲
+                                </button>
+                              )}
                             </div>
-                          )}
+                          </div>
                         </div>
                       ) : (
-                        <div className="text-muted">
-                          Sin markup
+                        <div 
+                          className="gremio-container"
+                          onClick={() => puedeEditarPrecioGremioManual && iniciarEdicionPrecioGremio(p)}
+                          style={{ cursor: puedeEditarPrecioGremioManual ? 'pointer' : 'default' }}
+                        >
+                          {p.precio_gremio_sin_iva ? (
+                            <div className="gremio-info">
+                              <div className="gremio-price">
+                                {vistaModoPrecioGremioUSD && dolarVenta ? (
+                                  <>U$S {(p.precio_gremio_sin_iva / dolarVenta).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
+                                ) : (
+                                  <>$ {p.precio_gremio_sin_iva.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
+                                )}
+                                {p.tiene_override_gremio && <span className="manual-badge" title="Precio manual">✏️</span>}
+                              </div>
+                              <div className="gremio-price-iva">
+                                {vistaModoPrecioGremioUSD && dolarVenta ? (
+                                  <>U$S {(p.precio_gremio_con_iva / dolarVenta).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
+                                ) : (
+                                  <>$ {p.precio_gremio_con_iva?.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
+                                )}
+                                <span className="iva-label"> c/IVA</span>
+                              </div>
+                              {p.markup_gremio !== null && p.markup_gremio !== undefined && (
+                                <div className="gremio-markup">
+                                  Markup: {p.markup_gremio.toFixed(1)}%
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-muted">
+                              Sin markup
+                            </div>
+                          )}
                         </div>
                       )}
                     </td>

@@ -1013,6 +1013,28 @@
   color: var(--text-secondary);
 }
 
+.gremio-container {
+  cursor: default;
+  transition: background-color 0.2s ease;
+}
+
+.gremio-container:hover {
+  background-color: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
+}
+
+.manual-badge {
+  font-size: 10px;
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
+.gremio-edit {
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
 /* Web transferencia */
 .web-transf-edit {
   display: flex;

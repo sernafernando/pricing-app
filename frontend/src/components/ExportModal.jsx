@@ -30,6 +30,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const [tipoCuotas, setTipoCuotas] = useState('clasica'); // clasica, 3, 6, 9, 12
   const [monedaClasica, setMonedaClasica] = useState('ARS'); // ARS o USD
   const [monedaWebTransf, setMonedaWebTransf] = useState('ARS'); // ARS o USD
+  const [monedaGremio, setMonedaGremio] = useState('ARS'); // ARS o USD para lista gremio
   const [dolarVenta, setDolarVenta] = useState(null);
   const [offsetDolar, setOffsetDolar] = useState('0');
 
@@ -434,6 +435,14 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       const token = localStorage.getItem('token');
       let params = `con_precio_gremio=true`;
 
+      // Agregar moneda y offset
+      const currencyId = monedaGremio === 'USD' ? 2 : 1;
+      params += `&currency_id=${currencyId}`;
+      if (monedaGremio === 'USD') {
+        const offset = parseFloat(offsetDolar.toString().replace(',', '.')) || 0;
+        params += `&offset_dolar=${offset}`;
+      }
+
       if (aplicarFiltros) {
         if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
         if (filtrosActivos.con_stock === true) params += `&con_stock=true`;
@@ -455,7 +464,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       link.href = url;
       const ahora = new Date();
       const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-      const nombreArchivo = `lista_gremio_${timestamp}.xlsx`;
+      const monedaSufijo = monedaGremio === 'USD' ? '_USD' : '_ARS';
+      const nombreArchivo = `lista_gremio${monedaSufijo}_${timestamp}.xlsx`;
       link.setAttribute('download', nombreArchivo);
       document.body.appendChild(link);
       link.click();
@@ -662,6 +672,48 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                 <br />
                 <strong>Incluye:</strong> Marca, Categoría, Subcategoría, Código, Descripción, Precio Gremio s/IVA, Precio Gremio c/IVA
               </p>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Moneda:</label>
+                <select
+                  value={monedaGremio}
+                  onChange={(e) => setMonedaGremio(e.target.value)}
+                  className={styles.input}
+                >
+                  <option value="ARS">Pesos (ARS)</option>
+                  <option value="USD">Dólares (USD)</option>
+                </select>
+              </div>
+
+              {monedaGremio === 'USD' && dolarVenta && (
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>
+                    Dólar venta: ${dolarVenta.toFixed(2)}
+                  </label>
+                  <label className={styles.label}>Offset (±):</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Ej: 10 o -10"
+                    value={offsetDolar}
+                    onChange={(e) => setOffsetDolar(e.target.value)}
+                    onBlur={(e) => {
+                      const valor = e.target.value.replace(',', '.');
+                      const numero = parseFloat(valor);
+                      if (!isNaN(numero)) {
+                        setOffsetDolar(numero.toString());
+                      } else {
+                        setOffsetDolar('0');
+                      }
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    className={styles.input}
+                  />
+                  <small className={styles.filterInfo}>
+                    Dólar ajustado: ${(dolarVenta + (parseFloat(offsetDolar.replace(',', '.')) || 0)).toFixed(2)}
+                  </small>
+                </div>
+              )}
 
               <div className={styles.buttonGroup}>
                 <button onClick={onClose} disabled={exportando} className={`${styles.button} ${styles.buttonSecondary}`}>

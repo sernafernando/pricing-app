@@ -1095,6 +1095,7 @@ class ProductoTiendaResponse(BaseModel):
     precio_gremio_sin_iva: Optional[float] = None
     precio_gremio_con_iva: Optional[float] = None
     markup_gremio: Optional[float] = None
+    tiene_override_gremio: Optional[bool] = False  # Indica si tiene precio manual
     participa_web_transferencia: Optional[bool] = False
     porcentaje_markup_web: Optional[float] = 6.0
     precio_web_transferencia: Optional[float] = None
@@ -1268,6 +1269,15 @@ async def listar_productos_tienda(
                 if brand_id in brand_id_to_markup:
                     markups_marca_dict[marca] = brand_id_to_markup[brand_id]
 
+    # Cargar overrides de precio gremio manual
+    from app.models.precio_gremio_override import PrecioGremioOverride
+    precio_gremio_overrides = {}
+    if item_ids_results:
+        overrides = db.query(PrecioGremioOverride).filter(
+            PrecioGremioOverride.item_id.in_(item_ids_results)
+        ).all()
+        precio_gremio_overrides = {o.item_id: o for o in overrides}
+
     from app.models.oferta_ml import OfertaML
     from app.models.publicacion_ml import PublicacionML
     from app.services.pricing_calculator import obtener_tipo_cambio_actual, convertir_a_pesos, obtener_grupo_subcategoria, obtener_comision_base, calcular_comision_ml_total, calcular_limpio, calcular_markup
@@ -1326,16 +1336,31 @@ async def listar_productos_tienda(
             mejor_oferta_markup = markup_rebate / 100
             mejor_oferta_porcentaje, mejor_oferta_monto, mejor_oferta_fecha_hasta = None, None, None
 
-        # Precio Gremio
+        # Precio Gremio - Verificar override manual primero
         precio_gremio_sin_iva, precio_gremio_con_iva, markup_gremio = None, None, None
-        if producto_erp.item_id in markups_producto_dict:
-            markup_gremio = markups_producto_dict[producto_erp.item_id]
-        elif producto_erp.marca and producto_erp.marca in markups_marca_dict:
-            markup_gremio = markups_marca_dict[producto_erp.marca]
-        if markup_gremio is not None and costo_ars and costo_ars > 0:
-            precio_gremio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_gremio / 100)
-            iva_producto = producto_erp.iva if producto_erp.iva else 21.0
-            precio_gremio_con_iva = precio_gremio_sin_iva * (1 + iva_producto / 100)
+        tiene_override_gremio = False
+        
+        # Si existe override manual, usar esos precios
+        if producto_erp.item_id in precio_gremio_overrides:
+            override = precio_gremio_overrides[producto_erp.item_id]
+            precio_gremio_sin_iva = float(override.precio_gremio_sin_iva_manual)
+            precio_gremio_con_iva = float(override.precio_gremio_con_iva_manual)
+            tiene_override_gremio = True
+            # Calcular markup basado en el precio manual
+            if costo_ars and costo_ars > 0:
+                # Markup = ((Precio / (1 + varios%)) / Costo) - 1
+                precio_base = precio_gremio_sin_iva / (1 + varios_porcentaje / 100)
+                markup_gremio = ((precio_base / costo_ars) - 1) * 100
+        else:
+            # Calcular automáticamente según reglas de marca/producto
+            if producto_erp.item_id in markups_producto_dict:
+                markup_gremio = markups_producto_dict[producto_erp.item_id]
+            elif producto_erp.marca and producto_erp.marca in markups_marca_dict:
+                markup_gremio = markups_marca_dict[producto_erp.marca]
+            if markup_gremio is not None and costo_ars and costo_ars > 0:
+                precio_gremio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_gremio / 100)
+                iva_producto = producto_erp.iva if producto_erp.iva else 21.0
+                precio_gremio_con_iva = precio_gremio_sin_iva * (1 + iva_producto / 100)
 
         # Markups cuotas
         markup_3_cuotas, markup_6_cuotas, markup_9_cuotas, markup_12_cuotas = None, None, None, None
@@ -1369,6 +1394,7 @@ async def listar_productos_tienda(
             porcentaje_rebate=float(producto_pricing.porcentaje_rebate) if producto_pricing and producto_pricing.porcentaje_rebate is not None else 3.8,
             precio_rebate=precio_rebate, markup_rebate=markup_rebate,
             precio_gremio_sin_iva=precio_gremio_sin_iva, precio_gremio_con_iva=precio_gremio_con_iva, markup_gremio=markup_gremio,
+            tiene_override_gremio=tiene_override_gremio,
             participa_web_transferencia=producto_pricing.participa_web_transferencia if producto_pricing else False,
             porcentaje_markup_web=float(producto_pricing.porcentaje_markup_web) if producto_pricing and producto_pricing.porcentaje_markup_web else 6.0,
             precio_web_transferencia=float(producto_pricing.precio_web_transferencia) if producto_pricing and producto_pricing.precio_web_transferencia else None,
@@ -5258,10 +5284,12 @@ async def exportar_lista_gremio(
     subcategorias: Optional[str] = None,
     colores: Optional[str] = None,
     con_precio_gremio: Optional[bool] = None,
+    currency_id: int = 1,  # 1=ARS, 2=USD
+    offset_dolar: float = 0,  # Offset para el tipo de cambio
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Exporta Lista Gremio a Excel con precios calculados."""
+    """Exporta Lista Gremio a Excel con precios calculados. Soporta ARS y USD."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
     from io import BytesIO
@@ -5276,12 +5304,21 @@ async def exportar_lista_gremio(
         varios_porcentaje = constantes.get('varios', 7)
         tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
 
+        # Ajustar tipo de cambio con offset
+        tipo_cambio_ajustado = tipo_cambio + offset_dolar if tipo_cambio else None
+        
         # Cargar markups de tienda
         markups_marca = db.query(MarkupTiendaBrand).filter(MarkupTiendaBrand.activo == True).all()
         markups_marca_dict = {m.brand_desc.upper(): m.markup_porcentaje for m in markups_marca if m.brand_desc}
 
         markups_producto = db.query(MarkupTiendaProducto).filter(MarkupTiendaProducto.activo == True).all()
         markups_producto_dict = {m.item_id: m.markup_porcentaje for m in markups_producto}
+        
+        # Cargar overrides manuales
+        from app.models.precio_gremio_override import PrecioGremioOverride
+        precio_gremio_overrides = {}
+        overrides = db.query(PrecioGremioOverride).all()
+        precio_gremio_overrides = {o.item_id: o for o in overrides}
 
         # Cargar nombres de subcategorías
         subcats_result = db.execute(text("SELECT subcat_id, subcat_desc FROM tb_subcategory"))
@@ -5335,8 +5372,13 @@ async def exportar_lista_gremio(
         ws = wb.active
         ws.title = "Lista Gremio"
 
-        # Headers
-        headers = ["Marca", "Categoría", "Subcategoría", "Código", "Descripción", "Precio Gremio s/IVA", "Precio Gremio c/IVA"]
+        # Headers - cambiar según moneda
+        moneda_texto = "USD" if currency_id == 2 else "ARS"
+        headers = [
+            "Marca", "Categoría", "Subcategoría", "Código", "Descripción",
+            f"Precio Gremio {moneda_texto} s/IVA",
+            f"Precio Gremio {moneda_texto} c/IVA"
+        ]
         header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF")
 
@@ -5352,22 +5394,36 @@ async def exportar_lista_gremio(
             # Calcular costo en ARS
             costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo)
 
-            # Calcular precio gremio
+            # Calcular precio gremio - Verificar override manual primero
             precio_gremio_sin_iva = None
             precio_gremio_con_iva = None
             markup_gremio = None
 
-            # Primero buscar markup por producto
-            if producto_erp.item_id in markups_producto_dict:
-                markup_gremio = markups_producto_dict[producto_erp.item_id]
-            # Si no, buscar por marca
-            elif producto_erp.marca and producto_erp.marca.upper() in markups_marca_dict:
-                markup_gremio = markups_marca_dict[producto_erp.marca.upper()]
+            # Si existe override manual, usar esos precios
+            if producto_erp.item_id in precio_gremio_overrides:
+                override = precio_gremio_overrides[producto_erp.item_id]
+                precio_gremio_sin_iva = float(override.precio_gremio_sin_iva_manual)
+                precio_gremio_con_iva = float(override.precio_gremio_con_iva_manual)
+            else:
+                # Calcular automáticamente según reglas
+                # Primero buscar markup por producto
+                if producto_erp.item_id in markups_producto_dict:
+                    markup_gremio = markups_producto_dict[producto_erp.item_id]
+                # Si no, buscar por marca
+                elif producto_erp.marca and producto_erp.marca.upper() in markups_marca_dict:
+                    markup_gremio = markups_marca_dict[producto_erp.marca.upper()]
 
-            if markup_gremio is not None and costo_ars and costo_ars > 0:
-                precio_gremio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_gremio / 100)
-                iva_producto = producto_erp.iva if producto_erp.iva else 21.0
-                precio_gremio_con_iva = precio_gremio_sin_iva * (1 + iva_producto / 100)
+                if markup_gremio is not None and costo_ars and costo_ars > 0:
+                    precio_gremio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_gremio / 100)
+                    iva_producto = producto_erp.iva if producto_erp.iva else 21.0
+                    precio_gremio_con_iva = precio_gremio_sin_iva * (1 + iva_producto / 100)
+
+            # Convertir a USD si es necesario
+            if currency_id == 2 and tipo_cambio_ajustado and tipo_cambio_ajustado > 0:
+                if precio_gremio_sin_iva:
+                    precio_gremio_sin_iva = precio_gremio_sin_iva / tipo_cambio_ajustado
+                if precio_gremio_con_iva:
+                    precio_gremio_con_iva = precio_gremio_con_iva / tipo_cambio_ajustado
 
             # Filtro de solo productos con precio gremio
             if con_precio_gremio and precio_gremio_sin_iva is None:
@@ -5404,3 +5460,97 @@ async def exportar_lista_gremio(
         print(f"Error en exportar_lista_gremio: {str(e)}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error al exportar lista gremio: {str(e)}")
+
+
+# ========== PRECIO GREMIO OVERRIDE (MANUAL) ==========
+@router.patch("/{item_id}/precio-gremio-override")
+async def set_precio_gremio_override(
+    item_id: int,
+    precio_sin_iva: float,
+    precio_con_iva: float,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Establece un precio gremio manual que sobrescribe el cálculo automático.
+    Requiere permiso 'tienda.editar_precio_gremio_manual'.
+    """
+    from app.models.precio_gremio_override import PrecioGremioOverride
+    from app.services.permisos_service import verificar_permiso
+    
+    # Verificar permiso
+    if not verificar_permiso(db, current_user, 'tienda.editar_precio_gremio_manual'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para editar precios gremio manualmente"
+        )
+    
+    # Validar que el producto existe
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+    if not producto:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    
+    # Buscar si ya existe un override
+    override = db.query(PrecioGremioOverride).filter(
+        PrecioGremioOverride.item_id == item_id
+    ).first()
+    
+    if override:
+        # Actualizar existente
+        override.precio_gremio_sin_iva_manual = precio_sin_iva
+        override.precio_gremio_con_iva_manual = precio_con_iva
+        override.updated_by_id = current_user.id
+    else:
+        # Crear nuevo
+        override = PrecioGremioOverride(
+            item_id=item_id,
+            precio_gremio_sin_iva_manual=precio_sin_iva,
+            precio_gremio_con_iva_manual=precio_con_iva,
+            created_by_id=current_user.id,
+            updated_by_id=current_user.id
+        )
+        db.add(override)
+    
+    db.commit()
+    db.refresh(override)
+    
+    return {
+        "success": True,
+        "item_id": item_id,
+        "precio_gremio_sin_iva_manual": float(override.precio_gremio_sin_iva_manual),
+        "precio_gremio_con_iva_manual": float(override.precio_gremio_con_iva_manual)
+    }
+
+
+@router.delete("/{item_id}/precio-gremio-override")
+async def delete_precio_gremio_override(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Elimina el precio gremio manual, volviendo al cálculo automático.
+    Requiere permiso 'tienda.editar_precio_gremio_manual'.
+    """
+    from app.models.precio_gremio_override import PrecioGremioOverride
+    from app.services.permisos_service import verificar_permiso
+    
+    # Verificar permiso
+    if not verificar_permiso(db, current_user, 'tienda.editar_precio_gremio_manual'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para editar precios gremio manualmente"
+        )
+    
+    # Buscar override
+    override = db.query(PrecioGremioOverride).filter(
+        PrecioGremioOverride.item_id == item_id
+    ).first()
+    
+    if not override:
+        raise HTTPException(status_code=404, detail="No existe precio manual para este producto")
+    
+    db.delete(override)
+    db.commit()
+    
+    return {"success": True, "message": "Precio manual eliminado, volviendo al cálculo automático"}
