@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
+import asyncio
 from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, producto_banlist, ventas_ml, ventas_fuera_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog, tienda_nube, gbp_parser, notificaciones, offsets_ganancia, rentabilidad, rentabilidad_fuera, vendedores_excluidos, ventas_tienda_nube, rentabilidad_tienda_nube, permisos, markups_tienda, roles, pedidos_preparacion
+
+# Variable global para controlar la tarea de background
+_background_task = None
 
 app = FastAPI(
     title="Pricing API",
@@ -71,10 +75,45 @@ async def health():
         "timestamp": datetime.now().isoformat()
     }
 
+
+async def sync_pedidos_preparacion_task():
+    """
+    Tarea de background que sincroniza pedidos en preparación cada 5 minutos.
+    """
+    from app.scripts.sync_pedidos_preparacion import sync_pedidos_preparacion
+
+    # Esperar 30 segundos después del inicio para que todo esté listo
+    await asyncio.sleep(30)
+    print("📦 Iniciando sincronización periódica de pedidos en preparación (cada 5 min)")
+
+    while True:
+        try:
+            await sync_pedidos_preparacion()
+        except Exception as e:
+            print(f"❌ Error en sincronización de pedidos: {e}")
+
+        # Esperar 5 minutos
+        await asyncio.sleep(300)
+
+
 @app.on_event("startup")
 async def startup_event():
+    global _background_task
     print("🚀 Pricing API iniciada")
+
+    # Iniciar tarea de sincronización de pedidos en preparación
+    _background_task = asyncio.create_task(sync_pedidos_preparacion_task())
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    global _background_task
     print("👋 Pricing API detenida")
+
+    # Cancelar tarea de background
+    if _background_task:
+        _background_task.cancel()
+        try:
+            await _background_task
+        except asyncio.CancelledError:
+            pass

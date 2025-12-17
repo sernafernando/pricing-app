@@ -31,6 +31,7 @@ from app.models.offset_individual_consumo import OffsetIndividualConsumo, Offset
 from app.models.markup_tienda import MarkupTiendaBrand
 from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
 from app.models.rol import Rol
+from app.models.pedido_preparacion_cache import PedidoPreparacionCache
 
 __all__ = [
     "ProductoERP",
@@ -73,5 +74,6 @@ __all__ = [
     "Permiso",
     "RolPermisoBase",
     "UsuarioPermisoOverride",
-    "Rol"
+    "Rol",
+    "PedidoPreparacionCache"
 ]

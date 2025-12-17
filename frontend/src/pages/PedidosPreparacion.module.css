@@ -34,6 +34,52 @@
   background: var(--bg-hover);
 }
 
+.refreshBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.headerButtons {
+  display: flex;
+  gap: 12px;
+}
+
+.syncBtn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--brand-primary);
+  background: var(--brand-primary);
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.syncBtn:hover {
+  background: var(--brand-primary-hover, #2563eb);
+}
+
+.syncBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ultimaActualizacion {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+}
+
+.updateInfo {
+  color: var(--text-tertiary);
+  margin-left: 8px;
+  font-size: 11px;
+}
+
 /* Estadísticas */
 .statsGrid {
   display: grid;
