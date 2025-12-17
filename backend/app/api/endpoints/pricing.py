@@ -188,18 +188,25 @@ async def calcular_por_markup(
 
 @router.get("/precios/calcular-markup")
 async def calcular_markup_get(
-    item_id: int,
     precio: float,
+    item_id: Optional[int] = None,
+    item_code: Optional[str] = None,
     pricelist_id: int = 4,
     db: Session = Depends(get_db)
 ):
     """
     Endpoint GET para calcular markup dado un precio.
-    Accesible desde navegador: /api/precios/calcular-markup?item_id=123&precio=150000
+    Accesible desde navegador:
+    - Por item_id: /api/precios/calcular-markup?item_id=123&precio=150000
+    - Por item_code (EAN): /api/precios/calcular-markup?item_code=7790001234567&precio=150000
     """
-    producto = db.query(ProductoERP).filter(
-        ProductoERP.item_id == item_id
-    ).first()
+    if not item_id and not item_code:
+        raise HTTPException(400, "Debe proporcionar item_id o item_code")
+
+    if item_id:
+        producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+    else:
+        producto = db.query(ProductoERP).filter(ProductoERP.ean == item_code).first()
 
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
