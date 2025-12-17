@@ -229,7 +229,8 @@ async def calcular_markup_get(
     markup_resultante = calcular_markup(limpio, costo_ars)
 
     return {
-        "item_id": item_id,
+        "item_id": producto.item_id,
+        "item_code": producto.codigo,
         "descripcion": producto.descripcion,
         "precio": precio,
         "costo_ars": round(costo_ars, 2),
