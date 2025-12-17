@@ -21,6 +21,7 @@ import DashboardTiendaNube from './pages/DashboardTiendaNube';
 import Calculos from './pages/Calculos';
 import TestStatsDinamicos from './pages/TestStatsDinamicos';
 import Notificaciones from './pages/Notificaciones';
+import PedidosPreparacion from './pages/PedidosPreparacion';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
@@ -144,6 +145,11 @@ function App() {
                 <Route path="/notificaciones" element={
                   <ProtectedRoute permiso="reportes.ver_notificaciones">
                     <Notificaciones />
+                  </ProtectedRoute>
+                } />
+                <Route path="/pedidos-preparacion" element={
+                  <ProtectedRoute permiso="ordenes.ver_preparacion">
+                    <PedidosPreparacion />
                   </ProtectedRoute>
                 } />
               </Routes>

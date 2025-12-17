@@ -36,6 +36,7 @@ export default function Navbar() {
   const puedeVerHistorial = tienePermiso('productos.ver_auditoria');
   const puedeVerBanlist = tienePermiso('admin.gestionar_mla_banlist');
   const puedeVerItemsSinMLA = tienePermiso('admin.gestionar_mla_banlist');
+  const puedeVerPedidosPreparacion = tienePermiso('ordenes.ver_preparacion');
   const puedeVerTienda = tienePermiso('productos.ver_tienda');
   const puedeVerPreciosListas = tienePermiso('productos.ver');
   const puedeVerDashboardVentas = tieneAlgunPermiso(['ventas_ml.ver_dashboard', 'ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard']);
@@ -143,6 +144,15 @@ export default function Navbar() {
               className={`${styles.link} ${isActive('/items-sin-mla') ? styles.active : ''}`}
             >
               📋 Items sin MLA
+            </Link>
+          )}
+
+          {puedeVerPedidosPreparacion && (
+            <Link
+              to="/pedidos-preparacion"
+              className={`${styles.link} ${isActive('/pedidos-preparacion') ? styles.active : ''}`}
+            >
+              📦 Preparación
             </Link>
           )}
 
@@ -332,6 +342,16 @@ export default function Navbar() {
               onClick={handleLinkClick}
             >
               🚫 Banlist MLAs
+            </Link>
+          )}
+
+          {puedeVerPedidosPreparacion && (
+            <Link
+              to="/pedidos-preparacion"
+              className={`${styles.mobileLink} ${isActive('/pedidos-preparacion') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              📦 Preparación
             </Link>
           )}
 
