@@ -1,7 +1,7 @@
 """Agregar tabla precio_gremio_override y permiso editar_precio_gremio_manual
 
 Revision ID: 20251217_precio_gremio_override
-Revises: 
+Revises: create_pedido_prep_cache
 Create Date: 2025-12-17
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '20251217_precio_gremio_override'
-down_revision = None  # Ajustar según la última migración
+down_revision = 'create_pedido_prep_cache'
 branch_labels = None
 depends_on = None
 
