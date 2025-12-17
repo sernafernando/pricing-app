@@ -73,16 +73,28 @@ async def actualizar_tc_manual(db: Session = Depends(get_db)):
 @router.get("/admin/tipo-cambio-actual")
 async def obtener_tc_actual(db: Session = Depends(get_db)):
     """Obtiene el tipo de cambio actual"""
-    from app.services.pricing_calculator import obtener_tipo_cambio_actual
-    tc = obtener_tipo_cambio_actual(db, "USD")
+    from app.models.tipo_cambio import TipoCambio
+
+    # Buscar primero el de hoy, si no el más reciente
+    tc = db.query(TipoCambio).filter(
+        TipoCambio.moneda == "USD",
+        TipoCambio.fecha == date.today()
+    ).first()
+
+    if not tc:
+        tc = db.query(TipoCambio).filter(
+            TipoCambio.moneda == "USD"
+        ).order_by(TipoCambio.fecha.desc()).first()
 
     if not tc:
         raise HTTPException(404, "No hay tipo de cambio disponible")
 
     return {
         "moneda": "USD",
-        "venta": tc,
-        "fecha": date.today().isoformat()
+        "compra": tc.compra,
+        "venta": tc.venta,
+        "fecha": tc.fecha.isoformat(),
+        "actualizado": tc.timestamp_actualizacion.isoformat() if tc.timestamp_actualizacion else None
     }
 
 # Endpoints de configuración
