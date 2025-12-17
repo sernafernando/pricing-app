@@ -16,7 +16,6 @@ export default function PedidosPreparacion() {
   const [marcaIds, setMarcaIds] = useState([]);
   const [categoriaIds, setCategoriaIds] = useState([]);
   const [tipoEnvio, setTipoEnvio] = useState('');
-  const [estadoMl, setEstadoMl] = useState('');
   const [search, setSearch] = useState('');
   const [soloCombos, setSoloCombos] = useState(false);
 
