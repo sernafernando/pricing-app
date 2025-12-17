@@ -23,7 +23,7 @@ def upgrade() -> None:
             'ordenes.ver_preparacion',
             'Ver pedidos en preparación',
             'Permite ver el listado de pedidos listos para despachar',
-            'ordenes',
+            'ventas_ml',
             60,
             false
         )
