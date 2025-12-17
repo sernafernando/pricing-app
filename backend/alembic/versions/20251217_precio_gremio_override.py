@@ -59,9 +59,9 @@ def upgrade():
     
     # Asignar permiso a roles que ya tienen tienda.editar_precio_gremio
     op.execute("""
-        INSERT INTO rol_permisos (rol_id, permiso_id)
+        INSERT INTO roles_permisos_base (rol_id, permiso_id)
         SELECT DISTINCT rp.rol_id, p_new.id
-        FROM rol_permisos rp
+        FROM roles_permisos_base rp
         JOIN permisos p_old ON rp.permiso_id = p_old.id
         CROSS JOIN permisos p_new
         WHERE p_old.codigo = 'tienda.editar_precio_gremio'
