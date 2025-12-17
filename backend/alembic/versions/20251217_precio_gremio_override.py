@@ -53,7 +53,7 @@ def upgrade():
     op.execute("""
         INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico)
         VALUES ('tienda.editar_precio_gremio_manual', 'Editar precio gremio manualmente', 
-                'Permite editar manualmente los precios de la lista gremio', 'tienda', 18, false)
+                'Permite editar manualmente los precios de la lista gremio', 'productos', 43, false)
         ON CONFLICT (codigo) DO NOTHING;
     """)
     
