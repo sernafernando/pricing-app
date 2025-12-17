@@ -186,6 +186,54 @@ async def calcular_por_markup(
         **resultado
     }
 
+@router.get("/precios/calcular-markup")
+async def calcular_markup_get(
+    item_id: int,
+    precio: float,
+    pricelist_id: int = 4,
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint GET para calcular markup dado un precio.
+    Accesible desde navegador: /api/precios/calcular-markup?item_id=123&precio=150000
+    """
+    producto = db.query(ProductoERP).filter(
+        ProductoERP.item_id == item_id
+    ).first()
+
+    if not producto:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    tipo_cambio = None
+    if producto.moneda_costo == "USD":
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+        if not tipo_cambio:
+            raise HTTPException(400, "No hay tipo de cambio disponible")
+
+    costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+    grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+    comision_base = obtener_comision_base(db, pricelist_id, grupo_id)
+
+    if comision_base is None:
+        raise HTTPException(400, f"No hay comisión configurada para lista {pricelist_id}")
+
+    comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, db=db)
+    limpio = calcular_limpio(precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
+    markup_resultante = calcular_markup(limpio, costo_ars)
+
+    return {
+        "item_id": item_id,
+        "descripcion": producto.descripcion,
+        "precio": precio,
+        "costo_ars": round(costo_ars, 2),
+        "tipo_cambio": tipo_cambio,
+        "comision_base_pct": comision_base,
+        "comision_total": round(comisiones["comision_total"], 2),
+        "limpio": round(limpio, 2),
+        "markup": round(markup_resultante * 100, 2)
+    }
+
+
 @router.post("/precios/calcular-por-precio")
 async def calcular_por_precio(
     request: CalcularPorPrecioRequest,
