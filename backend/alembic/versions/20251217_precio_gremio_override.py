@@ -51,7 +51,7 @@ def upgrade():
     
     # Agregar permiso tienda.editar_precio_gremio_manual
     op.execute("""
-        INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, requiere_aprobacion)
+        INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico)
         VALUES ('tienda.editar_precio_gremio_manual', 'Editar precio gremio manualmente', 
                 'Permite editar manualmente los precios de la lista gremio', 'tienda', 18, false)
         ON CONFLICT (codigo) DO NOTHING;
