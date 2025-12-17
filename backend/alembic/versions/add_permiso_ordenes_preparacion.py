@@ -12,7 +12,7 @@ from datetime import datetime
 
 # revision identifiers, used by Alembic.
 revision = 'add_ordenes_preparacion'
-down_revision = None
+down_revision = '20251216_roles_03'
 branch_labels = None
 depends_on = None
 
