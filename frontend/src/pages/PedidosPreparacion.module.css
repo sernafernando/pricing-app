@@ -262,6 +262,13 @@
   border-color: var(--brand-primary);
 }
 
+.vistaInfo {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
 /* Tabla */
 .tableContainer {
   background: var(--bg-primary);

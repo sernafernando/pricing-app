@@ -14,6 +14,7 @@ export default function PedidosPreparacion() {
   // Filtros
   const [tipoEnvio, setTipoEnvio] = useState('');
   const [search, setSearch] = useState('');
+  const [vistaProduccion, setVistaProduccion] = useState(false);
 
   const getToken = () => localStorage.getItem('token');
 
@@ -45,6 +46,7 @@ export default function PedidosPreparacion() {
       const params = new URLSearchParams();
       if (tipoEnvio) params.append('logistic_type', tipoEnvio);
       if (search) params.append('search', search);
+      if (vistaProduccion) params.append('vista_produccion', 'true');
 
       const response = await axios.get(`${API_URL}/pedidos-preparacion/resumen?${params}`, {
         headers: { Authorization: `Bearer ${getToken()}` }
@@ -55,7 +57,7 @@ export default function PedidosPreparacion() {
     } finally {
       setLoading(false);
     }
-  }, [tipoEnvio, search]);
+  }, [tipoEnvio, search, vistaProduccion]);
 
   const sincronizarDatos = async () => {
     setSyncing(true);
@@ -158,6 +160,13 @@ export default function PedidosPreparacion() {
       {/* Filtros */}
       <div className={styles.filtrosContainer}>
         <div className={styles.filtrosRow}>
+          <button
+            className={`${styles.vistaBtn} ${vistaProduccion ? styles.vistaActiva : ''}`}
+            onClick={() => setVistaProduccion(!vistaProduccion)}
+          >
+            Vista Produccion
+          </button>
+
           <select
             value={tipoEnvio}
             onChange={(e) => setTipoEnvio(e.target.value)}
@@ -177,6 +186,11 @@ export default function PedidosPreparacion() {
             className={styles.searchInput}
           />
         </div>
+        {vistaProduccion && (
+          <div className={styles.vistaInfo}>
+            Filtrando: EAN con guion + Notebooks, NB, PC ARMADA, AIO
+          </div>
+        )}
       </div>
 
       {/* Contenido */}

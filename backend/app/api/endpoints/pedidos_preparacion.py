@@ -50,12 +50,17 @@ class SyncResponse(BaseModel):
     timestamp: str
 
 
+# Patrones para vista Producción (hardcodeados)
+PRODUCCION_PATRONES = ['Notebook%', 'NB%', 'NB %', 'PC ARMADA%', 'AIO%', 'AIO %']
+
+
 @router.get("/pedidos-preparacion/resumen", response_model=List[ResumenProductoResponse])
 async def obtener_resumen(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
     logistic_type: Optional[str] = Query(None, description="Filtrar por tipo de envío"),
     search: Optional[str] = Query(None, description="Buscar por código o descripción"),
+    vista_produccion: bool = Query(False, description="Filtrar vista Producción (EAN con guión + Notebooks/PC/AIO)"),
     limit: int = Query(500, ge=1, le=2000),
     offset: int = Query(0, ge=0)
 ):
@@ -63,6 +68,14 @@ async def obtener_resumen(
     Obtiene el resumen de pedidos en preparación desde la tabla cache.
     """
     query = db.query(PedidoPreparacionCache)
+
+    # Filtro vista Producción: EAN con "-" Y (Notebook OR NB OR PC ARMADA OR AIO)
+    if vista_produccion:
+        from sqlalchemy import or_
+        query = query.filter(
+            PedidoPreparacionCache.item_code.like('%-%'),
+            or_(*[PedidoPreparacionCache.item_desc.ilike(p) for p in PRODUCCION_PATRONES])
+        )
 
     # Filtro por tipo de envío
     if logistic_type:
