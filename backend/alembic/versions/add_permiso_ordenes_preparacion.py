@@ -6,8 +6,6 @@ Create Date: 2025-01-17
 
 """
 from alembic import op
-import sqlalchemy as sa
-from datetime import datetime
 
 
 # revision identifiers, used by Alembic.
@@ -20,24 +18,25 @@ depends_on = None
 def upgrade() -> None:
     # Insertar nuevo permiso
     op.execute("""
-        INSERT INTO permisos (codigo, nombre, descripcion, modulo, created_at)
+        INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico)
         VALUES (
             'ordenes.ver_preparacion',
             'Ver pedidos en preparación',
             'Permite ver el listado de pedidos listos para despachar',
             'ordenes',
-            NOW()
+            60,
+            false
         )
         ON CONFLICT (codigo) DO NOTHING;
     """)
 
     # Asignar a roles SUPERADMIN, ADMIN, GERENTE
     op.execute("""
-        INSERT INTO roles_permisos_base (rol, permiso_id, created_at)
-        SELECT rol, p.id, NOW()
-        FROM (VALUES ('SUPERADMIN'), ('ADMIN'), ('GERENTE')) AS roles(rol)
-        CROSS JOIN permisos p
-        WHERE p.codigo = 'ordenes.ver_preparacion'
+        INSERT INTO roles_permisos_base (rol_id, permiso_id)
+        SELECT r.id, p.id
+        FROM roles r, permisos p
+        WHERE r.codigo IN ('SUPERADMIN', 'ADMIN', 'GERENTE')
+        AND p.codigo = 'ordenes.ver_preparacion'
         ON CONFLICT DO NOTHING;
     """)
 
@@ -46,7 +45,7 @@ def downgrade() -> None:
     # Eliminar asignaciones a roles
     op.execute("""
         DELETE FROM roles_permisos_base
-        WHERE permiso_id = (SELECT id FROM permisos WHERE codigo = 'ordenes.ver_preparacion');
+        WHERE permiso_id IN (SELECT id FROM permisos WHERE codigo = 'ordenes.ver_preparacion');
     """)
 
     # Eliminar permiso
