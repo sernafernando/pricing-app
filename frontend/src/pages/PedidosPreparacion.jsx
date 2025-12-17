@@ -13,11 +13,11 @@ export default function PedidosPreparacion() {
   const [loading, setLoading] = useState(true);
 
   // Filtros
-  const [marcaId, setMarcaId] = useState('');
-  const [categoriaId, setCategoriaId] = useState('');
+  const [marcaIds, setMarcaIds] = useState([]);
+  const [categoriaIds, setCategoriaIds] = useState([]);
   const [tipoEnvio, setTipoEnvio] = useState('');
   const [search, setSearch] = useState('');
-  const [soloPendientes, setSoloPendientes] = useState(false);
+  const [soloCombos, setSoloCombos] = useState(false);
 
   const getToken = () => localStorage.getItem('token');
 
@@ -47,11 +47,11 @@ export default function PedidosPreparacion() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (marcaId) params.append('marca_id', marcaId);
-      if (categoriaId) params.append('categoria_id', categoriaId);
+      if (marcaIds.length > 0) params.append('marca_ids', marcaIds.join(','));
+      if (categoriaIds.length > 0) params.append('categoria_ids', categoriaIds.join(','));
       if (tipoEnvio) params.append('logistic_type', tipoEnvio);
       if (search) params.append('search', search);
-      if (soloPendientes) params.append('solo_pendientes', 'true');
+      if (soloCombos) params.append('solo_combos', 'true');
 
       if (vista === 'detalle') {
         const response = await axios.get(`${API_URL}/pedidos-preparacion/detalle?${params}`, {
@@ -69,7 +69,7 @@ export default function PedidosPreparacion() {
     } finally {
       setLoading(false);
     }
-  }, [vista, marcaId, categoriaId, tipoEnvio, search, soloPendientes]);
+  }, [vista, marcaIds, categoriaIds, tipoEnvio, search, soloCombos]);
 
   useEffect(() => {
     cargarFiltros();
@@ -152,27 +152,47 @@ export default function PedidosPreparacion() {
       {/* Filtros */}
       <div className={styles.filtrosContainer}>
         <div className={styles.filtrosRow}>
-          <select
-            value={marcaId}
-            onChange={(e) => setMarcaId(e.target.value)}
-            className={styles.select}
-          >
-            <option value="">Todas las marcas</option>
-            {filtros?.marcas?.map((m) => (
-              <option key={m.id} value={m.id}>{m.nombre}</option>
-            ))}
-          </select>
+          <div className={styles.multiSelectContainer}>
+            <label className={styles.multiSelectLabel}>Marcas:</label>
+            <select
+              multiple
+              value={marcaIds}
+              onChange={(e) => setMarcaIds(Array.from(e.target.selectedOptions, o => o.value))}
+              className={styles.multiSelect}
+            >
+              {filtros?.marcas?.map((m) => (
+                <option key={m.id} value={m.id}>{m.nombre}</option>
+              ))}
+            </select>
+            {marcaIds.length > 0 && (
+              <button
+                className={styles.clearBtn}
+                onClick={() => setMarcaIds([])}
+                title="Limpiar"
+              >✕</button>
+            )}
+          </div>
 
-          <select
-            value={categoriaId}
-            onChange={(e) => setCategoriaId(e.target.value)}
-            className={styles.select}
-          >
-            <option value="">Todas las categorías</option>
-            {filtros?.categorias?.map((c) => (
-              <option key={c.id} value={c.id}>{c.nombre}</option>
-            ))}
-          </select>
+          <div className={styles.multiSelectContainer}>
+            <label className={styles.multiSelectLabel}>Categorías:</label>
+            <select
+              multiple
+              value={categoriaIds}
+              onChange={(e) => setCategoriaIds(Array.from(e.target.selectedOptions, o => o.value))}
+              className={styles.multiSelect}
+            >
+              {filtros?.categorias?.map((c) => (
+                <option key={c.id} value={c.id}>{c.nombre}</option>
+              ))}
+            </select>
+            {categoriaIds.length > 0 && (
+              <button
+                className={styles.clearBtn}
+                onClick={() => setCategoriaIds([])}
+                title="Limpiar"
+              >✕</button>
+            )}
+          </div>
 
           <select
             value={tipoEnvio}
@@ -197,10 +217,10 @@ export default function PedidosPreparacion() {
           <label className={styles.checkboxLabel}>
             <input
               type="checkbox"
-              checked={soloPendientes}
-              onChange={(e) => setSoloPendientes(e.target.checked)}
+              checked={soloCombos}
+              onChange={(e) => setSoloCombos(e.target.checked)}
             />
-            Solo pendientes (20)
+            Solo combos
           </label>
         </div>
 

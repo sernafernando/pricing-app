@@ -129,6 +129,66 @@
   cursor: pointer;
 }
 
+/* Multi-select */
+.multiSelectContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+
+.multiSelectLabel {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.multiSelect {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  min-width: 160px;
+  min-height: 80px;
+  max-height: 120px;
+  cursor: pointer;
+}
+
+.multiSelect option {
+  padding: 4px 8px;
+}
+
+.multiSelect option:checked {
+  background: var(--brand-primary);
+  color: white;
+}
+
+.clearBtn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: var(--error);
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.clearBtn:hover {
+  background: #dc2626;
+}
+
 .vistaToggle {
   display: flex;
   gap: 8px;
