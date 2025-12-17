@@ -206,7 +206,7 @@ async def calcular_markup_get(
     if item_id:
         producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     else:
-        producto = db.query(ProductoERP).filter(ProductoERP.ean == item_code).first()
+        producto = db.query(ProductoERP).filter(ProductoERP.codigo == item_code).first()
 
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
