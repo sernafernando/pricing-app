@@ -86,9 +86,8 @@ class FiltrosResponse(BaseModel):
     estados_ml: List[str]
 
 
-# Estados de ML que indican "en preparación" - solo ready_to_ship
-# 'paid' incluye histórico muy antiguo que ya fue procesado
-ESTADOS_PREPARACION = ['ready_to_ship']
+# Estados de ML que indican "en preparación" (no enviados, no cancelados)
+ESTADOS_PREPARACION = ['ready_to_ship', 'paid']
 
 
 @router.get("/pedidos-preparacion/filtros", response_model=FiltrosResponse)
