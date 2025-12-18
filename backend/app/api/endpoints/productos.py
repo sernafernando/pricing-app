@@ -5463,7 +5463,7 @@ async def exportar_lista_gremio(
 
 
 # ========== PRECIO GREMIO OVERRIDE (MANUAL) ==========
-@router.patch("/{item_id}/precio-gremio-override")
+@router.patch("/productos/{item_id}/precio-gremio-override")
 async def set_precio_gremio_override(
     item_id: int,
     precio_sin_iva: float,
@@ -5522,7 +5522,7 @@ async def set_precio_gremio_override(
     }
 
 
-@router.delete("/{item_id}/precio-gremio-override")
+@router.delete("/productos/{item_id}/precio-gremio-override")
 async def delete_precio_gremio_override(
     item_id: int,
     db: Session = Depends(get_db),
