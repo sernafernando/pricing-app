@@ -147,6 +147,7 @@ async def sync_items_publicados_full(db: Session):
                     'mlp_lastUpdate': convertir_fecha(item_data.get('mlp_lastUpdate')),
                     'mlp_free_shipping': convertir_a_boolean(item_data.get('mlp_free_shipping')),
                     'mlp_catalog_product_id': item_data.get('mlp_catalog_product_id'),
+                    'mlp_official_store_id': convertir_a_entero(item_data.get('mlp_official_store_id')),
                     'health': convertir_a_numero(item_data.get('health')),
                     'optval_statusId': convertir_a_entero(item_data.get('optval_statusId')),
                 }
