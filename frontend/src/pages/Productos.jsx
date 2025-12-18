@@ -3171,12 +3171,24 @@ export default function Productos() {
                       ) : (
                         <div onClick={() => puedeEditar && iniciarEdicion(p)}>
                           <div className={puedeEditar ? 'editable-field' : ''}>
-                            {p.precio_lista_ml ? `$${p.precio_lista_ml.toLocaleString('es-AR')}` : 'Sin precio'}
+                            {modoVista === 'pvp' ? (
+                              p.precio_pvp ? `$${p.precio_pvp.toLocaleString('es-AR')}` : 'Sin precio'
+                            ) : (
+                              p.precio_lista_ml ? `$${p.precio_lista_ml.toLocaleString('es-AR')}` : 'Sin precio'
+                            )}
                           </div>
-                          {p.markup !== null && p.markup !== undefined && (
-                            <div className="markup-display" style={{ color: getMarkupColor(p.markup) }}>
-                              {p.markup}%
-                            </div>
+                          {modoVista === 'pvp' ? (
+                            p.markup_pvp !== null && p.markup_pvp !== undefined && (
+                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp) }}>
+                                {p.markup_pvp}%
+                              </div>
+                            )
+                          ) : (
+                            p.markup !== null && p.markup !== undefined && (
+                              <div className="markup-display" style={{ color: getMarkupColor(p.markup) }}>
+                                {p.markup}%
+                              </div>
+                            )
                           )}
                         </div>
                       )}
