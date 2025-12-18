@@ -11,6 +11,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const puedeExportarRebate = tienePermiso('productos.exportar_rebate');
   const puedeExportarWebTransf = tienePermiso('productos.exportar_web_transferencia');
   const puedeExportarClasica = tienePermiso('productos.exportar_clasica');
+  const puedeExportarPVP = tienePermiso('productos.exportar_pvp');
   const puedeExportarGremio = tienePermiso('tienda.exportar_lista_gremio');
 
   // Determinar tabs disponibles según permisos y contexto
@@ -20,6 +21,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   if (!esTienda && puedeExportarRebate) tabsDisponibles.push('rebate');
   if (puedeExportarWebTransf) tabsDisponibles.push('web_transf');
   if (puedeExportarClasica) tabsDisponibles.push('clasica');
+  if (puedeExportarPVP) tabsDisponibles.push('pvp');
 
   // Tab inicial: primera disponible o ninguna
   const tabInicial = tabsDisponibles.length > 0 ? tabsDisponibles[0] : null;
@@ -28,7 +30,10 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
   const [porcentajeClasica, setPorcentajeClasica] = useState('0');
   const [tipoCuotas, setTipoCuotas] = useState('clasica'); // clasica, 3, 6, 9, 12
+  const [tipoCuotasPVP, setTipoCuotasPVP] = useState('pvp'); // pvp, pvp_3, pvp_6, pvp_9, pvp_12
+  const [porcentajePVP, setPorcentajePVP] = useState('0');
   const [monedaClasica, setMonedaClasica] = useState('ARS'); // ARS o USD
+  const [monedaPVP, setMonedaPVP] = useState('ARS'); // ARS o USD
   const [monedaWebTransf, setMonedaWebTransf] = useState('ARS'); // ARS o USD
   const [monedaGremio, setMonedaGremio] = useState('ARS'); // ARS o USD para lista gremio
   const [dolarVenta, setDolarVenta] = useState(null);
@@ -108,7 +113,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     !!filtrosActivos?.audit_fecha_hasta ||
     filtrosActivos?.filtroMLA !== null ||
     filtrosActivos?.filtroEstadoMLA !== null ||
-    filtrosActivos?.filtroNuevos !== null;
+    filtrosActivos?.filtroNuevos !== null ||
+    filtrosActivos?.filtroTiendaOficial !== null;
 
   const agregarFiltrosAvanzados = (params) => {
     if (filtrosActivos.filtroRebate === 'con_rebate') params.con_rebate = true;
@@ -141,6 +147,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     if (filtrosActivos.filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
     if (filtrosActivos.filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
     if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
+    if (filtrosActivos.filtroTiendaOficial) params.tienda_oficial = filtrosActivos.filtroTiendaOficial;
     return params;
   };
 
@@ -183,6 +190,10 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       {filtrosActivos?.filtroEstadoMLA === 'activa' && <div>• Estado MLA: Activas</div>}
       {filtrosActivos?.filtroEstadoMLA === 'pausada' && <div>• Estado MLA: Pausadas</div>}
       {filtrosActivos?.filtroNuevos === 'ultimos_7_dias' && <div>• Nuevos (últimos 7 días)</div>}
+      {filtrosActivos?.filtroTiendaOficial === '57997' && <div>• Tienda Oficial: Gauss</div>}
+      {filtrosActivos?.filtroTiendaOficial === '2645' && <div>• Tienda Oficial: TP-Link</div>}
+      {filtrosActivos?.filtroTiendaOficial === '144' && <div>• Tienda Oficial: Forza/Verbatim</div>}
+      {filtrosActivos?.filtroTiendaOficial === '191942' && <div>• Tienda Oficial: Multi-marca</div>}
     </div>
   );
 
@@ -264,6 +275,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
         if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
         if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
+        if (filtrosActivos.filtroTiendaOficial) params += `&tienda_oficial=${filtrosActivos.filtroTiendaOficial}`;
       }
 
       const url = `https://pricing.gaussonline.com.ar/api/exportar-vista-actual?${params}`;
@@ -392,6 +404,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
         if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
         if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
+        if (filtrosActivos.filtroTiendaOficial) params += `&tienda_oficial=${filtrosActivos.filtroTiendaOficial}`;
       }
 
       const response = await axios.get(
@@ -530,6 +543,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
         if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
         if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
+        if (filtrosActivos.filtroTiendaOficial) params += `&tienda_oficial=${filtrosActivos.filtroTiendaOficial}`;
       }
 
       const response = await axios.get(
@@ -554,6 +568,94 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     } catch (error) {
       console.error('Error exportando:', error);
       showToast('❌ Error al exportar Web Transferencia', 'error');
+    } finally {
+      setExportando(false);
+    }
+  };
+
+  const exportarPVP = async () => {
+    setExportando(true);
+    try {
+      const token = localStorage.getItem('token');
+      let params = `porcentaje_adicional=${parseFloat(porcentajePVP.toString().replace(',', '.')) || 0}&tipo_cuotas=${tipoCuotasPVP}`;
+
+      // Agregar currency_id y offset_dolar
+      const currencyId = monedaPVP === 'USD' ? 2 : 1;
+      params += `&currency_id=${currencyId}`;
+      if (monedaPVP === 'USD') {
+        const offset = parseFloat(offsetDolar.toString().replace(',', '.')) || 0;
+        params += `&offset_dolar=${offset}`;
+      }
+
+      if (aplicarFiltros) {
+        if (filtrosActivos.search) params += `&search=${encodeURIComponent(filtrosActivos.search)}`;
+        if (filtrosActivos.con_stock !== null) params += `&con_stock=${filtrosActivos.con_stock}`;
+        if (filtrosActivos.con_precio !== null) params += `&con_precio=${filtrosActivos.con_precio}`;
+        if (filtrosActivos.marcas?.length > 0) params += `&marcas=${filtrosActivos.marcas.join(',')}`;
+        if (filtrosActivos.subcategorias?.length > 0) params += `&subcategorias=${filtrosActivos.subcategorias.join(',')}`;
+        if (filtrosActivos.filtroRebate === 'con_rebate') params += `&con_rebate=true`;
+        if (filtrosActivos.filtroRebate === 'sin_rebate') params += `&con_rebate=false`;
+        if (filtrosActivos.filtroOferta === 'con_oferta') params += `&con_oferta=true`;
+        if (filtrosActivos.filtroOferta === 'sin_oferta') params += `&con_oferta=false`;
+        if (filtrosActivos.filtroWebTransf === 'con_web_transf') params += `&con_web_transf=true`;
+        if (filtrosActivos.filtroWebTransf === 'sin_web_transf') params += `&con_web_transf=false`;
+        if (filtrosActivos.filtroTiendaNube === 'con_descuento') params += `&tiendanube_con_descuento=true`;
+        if (filtrosActivos.filtroTiendaNube === 'sin_descuento') params += `&tiendanube_sin_descuento=true`;
+        if (filtrosActivos.filtroTiendaNube === 'no_publicado') params += `&tiendanube_no_publicado=true`;
+        if (filtrosActivos.filtroMarkupClasica === 'positivo') params += `&markup_clasica_positivo=true`;
+        if (filtrosActivos.filtroMarkupClasica === 'negativo') params += `&markup_clasica_positivo=false`;
+        if (filtrosActivos.filtroMarkupRebate === 'positivo') params += `&markup_rebate_positivo=true`;
+        if (filtrosActivos.filtroMarkupRebate === 'negativo') params += `&markup_rebate_positivo=false`;
+        if (filtrosActivos.filtroMarkupOferta === 'positivo') params += `&markup_oferta_positivo=true`;
+        if (filtrosActivos.filtroMarkupOferta === 'negativo') params += `&markup_oferta_positivo=false`;
+        if (filtrosActivos.filtroMarkupWebTransf === 'positivo') params += `&markup_web_transf_positivo=true`;
+        if (filtrosActivos.filtroMarkupWebTransf === 'negativo') params += `&markup_web_transf_positivo=false`;
+        if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') params += `&out_of_cards=true`;
+        if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') params += `&out_of_cards=false`;
+        if (filtrosActivos.coloresSeleccionados?.length > 0) params += `&colores=${filtrosActivos.coloresSeleccionados.join(',')}`;
+        if (filtrosActivos.pmsSeleccionados?.length > 0) params += `&pms=${filtrosActivos.pmsSeleccionados.join(',')}`;
+        if (filtrosActivos.audit_usuarios?.length > 0) params += `&audit_usuarios=${filtrosActivos.audit_usuarios.join(',')}`;
+        if (filtrosActivos.audit_tipos_accion?.length > 0) params += `&audit_tipos_accion=${filtrosActivos.audit_tipos_accion.join(',')}`;
+        if (filtrosActivos.audit_fecha_desde) params += `&audit_fecha_desde=${filtrosActivos.audit_fecha_desde}`;
+        if (filtrosActivos.audit_fecha_hasta) params += `&audit_fecha_hasta=${filtrosActivos.audit_fecha_hasta}`;
+        if (filtrosActivos.filtroMLA === 'con_mla') params += `&con_mla=true`;
+        if (filtrosActivos.filtroMLA === 'sin_mla') params += `&con_mla=false`;
+        if (filtrosActivos.filtroEstadoMLA === 'activa') params += `&estado_mla=activa`;
+        if (filtrosActivos.filtroEstadoMLA === 'pausada') params += `&estado_mla=pausada`;
+        if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params += `&nuevos_ultimos_7_dias=true`;
+        if (filtrosActivos.filtroTiendaOficial) params += `&tienda_oficial=${filtrosActivos.filtroTiendaOficial}`;
+      }
+
+      const response = await axios.get(
+        `https://pricing.gaussonline.com.ar/api/exportar-pvp?${params}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'blob'
+        }
+      );
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      const ahora = new Date();
+      const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+
+      // Determinar nombre del archivo según tipo de cuotas
+      let nombreBase = 'pvp';
+      if (tipoCuotasPVP === 'pvp_3') nombreBase = 'pvp_3_cuotas';
+      else if (tipoCuotasPVP === 'pvp_6') nombreBase = 'pvp_6_cuotas';
+      else if (tipoCuotasPVP === 'pvp_9') nombreBase = 'pvp_9_cuotas';
+      else if (tipoCuotasPVP === 'pvp_12') nombreBase = 'pvp_12_cuotas';
+
+      const nombreArchivo = `${nombreBase}_${timestamp}.xlsx`;
+      link.setAttribute('download', nombreArchivo);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      showToast('✅ Exportación completada');
+      onClose();
+    } catch (error) {
+      console.error('Error exportando:', error);
+      showToast('❌ Error al exportar PVP', 'error');
     } finally {
       setExportando(false);
     }
@@ -611,6 +713,14 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                 className={`${styles.tab} ${tab === 'clasica' ? styles.active : ''}`}
               >
                 Clásica
+              </button>
+            )}
+            {puedeExportarPVP && (
+              <button
+                onClick={() => setTab('pvp')}
+                className={`${styles.tab} ${tab === 'pvp' ? styles.active : ''}`}
+              >
+                PVP
               </button>
             )}
           </div>
@@ -994,6 +1104,121 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                 </button>
                 <button onClick={exportarClasica} disabled={exportando} className={`${styles.button} ${styles.buttonPrimary}`}>
                   {exportando ? '⏳ Exportando...' : '📥 Exportar Excel'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {tab === 'pvp' && puedeExportarPVP && (
+            <div>
+              {hayFiltros && (
+                <div className={styles.filterCheckbox}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={aplicarFiltros}
+                      onChange={(e) => setAplicarFiltros(e.target.checked)}
+                    />
+                    Exportar solo productos filtrados
+                  </label>
+                  {aplicarFiltros && <FiltrosActivosDisplay />}
+                </div>
+              )}
+
+              <p className={styles.description}>
+                Exporta precios de PVP (Listas 12, 18, 19, 20, 21). Usa precios base de lista PVP.
+              </p>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Tipo de precio a exportar:</label>
+                <select
+                  value={tipoCuotasPVP}
+                  onChange={(e) => setTipoCuotasPVP(e.target.value)}
+                  className={styles.input}
+                >
+                  <option value="pvp">PVP Base</option>
+                  <option value="pvp_3">PVP 3 Cuotas</option>
+                  <option value="pvp_6">PVP 6 Cuotas</option>
+                  <option value="pvp_9">PVP 9 Cuotas</option>
+                  <option value="pvp_12">PVP 12 Cuotas</option>
+                </select>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Moneda:</label>
+                <select
+                  value={monedaPVP}
+                  onChange={(e) => setMonedaPVP(e.target.value)}
+                  className={styles.input}
+                >
+                  <option value="ARS">Pesos (ARS)</option>
+                  <option value="USD">Dólares (USD)</option>
+                </select>
+              </div>
+
+              {monedaPVP === 'USD' && dolarVenta && (
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>
+                    Dólar venta: ${dolarVenta.toFixed(2)}
+                  </label>
+                  <label className={styles.label}>Offset (±):</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Ej: 10 o -10"
+                    value={offsetDolar}
+                    onChange={(e) => setOffsetDolar(e.target.value)}
+                    onBlur={(e) => {
+                      const valor = e.target.value.replace(',', '.');
+                      const numero = parseFloat(valor);
+                      if (!isNaN(numero)) {
+                        setOffsetDolar(numero.toString());
+                      } else {
+                        setOffsetDolar('0');
+                      }
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    className={styles.input}
+                  />
+                  <small className={styles.filterInfo}>
+                    Dólar ajustado: ${(dolarVenta + (parseFloat(offsetDolar.replace(',', '.')) || 0)).toFixed(2)}
+                  </small>
+                </div>
+              )}
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Porcentaje adicional (%):</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ej: 10"
+                  value={porcentajePVP}
+                  onChange={(e) => {
+                    setPorcentajePVP(e.target.value);
+                  }}
+                  onBlur={(e) => {
+                    const valor = e.target.value.replace(',', '.');
+                    const numero = parseFloat(valor);
+                    if (!isNaN(numero)) {
+                      setPorcentajePVP(numero.toString());
+                    } else {
+                      setPorcentajePVP('0');
+                    }
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  className={styles.input}
+                />
+                <small className={styles.filterInfo}>
+                  Suma este porcentaje a los precios PVP
+                </small>
+              </div>
+
+              <div className={styles.buttonGroup}>
+                <button onClick={onClose} disabled={exportando} className={`${styles.button} ${styles.buttonSecondary}`}>
+                  Cancelar
+                </button>
+                <button onClick={exportarPVP} disabled={exportando} className={`${styles.button} ${styles.buttonPrimary}`}>
+                  {exportando ? '⏳ Exportando...' : '📥 Exportar PVP'}
                 </button>
               </div>
             </div>
