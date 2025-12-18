@@ -9,10 +9,8 @@ export default function DashboardMetricasML() {
   const [fechaHasta, setFechaHasta] = useState('');
   const [marcaSeleccionada, setMarcaSeleccionada] = useState('');
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('');
-  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen', 'operaciones', 'rentabilidad', 'tienda-oficial'
-  
-  // Derivar tiendaOficialActiva del tab activo
-  const tiendaOficialActiva = tabActivo === 'tienda-oficial';
+  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen', 'operaciones', 'rentabilidad'
+  const [tiendaOficialSeleccionada, setTiendaOficialSeleccionada] = useState(''); // '', '57997', '2645', '144', '191942'
 
   // Datos
   const [metricasGenerales, setMetricasGenerales] = useState(null);
@@ -49,13 +47,13 @@ export default function DashboardMetricasML() {
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
-      if (tabActivo === 'resumen' || tabActivo === 'tienda-oficial') {
+      if (tabActivo === 'resumen') {
         cargarDashboard();
       } else if (tabActivo === 'operaciones') {
         cargarOperaciones();
       }
     }
-  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tabActivo]);
+  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tabActivo, tiendaOficialSeleccionada]);
 
   const cargarMarcasYCategorias = async () => {
     try {
@@ -87,53 +85,7 @@ export default function DashboardMetricasML() {
 
       if (marcaSeleccionada) params.marca = marcaSeleccionada;
       if (categoriaSeleccionada) params.categoria = categoriaSeleccionada;
-      if (tiendaOficialActiva) params.tienda_oficial = 'true';
-
-      // Cargar todos los datos en paralelo
-      const [
-        metricasRes,
-        marcasRes,
-        categoriasRes,
-        logisticaRes,
-        diasRes,
-        productosRes
-      ] = await Promise.all([
-        axios.get(`${API_URL}/dashboard-ml/metricas-generales`, { params, headers }),
-        axios.get(`${API_URL}/dashboard-ml/por-marca`, { params, headers }),
-        axios.get(`${API_URL}/dashboard-ml/por-categoria`, { params, headers }),
-        axios.get(`${API_URL}/dashboard-ml/por-logistica`, { params, headers }),
-        axios.get(`${API_URL}/dashboard-ml/por-dia`, { params, headers }),
-        axios.get(`${API_URL}/dashboard-ml/top-productos`, { params, headers })
-      ]);
-
-      setMetricasGenerales(metricasRes.data);
-      setVentasPorMarca(marcasRes.data || []);
-      setVentasPorCategoria(categoriasRes.data || []);
-      setVentasPorLogistica(logisticaRes.data || []);
-      setVentasPorDia(diasRes.data || []);
-      setTopProductos(productosRes.data || []);
-    } catch (error) {
-      console.error('Error cargando dashboard:', error);
-      alert('Error al cargar el dashboard');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const cargarOperaciones = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const params = {
-        from_date: fechaDesde,
-        to_date: fechaHasta,
-        limit: 1000
-      };
-
-      if (marcaSeleccionada) params.marca = marcaSeleccionada;
-      if (tiendaOficialActiva) params.tienda_oficial = 'true';
+      if (tiendaOficialSeleccionada) params.tienda_oficial = tiendaOficialSeleccionada;
 
       const response = await axios.get(`${API_URL}/ventas-ml/operaciones-con-metricas`, { params, headers });
       setOperaciones(response.data || []);
@@ -261,12 +213,6 @@ export default function DashboardMetricasML() {
           >
             💰 Rentabilidad
           </button>
-          <button
-            className={`${styles.tab} ${tabActivo === 'tienda-oficial' ? styles.tabActivo : ''}`}
-            onClick={() => setTabActivo('tienda-oficial')}
-          >
-            🏪 Tienda Oficial TP-Link
-          </button>
         </div>
 
         {/* Filtros Rápidos */}
@@ -344,6 +290,21 @@ export default function DashboardMetricasML() {
                   {categoriasDisponibles.map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
+                </select>
+              </div>
+
+              <div className={styles.filtroSelect}>
+                <label>🏪 Tienda Oficial:</label>
+                <select
+                  value={tiendaOficialSeleccionada}
+                  onChange={(e) => setTiendaOficialSeleccionada(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="">Todas</option>
+                  <option value="57997">🏢 Gauss</option>
+                  <option value="2645">📡 TP-Link</option>
+                  <option value="144">⚡ Forza/Verbatim</option>
+                  <option value="191942">🎯 Multi-marca</option>
                 </select>
               </div>
 
@@ -430,10 +391,15 @@ export default function DashboardMetricasML() {
       ) : metricasGenerales ? (
         /* Tab de Resumen (incluye tienda-oficial con filtro) */
         <>
-          {/* Banner informativo si está en tienda oficial */}
-          {tiendaOficialActiva && (
+          {/* Banner informativo si hay tienda oficial seleccionada */}
+          {tiendaOficialSeleccionada && (
             <div className={styles.bannerTiendaOficial}>
-              🏪 Mostrando solo operaciones de la <strong>Tienda Oficial TP-Link</strong>
+              🏪 Mostrando solo operaciones de: <strong>
+                {tiendaOficialSeleccionada === '57997' && 'Tienda Oficial Gauss'}
+                {tiendaOficialSeleccionada === '2645' && 'Tienda Oficial TP-Link'}
+                {tiendaOficialSeleccionada === '144' && 'Tienda Oficial Forza/Verbatim'}
+                {tiendaOficialSeleccionada === '191942' && 'Tienda Oficial Multi-marca'}
+              </strong>
             </div>
           )}
 

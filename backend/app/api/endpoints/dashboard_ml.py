@@ -47,19 +47,26 @@ def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session):
 
 def aplicar_filtro_tienda_oficial(query, tienda_oficial: Optional[str], db: Session):
     """
-    Aplica filtro de tienda oficial TP-Link (mlp_official_store_id = 2645).
-    Hace JOIN con tb_mercadolibre_items_publicados para obtener mlp_official_store_id.
+    Aplica filtro de tienda oficial por mlp_official_store_id.
+    
+    Tiendas disponibles:
+    - 57997: Gauss
+    - 2645: TP-Link
+    - 144: Forza/Verbatim
+    - 191942: Multi-marca (Epson, Logitech, MGN, Razer)
     """
-    if tienda_oficial == 'true':
+    if tienda_oficial and tienda_oficial.isdigit():
         from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
         from sqlalchemy import cast, String
+        
+        store_id = int(tienda_oficial)
         
         # Subquery para obtener mlp_ids de tienda oficial
         # ml_ventas_metricas.mla_id contiene el mlp_id (numérico) como string
         mlas_tienda_oficial = db.query(
             cast(MercadoLibreItemPublicado.mlp_id, String)
         ).filter(
-            MercadoLibreItemPublicado.mlp_official_store_id == 2645
+            MercadoLibreItemPublicado.mlp_official_store_id == store_id
         ).distinct()
         
         query = query.filter(MLVentaMetrica.mla_id.in_(mlas_tienda_oficial))
