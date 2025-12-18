@@ -126,6 +126,7 @@ async def listar_productos(
     con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    tienda_oficial: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
@@ -574,6 +575,16 @@ async def listar_productos(
         from datetime import datetime, timedelta
         fecha_limite = datetime.now() - timedelta(days=7)
         query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
+
+    # Filtro de Tienda Oficial
+    if tienda_oficial:
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+        # Obtener item_ids de productos en esa tienda oficial
+        store_id = int(tienda_oficial)
+        item_ids_tienda = db.query(MercadoLibreItemPublicado.item_id).filter(
+            MercadoLibreItemPublicado.mlp_official_store_id == store_id
+        ).distinct()
+        query = query.filter(ProductoERP.item_id.in_(item_ids_tienda))
 
     # Ordenamiento
     orden_requiere_calculo = False
@@ -1170,6 +1181,7 @@ async def listar_productos_tienda(
     con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    tienda_oficial: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Endpoint específico para la página de Tienda con precio_gremio."""
@@ -1732,6 +1744,15 @@ async def obtener_estadisticas(
         fecha_limite = datetime.now(timezone.utc) - timedelta(days=7)
         query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
+    # Filtro de Tienda Oficial
+    if tienda_oficial:
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+        store_id = int(tienda_oficial)
+        item_ids_tienda = db.query(MercadoLibreItemPublicado.item_id).filter(
+            MercadoLibreItemPublicado.mlp_official_store_id == store_id
+        ).distinct()
+        query = query.filter(ProductoERP.item_id.in_(item_ids_tienda))
+
     # ESTADÍSTICAS CALCULADAS
     # Las estadísticas son un desglose de los productos YA filtrados
     # Usar COUNT SQL para mejor rendimiento en lugar de iterar en Python
@@ -1893,6 +1914,7 @@ async def obtener_stats_dinamicos(
     con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    tienda_oficial: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -2154,6 +2176,15 @@ async def obtener_stats_dinamicos(
     if nuevos_ultimos_7_dias:
         fecha_limite = datetime.now(timezone.utc) - timedelta(days=7)
         query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
+
+    # Filtro de Tienda Oficial
+    if tienda_oficial:
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+        store_id = int(tienda_oficial)
+        item_ids_tienda = db.query(MercadoLibreItemPublicado.item_id).filter(
+            MercadoLibreItemPublicado.mlp_official_store_id == store_id
+        ).distinct()
+        query = query.filter(ProductoERP.item_id.in_(item_ids_tienda))
 
     # CALCULAR ESTADÍSTICAS SOBRE PRODUCTOS FILTRADOS
 
@@ -3207,6 +3238,15 @@ async def calcular_web_masivo(
             from datetime import timedelta, timezone
             fecha_limite = datetime.now(timezone.utc) - timedelta(days=7)
             query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
+
+        # Filtro de Tienda Oficial
+        if request.filtros.get('tienda_oficial'):
+            from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+            store_id = int(request.filtros.get('tienda_oficial'))
+            item_ids_tienda = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_official_store_id == store_id
+            ).distinct()
+            query = query.filter(ProductoERP.item_id.in_(item_ids_tienda))
 
     productos = query.all()
 
