@@ -247,6 +247,7 @@ export default function Productos() {
     const mla = searchParams.get('mla');
     const estado_mla = searchParams.get('estado_mla');
     const nuevos = searchParams.get('nuevos');
+    const tienda_oficial = searchParams.get('tienda_oficial');
     const colores = searchParams.get('colores');
     const pageParam = searchParams.get('page');
     const pagesizeParam = searchParams.get('pagesize');
@@ -274,6 +275,7 @@ export default function Productos() {
     if (mla) setFiltroMLA(mla);
     if (estado_mla) setFiltroEstadoMLA(estado_mla);
     if (nuevos) setFiltroNuevos(nuevos);
+    if (tienda_oficial) setFiltroTiendaOficial(tienda_oficial);
     if (colores) setColoresSeleccionados(colores.split(',').map(c => c.trim()).filter(Boolean));
     if (pageParam) setPage(parseInt(pageParam, 10));
     if (pagesizeParam) setPageSize(parseInt(pagesizeParam, 10));
