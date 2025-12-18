@@ -324,6 +324,7 @@ export default function Productos() {
     filtroMLA,
     filtroEstadoMLA,
     filtroNuevos,
+    filtroTiendaOficial,
     coloresSeleccionados,
     page,
     pageSize,
