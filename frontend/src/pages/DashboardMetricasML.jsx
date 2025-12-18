@@ -9,7 +9,8 @@ export default function DashboardMetricasML() {
   const [fechaHasta, setFechaHasta] = useState('');
   const [marcaSeleccionada, setMarcaSeleccionada] = useState('');
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('');
-  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen', 'operaciones' o 'rentabilidad'
+  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen', 'operaciones', 'rentabilidad', 'tienda-oficial'
+  const [tiendaOficialActiva, setTiendaOficialActiva] = useState(false); // Filtro para tienda oficial TP-Link
 
   // Datos
   const [metricasGenerales, setMetricasGenerales] = useState(null);
@@ -52,7 +53,7 @@ export default function DashboardMetricasML() {
         cargarOperaciones();
       }
     }
-  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tabActivo]);
+  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tabActivo, tiendaOficialActiva]);
 
   const cargarMarcasYCategorias = async () => {
     try {
@@ -84,6 +85,7 @@ export default function DashboardMetricasML() {
 
       if (marcaSeleccionada) params.marca = marcaSeleccionada;
       if (categoriaSeleccionada) params.categoria = categoriaSeleccionada;
+      if (tiendaOficialActiva) params.tienda_oficial = 'true';
 
       // Cargar todos los datos en paralelo
       const [
@@ -129,6 +131,7 @@ export default function DashboardMetricasML() {
       };
 
       if (marcaSeleccionada) params.marca = marcaSeleccionada;
+      if (tiendaOficialActiva) params.tienda_oficial = 'true';
 
       const response = await axios.get(`${API_URL}/ventas-ml/operaciones-con-metricas`, { params, headers });
       setOperaciones(response.data || []);
@@ -240,21 +243,39 @@ export default function DashboardMetricasML() {
         <div className={styles.tabs}>
           <button
             className={`${styles.tab} ${tabActivo === 'resumen' ? styles.tabActivo : ''}`}
-            onClick={() => setTabActivo('resumen')}
+            onClick={() => {
+              setTabActivo('resumen');
+              setTiendaOficialActiva(false);
+            }}
           >
             📊 Resumen
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'operaciones' ? styles.tabActivo : ''}`}
-            onClick={() => setTabActivo('operaciones')}
+            onClick={() => {
+              setTabActivo('operaciones');
+              setTiendaOficialActiva(false);
+            }}
           >
             📋 Detalle de Operaciones
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'rentabilidad' ? styles.tabActivo : ''}`}
-            onClick={() => setTabActivo('rentabilidad')}
+            onClick={() => {
+              setTabActivo('rentabilidad');
+              setTiendaOficialActiva(false);
+            }}
           >
             💰 Rentabilidad
+          </button>
+          <button
+            className={`${styles.tab} ${tabActivo === 'tienda-oficial' ? styles.tabActivo : ''}`}
+            onClick={() => {
+              setTabActivo('tienda-oficial');
+              setTiendaOficialActiva(true);
+            }}
+          >
+            🏪 Tienda Oficial TP-Link
           </button>
         </div>
 
@@ -417,8 +438,15 @@ export default function DashboardMetricasML() {
         /* Tab de Rentabilidad */
         <TabRentabilidad fechaDesde={fechaDesde} fechaHasta={fechaHasta} />
       ) : metricasGenerales ? (
-        /* Tab de Resumen */
+        /* Tab de Resumen (incluye tienda-oficial con filtro) */
         <>
+          {/* Banner informativo si está en tienda oficial */}
+          {tiendaOficialActiva && (
+            <div className={styles.bannerTiendaOficial}>
+              🏪 Mostrando solo operaciones de la <strong>Tienda Oficial TP-Link</strong>
+            </div>
+          )}
+
           {/* KPIs Principales - 3 cards grandes */}
           <div className={styles.kpisContainer}>
             <div className={styles.kpiCard}>

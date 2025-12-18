@@ -518,6 +518,7 @@ async def get_operaciones_con_metricas(
     ml_id: Optional[str] = Query(None, description="Filtrar por ML ID"),
     codigo: Optional[str] = Query(None, description="Filtrar por código de producto"),
     marca: Optional[str] = Query(None, description="Filtrar por marca"),
+    tienda_oficial: Optional[str] = Query(None, description="Filtrar por tienda oficial (true/false)"),
     limit: int = Query(1000, le=5000, description="Límite de resultados"),
     offset: int = Query(0, description="Offset para paginación"),
     db: Session = Depends(get_db),
@@ -709,11 +710,19 @@ async def get_operaciones_con_metricas(
         WHERE tmlod.item_id NOT IN (460, 3042)
           AND tmloh.mlo_cd BETWEEN %(from_date)s AND %(to_date)s
           AND tmloh.mlo_status <> 'cancelled'
+          {tienda_oficial_filter}
     )
     SELECT * FROM sales_data
     ORDER BY fecha_venta DESC, id_operacion
     LIMIT %(limit)s OFFSET %(offset)s
     """
+    
+    # Aplicar filtro de tienda oficial si está activo
+    tienda_oficial_filter = ""
+    if tienda_oficial == 'true':
+        tienda_oficial_filter = "AND tmlip.mlp_official_store_id = 2645"
+    
+    query_str = query_str.format(tienda_oficial_filter=tienda_oficial_filter)
 
     # Ejecutar via raw connection (psycopg2) que soporta %(param)s nativo
     # Obtener la conexión raw de psycopg2

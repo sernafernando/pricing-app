@@ -926,3 +926,20 @@
   color: #9ca3af;
   font-style: italic;
 }
+
+.bannerTiendaOficial {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  padding: 12px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+}
+
+.bannerTiendaOficial strong {
+  font-weight: 600;
+}

@@ -45,6 +45,13 @@ def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session):
     return query
 
 
+def aplicar_filtro_tienda_oficial(query, tienda_oficial: Optional[str]):
+    """Aplica filtro de tienda oficial TP-Link (mlp_official_store_id = 2645)."""
+    if tienda_oficial == 'true':
+        query = query.filter(MLVentaMetrica.mlp_official_store_id == 2645)
+    return query
+
+
 # Schemas de respuesta
 class MetricasGeneralesResponse(BaseModel):
     """Métricas generales del dashboard"""
@@ -118,6 +125,7 @@ async def get_metricas_generales(
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     marca: Optional[str] = Query(None, description="Filtrar por marca"),
     categoria: Optional[str] = Query(None, description="Filtrar por categoría"),
+    tienda_oficial: Optional[str] = Query(None, description="Filtrar por tienda oficial (true/false)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -152,6 +160,8 @@ async def get_metricas_generales(
 
     if categoria:
         query = query.filter(MLVentaMetrica.categoria == categoria)
+
+    query = aplicar_filtro_tienda_oficial(query, tienda_oficial)
 
     result = query.first()
 
@@ -197,6 +207,7 @@ async def get_metricas_generales(
 async def get_ventas_por_marca(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
+    tienda_oficial: Optional[str] = Query(None),
     limit: int = Query(20, le=100),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -225,6 +236,8 @@ async def get_ventas_por_marca(
         fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
         query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
 
+    query = aplicar_filtro_tienda_oficial(query, tienda_oficial)
+
     resultados = query.group_by(MLVentaMetrica.marca).order_by(desc('total_ventas')).limit(limit).all()
 
     return [
@@ -245,6 +258,7 @@ async def get_ventas_por_marca(
 async def get_ventas_por_categoria(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
+    tienda_oficial: Optional[str] = Query(None),
     limit: int = Query(20, le=100),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -271,6 +285,7 @@ async def get_ventas_por_categoria(
     if fecha_hasta:
         fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
         query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
+    query = aplicar_filtro_tienda_oficial(query, tienda_oficial)
 
     resultados = query.group_by(MLVentaMetrica.categoria).order_by(desc('total_ventas')).limit(limit).all()
 
@@ -291,6 +306,7 @@ async def get_ventas_por_categoria(
 async def get_ventas_por_logistica(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
+    tienda_oficial: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -314,6 +330,7 @@ async def get_ventas_por_logistica(
     if fecha_hasta:
         fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
         query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
+    query = aplicar_filtro_tienda_oficial(query, tienda_oficial)
 
     resultados = query.group_by(MLVentaMetrica.tipo_logistica).order_by(desc('total_ventas')).all()
 
@@ -332,6 +349,7 @@ async def get_ventas_por_logistica(
 async def get_ventas_por_dia(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
+    tienda_oficial: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -358,6 +376,7 @@ async def get_ventas_por_dia(
     if fecha_hasta:
         fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
         query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
+    query = aplicar_filtro_tienda_oficial(query, tienda_oficial)
 
     resultados = query.group_by(fecha_truncada).order_by(fecha_truncada).all()
 
@@ -377,6 +396,7 @@ async def get_ventas_por_dia(
 async def get_top_productos(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
+    tienda_oficial: Optional[str] = Query(None),
     limit: int = Query(10, le=100),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -406,6 +426,7 @@ async def get_top_productos(
     if fecha_hasta:
         fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
         query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
+    query = aplicar_filtro_tienda_oficial(query, tienda_oficial)
 
     resultados = query.group_by(
         MLVentaMetrica.item_id,
