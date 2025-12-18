@@ -36,6 +36,9 @@ from app.models.pedido_preparacion_cache import PedidoPreparacionCache
 
 GBP_PARSER_URL = os.getenv("GBP_PARSER_URL", "http://localhost:8002/api/gbp-parser")
 
+# Lock global para evitar múltiples sincronizaciones simultáneas
+_sync_lock = asyncio.Lock()
+
 
 async def fetch_query_67() -> list:
     """
@@ -51,7 +54,9 @@ async def fetch_query_67() -> list:
 
 
 def truncate_cache(db: Session):
-    """Trunca la tabla de cache"""
+    """Trunca la tabla de cache con lock para evitar condiciones de carrera"""
+    # Adquirir lock exclusivo en la tabla para evitar que múltiples workers ejecuten esto a la vez
+    db.execute(text("LOCK TABLE pedido_preparacion_cache IN ACCESS EXCLUSIVE MODE"))
     # Usar DELETE en lugar de TRUNCATE para mejor compatibilidad
     db.execute(text("DELETE FROM pedido_preparacion_cache"))
     # Reiniciar la secuencia del autoincrement
@@ -90,52 +95,63 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
     """
     Sincroniza pedidos en preparación desde la query 67 del ERP.
     Trunca la tabla y la recarga con los datos nuevos.
+    Usa un lock para evitar ejecuciones simultáneas.
     """
-    print(f"\n📦 Sincronizando pedidos en preparación...")
-    print(f"   Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-    close_db = False
-    if db is None:
-        db = SessionLocal()
-        close_db = True
-
-    try:
-        # 1. Obtener datos del ERP via gbp-parser
-        print(f"   Consultando query 67 via gbp-parser...")
-        data = await fetch_query_67()
-
-        if not data:
-            print("   ⚠️ No se obtuvieron datos de la query 67")
-            return {"status": "warning", "message": "No data returned", "count": 0}
-
-        print(f"   Recibidos {len(data)} registros")
-
-        # 2. Truncar tabla
-        print(f"   Truncando tabla cache...")
-        truncate_cache(db)
-
-        # 3. Insertar nuevos datos
-        print(f"   Insertando datos...")
-        inserted = insert_cache(db, data)
-
-        print(f"   ✅ Sincronización completada: {inserted} registros insertados")
-
+    # Intentar adquirir el lock - si otro proceso está sincronizando, retorna inmediatamente
+    if _sync_lock.locked():
+        print(f"\n⚠️ Ya hay una sincronización en progreso, saltando...")
         return {
-            "status": "success",
-            "count": inserted,
-            "timestamp": datetime.now().isoformat()
+            "status": "skipped",
+            "message": "Sincronización ya en progreso",
+            "count": 0
         }
+    
+    async with _sync_lock:
+        print(f"\n📦 Sincronizando pedidos en preparación...")
+        print(f"   Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    except httpx.HTTPStatusError as e:
-        print(f"   ❌ Error HTTP: {e.response.status_code} - {e.response.text}")
-        return {"status": "error", "message": f"HTTP error: {e.response.status_code}"}
-    except Exception as e:
-        print(f"   ❌ Error: {str(e)}")
-        db.rollback()
-        return {"status": "error", "message": str(e)}
-    finally:
-        if close_db:
-            db.close()
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            # 1. Obtener datos del ERP via gbp-parser
+            print(f"   Consultando query 67 via gbp-parser...")
+            data = await fetch_query_67()
+
+            if not data:
+                print("   ⚠️ No se obtuvieron datos de la query 67")
+                return {"status": "warning", "message": "No data returned", "count": 0}
+
+            print(f"   Recibidos {len(data)} registros")
+
+            # 2. Truncar tabla
+            print(f"   Truncando tabla cache...")
+            truncate_cache(db)
+
+            # 3. Insertar nuevos datos
+            print(f"   Insertando datos...")
+            inserted = insert_cache(db, data)
+
+            print(f"   ✅ Sincronización completada: {inserted} registros insertados")
+
+            return {
+                "status": "success",
+                "count": inserted,
+                "timestamp": datetime.now().isoformat()
+            }
+
+        except httpx.HTTPStatusError as e:
+            print(f"   ❌ Error HTTP: {e.response.status_code} - {e.response.text}")
+            return {"status": "error", "message": f"HTTP error: {e.response.status_code}"}
+        except Exception as e:
+            print(f"   ❌ Error: {str(e)}")
+            db.rollback()
+            return {"status": "error", "message": str(e)}
+        finally:
+            if close_db:
+                db.close()
 
 
 async def main():
