@@ -96,7 +96,8 @@ export default function Productos() {
   // Estados para vista de precio gremio en USD
   const [vistaModoPrecioGremioUSD, setVistaModoPrecioGremioUSD] = useState(false); // false = ARS, true = USD
   const [editandoPrecioGremio, setEditandoPrecioGremio] = useState(null); // item_id del producto siendo editado
-  const [precioGremioTemp, setPrecioGremioTemp] = useState({ sin_iva: '', con_iva: '' });
+  const [modoEdicionGremio, setModoEdicionGremio] = useState('precio'); // 'precio' | 'markup'
+  const [precioGremioTemp, setPrecioGremioTemp] = useState({ sin_iva: '', con_iva: '', markup: '' });
   const [dolarVenta, setDolarVenta] = useState(null);
 
   // Selección múltiple
@@ -1233,42 +1234,137 @@ export default function Productos() {
     }
   };
 
-  const iniciarEdicionPrecioGremio = (producto) => {
-    setEditandoPrecioGremio(producto.item_id);
-    setPrecioGremioTemp({
-      sin_iva: producto.precio_gremio_sin_iva || '',
-      con_iva: producto.precio_gremio_con_iva || ''
-    });
+  // Función para calcular precios desde markup
+  const calcularPrecioDesdeMarkup = (producto, markupPorcentaje) => {
+    if (!producto.costo_ars || producto.costo_ars <= 0) {
+      return { sin_iva: 0, con_iva: 0 };
+    }
+    
+    const costo_ars = parseFloat(producto.costo_ars);
+    const varios_porcentaje = 7; // Constante del sistema
+    const markup_decimal = parseFloat(markupPorcentaje) / 100;
+    const iva_decimal = (producto.iva || 21) / 100;
+    
+    // Fórmula: Precio sin IVA = Costo × (1 + Varios%) × (1 + Markup%)
+    const precio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_decimal);
+    const precio_con_iva = precio_sin_iva * (1 + iva_decimal);
+    
+    return {
+      sin_iva: precio_sin_iva,
+      con_iva: precio_con_iva
+    };
+  };
+
+  // Función para calcular markup desde precios
+  const calcularMarkupDesdePrecios = (costoArs, precioSinIva) => {
+    if (!costoArs || costoArs <= 0) return null;
+    
+    const varios_porcentaje = 7;
+    // Deshacer el factor "varios" para obtener el precio base
+    const precio_base = precioSinIva / (1 + varios_porcentaje / 100);
+    // Calcular markup: ((Precio_base / Costo) - 1) × 100
+    const markup = ((precio_base / costoArs) - 1) * 100;
+    
+    return markup;
+  };
+
+  const iniciarEdicionPrecioGremio = (producto, event) => {
+    // Detectar Ctrl+Click o Cmd+Click (Mac)
+    if (event?.ctrlKey || event?.metaKey) {
+      // MODO MARKUP
+      setModoEdicionGremio('markup');
+      setEditandoPrecioGremio(producto.item_id);
+      setPrecioGremioTemp({
+        sin_iva: '',
+        con_iva: '',
+        markup: producto.markup_gremio?.toFixed(1) || '' // Pre-cargar markup actual si existe
+      });
+    } else {
+      // MODO PRECIO (normal)
+      setModoEdicionGremio('precio');
+      setEditandoPrecioGremio(producto.item_id);
+      setPrecioGremioTemp({
+        sin_iva: producto.precio_gremio_sin_iva || '',
+        con_iva: producto.precio_gremio_con_iva || '',
+        markup: ''
+      });
+    }
   };
 
   const guardarPrecioGremio = async (itemId) => {
     try {
       const token = localStorage.getItem('token');
-      const sinIvaNormalizado = parseFloat(precioGremioTemp.sin_iva.toString().replace(',', '.'));
-      const conIvaNormalizado = parseFloat(precioGremioTemp.con_iva.toString().replace(',', '.'));
-
-      await axios.patch(
-        `${API_URL}/productos/${itemId}/precio-gremio-override?precio_sin_iva=${sinIvaNormalizado}&precio_con_iva=${conIvaNormalizado}`,
-        null,
-        {
-          headers: { Authorization: `Bearer ${token}` }
+      const producto = productos.find(p => p.item_id === itemId);
+      
+      let precioSinIva, precioConIva;
+      
+      if (modoEdicionGremio === 'precio') {
+        // MODO PRECIO: usar valores ingresados directamente
+        precioSinIva = parseFloat(precioGremioTemp.sin_iva.toString().replace(',', '.'));
+        precioConIva = parseFloat(precioGremioTemp.con_iva.toString().replace(',', '.'));
+        
+        // Validar que al menos uno esté lleno y sea válido
+        if (isNaN(precioSinIva) && isNaN(precioConIva)) {
+          showToast('⚠️ Ingresá al menos un precio válido', 'error');
+          return;
         }
+        
+        // Si falta uno, calcularlo
+        if (isNaN(precioSinIva)) {
+          const iva_decimal = (producto.iva || 21) / 100;
+          precioSinIva = precioConIva / (1 + iva_decimal);
+        }
+        if (isNaN(precioConIva)) {
+          const iva_decimal = (producto.iva || 21) / 100;
+          precioConIva = precioSinIva * (1 + iva_decimal);
+        }
+        
+      } else {
+        // MODO MARKUP: calcular ambos precios desde markup
+        const markup = parseFloat(precioGremioTemp.markup.toString().replace(',', '.'));
+        
+        if (isNaN(markup)) {
+          showToast('⚠️ Ingresá un markup válido', 'error');
+          return;
+        }
+        
+        const precios = calcularPrecioDesdeMarkup(producto, markup);
+        precioSinIva = precios.sin_iva;
+        precioConIva = precios.con_iva;
+      }
+      
+      // Validar que los precios sean >= 0
+      if (precioSinIva < 0 || precioConIva < 0) {
+        showToast('⚠️ Los precios no pueden ser negativos', 'error');
+        return;
+      }
+
+      // Llamar al endpoint
+      await axios.patch(
+        `${API_URL}/productos/${itemId}/precio-gremio-override?precio_sin_iva=${precioSinIva}&precio_con_iva=${precioConIva}`,
+        null,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
+
+      // Calcular markup para mostrar
+      const markupCalculado = calcularMarkupDesdePrecios(producto.costo_ars, precioSinIva);
 
       // Actualizar localmente
       setProductos(prods => prods.map(p =>
         p.item_id === itemId
           ? {
               ...p,
-              precio_gremio_sin_iva: sinIvaNormalizado,
-              precio_gremio_con_iva: conIvaNormalizado,
+              precio_gremio_sin_iva: precioSinIva,
+              precio_gremio_con_iva: precioConIva,
+              markup_gremio: markupCalculado,
               tiene_override_gremio: true
             }
           : p
       ));
 
       setEditandoPrecioGremio(null);
-      showToast('✅ Precio gremio actualizado');
+      showToast(`✅ Precio gremio actualizado ${modoEdicionGremio === 'markup' ? '(desde markup)' : ''}`);
+      
     } catch (error) {
       console.error('Error al guardar precio gremio:', error);
       showToast('❌ Error al guardar precio gremio', 'error');
@@ -3221,52 +3317,156 @@ export default function Productos() {
                       <>
                     <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
                       {editandoPrecioGremio === p.item_id && puedeEditarPrecioGremioManual ? (
-                        <div className="inline-edit gremio-edit">
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              placeholder="Sin IVA"
-                              value={precioGremioTemp.sin_iva}
-                              onChange={(e) => setPrecioGremioTemp({ ...precioGremioTemp, sin_iva: e.target.value })}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') guardarPrecioGremio(p.item_id);
-                                if (e.key === 'Escape') setEditandoPrecioGremio(null);
-                              }}
-                              style={{ width: '100px' }}
-                              autoFocus
-                            />
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              placeholder="Con IVA"
-                              value={precioGremioTemp.con_iva}
-                              onChange={(e) => setPrecioGremioTemp({ ...precioGremioTemp, con_iva: e.target.value })}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') guardarPrecioGremio(p.item_id);
-                                if (e.key === 'Escape') setEditandoPrecioGremio(null);
-                              }}
-                              style={{ width: '100px' }}
-                            />
-                            <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
-                              <button onClick={() => guardarPrecioGremio(p.item_id)} style={{ padding: '2px 6px', fontSize: '12px' }}>✓</button>
-                              <button onClick={() => setEditandoPrecioGremio(null)} style={{ padding: '2px 6px', fontSize: '12px' }}>✗</button>
-                              {p.tiene_override_gremio && (
-                                <button 
-                                  onClick={() => eliminarPrecioGremioManual(p.item_id)} 
-                                  style={{ padding: '2px 6px', fontSize: '12px', background: '#f59e0b' }}
-                                  title="Volver al cálculo automático"
-                                >
-                                  ⟲
-                                </button>
-                              )}
-                            </div>
+                        <div className={`inline-edit ${modoEdicionGremio === 'precio' ? 'gremio-edit-precio' : 'gremio-edit-markup'}`}>
+                          {/* Indicador de modo */}
+                          <div style={{ fontSize: '10px', color: '#0066cc', marginBottom: '6px', fontWeight: '600' }}>
+                            {modoEdicionGremio === 'precio' ? '💰 Modo Precio' : '📊 Modo Markup'}
                           </div>
+                          
+                          {modoEdicionGremio === 'precio' ? (
+                            // MODO PRECIO
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="Sin IVA"
+                                  value={precioGremioTemp.sin_iva}
+                                  onChange={(e) => {
+                                    const valor = e.target.value;
+                                    const valorNum = parseFloat(valor.replace(',', '.'));
+                                    setPrecioGremioTemp({
+                                      ...precioGremioTemp,
+                                      sin_iva: valor,
+                                      con_iva: !isNaN(valorNum) 
+                                        ? (valorNum * (1 + (p.iva || 21) / 100)).toFixed(2) 
+                                        : ''
+                                    });
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') guardarPrecioGremio(p.item_id);
+                                    if (e.key === 'Escape') setEditandoPrecioGremio(null);
+                                  }}
+                                  style={{ width: '95px', padding: '4px 6px', fontSize: '12px' }}
+                                  autoFocus
+                                />
+                                <span style={{ color: '#666', fontSize: '14px' }}>↔</span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="Con IVA"
+                                  value={precioGremioTemp.con_iva}
+                                  onChange={(e) => {
+                                    const valor = e.target.value;
+                                    const valorNum = parseFloat(valor.replace(',', '.'));
+                                    setPrecioGremioTemp({
+                                      ...precioGremioTemp,
+                                      con_iva: valor,
+                                      sin_iva: !isNaN(valorNum) 
+                                        ? (valorNum / (1 + (p.iva || 21) / 100)).toFixed(2) 
+                                        : ''
+                                    });
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') guardarPrecioGremio(p.item_id);
+                                    if (e.key === 'Escape') setEditandoPrecioGremio(null);
+                                  }}
+                                  style={{ width: '95px', padding: '4px 6px', fontSize: '12px' }}
+                                />
+                              </div>
+                              <small style={{ fontSize: '9px', color: '#666', fontStyle: 'italic' }}>
+                                Editá uno, el otro se calcula automáticamente
+                              </small>
+                              
+                              {/* Botones */}
+                              <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                                <button 
+                                  onClick={() => guardarPrecioGremio(p.item_id)} 
+                                  style={{ padding: '3px 8px', fontSize: '12px', background: '#22c55e', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                  title="Guardar (Enter)"
+                                >
+                                  ✓
+                                </button>
+                                <button 
+                                  onClick={() => setEditandoPrecioGremio(null)} 
+                                  style={{ padding: '3px 8px', fontSize: '12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                  title="Cancelar (Esc)"
+                                >
+                                  ✗
+                                </button>
+                                {p.tiene_override_gremio && (
+                                  <button 
+                                    onClick={() => eliminarPrecioGremioManual(p.item_id)} 
+                                    style={{ padding: '3px 8px', fontSize: '12px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                    title="Volver al cálculo automático"
+                                  >
+                                    ⟲
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            // MODO MARKUP
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <label style={{ fontSize: '11px', fontWeight: '500', minWidth: '60px' }}>
+                                  Markup %:
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="Ej: 15 o -5"
+                                  value={precioGremioTemp.markup}
+                                  onChange={(e) => setPrecioGremioTemp({ ...precioGremioTemp, markup: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') guardarPrecioGremio(p.item_id);
+                                    if (e.key === 'Escape') setEditandoPrecioGremio(null);
+                                  }}
+                                  style={{ width: '80px', padding: '4px 6px', fontSize: '12px' }}
+                                  autoFocus
+                                />
+                              </div>
+                              
+                              {/* Preview de precio calculado */}
+                              {precioGremioTemp.markup !== '' && !isNaN(parseFloat(precioGremioTemp.markup.replace(',', '.'))) && (
+                                <div style={{ fontSize: '10px', color: '#059669', marginTop: '2px', padding: '4px', background: '#f0fdf4', borderRadius: '3px' }}>
+                                  Preview: ${calcularPrecioDesdeMarkup(p, precioGremioTemp.markup).sin_iva.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} s/IVA
+                                </div>
+                              )}
+                              
+                              {/* Botones */}
+                              <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                                <button 
+                                  onClick={() => guardarPrecioGremio(p.item_id)} 
+                                  style={{ padding: '3px 8px', fontSize: '12px', background: '#22c55e', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                  title="Guardar (Enter)"
+                                >
+                                  ✓
+                                </button>
+                                <button 
+                                  onClick={() => setEditandoPrecioGremio(null)} 
+                                  style={{ padding: '3px 8px', fontSize: '12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                  title="Cancelar (Esc)"
+                                >
+                                  ✗
+                                </button>
+                                {p.tiene_override_gremio && (
+                                  <button 
+                                    onClick={() => eliminarPrecioGremioManual(p.item_id)} 
+                                    style={{ padding: '3px 8px', fontSize: '12px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                    title="Volver al cálculo automático"
+                                  >
+                                    ⟲
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div 
                           className="gremio-container"
-                          onClick={() => puedeEditarPrecioGremioManual && iniciarEdicionPrecioGremio(p)}
+                          onClick={(e) => puedeEditarPrecioGremioManual && iniciarEdicionPrecioGremio(p, e)}
                           style={{ cursor: puedeEditarPrecioGremioManual ? 'pointer' : 'default' }}
                         >
                           {p.precio_gremio_sin_iva ? (

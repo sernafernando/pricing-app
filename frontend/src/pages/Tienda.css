@@ -1035,6 +1035,55 @@
   border-radius: 4px;
 }
 
+/* Edición precio gremio - Modo Precio */
+.gremio-edit-precio {
+  padding: 10px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 2px solid #0066cc;
+  min-width: 240px;
+}
+
+/* Edición precio gremio - Modo Markup */
+.gremio-edit-markup {
+  padding: 10px;
+  background: #f0f9ff;
+  border-radius: 6px;
+  border: 2px solid #0284c7;
+  min-width: 200px;
+}
+
+.gremio-edit-precio input,
+.gremio-edit-markup input {
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.gremio-edit-precio input:focus,
+.gremio-edit-markup input:focus {
+  outline: none;
+  border-color: #0066cc;
+  box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
+}
+
+.gremio-edit-precio button,
+.gremio-edit-markup button {
+  transition: opacity 0.15s ease;
+}
+
+.gremio-edit-precio button:hover,
+.gremio-edit-markup button:hover {
+  opacity: 0.85;
+}
+
+.gremio-edit-precio button:active,
+.gremio-edit-markup button:active {
+  transform: scale(0.95);
+}
+
 /* Web transferencia */
 .web-transf-edit {
   display: flex;
