@@ -627,7 +627,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/exportar-pvp?${params}`,
+        `https://pricing.gaussonline.com.ar/api/exportar-clasica?${params}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'

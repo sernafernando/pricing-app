@@ -4493,7 +4493,7 @@ async def exportar_web_transferencia(
 @router.get("/exportar-clasica")
 async def exportar_clasica(
     porcentaje_adicional: float = Query(0, description="Porcentaje adicional sobre rebate"),
-    tipo_cuotas: str = Query("clasica", description="Tipo de cuotas: clasica, 3, 6, 9, 12"),
+    tipo_cuotas: str = Query("clasica", description="Tipo de cuotas: clasica, 3, 6, 9, 12, pvp, pvp_3, pvp_6, pvp_9, pvp_12"),
     currency_id: int = Query(1, description="ID de moneda: 1=ARS, 2=USD"),
     offset_dolar: float = Query(0, description="Offset en pesos para ajustar el dólar"),
     search: Optional[str] = None,
@@ -4536,7 +4536,12 @@ async def exportar_clasica(
         ProductoPricing.precio_3_cuotas,
         ProductoPricing.precio_6_cuotas,
         ProductoPricing.precio_9_cuotas,
-        ProductoPricing.precio_12_cuotas
+        ProductoPricing.precio_12_cuotas,
+        ProductoPricing.precio_pvp,
+        ProductoPricing.precio_pvp_3_cuotas,
+        ProductoPricing.precio_pvp_6_cuotas,
+        ProductoPricing.precio_pvp_9_cuotas,
+        ProductoPricing.precio_pvp_12_cuotas
     ).join(
         ProductoPricing,
         ProductoERP.item_id == ProductoPricing.item_id
@@ -4899,7 +4904,12 @@ async def exportar_clasica(
         "3": [17, 18],        # 3 Cuotas Web + PVP
         "6": [14, 19],        # 6 Cuotas Web + PVP
         "9": [13, 20],        # 9 Cuotas Web + PVP
-        "12": [23, 21]        # 12 Cuotas Web + PVP
+        "12": [23, 21],       # 12 Cuotas Web + PVP
+        "pvp": [12],          # PVP Base (solo lista 12)
+        "pvp_3": [18],        # PVP 3 Cuotas (solo lista 18)
+        "pvp_6": [19],        # PVP 6 Cuotas (solo lista 19)
+        "pvp_9": [20],        # PVP 9 Cuotas (solo lista 20)
+        "pvp_12": [21]        # PVP 12 Cuotas (solo lista 21)
     }
 
     prli_ids_seleccionados = tipo_cuotas_to_prli.get(tipo_cuotas, [])
@@ -4949,7 +4959,7 @@ async def exportar_clasica(
     ws.append(header)
 
     # Datos
-    for item_id, codigo, precio_clasica, participa_rebate, porcentaje_rebate, precio_3, precio_6, precio_9, precio_12 in productos:
+    for item_id, codigo, precio_clasica, participa_rebate, porcentaje_rebate, precio_3, precio_6, precio_9, precio_12, precio_pvp, precio_pvp_3, precio_pvp_6, precio_pvp_9, precio_pvp_12 in productos:
         # Determinar qué precio usar según tipo_cuotas
         if tipo_cuotas == "clasica":
             # Si tiene rebate activo, calcular precio rebate y aplicar % adicional
@@ -4979,6 +4989,31 @@ async def exportar_clasica(
             if not precio_12:
                 continue
             precio_exportar = float(precio_12)
+        elif tipo_cuotas == "pvp":
+            # Usar precio PVP clásico (sin cuotas)
+            if not precio_pvp:
+                continue
+            precio_exportar = float(precio_pvp)
+        elif tipo_cuotas == "pvp_3":
+            # Si no hay precio PVP 3 cuotas, saltar este producto
+            if not precio_pvp_3:
+                continue
+            precio_exportar = float(precio_pvp_3)
+        elif tipo_cuotas == "pvp_6":
+            # Si no hay precio PVP 6 cuotas, saltar este producto
+            if not precio_pvp_6:
+                continue
+            precio_exportar = float(precio_pvp_6)
+        elif tipo_cuotas == "pvp_9":
+            # Si no hay precio PVP 9 cuotas, saltar este producto
+            if not precio_pvp_9:
+                continue
+            precio_exportar = float(precio_pvp_9)
+        elif tipo_cuotas == "pvp_12":
+            # Si no hay precio PVP 12 cuotas, saltar este producto
+            if not precio_pvp_12:
+                continue
+            precio_exportar = float(precio_pvp_12)
         else:
             precio_exportar = precio_clasica
 
