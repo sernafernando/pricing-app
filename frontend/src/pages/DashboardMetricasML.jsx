@@ -118,6 +118,32 @@ export default function DashboardMetricasML() {
     });
   };
 
+  const cargarOperaciones = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const params = {
+        from_date: fechaDesde,
+        to_date: fechaHasta,
+        limit: 1000
+      };
+
+      if (marcaSeleccionada) params.marca = marcaSeleccionada;
+      if (categoriaSeleccionada) params.categoria = categoriaSeleccionada;
+      if (tiendaOficialSeleccionada) params.tienda_oficial = tiendaOficialSeleccionada;
+
+      const response = await axios.get(`${API_URL}/ventas-ml/operaciones-con-metricas`, { params, headers });
+      setOperaciones(response.data || []);
+    } catch (error) {
+      console.error('Error cargando operaciones:', error);
+      alert('Error al cargar las operaciones');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getTipoLogistica = (tipo) => {
     const tipos = {
       'cross_docking': '📦 Colecta',
