@@ -350,8 +350,8 @@ export default function DashboardMetricasML() {
                   <option value="">Todas</option>
                   <option value="57997">🏢 Gauss</option>
                   <option value="2645">📡 TP-Link</option>
-                  <option value="144">⚡ Forza/Verbatim</option>
-                  <option value="191942">🎯 Multi-marca</option>
+                  <option value="144" title="Forza, Verbatim">⚡ Forza/Verbatim</option>
+                  <option value="191942" title="Epson, Forza, Logitech, MGN, Razer">🎯 Multi-marca</option>
                 </select>
               </div>
 
