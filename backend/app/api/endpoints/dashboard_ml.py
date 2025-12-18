@@ -52,11 +52,11 @@ def aplicar_filtro_tienda_oficial(query, tienda_oficial: Optional[str], db: Sess
     """
     if tienda_oficial == 'true':
         from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-        from sqlalchemy import cast, String
         
-        # Subquery para obtener MLAs de tienda oficial (castear a String para match con mla_id)
+        # Subquery para obtener MLAs de tienda oficial
+        # Usar mlp_publicationID (ej: "MLA123456") NO mlp_id (interno ERP)
         mlas_tienda_oficial = db.query(
-            cast(MercadoLibreItemPublicado.mlp_id, String)
+            MercadoLibreItemPublicado.mlp_publicationID
         ).filter(
             MercadoLibreItemPublicado.mlp_official_store_id == 2645
         ).distinct()
