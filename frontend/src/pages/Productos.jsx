@@ -3027,7 +3027,7 @@ export default function Productos() {
                     Costo {getIconoOrden('costo')} {getNumeroOrden('costo') && <span>{getNumeroOrden('costo')}</span>}
                   </th>
                   <th onClick={(e) => handleOrdenar('precio_clasica', e)}>
-                    Precio Clásica {getIconoOrden('precio_clasica')} {getNumeroOrden('precio_clasica') && <span>{getNumeroOrden('precio_clasica')}</span>}
+                    {modoVista === 'pvp' ? 'Precio PVP' : 'Precio Clásica'} {getIconoOrden('precio_clasica')} {getNumeroOrden('precio_clasica') && <span>{getNumeroOrden('precio_clasica')}</span>}
                   </th>
 
                   {modoVista === 'normal' && (
