@@ -56,6 +56,20 @@ class ProductoPricing(Base):
     precio_9_cuotas = Column(Numeric(15, 2))
     precio_12_cuotas = Column(Numeric(15, 2))
 
+    # Precios PVP
+    precio_pvp = Column(Numeric(15, 2))
+    precio_pvp_3_cuotas = Column(Numeric(15, 2))
+    precio_pvp_6_cuotas = Column(Numeric(15, 2))
+    precio_pvp_9_cuotas = Column(Numeric(15, 2))
+    precio_pvp_12_cuotas = Column(Numeric(15, 2))
+
+    # Markups PVP
+    markup_pvp = Column(Numeric(10, 2))
+    markup_pvp_3_cuotas = Column(Numeric(10, 2))
+    markup_pvp_6_cuotas = Column(Numeric(10, 2))
+    markup_pvp_9_cuotas = Column(Numeric(10, 2))
+    markup_pvp_12_cuotas = Column(Numeric(10, 2))
+
     participa_rebate = Column(Boolean, default=False)
     porcentaje_rebate = Column(Numeric(5, 2), default=3.8)
     out_of_cards = Column(Boolean, default=False)

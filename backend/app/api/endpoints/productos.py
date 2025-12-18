@@ -61,6 +61,18 @@ class ProductoResponse(BaseModel):
     markup_9_cuotas: Optional[float] = None
     markup_12_cuotas: Optional[float] = None
 
+    # Precios PVP
+    precio_pvp: Optional[float] = None
+    precio_pvp_3_cuotas: Optional[float] = None
+    precio_pvp_6_cuotas: Optional[float] = None
+    precio_pvp_9_cuotas: Optional[float] = None
+    precio_pvp_12_cuotas: Optional[float] = None
+    markup_pvp: Optional[float] = None
+    markup_pvp_3_cuotas: Optional[float] = None
+    markup_pvp_6_cuotas: Optional[float] = None
+    markup_pvp_9_cuotas: Optional[float] = None
+    markup_pvp_12_cuotas: Optional[float] = None
+
     # Configuración individual
     recalcular_cuotas_auto: Optional[bool] = None
     markup_adicional_cuotas_custom: Optional[float] = None
@@ -958,6 +970,105 @@ async def listar_productos(
                 producto.tn_price = tn_data['price']
                 producto.tn_promotional_price = tn_data['promotional_price']
                 producto.tn_has_promotion = tn_data['has_promotion']
+
+    # Obtener precios PVP desde precios_ml
+    if productos:
+        from app.models.precio_ml import PrecioML
+        from app.services.pricing_calculator import (
+            calcular_comision_ml_total,
+            calcular_limpio,
+            calcular_markup,
+            obtener_tipo_cambio_actual,
+            convertir_a_pesos,
+            obtener_grupo_subcategoria,
+            obtener_comision_base
+        )
+        
+        item_ids = [p.item_id for p in productos]
+        
+        # Query para obtener precios PVP (listas 12, 18, 19, 20, 21)
+        precios_pvp_query = db.query(
+            PrecioML.item_id,
+            PrecioML.pricelist_id,
+            PrecioML.precio
+        ).filter(
+            PrecioML.item_id.in_(item_ids),
+            PrecioML.pricelist_id.in_([12, 18, 19, 20, 21])
+        ).all()
+        
+        # Crear diccionario item_id -> {pricelist_id: precio}
+        pvp_dict = {}
+        for item_id, pricelist_id, precio in precios_pvp_query:
+            if item_id not in pvp_dict:
+                pvp_dict[item_id] = {}
+            pvp_dict[item_id][pricelist_id] = float(precio) if precio else None
+        
+        # Asignar precios PVP y calcular markups
+        for producto in productos:
+            if producto.item_id in pvp_dict:
+                precios = pvp_dict[producto.item_id]
+                
+                # Asignar precios PVP
+                producto.precio_pvp = precios.get(12)
+                producto.precio_pvp_3_cuotas = precios.get(18)
+                producto.precio_pvp_6_cuotas = precios.get(19)
+                producto.precio_pvp_9_cuotas = precios.get(20)
+                producto.precio_pvp_12_cuotas = precios.get(21)
+                
+                # Calcular markups PVP
+                # Necesitamos el producto_erp para obtener costo, iva, envio, etc.
+                producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == producto.item_id).first()
+                
+                if producto_erp:
+                    pvp_configs = [
+                        (producto.precio_pvp, 12, 'pvp'),
+                        (producto.precio_pvp_3_cuotas, 18, 'pvp_3_cuotas'),
+                        (producto.precio_pvp_6_cuotas, 19, 'pvp_6_cuotas'),
+                        (producto.precio_pvp_9_cuotas, 20, 'pvp_9_cuotas'),
+                        (producto.precio_pvp_12_cuotas, 21, 'pvp_12_cuotas')
+                    ]
+                    
+                    for precio_pvp, pricelist_id, nombre_pvp in pvp_configs:
+                        if precio_pvp and precio_pvp > 0:
+                            try:
+                                tipo_cambio_pvp = None
+                                if producto_erp.moneda_costo == "USD":
+                                    tipo_cambio_pvp = obtener_tipo_cambio_actual(db, "USD")
+                                
+                                costo_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_pvp)
+                                grupo_id_pvp = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+                                comision_base_pvp = obtener_comision_base(db, pricelist_id, grupo_id_pvp)
+                                
+                                if comision_base_pvp:
+                                    comisiones_pvp = calcular_comision_ml_total(
+                                        precio_pvp,
+                                        comision_base_pvp,
+                                        producto_erp.iva,
+                                        db=db
+                                    )
+                                    limpio_pvp = calcular_limpio(
+                                        precio_pvp,
+                                        producto_erp.iva,
+                                        producto_erp.envio or 0,
+                                        comisiones_pvp["comision_total"],
+                                        db=db,
+                                        grupo_id=grupo_id_pvp
+                                    )
+                                    markup_calculado = calcular_markup(limpio_pvp, costo_pvp) * 100
+                                    
+                                    if nombre_pvp == 'pvp':
+                                        producto.markup_pvp = markup_calculado
+                                    elif nombre_pvp == 'pvp_3_cuotas':
+                                        producto.markup_pvp_3_cuotas = markup_calculado
+                                    elif nombre_pvp == 'pvp_6_cuotas':
+                                        producto.markup_pvp_6_cuotas = markup_calculado
+                                    elif nombre_pvp == 'pvp_9_cuotas':
+                                        producto.markup_pvp_9_cuotas = markup_calculado
+                                    elif nombre_pvp == 'pvp_12_cuotas':
+                                        producto.markup_pvp_12_cuotas = markup_calculado
+                            except Exception:
+                                # Si hay error calculando el markup, simplemente no lo mostramos
+                                pass
 
     # Si aplicamos ordenamiento dinámico, necesitamos paginar manualmente
     if orden_requiere_calculo:
