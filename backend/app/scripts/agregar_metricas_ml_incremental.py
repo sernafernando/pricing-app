@@ -225,7 +225,10 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                     WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
                     ELSE tmlip.prli_id
                 END
-            ) as pricelist_id
+            ) as pricelist_id,
+
+            -- mlp_id para filtro de tienda oficial
+            tmlod.mlp_id as mlp_id
 
         FROM tb_mercadolibre_orders_detail tmlod
 
@@ -970,7 +973,8 @@ def process_and_insert(db: Session, rows):
                 'tipo_logistica': row.tipo_logistica,
                 'monto_limpio': Decimal(str(metricas['monto_limpio'])),
                 'ganancia': Decimal(str(metricas['ganancia'])),
-                'markup_porcentaje': Decimal(str(metricas['markup_porcentaje']))
+                'markup_porcentaje': Decimal(str(metricas['markup_porcentaje'])),
+                'mla_id': str(row.mlp_id) if hasattr(row, 'mlp_id') and row.mlp_id else None
             }
 
             if existente:

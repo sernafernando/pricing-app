@@ -76,8 +76,8 @@ def fetch_data_from_sql_server(from_date: date, to_date: date) -> pd.DataFrame:
              WHERE ticlh.item_id = tmlod.item_id
                AND ticlh.iclh_cd <= tmloh.mlo_cd
              ORDER BY ticlh.iclh_id DESC) [Costo_sin_IVA],
-            ttn.tax_percentage [IVA],
-            tmlip.mlp_id [ML_id],
+             ttn.tax_percentage [IVA],
+            tmlod.mlp_id [ML_id],
             tmloh.ml_pack_id [ML_pack_id],
             tmlip.mlp_price4FreeShipping [mlp_price4FreeShipping],
             tmlos.mlshippmentcost4seller [Costo_Envío],
