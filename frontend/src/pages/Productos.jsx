@@ -925,6 +925,8 @@ export default function Productos() {
 
       if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
 
+      if (filtroTiendaOficial) params.tienda_oficial = filtroTiendaOficial;
+
       if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
 
       if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
