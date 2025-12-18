@@ -163,23 +163,34 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             -- Costo de envío del producto (viene con IVA)
             pe.envio as envio_producto,
 
-            -- Obtener el porcentaje de comisión base para que el helper lo calcule
+            -- Obtener el porcentaje de comisión (comision_base + adicional_cuota según pricelist)
             -- SIEMPRE usar pe.subcategoria_id (productos_erp) para evitar errores cuando tb_item no existe
-            -- Usar comisiones_lista_grupo (tabla con pricelist_id + grupo_id)
+            -- Usar comisiones versionadas (comisiones_base + comisiones_versiones)
             COALESCE(
                 (
-                    SELECT clg.comision_porcentaje
+                    SELECT 
+                        cb.comision_base + COALESCE(
+                            (
+                                SELECT cac.adicional
+                                FROM comisiones_adicionales_cuota cac
+                                WHERE cac.version_id = cv.id
+                                  AND cac.cuotas = CASE
+                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 17 THEN 3
+                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 14 THEN 6
+                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 13 THEN 9
+                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 23 THEN 12
+                                      ELSE NULL
+                                  END
+                                LIMIT 1
+                            ),
+                            0
+                        )
                     FROM subcategorias_grupos sg
-                    JOIN comisiones_lista_grupo clg ON clg.grupo_id = sg.grupo_id
+                    JOIN comisiones_base cb ON cb.grupo_id = sg.grupo_id
+                    JOIN comisiones_versiones cv ON cv.id = cb.version_id
                     WHERE sg.subcat_id = COALESCE(tsc.subcat_id, pe.subcategoria_id)
-                      AND clg.pricelist_id = COALESCE(
-                          tsoh.prli_id,
-                          CASE
-                              WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
-                              ELSE tmlip.prli_id
-                          END
-                      )
-                      AND clg.activo = TRUE
+                      AND tmloh.mlo_cd::date BETWEEN cv.fecha_desde AND COALESCE(cv.fecha_hasta, '9999-12-31'::date)
+                      AND cv.activo = TRUE
                     LIMIT 1
                 ),
                 -- Fallback final: 12% (comisión mínima de ML)
