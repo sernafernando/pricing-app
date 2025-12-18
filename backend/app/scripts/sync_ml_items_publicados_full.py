@@ -3,7 +3,7 @@ Script para sincronización COMPLETA diaria de items publicados de MercadoLibre
 Actualiza TODAS las publicaciones (no solo las nuevas/modificadas)
 
 Estrategia:
-- Sincronización completa: 1 vez al día (este script - trae todo del último año)
+- Sincronización completa: 1 vez al día (este script - por lotes usando mlpIdFrom/mlpIdTo)
 - Sincronización incremental: cada hora (sync_ml_items_publicados_incremental.py)
 
 Ejecutar desde el directorio backend:
@@ -87,116 +87,152 @@ async def sync_items_publicados_full(db: Session):
     """
     Sincroniza TODAS las publicaciones de ML (sin filtrar por status)
     Para sync diario completo
+    Ahora usa paginación por mlpId para evitar timeouts
     """
-    print(f"📅 Sincronizando TODAS las publicaciones (sin filtro de status)...")
+    print(f"📅 Sincronizando TODAS las publicaciones por lotes...")
 
-    # Traer todas las publicaciones activas de GBP
-    # Usamos un rango amplio de fechas para capturar todo
-    params = {
-        "strScriptLabel": "scriptMLItemsPublicados",
-        "fromDate": "2020-01-01",
-        "toDate": datetime.now().strftime('%Y-%m-%d')
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min timeout
-            response = await client.get(API_URL, params=params)
-            response.raise_for_status()
-            data = response.json()
-
-        if not data:
-            print("   ⚠️  No se encontraron items publicados")
-            return 0, 0, 0
-
-        print(f"   📦 Recibidos {len(data)} items de GBP para procesar")
-
-        insertados = 0
-        actualizados = 0
-        errores = 0
-
-        for i, item_data in enumerate(data, 1):
+    # Obtener rango de mlp_id en la BD
+    from sqlalchemy import func
+    result = db.query(
+        func.min(MercadoLibreItemPublicado.mlp_id),
+        func.max(MercadoLibreItemPublicado.mlp_id)
+    ).first()
+    
+    min_id = result[0] if result[0] else 1
+    max_id = result[1] if result[1] else 20000
+    
+    print(f"   📊 Rango de IDs en BD: {min_id} - {max_id}")
+    
+    BATCH_SIZE = 500
+    total_insertados = 0
+    total_actualizados = 0
+    total_errores = 0
+    
+    # Procesar por lotes
+    current_id = 1  # Empezar desde 1 para incluir items nuevos
+    
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        while current_id <= max_id + BATCH_SIZE:  # +BATCH_SIZE para capturar nuevos
+            batch_end = current_id + BATCH_SIZE - 1
+            
+            print(f"\n📦 Procesando lote: mlp_id {current_id} - {batch_end}")
+            
+            params = {
+                "strScriptLabel": "scriptMLItemsPublicados",
+                "mlpIdFrom": current_id,
+                "mlpIdTo": batch_end
+            }
+            
             try:
-                mlp_id = convertir_a_entero(item_data.get('mlp_id'))
-                if not mlp_id:
+                response = await client.get(API_URL, params=params)
+                response.raise_for_status()
+                data = response.json()
+                
+                if not data or len(data) == 0:
+                    print(f"   ⏭️  Sin datos en este rango")
+                    current_id = batch_end + 1
                     continue
-
-                # Buscar si existe
-                item_existente = db.query(MercadoLibreItemPublicado).filter(
-                    MercadoLibreItemPublicado.mlp_id == mlp_id
-                ).first()
-
-                # Preparar datos
-                item_dict = {
-                    'mlp_id': mlp_id,
-                    'comp_id': convertir_a_entero(item_data.get('comp_id')),
-                    'bra_id': convertir_a_entero(item_data.get('bra_id')),
-                    'stor_id': convertir_a_entero(item_data.get('stor_id')),
-                    'prli_id': convertir_a_entero(item_data.get('prli_id')),
-                    'item_id': convertir_a_entero(item_data.get('item_id')),
-                    'user_id': convertir_a_entero(item_data.get('user_id')),
-                    'mlp_publicationID': item_data.get('mlp_publicationID'),
-                    'mlp_itemTitle': item_data.get('mlp_itemTitle'),
-                    'mlp_itemSubTitle': item_data.get('mlp_itemSubTitle'),
-                    'mlp_price': convertir_a_numero(item_data.get('mlp_price')),
-                    'curr_id': convertir_a_entero(item_data.get('curr_id')),
-                    'mlp_sold_quantity': convertir_a_entero(item_data.get('mlp_sold_quantity')),
-                    'mlp_Active': convertir_a_boolean(item_data.get('mlp_Active')),
-                    'mlp_listing_type_id': item_data.get('mlp_listing_type_id'),
-                    'mlp_permalink': item_data.get('mlp_permalink'),
-                    'mlp_thumbnail': item_data.get('mlp_thumbnail'),
-                    'mlp_lastUpdate': convertir_fecha(item_data.get('mlp_lastUpdate')),
-                    'mlp_free_shipping': convertir_a_boolean(item_data.get('mlp_free_shipping')),
-                    'mlp_catalog_product_id': item_data.get('mlp_catalog_product_id'),
-                    'mlp_official_store_id': convertir_a_entero(item_data.get('mlp_official_store_id')),
-                    'health': convertir_a_numero(item_data.get('health')),
-                    'optval_statusId': convertir_a_entero(item_data.get('optval_statusId')),
-                }
-
-                if not item_existente:
-                    # Insertar nuevo
-                    nuevo_item = MercadoLibreItemPublicado(**item_dict)
-                    db.add(nuevo_item)
-                    insertados += 1
-                else:
-                    # Actualizar existente
-                    for key, value in item_dict.items():
-                        if key != 'mlp_id':
-                            setattr(item_existente, key, value)
-                    actualizados += 1
-
-                # Commit cada 100 items
-                if i % 100 == 0:
+                
+                print(f"   📦 Recibidos {len(data)} items de GBP")
+                
+                insertados = 0
+                actualizados = 0
+                errores = 0
+                
+                for i, item_data in enumerate(data, 1):
                     try:
-                        db.commit()
-                        print(f"   ✓ {i}/{len(data)} items procesados...")
+                        mlp_id = convertir_a_entero(item_data.get('mlp_id'))
+                        if not mlp_id:
+                            continue
+                        
+                        # Buscar si existe
+                        item_existente = db.query(MercadoLibreItemPublicado).filter(
+                            MercadoLibreItemPublicado.mlp_id == mlp_id
+                        ).first()
+                        
+                        # Preparar datos
+                        item_dict = {
+                            'mlp_id': mlp_id,
+                            'comp_id': convertir_a_entero(item_data.get('comp_id')),
+                            'bra_id': convertir_a_entero(item_data.get('bra_id')),
+                            'stor_id': convertir_a_entero(item_data.get('stor_id')),
+                            'prli_id': convertir_a_entero(item_data.get('prli_id')),
+                            'item_id': convertir_a_entero(item_data.get('item_id')),
+                            'user_id': convertir_a_entero(item_data.get('user_id')),
+                            'mlp_publicationID': item_data.get('mlp_publicationID'),
+                            'mlp_itemTitle': item_data.get('mlp_itemTitle'),
+                            'mlp_itemSubTitle': item_data.get('mlp_itemSubTitle'),
+                            'mlp_price': convertir_a_numero(item_data.get('mlp_price')),
+                            'curr_id': convertir_a_entero(item_data.get('curr_id')),
+                            'mlp_sold_quantity': convertir_a_entero(item_data.get('mlp_sold_quantity')),
+                            'mlp_Active': convertir_a_boolean(item_data.get('mlp_Active')),
+                            'mlp_listing_type_id': item_data.get('mlp_listing_type_id'),
+                            'mlp_permalink': item_data.get('mlp_permalink'),
+                            'mlp_thumbnail': item_data.get('mlp_thumbnail'),
+                            'mlp_lastUpdate': convertir_fecha(item_data.get('mlp_lastUpdate')),
+                            'mlp_free_shipping': convertir_a_boolean(item_data.get('mlp_free_shipping')),
+                            'mlp_catalog_product_id': item_data.get('mlp_catalog_product_id'),
+                            'mlp_official_store_id': convertir_a_entero(item_data.get('mlp_official_store_id')),
+                            'health': convertir_a_numero(item_data.get('health')),
+                            'optval_statusId': convertir_a_entero(item_data.get('optval_statusId')),
+                        }
+                        
+                        if not item_existente:
+                            # Insertar nuevo
+                            nuevo_item = MercadoLibreItemPublicado(**item_dict)
+                            db.add(nuevo_item)
+                            insertados += 1
+                        else:
+                            # Actualizar existente
+                            for key, value in item_dict.items():
+                                if key != 'mlp_id':
+                                    setattr(item_existente, key, value)
+                            actualizados += 1
+                        
+                        # Commit cada 100 items
+                        if i % 100 == 0:
+                            try:
+                                db.commit()
+                            except Exception as e:
+                                db.rollback()
+                                print(f"   ❌ Error en commit: {str(e)}")
+                                errores += 1
+                    
                     except Exception as e:
-                        print(f"   ⚠️  Error en commit: {str(e)}")
-                        db.rollback()
-
+                        print(f"   ❌ Error procesando item: {str(e)}")
+                        errores += 1
+                        continue
+                
+                # Commit final del lote
+                try:
+                    db.commit()
+                    print(f"   ✅ Lote procesado: +{insertados} nuevos, ~{actualizados} actualizados, ✗{errores} errores")
+                except Exception as e:
+                    db.rollback()
+                    print(f"   ❌ Error en commit final del lote: {str(e)}")
+                
+                total_insertados += insertados
+                total_actualizados += actualizados
+                total_errores += errores
+                
+            except httpx.HTTPStatusError as e:
+                print(f"   ❌ Error HTTP en lote: {e}")
+                total_errores += 1
             except Exception as e:
-                errores += 1
-                print(f"   ⚠️  Error procesando item {mlp_id}: {str(e)}")
-                db.rollback()
-                continue
-
-        # Commit final
-        try:
-            db.commit()
-        except Exception as e:
-            print(f"   ❌ Error en commit final: {str(e)}")
-            db.rollback()
-
-        print(f"\n✅ Sincronización completa finalizada!")
-        print(f"   Insertados: {insertados}")
-        print(f"   Actualizados: {actualizados}")
-        print(f"   Errores: {errores}")
-
-        return insertados, actualizados, errores
-
-    except Exception as e:
-        print(f"   ❌ Error en la petición: {str(e)}")
-        db.rollback()
-        return 0, 0, 1
+                print(f"   ❌ Error en lote: {str(e)}")
+                total_errores += 1
+            
+            # Siguiente lote
+            current_id = batch_end + 1
+    
+    print(f"\n{'='*60}")
+    print(f"✅ Sincronización FULL completada!")
+    print(f"   Insertados: {total_insertados}")
+    print(f"   Actualizados: {total_actualizados}")
+    print(f"   Errores: {total_errores}")
+    print(f"{'='*60}")
+    
+    return total_insertados, total_actualizados, total_errores
 
 
 if __name__ == "__main__":
