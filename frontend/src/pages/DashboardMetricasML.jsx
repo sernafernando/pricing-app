@@ -10,7 +10,9 @@ export default function DashboardMetricasML() {
   const [marcaSeleccionada, setMarcaSeleccionada] = useState('');
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('');
   const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen', 'operaciones', 'rentabilidad', 'tienda-oficial'
-  const [tiendaOficialActiva, setTiendaOficialActiva] = useState(false); // Filtro para tienda oficial TP-Link
+  
+  // Derivar tiendaOficialActiva del tab activo
+  const tiendaOficialActiva = tabActivo === 'tienda-oficial';
 
   // Datos
   const [metricasGenerales, setMetricasGenerales] = useState(null);
@@ -47,13 +49,13 @@ export default function DashboardMetricasML() {
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
-      if (tabActivo === 'resumen') {
+      if (tabActivo === 'resumen' || tabActivo === 'tienda-oficial') {
         cargarDashboard();
       } else if (tabActivo === 'operaciones') {
         cargarOperaciones();
       }
     }
-  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tabActivo, tiendaOficialActiva]);
+  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tabActivo]);
 
   const cargarMarcasYCategorias = async () => {
     try {
@@ -243,37 +245,25 @@ export default function DashboardMetricasML() {
         <div className={styles.tabs}>
           <button
             className={`${styles.tab} ${tabActivo === 'resumen' ? styles.tabActivo : ''}`}
-            onClick={() => {
-              setTabActivo('resumen');
-              setTiendaOficialActiva(false);
-            }}
+            onClick={() => setTabActivo('resumen')}
           >
             📊 Resumen
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'operaciones' ? styles.tabActivo : ''}`}
-            onClick={() => {
-              setTabActivo('operaciones');
-              setTiendaOficialActiva(false);
-            }}
+            onClick={() => setTabActivo('operaciones')}
           >
             📋 Detalle de Operaciones
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'rentabilidad' ? styles.tabActivo : ''}`}
-            onClick={() => {
-              setTabActivo('rentabilidad');
-              setTiendaOficialActiva(false);
-            }}
+            onClick={() => setTabActivo('rentabilidad')}
           >
             💰 Rentabilidad
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'tienda-oficial' ? styles.tabActivo : ''}`}
-            onClick={() => {
-              setTabActivo('tienda-oficial');
-              setTiendaOficialActiva(true);
-            }}
+            onClick={() => setTabActivo('tienda-oficial')}
           >
             🏪 Tienda Oficial TP-Link
           </button>
