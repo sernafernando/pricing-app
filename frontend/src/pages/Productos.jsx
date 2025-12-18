@@ -318,17 +318,17 @@ export default function Productos() {
     filtroMarkupRebate,
     filtroMarkupOferta,
     filtroMarkupWebTransf,
-            filtroOutOfCards,
-            filtroMLA,
-            filtroEstadoMLA,
-            filtroNuevos,
-            filtroTiendaOficial,
-            coloresSeleccionados,
-            audit_usuarios: filtrosAuditoria.usuarios,
-            audit_tipos_accion: filtrosAuditoria.tipos_accion,
-            audit_fecha_desde: filtrosAuditoria.fecha_desde,
-            audit_fecha_hasta: filtrosAuditoria.fecha_hasta
-          }}
+    filtroOutOfCards,
+    filtroMLA,
+    filtroEstadoMLA,
+    filtroNuevos,
+    filtroTiendaOficial,
+    coloresSeleccionados,
+    audit_usuarios: filtrosAuditoria.usuarios,
+    audit_tipos_accion: filtrosAuditoria.tipos_accion,
+    audit_fecha_desde: filtrosAuditoria.fecha_desde,
+    audit_fecha_hasta: filtrosAuditoria.fecha_hasta
+  }}
           showToast={showToast}
         />
       )}
