@@ -206,6 +206,9 @@ export default function Productos() {
     // Nuevos
     if (filtroNuevos) params.set('nuevos', filtroNuevos);
 
+    // Tienda Oficial
+    if (filtroTiendaOficial) params.set('tienda_oficial', filtroTiendaOficial);
+
     // Colores
     if (coloresSeleccionados.length > 0) params.set('colores', coloresSeleccionados.join(','));
 
@@ -327,12 +330,12 @@ export default function Productos() {
 
   useEffect(() => {
     cargarProductos();
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos]);
+  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial]);
 
   // Cargar stats dinámicos cada vez que cambian los filtros
   useEffect(() => {
     cargarStats();
-  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos]);
+  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial]);
 
   // Cargar marcas y subcategorías cuando se seleccionan PMs
   useEffect(() => {
@@ -397,6 +400,7 @@ export default function Productos() {
       if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
       if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
       if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
+      if (filtroTiendaOficial) params.tienda_oficial = filtroTiendaOficial;
       if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
       if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
 
@@ -447,6 +451,7 @@ export default function Productos() {
       if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
       if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
       if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
+      if (filtroTiendaOficial) params.tienda_oficial = filtroTiendaOficial;
       if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
       if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
 
@@ -2874,6 +2879,21 @@ export default function Productos() {
                   >
                     <option value="todos">Todos</option>
                     <option value="ultimos_7_dias">Últimos 7 días</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>🏪 Tienda Oficial</label>
+                  <select
+                    value={filtroTiendaOficial || 'todos'}
+                    onChange={(e) => { setFiltroTiendaOficial(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select"
+                  >
+                    <option value="todos">Todas</option>
+                    <option value="57997">🏢 Gauss</option>
+                    <option value="2645" title="TP-Link">📡 TP-Link</option>
+                    <option value="144" title="Forza, Verbatim">⚡ Forza/Verbatim</option>
+                    <option value="191942" title="Epson, Forza, Logitech, MGN, Razer">🎯 Multi-marca</option>
                   </select>
                 </div>
               </div>
