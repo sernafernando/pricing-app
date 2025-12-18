@@ -1390,6 +1390,29 @@ export default function Productos() {
     }
   };
 
+  const eliminarTodosPreciosGremioManuales = async () => {
+    if (!window.confirm('⚠️ ¿Estás seguro de eliminar TODOS los precios gremio manuales?\n\nTodos los productos volverán al cálculo automático.')) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.delete(
+        `${API_URL}/productos/precio-gremio-override/todos`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+
+      // Recargar productos
+      await cargarProductos();
+      showToast(`✅ ${response.data.message}`);
+    } catch (error) {
+      console.error('Error al eliminar todos los precios gremio manuales:', error);
+      showToast('❌ Error al eliminar precios manuales', 'error');
+    }
+  };
+
   // Funciones de selección múltiple
   const toggleSeleccion = (itemId, shiftKey) => {
     const nuevaSeleccion = new Set(productosSeleccionados);
@@ -2486,6 +2509,16 @@ export default function Productos() {
             className="btn-action calculate"
           >
             🧮 Calcular Web Transf.
+          </button>
+          )}
+
+          {tienePermiso('tienda.editar_precio_gremio_manual') && (
+          <button
+            onClick={eliminarTodosPreciosGremioManuales}
+            className="btn-action reset-gremio"
+            title="Eliminar todos los precios gremio manuales y volver al cálculo automático"
+          >
+            ⟲ Resetear Precios Gremio
           </button>
           )}
         </div>

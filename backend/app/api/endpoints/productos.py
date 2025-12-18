@@ -5554,3 +5554,39 @@ async def delete_precio_gremio_override(
     db.commit()
     
     return {"success": True, "message": "Precio manual eliminado, volviendo al cálculo automático"}
+
+
+@router.delete("/productos/precio-gremio-override/todos")
+async def delete_all_precio_gremio_overrides(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Elimina TODOS los precios gremio manuales, volviendo al cálculo automático.
+    Requiere permiso 'tienda.editar_precio_gremio_manual'.
+    """
+    from app.models.precio_gremio_override import PrecioGremioOverride
+    from app.services.permisos_service import verificar_permiso
+    
+    # Verificar permiso
+    if not verificar_permiso(db, current_user, 'tienda.editar_precio_gremio_manual'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para editar precios gremio manualmente"
+        )
+    
+    # Contar cuántos overrides hay
+    count = db.query(PrecioGremioOverride).count()
+    
+    if count == 0:
+        return {"success": True, "message": "No hay precios manuales para eliminar", "deleted_count": 0}
+    
+    # Eliminar todos los overrides
+    db.query(PrecioGremioOverride).delete()
+    db.commit()
+    
+    return {
+        "success": True, 
+        "message": f"Se eliminaron {count} precios manuales. Todos volvieron al cálculo automático",
+        "deleted_count": count
+    }
