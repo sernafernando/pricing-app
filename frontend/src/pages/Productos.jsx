@@ -79,7 +79,7 @@ export default function Productos() {
   const [mostrarShortcutsHelp, setMostrarShortcutsHelp] = useState(false);
 
   // Estados para vista de cuotas
-  const [vistaModoCuotas, setVistaModoCuotas] = useState(false); // false = vista normal, true = vista cuotas
+  const [modoVista, setModoVista] = useState('normal'); // 'normal', 'cuotas', 'pvp'
   const [recalcularCuotasAuto, setRecalcularCuotasAuto] = useState(() => {
     // Leer del localStorage, por defecto true
     const saved = localStorage.getItem('recalcularCuotasAuto');
@@ -132,7 +132,11 @@ export default function Productos() {
   // Columnas navegables según la vista activa
   const columnasNavegablesNormal = ['precio_clasica', 'precio_rebate', 'mejor_oferta', 'precio_web_transf'];
   const columnasNavegablesCuotas = ['precio_clasica', 'cuotas_3', 'cuotas_6', 'cuotas_9', 'cuotas_12'];
-  const columnasEditables = vistaModoCuotas ? columnasNavegablesCuotas : columnasNavegablesNormal;
+  const columnasNavegablesPVP = ['precio_pvp', 'pvp_cuotas_3', 'pvp_cuotas_6', 'pvp_cuotas_9', 'pvp_cuotas_12'];
+  const columnasEditables = 
+    modoVista === 'cuotas' ? columnasNavegablesCuotas :
+    modoVista === 'pvp' ? columnasNavegablesPVP :
+    columnasNavegablesNormal;
 
   const debouncedSearch = useDebounce(searchInput, 500);
 
@@ -1601,10 +1605,25 @@ export default function Productos() {
         return;
       }
 
-      // Alt+V: Toggle Vista Normal / Vista Cuotas
+      // Alt+V: Ciclar entre vistas (Normal → Cuotas → PVP → Normal)
       if (e.altKey && e.key === 'v') {
         e.preventDefault();
-        setVistaModoCuotas(!vistaModoCuotas);
+        const siguienteModo = 
+          modoVista === 'normal' ? 'cuotas' :
+          modoVista === 'cuotas' ? 'pvp' :
+          'normal';
+        setModoVista(siguienteModo);
+        // Resetear columna activa para evitar ir a columnas ocultas
+        if (celdaActiva) {
+          setCeldaActiva({ ...celdaActiva, colIndex: 0 });
+        }
+        return;
+      }
+
+      // Alt+P: Ir directo a Vista PVP (o volver a Normal si ya está en PVP)
+      if (e.altKey && e.key === 'p') {
+        e.preventDefault();
+        setModoVista(modoVista === 'pvp' ? 'normal' : 'pvp');
         // Resetear columna activa para evitar ir a columnas ocultas
         if (celdaActiva) {
           setCeldaActiva({ ...celdaActiva, colIndex: 0 });
@@ -1800,7 +1819,7 @@ export default function Productos() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, puedeMarcarColor, puedeToggleRebate, puedeToggleWebTransf, puedeToggleOutOfCards, puedeCalcularWebMasivo, mostrarFiltrosAvanzados, vistaModoCuotas, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarModalConfig, mostrarModalInfo]);
+  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, puedeMarcarColor, puedeToggleRebate, puedeToggleWebTransf, puedeToggleOutOfCards, puedeCalcularWebMasivo, mostrarFiltrosAvanzados, modoVista, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarModalConfig, mostrarModalInfo]);
 
   // Scroll automático para seguir la celda activa
   useEffect(() => {
@@ -2223,24 +2242,26 @@ export default function Productos() {
           {/* Separador visual */}
           <div className="filter-separator"></div>
 
-          {/* Vista Normal/Cuotas */}
-          <label className="filter-checkbox-label">
-            <input
-              type="checkbox"
-              checked={vistaModoCuotas}
-              onChange={(e) => {
-                setVistaModoCuotas(e.target.checked);
-                // Resetear columna activa para evitar ir a columnas ocultas
-                if (celdaActiva) {
-                  setCeldaActiva({ ...celdaActiva, colIndex: 0 });
-                }
-              }}
-              className="filter-checkbox"
-            />
-            <span className="filter-checkbox-text">
-              {vistaModoCuotas ? '📊 Cuotas' : '📋 Normal'}
-            </span>
-          </label>
+          {/* Botón cíclico de Vista: Normal → Cuotas → PVP */}
+          <button
+            className="filter-button"
+            onClick={() => {
+              const siguienteModo = 
+                modoVista === 'normal' ? 'cuotas' :
+                modoVista === 'cuotas' ? 'pvp' :
+                'normal';
+              setModoVista(siguienteModo);
+              // Resetear columna activa para evitar ir a columnas ocultas
+              if (celdaActiva) {
+                setCeldaActiva({ ...celdaActiva, colIndex: 0 });
+              }
+            }}
+            title="Alt+V para ciclar vistas | Alt+P para ir directo a PVP"
+          >
+            {modoVista === 'normal' && '📋 Normal'}
+            {modoVista === 'cuotas' && '📊 Cuotas'}
+            {modoVista === 'pvp' && '💰 PVP'}
+          </button>
 
           {/* Auto-recalcular */}
           <label className="filter-checkbox-label">
@@ -3009,7 +3030,7 @@ export default function Productos() {
                     Precio Clásica {getIconoOrden('precio_clasica')} {getNumeroOrden('precio_clasica') && <span>{getNumeroOrden('precio_clasica')}</span>}
                   </th>
 
-                  {!vistaModoCuotas ? (
+                  {modoVista === 'normal' && (
                     <>
                       <th onClick={(e) => handleOrdenar('precio_rebate', e)}>
                         Precio Rebate {getIconoOrden('precio_rebate')} {getNumeroOrden('precio_rebate') && <span>{getNumeroOrden('precio_rebate')}</span>}
@@ -3021,7 +3042,9 @@ export default function Productos() {
                         Web Transf. {getIconoOrden('web_transf')} {getNumeroOrden('web_transf') && <span>{getNumeroOrden('web_transf')}</span>}
                       </th>
                     </>
-                  ) : (
+                  )}
+
+                  {modoVista === 'cuotas' && (
                     <>
                       <th onClick={(e) => handleOrdenar('precio_3_cuotas', e)}>
                         3 Cuotas {getIconoOrden('precio_3_cuotas')} {getNumeroOrden('precio_3_cuotas') && <span>{getNumeroOrden('precio_3_cuotas')}</span>}
@@ -3034,6 +3057,23 @@ export default function Productos() {
                       </th>
                       <th onClick={(e) => handleOrdenar('precio_12_cuotas', e)}>
                         12 Cuotas {getIconoOrden('precio_12_cuotas')} {getNumeroOrden('precio_12_cuotas') && <span>{getNumeroOrden('precio_12_cuotas')}</span>}
+                      </th>
+                    </>
+                  )}
+
+                  {modoVista === 'pvp' && (
+                    <>
+                      <th onClick={(e) => handleOrdenar('precio_pvp_3_cuotas', e)}>
+                        PVP 3 Cuotas {getIconoOrden('precio_pvp_3_cuotas')} {getNumeroOrden('precio_pvp_3_cuotas') && <span>{getNumeroOrden('precio_pvp_3_cuotas')}</span>}
+                      </th>
+                      <th onClick={(e) => handleOrdenar('precio_pvp_6_cuotas', e)}>
+                        PVP 6 Cuotas {getIconoOrden('precio_pvp_6_cuotas')} {getNumeroOrden('precio_pvp_6_cuotas') && <span>{getNumeroOrden('precio_pvp_6_cuotas')}</span>}
+                      </th>
+                      <th onClick={(e) => handleOrdenar('precio_pvp_9_cuotas', e)}>
+                        PVP 9 Cuotas {getIconoOrden('precio_pvp_9_cuotas')} {getNumeroOrden('precio_pvp_9_cuotas') && <span>{getNumeroOrden('precio_pvp_9_cuotas')}</span>}
+                      </th>
+                      <th onClick={(e) => handleOrdenar('precio_pvp_12_cuotas', e)}>
+                        PVP 12 Cuotas {getIconoOrden('precio_pvp_12_cuotas')} {getNumeroOrden('precio_pvp_12_cuotas') && <span>{getNumeroOrden('precio_pvp_12_cuotas')}</span>}
                       </th>
                     </>
                   )}
@@ -3143,7 +3183,7 @@ export default function Productos() {
                     </td>
 
                     {/* Vista Normal: Rebate, Oferta, Web Transf */}
-                    {!vistaModoCuotas ? (
+                    {modoVista === 'normal' && (
                       <>
                     <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
                       {editandoRebate === p.item_id ? (
@@ -3392,8 +3432,10 @@ export default function Productos() {
                       </div>
                     </td>
                     </>
-                    ) : (
-                      /* Vista Cuotas: 3, 6, 9, 12 cuotas */
+                    )}
+
+                    {/* Vista Cuotas: 3, 6, 9, 12 cuotas */}
+                    {modoVista === 'cuotas' && (
                       <>
                         <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
                           {editandoCuota?.item_id === p.item_id && editandoCuota?.tipo === '3' ? (
@@ -3526,6 +3568,63 @@ export default function Productos() {
                               )}
                             </div>
                           )}
+                        </td>
+                      </>
+                    )}
+
+                    {/* Vista PVP: PVP 3, 6, 9, 12 cuotas */}
+                    {modoVista === 'pvp' && (
+                      <>
+                        <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
+                          <div>
+                            <div>
+                              {p.precio_pvp_3_cuotas ? `$${p.precio_pvp_3_cuotas.toLocaleString('es-AR')}` : '-'}
+                            </div>
+                            {p.markup_pvp_3_cuotas !== null && p.markup_pvp_3_cuotas !== undefined && (
+                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_3_cuotas) }}>
+                                {p.markup_pvp_3_cuotas.toFixed(2)}%
+                              </div>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className={isRowActive && celdaActiva?.colIndex === 2 ? 'keyboard-cell-active' : ''}>
+                          <div>
+                            <div>
+                              {p.precio_pvp_6_cuotas ? `$${p.precio_pvp_6_cuotas.toLocaleString('es-AR')}` : '-'}
+                            </div>
+                            {p.markup_pvp_6_cuotas !== null && p.markup_pvp_6_cuotas !== undefined && (
+                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_6_cuotas) }}>
+                                {p.markup_pvp_6_cuotas.toFixed(2)}%
+                              </div>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
+                          <div>
+                            <div>
+                              {p.precio_pvp_9_cuotas ? `$${p.precio_pvp_9_cuotas.toLocaleString('es-AR')}` : '-'}
+                            </div>
+                            {p.markup_pvp_9_cuotas !== null && p.markup_pvp_9_cuotas !== undefined && (
+                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_9_cuotas) }}>
+                                {p.markup_pvp_9_cuotas.toFixed(2)}%
+                              </div>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className={isRowActive && celdaActiva?.colIndex === 4 ? 'keyboard-cell-active' : ''}>
+                          <div>
+                            <div>
+                              {p.precio_pvp_12_cuotas ? `$${p.precio_pvp_12_cuotas.toLocaleString('es-AR')}` : '-'}
+                            </div>
+                            {p.markup_pvp_12_cuotas !== null && p.markup_pvp_12_cuotas !== undefined && (
+                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_12_cuotas) }}>
+                                {p.markup_pvp_12_cuotas.toFixed(2)}%
+                              </div>
+                            )}
+                          </div>
                         </td>
                       </>
                     )}
@@ -4185,7 +4284,11 @@ export default function Productos() {
                 </div>
                 <div className="shortcut-item">
                   <kbd>Alt</kbd> + <kbd>V</kbd>
-                  <span>Toggle Vista Normal / Vista Cuotas</span>
+                  <span>Ciclar vistas: Normal → Cuotas → PVP</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Alt</kbd> + <kbd>P</kbd>
+                  <span>Toggle Vista PVP</span>
                 </div>
                 <div className="shortcut-item">
                   <kbd>Alt</kbd> + <kbd>R</kbd>
