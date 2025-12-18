@@ -87,11 +87,32 @@ export default function DashboardMetricasML() {
       if (categoriaSeleccionada) params.categoria = categoriaSeleccionada;
       if (tiendaOficialSeleccionada) params.tienda_oficial = tiendaOficialSeleccionada;
 
-      const response = await axios.get(`${API_URL}/ventas-ml/operaciones-con-metricas`, { params, headers });
-      setOperaciones(response.data || []);
+      // Cargar todos los datos en paralelo
+      const [
+        metricasRes,
+        marcasRes,
+        categoriasRes,
+        logisticaRes,
+        diasRes,
+        productosRes
+      ] = await Promise.all([
+        axios.get(`${API_URL}/dashboard-ml/metricas-generales`, { params, headers }),
+        axios.get(`${API_URL}/dashboard-ml/por-marca`, { params, headers }),
+        axios.get(`${API_URL}/dashboard-ml/por-categoria`, { params, headers }),
+        axios.get(`${API_URL}/dashboard-ml/por-logistica`, { params, headers }),
+        axios.get(`${API_URL}/dashboard-ml/por-dia`, { params, headers }),
+        axios.get(`${API_URL}/dashboard-ml/top-productos`, { params, headers })
+      ]);
+
+      setMetricasGenerales(metricasRes.data);
+      setVentasPorMarca(marcasRes.data || []);
+      setVentasPorCategoria(categoriasRes.data || []);
+      setVentasPorLogistica(logisticaRes.data || []);
+      setVentasPorDia(diasRes.data || []);
+      setTopProductos(productosRes.data || []);
     } catch (error) {
-      console.error('Error cargando operaciones:', error);
-      alert('Error al cargar las operaciones');
+      console.error('Error cargando dashboard:', error);
+      alert('Error al cargar el dashboard');
     } finally {
       setLoading(false);
     }
