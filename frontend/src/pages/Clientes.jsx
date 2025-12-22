@@ -17,12 +17,11 @@ export default function Clientes() {
 
   // Filtros
   const [provincias, setProvincias] = useState([]);
-  const [condicionesFiscales, setCondicionesFiscales] = useState([]);
   const [sucursales, setSucursales] = useState([]);
   const [vendedores, setVendedores] = useState([]);
 
   const [filtroProvinciaId, setFiltroProvinciaId] = useState('');
-  const [filtroFiscalId, setFiltroFiscalId] = useState('');
+  const [filtroTipoDocumento, setFiltroTipoDocumento] = useState('');
   const [filtroSucursalId, setFiltroSucursalId] = useState('');
   const [filtroVendedorId, setFiltroVendedorId] = useState('');
   const [filtroSoloActivos, setFiltroSoloActivos] = useState(true);
@@ -56,19 +55,17 @@ export default function Clientes() {
   // Cargar clientes cuando cambian los filtros
   useEffect(() => {
     cargarClientes();
-  }, [page, pageSize, debouncedSearch, filtroProvinciaId, filtroFiscalId, filtroSucursalId, filtroVendedorId, filtroSoloActivos, filtroConML, filtroConEmail, filtroConTelefono, filtroFechaDesde, filtroFechaHasta, filtroCustIdDesde, filtroCustIdHasta]);
+  }, [page, pageSize, debouncedSearch, filtroProvinciaId, filtroTipoDocumento, filtroSucursalId, filtroVendedorId, filtroSoloActivos, filtroConML, filtroConEmail, filtroConTelefono, filtroFechaDesde, filtroFechaHasta, filtroCustIdDesde, filtroCustIdHasta]);
 
   const cargarFiltros = async () => {
     try {
-      const [provRes, fiscalRes, sucRes, vendRes] = await Promise.all([
+      const [provRes, sucRes, vendRes] = await Promise.all([
         axios.get(`${API_URL}/api/clientes/filtros/provincias`),
-        axios.get(`${API_URL}/api/clientes/filtros/condiciones-fiscales`),
         axios.get(`${API_URL}/api/clientes/filtros/sucursales`),
         axios.get(`${API_URL}/api/clientes/filtros/vendedores`)
       ]);
 
       setProvincias(provRes.data);
-      setCondicionesFiscales(fiscalRes.data);
       setSucursales(sucRes.data);
       setVendedores(vendRes.data);
     } catch (error) {
@@ -100,7 +97,7 @@ export default function Clientes() {
 
       if (debouncedSearch) params.append('search', debouncedSearch);
       if (filtroProvinciaId) params.append('state_id', filtroProvinciaId);
-      if (filtroFiscalId) params.append('fc_id', filtroFiscalId);
+      if (filtroTipoDocumento) params.append('tipo_documento', filtroTipoDocumento);
       if (filtroSucursalId) params.append('bra_id', filtroSucursalId);
       if (filtroVendedorId) params.append('sm_id', filtroVendedorId);
       if (filtroSoloActivos !== '') params.append('solo_activos', filtroSoloActivos.toString());
@@ -135,7 +132,7 @@ export default function Clientes() {
         campos: camposSeleccionados,
         search: debouncedSearch || null,
         state_id: filtroProvinciaId ? parseInt(filtroProvinciaId) : null,
-        fc_id: filtroFiscalId ? parseInt(filtroFiscalId) : null,
+        tipo_documento: filtroTipoDocumento || null,
         bra_id: filtroSucursalId ? parseInt(filtroSucursalId) : null,
         sm_id: filtroVendedorId ? parseInt(filtroVendedorId) : null,
         solo_activos: filtroSoloActivos !== '' ? filtroSoloActivos : null,
@@ -199,7 +196,7 @@ export default function Clientes() {
   const limpiarFiltros = () => {
     setSearchInput('');
     setFiltroProvinciaId('');
-    setFiltroFiscalId('');
+    setFiltroTipoDocumento('');
     setFiltroSucursalId('');
     setFiltroVendedorId('');
     setFiltroSoloActivos(true);
@@ -284,19 +281,16 @@ export default function Clientes() {
           </select>
 
           <select
-            value={filtroFiscalId}
+            value={filtroTipoDocumento}
             onChange={(e) => {
-              setFiltroFiscalId(e.target.value);
+              setFiltroTipoDocumento(e.target.value);
               setPage(1);
             }}
             className={styles.select}
           >
-            <option value="">Todas las condiciones fiscales</option>
-            {condicionesFiscales.map(c => (
-              <option key={c.fc_id} value={c.fc_id}>
-                {c.fc_desc}
-              </option>
-            ))}
+            <option value="">DNI o CUIT</option>
+            <option value="dni">DNI</option>
+            <option value="cuit">CUIT</option>
           </select>
 
           <select
