@@ -2,15 +2,39 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './DashboardMetricasML.module.css';
 import TabRentabilidad from '../components/TabRentabilidad';
+import { useQueryFilters } from '../hooks/useQueryFilters';
+
+// Helper para obtener fechas por defecto
+const getDefaultFechaDesde = () => {
+  const hoy = new Date();
+  const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  return primerDiaMes.toISOString().split('T')[0];
+};
+
+const getDefaultFechaHasta = () => {
+  const hoy = new Date();
+  return hoy.toISOString().split('T')[0];
+};
 
 export default function DashboardMetricasML() {
   const [loading, setLoading] = useState(true);
-  const [fechaDesde, setFechaDesde] = useState('');
-  const [fechaHasta, setFechaHasta] = useState('');
-  const [marcaSeleccionada, setMarcaSeleccionada] = useState('');
-  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('');
-  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen', 'operaciones', 'rentabilidad'
-  const [tiendaOficialSeleccionada, setTiendaOficialSeleccionada] = useState(''); // '', '57997', '2645', '144', '191942'
+  
+  // Usar query params para tab, fechas y filtros de resumen
+  const { getFilter, updateFilters } = useQueryFilters({
+    tab: 'rentabilidad',
+    fecha_desde: getDefaultFechaDesde(),
+    fecha_hasta: getDefaultFechaHasta(),
+    marca: '',
+    categoria: '',
+    tienda_oficial: ''
+  });
+
+  const tabActivo = getFilter('tab');
+  const fechaDesde = getFilter('fecha_desde');
+  const fechaHasta = getFilter('fecha_hasta');
+  const marcaSeleccionada = getFilter('marca');
+  const categoriaSeleccionada = getFilter('categoria');
+  const tiendaOficialSeleccionada = getFilter('tienda_oficial');
 
   // Datos
   const [metricasGenerales, setMetricasGenerales] = useState(null);
@@ -30,17 +54,6 @@ export default function DashboardMetricasML() {
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
   useEffect(() => {
-    // Configurar fechas por defecto: primer día del mes actual hasta hoy
-    const hoy = new Date();
-    const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-
-    const formatearFechaISO = (fecha) => {
-      return fecha.toISOString().split('T')[0];
-    };
-
-    setFechaDesde(formatearFechaISO(primerDiaMes));
-    setFechaHasta(formatearFechaISO(hoy));
-
     // Cargar listas de marcas y categorías
     cargarMarcasYCategorias();
   }, []);
@@ -219,8 +232,10 @@ export default function DashboardMetricasML() {
         return;
     }
 
-    setFechaDesde(formatearFechaISO(desde));
-    setFechaHasta(formatearFechaISO(hasta));
+    updateFilters({
+      fecha_desde: formatearFechaISO(desde),
+      fecha_hasta: formatearFechaISO(hasta)
+    });
   };
 
   // Filtrar operaciones por búsqueda
@@ -244,19 +259,19 @@ export default function DashboardMetricasML() {
         <div className={styles.tabs}>
           <button
             className={`${styles.tab} ${tabActivo === 'resumen' ? styles.tabActivo : ''}`}
-            onClick={() => setTabActivo('resumen')}
+            onClick={() => updateFilters({ tab: 'resumen' })}
           >
             📊 Resumen
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'operaciones' ? styles.tabActivo : ''}`}
-            onClick={() => setTabActivo('operaciones')}
+            onClick={() => updateFilters({ tab: 'operaciones' })}
           >
             📋 Detalle de Operaciones
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'rentabilidad' ? styles.tabActivo : ''}`}
-            onClick={() => setTabActivo('rentabilidad')}
+            onClick={() => updateFilters({ tab: 'rentabilidad' })}
           >
             💰 Rentabilidad
           </button>
@@ -296,7 +311,7 @@ export default function DashboardMetricasML() {
             <input
               type="date"
               value={fechaDesde}
-              onChange={(e) => setFechaDesde(e.target.value)}
+              onChange={(e) => updateFilters({ fecha_desde: e.target.value })}
               className={styles.dateInput}
             />
           </div>
@@ -305,7 +320,7 @@ export default function DashboardMetricasML() {
             <input
               type="date"
               value={fechaHasta}
-              onChange={(e) => setFechaHasta(e.target.value)}
+              onChange={(e) => updateFilters({ fecha_hasta: e.target.value })}
               className={styles.dateInput}
             />
           </div>
@@ -316,7 +331,7 @@ export default function DashboardMetricasML() {
                 <label>Marca:</label>
                 <select
                   value={marcaSeleccionada}
-                  onChange={(e) => setMarcaSeleccionada(e.target.value)}
+                  onChange={(e) => updateFilters({ marca: e.target.value })}
                   className={styles.select}
                 >
                   <option value="">Todas</option>
@@ -330,7 +345,7 @@ export default function DashboardMetricasML() {
                 <label>Categoría:</label>
                 <select
                   value={categoriaSeleccionada}
-                  onChange={(e) => setCategoriaSeleccionada(e.target.value)}
+                  onChange={(e) => updateFilters({ categoria: e.target.value })}
                   className={styles.select}
                 >
                   <option value="">Todas</option>
@@ -344,7 +359,7 @@ export default function DashboardMetricasML() {
                 <label>🏪 Tienda Oficial:</label>
                 <select
                   value={tiendaOficialSeleccionada}
-                  onChange={(e) => setTiendaOficialSeleccionada(e.target.value)}
+                  onChange={(e) => updateFilters({ tienda_oficial: e.target.value })}
                   className={styles.select}
                 >
                   <option value="">Todas</option>
