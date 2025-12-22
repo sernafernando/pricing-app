@@ -893,21 +893,30 @@ async def obtener_rentabilidad(
                         elif grupo_info.get('max_unidades'):
                             limite_texto = f" (máx {grupo_info['max_unidades']} un.)"
 
-                    # En cards individuales de producto, NO sumamos el offset del grupo
-                    # porque el offset del grupo es por CAMPAÑA, no por producto
+                    # En cards individuales de producto/subcategoría, NO sumamos el offset del grupo
+                    # porque el offset del grupo es por CAMPAÑA, no por item individual
                     # Solo mostramos que participa del grupo (monto 0 para la card)
                     # El total se suma UNA sola vez en los totales globales
-                    if nivel == "producto":
-                        # Mostrar que el producto participa del grupo pero sin sumar
+                    #
+                    # Criterio para NO sumar (mostrar con monto=0):
+                    # - Nivel producto: siempre
+                    # - Nivel subcategoría: cuando hay filtros de marca/categoría (estamos en drill-down)
+                    es_nivel_detalle = (
+                        nivel == "producto" or 
+                        (nivel == "subcategoria" and (lista_marcas or lista_categorias))
+                    )
+                    
+                    if es_nivel_detalle:
+                        # Mostrar que participa del grupo pero sin sumar (ver total global)
                         desglose.append(DesgloseOffset(
                             descripcion=f"{grupo_info['descripcion']}{limite_texto} (ver total)",
                             nivel="grupo",
                             nombre_nivel=f"Grupo {offset.grupo_id}",
                             tipo_offset=offset.tipo_offset or 'monto_fijo',
-                            monto=0  # No sumar a nivel producto
+                            monto=0
                         ))
                     else:
-                        # Para niveles agregados (marca, categoria, subcategoria)
+                        # Para niveles agregados (marca, categoria sin filtros previos)
                         # mostramos el total del grupo
                         desglose.append(DesgloseOffset(
                             descripcion=f"{grupo_info['descripcion']}{limite_texto}",
