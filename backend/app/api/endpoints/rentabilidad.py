@@ -832,9 +832,35 @@ async def obtener_rentabilidad(
                             detalle = productos_detalle.get(offset.item_id)
                             if detalle and detalle['subcategoria'] == card_nombre:
                                 aplica_a_card = True
+                        # Offsets de marca/categoría aplican si los filtros del usuario coinciden
+                        elif offset.marca or offset.categoria:
+                            # Buscar productos de esta subcategoría que cumplan los filtros del offset
+                            for item_id, detalle in productos_detalle.items():
+                                if detalle.get('subcategoria') != card_nombre:
+                                    continue
+                                # Validar que el producto cumpla TODOS los criterios del offset
+                                cumple = True
+                                if offset.marca and detalle.get('marca') != offset.marca:
+                                    cumple = False
+                                if offset.categoria and detalle.get('categoria') != offset.categoria:
+                                    cumple = False
+                                if cumple:
+                                    aplica_a_card = True
+                                    break
                     elif nivel == "producto":
                         if offset.item_id and str(offset.item_id) == str(card_identificador):
                             aplica_a_card = True
+                        # Offsets de marca/categoría aplican si el producto cumple los criterios
+                        elif offset.marca or offset.categoria:
+                            detalle = productos_detalle.get(int(card_identificador)) if card_identificador else None
+                            if detalle:
+                                cumple = True
+                                if offset.marca and detalle.get('marca') != offset.marca:
+                                    cumple = False
+                                if offset.categoria and detalle.get('categoria') != offset.categoria:
+                                    cumple = False
+                                if cumple:
+                                    aplica_a_card = True
 
                 if aplica_a_card:
                     # Marcar grupo como procesado para esta card
@@ -1009,7 +1035,34 @@ async def obtener_rentabilidad(
                     if cant_offset > 0:
                         valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
                         aplica = True
-                # Offset de marca que aplica a esta subcategoría
+                # Offset de marca+categoría que aplica a esta subcategoría
+                elif offset.marca and offset.categoria and not offset.subcategoria_id and not offset.item_id:
+                    # Validar que la subcategoría tenga productos que cumplan marca+categoría
+                    # Primero verificar si hay productos en productos_detalle que cumplan
+                    tiene_productos_validos = False
+                    for item_id, detalle in productos_detalle.items():
+                        if (detalle.get('subcategoria') == card_nombre and 
+                            detalle.get('marca') == offset.marca and 
+                            detalle.get('categoria') == offset.categoria):
+                            tiene_productos_validos = True
+                            break
+                    
+                    if tiene_productos_validos:
+                        # Buscar ventas de esta subcategoría que cumplan marca+categoría del offset
+                        cant_offset, costo_offset = obtener_ventas_periodo_offset(
+                            offset,
+                            and_(
+                                MLVentaMetrica.subcategoria == card_nombre,
+                                MLVentaMetrica.marca == offset.marca,
+                                MLVentaMetrica.categoria == offset.categoria
+                            ),
+                            True
+                        )
+                        if cant_offset > 0:
+                            valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
+                            aplica = True
+                            nombre_nivel = f"{offset.marca} + {offset.categoria}"
+                # Offset de marca sola que aplica a esta subcategoría
                 elif offset.marca and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
                     cant_offset, costo_offset = obtener_ventas_periodo_offset(
                         offset,
@@ -1020,8 +1073,8 @@ async def obtener_rentabilidad(
                         valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
                         aplica = True
                         nombre_nivel = f"Marca: {offset.marca}"
-                # Offset de categoría que aplica a esta subcategoría
-                elif offset.categoria and not offset.subcategoria_id and not offset.item_id:
+                # Offset de categoría sola que aplica a esta subcategoría
+                elif offset.categoria and not offset.marca and not offset.subcategoria_id and not offset.item_id:
                     cant_offset, costo_offset = obtener_ventas_periodo_offset(
                         offset,
                         and_(MLVentaMetrica.subcategoria == card_nombre, MLVentaMetrica.categoria == offset.categoria),
@@ -1042,12 +1095,39 @@ async def obtener_rentabilidad(
                             nombre_nivel = f"Prod: {offset.item_id}"
 
             elif nivel == "producto":
-                # Solo offsets directos del producto o de sus niveles superiores
+                # Offset directo por producto
                 if offset.item_id and str(offset.item_id) == str(card_identificador):
                     cant_offset, costo_offset = obtener_ventas_periodo_offset(offset, MLVentaMetrica.item_id, int(card_identificador))
                     if cant_offset > 0:
                         valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
                         aplica = True
+                # Offsets de niveles superiores (marca, categoría, subcategoría) que aplican a este producto
+                elif not offset.item_id:
+                    detalle = productos_detalle.get(int(card_identificador)) if card_identificador else None
+                    if detalle:
+                        # Verificar si el producto cumple TODOS los criterios del offset
+                        cumple = True
+                        if offset.marca and detalle.get('marca') != offset.marca:
+                            cumple = False
+                        if offset.categoria and detalle.get('categoria') != offset.categoria:
+                            cumple = False
+                        if offset.subcategoria_id and detalle.get('subcategoria_id') != offset.subcategoria_id:
+                            cumple = False
+                        
+                        if cumple:
+                            cant_offset, costo_offset = obtener_ventas_periodo_offset(offset, MLVentaMetrica.item_id, int(card_identificador))
+                            if cant_offset > 0:
+                                valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
+                                aplica = True
+                                # Nombre descriptivo según qué criterios tiene el offset
+                                if offset.marca and offset.categoria:
+                                    nombre_nivel = f"{offset.marca} + {offset.categoria}"
+                                elif offset.marca:
+                                    nombre_nivel = f"Marca: {offset.marca}"
+                                elif offset.categoria:
+                                    nombre_nivel = f"Cat: {offset.categoria}"
+                                elif offset.subcategoria_id:
+                                    nombre_nivel = f"Subcat: {offset.subcategoria_id}"
 
             if aplica and valor_offset > 0:
                 offset_total += valor_offset
