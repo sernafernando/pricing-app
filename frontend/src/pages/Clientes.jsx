@@ -44,22 +44,22 @@ export default function Clientes() {
     // NOTA: state_id, fc_id, etc. quedan como strings para que coincidan con los <option value="">
   });
 
-  // Extraer valores de URL
-  const searchInput = getFilter('search');
-  const page = getFilter('page');
-  const pageSize = getFilter('page_size');
-  const filtroProvinciaId = getFilter('state_id');
-  const filtroFiscalId = getFilter('fc_id');
-  const filtroSucursalId = getFilter('bra_id');
-  const filtroVendedorId = getFilter('sm_id');
-  const filtroSoloActivos = getFilter('solo_activos');
-  const filtroConML = getFilter('con_ml');
-  const filtroConEmail = getFilter('con_email');
-  const filtroConTelefono = getFilter('con_telefono');
-  const filtroFechaDesde = getFilter('fecha_desde');
-  const filtroFechaHasta = getFilter('fecha_hasta');
-  const filtroCustIdDesde = getFilter('cust_id_desde');
-  const filtroCustIdHasta = getFilter('cust_id_hasta');
+  // Extraer valores de URL usando useMemo para forzar re-evaluación
+  const searchInput = useMemo(() => getFilter('search'), [getFilter]);
+  const page = useMemo(() => getFilter('page'), [getFilter]);
+  const pageSize = useMemo(() => getFilter('page_size'), [getFilter]);
+  const filtroProvinciaId = useMemo(() => getFilter('state_id'), [getFilter]);
+  const filtroFiscalId = useMemo(() => getFilter('fc_id'), [getFilter]);
+  const filtroSucursalId = useMemo(() => getFilter('bra_id'), [getFilter]);
+  const filtroVendedorId = useMemo(() => getFilter('sm_id'), [getFilter]);
+  const filtroSoloActivos = useMemo(() => getFilter('solo_activos'), [getFilter]);
+  const filtroConML = useMemo(() => getFilter('con_ml'), [getFilter]);
+  const filtroConEmail = useMemo(() => getFilter('con_email'), [getFilter]);
+  const filtroConTelefono = useMemo(() => getFilter('con_telefono'), [getFilter]);
+  const filtroFechaDesde = useMemo(() => getFilter('fecha_desde'), [getFilter]);
+  const filtroFechaHasta = useMemo(() => getFilter('fecha_hasta'), [getFilter]);
+  const filtroCustIdDesde = useMemo(() => getFilter('cust_id_desde'), [getFilter]);
+  const filtroCustIdHasta = useMemo(() => getFilter('cust_id_hasta'), [getFilter]);
 
   // Modal detalle
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
