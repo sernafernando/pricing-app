@@ -34,11 +34,24 @@ class UsuarioResponse(BaseModel):
     username: str
     email: Optional[str]
     nombre: str
-    rol: str
+    rol: str  # Se llena desde rol_codigo property del modelo
     activo: bool
     
     class Config:
         from_attributes = True
+    
+    @staticmethod
+    def model_validate(obj):
+        """Custom validation para usar rol_codigo cuando rol es None"""
+        data = {
+            "id": obj.id,
+            "username": obj.username,
+            "email": obj.email,
+            "nombre": obj.nombre,
+            "rol": obj.rol_codigo,  # Usar property rol_codigo en lugar del enum
+            "activo": obj.activo
+        }
+        return UsuarioResponse(**data)
 
 @router.get("/usuarios", response_model=List[UsuarioResponse])
 async def listar_usuarios(
@@ -46,11 +59,11 @@ async def listar_usuarios(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Lista todos los usuarios (solo admin)"""
-    if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
+    if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")
     
     usuarios = db.query(Usuario).all()
-    return usuarios
+    return [UsuarioResponse.model_validate(u) for u in usuarios]
 
 @router.post("/usuarios", response_model=UsuarioResponse)
 async def crear_usuario(
@@ -59,7 +72,7 @@ async def crear_usuario(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Crea un nuevo usuario (solo admin)"""
-    if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
+    if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")
     
     # Verificar si el username ya existe
@@ -94,7 +107,7 @@ async def crear_usuario(
     db.commit()
     db.refresh(nuevo_usuario)
     
-    return nuevo_usuario
+    return UsuarioResponse.model_validate(nuevo_usuario)
 
 @router.patch("/usuarios/{usuario_id}", response_model=UsuarioResponse)
 async def actualizar_usuario(
@@ -104,7 +117,7 @@ async def actualizar_usuario(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza un usuario (solo admin)"""
-    if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
+    if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")
     
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
@@ -161,7 +174,7 @@ async def actualizar_usuario(
     db.commit()
     db.refresh(usuario)
     
-    return usuario
+    return UsuarioResponse.model_validate(usuario)
 
 @router.patch("/usuarios/{usuario_id}/password")
 async def cambiar_password_usuario(
@@ -171,7 +184,7 @@ async def cambiar_password_usuario(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Cambia el password de un usuario (solo admin)"""
-    if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
+    if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")
 
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
@@ -199,7 +212,7 @@ async def eliminar_usuario(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina un usuario (solo admin)"""
-    if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
+    if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")
 
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
