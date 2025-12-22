@@ -89,6 +89,10 @@ class ExportClientesRequest(BaseModel):
     sm_id: Optional[int] = None
     solo_activos: Optional[bool] = None
     con_ml: Optional[bool] = None
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None
+    cust_id_desde: Optional[int] = None
+    cust_id_hasta: Optional[int] = None
 
 
 # Mapeo de campos disponibles para exportación
@@ -137,6 +141,10 @@ async def listar_clientes(
     sm_id: Optional[int] = Query(None, description="Filtrar por vendedor"),
     solo_activos: Optional[bool] = Query(None, description="Solo clientes activos"),
     con_ml: Optional[bool] = Query(None, description="Solo clientes con MercadoLibre"),
+    fecha_desde: Optional[date] = Query(None, description="Filtrar por fecha de alta desde"),
+    fecha_hasta: Optional[date] = Query(None, description="Filtrar por fecha de alta hasta"),
+    cust_id_desde: Optional[int] = Query(None, description="ID de cliente desde (rango)"),
+    cust_id_hasta: Optional[int] = Query(None, description="ID de cliente hasta (rango)"),
     db: Session = Depends(get_db)
 ):
     """
@@ -221,6 +229,18 @@ async def listar_clientes(
         else:
             query = query.filter(TBCustomer.cust_mercadolibreid.is_(None))
 
+    if fecha_desde is not None:
+        query = query.filter(func.date(TBCustomer.cust_cd) >= fecha_desde)
+
+    if fecha_hasta is not None:
+        query = query.filter(func.date(TBCustomer.cust_cd) <= fecha_hasta)
+
+    if cust_id_desde is not None:
+        query = query.filter(TBCustomer.cust_id >= cust_id_desde)
+
+    if cust_id_hasta is not None:
+        query = query.filter(TBCustomer.cust_id <= cust_id_hasta)
+
     # Contar total
     total = query.count()
 
@@ -292,6 +312,8 @@ async def obtener_cliente(
         TBCustomer.cust_inactive,
         TBCustomer.cust_mercadolibrenickname,
         TBCustomer.cust_mercadolibreid,
+        TBCustomer.cust_cd,
+        TBCustomer.cust_lastupdate,
         TBCustomer.state_id,
         TBState.state_desc,
         TBCustomer.fc_id,
@@ -299,7 +321,11 @@ async def obtener_cliente(
         TBCustomer.bra_id,
         TBBranch.bra_desc,
         TBCustomer.sm_id,
-        TBSalesman.sm_name
+        TBSalesman.sm_name,
+        TBCustomer.sm_id_2,
+        TBCustomer.tnt_id,
+        TBCustomer.country_id,
+        TBCustomer.prli_id
     ).outerjoin(
         TBState,
         and_(
@@ -344,6 +370,8 @@ async def obtener_cliente(
         cust_inactive=result.cust_inactive,
         cust_mercadolibrenickname=result.cust_mercadolibrenickname,
         cust_mercadolibreid=result.cust_mercadolibreid,
+        cust_cd=result.cust_cd,
+        cust_lastupdate=result.cust_lastupdate,
         state_id=result.state_id,
         state_desc=result.state_desc,
         fc_id=result.fc_id,
@@ -351,7 +379,11 @@ async def obtener_cliente(
         bra_id=result.bra_id,
         bra_desc=result.bra_desc,
         sm_id=result.sm_id,
-        sm_name=result.sm_name
+        sm_name=result.sm_name,
+        sm_id_2=result.sm_id_2,
+        tnt_id=result.tnt_id,
+        country_id=result.country_id,
+        prli_id=result.prli_id
     )
 
 
@@ -449,6 +481,18 @@ async def exportar_clientes(
             query = query.filter(TBCustomer.cust_mercadolibreid.isnot(None))
         else:
             query = query.filter(TBCustomer.cust_mercadolibreid.is_(None))
+
+    if export_request.fecha_desde is not None:
+        query = query.filter(func.date(TBCustomer.cust_cd) >= export_request.fecha_desde)
+
+    if export_request.fecha_hasta is not None:
+        query = query.filter(func.date(TBCustomer.cust_cd) <= export_request.fecha_hasta)
+
+    if export_request.cust_id_desde is not None:
+        query = query.filter(TBCustomer.cust_id >= export_request.cust_id_desde)
+
+    if export_request.cust_id_hasta is not None:
+        query = query.filter(TBCustomer.cust_id <= export_request.cust_id_hasta)
 
     # Obtener todos los resultados
     clientes_raw = query.order_by(TBCustomer.cust_name).all()
@@ -586,3 +630,110 @@ async def obtener_vendedores(
         {"sm_id": v.sm_id, "sm_name": v.sm_name}
         for v in vendedores
     ]
+
+
+@router.patch("/{cust_id}", response_model=ClienteResponse)
+async def actualizar_cliente(
+    cust_id: int,
+    datos: ClienteUpdateRequest,
+    comp_id: int = Query(1, description="ID de compañía"),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza campos editables de un cliente
+    Solo permite editar: nombre, email, teléfonos, dirección, ciudad, código postal
+    """
+    cliente = db.query(TBCustomer).filter(
+        TBCustomer.comp_id == comp_id,
+        TBCustomer.cust_id == cust_id
+    ).first()
+
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    # Actualizar solo los campos que vienen en el request
+    update_data = datos.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(cliente, field, value)
+
+    db.commit()
+    db.refresh(cliente)
+
+    # Retornar cliente actualizado con joins
+    result = db.query(
+        TBCustomer.comp_id,
+        TBCustomer.cust_id,
+        TBCustomer.cust_name,
+        TBCustomer.cust_name1,
+        TBCustomer.cust_taxnumber,
+        TBCustomer.cust_address,
+        TBCustomer.cust_city,
+        TBCustomer.cust_zip,
+        TBCustomer.cust_phone1,
+        TBCustomer.cust_cellphone,
+        TBCustomer.cust_email,
+        TBCustomer.cust_inactive,
+        TBCustomer.cust_mercadolibrenickname,
+        TBCustomer.cust_mercadolibreid,
+        TBCustomer.cust_cd,
+        TBCustomer.cust_lastupdate,
+        TBCustomer.state_id,
+        TBState.state_desc,
+        TBCustomer.fc_id,
+        TBFiscalClass.fc_desc,
+        TBCustomer.bra_id,
+        TBBranch.bra_desc,
+        TBCustomer.sm_id,
+        TBSalesman.sm_name
+    ).outerjoin(
+        TBState,
+        and_(
+            TBCustomer.state_id == TBState.state_id,
+            TBState.country_id == 54
+        )
+    ).outerjoin(
+        TBFiscalClass,
+        TBCustomer.fc_id == TBFiscalClass.fc_id
+    ).outerjoin(
+        TBBranch,
+        and_(
+            TBCustomer.bra_id == TBBranch.bra_id,
+            TBCustomer.comp_id == TBBranch.comp_id
+        )
+    ).outerjoin(
+        TBSalesman,
+        and_(
+            TBCustomer.sm_id == TBSalesman.sm_id,
+            TBCustomer.comp_id == TBSalesman.comp_id
+        )
+    ).filter(
+        TBCustomer.comp_id == comp_id,
+        TBCustomer.cust_id == cust_id
+    ).first()
+
+    return ClienteResponse(
+        comp_id=result.comp_id,
+        cust_id=result.cust_id,
+        cust_name=result.cust_name,
+        cust_name1=result.cust_name1,
+        cust_taxnumber=result.cust_taxnumber,
+        cust_address=result.cust_address,
+        cust_city=result.cust_city,
+        cust_zip=result.cust_zip,
+        cust_phone1=result.cust_phone1,
+        cust_cellphone=result.cust_cellphone,
+        cust_email=result.cust_email,
+        cust_inactive=result.cust_inactive,
+        cust_mercadolibrenickname=result.cust_mercadolibrenickname,
+        cust_mercadolibreid=result.cust_mercadolibreid,
+        cust_cd=result.cust_cd,
+        cust_lastupdate=result.cust_lastupdate,
+        state_id=result.state_id,
+        state_desc=result.state_desc,
+        fc_id=result.fc_id,
+        fc_desc=result.fc_desc,
+        bra_id=result.bra_id,
+        bra_desc=result.bra_desc,
+        sm_id=result.sm_id,
+        sm_name=result.sm_name
+    )
