@@ -121,7 +121,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
         params.subcategorias = subcategoriasSeleccionadas.join('|');
       }
       if (productosSeleccionados.length > 0) {
-        params.productos = productosSeleccionados.map(p => p.item_id).join('|');
+        params.productos = productosSeleccionados.join('|');
       }
 
       const response = await api.get('/api/rentabilidad-tienda-nube', { params });
@@ -153,20 +153,26 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
   };
 
   const agregarProducto = (producto) => {
-    if (!productosSeleccionados.find(p => p.item_id === producto.item_id)) {
-      setProductosSeleccionados([...productosSeleccionados, producto]);
+    const idsActuales = productosSeleccionados;
+    if (!idsActuales.includes(producto.item_id)) {
+      updateFilters({ productos: [...idsActuales, producto.item_id] });
+      setProductosSeleccionadosDetalle([...productosSeleccionadosDetalle, producto]);
     }
   };
 
   const quitarProducto = (itemId) => {
-    setProductosSeleccionados(productosSeleccionados.filter(p => p.item_id !== itemId));
+    updateFilters({ productos: productosSeleccionados.filter(id => id !== itemId) });
+    setProductosSeleccionadosDetalle(productosSeleccionadosDetalle.filter(p => p.item_id !== itemId));
   };
 
   const limpiarFiltros = () => {
-    setMarcasSeleccionadas([]);
-    setCategoriasSeleccionadas([]);
-    setSubcategoriasSeleccionadas([]);
-    setProductosSeleccionados([]);
+    updateFilters({
+      marcas: [],
+      categorias: [],
+      subcategorias: [],
+      productos: []
+    });
+    setProductosSeleccionadosDetalle([]);
     setProductosEncontrados([]);
     setBusquedaProducto('');
   };
@@ -204,15 +210,15 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
 
     if (card.tipo === 'marca') {
       if (!marcasSeleccionadas.includes(card.nombre)) {
-        setMarcasSeleccionadas([...marcasSeleccionadas, card.nombre]);
+        updateFilters({ marcas: [...marcasSeleccionadas, card.nombre] });
       }
     } else if (card.tipo === 'categoria') {
       if (!categoriasSeleccionadas.includes(card.nombre)) {
-        setCategoriasSeleccionadas([...categoriasSeleccionadas, card.nombre]);
+        updateFilters({ categorias: [...categoriasSeleccionadas, card.nombre] });
       }
     } else if (card.tipo === 'subcategoria') {
       if (!subcategoriasSeleccionadas.includes(card.nombre)) {
-        setSubcategoriasSeleccionadas([...subcategoriasSeleccionadas, card.nombre]);
+        updateFilters({ subcategorias: [...subcategoriasSeleccionadas, card.nombre] });
       }
     }
   };
@@ -272,11 +278,11 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
         </button>
 
         <button
-          className={`${styles.btnProductos} ${panelFiltroActivo === 'productos' ? styles.btnProductosActivo : ''} ${productosSeleccionados.length > 0 && panelFiltroActivo !== 'productos' ? styles.btnProductosConSeleccion : ''}`}
+          className={`${styles.btnProductos} ${panelFiltroActivo === 'productos' ? styles.btnProductosActivo : ''} ${productosSeleccionadosDetalle.length > 0 && panelFiltroActivo !== 'productos' ? styles.btnProductosConSeleccion : ''}`}
           onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'productos' ? null : 'productos')}
         >
           Productos
-          {productosSeleccionados.length > 0 && (
+          {productosSeleccionadosDetalle.length > 0 && (
             <span className={styles.btnFiltroBadge}>{productosSeleccionados.length}</span>
           )}
         </button>
@@ -305,7 +311,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
                 <h3>Marcas</h3>
                 {marcasSeleccionadas.length > 0 && (
                   <button
-                    onClick={() => setMarcasSeleccionadas([])}
+                    onClick={() => updateFilters({ marcas: [] })}
                     className="btn-clear-all"
                   >
                     Limpiar ({marcasSeleccionadas.length})
@@ -344,9 +350,9 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
                       checked={marcasSeleccionadas.includes(marca)}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setMarcasSeleccionadas([...marcasSeleccionadas, marca]);
+                          updateFilters({ marcas: [...marcasSeleccionadas, marca] });
                         } else {
-                          setMarcasSeleccionadas(marcasSeleccionadas.filter(m => m !== marca));
+                          updateFilters({ marcas: marcasSeleccionadas.filter(m => m !== marca) });
                         }
                       }}
                     />
@@ -364,7 +370,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
                 <h3>Categorías</h3>
                 {categoriasSeleccionadas.length > 0 && (
                   <button
-                    onClick={() => setCategoriasSeleccionadas([])}
+                    onClick={() => updateFilters({ categorias: [] })}
                     className="btn-clear-all"
                   >
                     Limpiar ({categoriasSeleccionadas.length})
@@ -403,9 +409,9 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
                       checked={categoriasSeleccionadas.includes(cat)}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setCategoriasSeleccionadas([...categoriasSeleccionadas, cat]);
+                          updateFilters({ categorias: [...categoriasSeleccionadas, cat] });
                         } else {
-                          setCategoriasSeleccionadas(categoriasSeleccionadas.filter(c => c !== cat));
+                          updateFilters({ categorias: categoriasSeleccionadas.filter(c => c !== cat) });
                         }
                       }}
                     />
@@ -423,7 +429,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
                 <h3>Subcategorías</h3>
                 {subcategoriasSeleccionadas.length > 0 && (
                   <button
-                    onClick={() => setSubcategoriasSeleccionadas([])}
+                    onClick={() => updateFilters({ subcategorias: [] })}
                     className="btn-clear-all"
                   >
                     Limpiar filtros ({subcategoriasSeleccionadas.length})
@@ -462,9 +468,9 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
                       checked={subcategoriasSeleccionadas.includes(subcat)}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setSubcategoriasSeleccionadas([...subcategoriasSeleccionadas, subcat]);
+                          updateFilters({ subcategorias: [...subcategoriasSeleccionadas, subcat] });
                         } else {
-                          setSubcategoriasSeleccionadas(subcategoriasSeleccionadas.filter(s => s !== subcat));
+                          updateFilters({ subcategorias: subcategoriasSeleccionadas.filter(s => s !== subcat) });
                         }
                       }}
                     />
@@ -480,9 +486,9 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
             <>
               <div className="advanced-filters-header">
                 <h3>Buscar Productos</h3>
-                {productosSeleccionados.length > 0 && (
+                {productosSeleccionadosDetalle.length > 0 && (
                   <button
-                    onClick={() => setProductosSeleccionados([])}
+                    onClick={() => { updateFilters({ productos: [] }); setProductosSeleccionadosDetalle([]); }}
                     className="btn-clear-all"
                   >
                     Limpiar ({productosSeleccionados.length})
@@ -490,9 +496,9 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
                 )}
               </div>
 
-              {productosSeleccionados.length > 0 && (
+              {productosSeleccionadosDetalle.length > 0 && (
                 <div className={styles.productosSeleccionados}>
-                  {productosSeleccionados.map(p => (
+                  {productosSeleccionadosDetalle.map(p => (
                     <div key={p.item_id} className={styles.productoChip}>
                       <span>{p.codigo}</span>
                       <button onClick={() => quitarProducto(p.item_id)}>x</button>
@@ -521,7 +527,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
               {productosEncontrados.length > 0 && (
                 <div className={styles.productosResultados}>
                   {productosEncontrados.map(producto => {
-                    const seleccionado = productosSeleccionados.some(p => p.item_id === producto.item_id);
+                    const seleccionado = productosSeleccionados.includes(producto.item_id) ? true : productosSeleccionadosDetalle.some(p => p.item_id === producto.item_id);
                     return (
                       <div
                         key={producto.item_id}
