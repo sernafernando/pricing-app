@@ -5,17 +5,40 @@ import TabRentabilidadFuera from '../components/TabRentabilidadFuera';
 import TabAdminVentasFuera from '../components/TabAdminVentasFuera';
 import ModalEditarCosto from '../components/ModalEditarCosto';
 import { useAuthStore } from '../store/authStore';
+import { useQueryFilters } from '../hooks/useQueryFilters';
+
+// Helper para obtener fechas por defecto
+const getDefaultFechaDesde = () => {
+  const hoy = new Date();
+  const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  return primerDiaMes.toISOString().split('T')[0];
+};
+
+const getDefaultFechaHasta = () => {
+  const hoy = new Date();
+  return hoy.toISOString().split('T')[0];
+};
 
 export default function DashboardVentasFuera() {
   const user = useAuthStore((state) => state.user);
   const esAdmin = user?.rol === 'ADMIN' || user?.rol === 'SUPERADMIN';
 
   const [loading, setLoading] = useState(true);
-  const [fechaDesde, setFechaDesde] = useState('');
-  const [fechaHasta, setFechaHasta] = useState('');
-  const [sucursalSeleccionada, setSucursalSeleccionada] = useState('');
-  const [vendedorSeleccionado, setVendedorSeleccionado] = useState('');
-  const [tabActivo, setTabActivo] = useState('resumen'); // 'resumen', 'operaciones', 'rentabilidad' o 'admin'
+  
+  // Usar query params para tab, fechas y filtros
+  const { getFilter, updateFilters } = useQueryFilters({
+    tab: 'rentabilidad',
+    fecha_desde: getDefaultFechaDesde(),
+    fecha_hasta: getDefaultFechaHasta(),
+    sucursal: '',
+    vendedor: ''
+  });
+
+  const tabActivo = getFilter('tab');
+  const fechaDesde = getFilter('fecha_desde');
+  const fechaHasta = getFilter('fecha_hasta');
+  const sucursalSeleccionada = getFilter('sucursal');
+  const vendedorSeleccionado = getFilter('vendedor');
 
   // Datos
   const [stats, setStats] = useState(null);
@@ -40,19 +63,6 @@ export default function DashboardVentasFuera() {
 
   // API base URL
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
-
-  useEffect(() => {
-    // Configurar fechas por defecto: primer día del mes actual hasta hoy
-    const hoy = new Date();
-    const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-
-    const formatearFechaISO = (fecha) => {
-      return fecha.toISOString().split('T')[0];
-    };
-
-    setFechaDesde(formatearFechaISO(primerDiaMes));
-    setFechaHasta(formatearFechaISO(hoy));
-  }, []);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
@@ -276,8 +286,10 @@ export default function DashboardVentasFuera() {
         return;
     }
 
-    setFechaDesde(formatearFechaISO(desde));
-    setFechaHasta(formatearFechaISO(hasta));
+    updateFilters({
+      fecha_desde: formatearFechaISO(desde),
+      fecha_hasta: formatearFechaISO(hasta)
+    });
   };
 
   // Verificar si una operación tiene override
@@ -319,26 +331,26 @@ export default function DashboardVentasFuera() {
         <div className={styles.tabs}>
           <button
             className={`${styles.tab} ${tabActivo === 'resumen' ? styles.tabActivo : ''}`}
-            onClick={() => setTabActivo('resumen')}
+            onClick={() => updateFilters({ tab: 'resumen' })}
           >
             📊 Resumen
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'operaciones' ? styles.tabActivo : ''}`}
-            onClick={() => setTabActivo('operaciones')}
+            onClick={() => updateFilters({ tab: 'operaciones' })}
           >
             📋 Detalle de Operaciones
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'rentabilidad' ? styles.tabActivo : ''}`}
-            onClick={() => setTabActivo('rentabilidad')}
+            onClick={() => updateFilters({ tab: 'rentabilidad' })}
           >
             💹 Rentabilidad
           </button>
           {esAdmin && (
             <button
               className={`${styles.tab} ${tabActivo === 'admin' ? styles.tabActivo : ''}`}
-              onClick={() => setTabActivo('admin')}
+              onClick={() => updateFilters({ tab: 'admin' })}
             >
               ⚙️ Admin
             </button>
@@ -379,7 +391,7 @@ export default function DashboardVentasFuera() {
             <input
               type="date"
               value={fechaDesde}
-              onChange={(e) => setFechaDesde(e.target.value)}
+              onChange={(e) => updateFilters({ fecha_desde: e.target.value })}
               className={styles.dateInput}
             />
           </div>
@@ -388,7 +400,7 @@ export default function DashboardVentasFuera() {
             <input
               type="date"
               value={fechaHasta}
-              onChange={(e) => setFechaHasta(e.target.value)}
+              onChange={(e) => updateFilters({ fecha_hasta: e.target.value })}
               className={styles.dateInput}
             />
           </div>
@@ -399,7 +411,7 @@ export default function DashboardVentasFuera() {
                 <label>Sucursal:</label>
                 <select
                   value={sucursalSeleccionada}
-                  onChange={(e) => setSucursalSeleccionada(e.target.value)}
+                  onChange={(e) => updateFilters({ sucursal: e.target.value })}
                   className={styles.select}
                 >
                   <option value="">Todas</option>
@@ -413,7 +425,7 @@ export default function DashboardVentasFuera() {
                 <label>Vendedor:</label>
                 <select
                   value={vendedorSeleccionado}
-                  onChange={(e) => setVendedorSeleccionado(e.target.value)}
+                  onChange={(e) => updateFilters({ vendedor: e.target.value })}
                   className={styles.select}
                 >
                   <option value="">Todos</option>
