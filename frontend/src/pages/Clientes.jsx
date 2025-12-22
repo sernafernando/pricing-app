@@ -74,17 +74,6 @@ export default function Clientes() {
   const searchKey = useMemo(() => searchInput, [searchInput]);
   const debouncedSearch = useDebounce(searchInput, 500);
 
-  // DEBUG: Ver filtros desde URL
-  useEffect(() => {
-    console.log('[Clientes] Filtros desde URL:', {
-      search: searchInput,
-      page,
-      pageSize,
-      filtroProvinciaId,
-      filtroSoloActivos
-    });
-  }, [searchInput, page, pageSize, filtroProvinciaId, filtroSoloActivos]);
-
   // Cargar filtros iniciales
   useEffect(() => {
     cargarFiltros();
@@ -131,14 +120,6 @@ export default function Clientes() {
   const cargarClientes = async () => {
     setLoading(true);
     try {
-      console.log('[Clientes] cargarClientes - valores de filtros:', {
-        debouncedSearch,
-        page,
-        pageSize,
-        filtroProvinciaId,
-        filtroSoloActivos
-      });
-
       const params = new URLSearchParams({
         page: page.toString(),
         page_size: pageSize.toString()
@@ -158,7 +139,6 @@ export default function Clientes() {
       if (filtroCustIdDesde) params.append('cust_id_desde', filtroCustIdDesde);
       if (filtroCustIdHasta) params.append('cust_id_hasta', filtroCustIdHasta);
 
-      console.log('[Clientes] Request URL params:', params.toString());
       const response = await axios.get(`${API_URL}/api/clientes?${params}`);
       setClientes(response.data.clientes);
       setTotalClientes(response.data.total);
@@ -246,23 +226,19 @@ export default function Clientes() {
   // Helper para actualizar filtros individuales
   // Los filtros que cambian contenido resetean página a 1
   const setSearchInput = (value) => {
-    console.log('[Clientes] setSearchInput:', value);
     updateFilters({ search: value, page: 1 });
   };
   
   const setPage = (value) => {
     const newPage = typeof value === 'function' ? value(page) : value;
-    console.log('[Clientes] setPage:', newPage);
     updateFilters({ page: newPage });
   };
   
   const setPageSize = (value) => {
-    console.log('[Clientes] setPageSize:', value);
     updateFilters({ page_size: value, page: 1 });
   };
   
   const setFiltroProvinciaId = (value) => {
-    console.log('[Clientes] setFiltroProvinciaId:', value);
     updateFilters({ state_id: value, page: 1 });
   };
   
@@ -353,10 +329,7 @@ export default function Clientes() {
 
           <select
             value={filtroProvinciaId}
-            onChange={(e) => {
-              console.log('[Clientes] onChange provincia:', e.target.value);
-              setFiltroProvinciaId(e.target.value);
-            }}
+            onChange={(e) => setFiltroProvinciaId(e.target.value)}
             className={styles.select}
           >
             <option value="">Todas las provincias</option>
@@ -366,8 +339,6 @@ export default function Clientes() {
               </option>
             ))}
           </select>
-          {/* DEBUG */}
-          <span style={{fontSize: '10px', color: 'red'}}>Value: "{filtroProvinciaId}" Type: {typeof filtroProvinciaId}</span>
 
           <select
             value={filtroFiscalId}
