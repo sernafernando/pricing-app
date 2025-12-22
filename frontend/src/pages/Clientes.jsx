@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import styles from './Clientes.module.css';
@@ -234,22 +234,39 @@ export default function Clientes() {
     setCamposSeleccionados([]);
   };
 
-  // Helper para actualizar filtros individuales
-  const setSearchInput = (value) => updateFilters({ search: value, page: 1 });
-  const setPage = (value) => updateFilters({ page: typeof value === 'function' ? value(page) : value });
-  const setPageSize = (value) => updateFilters({ page_size: value, page: 1 });
-  const setFiltroProvinciaId = (value) => updateFilters({ state_id: value, page: 1 });
-  const setFiltroFiscalId = (value) => updateFilters({ fc_id: value, page: 1 });
-  const setFiltroSucursalId = (value) => updateFilters({ bra_id: value, page: 1 });
-  const setFiltroVendedorId = (value) => updateFilters({ sm_id: value, page: 1 });
-  const setFiltroSoloActivos = (value) => updateFilters({ solo_activos: value, page: 1 });
-  const setFiltroConML = (value) => updateFilters({ con_ml: value, page: 1 });
-  const setFiltroConEmail = (value) => updateFilters({ con_email: value, page: 1 });
-  const setFiltroConTelefono = (value) => updateFilters({ con_telefono: value, page: 1 });
-  const setFiltroFechaDesde = (value) => updateFilters({ fecha_desde: value });
-  const setFiltroFechaHasta = (value) => updateFilters({ fecha_hasta: value });
-  const setFiltroCustIdDesde = (value) => updateFilters({ cust_id_desde: value });
-  const setFiltroCustIdHasta = (value) => updateFilters({ cust_id_hasta: value });
+  // Helper para actualizar filtros individuales (NO resetean página)
+  const setSearchInput = useCallback((value) => {
+    console.log('[Clientes] setSearchInput:', value);
+    updateFilters({ search: value });
+  }, [updateFilters]);
+  
+  const setPage = useCallback((value) => {
+    const newPage = typeof value === 'function' ? value(page) : value;
+    console.log('[Clientes] setPage:', newPage);
+    updateFilters({ page: newPage });
+  }, [updateFilters, page]);
+  
+  const setPageSize = useCallback((value) => {
+    console.log('[Clientes] setPageSize:', value);
+    updateFilters({ page_size: value, page: 1 });
+  }, [updateFilters]);
+  
+  const setFiltroProvinciaId = useCallback((value) => {
+    console.log('[Clientes] setFiltroProvinciaId:', value);
+    updateFilters({ state_id: value });
+  }, [updateFilters]);
+  
+  const setFiltroFiscalId = useCallback((value) => updateFilters({ fc_id: value }), [updateFilters]);
+  const setFiltroSucursalId = useCallback((value) => updateFilters({ bra_id: value }), [updateFilters]);
+  const setFiltroVendedorId = useCallback((value) => updateFilters({ sm_id: value }), [updateFilters]);
+  const setFiltroSoloActivos = useCallback((value) => updateFilters({ solo_activos: value }), [updateFilters]);
+  const setFiltroConML = useCallback((value) => updateFilters({ con_ml: value }), [updateFilters]);
+  const setFiltroConEmail = useCallback((value) => updateFilters({ con_email: value }), [updateFilters]);
+  const setFiltroConTelefono = useCallback((value) => updateFilters({ con_telefono: value }), [updateFilters]);
+  const setFiltroFechaDesde = useCallback((value) => updateFilters({ fecha_desde: value }), [updateFilters]);
+  const setFiltroFechaHasta = useCallback((value) => updateFilters({ fecha_hasta: value }), [updateFilters]);
+  const setFiltroCustIdDesde = useCallback((value) => updateFilters({ cust_id_desde: value }), [updateFilters]);
+  const setFiltroCustIdHasta = useCallback((value) => updateFilters({ cust_id_hasta: value }), [updateFilters]);
 
   const limpiarFiltros = () => {
     updateFilters({
