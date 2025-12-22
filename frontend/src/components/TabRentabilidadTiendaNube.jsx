@@ -41,6 +41,16 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
   const subcategoriasSeleccionadas = getFilter('subcategorias');
   const productosSeleccionados = getFilter('productos');
 
+  // DEBUG: Ver qué filtros vienen de la URL
+  useEffect(() => {
+    console.log('[TabRentabilidadTiendaNube] Filtros desde URL:', {
+      marcas: marcasSeleccionadas,
+      categorias: categoriasSeleccionadas,
+      subcategorias: subcategoriasSeleccionadas,
+      productos: productosSeleccionados
+    });
+  }, [marcasSeleccionadas.join(','), categoriasSeleccionadas.join(','), subcategoriasSeleccionadas.join(','), productosSeleccionados.join(',')]);
+
   // Convertir arrays a strings para evitar re-renders infinitos
   const marcasKey = useMemo(() => marcasSeleccionadas.join(','), [marcasSeleccionadas.join(',')]);
   const categoriasKey = useMemo(() => categoriasSeleccionadas.join(','), [categoriasSeleccionadas.join(',')]);
@@ -124,10 +134,13 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
         params.productos = productosSeleccionados.join('|');
       }
 
+      console.log('[TabRentabilidadTiendaNube] Cargando rentabilidad con params:', params);
       const response = await api.get('/api/rentabilidad-tienda-nube', { params });
+      console.log('[TabRentabilidadTiendaNube] Respuesta recibida:', response.data);
       setRentabilidad(response.data);
     } catch (error) {
-      console.error('Error cargando rentabilidad:', error);
+      console.error('[TabRentabilidadTiendaNube] Error cargando rentabilidad:', error);
+      console.error('[TabRentabilidadTiendaNube] Error response:', error.response?.data);
     } finally {
       setLoading(false);
     }

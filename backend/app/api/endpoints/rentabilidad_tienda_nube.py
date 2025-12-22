@@ -124,7 +124,6 @@ def get_ventas_tienda_nube_base_query():
         marca,
         categoria,
         subcategoria,
-        subcat_id,
         cantidad * signo as cantidad,
         monto_total * signo as monto_total,
         costo_total * signo as costo_total,
@@ -206,9 +205,9 @@ async def obtener_rentabilidad_tienda_nube(
         select_nombre = "categoria"
         select_identificador = "categoria"
     elif nivel == "subcategoria":
-        group_by = "subcategoria, subcat_id"
+        group_by = "subcategoria"
         select_nombre = "subcategoria"
-        select_identificador = "subcat_id::text"
+        select_identificador = "subcategoria"
     else:  # producto
         group_by = "item_id, codigo, descripcion"
         select_nombre = "COALESCE(codigo || ' - ' || descripcion, descripcion)"
