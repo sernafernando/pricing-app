@@ -5,6 +5,7 @@ import { useCallback, useMemo } from 'react';
  * Hook para manejar filtros via query params
  * 
  * @param {Object} defaults - Valores por defecto para cada filtro
+ * @param {Object} types - Tipos para parseo especial (opcional)
  * @returns {Object} - { getFilter, updateFilters, resetFilters, searchParams, getAllFilters }
  * 
  * @example
@@ -12,18 +13,21 @@ import { useCallback, useMemo } from 'react';
  *   tab: 'rentabilidad',
  *   page: 1,
  *   marcas: [],
- *   fecha_desde: '2025-01-01'
+ *   productos: []
+ * }, {
+ *   productos: 'number[]'  // Parsear como array de números
  * });
  * 
  * // Leer
  * const tabActivo = getFilter('tab'); // 'rentabilidad'
  * const marcas = getFilter('marcas'); // ['HP', 'EPSON']
+ * const productos = getFilter('productos'); // [123, 456] <- números!
  * 
  * // Escribir
  * updateFilters({ marcas: ['HP'] });
  * updateFilters({ page: 2, tab: 'resumen' });
  */
-export function useQueryFilters(defaults = {}) {
+export function useQueryFilters(defaults = {}, types = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   
   /**
@@ -40,7 +44,15 @@ export function useQueryFilters(defaults = {}) {
     
     // Si el default es array, parsear como array
     if (defaults[key] && Array.isArray(defaults[key])) {
-      return value ? value.split(',').filter(Boolean) : [];
+      if (!value) return [];
+      const items = value.split(',').filter(Boolean);
+      
+      // Si hay configuración de tipo especial
+      if (types[key] === 'number[]') {
+        return items.map(item => parseInt(item, 10)).filter(n => !isNaN(n));
+      }
+      
+      return items;
     }
     
     // Si el default es número, parsear como número
@@ -56,7 +68,7 @@ export function useQueryFilters(defaults = {}) {
     
     // Retornar string
     return value;
-  }, [searchParams, defaults]);
+  }, [searchParams, defaults, types]);
   
   /**
    * Obtiene todos los filtros como objeto

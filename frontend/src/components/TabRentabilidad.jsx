@@ -32,6 +32,8 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
     categorias: [],
     subcategorias: [],
     productos: []
+  }, {
+    productos: 'number[]'  // Parsear productos como array de números
   });
 
   const marcasSeleccionadas = getFilter('marcas');
