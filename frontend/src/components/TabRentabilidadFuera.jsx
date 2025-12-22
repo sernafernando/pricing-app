@@ -489,7 +489,7 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
                 <h3>Buscar Productos</h3>
                 {productosSeleccionadosDetalle.length > 0 && (
                   <button
-                    onClick={() => updateFilters({ productos: [] }); setProductosSeleccionadosDetalle([])}
+                    onClick={() => { updateFilters({ productos: [] }); setProductosSeleccionadosDetalle([]); }}
                     className="btn-clear-all"
                   >
                     Limpiar ({productosSeleccionados.length})
