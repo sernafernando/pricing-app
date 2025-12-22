@@ -124,9 +124,17 @@ export default function PedidosPreparacion() {
       if (search) params.append('search', search);
       if (vistaProduccion) params.append('vista_produccion', 'true');
 
+      console.log('[PedidosPreparacion] Cargando con params:', {
+        tipoEnvio,
+        search,
+        vistaProduccion,
+        url: `${API_URL}/pedidos-preparacion/resumen?${params}`
+      });
+
       const response = await axios.get(`${API_URL}/pedidos-preparacion/resumen?${params}`, {
         headers: { Authorization: `Bearer ${getToken()}` }
       });
+      console.log('[PedidosPreparacion] Resultados:', response.data.length, 'productos');
       setResumen(response.data);
     } catch (error) {
       console.error('Error cargando datos:', error);
