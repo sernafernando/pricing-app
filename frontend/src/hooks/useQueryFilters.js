@@ -89,30 +89,33 @@ export function useQueryFilters(defaults = {}, types = {}) {
    */
   const updateFilters = useCallback((updates, options = {}) => {
     const { replace = false } = options;
-    const newParams = new URLSearchParams(searchParams);
     
-    Object.entries(updates).forEach(([key, value]) => {
-      // Eliminar param si el valor está vacío
-      if (
-        value === null || 
-        value === undefined || 
-        value === '' || 
-        (Array.isArray(value) && value.length === 0)
-      ) {
-        newParams.delete(key);
-      } 
-      // Array: joinear con comas
-      else if (Array.isArray(value)) {
-        newParams.set(key, value.join(','));
-      } 
-      // Otros: convertir a string
-      else {
-        newParams.set(key, String(value));
-      }
-    });
-    
-    setSearchParams(newParams, { replace });
-  }, [searchParams, setSearchParams]);
+    setSearchParams((prevParams) => {
+      const newParams = new URLSearchParams(prevParams);
+      
+      Object.entries(updates).forEach(([key, value]) => {
+        // Eliminar param si el valor está vacío
+        if (
+          value === null || 
+          value === undefined || 
+          value === '' || 
+          (Array.isArray(value) && value.length === 0)
+        ) {
+          newParams.delete(key);
+        } 
+        // Array: joinear con comas
+        else if (Array.isArray(value)) {
+          newParams.set(key, value.join(','));
+        } 
+        // Otros: convertir a string
+        else {
+          newParams.set(key, String(value));
+        }
+      });
+      
+      return newParams;
+    }, { replace });
+  }, [setSearchParams]);
   
   /**
    * Resetea todos los filtros a sus valores por defecto
