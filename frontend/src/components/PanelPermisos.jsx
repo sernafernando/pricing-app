@@ -31,6 +31,7 @@ export default function PanelPermisos() {
   const [mostrarFormUsuario, setMostrarFormUsuario] = useState(false);
   const [editandoUsuario, setEditandoUsuario] = useState(null);
   const [formUsuario, setFormUsuario] = useState({
+    username: '',
     email: '',
     nombre: '',
     password: '',
@@ -98,8 +99,8 @@ export default function PanelPermisos() {
   };
 
   const crearUsuario = async () => {
-    if (!formUsuario.email || !formUsuario.nombre || !formUsuario.password) {
-      setMensaje({ tipo: 'error', texto: 'Email, nombre y contraseña son requeridos' });
+    if (!formUsuario.username || !formUsuario.nombre || !formUsuario.password) {
+      setMensaje({ tipo: 'error', texto: 'Username, nombre y contraseña son requeridos' });
       return;
     }
 
@@ -112,7 +113,8 @@ export default function PanelPermisos() {
       const rolSeleccionado = roles.find(r => r.id === formUsuario.rol_id);
 
       await axios.post(`${API_URL}/usuarios`, {
-        email: formUsuario.email,
+        username: formUsuario.username,
+        email: formUsuario.email || null,
         nombre: formUsuario.nombre,
         password: formUsuario.password,
         rol: rolSeleccionado?.codigo || 'VENTAS',
@@ -121,7 +123,7 @@ export default function PanelPermisos() {
 
       setMensaje({ tipo: 'success', texto: 'Usuario creado correctamente' });
       setMostrarFormUsuario(false);
-      setFormUsuario({ email: '', nombre: '', password: '', rol_id: null });
+      setFormUsuario({ username: '', email: '', nombre: '', password: '', rol_id: null });
       cargarDatos();
       setTimeout(() => setMensaje(null), 3000);
     } catch (error) {
@@ -141,6 +143,8 @@ export default function PanelPermisos() {
       const headers = { Authorization: `Bearer ${token}` };
 
       const cambios = {};
+      if (formUsuario.username) cambios.username = formUsuario.username;
+      if (formUsuario.email !== undefined) cambios.email = formUsuario.email || null;
       if (formUsuario.nombre) cambios.nombre = formUsuario.nombre;
       if (formUsuario.rol_id) {
         const rolSeleccionado = roles.find(r => r.id === formUsuario.rol_id);
@@ -268,6 +272,8 @@ export default function PanelPermisos() {
     if (!usuarioSeleccionado) return;
     setEditandoUsuario(usuarioSeleccionado.id);
     setFormUsuario({
+      username: usuarioSeleccionado.username,
+      email: usuarioSeleccionado.email || '',
       nombre: usuarioSeleccionado.nombre,
       rol_id: usuarioSeleccionado.rol_id || roles.find(r => r.codigo === usuarioSeleccionado.rol)?.id
     });
@@ -275,7 +281,8 @@ export default function PanelPermisos() {
 
   const usuariosFiltrados = usuarios.filter(u =>
     u.nombre.toLowerCase().includes(filtroUsuario.toLowerCase()) ||
-    u.email.toLowerCase().includes(filtroUsuario.toLowerCase()) ||
+    u.username?.toLowerCase().includes(filtroUsuario.toLowerCase()) ||
+    u.email?.toLowerCase().includes(filtroUsuario.toLowerCase()) ||
     u.rol.toLowerCase().includes(filtroUsuario.toLowerCase())
   );
 
@@ -361,8 +368,22 @@ export default function PanelPermisos() {
               <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)' }}>Nuevo Usuario</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <input
+                  type="text"
+                  placeholder="Nombre de usuario (requerido)"
+                  value={formUsuario.username}
+                  onChange={(e) => setFormUsuario({ ...formUsuario, username: e.target.value })}
+                  style={{
+                    padding: '8px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-secondary)',
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)'
+                  }}
+                  required
+                />
+                <input
                   type="email"
-                  placeholder="Email"
+                  placeholder="Email (opcional)"
                   value={formUsuario.email}
                   onChange={(e) => setFormUsuario({ ...formUsuario, email: e.target.value })}
                   style={{
@@ -503,7 +524,7 @@ export default function PanelPermisos() {
                       )}
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      {usuario.email}
+                      <strong>@{usuario.username}</strong>{usuario.email && ` • ${usuario.email}`}
                     </div>
                   </div>
                 </div>
@@ -544,9 +565,37 @@ export default function PanelPermisos() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <input
                           type="text"
+                          value={formUsuario.username || ''}
+                          onChange={(e) => setFormUsuario({ ...formUsuario, username: e.target.value })}
+                          placeholder="Nombre de usuario"
+                          style={{
+                            padding: '8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-secondary)',
+                            background: 'var(--bg-primary)',
+                            color: 'var(--text-primary)',
+                            fontSize: '14px'
+                          }}
+                        />
+                        <input
+                          type="email"
+                          value={formUsuario.email || ''}
+                          onChange={(e) => setFormUsuario({ ...formUsuario, email: e.target.value })}
+                          placeholder="Email (opcional)"
+                          style={{
+                            padding: '8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-secondary)',
+                            background: 'var(--bg-primary)',
+                            color: 'var(--text-primary)',
+                            fontSize: '14px'
+                          }}
+                        />
+                        <input
+                          type="text"
                           value={formUsuario.nombre || ''}
                           onChange={(e) => setFormUsuario({ ...formUsuario, nombre: e.target.value })}
-                          placeholder="Nombre"
+                          placeholder="Nombre completo"
                           style={{
                             padding: '8px',
                             borderRadius: '4px',

@@ -19,7 +19,9 @@ class UsuarioCreate(BaseModel):
     rol: str = "AUDITOR"
 
 class UsuarioUpdate(BaseModel):
-    nombre: Optional[str] = None  # ← AGREGAR ESTA LÍNEA
+    username: Optional[str] = None
+    email: Optional[str] = None
+    nombre: Optional[str] = None
     activo: Optional[bool] = None
     rol: Optional[str] = None
 
@@ -28,7 +30,8 @@ class PasswordUpdate(BaseModel):
 
 class UsuarioResponse(BaseModel):
     id: int
-    email: str
+    username: str
+    email: Optional[str]
     nombre: str
     rol: str
     activo: bool
@@ -122,6 +125,27 @@ async def actualizar_usuario(
             raise HTTPException(400, f"Rol '{datos.rol}' no existe")
         usuario.rol = datos.rol
         usuario.rol_id = rol_obj.id
+
+    if datos.username is not None:
+        # Verificar que el username no esté en uso por otro usuario
+        existing = db.query(Usuario).filter(
+            Usuario.username == datos.username,
+            Usuario.id != usuario_id
+        ).first()
+        if existing:
+            raise HTTPException(400, "El username ya está en uso")
+        usuario.username = datos.username
+
+    if datos.email is not None:
+        # Verificar que el email no esté en uso por otro usuario (si se proporciona)
+        if datos.email:
+            existing = db.query(Usuario).filter(
+                Usuario.email == datos.email,
+                Usuario.id != usuario_id
+            ).first()
+            if existing:
+                raise HTTPException(400, "El email ya está en uso")
+        usuario.email = datos.email
 
     if datos.nombre is not None:
         usuario.nombre = datos.nombre
