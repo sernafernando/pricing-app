@@ -43,7 +43,7 @@ export function useQueryFilters(defaults = {}, types = {}) {
     }
     
     // Si el default es array, parsear como array
-    if (defaults[key] && Array.isArray(defaults[key])) {
+    if (Array.isArray(defaults[key])) {
       if (!value) return [];
       const items = value.split(',').filter(Boolean);
       
@@ -63,7 +63,10 @@ export function useQueryFilters(defaults = {}, types = {}) {
     
     // Si el default es boolean, parsear como boolean
     if (typeof defaults[key] === 'boolean') {
-      return value === 'true';
+      if (value === 'true') return true;
+      if (value === 'false') return false;
+      // Si el valor en URL no es 'true' ni 'false', usar default
+      return defaults[key];
     }
     
     // Retornar string

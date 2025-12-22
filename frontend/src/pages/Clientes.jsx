@@ -41,6 +41,7 @@ export default function Clientes() {
     page: 'number',
     page_size: 'number',
     solo_activos: 'boolean'
+    // NOTA: state_id, fc_id, etc. quedan como strings para que coincidan con los <option value="">
   });
 
   // Extraer valores de URL
@@ -354,6 +355,7 @@ export default function Clientes() {
           <select
             value={filtroProvinciaId}
             onChange={(e) => {
+              console.log('[Clientes] onChange provincia:', e.target.value);
               setFiltroProvinciaId(e.target.value);
               setPage(1);
             }}
@@ -366,6 +368,8 @@ export default function Clientes() {
               </option>
             ))}
           </select>
+          {/* DEBUG */}
+          <span style={{fontSize: '10px', color: 'red'}}>Value: "{filtroProvinciaId}" Type: {typeof filtroProvinciaId}</span>
 
           <select
             value={filtroFiscalId}
