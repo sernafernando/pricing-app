@@ -150,6 +150,7 @@ async def listar_clientes(
     fecha_hasta: Optional[date] = Query(None, description="Filtrar por fecha de alta hasta"),
     cust_id_desde: Optional[int] = Query(None, description="ID de cliente desde (rango)"),
     cust_id_hasta: Optional[int] = Query(None, description="ID de cliente hasta (rango)"),
+    cust_ids: Optional[str] = Query(None, description="IDs de clientes separados por coma (ej: 123,456,789)"),
     db: Session = Depends(get_db)
 ):
     """
