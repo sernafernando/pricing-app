@@ -89,6 +89,8 @@ class ExportClientesRequest(BaseModel):
     sm_id: Optional[int] = None
     solo_activos: Optional[bool] = None
     con_ml: Optional[bool] = None
+    con_email: Optional[bool] = None
+    con_telefono: Optional[bool] = None
     fecha_desde: Optional[date] = None
     fecha_hasta: Optional[date] = None
     cust_id_desde: Optional[int] = None
@@ -141,6 +143,8 @@ async def listar_clientes(
     sm_id: Optional[int] = Query(None, description="Filtrar por vendedor"),
     solo_activos: Optional[bool] = Query(None, description="Solo clientes activos"),
     con_ml: Optional[bool] = Query(None, description="Solo clientes con MercadoLibre"),
+    con_email: Optional[bool] = Query(None, description="Solo clientes con email"),
+    con_telefono: Optional[bool] = Query(None, description="Solo clientes con teléfono"),
     fecha_desde: Optional[date] = Query(None, description="Filtrar por fecha de alta desde"),
     fecha_hasta: Optional[date] = Query(None, description="Filtrar por fecha de alta hasta"),
     cust_id_desde: Optional[int] = Query(None, description="ID de cliente desde (rango)"),
@@ -228,6 +232,34 @@ async def listar_clientes(
             query = query.filter(TBCustomer.cust_mercadolibreid.isnot(None))
         else:
             query = query.filter(TBCustomer.cust_mercadolibreid.is_(None))
+
+    if con_email is not None:
+        if con_email:
+            query = query.filter(
+                TBCustomer.cust_email.isnot(None),
+                TBCustomer.cust_email != ''
+            )
+        else:
+            query = query.filter(
+                or_(
+                    TBCustomer.cust_email.is_(None),
+                    TBCustomer.cust_email == ''
+                )
+            )
+
+    if con_telefono is not None:
+        if con_telefono:
+            query = query.filter(
+                or_(
+                    and_(TBCustomer.cust_phone1.isnot(None), TBCustomer.cust_phone1 != ''),
+                    and_(TBCustomer.cust_cellphone.isnot(None), TBCustomer.cust_cellphone != '')
+                )
+            )
+        else:
+            query = query.filter(
+                or_(TBCustomer.cust_phone1.is_(None), TBCustomer.cust_phone1 == ''),
+                or_(TBCustomer.cust_cellphone.is_(None), TBCustomer.cust_cellphone == '')
+            )
 
     if fecha_desde is not None:
         query = query.filter(func.date(TBCustomer.cust_cd) >= fecha_desde)
@@ -481,6 +513,34 @@ async def exportar_clientes(
             query = query.filter(TBCustomer.cust_mercadolibreid.isnot(None))
         else:
             query = query.filter(TBCustomer.cust_mercadolibreid.is_(None))
+
+    if export_request.con_email is not None:
+        if export_request.con_email:
+            query = query.filter(
+                TBCustomer.cust_email.isnot(None),
+                TBCustomer.cust_email != ''
+            )
+        else:
+            query = query.filter(
+                or_(
+                    TBCustomer.cust_email.is_(None),
+                    TBCustomer.cust_email == ''
+                )
+            )
+
+    if export_request.con_telefono is not None:
+        if export_request.con_telefono:
+            query = query.filter(
+                or_(
+                    and_(TBCustomer.cust_phone1.isnot(None), TBCustomer.cust_phone1 != ''),
+                    and_(TBCustomer.cust_cellphone.isnot(None), TBCustomer.cust_cellphone != '')
+                )
+            )
+        else:
+            query = query.filter(
+                or_(TBCustomer.cust_phone1.is_(None), TBCustomer.cust_phone1 == ''),
+                or_(TBCustomer.cust_cellphone.is_(None), TBCustomer.cust_cellphone == '')
+            )
 
     if export_request.fecha_desde is not None:
         query = query.filter(func.date(TBCustomer.cust_cd) >= export_request.fecha_desde)

@@ -27,6 +27,8 @@ export default function Clientes() {
   const [filtroVendedorId, setFiltroVendedorId] = useState('');
   const [filtroSoloActivos, setFiltroSoloActivos] = useState(true);
   const [filtroConML, setFiltroConML] = useState('');
+  const [filtroConEmail, setFiltroConEmail] = useState('');
+  const [filtroConTelefono, setFiltroConTelefono] = useState('');
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [filtroCustIdDesde, setFiltroCustIdDesde] = useState('');
@@ -54,7 +56,7 @@ export default function Clientes() {
   // Cargar clientes cuando cambian los filtros
   useEffect(() => {
     cargarClientes();
-  }, [page, pageSize, debouncedSearch, filtroProvinciaId, filtroFiscalId, filtroSucursalId, filtroVendedorId, filtroSoloActivos, filtroConML, filtroFechaDesde, filtroFechaHasta, filtroCustIdDesde, filtroCustIdHasta]);
+  }, [page, pageSize, debouncedSearch, filtroProvinciaId, filtroFiscalId, filtroSucursalId, filtroVendedorId, filtroSoloActivos, filtroConML, filtroConEmail, filtroConTelefono, filtroFechaDesde, filtroFechaHasta, filtroCustIdDesde, filtroCustIdHasta]);
 
   const cargarFiltros = async () => {
     try {
@@ -103,6 +105,8 @@ export default function Clientes() {
       if (filtroVendedorId) params.append('sm_id', filtroVendedorId);
       if (filtroSoloActivos !== '') params.append('solo_activos', filtroSoloActivos.toString());
       if (filtroConML !== '') params.append('con_ml', filtroConML);
+      if (filtroConEmail !== '') params.append('con_email', filtroConEmail);
+      if (filtroConTelefono !== '') params.append('con_telefono', filtroConTelefono);
       if (filtroFechaDesde) params.append('fecha_desde', filtroFechaDesde);
       if (filtroFechaHasta) params.append('fecha_hasta', filtroFechaHasta);
       if (filtroCustIdDesde) params.append('cust_id_desde', filtroCustIdDesde);
@@ -136,6 +140,8 @@ export default function Clientes() {
         sm_id: filtroVendedorId ? parseInt(filtroVendedorId) : null,
         solo_activos: filtroSoloActivos !== '' ? filtroSoloActivos : null,
         con_ml: filtroConML !== '' ? (filtroConML === 'true') : null,
+        con_email: filtroConEmail !== '' ? (filtroConEmail === 'true') : null,
+        con_telefono: filtroConTelefono !== '' ? (filtroConTelefono === 'true') : null,
         fecha_desde: filtroFechaDesde || null,
         fecha_hasta: filtroFechaHasta || null,
         cust_id_desde: filtroCustIdDesde ? parseInt(filtroCustIdDesde) : null,
@@ -195,7 +201,36 @@ export default function Clientes() {
     setFiltroVendedorId('');
     setFiltroSoloActivos(true);
     setFiltroConML('');
+    setFiltroConEmail('');
+    setFiltroConTelefono('');
+    setFiltroFechaDesde('');
+    setFiltroFechaHasta('');
+    setFiltroCustIdDesde('');
+    setFiltroCustIdHasta('');
     setPage(1);
+  };
+
+  const handleVerDetalle = async (cliente) => {
+    try {
+      const response = await axios.get(
+        `${API_URL}/api/clientes/${cliente.cust_id}?comp_id=${cliente.comp_id}`
+      );
+      setClienteSeleccionado(response.data);
+      setMostrarModalDetalle(true);
+    } catch (error) {
+      console.error('Error cargando detalle del cliente:', error);
+      alert('Error al cargar detalle del cliente');
+    }
+  };
+
+  const handleActualizarCliente = (clienteActualizado) => {
+    // Actualizar en la lista
+    setClientes(clientes.map(c => 
+      c.cust_id === clienteActualizado.cust_id && c.comp_id === clienteActualizado.comp_id
+        ? clienteActualizado
+        : c
+    ));
+    setClienteSeleccionado(clienteActualizado);
   };
 
   return (
@@ -320,6 +355,32 @@ export default function Clientes() {
             <option value="false">Sin MercadoLibre</option>
           </select>
 
+          <select
+            value={filtroConEmail}
+            onChange={(e) => {
+              setFiltroConEmail(e.target.value);
+              setPage(1);
+            }}
+            className={styles.select}
+          >
+            <option value="">Con/sin Email</option>
+            <option value="true">Con Email</option>
+            <option value="false">Sin Email</option>
+          </select>
+
+          <select
+            value={filtroConTelefono}
+            onChange={(e) => {
+              setFiltroConTelefono(e.target.value);
+              setPage(1);
+            }}
+            className={styles.select}
+          >
+            <option value="">Con/sin Teléfono</option>
+            <option value="true">Con Teléfono</option>
+            <option value="false">Sin Teléfono</option>
+          </select>
+
           <button
             className={styles.btnLimpiar}
             onClick={limpiarFiltros}
@@ -361,7 +422,13 @@ export default function Clientes() {
                 clientes.map((cliente) => (
                   <tr key={`${cliente.comp_id}-${cliente.cust_id}`}>
                     <td>{cliente.cust_id}</td>
-                    <td className={styles.nombre}>{cliente.cust_name || '-'}</td>
+                    <td 
+                      className={styles.nombre}
+                      onClick={() => handleVerDetalle(cliente)}
+                      title="Click para ver detalle"
+                    >
+                      {cliente.cust_name || '-'}
+                    </td>
                     <td>{cliente.cust_taxnumber || '-'}</td>
                     <td>{cliente.cust_email || '-'}</td>
                     <td>{cliente.cust_phone1 || cliente.cust_cellphone || '-'}</td>
@@ -518,6 +585,15 @@ export default function Clientes() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de Detalle */}
+      {mostrarModalDetalle && clienteSeleccionado && (
+        <ModalDetalleCliente
+          cliente={clienteSeleccionado}
+          onClose={() => setMostrarModalDetalle(false)}
+          onActualizar={handleActualizarCliente}
+        />
       )}
     </div>
   );
