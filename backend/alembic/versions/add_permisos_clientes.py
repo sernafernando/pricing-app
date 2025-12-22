@@ -16,21 +16,11 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Primero agregar el valor 'clientes' al enum categoriapermiso
-    op.execute("""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_enum
-                WHERE enumlabel = 'clientes'
-                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'categoriapermiso')
-            ) THEN
-                ALTER TYPE categoriapermiso ADD VALUE 'clientes';
-            END IF;
-        END $$;
-    """)
-
-    # Ahora insertar nuevos permisos de clientes
+    # NOTA: El valor 'clientes' debe agregarse manualmente al ENUM categoriapermiso
+    # como superusuario de PostgreSQL antes de correr esta migración:
+    #   ALTER TYPE categoriapermiso ADD VALUE IF NOT EXISTS 'clientes';
+    
+    # Insertar nuevos permisos de clientes
     op.execute("""
         INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico)
         VALUES 

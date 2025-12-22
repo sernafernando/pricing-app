@@ -103,6 +103,10 @@ export default function Clientes() {
       if (filtroVendedorId) params.append('sm_id', filtroVendedorId);
       if (filtroSoloActivos !== '') params.append('solo_activos', filtroSoloActivos.toString());
       if (filtroConML !== '') params.append('con_ml', filtroConML);
+      if (filtroFechaDesde) params.append('fecha_desde', filtroFechaDesde);
+      if (filtroFechaHasta) params.append('fecha_hasta', filtroFechaHasta);
+      if (filtroCustIdDesde) params.append('cust_id_desde', filtroCustIdDesde);
+      if (filtroCustIdHasta) params.append('cust_id_hasta', filtroCustIdHasta);
 
       const response = await axios.get(`${API_URL}/api/clientes?${params}`);
       setClientes(response.data.clientes);
@@ -131,7 +135,11 @@ export default function Clientes() {
         bra_id: filtroSucursalId ? parseInt(filtroSucursalId) : null,
         sm_id: filtroVendedorId ? parseInt(filtroVendedorId) : null,
         solo_activos: filtroSoloActivos !== '' ? filtroSoloActivos : null,
-        con_ml: filtroConML !== '' ? (filtroConML === 'true') : null
+        con_ml: filtroConML !== '' ? (filtroConML === 'true') : null,
+        fecha_desde: filtroFechaDesde || null,
+        fecha_hasta: filtroFechaHasta || null,
+        cust_id_desde: filtroCustIdDesde ? parseInt(filtroCustIdDesde) : null,
+        cust_id_hasta: filtroCustIdHasta ? parseInt(filtroCustIdHasta) : null
       };
 
       const response = await axios.post(
