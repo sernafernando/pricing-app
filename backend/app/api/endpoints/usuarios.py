@@ -13,7 +13,8 @@ router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class UsuarioCreate(BaseModel):
-    email: EmailStr
+    username: str
+    email: Optional[EmailStr] = None
     nombre: str
     password: str
     rol: str = "AUDITOR"
@@ -61,10 +62,16 @@ async def crear_usuario(
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
         raise HTTPException(403, "No tienes permisos")
     
-    # Verificar si ya existe
-    existe = db.query(Usuario).filter(Usuario.email == usuario.email).first()
-    if existe:
-        raise HTTPException(400, "El email ya está registrado")
+    # Verificar si el username ya existe
+    existe_username = db.query(Usuario).filter(Usuario.username == usuario.username).first()
+    if existe_username:
+        raise HTTPException(400, "El username ya está registrado")
+
+    # Verificar si el email ya existe (si fue proporcionado)
+    if usuario.email:
+        existe_email = db.query(Usuario).filter(Usuario.email == usuario.email).first()
+        if existe_email:
+            raise HTTPException(400, "El email ya está registrado")
 
     # Buscar el rol por código para obtener rol_id
     rol_obj = db.query(Rol).filter(Rol.codigo == usuario.rol.upper()).first()
@@ -73,6 +80,7 @@ async def crear_usuario(
 
     # Crear usuario
     nuevo_usuario = Usuario(
+        username=usuario.username,
         email=usuario.email,
         nombre=usuario.nombre,
         password_hash=pwd_context.hash(usuario.password),
