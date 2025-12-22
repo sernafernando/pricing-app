@@ -731,14 +731,8 @@ async def obtener_rentabilidad(
             # Si el offset tiene grupo, usar el valor pre-calculado del grupo
             # El offset de grupo es UN SOLO MONTO para toda la campaña, no se reparte por producto
             if offset.grupo_id and offset.grupo_id in offsets_grupo_calculados:
-                import sys
-                if offset.grupo_id == 5:  # Solo debug para grupo 5
-                    print(f"[DEBUG G5] Evaluando offset ID {offset.id}, grupo={offset.grupo_id}, card={card_nombre}, nivel={nivel}", file=sys.stderr)
-                
                 # Skip si ya procesamos este grupo para esta card
                 if offset.grupo_id in grupos_procesados_en_card:
-                    if offset.grupo_id == 5:
-                        print(f"[DEBUG G5] ✗ Grupo ya procesado para esta card", file=sys.stderr)
                     continue
 
                 # Solo procesar si este offset aplica a la card actual
@@ -746,8 +740,6 @@ async def obtener_rentabilidad(
 
                 # PRIMERO: Verificar si la card matchea con los filtros del grupo
                 if offset.grupo_id in filtros_por_grupo and filtros_por_grupo[offset.grupo_id]:
-                    if offset.grupo_id == 5:
-                        print(f"[DEBUG G5] Grupo tiene {len(filtros_por_grupo[offset.grupo_id])} filtros", file=sys.stderr)
                     # El grupo tiene filtros, verificar si la card matchea
                     if nivel == "marca":
                         # Para card de marca, verificar si algún filtro matchea esta marca
@@ -785,24 +777,16 @@ async def obtener_rentabilidad(
                                     break
                     elif nivel == "subcategoria":
                         # Para card de subcategoría, verificar filtros del grupo
-                        import sys
-                        print(f"[DEBUG SUBCAT] card_nombre={card_nombre}, grupo_id={offset.grupo_id}", file=sys.stderr)
-                        print(f"[DEBUG SUBCAT] Filtros del grupo: {len(filtros_por_grupo[offset.grupo_id])}", file=sys.stderr)
                         for filtro in filtros_por_grupo[offset.grupo_id]:
-                            print(f"[DEBUG SUBCAT] Evaluando filtro: marca={filtro.marca}, cat={filtro.categoria}, subcat_id={filtro.subcategoria_id}", file=sys.stderr)
                             # Match directo por subcategoria_id
                             if filtro.subcategoria_id and str(filtro.subcategoria_id) == str(card_identificador):
                                 aplica_a_card = True
-                                print(f"[DEBUG SUBCAT] ✓ Match directo por subcategoria_id", file=sys.stderr)
                                 break
                             # Si el filtro tiene marca/categoría, verificar si la subcat tiene productos que cumplan
                             elif filtro.marca or filtro.categoria:
-                                print(f"[DEBUG SUBCAT] Buscando productos en subcat {card_nombre} con marca={filtro.marca}, cat={filtro.categoria}", file=sys.stderr)
-                                productos_encontrados = 0
                                 for item_id, detalle in productos_detalle.items():
                                     if detalle.get('subcategoria') != card_nombre:
                                         continue
-                                    productos_encontrados += 1
                                     # Validar que el producto cumpla TODOS los criterios del filtro
                                     cumple = True
                                     if filtro.marca and detalle.get('marca') != filtro.marca:
@@ -810,10 +794,8 @@ async def obtener_rentabilidad(
                                     if filtro.categoria and detalle.get('categoria') != filtro.categoria:
                                         cumple = False
                                     if cumple:
-                                        print(f"[DEBUG SUBCAT] ✓ Encontrado producto {item_id} que cumple filtros", file=sys.stderr)
                                         aplica_a_card = True
                                         break
-                                print(f"[DEBUG SUBCAT] Productos revisados en subcat: {productos_encontrados}, aplica={aplica_a_card}", file=sys.stderr)
                                 if aplica_a_card:
                                     break
                     elif nivel == "producto":
