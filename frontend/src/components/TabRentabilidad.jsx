@@ -538,7 +538,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
               {productosEncontrados.length > 0 && (
                 <div className={styles.productosResultados}>
                   {productosEncontrados.map(producto => {
-                    const seleccionado = productosSeleccionados.some(p => p.item_id === producto.item_id);
+                    const seleccionado = productosSeleccionados.includes(producto.item_id);
                     return (
                       <div
                         key={producto.item_id}
