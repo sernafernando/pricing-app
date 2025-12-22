@@ -28,6 +28,7 @@ oauthlib==3.3.1
 passlib==1.7.4
 psycopg2-binary==2.9.9
 pyasn1==0.6.1
+pytz==2024.1
 pyasn1_modules==0.4.2
 pycparser==2.23
 pydantic==2.5.0

@@ -9,6 +9,7 @@ from sqlalchemy import func
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel
+import pytz
 
 from app.core.database import get_db
 from app.models.pedido_preparacion_cache import PedidoPreparacionCache
@@ -17,6 +18,19 @@ from app.models.producto import ProductoERP
 from app.api.deps import get_current_user
 
 router = APIRouter()
+
+# Timezone de Argentina
+ARGENTINA_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
+
+
+def convert_to_argentina_tz(utc_dt):
+    """Convierte un datetime UTC a timezone de Argentina"""
+    if not utc_dt:
+        return None
+    if utc_dt.tzinfo is None:
+        # Si no tiene timezone, asumimos que es UTC
+        utc_dt = pytz.utc.localize(utc_dt)
+    return utc_dt.astimezone(ARGENTINA_TZ)
 
 
 # Schemas
@@ -116,7 +130,7 @@ async def obtener_resumen(
             cantidad=float(r.cantidad) if r.cantidad else 0,
             ml_logistic_type=r.ml_logistic_type,
             prepara_paquete=r.prepara_paquete or 0,
-            updated_at=r.updated_at
+            updated_at=convert_to_argentina_tz(r.updated_at)
         )
         for r in results
     ]
@@ -149,8 +163,9 @@ async def obtener_estadisticas(
         PedidoPreparacionCache.ml_logistic_type
     ).all()
 
-    # Última actualización
+    # Última actualización (convertir a timezone Argentina)
     ultima_actualizacion = db.query(func.max(PedidoPreparacionCache.updated_at)).scalar()
+    ultima_actualizacion = convert_to_argentina_tz(ultima_actualizacion)
 
     return EstadisticasResponse(
         total_items=total_items,
