@@ -21,7 +21,7 @@ export default function Clientes() {
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
 
   // Usar query params para todos los filtros
-  const { getFilter, updateFilters } = useQueryFilters({
+  const { getFilter, updateFilters, searchParams } = useQueryFilters({
     search: '',
     page: 1,
     page_size: 50,
@@ -41,25 +41,24 @@ export default function Clientes() {
     page: 'number',
     page_size: 'number',
     solo_activos: 'boolean'
-    // NOTA: state_id, fc_id, etc. quedan como strings para que coincidan con los <option value="">
   });
 
-  // Extraer valores de URL usando useMemo para forzar re-evaluación
-  const searchInput = useMemo(() => getFilter('search'), [getFilter]);
-  const page = useMemo(() => getFilter('page'), [getFilter]);
-  const pageSize = useMemo(() => getFilter('page_size'), [getFilter]);
-  const filtroProvinciaId = useMemo(() => getFilter('state_id'), [getFilter]);
-  const filtroFiscalId = useMemo(() => getFilter('fc_id'), [getFilter]);
-  const filtroSucursalId = useMemo(() => getFilter('bra_id'), [getFilter]);
-  const filtroVendedorId = useMemo(() => getFilter('sm_id'), [getFilter]);
-  const filtroSoloActivos = useMemo(() => getFilter('solo_activos'), [getFilter]);
-  const filtroConML = useMemo(() => getFilter('con_ml'), [getFilter]);
-  const filtroConEmail = useMemo(() => getFilter('con_email'), [getFilter]);
-  const filtroConTelefono = useMemo(() => getFilter('con_telefono'), [getFilter]);
-  const filtroFechaDesde = useMemo(() => getFilter('fecha_desde'), [getFilter]);
-  const filtroFechaHasta = useMemo(() => getFilter('fecha_hasta'), [getFilter]);
-  const filtroCustIdDesde = useMemo(() => getFilter('cust_id_desde'), [getFilter]);
-  const filtroCustIdHasta = useMemo(() => getFilter('cust_id_hasta'), [getFilter]);
+  // Extraer valores de URL - IMPORTANTE: dependen de searchParams para re-evaluar
+  const searchInput = getFilter('search');
+  const page = getFilter('page');
+  const pageSize = getFilter('page_size');
+  const filtroProvinciaId = getFilter('state_id');
+  const filtroFiscalId = getFilter('fc_id');
+  const filtroSucursalId = getFilter('bra_id');
+  const filtroVendedorId = getFilter('sm_id');
+  const filtroSoloActivos = getFilter('solo_activos');
+  const filtroConML = getFilter('con_ml');
+  const filtroConEmail = getFilter('con_email');
+  const filtroConTelefono = getFilter('con_telefono');
+  const filtroFechaDesde = getFilter('fecha_desde');
+  const filtroFechaHasta = getFilter('fecha_hasta');
+  const filtroCustIdDesde = getFilter('cust_id_desde');
+  const filtroCustIdHasta = getFilter('cust_id_hasta');
 
   // Modal detalle
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
@@ -245,10 +244,10 @@ export default function Clientes() {
   };
 
   // Helper para actualizar filtros individuales
-  // NOTA: No uso useCallback porque updateFilters ya es estable
+  // Los filtros que cambian contenido resetean página a 1
   const setSearchInput = (value) => {
     console.log('[Clientes] setSearchInput:', value);
-    updateFilters({ search: value });
+    updateFilters({ search: value, page: 1 });
   };
   
   const setPage = (value) => {
@@ -264,16 +263,16 @@ export default function Clientes() {
   
   const setFiltroProvinciaId = (value) => {
     console.log('[Clientes] setFiltroProvinciaId:', value);
-    updateFilters({ state_id: value });
+    updateFilters({ state_id: value, page: 1 });
   };
   
-  const setFiltroFiscalId = (value) => updateFilters({ fc_id: value });
-  const setFiltroSucursalId = (value) => updateFilters({ bra_id: value });
-  const setFiltroVendedorId = (value) => updateFilters({ sm_id: value });
-  const setFiltroSoloActivos = (value) => updateFilters({ solo_activos: value });
-  const setFiltroConML = (value) => updateFilters({ con_ml: value });
-  const setFiltroConEmail = (value) => updateFilters({ con_email: value });
-  const setFiltroConTelefono = (value) => updateFilters({ con_telefono: value });
+  const setFiltroFiscalId = (value) => updateFilters({ fc_id: value, page: 1 });
+  const setFiltroSucursalId = (value) => updateFilters({ bra_id: value, page: 1 });
+  const setFiltroVendedorId = (value) => updateFilters({ sm_id: value, page: 1 });
+  const setFiltroSoloActivos = (value) => updateFilters({ solo_activos: value, page: 1 });
+  const setFiltroConML = (value) => updateFilters({ con_ml: value, page: 1 });
+  const setFiltroConEmail = (value) => updateFilters({ con_email: value, page: 1 });
+  const setFiltroConTelefono = (value) => updateFilters({ con_telefono: value, page: 1 });
   const setFiltroFechaDesde = (value) => updateFilters({ fecha_desde: value });
   const setFiltroFechaHasta = (value) => updateFilters({ fecha_hasta: value });
   const setFiltroCustIdDesde = (value) => updateFilters({ cust_id_desde: value });
@@ -357,7 +356,6 @@ export default function Clientes() {
             onChange={(e) => {
               console.log('[Clientes] onChange provincia:', e.target.value);
               setFiltroProvinciaId(e.target.value);
-              setPage(1);
             }}
             className={styles.select}
           >
@@ -373,10 +371,7 @@ export default function Clientes() {
 
           <select
             value={filtroFiscalId}
-            onChange={(e) => {
-              setFiltroFiscalId(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setFiltroFiscalId(e.target.value)}
             className={styles.select}
           >
             <option value="">Todas las condiciones fiscales</option>
@@ -389,10 +384,7 @@ export default function Clientes() {
 
           <select
             value={filtroSucursalId}
-            onChange={(e) => {
-              setFiltroSucursalId(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setFiltroSucursalId(e.target.value)}
             className={styles.select}
           >
             <option value="">Todas las sucursales</option>
@@ -405,10 +397,7 @@ export default function Clientes() {
 
           <select
             value={filtroVendedorId}
-            onChange={(e) => {
-              setFiltroVendedorId(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setFiltroVendedorId(e.target.value)}
             className={styles.select}
           >
             <option value="">Todos los vendedores</option>
@@ -425,20 +414,14 @@ export default function Clientes() {
             <input
               type="checkbox"
               checked={filtroSoloActivos}
-              onChange={(e) => {
-                setFiltroSoloActivos(e.target.checked);
-                setPage(1);
-              }}
+              onChange={(e) => setFiltroSoloActivos(e.target.checked)}
             />
             Solo activos
           </label>
 
           <select
             value={filtroConML}
-            onChange={(e) => {
-              setFiltroConML(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setFiltroConML(e.target.value)}
             className={styles.select}
           >
             <option value="">Con/sin MercadoLibre</option>
