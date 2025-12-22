@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import styles from './ModalDetalleCliente.module.css';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com.ar';
 
 export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) {
   const [editando, setEditando] = useState(false);

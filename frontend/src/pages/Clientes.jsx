@@ -4,7 +4,7 @@ import styles from './Clientes.module.css';
 import axios from 'axios';
 import ModalDetalleCliente from '../components/ModalDetalleCliente';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com.ar';
 
 export default function Clientes() {
   const [clientes, setClientes] = useState([]);
