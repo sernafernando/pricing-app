@@ -96,6 +96,7 @@ class ExportClientesRequest(BaseModel):
     fecha_hasta: Optional[date] = None
     cust_id_desde: Optional[int] = None
     cust_id_hasta: Optional[int] = None
+    cust_ids: Optional[str] = None  # IDs separados por coma
 
 
 # Mapeo de campos disponibles para exportación
@@ -274,6 +275,12 @@ async def listar_clientes(
 
     if cust_id_hasta is not None:
         query = query.filter(TBCustomer.cust_id <= cust_id_hasta)
+
+    if cust_ids is not None:
+        # Parsear IDs separados por coma (ej: "123,456,789")
+        ids_list = [int(id.strip()) for id in cust_ids.split(',') if id.strip().isdigit()]
+        if ids_list:
+            query = query.filter(TBCustomer.cust_id.in_(ids_list))
 
     # Contar total
     total = query.count()
@@ -555,6 +562,12 @@ async def exportar_clientes(
 
     if export_request.cust_id_hasta is not None:
         query = query.filter(TBCustomer.cust_id <= export_request.cust_id_hasta)
+
+    if export_request.cust_ids is not None:
+        # Parsear IDs separados por coma (ej: "123,456,789")
+        ids_list = [int(id.strip()) for id in export_request.cust_ids.split(',') if id.strip().isdigit()]
+        if ids_list:
+            query = query.filter(TBCustomer.cust_id.in_(ids_list))
 
     # Obtener todos los resultados
     clientes_raw = query.order_by(TBCustomer.cust_name).all()
