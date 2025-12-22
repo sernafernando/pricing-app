@@ -743,16 +743,38 @@ async def obtener_rentabilidad(
                     # El grupo tiene filtros, verificar si la card matchea
                     if nivel == "marca":
                         # Para card de marca, verificar si algún filtro matchea esta marca
+                        # IMPORTANTE: Si el filtro tiene marca+categoría, solo debe matchear si ambas coinciden
                         for filtro in filtros_por_grupo[offset.grupo_id]:
                             if filtro.marca and filtro.marca == card_nombre:
-                                aplica_a_card = True
-                                break
+                                # Si el filtro tiene categoría, verificar que existan productos que cumplan ambas
+                                if filtro.categoria:
+                                    # Verificar si hay productos de esta marca+categoría en las ventas
+                                    for item_id, detalle in productos_detalle.items():
+                                        if detalle['marca'] == card_nombre and detalle['categoria'] == filtro.categoria:
+                                            aplica_a_card = True
+                                            break
+                                else:
+                                    # Filtro solo por marca
+                                    aplica_a_card = True
+                                if aplica_a_card:
+                                    break
                     elif nivel == "categoria":
                         # Para card de categoría, verificar si algún filtro matchea esta categoría
+                        # IMPORTANTE: Si el filtro tiene marca+categoría, solo debe matchear si ambas coinciden
                         for filtro in filtros_por_grupo[offset.grupo_id]:
                             if filtro.categoria and filtro.categoria == card_nombre:
-                                aplica_a_card = True
-                                break
+                                # Si el filtro tiene marca, verificar que existan productos que cumplan ambas
+                                if filtro.marca:
+                                    # Verificar si hay productos de esta categoría+marca en las ventas
+                                    for item_id, detalle in productos_detalle.items():
+                                        if detalle['categoria'] == card_nombre and detalle['marca'] == filtro.marca:
+                                            aplica_a_card = True
+                                            break
+                                else:
+                                    # Filtro solo por categoría
+                                    aplica_a_card = True
+                                if aplica_a_card:
+                                    break
                     elif nivel == "subcategoria":
                         # Para card de subcategoría
                         for filtro in filtros_por_grupo[offset.grupo_id]:
@@ -784,7 +806,8 @@ async def obtener_rentabilidad(
                             detalle = productos_detalle.get(offset.item_id)
                             if detalle and detalle['marca'] == card_nombre:
                                 aplica_a_card = True
-                        elif offset.categoria:
+                        elif offset.categoria and not offset.marca:
+                            # Solo si el offset NO tiene marca específica (solo categoría)
                             for item_id, detalle in productos_detalle.items():
                                 if detalle['marca'] == card_nombre and detalle['categoria'] == offset.categoria:
                                     aplica_a_card = True
@@ -796,7 +819,8 @@ async def obtener_rentabilidad(
                             detalle = productos_detalle.get(offset.item_id)
                             if detalle and detalle['categoria'] == card_nombre:
                                 aplica_a_card = True
-                        elif offset.marca:
+                        elif offset.marca and not offset.categoria:
+                            # Solo si el offset NO tiene categoría específica (solo marca)
                             for item_id, detalle in productos_detalle.items():
                                 if detalle['categoria'] == card_nombre and detalle['marca'] == offset.marca:
                                     aplica_a_card = True
@@ -917,16 +941,22 @@ async def obtener_rentabilidad(
                         aplica = True
                 # Offsets de categorías dentro de esta marca
                 elif offset.categoria and not offset.subcategoria_id and not offset.item_id:
-                    # Obtener ventas de esta marca + categoría del offset, solo en período aplicable
-                    cant_offset, costo_offset = obtener_ventas_periodo_offset(
-                        offset,
-                        and_(MLVentaMetrica.marca == card_nombre, MLVentaMetrica.categoria == offset.categoria),
-                        True  # dummy value since we use compound filter
-                    )
-                    if cant_offset > 0:
-                        valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
-                        aplica = True
-                        nombre_nivel = f"Cat: {offset.categoria}"
+                    # IMPORTANTE: Si el offset tiene marca + categoría, solo aplica si la marca coincide
+                    # Si el offset tiene solo categoría (sin marca), aplica a todas las marcas de esa categoría
+                    if offset.marca and offset.marca != card_nombre:
+                        # El offset tiene marca específica que no coincide con esta card
+                        pass
+                    else:
+                        # Obtener ventas de esta marca + categoría del offset, solo en período aplicable
+                        cant_offset, costo_offset = obtener_ventas_periodo_offset(
+                            offset,
+                            and_(MLVentaMetrica.marca == card_nombre, MLVentaMetrica.categoria == offset.categoria),
+                            True  # dummy value since we use compound filter
+                        )
+                        if cant_offset > 0:
+                            valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
+                            aplica = True
+                            nombre_nivel = f"Cat: {offset.categoria}"
                 # Offsets de productos dentro de esta marca
                 elif offset.item_id:
                     detalle = productos_detalle.get(offset.item_id)
@@ -945,17 +975,23 @@ async def obtener_rentabilidad(
                         valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
                         aplica = True
                 # Offset de marca que aplica a esta categoría
-                elif offset.marca and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
-                    # Obtener ventas de esta categoría + marca del offset
-                    cant_offset, costo_offset = obtener_ventas_periodo_offset(
-                        offset,
-                        and_(MLVentaMetrica.categoria == card_nombre, MLVentaMetrica.marca == offset.marca),
-                        True
-                    )
-                    if cant_offset > 0:
-                        valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
-                        aplica = True
-                        nombre_nivel = f"Marca: {offset.marca}"
+                elif offset.marca and not offset.subcategoria_id and not offset.item_id:
+                    # CAMBIO: Ahora soporta offsets con marca sola O marca+categoría
+                    # Si el offset tiene marca+categoría, debe coincidir la categoría con la card
+                    if offset.categoria and offset.categoria != card_nombre:
+                        # El offset tiene categoría específica que no coincide con esta card
+                        pass
+                    else:
+                        # Obtener ventas de esta categoría + marca del offset
+                        cant_offset, costo_offset = obtener_ventas_periodo_offset(
+                            offset,
+                            and_(MLVentaMetrica.categoria == card_nombre, MLVentaMetrica.marca == offset.marca),
+                            True
+                        )
+                        if cant_offset > 0:
+                            valor_offset = calcular_valor_offset(offset, cant_offset, costo_offset)
+                            aplica = True
+                            nombre_nivel = f"Marca: {offset.marca}"
                 # Offsets de productos dentro de esta categoría
                 elif offset.item_id:
                     detalle = productos_detalle.get(offset.item_id)
