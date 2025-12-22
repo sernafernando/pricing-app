@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 import styles from './Clientes.module.css';
 import axios from 'axios';
+import ModalDetalleCliente from '../components/ModalDetalleCliente';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -26,6 +27,15 @@ export default function Clientes() {
   const [filtroVendedorId, setFiltroVendedorId] = useState('');
   const [filtroSoloActivos, setFiltroSoloActivos] = useState(true);
   const [filtroConML, setFiltroConML] = useState('');
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
+  const [filtroCustIdDesde, setFiltroCustIdDesde] = useState('');
+  const [filtroCustIdHasta, setFiltroCustIdHasta] = useState('');
+  const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
+
+  // Modal detalle
+  const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
+  const [mostrarModalDetalle, setMostrarModalDetalle] = useState(false);
 
   // Exportación
   const [mostrarModalExport, setMostrarModalExport] = useState(false);
@@ -44,7 +54,7 @@ export default function Clientes() {
   // Cargar clientes cuando cambian los filtros
   useEffect(() => {
     cargarClientes();
-  }, [page, pageSize, debouncedSearch, filtroProvinciaId, filtroFiscalId, filtroSucursalId, filtroVendedorId, filtroSoloActivos, filtroConML]);
+  }, [page, pageSize, debouncedSearch, filtroProvinciaId, filtroFiscalId, filtroSucursalId, filtroVendedorId, filtroSoloActivos, filtroConML, filtroFechaDesde, filtroFechaHasta, filtroCustIdDesde, filtroCustIdHasta]);
 
   const cargarFiltros = async () => {
     try {

@@ -16,7 +16,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Insertar nuevos permisos de clientes
+    # Primero agregar el valor 'clientes' al enum categoriapermiso
+    op.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_enum
+                WHERE enumlabel = 'clientes'
+                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'categoriapermiso')
+            ) THEN
+                ALTER TYPE categoriapermiso ADD VALUE 'clientes';
+            END IF;
+        END $$;
+    """)
+
+    # Ahora insertar nuevos permisos de clientes
     op.execute("""
         INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico)
         VALUES 
