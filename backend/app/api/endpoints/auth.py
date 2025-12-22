@@ -76,7 +76,7 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
             "username": usuario.username,
             "email": usuario.email,
             "nombre": usuario.nombre,
-            "rol": usuario.rol.value
+            "rol": usuario.rol_codigo  # Usar property en lugar del enum
         }
     )
 
@@ -115,7 +115,7 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
         email=request.email,
         nombre=request.nombre,
         password_hash=get_password_hash(request.password),
-        rol=RolUsuario.VENTAS,  # Por defecto ventas
+        rol=None,  # Deprecado, usar rol_id
         rol_id=rol_default.id,
         auth_provider=AuthProvider.LOCAL,
         activo=True
@@ -132,7 +132,7 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
             "username": nuevo_usuario.username,
             "email": nuevo_usuario.email,
             "nombre": nuevo_usuario.nombre,
-            "rol": nuevo_usuario.rol.value
+            "rol": nuevo_usuario.rol_codigo  # Usar property en lugar del enum
         }
     }
 
@@ -141,8 +141,9 @@ async def get_me(current_user: Usuario = Depends(get_current_user)):
     """Obtiene información del usuario actual"""
     return {
         "id": current_user.id,
+        "username": current_user.username,
         "email": current_user.email,
         "nombre": current_user.nombre,
-        "rol": current_user.rol.value,
+        "rol": current_user.rol_codigo,  # Usar property en lugar del enum
         "activo": current_user.activo
     }
