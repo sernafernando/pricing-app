@@ -17,7 +17,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
+export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
   const [loading, setLoading] = useState(false);
   const [rentabilidad, setRentabilidad] = useState(null);
   const [filtrosDisponibles, setFiltrosDisponibles] = useState({
@@ -41,12 +41,6 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
   const subcategoriasSeleccionadas = getFilter('subcategorias');
   const productosSeleccionados = getFilter('productos');
 
-  // Convertir arrays a strings para evitar re-renders infinitos
-  const marcasKey = useMemo(() => marcasSeleccionadas.join(','), [marcasSeleccionadas.join(',')]);
-  const categoriasKey = useMemo(() => categoriasSeleccionadas.join(','), [categoriasSeleccionadas.join(',')]);
-  const subcategoriasKey = useMemo(() => subcategoriasSeleccionadas.join(','), [subcategoriasSeleccionadas.join(',')]);
-  const productosKey = useMemo(() => productosSeleccionados.join(','), [productosSeleccionados.join(',')]);
-
   // Búsquedas en filtros
   const [busquedaMarca, setBusquedaMarca] = useState('');
   const [busquedaCategoria, setBusquedaCategoria] = useState('');
@@ -55,7 +49,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
   // Búsqueda de productos
   const [busquedaProducto, setBusquedaProducto] = useState('');
   const [productosEncontrados, setProductosEncontrados] = useState([]);
-  const [productosSeleccionadosDetalle, setProductosSeleccionadosDetalle] = useState([]);
+  const [productosSeleccionados, setProductosSeleccionados] = useState([]);
   const [buscandoProductos, setBuscandoProductos] = useState(false);
 
   // Panel activo
@@ -79,7 +73,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
     if (fechaDesde && fechaHasta) {
       cargarRentabilidad();
     }
-  }, [marcasKey, categoriasKey, subcategoriasKey, productosKey]);
+  }, [marcasSeleccionadas, categoriasSeleccionadas, subcategoriasSeleccionadas, productosSeleccionados]);
 
   const cargarFiltros = async () => {
     try {
@@ -88,16 +82,16 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
         fecha_hasta: fechaHasta
       };
       if (marcasSeleccionadas.length > 0) {
-        params.marcas = marcasSeleccionadas.join('|');
+        params.marcas = marcasSeleccionadas.join(',');
       }
       if (categoriasSeleccionadas.length > 0) {
-        params.categorias = categoriasSeleccionadas.join('|');
+        params.categorias = categoriasSeleccionadas.join(',');
       }
       if (subcategoriasSeleccionadas.length > 0) {
-        params.subcategorias = subcategoriasSeleccionadas.join('|');
+        params.subcategorias = subcategoriasSeleccionadas.join(',');
       }
 
-      const response = await api.get('/api/rentabilidad-tienda-nube/filtros', { params });
+      const response = await api.get('/api/rentabilidad-fuera/filtros', { params });
       setFiltrosDisponibles(response.data);
     } catch (error) {
       console.error('Error cargando filtros:', error);
@@ -124,7 +118,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
         params.productos = productosSeleccionados.map(p => p.item_id).join('|');
       }
 
-      const response = await api.get('/api/rentabilidad-tienda-nube', { params });
+      const response = await api.get('/api/rentabilidad-fuera', { params });
       setRentabilidad(response.data);
     } catch (error) {
       console.error('Error cargando rentabilidad:', error);
@@ -137,7 +131,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
     if (busquedaProducto.length < 2) return;
     setBuscandoProductos(true);
     try {
-      const response = await api.get('/api/rentabilidad-tienda-nube/buscar-productos', {
+      const response = await api.get('/api/rentabilidad-fuera/buscar-productos', {
         params: {
           q: busquedaProducto,
           fecha_desde: fechaDesde,
@@ -555,7 +549,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
           {/* Card de totales */}
           <div className={styles.totalCard}>
             <div className={styles.totalHeader}>
-              <h3>Total del período (Tienda Nube)</h3>
+              <h3>Total del período (Ventas por Fuera)</h3>
               <span className={styles.totalPeriodo}>
                 {formatFecha(fechasActuales.desde)} - {formatFecha(fechasActuales.hasta)}
               </span>
@@ -568,14 +562,6 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
               <div className={styles.totalItem}>
                 <span className={styles.totalLabel}>Monto Vendido</span>
                 <span className={styles.totalValor}>{formatMoney(rentabilidad.totales.monto_venta)}</span>
-              </div>
-              <div className={styles.totalItem}>
-                <span className={styles.totalLabel}>Comisión TN ({rentabilidad.filtros_aplicados?.comision_tn_porcentaje || 1}%)</span>
-                <span className={styles.totalValor} style={{ color: '#f59e0b' }}>{formatMoney(rentabilidad.totales.comision_tn)}</span>
-              </div>
-              <div className={styles.totalItem}>
-                <span className={styles.totalLabel}>Monto Limpio</span>
-                <span className={styles.totalValor}>{formatMoney(rentabilidad.totales.monto_limpio)}</span>
               </div>
               <div className={styles.totalItem}>
                 <span className={styles.totalLabel}>Costo</span>
@@ -638,14 +624,6 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
                   <div className={styles.cardMetrica}>
                     <span>Monto:</span>
                     <span>{formatMoney(card.monto_venta)}</span>
-                  </div>
-                  <div className={styles.cardMetrica}>
-                    <span>Comisión TN:</span>
-                    <span style={{ color: '#f59e0b' }}>{formatMoney(card.comision_tn)}</span>
-                  </div>
-                  <div className={styles.cardMetrica}>
-                    <span>Monto Limpio:</span>
-                    <span>{formatMoney(card.monto_limpio)}</span>
                   </div>
                   <div className={styles.cardMetrica}>
                     <span>Costo:</span>
@@ -713,7 +691,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
         filtrosDisponibles={filtrosDisponibles}
         fechaDesde={fechaDesde}
         fechaHasta={fechaHasta}
-        apiBasePath="/api/rentabilidad-tienda-nube"
+        apiBasePath="/api/rentabilidad-fuera"
       />
     </div>
   );

@@ -1,9 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import '../pages/Productos.css';
 import styles from './TabRentabilidad.module.css';
 import ModalOffset from './ModalOffset';
-import { useQueryFilters } from '../hooks/useQueryFilters';
 
 const api = axios.create({
   baseURL: 'https://pricing.gaussonline.com.ar',
@@ -26,26 +25,10 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
     subcategorias: []
   });
 
-  // Usar query params para filtros seleccionados
-  const { getFilter, updateFilters } = useQueryFilters({
-    marcas: [],
-    categorias: [],
-    subcategorias: [],
-    productos: []
-  }, {
-    productos: 'number[]'
-  });
-
-  const marcasSeleccionadas = getFilter('marcas');
-  const categoriasSeleccionadas = getFilter('categorias');
-  const subcategoriasSeleccionadas = getFilter('subcategorias');
-  const productosSeleccionados = getFilter('productos');
-
-  // Convertir arrays a strings para evitar re-renders infinitos
-  const marcasKey = useMemo(() => marcasSeleccionadas.join(','), [marcasSeleccionadas.join(',')]);
-  const categoriasKey = useMemo(() => categoriasSeleccionadas.join(','), [categoriasSeleccionadas.join(',')]);
-  const subcategoriasKey = useMemo(() => subcategoriasSeleccionadas.join(','), [subcategoriasSeleccionadas.join(',')]);
-  const productosKey = useMemo(() => productosSeleccionados.join(','), [productosSeleccionados.join(',')]);
+  // Filtros seleccionados
+  const [marcasSeleccionadas, setMarcasSeleccionadas] = useState([]);
+  const [categoriasSeleccionadas, setCategoriasSeleccionadas] = useState([]);
+  const [subcategoriasSeleccionadas, setSubcategoriasSeleccionadas] = useState([]);
 
   // Búsquedas en filtros
   const [busquedaMarca, setBusquedaMarca] = useState('');
@@ -55,7 +38,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
   // Búsqueda de productos
   const [busquedaProducto, setBusquedaProducto] = useState('');
   const [productosEncontrados, setProductosEncontrados] = useState([]);
-  const [productosSeleccionadosDetalle, setProductosSeleccionadosDetalle] = useState([]);
+  const [productosSeleccionados, setProductosSeleccionados] = useState([]);
   const [buscandoProductos, setBuscandoProductos] = useState(false);
 
   // Panel activo
@@ -79,7 +62,7 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
     if (fechaDesde && fechaHasta) {
       cargarRentabilidad();
     }
-  }, [marcasKey, categoriasKey, subcategoriasKey, productosKey]);
+  }, [marcasSeleccionadas, categoriasSeleccionadas, subcategoriasSeleccionadas, productosSeleccionados]);
 
   const cargarFiltros = async () => {
     try {
