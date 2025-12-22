@@ -78,13 +78,13 @@ async def crear_usuario(
     if not rol_obj:
         raise HTTPException(400, f"Rol '{usuario.rol}' no existe")
 
-    # Crear usuario
+    # Crear usuario (rol enum deprecado, usar solo rol_id)
     nuevo_usuario = Usuario(
         username=usuario.username,
         email=usuario.email,
         nombre=usuario.nombre,
         password_hash=pwd_context.hash(usuario.password),
-        rol=usuario.rol,
+        rol=None,  # Deprecado, usar rol_id
         rol_id=rol_obj.id,
         auth_provider="local",
         activo=True
@@ -112,7 +112,7 @@ async def actualizar_usuario(
         raise HTTPException(404, "Usuario no encontrado")
     
     # PROTECCIÓN: Solo superadmin puede modificar a otro superadmin
-    if usuario.rol.value == "SUPERADMIN" and current_user.rol.value != "SUPERADMIN":
+    if usuario.rol_codigo == "SUPERADMIN" and current_user.rol_codigo != "SUPERADMIN":
         raise HTTPException(403, "No puedes modificar un superadministrador")
     
     # No permitir desactivarse a sí mismo
@@ -120,7 +120,7 @@ async def actualizar_usuario(
         raise HTTPException(400, "No puedes desactivarte a ti mismo")
     
     # No permitir quitarse el rol de superadmin a sí mismo
-    if usuario.id == current_user.id and usuario.rol.value == "SUPERADMIN" and current_user.rol.value != "SUPERADMIN":
+    if usuario.id == current_user.id and usuario.rol_codigo == "SUPERADMIN" and datos.rol and datos.rol != "SUPERADMIN":
         raise HTTPException(400, "No puedes quitarte el rol de superadmin")
     
     if datos.activo is not None:
@@ -131,7 +131,7 @@ async def actualizar_usuario(
         rol_obj = db.query(Rol).filter(Rol.codigo == datos.rol.upper()).first()
         if not rol_obj:
             raise HTTPException(400, f"Rol '{datos.rol}' no existe")
-        usuario.rol = datos.rol
+        usuario.rol = None  # Deprecado, usar rol_id
         usuario.rol_id = rol_obj.id
 
     if datos.username is not None:
@@ -183,7 +183,7 @@ async def cambiar_password_usuario(
         raise HTTPException(400, "La contraseña debe tener al menos 6 caracteres")
 
     # PROTECCIÓN: Solo superadmin puede cambiar password de otro superadmin
-    if usuario.rol.value == "SUPERADMIN" and current_user.rol.value != "SUPERADMIN":
+    if usuario.rol_codigo == "SUPERADMIN" and current_user.rol_codigo != "SUPERADMIN":
         raise HTTPException(403, "No puedes cambiar el password de un superadministrador")
 
     # Cambiar password

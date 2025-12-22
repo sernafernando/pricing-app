@@ -31,8 +31,8 @@ class Usuario(Base):
     nombre = Column(String(255), nullable=False)
     password_hash = Column(String(255), nullable=True)  # Nullable para OAuth
 
-    # Rol antiguo (DEPRECADO - mantener para compatibilidad)
-    rol = Column(SQLEnum(RolUsuario), default=RolUsuario.VENTAS)
+    # Rol antiguo (DEPRECADO - usar rol_id en su lugar)
+    rol = Column(SQLEnum(RolUsuario), nullable=True)
 
     # Nuevo: FK a tabla roles
     rol_id = Column(Integer, ForeignKey('roles.id'), nullable=True, index=True)
