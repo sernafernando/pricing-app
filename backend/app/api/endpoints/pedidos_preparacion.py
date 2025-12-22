@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.models.pedido_preparacion_cache import PedidoPreparacionCache
 from app.models.tb_item_association import TbItemAssociation
-from app.models.productos_erp import ProductoERP
+from app.models.producto import ProductoERP
 from app.api.deps import get_current_user
 
 router = APIRouter()
