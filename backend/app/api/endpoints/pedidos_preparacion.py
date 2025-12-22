@@ -12,6 +12,8 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.models.pedido_preparacion_cache import PedidoPreparacionCache
+from app.models.tb_item_association import TbItemAssociation
+from app.models.productos_erp import ProductoERP
 from app.api.deps import get_current_user
 
 router = APIRouter()
@@ -48,6 +50,17 @@ class SyncResponse(BaseModel):
     message: str
     count: int
     timestamp: str
+
+
+class ComponenteProductoResponse(BaseModel):
+    """Componente de un producto de producción"""
+    item_id: int
+    item_code: str
+    item_desc: str
+    cantidad: float
+
+    class Config:
+        from_attributes = True
 
 
 # Patrones para vista Producción (hardcodeados)
@@ -200,3 +213,40 @@ async def sincronizar_pedidos(
             count=0,
             timestamp=datetime.now().isoformat()
         )
+
+
+@router.get("/pedidos-preparacion/componentes/{item_id}", response_model=List[ComponenteProductoResponse])
+async def obtener_componentes(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtiene los componentes de un producto de producción desde tb_item_association.
+    
+    Retorna los items asociados (item_id_1) con sus cantidades.
+    """
+    # Obtener asociaciones
+    asociaciones = db.query(TbItemAssociation).filter(
+        TbItemAssociation.item_id == item_id
+    ).all()
+    
+    if not asociaciones:
+        return []
+    
+    # Obtener detalles de los items asociados
+    componentes = []
+    for asoc in asociaciones:
+        producto = db.query(ProductoERP).filter(
+            ProductoERP.item_id == asoc.item_id_1
+        ).first()
+        
+        if producto:
+            componentes.append(ComponenteProductoResponse(
+                item_id=producto.item_id,
+                item_code=producto.item_code or "",
+                item_desc=producto.item_desc or "",
+                cantidad=float(asoc.iasso_qty) if asoc.iasso_qty else 0.0
+            ))
+    
+    return componentes

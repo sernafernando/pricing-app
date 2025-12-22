@@ -269,6 +269,207 @@
   font-style: italic;
 }
 
+/* Modo Vista Buttons */
+.modoVistaButtons {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-secondary);
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border-secondary);
+}
+
+.modoVistaBtn {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modoVistaBtn svg {
+  display: block;
+  transition: all 0.2s;
+}
+
+.modoVistaBtn:hover {
+  background: var(--bg-hover);
+  color: var(--brand-primary);
+}
+
+.modoVistaActivo {
+  background: var(--brand-primary);
+  color: white;
+}
+
+.modoVistaActivo:hover {
+  color: white;
+}
+
+/* Cards Container */
+.cardsContainer {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 20px;
+  padding: 4px;
+}
+
+.card {
+  background: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.cardProducto {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.cardCodigo {
+  font-family: monospace;
+  font-size: 15px;
+  color: var(--brand-primary);
+  font-weight: 600;
+}
+
+.cardDescripcion {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.cardToggle {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.cardToggle:hover {
+  background: var(--bg-hover);
+  color: var(--brand-primary);
+}
+
+.cardStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 16px;
+}
+
+.cardStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.cardStatLabel {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.cardStatValue {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--brand-primary);
+}
+
+.cardComponentes {
+  border-top: 1px solid var(--border-primary);
+  padding: 16px;
+  background: var(--bg-tertiary);
+}
+
+.componentesHeader {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.componentesLoading,
+.componentesEmpty {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.componentesList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.componenteItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  border: 1px solid var(--border-secondary);
+}
+
+.componenteInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.componenteInfo strong {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.componenteInfo span {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.componenteCantidad {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--brand-primary);
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
 /* Tabla */
 .tableContainer {
   background: var(--bg-primary);
@@ -498,5 +699,14 @@
 
   .statsGrid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .cardsContainer {
+    grid-template-columns: 1fr;
+  }
+
+  .modoVistaButtons {
+    order: -1;
+    width: 100%;
   }
 }
