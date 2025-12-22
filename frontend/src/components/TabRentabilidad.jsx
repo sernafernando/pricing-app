@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import '../pages/Productos.css';
 import styles from './TabRentabilidad.module.css';
@@ -61,6 +61,12 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
   // Guardar las fechas actuales para mostrar en el UI
   const [fechasActuales, setFechasActuales] = useState({ desde: null, hasta: null });
 
+  // Convertir arrays a strings para evitar re-renders infinitos
+  const marcasKey = useMemo(() => marcasSeleccionadas.join(','), [marcasSeleccionadas.join(',')]);
+  const categoriasKey = useMemo(() => categoriasSeleccionadas.join(','), [categoriasSeleccionadas.join(',')]);
+  const subcategoriasKey = useMemo(() => subcategoriasSeleccionadas.join(','), [subcategoriasSeleccionadas.join(',')]);
+  const productosKey = useMemo(() => productosSeleccionados.join(','), [productosSeleccionados.join(',')]);
+
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
       // Guardar las fechas que se están usando
@@ -75,7 +81,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
       cargarRentabilidad();
       cargarFiltros(); // También recargar filtros disponibles cuando cambian las selecciones
     }
-  }, [marcasSeleccionadas, categoriasSeleccionadas, subcategoriasSeleccionadas, productosSeleccionados]);
+  }, [marcasKey, categoriasKey, subcategoriasKey, productosKey]);
 
   const cargarFiltros = async () => {
     try {
