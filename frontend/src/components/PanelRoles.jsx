@@ -7,6 +7,7 @@ const CATEGORIAS_NOMBRE = {
   ventas_ml: 'Ventas MercadoLibre',
   ventas_fuera: 'Ventas Fuera de ML',
   ventas_tn: 'Ventas Tienda Nube',
+  clientes: 'Clientes',
   reportes: 'Reportes',
   administracion: 'Administracion',
   configuracion: 'Configuracion'
@@ -41,6 +42,7 @@ export default function PanelRoles() {
 
   // Estado para categorías colapsables
   const [categoriasExpandidas, setCategoriasExpandidas] = useState({});
+  const [busquedaPermiso, setBusquedaPermiso] = useState('');
 
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
@@ -494,6 +496,22 @@ export default function PanelRoles() {
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      placeholder="🔍 Buscar permiso..."
+                      value={busquedaPermiso}
+                      onChange={(e) => setBusquedaPermiso(e.target.value)}
+                      style={{
+                        padding: '6px 10px',
+                        fontSize: '12px',
+                        background: 'var(--bg-primary)',
+                        color: 'var(--text-primary)',
+                        border: '1px solid var(--border-primary)',
+                        borderRadius: '4px',
+                        width: '200px',
+                        marginRight: '8px'
+                      }}
+                    />
                     <div style={{ display: 'flex', gap: '4px', marginRight: '8px' }}>
                       <button
                         onClick={expandirTodas}
@@ -647,8 +665,20 @@ export default function PanelRoles() {
               {/* Lista de permisos por categoria */}
               <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {Object.entries(catalogo).map(([categoria, permisos]) => {
-                  const expandida = categoriasExpandidas[categoria] || false;
-                  const permisosActivos = permisos.filter(p => permisosRol.includes(p.codigo)).length;
+                  // Filtrar permisos según búsqueda
+                  const permisosFiltrados = busquedaPermiso.trim()
+                    ? permisos.filter(p => 
+                        p.nombre.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
+                        p.descripcion?.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
+                        p.codigo.toLowerCase().includes(busquedaPermiso.toLowerCase())
+                      )
+                    : permisos;
+                  
+                  // Si no hay permisos que coincidan, no mostrar la categoría
+                  if (permisosFiltrados.length === 0) return null;
+                  
+                  const expandida = categoriasExpandidas[categoria] || busquedaPermiso.trim() !== '';
+                  const permisosActivos = permisosFiltrados.filter(p => permisosRol.includes(p.codigo)).length;
 
                   return (
                   <div key={categoria} style={{
@@ -686,12 +716,17 @@ export default function PanelRoles() {
                         color: 'var(--text-secondary)',
                         fontWeight: 'normal'
                       }}>
-                        {permisosActivos}/{permisos.length}
+                        {permisosActivos}/{permisosFiltrados.length}
+                        {busquedaPermiso.trim() && permisosFiltrados.length !== permisos.length && (
+                          <span style={{ marginLeft: '4px', fontSize: '11px', opacity: 0.7 }}>
+                            (de {permisos.length})
+                          </span>
+                        )}
                       </span>
                     </div>
                     {expandida && (
                     <div style={{ padding: '8px 16px', background: 'var(--bg-primary)', maxHeight: '300px', overflowY: 'auto' }}>
-                      {permisos.map(permiso => {
+                      {permisosFiltrados.map(permiso => {
                         const tienePermiso = permisosRol.includes(permiso.codigo);
                         const esSuperadmin = rolSeleccionado.codigo === 'SUPERADMIN';
 

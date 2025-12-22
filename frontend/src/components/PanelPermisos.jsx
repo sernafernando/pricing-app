@@ -7,6 +7,7 @@ const CATEGORIAS_NOMBRE = {
   ventas_ml: 'Ventas MercadoLibre',
   ventas_fuera: 'Ventas Fuera de ML',
   ventas_tn: 'Ventas Tienda Nube',
+  clientes: 'Clientes',
   reportes: 'Reportes',
   administracion: 'Administración',
   configuracion: 'Configuración'
@@ -22,6 +23,7 @@ export default function PanelPermisos() {
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState(null);
   const [filtroUsuario, setFiltroUsuario] = useState('');
+  const [busquedaPermiso, setBusquedaPermiso] = useState('');
   const [categoriasExpandidas, setCategoriasExpandidas] = useState({});
   const [usuarioActual, setUsuarioActual] = useState(null);
 
@@ -765,7 +767,22 @@ export default function PanelPermisos() {
                         Override -
                       </span>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px' }}>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        placeholder="🔍 Buscar permiso..."
+                        value={busquedaPermiso}
+                        onChange={(e) => setBusquedaPermiso(e.target.value)}
+                        style={{
+                          padding: '6px 10px',
+                          fontSize: '12px',
+                          background: 'var(--bg-primary)',
+                          color: 'var(--text-primary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: '4px',
+                          width: '200px'
+                        }}
+                      />
                       <button
                         onClick={expandirTodas}
                         style={{
@@ -807,8 +824,20 @@ export default function PanelPermisos() {
               ) : (
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {Object.entries(permisosUsuario.permisos_detallados).map(([categoria, permisos]) => {
-                    const expandida = categoriasExpandidas[categoria] || false;
-                    const permisosActivos = permisos.filter(p => p.efectivo).length;
+                    // Filtrar permisos según búsqueda
+                    const permisosFiltrados = busquedaPermiso.trim()
+                      ? permisos.filter(p => 
+                          p.nombre.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
+                          p.descripcion?.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
+                          p.codigo.toLowerCase().includes(busquedaPermiso.toLowerCase())
+                        )
+                      : permisos;
+                    
+                    // Si no hay permisos que coincidan, no mostrar la categoría
+                    if (permisosFiltrados.length === 0) return null;
+                    
+                    const expandida = categoriasExpandidas[categoria] || busquedaPermiso.trim() !== '';
+                    const permisosActivos = permisosFiltrados.filter(p => p.efectivo).length;
 
                     return (
                     <div key={categoria} style={{
@@ -846,12 +875,17 @@ export default function PanelPermisos() {
                           color: 'var(--text-secondary)',
                           fontWeight: 'normal'
                         }}>
-                          {permisosActivos}/{permisos.length}
+                          {permisosActivos}/{permisosFiltrados.length}
+                          {busquedaPermiso.trim() && permisosFiltrados.length !== permisos.length && (
+                            <span style={{ marginLeft: '4px', fontSize: '11px', opacity: 0.7 }}>
+                              (de {permisos.length})
+                            </span>
+                          )}
                         </span>
                       </div>
                       {expandida && (
                       <div style={{ padding: '8px 16px', background: 'var(--bg-primary)', maxHeight: '300px', overflowY: 'auto' }}>
-                        {permisos.map(permiso => {
+                        {permisosFiltrados.map(permiso => {
                           const tieneOverride = permiso.override !== null;
                           const esOverridePositivo = permiso.override === true;
                           const esOverrideNegativo = permiso.override === false;
