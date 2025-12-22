@@ -893,31 +893,22 @@ async def obtener_rentabilidad(
                         elif grupo_info.get('max_unidades'):
                             limite_texto = f" (máx {grupo_info['max_unidades']} un.)"
 
-                    # En cards individuales de producto/subcategoría, NO sumamos el offset del grupo
+                    # En cards individuales de producto/subcategoría, NO mostramos el offset
                     # porque el offset del grupo es por CAMPAÑA, no por item individual
-                    # Solo mostramos que participa del grupo (monto 0 para la card)
-                    # El total se suma UNA sola vez en los totales globales
+                    # El total se suma UNA sola vez en los totales globales (sección posterior del código)
                     #
-                    # Criterio para NO sumar (mostrar con monto=0):
-                    # - Nivel producto: siempre
-                    # - Nivel subcategoría: cuando hay filtros de marca/categoría (estamos en drill-down)
+                    # Criterio para NO mostrar en la card:
+                    # - Nivel producto: siempre (no mostrar)
+                    # - Nivel subcategoría con filtros: siempre (no mostrar, se suma en totales)
+                    # - Nivel marca/categoria: SÍ mostrar y sumar
                     es_nivel_detalle = (
                         nivel == "producto" or 
                         (nivel == "subcategoria" and (lista_marcas or lista_categorias))
                     )
                     
-                    if es_nivel_detalle:
-                        # Mostrar que participa del grupo pero sin sumar (ver total global)
-                        desglose.append(DesgloseOffset(
-                            descripcion=f"{grupo_info['descripcion']}{limite_texto} (ver total)",
-                            nivel="grupo",
-                            nombre_nivel=f"Grupo {offset.grupo_id}",
-                            tipo_offset=offset.tipo_offset or 'monto_fijo',
-                            monto=0
-                        ))
-                    else:
-                        # Para niveles agregados (marca, categoria sin filtros previos)
-                        # mostramos el total del grupo
+                    if not es_nivel_detalle:
+                        # Solo para niveles agregados (marca, categoria sin filtros previos)
+                        # mostramos el total del grupo en cada card
                         desglose.append(DesgloseOffset(
                             descripcion=f"{grupo_info['descripcion']}{limite_texto}",
                             nivel="grupo",
@@ -926,6 +917,8 @@ async def obtener_rentabilidad(
                             monto=grupo_info['offset_total']
                         ))
                         offset_total += grupo_info['offset_total']
+                    # Si es nivel de detalle, NO agregamos nada al desglose de la card
+                    # El offset se agregará al total global en la sección posterior del código
 
                 continue  # Skip normal processing for grouped offsets
 
@@ -1234,20 +1227,37 @@ async def obtener_rentabilidad(
     cards.sort(key=lambda c: c.monto_venta, reverse=True)
 
     # Agregar offsets de grupos al total (una sola vez por grupo)
-    # Solo cuando estamos a nivel producto, porque en niveles agregados ya se sumó en calcular_offsets_para_card
-    if nivel == "producto":
+    # Solo cuando estamos a nivel de detalle (producto o subcategoría con filtros),
+    # porque en niveles agregados ya se sumó en calcular_offsets_para_card
+    if nivel == "producto" or (nivel == "subcategoria" and (lista_marcas or lista_categorias)):
         for grupo_id, grupo_info in offsets_grupo_calculados.items():
-            # Verificar si algún producto del grupo está en los resultados
+            # Verificar si el grupo aplica a algún item en los resultados
             grupo_aplica = False
-            for offset in offsets:
-                if offset.grupo_id == grupo_id:
-                    if offset.item_id:
+            
+            if nivel == "producto":
+                # Para productos: verificar si hay offsets del grupo por item_id
+                for offset in offsets:
+                    if offset.grupo_id == grupo_id and offset.item_id:
                         for r in resultados:
                             if str(r.identificador) == str(offset.item_id):
                                 grupo_aplica = True
                                 break
-                if grupo_aplica:
-                    break
+                    if grupo_aplica:
+                        break
+            elif nivel == "subcategoria":
+                # Para subcategorías: verificar si el grupo tiene filtros que matchean
+                # con los filtros del usuario (marca/categoría)
+                if grupo_id in filtros_por_grupo and filtros_por_grupo[grupo_id]:
+                    for filtro in filtros_por_grupo[grupo_id]:
+                        # Si el filtro del grupo matchea con los filtros del usuario, aplica
+                        matchea = True
+                        if filtro.marca and lista_marcas and filtro.marca not in lista_marcas:
+                            matchea = False
+                        if filtro.categoria and lista_categorias and filtro.categoria not in lista_categorias:
+                            matchea = False
+                        if matchea:
+                            grupo_aplica = True
+                            break
 
             if grupo_aplica:
                 total_offset += grupo_info['offset_total']
