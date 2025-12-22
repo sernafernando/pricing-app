@@ -8,8 +8,9 @@ from sqlalchemy import func, or_, and_
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime, date
-import csv
 import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from app.core.database import get_db
 from app.models.tb_customer import TBCustomer
@@ -557,13 +558,30 @@ async def exportar_clientes(
     # Obtener todos los resultados
     clientes_raw = query.order_by(TBCustomer.cust_name).all()
 
-    # Crear CSV en memoria
-    output = io.StringIO()
-    writer = csv.writer(output)
+    # Crear archivo Excel en memoria
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Clientes"
+
+    # Estilos para el encabezado
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_alignment = Alignment(horizontal="center", vertical="center")
+    header_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
 
     # Escribir encabezados (solo los campos seleccionados)
     headers = [CAMPOS_DISPONIBLES[campo] for campo in export_request.campos]
-    writer.writerow(headers)
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = header_border
 
     # Mapeo de campos a índices en la tupla del resultado
     campo_a_indice = {
@@ -586,28 +604,55 @@ async def exportar_clientes(
         'sm_name': 21
     }
 
+    # Estilos para las celdas de datos
+    cell_border = Border(
+        left=Side(style='thin', color='CCCCCC'),
+        right=Side(style='thin', color='CCCCCC'),
+        top=Side(style='thin', color='CCCCCC'),
+        bottom=Side(style='thin', color='CCCCCC')
+    )
+
     # Escribir filas
-    for cliente in clientes_raw:
-        row = []
-        for campo in export_request.campos:
+    for row_num, cliente in enumerate(clientes_raw, 2):
+        for col_num, campo in enumerate(export_request.campos, 1):
             if campo in campo_a_indice:
                 valor = cliente[campo_a_indice[campo]]
                 # Formatear valores especiales
                 if campo == 'cust_inactive' and valor is not None:
                     valor = 'Sí' if valor else 'No'
-                row.append(valor if valor is not None else '')
+                cell = ws.cell(row=row_num, column=col_num, value=valor if valor is not None else '')
+                cell.border = cell_border
             else:
-                row.append('')
-        writer.writerow(row)
+                cell = ws.cell(row=row_num, column=col_num, value='')
+                cell.border = cell_border
+
+    # Ajustar ancho de columnas
+    for col_num, campo in enumerate(export_request.campos, 1):
+        column_letter = ws.cell(row=1, column=col_num).column_letter
+        max_length = len(CAMPOS_DISPONIBLES[campo])
+        # Calcular el ancho basado en el contenido
+        for row in ws.iter_rows(min_row=2, max_row=min(100, len(clientes_raw) + 1), min_col=col_num, max_col=col_num):
+            for cell in row:
+                try:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                except:
+                    pass
+        adjusted_width = min(max_length + 2, 50)  # Máximo 50 caracteres
+        ws.column_dimensions[column_letter].width = adjusted_width
+
+    # Guardar en memoria
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
 
     # Preparar respuesta
-    output.seek(0)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"clientes_{timestamp}.csv"
+    filename = f"clientes_{timestamp}.xlsx"
 
     return StreamingResponse(
         iter([output.getvalue()]),
-        media_type="text/csv",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
             "Content-Disposition": f"attachment; filename={filename}"
         }

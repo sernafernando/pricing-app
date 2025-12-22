@@ -156,15 +156,18 @@ export default function Clientes() {
         }
       );
 
-      // Descargar archivo
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      // Descargar archivo XLSX
+      const url = window.URL.createObjectURL(new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      }));
       const link = document.createElement('a');
       link.href = url;
       const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-      link.setAttribute('download', `clientes_${timestamp}.csv`);
+      link.setAttribute('download', `clientes_${timestamp}.xlsx`);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
 
       setMostrarModalExport(false);
     } catch (error) {
