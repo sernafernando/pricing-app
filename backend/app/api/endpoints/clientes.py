@@ -85,7 +85,7 @@ class ExportClientesRequest(BaseModel):
     # Filtros (mismos que el GET)
     search: Optional[str] = None
     state_id: Optional[int] = None
-    tipo_documento: Optional[str] = None
+    fc_id: Optional[int] = None
     bra_id: Optional[int] = None
     sm_id: Optional[int] = None
     solo_activos: Optional[bool] = None
@@ -140,7 +140,7 @@ async def listar_clientes(
     page_size: int = Query(50, ge=1, le=1000, description="Cantidad de registros por página"),
     search: Optional[str] = Query(None, description="Buscar por nombre, CUIT, email o ciudad"),
     state_id: Optional[int] = Query(None, description="Filtrar por provincia"),
-    tipo_documento: Optional[str] = Query(None, description="Filtrar por tipo de documento: 'dni' o 'cuit'"),
+    fc_id: Optional[int] = Query(None, description="Filtrar por condición fiscal"),
     bra_id: Optional[int] = Query(None, description="Filtrar por sucursal"),
     sm_id: Optional[int] = Query(None, description="Filtrar por vendedor"),
     solo_activos: Optional[bool] = Query(None, description="Solo clientes activos"),
@@ -218,23 +218,8 @@ async def listar_clientes(
     if state_id is not None:
         query = query.filter(TBCustomer.state_id == state_id)
 
-    if tipo_documento is not None:
-        if tipo_documento.lower() == 'dni':
-            # DNI: sin guiones Y máximo 8 dígitos
-            query = query.filter(
-                and_(
-                    ~TBCustomer.cust_taxnumber.contains('-'),
-                    func.length(func.regexp_replace(TBCustomer.cust_taxnumber, r'[^0-9]', '', 'g')) <= 8
-                )
-            )
-        elif tipo_documento.lower() == 'cuit':
-            # CUIT: contiene guión O más de 8 dígitos
-            query = query.filter(
-                or_(
-                    TBCustomer.cust_taxnumber.contains('-'),
-                    func.length(func.regexp_replace(TBCustomer.cust_taxnumber, r'[^0-9]', '', 'g')) > 8
-                )
-            )
+    if fc_id is not None:
+        query = query.filter(TBCustomer.fc_id == fc_id)
 
     if bra_id is not None:
         query = query.filter(TBCustomer.bra_id == bra_id)
@@ -520,23 +505,8 @@ async def exportar_clientes(
     if export_request.state_id is not None:
         query = query.filter(TBCustomer.state_id == export_request.state_id)
 
-    if export_request.tipo_documento is not None:
-        if export_request.tipo_documento.lower() == 'dni':
-            # DNI: sin guiones Y máximo 8 dígitos
-            query = query.filter(
-                and_(
-                    ~TBCustomer.cust_taxnumber.contains('-'),
-                    func.length(func.regexp_replace(TBCustomer.cust_taxnumber, r'[^0-9]', '', 'g')) <= 8
-                )
-            )
-        elif export_request.tipo_documento.lower() == 'cuit':
-            # CUIT: contiene guión O más de 8 dígitos
-            query = query.filter(
-                or_(
-                    TBCustomer.cust_taxnumber.contains('-'),
-                    func.length(func.regexp_replace(TBCustomer.cust_taxnumber, r'[^0-9]', '', 'g')) > 8
-                )
-            )
+    if export_request.fc_id is not None:
+        query = query.filter(TBCustomer.fc_id == export_request.fc_id)
 
     if export_request.bra_id is not None:
         query = query.filter(TBCustomer.bra_id == export_request.bra_id)
@@ -720,6 +690,38 @@ async def obtener_provincias(
     return [
         {"state_id": p.state_id, "state_desc": p.state_desc}
         for p in provincias
+    ]
+
+
+@router.get("/filtros/condiciones-fiscales")
+async def obtener_condiciones_fiscales(
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna lista de condiciones fiscales que tienen clientes asignados
+    """
+    condiciones = db.query(
+        TBFiscalClass.fc_id,
+        TBFiscalClass.fc_desc,
+        func.count(TBCustomer.cust_id).label('total_clientes')
+    ).join(
+        TBCustomer,
+        TBCustomer.fc_id == TBFiscalClass.fc_id
+    ).group_by(
+        TBFiscalClass.fc_id,
+        TBFiscalClass.fc_desc
+    ).having(
+        func.count(TBCustomer.cust_id) > 0
+    ).order_by(
+        TBFiscalClass.fc_desc
+    ).all()
+
+    return [
+        {
+            "fc_id": c.fc_id,
+            "fc_desc": f"{c.fc_desc} ({c.total_clientes:,} clientes)"
+        }
+        for c in condiciones
     ]
 
 
