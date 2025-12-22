@@ -6,9 +6,9 @@ export const useAuthStore = create((set) => ({
   token: localStorage.getItem('token'),
   isAuthenticated: false,
   
-  login: async (email, password) => {
+  login: async (username, password) => {
     try {
-      const response = await authAPI.login(email, password);
+      const response = await authAPI.login(username, password);
       const { access_token, usuario } = response.data;
       
       localStorage.setItem('token', access_token);

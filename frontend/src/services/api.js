@@ -13,7 +13,7 @@ api.interceptors.request.use((config) => {
 });
 
 export const authAPI = {
-  login: (email, password) => api.post('/auth/login', { email, password }),
+  login: (username, password) => api.post('/auth/login', { username, password }),
   me: () => api.get('/auth/me'),
 };
 

@@ -23,14 +23,18 @@ async def get_current_user(
             detail="Token inválido o expirado"
         )
     
-    email: str = payload.get("sub")
-    if email is None:
+    username: str = payload.get("sub")
+    if username is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido"
         )
     
-    usuario = db.query(Usuario).filter(Usuario.email == email).first()
+    # Buscar por username (nuevo) o email (backward compatibility)
+    usuario = db.query(Usuario).filter(
+        (Usuario.username == username) | (Usuario.email == username)
+    ).first()
+    
     if usuario is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

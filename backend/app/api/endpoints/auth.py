@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
+from typing import Optional
 from datetime import timedelta
 
 from app.core.database import get_db
@@ -13,7 +14,7 @@ from app.api.deps import get_current_user
 router = APIRouter()
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    username: str  # Acepta username o email
     password: str
 
 class TokenResponse(BaseModel):
@@ -22,20 +23,27 @@ class TokenResponse(BaseModel):
     usuario: dict
 
 class RegisterRequest(BaseModel):
-    email: EmailStr
+    username: str
+    email: Optional[EmailStr] = None
     password: str
     nombre: str
 
 @router.post("/auth/login", response_model=TokenResponse)
 async def login(request: LoginRequest, db: Session = Depends(get_db)):
-    """Login con email y password"""
+    """Login con username o email (detecta automáticamente por presencia de @)"""
     
-    usuario = db.query(Usuario).filter(Usuario.email == request.email).first()
+    # Detectar si es email o username por la presencia de @
+    if '@' in request.username:
+        # Es un email
+        usuario = db.query(Usuario).filter(Usuario.email == request.username).first()
+    else:
+        # Es un username
+        usuario = db.query(Usuario).filter(Usuario.username == request.username).first()
     
     if not usuario:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email o contraseña incorrectos"
+            detail="Usuario o contraseña incorrectos"
         )
     
     if not usuario.activo:
@@ -47,15 +55,15 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
     if not verify_password(request.password, usuario.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email o contraseña incorrectos"
+            detail="Usuario o contraseña incorrectos"
         )
     
-    # Crear token
+    # Crear token usando username (no email)
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={
-            "sub": usuario.email,
-            "rol": usuario.rol.value  # ← AGREGAR ESTA LÍNEA
+            "sub": usuario.username,  # Ahora usamos username en el token
+            "rol": usuario.rol.value
         },
         expires_delta=access_token_expires
     )
@@ -65,6 +73,7 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         token_type="bearer",
         usuario={
             "id": usuario.id,
+            "username": usuario.username,
             "email": usuario.email,
             "nombre": usuario.nombre,
             "rol": usuario.rol.value
@@ -75,13 +84,22 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
 async def register(request: RegisterRequest, db: Session = Depends(get_db)):
     """Registrar nuevo usuario (solo para desarrollo - en producción usar invitaciones)"""
     
-    # Verificar que no exista
-    existing = db.query(Usuario).filter(Usuario.email == request.email).first()
+    # Verificar que no exista username
+    existing = db.query(Usuario).filter(Usuario.username == request.username).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email ya registrado"
+            detail="Username ya registrado"
         )
+    
+    # Verificar email si fue proporcionado
+    if request.email:
+        existing_email = db.query(Usuario).filter(Usuario.email == request.email).first()
+        if existing_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email ya registrado"
+            )
     
     # Buscar el rol VENTAS por defecto para nuevos registros
     rol_default = db.query(Rol).filter(Rol.codigo == "VENTAS").first()
@@ -93,6 +111,7 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
 
     # Crear usuario
     nuevo_usuario = Usuario(
+        username=request.username,
         email=request.email,
         nombre=request.nombre,
         password_hash=get_password_hash(request.password),
@@ -110,6 +129,7 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
         "message": "Usuario creado exitosamente",
         "usuario": {
             "id": nuevo_usuario.id,
+            "username": nuevo_usuario.username,
             "email": nuevo_usuario.email,
             "nombre": nuevo_usuario.nombre,
             "rol": nuevo_usuario.rol.value
