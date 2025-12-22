@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
+import { useQueryFilters } from '../hooks/useQueryFilters';
 import styles from './Clientes.module.css';
 import axios from 'axios';
 import ModalDetalleCliente from '../components/ModalDetalleCliente';
@@ -9,31 +10,55 @@ const API_URL = import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com
 export default function Clientes() {
   const [clientes, setClientes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchInput, setSearchInput] = useState('');
-  const [page, setPage] = useState(1);
   const [totalClientes, setTotalClientes] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const [pageSize, setPageSize] = useState(50);
 
-  // Filtros
+  // Filtros disponibles
   const [provincias, setProvincias] = useState([]);
   const [condicionesFiscales, setCondicionesFiscales] = useState([]);
   const [sucursales, setSucursales] = useState([]);
   const [vendedores, setVendedores] = useState([]);
-
-  const [filtroProvinciaId, setFiltroProvinciaId] = useState('');
-  const [filtroFiscalId, setFiltroFiscalId] = useState('');
-  const [filtroSucursalId, setFiltroSucursalId] = useState('');
-  const [filtroVendedorId, setFiltroVendedorId] = useState('');
-  const [filtroSoloActivos, setFiltroSoloActivos] = useState(true);
-  const [filtroConML, setFiltroConML] = useState('');
-  const [filtroConEmail, setFiltroConEmail] = useState('');
-  const [filtroConTelefono, setFiltroConTelefono] = useState('');
-  const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
-  const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
-  const [filtroCustIdDesde, setFiltroCustIdDesde] = useState('');
-  const [filtroCustIdHasta, setFiltroCustIdHasta] = useState('');
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
+
+  // Usar query params para todos los filtros
+  const { getFilter, updateFilters } = useQueryFilters({
+    search: '',
+    page: 1,
+    page_size: 50,
+    state_id: '',
+    fc_id: '',
+    bra_id: '',
+    sm_id: '',
+    solo_activos: true,
+    con_ml: '',
+    con_email: '',
+    con_telefono: '',
+    fecha_desde: '',
+    fecha_hasta: '',
+    cust_id_desde: '',
+    cust_id_hasta: ''
+  }, {
+    page: 'number',
+    page_size: 'number',
+    solo_activos: 'boolean'
+  });
+
+  // Extraer valores de URL
+  const searchInput = getFilter('search');
+  const page = getFilter('page');
+  const pageSize = getFilter('page_size');
+  const filtroProvinciaId = getFilter('state_id');
+  const filtroFiscalId = getFilter('fc_id');
+  const filtroSucursalId = getFilter('bra_id');
+  const filtroVendedorId = getFilter('sm_id');
+  const filtroSoloActivos = getFilter('solo_activos');
+  const filtroConML = getFilter('con_ml');
+  const filtroConEmail = getFilter('con_email');
+  const filtroConTelefono = getFilter('con_telefono');
+  const filtroFechaDesde = getFilter('fecha_desde');
+  const filtroFechaHasta = getFilter('fecha_hasta');
+  const filtroCustIdDesde = getFilter('cust_id_desde');
+  const filtroCustIdHasta = getFilter('cust_id_hasta');
 
   // Modal detalle
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
@@ -45,7 +70,20 @@ export default function Clientes() {
   const [camposSeleccionados, setCamposSeleccionados] = useState([]);
   const [exportando, setExportando] = useState(false);
 
+  // useMemo para evitar loops infinitos
+  const searchKey = useMemo(() => searchInput, [searchInput]);
   const debouncedSearch = useDebounce(searchInput, 500);
+
+  // DEBUG: Ver filtros desde URL
+  useEffect(() => {
+    console.log('[Clientes] Filtros desde URL:', {
+      search: searchInput,
+      page,
+      pageSize,
+      filtroProvinciaId,
+      filtroSoloActivos
+    });
+  }, [searchInput, page, pageSize, filtroProvinciaId, filtroSoloActivos]);
 
   // Cargar filtros iniciales
   useEffect(() => {
@@ -196,21 +234,40 @@ export default function Clientes() {
     setCamposSeleccionados([]);
   };
 
+  // Helper para actualizar filtros individuales
+  const setSearchInput = (value) => updateFilters({ search: value, page: 1 });
+  const setPage = (value) => updateFilters({ page: typeof value === 'function' ? value(page) : value });
+  const setPageSize = (value) => updateFilters({ page_size: value, page: 1 });
+  const setFiltroProvinciaId = (value) => updateFilters({ state_id: value, page: 1 });
+  const setFiltroFiscalId = (value) => updateFilters({ fc_id: value, page: 1 });
+  const setFiltroSucursalId = (value) => updateFilters({ bra_id: value, page: 1 });
+  const setFiltroVendedorId = (value) => updateFilters({ sm_id: value, page: 1 });
+  const setFiltroSoloActivos = (value) => updateFilters({ solo_activos: value, page: 1 });
+  const setFiltroConML = (value) => updateFilters({ con_ml: value, page: 1 });
+  const setFiltroConEmail = (value) => updateFilters({ con_email: value, page: 1 });
+  const setFiltroConTelefono = (value) => updateFilters({ con_telefono: value, page: 1 });
+  const setFiltroFechaDesde = (value) => updateFilters({ fecha_desde: value });
+  const setFiltroFechaHasta = (value) => updateFilters({ fecha_hasta: value });
+  const setFiltroCustIdDesde = (value) => updateFilters({ cust_id_desde: value });
+  const setFiltroCustIdHasta = (value) => updateFilters({ cust_id_hasta: value });
+
   const limpiarFiltros = () => {
-    setSearchInput('');
-    setFiltroProvinciaId('');
-    setFiltroFiscalId('');
-    setFiltroSucursalId('');
-    setFiltroVendedorId('');
-    setFiltroSoloActivos(true);
-    setFiltroConML('');
-    setFiltroConEmail('');
-    setFiltroConTelefono('');
-    setFiltroFechaDesde('');
-    setFiltroFechaHasta('');
-    setFiltroCustIdDesde('');
-    setFiltroCustIdHasta('');
-    setPage(1);
+    updateFilters({
+      search: '',
+      state_id: '',
+      fc_id: '',
+      bra_id: '',
+      sm_id: '',
+      solo_activos: true,
+      con_ml: '',
+      con_email: '',
+      con_telefono: '',
+      fecha_desde: '',
+      fecha_hasta: '',
+      cust_id_desde: '',
+      cust_id_hasta: '',
+      page: 1
+    });
   };
 
   const handleVerDetalle = async (cliente) => {

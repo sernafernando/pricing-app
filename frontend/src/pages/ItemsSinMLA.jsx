@@ -1,9 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
+import { useQueryFilters } from '../hooks/useQueryFilters';
 import './ItemsSinMLA.css';
 
 const ItemsSinMLA = () => {
-  const [activeTab, setActiveTab] = useState('sin-mla'); // 'sin-mla' | 'banlist' | 'comparacion'
+  // Usar query params para tab activo
+  const { getFilter, updateFilters } = useQueryFilters({
+    tab: 'sin-mla'
+  });
+
+  const activeTab = getFilter('tab');
+  const setActiveTab = (tab) => updateFilters({ tab });
 
   // Estado para items sin MLA
   const [itemsSinMLA, setItemsSinMLA] = useState([]);
