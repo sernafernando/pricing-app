@@ -131,6 +131,14 @@ export default function Clientes() {
   const cargarClientes = async () => {
     setLoading(true);
     try {
+      console.log('[Clientes] cargarClientes - valores de filtros:', {
+        debouncedSearch,
+        page,
+        pageSize,
+        filtroProvinciaId,
+        filtroSoloActivos
+      });
+
       const params = new URLSearchParams({
         page: page.toString(),
         page_size: pageSize.toString()
@@ -150,6 +158,7 @@ export default function Clientes() {
       if (filtroCustIdDesde) params.append('cust_id_desde', filtroCustIdDesde);
       if (filtroCustIdHasta) params.append('cust_id_hasta', filtroCustIdHasta);
 
+      console.log('[Clientes] Request URL params:', params.toString());
       const response = await axios.get(`${API_URL}/api/clientes?${params}`);
       setClientes(response.data.clientes);
       setTotalClientes(response.data.total);
