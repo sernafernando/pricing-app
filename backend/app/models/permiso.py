@@ -16,6 +16,7 @@ class CategoriaPermiso(str, enum.Enum):
     VENTAS_ML = "ventas_ml"
     VENTAS_FUERA = "ventas_fuera"
     VENTAS_TN = "ventas_tn"
+    CLIENTES = "clientes"
     ADMINISTRACION = "administracion"
     REPORTES = "reportes"
     CONFIGURACION = "configuracion"
@@ -445,6 +446,24 @@ PERMISOS_SISTEMA = [
         "categoria": CategoriaPermiso.CONFIGURACION,
         "orden": 64
     },
+
+    # =========================================================================
+    # CLIENTES
+    # =========================================================================
+    {
+        "codigo": "clientes.ver",
+        "nombre": "Ver clientes",
+        "descripcion": "Acceso a la lista de clientes y sus detalles",
+        "categoria": CategoriaPermiso.CLIENTES,
+        "orden": 70
+    },
+    {
+        "codigo": "clientes.exportar",
+        "nombre": "Exportar clientes",
+        "descripcion": "Exportar datos de clientes a CSV",
+        "categoria": CategoriaPermiso.CLIENTES,
+        "orden": 71
+    },
 ]
 
 
@@ -463,6 +482,7 @@ PERMISOS_POR_ROL = {
         "ventas_ml.*",
         "ventas_fuera.*",
         "ventas_tn.*",
+        "clientes.*",
         "reportes.*",
         "admin.ver_panel",
         "admin.gestionar_usuarios",
@@ -489,6 +509,8 @@ PERMISOS_POR_ROL = {
         "ventas_tn.ver_dashboard",
         "ventas_tn.ver_operaciones",
         "ventas_tn.ver_rentabilidad",
+        "clientes.ver",
+        "clientes.exportar",
         "reportes.ver_auditoria",
         "reportes.ver_notificaciones",
         "reportes.ver_calculadora",

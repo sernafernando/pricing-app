@@ -44,6 +44,7 @@ export default function Navbar() {
   const puedeVerVentasFuera = tienePermiso('ventas_fuera.ver_dashboard');
   const puedeVerTiendaNube = tienePermiso('ventas_tn.ver_dashboard');
   const puedeVerCalculos = tienePermiso('reportes.ver_calculadora');
+  const puedeVerClientes = tienePermiso('clientes.ver');
 
   // Cargar facturado del día para todos los usuarios (el backend filtra por marcas del PM)
   useEffect(() => {
@@ -153,6 +154,15 @@ export default function Navbar() {
               className={`${styles.link} ${isActive('/pedidos-preparacion') ? styles.active : ''}`}
             >
               📦 Preparación
+            </Link>
+          )}
+
+          {puedeVerClientes && (
+            <Link
+              to="/clientes"
+              className={`${styles.link} ${isActive('/clientes') ? styles.active : ''}`}
+            >
+              👥 Clientes
             </Link>
           )}
 

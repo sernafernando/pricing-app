@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import asyncio
-from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, producto_banlist, ventas_ml, ventas_fuera_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog, tienda_nube, gbp_parser, notificaciones, offsets_ganancia, rentabilidad, rentabilidad_fuera, vendedores_excluidos, ventas_tienda_nube, rentabilidad_tienda_nube, permisos, markups_tienda, roles, pedidos_preparacion
+from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, producto_banlist, ventas_ml, ventas_fuera_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog, tienda_nube, gbp_parser, notificaciones, offsets_ganancia, rentabilidad, rentabilidad_fuera, vendedores_excluidos, ventas_tienda_nube, rentabilidad_tienda_nube, permisos, markups_tienda, roles, pedidos_preparacion, clientes
 
 # Variable global para controlar la tarea de background
 _background_task = None
@@ -59,6 +59,7 @@ app.include_router(permisos.router, prefix="/api", tags=["permisos"])
 app.include_router(markups_tienda.router, prefix="/api", tags=["markups-tienda"])
 app.include_router(roles.router, prefix="/api", tags=["roles"])
 app.include_router(pedidos_preparacion.router, prefix="/api", tags=["pedidos-preparacion"])
+app.include_router(clientes.router, prefix="/api", tags=["clientes"])
 
 @app.get("/")
 async def root():
