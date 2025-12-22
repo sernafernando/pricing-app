@@ -63,7 +63,7 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
     access_token = create_access_token(
         data={
             "sub": usuario.username,  # Ahora usamos username en el token
-            "rol": usuario.rol.value
+            "rol": usuario.rol_codigo  # Usar property en lugar del enum
         },
         expires_delta=access_token_expires
     )
