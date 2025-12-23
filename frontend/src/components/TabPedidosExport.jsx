@@ -191,7 +191,8 @@ export default function TabPedidosExport() {
           >
             <option value="">Todos los usuarios</option>
             <option value="50021">🛒 TiendaNube (50021)</option>
-            {usuarios.map((u) => (
+            <option value="50006">📦 MercadoLibre (50006)</option>
+            {usuarios.filter(u => u.user_id !== 50021 && u.user_id !== 50006).map((u) => (
               <option key={u.user_id} value={u.user_id}>
                 {u.user_name || u.user_loginname} ({u.user_id})
               </option>

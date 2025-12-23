@@ -33,10 +33,10 @@ Obtiene pedidos filtrados por export_id.
 
 Query params:
   - solo_activos: bool = true
-  - user_id: int (opcional, ej: 50021 para TN)
+  - user_id: int (opcional, ej: 50021 para TN, 50006 para ML)
   - ssos_id: int (opcional, estado del pedido)
-  - solo_ml: bool = false (solo pedidos ML)
-  - solo_tn: bool = false (solo pedidos TN)
+  - solo_ml: bool = false (filtro por user_id = 50006)
+  - solo_tn: bool = false (filtro por user_id = 50021)
   - sin_codigo_envio: bool = false (sin etiqueta)
   - limit: int = 100
   - offset: int = 0
@@ -47,8 +47,8 @@ Query params:
 Sincroniza pedidos desde ERP Query 87 (sin filtros).
 Aplica filtros localmente y marca pedidos como export_id=80.
 
-Filtros aplicados:
-  - user_id = 50021 (vendedor TiendaNube)
+Filtros aplicados en sincronización:
+  - user_id IN (50021, 50006) - Vendedores TiendaNube y MercadoLibre
   - ssos_id = 20 (estado pendiente)
   - Excluye pedidos que SOLO tienen items 2953/2954
 ```

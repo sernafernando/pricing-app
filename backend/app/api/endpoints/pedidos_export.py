@@ -107,10 +107,10 @@ async def obtener_pedidos_por_export(
     Export ID 80 típicamente corresponde a pedidos pendientes de preparación.
     
     Filtros opcionales disponibles:
-    - user_id: Filtrar por vendedor específico (ej: 50021 para TiendaNube)
+    - user_id: Filtrar por vendedor específico (ej: 50021 para TiendaNube, 50006 para ML)
     - ssos_id: Filtrar por estado del pedido (ej: 20 para pendiente de preparación)
-    - solo_ml: Solo pedidos de MercadoLibre (tienen soh_mlid)
-    - solo_tn: Solo pedidos de TiendaNube (tienen ws_internalid)
+    - solo_ml: Solo pedidos de MercadoLibre (user_id = 50006)
+    - solo_tn: Solo pedidos de TiendaNube (user_id = 50021)
     - sin_codigo_envio: Solo pedidos que aún no tienen código de envío asignado
     
     Por defecto solo muestra activos, usar solo_activos=false para ver archivados.
@@ -131,11 +131,12 @@ async def obtener_pedidos_por_export(
     if ssos_id is not None:
         query = query.filter(SaleOrderHeader.ssos_id == ssos_id)
     
+    # Filtros por canal (basados en user_id del vendedor)
     if solo_ml:
-        query = query.filter(SaleOrderHeader.soh_mlid.isnot(None))
+        query = query.filter(SaleOrderHeader.user_id == 50006)  # Vendedor ML
     
     if solo_tn:
-        query = query.filter(SaleOrderHeader.ws_internalid.isnot(None))
+        query = query.filter(SaleOrderHeader.user_id == 50021)  # Vendedor TiendaNube
     
     if sin_codigo_envio:
         query = query.filter(SaleOrderHeader.codigo_envio_interno.is_(None))
@@ -386,7 +387,7 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
     Se ejecuta en background.
     
     Filtros aplicados:
-    - user_id = 50021 (vendedor TiendaNube)
+    - user_id IN (50021, 50006) - Vendedores TiendaNube y MercadoLibre
     - ssos_id = 20 (estado: pendiente de preparación)
     - Excluye pedidos que SOLO tengan items 2953/2954 (items de envío/servicio)
     
@@ -410,17 +411,17 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
         
         logger.info(f"Total de pedidos únicos en el export (sin filtrar): {len(soh_ids_actuales)}")
         
-        # 2. Aplicar filtros: Solo pedidos con user_id=50021 y ssos_id=20
+        # 2. Aplicar filtros: Solo pedidos con user_id IN (50021, 50006) y ssos_id=20
         pedidos_filtrados = db.query(SaleOrderHeader.soh_id).filter(
             and_(
                 SaleOrderHeader.soh_id.in_(soh_ids_actuales),
-                SaleOrderHeader.user_id == 50021,
+                SaleOrderHeader.user_id.in_([50021, 50006]),  # TiendaNube y MercadoLibre
                 SaleOrderHeader.ssos_id == 20
             )
         ).all()
         
         soh_ids_filtrados = set([p.soh_id for p in pedidos_filtrados])
-        logger.info(f"Pedidos que cumplen filtros (user_id=50021, ssos_id=20): {len(soh_ids_filtrados)}")
+        logger.info(f"Pedidos que cumplen filtros (user_id IN [50021,50006], ssos_id=20): {len(soh_ids_filtrados)}")
         
         # 3. Excluir pedidos que SOLO tienen items 2953/2954 (envíos/servicios)
         # Verificamos pedidos que tienen TODOS sus items en (2953, 2954)
