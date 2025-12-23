@@ -4,7 +4,7 @@ Integración del visualizador-pedidos en la pricing-app.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_, desc
+from sqlalchemy import func, and_, or_, desc, case
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from pydantic import BaseModel
@@ -529,7 +529,10 @@ async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Sessi
             SaleOrderDetail.soh_id.in_(soh_ids_filtrados)
         ).group_by(SaleOrderDetail.soh_id).having(
             func.count(SaleOrderDetail.item_id) == func.sum(
-                func.case((SaleOrderDetail.item_id.in_([2953, 2954]), 1), else_=0)
+                case(
+                    (SaleOrderDetail.item_id.in_([2953, 2954]), 1),
+                    else_=0
+                )
             )
         ).all()
         
