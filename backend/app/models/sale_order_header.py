@@ -117,8 +117,10 @@ class SaleOrderHeader(Base):
     override_shipping_phone = Column(String(100))  # Teléfono sobrescrito
     override_shipping_recipient = Column(String(255))  # Destinatario sobrescrito
     override_notes = Column(Text)  # Notas adicionales del override
-    override_modified_by = Column(Integer)  # user_id que hizo el cambio
+    override_modified_by = Column(Integer)  # Usuario que modificó (user_id)
     override_modified_at = Column(DateTime)  # Fecha de modificación
+    override_num_bultos = Column(Integer)  # Número de bultos para etiquetas
+    override_tipo_domicilio = Column(String(50))  # Particular, Comercial, Sucursal
 
     def __repr__(self):
         return f"<SaleOrderHeader(soh_id={self.soh_id}, comp_id={self.comp_id}, mlo_id={self.mlo_id})>"

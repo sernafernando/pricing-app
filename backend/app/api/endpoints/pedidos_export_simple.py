@@ -87,6 +87,8 @@ class PedidoDetallado(BaseModel):
     override_shipping_recipient: Optional[str]
     override_notes: Optional[str]
     override_modified_at: Optional[datetime]
+    override_num_bultos: Optional[int]
+    override_tipo_domicilio: Optional[str]
     
     # Otros
     soh_packagesqty: Optional[int]  # Bultos
@@ -316,6 +318,8 @@ async def obtener_pedidos(
             override_shipping_recipient=pedido.override_shipping_recipient,
             override_notes=pedido.override_notes,
             override_modified_at=pedido.override_modified_at,
+            override_num_bultos=pedido.override_num_bultos,
+            override_tipo_domicilio=pedido.override_tipo_domicilio,
             soh_packagesqty=pedido.soh_packagesqty,
             soh_total=float(pedido.soh_total) if pedido.soh_total else None,
             total_items=len(items),
@@ -454,6 +458,39 @@ async def obtener_provincias_disponibles(db: Session = Depends(get_db)):
     ).distinct().order_by(provincia_efectiva.asc()).all()
     
     return [p[0] for p in provincias if p[0]]
+
+
+@router.put("/pedidos-simple/{soh_id}/bultos-domicilio")
+async def actualizar_bultos_domicilio(
+    soh_id: int,
+    num_bultos: int = Query(1, ge=1, le=10),
+    tipo_domicilio: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza número de bultos y tipo de domicilio para un pedido.
+    Se guarda en override para usar en etiquetas.
+    """
+    pedido = db.query(SaleOrderHeader).filter(
+        SaleOrderHeader.soh_id == soh_id
+    ).first()
+    
+    if not pedido:
+        raise HTTPException(404, f"Pedido {soh_id} no encontrado")
+    
+    pedido.override_num_bultos = num_bultos
+    pedido.override_tipo_domicilio = tipo_domicilio
+    pedido.override_modified_at = datetime.now()
+    
+    db.commit()
+    db.refresh(pedido)
+    
+    return {
+        "mensaje": "Bultos y tipo de domicilio actualizados",
+        "soh_id": soh_id,
+        "num_bultos": num_bultos,
+        "tipo_domicilio": tipo_domicilio
+    }
 
 
 class ShippingOverride(BaseModel):

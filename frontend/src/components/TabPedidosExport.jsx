@@ -30,7 +30,6 @@ export default function TabPedidosExport() {
   
   // Bulk print
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState([]);
-  const [mostrarModalBulkPrint, setMostrarModalBulkPrint] = useState(false);
   
   // Filtros
   const [soloActivos, setSoloActivos] = useState(true);
@@ -289,9 +288,36 @@ export default function TabPedidosExport() {
     }
   };
 
+  const actualizarBultosDomicilio = async (sohId, numBultos, tipoDomicilio) => {
+    try {
+      await axios.put(
+        `${API_URL}/pedidos-simple/${sohId}/bultos-domicilio`,
+        null,
+        {
+          params: { num_bultos: numBultos, tipo_domicilio: tipoDomicilio },
+          headers: { Authorization: `Bearer ${getToken()}` }
+        }
+      );
+      
+      // Actualizar en el estado local
+      setPedidos(prev => prev.map(p => 
+        p.soh_id === sohId 
+          ? { ...p, override_num_bultos: numBultos, override_tipo_domicilio: tipoDomicilio }
+          : p
+      ));
+    } catch (error) {
+      console.error('Error actualizando bultos/domicilio:', error);
+      alert('Error actualizando configuración');
+    }
+  };
+
   const generarEtiquetasBulk = async () => {
     if (pedidosSeleccionados.length === 0) {
       alert('⚠️ Seleccioná al menos un pedido');
+      return;
+    }
+
+    if (!confirm(`¿Generar etiquetas para ${pedidosSeleccionados.length} pedido${pedidosSeleccionados.length > 1 ? 's' : ''}?\n\nSe usará el número de bultos y tipo de domicilio configurado en cada fila.`)) {
       return;
     }
 
@@ -300,10 +326,16 @@ export default function TabPedidosExport() {
       let allZpl = '';
       
       for (const sohId of pedidosSeleccionados) {
+        // Buscar el pedido en la lista para obtener sus valores de bultos/domicilio
+        const pedido = pedidos.find(p => p.soh_id === sohId);
+        if (!pedido) continue;
+
         const params = new URLSearchParams();
-        params.append('num_bultos', numBultos);
-        if (tipoDomicilio) params.append('tipo_domicilio_manual', tipoDomicilio);
-        if (tipoEnvio) params.append('tipo_envio_manual', tipoEnvio);
+        // Usar override si existe, sino default 1 bulto
+        params.append('num_bultos', pedido.override_num_bultos || 1);
+        if (pedido.override_tipo_domicilio) {
+          params.append('tipo_domicilio_manual', pedido.override_tipo_domicilio);
+        }
 
         const response = await axios.get(
           `${API_URL}/pedidos-simple/${sohId}/etiqueta-zpl`,
@@ -328,9 +360,8 @@ export default function TabPedidosExport() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      setMostrarModalBulkPrint(false);
       setPedidosSeleccionados([]);
-      alert(`✅ Etiquetas descargadas: ${pedidosSeleccionados.length} pedidos`);
+      alert(`✅ Etiquetas descargadas: ${pedidosSeleccionados.length} pedido${pedidosSeleccionados.length > 1 ? 's' : ''}`);
     } catch (error) {
       console.error('Error generando etiquetas bulk:', error);
       alert('❌ Error generando etiquetas: ' + (error.response?.data?.detail || error.message));
@@ -512,10 +543,11 @@ export default function TabPedidosExport() {
       {pedidosSeleccionados.length > 0 && (
         <div className={styles.bulkActions}>
           <button 
-            onClick={() => setMostrarModalBulkPrint(true)}
+            onClick={generarEtiquetasBulk}
+            disabled={generandoEtiqueta}
             className={styles.btnBulkPrint}
           >
-            🖨️ Imprimir Etiquetas ({pedidosSeleccionados.length})
+            {generandoEtiqueta ? '⏳ Generando...' : `🖨️ Imprimir Etiquetas (${pedidosSeleccionados.length})`}
           </button>
           <button 
             onClick={() => setPedidosSeleccionados([])}
@@ -547,9 +579,10 @@ export default function TabPedidosExport() {
                 <th>ID PEDIDO</th>
                 <th>CLIENTE</th>
                 <th>ITEMS</th>
+                <th>BULTOS</th>
+                <th>TIPO</th>
                 <th>ORDEN TN</th>
                 <th>DIRECCIÓN DE ENVÍO</th>
-                <th>OBSERVACIONES</th>
                 <th>FECHA ENVÍO</th>
                 <th>ACCIONES</th>
               </tr>
@@ -591,6 +624,32 @@ export default function TabPedidosExport() {
                     <div className={styles.itemsBadge}>
                       {pedido.total_items} {pedido.total_items === 1 ? 'item' : 'items'}
                     </div>
+                  </td>
+
+                  {/* Bultos */}
+                  <td className={styles.textCenter} onClick={(e) => e.stopPropagation()}>
+                    <select
+                      value={pedido.override_num_bultos || 1}
+                      onChange={(e) => actualizarBultosDomicilio(pedido.soh_id, parseInt(e.target.value), pedido.override_tipo_domicilio)}
+                      className={styles.selectCompact}
+                    >
+                      {[1,2,3,4,5,6,7,8,9,10].map(n => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </td>
+
+                  {/* Tipo Domicilio */}
+                  <td className={styles.textCenter} onClick={(e) => e.stopPropagation()}>
+                    <select
+                      value={pedido.override_tipo_domicilio || 'Particular'}
+                      onChange={(e) => actualizarBultosDomicilio(pedido.soh_id, pedido.override_num_bultos || 1, e.target.value)}
+                      className={styles.selectCompact}
+                    >
+                      <option value="Particular">🏠</option>
+                      <option value="Comercial">🏢</option>
+                      <option value="Sucursal">📦</option>
+                    </select>
                   </td>
                   
                   <td onClick={() => setPedidoSeleccionado(pedido)}>
@@ -1062,78 +1121,6 @@ export default function TabPedidosExport() {
         </div>
       )}
 
-      {/* Modal de Bulk Print */}
-      {mostrarModalBulkPrint && (
-        <div className={styles.modal} onClick={() => setMostrarModalBulkPrint(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h2>🖨️ Imprimir Etiquetas - {pedidosSeleccionados.length} Pedidos</h2>
-              <button onClick={() => setMostrarModalBulkPrint(false)} className={styles.closeBtn}>✖</button>
-            </div>
-
-            <div className={styles.modalBody}>
-              <div className={styles.formGroup}>
-                <label>Número de Bultos (por pedido)</label>
-                <input 
-                  type="number" 
-                  min="1" 
-                  max="10" 
-                  value={numBultos}
-                  onChange={(e) => setNumBultos(parseInt(e.target.value) || 1)}
-                  className={styles.input}
-                />
-                <small>Se generarán {numBultos} etiquetas por cada pedido</small>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label>Tipo de Domicilio</label>
-                <select 
-                  value={tipoDomicilio}
-                  onChange={(e) => setTipoDomicilio(e.target.value)}
-                  className={styles.select}
-                >
-                  <option value="Particular">🏠 Particular</option>
-                  <option value="Comercial">🏢 Comercial</option>
-                  <option value="Sucursal">📦 Sucursal</option>
-                </select>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label>Tipo de Envío (opcional)</label>
-                <input 
-                  type="text"
-                  value={tipoEnvio}
-                  onChange={(e) => setTipoEnvio(e.target.value)}
-                  placeholder="Ej: Expreso, Estándar, etc."
-                  className={styles.input}
-                />
-              </div>
-
-              <div className={styles.bulkPrintSummary}>
-                <p><strong>Total etiquetas a generar:</strong> {pedidosSeleccionados.length * numBultos}</p>
-                <p><strong>Pedidos seleccionados:</strong> {pedidosSeleccionados.join(', ')}</p>
-              </div>
-
-              <div className={styles.modalActions}>
-                <button 
-                  onClick={generarEtiquetasBulk}
-                  disabled={generandoEtiqueta}
-                  className={styles.btnPrimary}
-                >
-                  {generandoEtiqueta ? '⏳ Generando...' : '🖨️ Descargar Etiquetas'}
-                </button>
-                <button onClick={() => setMostrarModalBulkPrint(false)} className={styles.btnSecondary}>
-                  Cancelar
-                </button>
-              </div>
-
-              <div style={{ marginTop: '15px', padding: '10px', background: 'var(--bg-tertiary)', borderRadius: '6px', fontSize: '13px' }}>
-                <strong>💡 Tip:</strong> Todas las etiquetas se descargarán en un solo archivo .txt
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -148,6 +148,22 @@
   border-color: var(--brand-primary);
 }
 
+.selectCompact {
+  padding: 6px 10px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 4px;
+  font-size: 13px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  min-width: 60px;
+}
+
+.selectCompact:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
 .btnFilter {
   background: var(--brand-primary);
   color: var(--text-inverse);
