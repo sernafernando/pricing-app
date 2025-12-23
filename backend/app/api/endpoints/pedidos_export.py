@@ -2,7 +2,7 @@
 Endpoint para visualización de pedidos de exportación.
 Integración del visualizador-pedidos en la pricing-app.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, desc
 from typing import List, Optional, Dict, Any
@@ -355,7 +355,6 @@ async def obtener_todos_pedidos_export(
 
 @router.post("/pedidos-export/sincronizar-export-80")
 async def sincronizar_export_80(
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     force_full: bool = Query(False, description="Forzar sincronización completa (puede tardar varios minutos)")
 ):
@@ -366,16 +365,16 @@ async def sincronizar_export_80(
     Query 87 = TODOS los pedidos pendientes sin filtros
     Los filtros se aplican después en nuestra DB.
     
-    Si force_full=true, hace sincronización completa (puede tardar).
+    EJECUTA EN PRIMER PLANO - puede tardar 1-2 minutos.
     """
     logger.info("Iniciando sincronización desde export_id=87 (query sin filtros)")
     
     try:
-        # Llamar a gbp-parser para obtener datos del export 87 (sin filtros)
-        async with httpx.AsyncClient(timeout=300.0) as client:  # 5 minutos timeout para sync masivo
+        # 1. Llamar a gbp-parser para obtener datos del export 87 (sin filtros)
+        async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
                 "http://localhost:8002/api/gbp-parser",
-                json={"intExpgr_id": 87}  # Query 87 = todos los pedidos sin filtros
+                json={"intExpgr_id": 87}
             )
             response.raise_for_status()
             data = response.json()
@@ -383,17 +382,21 @@ async def sincronizar_export_80(
         if not data or not isinstance(data, list):
             raise HTTPException(500, "No se obtuvieron datos del export 87")
         
-        logger.info(f"Obtenidos {len(data)} registros desde export_id=87 (query sin filtros)")
+        logger.info(f"Obtenidos {len(data)} registros desde export_id=87")
         
-        # Procesar y guardar en background
-        background_tasks.add_task(procesar_pedidos_export_80, data, db, force_full)
+        # 2. Procesar EN PRIMER PLANO (no background)
+        resultado = await procesar_pedidos_export_80_async(data, db, force_full)
         
         return {
-            "mensaje": "Sincronización iniciada en background",
+            "mensaje": "Sincronización completada",
             "registros_obtenidos": len(data),
             "export_id_origen": 87,
             "export_id_destino": 80,
-            "modo": "completo" if force_full else "incremental"
+            "pedidos_actualizados": resultado["actualizados"],
+            "pedidos_archivados": resultado["archivados"],
+            "pedidos_excluidos": resultado["excluidos"],
+            "ws_internalid_copiados": resultado["ws_internalid_copiados"],
+            "tn_enriquecidos": resultado["tn_enriquecidos"]
         }
         
     except httpx.HTTPError as e:
@@ -467,11 +470,11 @@ async def enriquecer_pedidos_tiendanube(db: Session, soh_ids: set):
     logger.info(f"✅ Enriquecimiento TN completado: {enriquecidos} OK, {errores} errores")
 
 
-def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_full: bool = False):
+async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Session, force_full: bool = False):
     """
     Procesa los datos del export 80 y actualiza la DB.
     Marca pedidos activos y archiva los que ya no están.
-    Se ejecuta en background.
+    SE EJECUTA EN PRIMER PLANO (ASYNC) - retorna resultados detallados.
     
     Filtros aplicados:
     - user_id IN (50021, 50006) - Vendedores TiendaNube y MercadoLibre
@@ -482,6 +485,9 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
         data: Lista de registros desde el ERP
         db: Session de SQLAlchemy
         force_full: Si True, hace commit cada N registros para evitar timeout en syncs masivos
+        
+    Returns:
+        Dict con: actualizados, archivados, excluidos, ws_internalid_copiados, tn_enriquecidos
     """
     try:
         pedidos_actualizados = 0
@@ -583,6 +589,7 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
         )
         
         # 6. Copiar tno_orderid a ws_internalid desde tb_tiendanube_orders
+        logger.info("🔄 Copiando tno_orderid a ws_internalid...")
         pedidos_tn_actualizados = db.execute(
             """
             UPDATE tb_sale_order_header tsoh
@@ -601,16 +608,37 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
         db.commit()
         logger.info(f"✅ Copiados {pedidos_tn_actualizados} tno_orderid a ws_internalid")
         
-        # 7. Enriquecer pedidos TN con datos de la API (ejecuta de forma síncrona)
-        import asyncio
+        # 7. Enriquecer pedidos TN con datos de la API (ahora await directo, no asyncio.run)
+        tn_enriquecidos = 0
         try:
-            asyncio.run(enriquecer_pedidos_tiendanube(db, soh_ids_validos))
+            logger.info("🌐 Enriqueciendo pedidos TN con API...")
+            await enriquecer_pedidos_tiendanube(db, soh_ids_validos)
+            
+            # Contar cuántos se enriquecieron
+            tn_enriquecidos = db.query(func.count(SaleOrderHeader.soh_id)).filter(
+                and_(
+                    SaleOrderHeader.soh_id.in_(soh_ids_validos),
+                    SaleOrderHeader.user_id == 50021,
+                    SaleOrderHeader.tiendanube_number.isnot(None)
+                )
+            ).scalar() or 0
+            
+            logger.info(f"✅ Enriquecidos {tn_enriquecidos} pedidos TN con API")
         except Exception as e:
-            logger.error(f"Error en enriquecimiento TN: {e}")
+            logger.error(f"❌ Error en enriquecimiento TN: {e}", exc_info=True)
+        
+        return {
+            "actualizados": pedidos_actualizados,
+            "archivados": pedidos_archivados,
+            "excluidos": pedidos_excluidos,
+            "ws_internalid_copiados": pedidos_tn_actualizados,
+            "tn_enriquecidos": tn_enriquecidos
+        }
         
     except Exception as e:
         db.rollback()
         logger.error(f"❌ Error procesando pedidos export 80: {e}", exc_info=True)
+        raise  # Re-raise para que el endpoint capture el error
 
 
 @router.get("/pedidos-export/{soh_id}/items", response_model=List[PedidoExportItem])
