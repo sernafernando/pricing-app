@@ -5,6 +5,10 @@ Script de prueba para verificar TiendaNube Order Client
 import asyncio
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Cargar .env ANTES de importar módulos
+load_dotenv(Path(__file__).parent / '.env')
 
 sys.path.insert(0, str(Path(__file__).parent))
 
