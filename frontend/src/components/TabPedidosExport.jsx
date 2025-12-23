@@ -7,14 +7,31 @@ const API_URL = 'https://pricing.gaussonline.com.ar/api';
 export default function TabPedidosExport() {
   const [pedidos, setPedidos] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
+  const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   
   // Filtros
   const [soloActivos, setSoloActivos] = useState(true);
+  const [userId, setUserId] = useState(''); // Filtro por user_id
+  const [soloML, setSoloML] = useState(false);
+  const [soloTN, setSoloTN] = useState(false);
+  const [sinCodigoEnvio, setSinCodigoEnvio] = useState(false);
   const [search, setSearch] = useState('');
   
   const getToken = () => localStorage.getItem('token');
+
+  const cargarUsuarios = useCallback(async () => {
+    try {
+      const response = await axios.get(
+        `${API_URL}/usuarios-erp?solo_activos=true`,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setUsuarios(response.data);
+    } catch (error) {
+      console.error('Error cargando usuarios:', error);
+    }
+  }, []);
 
   const cargarEstadisticas = useCallback(async () => {
     try {
@@ -33,7 +50,13 @@ export default function TabPedidosExport() {
     try {
       const params = new URLSearchParams();
       params.append('solo_activos', soloActivos);
-      params.append('limit', '100');
+      params.append('limit', '500');
+      
+      // Filtros opcionales
+      if (userId) params.append('user_id', userId);
+      if (soloML) params.append('solo_ml', 'true');
+      if (soloTN) params.append('solo_tn', 'true');
+      if (sinCodigoEnvio) params.append('sin_codigo_envio', 'true');
       
       const response = await axios.get(
         `${API_URL}/pedidos-export/por-export/80?${params}`,
@@ -42,7 +65,7 @@ export default function TabPedidosExport() {
       
       let data = response.data;
       
-      // Filtro de búsqueda local
+      // Filtro de búsqueda local (para texto libre)
       if (search) {
         const searchLower = search.toLowerCase();
         data = data.filter(p => 
@@ -59,7 +82,7 @@ export default function TabPedidosExport() {
     } finally {
       setLoading(false);
     }
-  }, [soloActivos, search]);
+  }, [soloActivos, userId, soloML, soloTN, sinCodigoEnvio, search]);
 
   const sincronizarPedidos = async () => {
     if (!confirm('¿Sincronizar pedidos desde el ERP? Esto puede tardar unos segundos.')) return;
@@ -89,9 +112,13 @@ export default function TabPedidosExport() {
   };
 
   useEffect(() => {
+    cargarUsuarios();
     cargarEstadisticas();
+  }, [cargarUsuarios, cargarEstadisticas]);
+
+  useEffect(() => {
     cargarPedidos();
-  }, [cargarEstadisticas, cargarPedidos]);
+  }, [cargarPedidos]);
 
   const formatearFecha = (fecha) => {
     if (!fecha) return '-';
@@ -156,6 +183,47 @@ export default function TabPedidosExport() {
           >
             {soloActivos ? '✓ Solo Activos' : 'Ver Todos'}
           </button>
+
+          <select
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+            className={styles.select}
+          >
+            <option value="">Todos los usuarios</option>
+            <option value="50021">🛒 TiendaNube (50021)</option>
+            {usuarios.map((u) => (
+              <option key={u.user_id} value={u.user_id}>
+                {u.user_name || u.user_loginname} ({u.user_id})
+              </option>
+            ))}
+          </select>
+
+          <div className={styles.checkboxGroup}>
+            <label className={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={soloML}
+                onChange={(e) => setSoloML(e.target.checked)}
+              />
+              Solo ML
+            </label>
+            <label className={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={soloTN}
+                onChange={(e) => setSoloTN(e.target.checked)}
+              />
+              Solo TN
+            </label>
+            <label className={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={sinCodigoEnvio}
+                onChange={(e) => setSinCodigoEnvio(e.target.checked)}
+              />
+              Sin etiqueta
+            </label>
+          </div>
           
           <input
             type="text"

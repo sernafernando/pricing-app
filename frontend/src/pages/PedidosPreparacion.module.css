@@ -234,12 +234,19 @@
   background: var(--bg-secondary);
   border-radius: 8px;
   border: 1px solid var(--border-secondary);
+  white-space: nowrap;
 }
 
 .checkboxLabel input {
   width: 16px;
   height: 16px;
   cursor: pointer;
+}
+
+.checkboxGroup {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 /* Multi-select */

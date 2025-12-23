@@ -49,6 +49,10 @@ class PedidoExportResponse(BaseModel):
     nombre_cliente: Optional[str]
     direccion_entrega: Optional[str]
     
+    # Usuario y estado
+    user_id: Optional[int]
+    ssos_id: Optional[int]
+    
     # Observaciones y notas
     observacion: Optional[str]
     nota_interna: Optional[str]
@@ -90,12 +94,25 @@ async def obtener_pedidos_por_export(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
     solo_activos: bool = Query(True, description="Solo pedidos activos (no archivados)"),
+    user_id: Optional[int] = Query(None, description="Filtrar por user_id específico"),
+    ssos_id: Optional[int] = Query(None, description="Filtrar por ssos_id (estado del pedido)"),
+    solo_ml: bool = Query(False, description="Solo pedidos de MercadoLibre"),
+    solo_tn: bool = Query(False, description="Solo pedidos de TiendaNube"),
+    sin_codigo_envio: bool = Query(False, description="Solo pedidos sin código de envío asignado"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0)
 ):
     """
     Obtiene pedidos filtrados por export_id del ERP.
     Export ID 80 típicamente corresponde a pedidos pendientes de preparación.
+    
+    Filtros opcionales disponibles:
+    - user_id: Filtrar por vendedor específico (ej: 50021 para TiendaNube)
+    - ssos_id: Filtrar por estado del pedido (ej: 20 para pendiente de preparación)
+    - solo_ml: Solo pedidos de MercadoLibre (tienen soh_mlid)
+    - solo_tn: Solo pedidos de TiendaNube (tienen ws_internalid)
+    - sin_codigo_envio: Solo pedidos que aún no tienen código de envío asignado
+    
     Por defecto solo muestra activos, usar solo_activos=false para ver archivados.
     """
     # Query principal
@@ -106,6 +123,22 @@ async def obtener_pedidos_por_export(
     # Filtrar por activos/archivados
     if solo_activos:
         query = query.filter(SaleOrderHeader.export_activo == True)
+    
+    # Filtros opcionales
+    if user_id is not None:
+        query = query.filter(SaleOrderHeader.user_id == user_id)
+    
+    if ssos_id is not None:
+        query = query.filter(SaleOrderHeader.ssos_id == ssos_id)
+    
+    if solo_ml:
+        query = query.filter(SaleOrderHeader.soh_mlid.isnot(None))
+    
+    if solo_tn:
+        query = query.filter(SaleOrderHeader.ws_internalid.isnot(None))
+    
+    if sin_codigo_envio:
+        query = query.filter(SaleOrderHeader.codigo_envio_interno.is_(None))
     
     # Ordenar por fecha descendente
     query = query.order_by(desc(SaleOrderHeader.soh_cd))
@@ -124,6 +157,8 @@ async def obtener_pedidos_por_export(
             cust_id=pedido.cust_id,
             nombre_cliente=None,  # TODO: Join con tabla clientes
             direccion_entrega=pedido.soh_deliveryaddress,
+            user_id=pedido.user_id,
+            ssos_id=pedido.ssos_id,
             observacion=pedido.soh_observation1,
             nota_interna=pedido.soh_internalannotation,
             ml_order_id=pedido.soh_mlid,
@@ -275,6 +310,8 @@ async def obtener_todos_pedidos_export(
             cust_id=pedido.cust_id,
             nombre_cliente=None,
             direccion_entrega=pedido.soh_deliveryaddress,
+            user_id=pedido.user_id,
+            ssos_id=pedido.ssos_id,
             observacion=pedido.soh_observation1,
             nota_interna=pedido.soh_internalannotation,
             ml_order_id=pedido.soh_mlid,
@@ -348,6 +385,11 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
     Marca pedidos activos y archiva los que ya no están.
     Se ejecuta en background.
     
+    Filtros aplicados:
+    - user_id = 50021 (vendedor TiendaNube)
+    - ssos_id = 20 (estado: pendiente de preparación)
+    - Excluye pedidos que SOLO tengan items 2953/2954 (items de envío/servicio)
+    
     Args:
         data: Lista de registros desde el ERP
         db: Session de SQLAlchemy
@@ -356,6 +398,7 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
     try:
         pedidos_actualizados = 0
         pedidos_archivados = 0
+        pedidos_excluidos = 0
         soh_ids_actuales = set()
         
         # 1. Recolectar IDs de pedidos actuales en el export
@@ -365,11 +408,40 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
             if soh_id:
                 soh_ids_actuales.add(soh_id)
         
-        logger.info(f"Total de pedidos únicos en el export: {len(soh_ids_actuales)}")
+        logger.info(f"Total de pedidos únicos en el export (sin filtrar): {len(soh_ids_actuales)}")
         
-        # 2. Marcar pedidos actuales como activos (batch por performance)
+        # 2. Aplicar filtros: Solo pedidos con user_id=50021 y ssos_id=20
+        pedidos_filtrados = db.query(SaleOrderHeader.soh_id).filter(
+            and_(
+                SaleOrderHeader.soh_id.in_(soh_ids_actuales),
+                SaleOrderHeader.user_id == 50021,
+                SaleOrderHeader.ssos_id == 20
+            )
+        ).all()
+        
+        soh_ids_filtrados = set([p.soh_id for p in pedidos_filtrados])
+        logger.info(f"Pedidos que cumplen filtros (user_id=50021, ssos_id=20): {len(soh_ids_filtrados)}")
+        
+        # 3. Excluir pedidos que SOLO tienen items 2953/2954 (envíos/servicios)
+        # Verificamos pedidos que tienen TODOS sus items en (2953, 2954)
+        pedidos_solo_servicio = db.query(SaleOrderDetail.soh_id).filter(
+            SaleOrderDetail.soh_id.in_(soh_ids_filtrados)
+        ).group_by(SaleOrderDetail.soh_id).having(
+            func.count(SaleOrderDetail.item_id) == func.sum(
+                func.case((SaleOrderDetail.item_id.in_([2953, 2954]), 1), else_=0)
+            )
+        ).all()
+        
+        soh_ids_excluidos = set([p.soh_id for p in pedidos_solo_servicio])
+        soh_ids_validos = soh_ids_filtrados - soh_ids_excluidos
+        
+        pedidos_excluidos = len(soh_ids_excluidos)
+        logger.info(f"Pedidos excluidos (solo items 2953/2954): {pedidos_excluidos}")
+        logger.info(f"Pedidos válidos finales: {len(soh_ids_validos)}")
+        
+        # 4. Marcar pedidos válidos como activos (batch por performance)
         batch_size = 100
-        soh_ids_list = list(soh_ids_actuales)
+        soh_ids_list = list(soh_ids_validos)
         
         for i in range(0, len(soh_ids_list), batch_size):
             batch = soh_ids_list[i:i + batch_size]
@@ -391,12 +463,12 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
                 db.commit()  # Commit parcial cada 500 registros
                 logger.info(f"Procesados {pedidos_actualizados} pedidos...")
         
-        # 3. Archivar pedidos que ya no están en el export 80
+        # 5. Archivar pedidos que ya no están en el export 80 válido
         pedidos_archivados_count = db.query(SaleOrderHeader).filter(
             and_(
                 SaleOrderHeader.export_id == 80,
                 SaleOrderHeader.export_activo == True,
-                SaleOrderHeader.soh_id.notin_(soh_ids_actuales)
+                SaleOrderHeader.soh_id.notin_(soh_ids_validos)
             )
         ).update(
             {"export_activo": False},
@@ -408,7 +480,7 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
         db.commit()
         logger.info(
             f"✅ Sincronización completada: {pedidos_actualizados} pedidos activos, "
-            f"{pedidos_archivados} pedidos archivados"
+            f"{pedidos_archivados} pedidos archivados, {pedidos_excluidos} excluidos por filtros"
         )
         
     except Exception as e:
