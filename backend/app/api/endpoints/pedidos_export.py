@@ -582,7 +582,26 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
             f"{pedidos_archivados} pedidos archivados, {pedidos_excluidos} excluidos por filtros"
         )
         
-        # 6. Enriquecer pedidos TN con datos de la API (ejecuta de forma síncrona)
+        # 6. Copiar tno_orderid a ws_internalid desde tb_tiendanube_orders
+        pedidos_tn_actualizados = db.execute(
+            """
+            UPDATE tb_sale_order_header tsoh
+            SET ws_internalid = tno.tno_orderid::text
+            FROM tb_tiendanube_orders tno
+            WHERE tsoh.soh_id = tno.soh_id
+              AND tsoh.bra_id = tno.bra_id
+              AND tsoh.user_id = 50021
+              AND tsoh.export_id = 80
+              AND tsoh.export_activo = true
+              AND tno.tno_orderid IS NOT NULL
+              AND (tsoh.ws_internalid IS NULL OR tsoh.ws_internalid != tno.tno_orderid::text)
+            """
+        ).rowcount
+        
+        db.commit()
+        logger.info(f"✅ Copiados {pedidos_tn_actualizados} tno_orderid a ws_internalid")
+        
+        # 7. Enriquecer pedidos TN con datos de la API (ejecuta de forma síncrona)
         import asyncio
         try:
             asyncio.run(enriquecer_pedidos_tiendanube(db, soh_ids_validos))
