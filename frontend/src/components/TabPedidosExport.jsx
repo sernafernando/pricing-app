@@ -606,8 +606,8 @@ export default function TabPedidosExport() {
             </div>
 
             <div className={styles.modalBody}>
-              <div style={{ marginBottom: '15px', padding: '10px', background: 'var(--warning-bg)', borderRadius: '6px', color: 'var(--warning-text)' }}>
-                <strong>⚠️ Nota:</strong> Este cambio es solo para visualización. Las etiquetas ZPL usarán los datos reales de TN/ERP.
+              <div style={{ marginBottom: '15px', padding: '10px', background: 'var(--info-bg)', borderRadius: '6px', color: 'var(--info-text)' }}>
+                <strong>📝 Nota:</strong> Este cambio sobrescribe los datos de TN/ERP. Se usará para visualización Y para las etiquetas de envío.
               </div>
 
               <div className={styles.formGroup}>
