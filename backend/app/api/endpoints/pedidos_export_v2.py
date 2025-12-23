@@ -13,7 +13,7 @@ import logging
 
 from app.core.database import get_db
 from app.models.pedido_export import PedidoExport
-from app.api.deps import get_current_user
+# from app.api.deps import get_current_user  # No usamos auth por ahora
 from app.services.tienda_nube_order_client import TiendaNubeOrderClient
 
 router = APIRouter()
@@ -72,7 +72,7 @@ class EstadisticasPedidos(BaseModel):
 @router.get("/pedidos-export-v2", response_model=List[PedidoResumen])
 async def obtener_pedidos(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    # current_user: dict = Depends(get_current_user),  # Deshabilitado para testing
     solo_activos: bool = Query(True, description="Solo pedidos activos"),
     solo_tn: bool = Query(False, description="Solo pedidos de TiendaNube"),
     buscar: Optional[str] = Query(None, description="Buscar por nombre cliente u orden TN"),
@@ -159,7 +159,7 @@ async def obtener_pedidos(
 @router.get("/pedidos-export-v2/estadisticas", response_model=EstadisticasPedidos)
 async def obtener_estadisticas(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    # current_user: dict = Depends(get_current_user)
 ):
     """Estadísticas de pedidos activos"""
     
@@ -201,7 +201,7 @@ async def obtener_estadisticas(
 @router.post("/pedidos-export-v2/sincronizar")
 async def sincronizar_pedidos(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    # current_user: dict = Depends(get_current_user)  # Sin auth
 ):
     """
     Sincroniza pedidos desde Export 87 del ERP.
@@ -316,7 +316,7 @@ async def sincronizar_pedidos(
 @router.post("/pedidos-export-v2/enriquecer-tiendanube")
 async def enriquecer_tiendanube(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    # current_user: dict = Depends(get_current_user)  # Sin auth
 ):
     """
     Enriquece pedidos TN con datos de la API.
