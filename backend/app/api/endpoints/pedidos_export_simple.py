@@ -118,6 +118,7 @@ async def obtener_pedidos(
     solo_sin_direccion: bool = Query(False),
     user_id: Optional[int] = Query(None),
     provincia: Optional[str] = Query(None),
+    cliente: Optional[str] = Query(None),
     buscar: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0)
@@ -149,10 +150,13 @@ async def obtener_pedidos(
         query = query.filter(SaleOrderHeader.export_activo == True)
     
     if solo_tn:
-        query = query.filter(SaleOrderHeader.user_id == 50021)
+        # Filtrar por ws_internalid (cualquier pedido con Order ID de TN)
+        # NO por user_id, porque puede haber pedidos de TN con otro user_id
+        query = query.filter(SaleOrderHeader.ws_internalid.isnot(None))
     
     if solo_ml:
-        query = query.filter(SaleOrderHeader.user_id == 50006)
+        # Filtrar por soh_mlid (cualquier pedido con ML ID)
+        query = query.filter(SaleOrderHeader.soh_mlid.isnot(None))
     
     if user_id:
         query = query.filter(SaleOrderHeader.user_id == user_id)
@@ -187,6 +191,10 @@ async def obtener_pedidos(
                 SaleOrderHeader.tiendanube_shipping_province.ilike(f'%{provincia}%')
             )
         )
+    
+    if cliente:
+        # Buscar por nombre de cliente
+        query = query.filter(TBCustomer.cust_name.ilike(f'%{cliente}%'))
     
     if buscar:
         query = query.filter(

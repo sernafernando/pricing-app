@@ -28,6 +28,10 @@ export default function TabPedidosExport() {
   const [tipoEnvio, setTipoEnvio] = useState('');
   const [generandoEtiqueta, setGenerandoEtiqueta] = useState(false);
   
+  // Bulk print
+  const [pedidosSeleccionados, setPedidosSeleccionados] = useState([]);
+  const [mostrarModalBulkPrint, setMostrarModalBulkPrint] = useState(false);
+  
   // Filtros
   const [soloActivos, setSoloActivos] = useState(true);
   const [soloTN, setSoloTN] = useState(false);
@@ -36,6 +40,7 @@ export default function TabPedidosExport() {
   const [soloSinDireccion, setSoloSinDireccion] = useState(false);
   const [userIdFiltro, setUserIdFiltro] = useState('');
   const [provinciaFiltro, setProvinciaFiltro] = useState('');
+  const [clienteFiltro, setClienteFiltro] = useState('');
   const [search, setSearch] = useState('');
   
   // Listas para dropdowns
@@ -90,6 +95,7 @@ export default function TabPedidosExport() {
       if (soloSinDireccion) params.append('solo_sin_direccion', 'true');
       if (userIdFiltro) params.append('user_id', userIdFiltro);
       if (provinciaFiltro) params.append('provincia', provinciaFiltro);
+      if (clienteFiltro) params.append('cliente', clienteFiltro);
       if (search) params.append('buscar', search);
       params.append('limit', '200');
 
@@ -113,7 +119,7 @@ export default function TabPedidosExport() {
     } finally {
       setLoading(false);
     }
-  }, [soloActivos, soloTN, soloML, soloOtros, soloSinDireccion, userIdFiltro, provinciaFiltro, search]);
+  }, [soloActivos, soloTN, soloML, soloOtros, soloSinDireccion, userIdFiltro, provinciaFiltro, clienteFiltro, search]);
 
   const sincronizarPedidos = async () => {
     if (!confirm('¿Sincronizar pedidos desde el ERP? Puede tardar 1-2 minutos.')) {
@@ -269,6 +275,72 @@ export default function TabPedidosExport() {
     return pedido.user_name || `User ${pedido.user_id}`;
   };
 
+  const toggleSeleccionPedido = (sohId) => {
+    setPedidosSeleccionados(prev => 
+      prev.includes(sohId) 
+        ? prev.filter(id => id !== sohId)
+        : [...prev, sohId]
+    );
+  };
+
+  const toggleSeleccionarTodos = () => {
+    if (pedidosSeleccionados.length === pedidos.length) {
+      setPedidosSeleccionados([]);
+    } else {
+      setPedidosSeleccionados(pedidos.map(p => p.soh_id));
+    }
+  };
+
+  const generarEtiquetasBulk = async () => {
+    if (pedidosSeleccionados.length === 0) {
+      alert('⚠️ Seleccioná al menos un pedido');
+      return;
+    }
+
+    setGenerandoEtiqueta(true);
+    try {
+      let allZpl = '';
+      
+      for (const sohId of pedidosSeleccionados) {
+        const params = new URLSearchParams();
+        params.append('num_bultos', numBultos);
+        if (tipoDomicilio) params.append('tipo_domicilio_manual', tipoDomicilio);
+        if (tipoEnvio) params.append('tipo_envio_manual', tipoEnvio);
+
+        const response = await axios.get(
+          `${API_URL}/pedidos-simple/${sohId}/etiqueta-zpl`,
+          {
+            params: params,
+            headers: { Authorization: `Bearer ${getToken()}` },
+            responseType: 'text'
+          }
+        );
+
+        allZpl += response.data + '\n\n';
+      }
+
+      // Descargar archivo combinado
+      const blob = new Blob([allZpl], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `etiquetas_bulk_${pedidosSeleccionados.length}_pedidos.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      setMostrarModalBulkPrint(false);
+      setPedidosSeleccionados([]);
+      alert(`✅ Etiquetas descargadas: ${pedidosSeleccionados.length} pedidos`);
+    } catch (error) {
+      console.error('Error generando etiquetas bulk:', error);
+      alert('❌ Error generando etiquetas: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setGenerandoEtiqueta(false);
+    }
+  };
+
   useEffect(() => {
     cargarPedidos();
     cargarEstadisticas();
@@ -420,7 +492,15 @@ export default function TabPedidosExport() {
 
           <input
             type="text"
-            placeholder="Buscar por cliente, orden TN o ID..."
+            placeholder="Filtrar por cliente..."
+            value={clienteFiltro}
+            onChange={(e) => setClienteFiltro(e.target.value)}
+            className={styles.searchInput}
+          />
+
+          <input
+            type="text"
+            placeholder="Buscar por orden TN o ID pedido..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className={styles.searchInput}
@@ -432,6 +512,27 @@ export default function TabPedidosExport() {
         </div>
       </div>
 
+      {/* Bulk Actions */}
+      {pedidos.length > 0 && (
+        <div className={styles.bulkActions}>
+          <button 
+            onClick={() => setMostrarModalBulkPrint(true)}
+            disabled={pedidosSeleccionados.length === 0}
+            className={styles.btnBulkPrint}
+          >
+            🖨️ Imprimir Etiquetas ({pedidosSeleccionados.length})
+          </button>
+          {pedidosSeleccionados.length > 0 && (
+            <button 
+              onClick={() => setPedidosSeleccionados([])}
+              className={styles.btnClearSelection}
+            >
+              ✖️ Limpiar Selección
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Tabla de pedidos */}
       {loading ? (
         <div className={styles.loading}>Cargando pedidos...</div>
@@ -442,6 +543,14 @@ export default function TabPedidosExport() {
           <table className={styles.table}>
             <thead>
               <tr>
+                <th>
+                  <input 
+                    type="checkbox" 
+                    checked={pedidosSeleccionados.length === pedidos.length && pedidos.length > 0}
+                    onChange={toggleSeleccionarTodos}
+                    title="Seleccionar todos"
+                  />
+                </th>
                 <th>ID PEDIDO</th>
                 <th>CLIENTE</th>
                 <th>ITEMS</th>
@@ -456,10 +565,16 @@ export default function TabPedidosExport() {
               {pedidos.map((pedido) => (
                 <tr 
                   key={pedido.soh_id}
-                  onClick={() => setPedidoSeleccionado(pedido)}
                   className={styles.row}
                 >
-                  <td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input 
+                      type="checkbox" 
+                      checked={pedidosSeleccionados.includes(pedido.soh_id)}
+                      onChange={() => toggleSeleccionPedido(pedido.soh_id)}
+                    />
+                  </td>
+                  <td onClick={() => setPedidoSeleccionado(pedido)}>
                     <div className={styles.pedidoId}>
                       <strong>GBP: {pedido.soh_id}</strong>
                       {pedido.user_id && (
@@ -470,7 +585,7 @@ export default function TabPedidosExport() {
                     </div>
                   </td>
                   
-                  <td>
+                  <td onClick={() => setPedidoSeleccionado(pedido)}>
                     <div className={styles.cliente}>
                       <strong>{pedido.nombre_cliente || 'Sin nombre'}</strong>
                       {pedido.cust_id && (
@@ -479,13 +594,13 @@ export default function TabPedidosExport() {
                     </div>
                   </td>
                   
-                  <td className={styles.textCenter}>
+                  <td className={styles.textCenter} onClick={() => setPedidoSeleccionado(pedido)}>
                     <div className={styles.itemsBadge}>
                       {pedido.total_items} {pedido.total_items === 1 ? 'item' : 'items'}
                     </div>
                   </td>
                   
-                  <td>
+                  <td onClick={() => setPedidoSeleccionado(pedido)}>
                     {pedido.tiendanube_number ? (
                       <div className={styles.ordenTN}>
                         <div className={styles.ordenTNNumber}>
@@ -502,7 +617,7 @@ export default function TabPedidosExport() {
                     )}
                   </td>
                   
-                  <td>
+                  <td onClick={() => setPedidoSeleccionado(pedido)}>
                     {(() => {
                       const dir = getDireccionDisplay(pedido);
                       return dir.direccion ? (
@@ -528,7 +643,7 @@ export default function TabPedidosExport() {
                     })()}
                   </td>
                   
-                  <td>
+                  <td onClick={() => setPedidoSeleccionado(pedido)}>
                     {pedido.soh_observation1 ? (
                       <div className={styles.observaciones}>{pedido.soh_observation1}</div>
                     ) : (
@@ -536,7 +651,7 @@ export default function TabPedidosExport() {
                     )}
                   </td>
                   
-                  <td className={styles.textCenter}>
+                  <td className={styles.textCenter} onClick={() => setPedidoSeleccionado(pedido)}>
                     {pedido.soh_deliverydate ? (
                       new Date(pedido.soh_deliverydate).toLocaleDateString('es-AR')
                     ) : (
@@ -544,12 +659,9 @@ export default function TabPedidosExport() {
                     )}
                   </td>
 
-                  <td className={styles.textCenter}>
+                  <td className={styles.textCenter} onClick={(e) => e.stopPropagation()}>
                     <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setPedidoSeleccionado(pedido);
-                      }}
+                      onClick={() => setPedidoSeleccionado(pedido)}
                       className={styles.btnDetalle}
                     >
                       Ver Detalle
@@ -951,6 +1063,79 @@ export default function TabPedidosExport() {
 
               <div style={{ marginTop: '15px', padding: '10px', background: 'var(--bg-tertiary)', borderRadius: '6px', fontSize: '13px' }}>
                 <strong>💡 Tip:</strong> Abrí el archivo .txt con el software de tu impresora Zebra (Zebra Browser Print o ZebraDesigner) para imprimir.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Bulk Print */}
+      {mostrarModalBulkPrint && (
+        <div className={styles.modal} onClick={() => setMostrarModalBulkPrint(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>🖨️ Imprimir Etiquetas - {pedidosSeleccionados.length} Pedidos</h2>
+              <button onClick={() => setMostrarModalBulkPrint(false)} className={styles.closeBtn}>✖</button>
+            </div>
+
+            <div className={styles.modalBody}>
+              <div className={styles.formGroup}>
+                <label>Número de Bultos (por pedido)</label>
+                <input 
+                  type="number" 
+                  min="1" 
+                  max="10" 
+                  value={numBultos}
+                  onChange={(e) => setNumBultos(parseInt(e.target.value) || 1)}
+                  className={styles.input}
+                />
+                <small>Se generarán {numBultos} etiquetas por cada pedido</small>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Tipo de Domicilio</label>
+                <select 
+                  value={tipoDomicilio}
+                  onChange={(e) => setTipoDomicilio(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="Particular">🏠 Particular</option>
+                  <option value="Comercial">🏢 Comercial</option>
+                  <option value="Sucursal">📦 Sucursal</option>
+                </select>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Tipo de Envío (opcional)</label>
+                <input 
+                  type="text"
+                  value={tipoEnvio}
+                  onChange={(e) => setTipoEnvio(e.target.value)}
+                  placeholder="Ej: Expreso, Estándar, etc."
+                  className={styles.input}
+                />
+              </div>
+
+              <div className={styles.bulkPrintSummary}>
+                <p><strong>Total etiquetas a generar:</strong> {pedidosSeleccionados.length * numBultos}</p>
+                <p><strong>Pedidos seleccionados:</strong> {pedidosSeleccionados.join(', ')}</p>
+              </div>
+
+              <div className={styles.modalActions}>
+                <button 
+                  onClick={generarEtiquetasBulk}
+                  disabled={generandoEtiqueta}
+                  className={styles.btnPrimary}
+                >
+                  {generandoEtiqueta ? '⏳ Generando...' : '🖨️ Descargar Etiquetas'}
+                </button>
+                <button onClick={() => setMostrarModalBulkPrint(false)} className={styles.btnSecondary}>
+                  Cancelar
+                </button>
+              </div>
+
+              <div style={{ marginTop: '15px', padding: '10px', background: 'var(--bg-tertiary)', borderRadius: '6px', fontSize: '13px' }}>
+                <strong>💡 Tip:</strong> Todas las etiquetas se descargarán en un solo archivo .txt
               </div>
             </div>
           </div>

@@ -141,6 +141,65 @@
   background: var(--brand-primary-hover);
 }
 
+/* Bulk Actions */
+.bulkActions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+  padding: 15px;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+}
+
+.btnBulkPrint {
+  background: var(--brand-primary);
+  color: var(--text-inverse);
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btnBulkPrint:hover:not(:disabled) {
+  background: var(--brand-primary-hover);
+}
+
+.btnBulkPrint:disabled {
+  background: var(--text-tertiary);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btnClearSelection {
+  background: var(--error);
+  color: var(--text-inverse);
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btnClearSelection:hover {
+  background: var(--error-hover);
+}
+
+.bulkPrintSummary {
+  background: var(--bg-tertiary);
+  padding: 15px;
+  border-radius: 6px;
+  margin-top: 15px;
+}
+
+.bulkPrintSummary p {
+  margin: 5px 0;
+  font-size: 14px;
+}
+
 /* Table */
 .tableWrapper {
   background: var(--bg-primary);
