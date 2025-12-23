@@ -12,11 +12,11 @@
 }
 
 .statCard {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--gradient-info);
   padding: 20px;
   border-radius: 10px;
-  color: white;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-md);
 }
 
 .statLabel {
@@ -41,20 +41,21 @@
 
 /* Controls */
 .controls {
-  background: white;
+  background: var(--bg-primary);
   padding: 20px;
   border-radius: 8px;
   margin-bottom: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
   display: flex;
   gap: 15px;
   align-items: center;
   flex-wrap: wrap;
+  border: 1px solid var(--border-primary);
 }
 
 .btnSync {
-  background: #10b981;
-  color: white;
+  background: var(--success);
+  color: var(--text-inverse);
   border: none;
   padding: 12px 24px;
   border-radius: 6px;
@@ -64,11 +65,11 @@
 }
 
 .btnSync:hover:not(:disabled) {
-  background: #059669;
+  background: var(--success-hover);
 }
 
 .btnSync:disabled {
-  background: #9ca3af;
+  background: var(--text-tertiary);
   cursor: not-allowed;
 }
 
@@ -86,6 +87,7 @@
   gap: 6px;
   cursor: pointer;
   user-select: none;
+  color: var(--text-primary);
 }
 
 .checkbox input {
@@ -94,16 +96,23 @@
 
 .searchInput {
   padding: 10px 15px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-secondary);
   border-radius: 6px;
   font-size: 14px;
   flex: 1;
   min-width: 250px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--brand-primary);
 }
 
 .btnFilter {
-  background: #3b82f6;
-  color: white;
+  background: var(--brand-primary);
+  color: var(--text-inverse);
   border: none;
   padding: 10px 20px;
   border-radius: 6px;
@@ -113,15 +122,16 @@
 }
 
 .btnFilter:hover {
-  background: #2563eb;
+  background: var(--brand-primary-hover);
 }
 
 /* Table */
 .tableWrapper {
-  background: white;
+  background: var(--bg-primary);
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-primary);
 }
 
 .table {
@@ -130,8 +140,8 @@
 }
 
 .table thead {
-  background: #1f2937;
-  color: white;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .table thead th {
@@ -141,21 +151,23 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  border-bottom: 2px solid var(--border-secondary);
 }
 
 .table tbody tr {
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-primary);
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .table tbody tr:hover {
-  background: #f9fafb;
+  background: var(--bg-hover);
 }
 
 .table tbody td {
   padding: 15px 12px;
   font-size: 14px;
+  color: var(--text-primary);
 }
 
 .row {
@@ -169,11 +181,15 @@
   gap: 5px;
 }
 
+.pedidoId strong {
+  color: var(--text-primary);
+}
+
 .userBadge {
   display: inline-block;
   padding: 3px 8px;
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--accent-bg);
+  color: var(--accent-text);
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
@@ -187,17 +203,21 @@
   gap: 3px;
 }
 
+.cliente strong {
+  color: var(--text-primary);
+}
+
 .clienteId {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 /* Items */
 .itemsBadge {
   display: inline-block;
   padding: 5px 12px;
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--warning-bg);
+  color: var(--warning-text);
   border-radius: 6px;
   font-weight: 600;
   font-size: 13px;
@@ -212,12 +232,12 @@
 
 .ordenTNNumber {
   font-weight: 600;
-  color: #059669;
+  color: var(--success);
 }
 
 .ordenTNId {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 /* Dirección */
@@ -226,21 +246,22 @@
   flex-direction: column;
   gap: 4px;
   max-width: 300px;
+  color: var(--text-primary);
 }
 
 .localidad {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .telefono {
   font-size: 12px;
-  color: #3b82f6;
+  color: var(--brand-primary);
   font-weight: 500;
 }
 
 .sinDireccion {
-  color: #ef4444;
+  color: var(--error);
   font-weight: 500;
 }
 
@@ -251,13 +272,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 /* Botones */
 .btnDetalle {
-  background: #6366f1;
-  color: white;
+  background: var(--info);
+  color: var(--text-inverse);
   border: none;
   padding: 6px 14px;
   border-radius: 5px;
@@ -268,7 +289,7 @@
 }
 
 .btnDetalle:hover {
-  background: #4f46e5;
+  background: var(--info-hover);
 }
 
 /* Utils */
@@ -277,23 +298,26 @@
 }
 
 .textMuted {
-  color: #9ca3af;
+  color: var(--text-tertiary);
 }
 
 .loading {
   text-align: center;
   padding: 60px;
-  color: #6b7280;
+  color: var(--text-secondary);
   font-size: 16px;
+  background: var(--bg-primary);
+  border-radius: 8px;
 }
 
 .empty {
   text-align: center;
   padding: 60px;
-  color: #9ca3af;
+  color: var(--text-tertiary);
   font-size: 16px;
-  background: white;
+  background: var(--bg-primary);
   border-radius: 8px;
+  border: 1px solid var(--border-primary);
 }
 
 /* Modal */
@@ -303,7 +327,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -312,14 +336,15 @@
 }
 
 .modalContent {
-  background: #1f2937;
+  background: var(--bg-primary);
   border-radius: 12px;
   max-width: 900px;
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
-  color: white;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border-secondary);
 }
 
 .modalHeader {
@@ -327,20 +352,20 @@
   justify-content: space-between;
   align-items: center;
   padding: 25px 30px;
-  border-bottom: 1px solid #374151;
+  border-bottom: 1px solid var(--border-primary);
 }
 
 .modalHeader h2 {
   margin: 0;
   font-size: 24px;
   font-weight: 700;
-  color: #10b981;
+  color: var(--success);
 }
 
 .btnClose {
   background: transparent;
   border: none;
-  color: white;
+  color: var(--text-primary);
   font-size: 28px;
   cursor: pointer;
   width: 40px;
@@ -353,7 +378,7 @@
 }
 
 .btnClose:hover {
-  background: #374151;
+  background: var(--bg-hover);
 }
 
 .modalBody {
@@ -369,16 +394,17 @@
 }
 
 .infoSection {
-  background: #374151;
+  background: var(--bg-secondary);
   padding: 20px;
   border-radius: 8px;
+  border: 1px solid var(--border-primary);
 }
 
 .infoSection h3 {
   margin: 0 0 15px 0;
   font-size: 16px;
   font-weight: 600;
-  color: #10b981;
+  color: var(--success);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -388,55 +414,58 @@
   gap: 10px;
   margin-bottom: 10px;
   font-size: 14px;
+  color: var(--text-primary);
 }
 
 .infoRow strong {
-  color: #9ca3af;
+  color: var(--text-secondary);
   min-width: 120px;
 }
 
 .observacionesDetalle {
-  background: #1f2937;
+  background: var(--bg-tertiary);
   padding: 15px;
   border-radius: 6px;
   font-size: 14px;
   line-height: 1.6;
-  border-left: 3px solid #10b981;
+  border-left: 3px solid var(--success);
+  color: var(--text-primary);
 }
 
 /* Items Section */
 .itemsSection {
-  background: #374151;
+  background: var(--bg-secondary);
   padding: 20px;
   border-radius: 8px;
+  border: 1px solid var(--border-primary);
 }
 
 .itemsSection h3 {
   margin: 0 0 15px 0;
   font-size: 18px;
   font-weight: 600;
-  color: #10b981;
+  color: var(--success);
 }
 
 .cantidadTotal {
-  background: #1f2937;
+  background: var(--bg-tertiary);
   padding: 12px 15px;
   border-radius: 6px;
   margin-bottom: 15px;
   font-weight: 600;
-  color: #10b981;
+  color: var(--success);
 }
 
 .itemsTable {
   width: 100%;
   border-collapse: collapse;
-  background: #1f2937;
+  background: var(--bg-tertiary);
   border-radius: 6px;
   overflow: hidden;
 }
 
 .itemsTable thead {
-  background: #111827;
+  background: var(--bg-secondary);
 }
 
 .itemsTable thead th {
@@ -446,11 +475,12 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #9ca3af;
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border-primary);
 }
 
 .itemsTable tbody tr {
-  border-bottom: 1px solid #374151;
+  border-bottom: 1px solid var(--border-primary);
 }
 
 .itemsTable tbody tr:last-child {
@@ -460,9 +490,10 @@
 .itemsTable tbody td {
   padding: 12px 15px;
   font-size: 14px;
+  color: var(--text-primary);
 }
 
 .itemsTable tbody td:first-child {
   font-weight: 600;
-  color: #10b981;
+  color: var(--success);
 }
