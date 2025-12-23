@@ -35,6 +35,7 @@ class PedidoResumen(BaseModel):
     id_pedido: int
     id_cliente: Optional[int]
     nombre_cliente: Optional[str]
+    user_id: Optional[int]  # 50021=TN, 50006=ML
     
     # Envío
     tipo_envio: Optional[str]
@@ -75,6 +76,8 @@ async def obtener_pedidos(
     # current_user: dict = Depends(get_current_user),  # Deshabilitado para testing
     solo_activos: bool = Query(True, description="Solo pedidos activos"),
     solo_tn: bool = Query(False, description="Solo pedidos de TiendaNube"),
+    solo_ml: bool = Query(False, description="Solo pedidos de MercadoLibre"),
+    user_id: Optional[int] = Query(None, description="Filtrar por user_id específico"),
     buscar: Optional[str] = Query(None, description="Buscar por nombre cliente u orden TN"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0)
@@ -88,6 +91,7 @@ async def obtener_pedidos(
         PedidoExport.id_pedido,
         PedidoExport.id_cliente,
         PedidoExport.nombre_cliente,
+        PedidoExport.user_id,
         PedidoExport.tipo_envio,
         PedidoExport.direccion_envio,
         PedidoExport.fecha_envio,
@@ -99,6 +103,7 @@ async def obtener_pedidos(
         PedidoExport.id_pedido,
         PedidoExport.id_cliente,
         PedidoExport.nombre_cliente,
+        PedidoExport.user_id,
         PedidoExport.tipo_envio,
         PedidoExport.direccion_envio,
         PedidoExport.fecha_envio,
@@ -112,7 +117,13 @@ async def obtener_pedidos(
         query = query.filter(PedidoExport.activo == True)
     
     if solo_tn:
-        query = query.filter(PedidoExport.order_id_tn.isnot(None))
+        query = query.filter(PedidoExport.user_id == 50021)
+    
+    if solo_ml:
+        query = query.filter(PedidoExport.user_id == 50006)
+    
+    if user_id:
+        query = query.filter(PedidoExport.user_id == user_id)
     
     if buscar:
         query = query.filter(
@@ -143,6 +154,7 @@ async def obtener_pedidos(
             id_pedido=p.id_pedido,
             id_cliente=p.id_cliente,
             nombre_cliente=p.nombre_cliente,
+            user_id=p.user_id,
             tipo_envio=p.tipo_envio,
             direccion_envio=p.direccion_envio,
             fecha_envio=p.fecha_envio,
@@ -271,6 +283,7 @@ async def sincronizar_pedidos(
                 'item_id': item_id,
                 'id_cliente': record.get('IDCliente'),
                 'nombre_cliente': record.get('NombreCliente'),
+                'user_id': record.get('userID'),
                 'cantidad': record.get('Cantidad'),
                 'tipo_envio': record.get('Tipo de Envío'),
                 'direccion_envio': record.get('Dirección de Envío'),

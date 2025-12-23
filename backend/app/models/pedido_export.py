@@ -17,6 +17,7 @@ class PedidoExport(Base):
     # Cliente
     id_cliente = Column(Integer)
     nombre_cliente = Column(Text)
+    user_id = Column(Integer, index=True)  # 50021=TN, 50006=ML
     
     # Item
     cantidad = Column(Numeric(10, 2))
