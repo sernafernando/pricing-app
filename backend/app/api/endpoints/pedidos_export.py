@@ -4,7 +4,7 @@ Integración del visualizador-pedidos en la pricing-app.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_, desc, case
+from sqlalchemy import func, and_, or_, desc, case, text
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from pydantic import BaseModel
@@ -594,7 +594,7 @@ async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Sessi
         # 6. Copiar tno_orderid a ws_internalid desde tb_tiendanube_orders
         logger.info("🔄 Copiando tno_orderid a ws_internalid...")
         pedidos_tn_actualizados = db.execute(
-            """
+            text("""
             UPDATE tb_sale_order_header tsoh
             SET ws_internalid = tno.tno_orderid::text
             FROM tb_tiendanube_orders tno
@@ -605,7 +605,7 @@ async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Sessi
               AND tsoh.export_activo = true
               AND tno.tno_orderid IS NOT NULL
               AND (tsoh.ws_internalid IS NULL OR tsoh.ws_internalid != tno.tno_orderid::text)
-            """
+            """)
         ).rowcount
         
         db.commit()
