@@ -10,6 +10,9 @@ from datetime import datetime
 from pydantic import BaseModel
 import logging
 import httpx
+import os
+from pathlib import Path
+from fastapi.responses import Response
 
 from app.core.database import get_db
 from app.models.sale_order_header import SaleOrderHeader
@@ -417,3 +420,132 @@ async def sincronizar_pedidos(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"❌ Error inesperado: {e}", exc_info=True)
         raise HTTPException(500, f"Error inesperado: {str(e)}")
+
+
+@router.get("/pedidos-simple/{soh_id}/etiqueta-zpl")
+async def generar_etiqueta_zpl(
+    soh_id: int,
+    num_bultos: int = Query(1, ge=1, le=10),
+    tipo_envio_manual: Optional[str] = Query(None),
+    tipo_domicilio_manual: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Genera etiquetas ZPL para impresión en Zebra.
+    USA OVERRIDE si existe, luego TN, luego ERP.
+    
+    Parámetros:
+    - soh_id: ID del pedido
+    - num_bultos: Número de bultos (genera una etiqueta por bulto)
+    - tipo_envio_manual: Override manual del tipo de envío (opcional)
+    - tipo_domicilio_manual: Override manual del tipo de domicilio (opcional)
+    """
+    # Buscar pedido con items
+    pedido = db.query(SaleOrderHeader).filter(
+        SaleOrderHeader.soh_id == soh_id
+    ).first()
+    
+    if not pedido:
+        raise HTTPException(404, f"Pedido {soh_id} no encontrado")
+    
+    # Obtener items (excluyendo 2953 y 2954)
+    items_query = db.query(
+        SaleOrderDetail.item_id,
+        SaleOrderDetail.sod_qty,
+        TBItem.item_desc,
+        TBItem.item_code
+    ).outerjoin(
+        TBItem,
+        and_(
+            SaleOrderDetail.item_id == TBItem.item_id,
+            SaleOrderDetail.comp_id == TBItem.comp_id
+        )
+    ).filter(
+        and_(
+            SaleOrderDetail.soh_id == pedido.soh_id,
+            func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).notin_([2953, 2954])
+        )
+    ).all()
+    
+    # Calcular cantidad total y concatenar SKUs
+    cantidad_total = sum(float(i.sod_qty) if i.sod_qty else 0 for i in items_query)
+    skus_concatenados = ' - '.join([i.item_code for i in items_query if i.item_code]) or 'N/A'
+    
+    # PRIORIDAD: override > TN > ERP
+    direccion = pedido.override_shipping_address or pedido.tiendanube_shipping_address or pedido.soh_deliveryaddress or 'N/A'
+    ciudad = pedido.override_shipping_city or pedido.tiendanube_shipping_city or 'N/A'
+    provincia = pedido.override_shipping_province or pedido.tiendanube_shipping_province or 'N/A'
+    codigo_postal = pedido.override_shipping_zipcode or pedido.tiendanube_shipping_zipcode or 'N/A'
+    telefono = pedido.override_shipping_phone or pedido.tiendanube_shipping_phone or 'N/A'
+    destinatario = pedido.override_shipping_recipient or pedido.tiendanube_recipient_name or 'N/A'
+    
+    # Tipo de envío
+    tipo_envio = tipo_envio_manual
+    if not tipo_envio:
+        raw_tipo_envio = pedido.soh_observation2  # Tipo de envío del ERP
+        tipo_envio = str(raw_tipo_envio).replace('_x0020_', ' ').strip() if raw_tipo_envio else 'N/A'
+    
+    # Tipo de domicilio
+    tipo_domicilio = tipo_domicilio_manual
+    if not tipo_domicilio:
+        tipo_envio_lower = tipo_envio.lower()
+        if "domicilio" in tipo_envio_lower:
+            tipo_domicilio = "Domicilio"
+        elif "sucursal" in tipo_envio_lower:
+            tipo_domicilio = "Sucursal"
+        else:
+            tipo_domicilio = "N/A"
+    
+    # Leer template ZPL
+    template_path = Path(__file__).parent.parent.parent.parent / "templates" / "etiqueta.zpl"
+    
+    try:
+        with open(template_path, 'r', encoding='utf-8') as f:
+            zpl_template = f.read()
+    except FileNotFoundError:
+        logger.error(f"Template ZPL no encontrado en: {template_path}")
+        raise HTTPException(500, "Template de etiqueta no encontrado")
+    
+    # Contexto para template
+    context = {
+        'CANTIDAD_ITEMS_PEDIDO': str(int(cantidad_total)),
+        'SKUS_CONCATENADOS': skus_concatenados[:50],  # Limitar longitud
+        'ID_PEDIDO': str(pedido.soh_id),
+        'ORDEN_TN': pedido.tiendanube_number or pedido.ws_internalid or 'N/A',
+        'TIPO_ENVIO_ETIQUETA': tipo_envio,
+        'NOMBRE_DESTINATARIO': destinatario,
+        'TELEFONO_DESTINATARIO': telefono,
+        'DIRECCION_CALLE': direccion,
+        'OBSERVACIONES': pedido.soh_observation1 or pedido.override_notes or 'N/A',
+        'CODIGO_POSTAL': codigo_postal,
+        'BARRIO': ciudad,
+        'TIPO_DOMICILIO': tipo_domicilio,
+        'TOTAL_BULTOS': str(num_bultos)
+    }
+    
+    # Generar etiquetas (una por bulto)
+    zpl_labels = []
+    for i in range(1, num_bultos + 1):
+        label_context = context.copy()
+        label_context['BULTO_ACTUAL'] = str(i)
+        
+        # Reemplazar variables en template
+        rendered_zpl = zpl_template
+        for key, value in label_context.items():
+            rendered_zpl = rendered_zpl.replace(f'{{{{{key}}}}}', str(value))
+        
+        zpl_labels.append(rendered_zpl)
+    
+    # Unir todas las etiquetas
+    full_zpl = "\n".join(zpl_labels)
+    
+    logger.info(f"✅ Generadas {num_bultos} etiquetas ZPL para pedido {soh_id}")
+    
+    # Retornar como archivo de texto
+    return Response(
+        content=full_zpl,
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f"attachment; filename=etiqueta_pedido_{soh_id}.txt"
+        }
+    )
