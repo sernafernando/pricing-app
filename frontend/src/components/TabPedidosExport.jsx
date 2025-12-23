@@ -14,6 +14,8 @@ export default function TabPedidosExport() {
   // Filtros
   const [soloActivos, setSoloActivos] = useState(true);
   const [soloTN, setSoloTN] = useState(false);
+  const [soloML, setSoloML] = useState(false);
+  const [soloOtros, setSoloOtros] = useState(false);
   const [search, setSearch] = useState('');
   
   const getToken = () => localStorage.getItem('token');
@@ -36,6 +38,7 @@ export default function TabPedidosExport() {
       const params = new URLSearchParams();
       params.append('solo_activos', soloActivos);
       if (soloTN) params.append('solo_tn', 'true');
+      if (soloML) params.append('solo_ml', 'true');
       if (search) params.append('buscar', search);
       params.append('limit', '200');
 
@@ -44,14 +47,22 @@ export default function TabPedidosExport() {
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
       
-      setPedidos(response.data);
+      // Si "Solo Otros" está activado, filtrar en el frontend
+      let pedidosFiltrados = response.data;
+      if (soloOtros) {
+        pedidosFiltrados = response.data.filter(p => 
+          p.user_id !== 50021 && p.user_id !== 50006
+        );
+      }
+      
+      setPedidos(pedidosFiltrados);
     } catch (error) {
       console.error('Error cargando pedidos:', error);
       alert('Error cargando pedidos');
     } finally {
       setLoading(false);
     }
-  }, [soloActivos, soloTN, search]);
+  }, [soloActivos, soloTN, soloML, soloOtros, search]);
 
   const sincronizarPedidos = async () => {
     if (!confirm('¿Sincronizar pedidos desde el ERP? Puede tardar 1-2 minutos.')) {
@@ -160,9 +171,45 @@ export default function TabPedidosExport() {
             <input 
               type="checkbox" 
               checked={soloTN} 
-              onChange={(e) => setSoloTN(e.target.checked)} 
+              onChange={(e) => {
+                setSoloTN(e.target.checked);
+                if (e.target.checked) {
+                  setSoloML(false);
+                  setSoloOtros(false);
+                }
+              }} 
             />
             <span>🛒 Solo TiendaNube</span>
+          </label>
+
+          <label className={styles.checkbox}>
+            <input 
+              type="checkbox" 
+              checked={soloML} 
+              onChange={(e) => {
+                setSoloML(e.target.checked);
+                if (e.target.checked) {
+                  setSoloTN(false);
+                  setSoloOtros(false);
+                }
+              }} 
+            />
+            <span>📦 Solo MercadoLibre</span>
+          </label>
+
+          <label className={styles.checkbox}>
+            <input 
+              type="checkbox" 
+              checked={soloOtros} 
+              onChange={(e) => {
+                setSoloOtros(e.target.checked);
+                if (e.target.checked) {
+                  setSoloTN(false);
+                  setSoloML(false);
+                }
+              }} 
+            />
+            <span>🏢 Solo Otros Usuarios</span>
           </label>
 
           <input

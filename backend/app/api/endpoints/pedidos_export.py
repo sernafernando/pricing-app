@@ -477,9 +477,9 @@ async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Sessi
     SE EJECUTA EN PRIMER PLANO (ASYNC) - retorna resultados detallados.
     
     Filtros aplicados:
-    - user_id IN (50021, 50006) - Vendedores TiendaNube y MercadoLibre
     - ssos_id = 20 (estado: pendiente de preparación)
     - Excluye pedidos que SOLO tengan items 2953/2954 (items de envío/servicio)
+    - NO filtra por user_id: incluye TODOS (TN, ML, Gauss, etc.)
     
     Args:
         data: Lista de registros desde el ERP
@@ -511,17 +511,17 @@ async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Sessi
         logger.info(f"Total de pedidos únicos en el export (sin filtrar): {len(soh_ids_actuales)}")
         logger.info(f"Pedidos con orderID de TiendaNube: {len(order_id_map)}")
         
-        # 2. Aplicar filtros: Solo pedidos con user_id IN (50021, 50006) y ssos_id=20
+        # 2. Aplicar filtros: Solo pedidos con ssos_id=20 (pendiente de preparación)
+        # NO filtramos por user_id - queremos TODOS los usuarios (TN, ML, Gauss, etc.)
         pedidos_filtrados = db.query(SaleOrderHeader.soh_id).filter(
             and_(
                 SaleOrderHeader.soh_id.in_(soh_ids_actuales),
-                SaleOrderHeader.user_id.in_([50021, 50006]),  # TiendaNube y MercadoLibre
                 SaleOrderHeader.ssos_id == 20
             )
         ).all()
         
         soh_ids_filtrados = set([p.soh_id for p in pedidos_filtrados])
-        logger.info(f"Pedidos que cumplen filtros (user_id IN [50021,50006], ssos_id=20): {len(soh_ids_filtrados)}")
+        logger.info(f"Pedidos que cumplen filtros (ssos_id=20): {len(soh_ids_filtrados)}")
         
         # 3. Excluir pedidos que SOLO tienen items 2953/2954 (envíos/servicios)
         # Verificamos pedidos que tienen TODOS sus items en (2953, 2954)
