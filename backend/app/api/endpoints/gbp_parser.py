@@ -209,7 +209,7 @@ async def call_soap_service(soap_body: str, soap_action: str, token: str) -> str
       </soap:Body>
     </soap:Envelope>"""
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=300.0) as client:
         response = await client.post(
             SOAP_URL,
             content=xml_payload,
