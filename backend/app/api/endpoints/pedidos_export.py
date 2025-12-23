@@ -489,14 +489,21 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
         pedidos_excluidos = 0
         soh_ids_actuales = set()
         
-        # 1. Recolectar IDs de pedidos actuales en el export
+        # 1. Recolectar IDs de pedidos actuales en el export y mapear orderID (TN)
         logger.info(f"Procesando {len(data)} registros desde el export 80")
+        order_id_map = {}  # {soh_id: orderID de TN}
+        
         for row in data:
             soh_id = row.get("IDPedido")
             if soh_id:
                 soh_ids_actuales.add(soh_id)
+                # Guardar orderID de TiendaNube si existe
+                order_id = row.get("orderID")
+                if order_id and soh_id not in order_id_map:
+                    order_id_map[soh_id] = str(order_id)
         
         logger.info(f"Total de pedidos únicos en el export (sin filtrar): {len(soh_ids_actuales)}")
+        logger.info(f"Pedidos con orderID de TiendaNube: {len(order_id_map)}")
         
         # 2. Aplicar filtros: Solo pedidos con user_id IN (50021, 50006) y ssos_id=20
         pedidos_filtrados = db.query(SaleOrderHeader.soh_id).filter(
@@ -527,23 +534,27 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
         logger.info(f"Pedidos excluidos (solo items 2953/2954): {pedidos_excluidos}")
         logger.info(f"Pedidos válidos finales: {len(soh_ids_validos)}")
         
-        # 4. Marcar pedidos válidos como activos (batch por performance)
+        # 4. Marcar pedidos válidos como activos y actualizar ws_internalid
         batch_size = 100
         soh_ids_list = list(soh_ids_validos)
         
         for i in range(0, len(soh_ids_list), batch_size):
             batch = soh_ids_list[i:i + batch_size]
             
-            # Update masivo
-            db.query(SaleOrderHeader).filter(
-                SaleOrderHeader.soh_id.in_(batch)
-            ).update(
-                {
+            # Actualizar cada pedido individualmente para poder setear ws_internalid
+            for soh_id in batch:
+                update_data = {
                     "export_id": 80,
                     "export_activo": True
-                },
-                synchronize_session=False
-            )
+                }
+                
+                # Si tiene orderID de TN, actualizar ws_internalid
+                if soh_id in order_id_map:
+                    update_data["ws_internalid"] = order_id_map[soh_id]
+                
+                db.query(SaleOrderHeader).filter(
+                    SaleOrderHeader.soh_id == soh_id
+                ).update(update_data, synchronize_session=False)
             
             pedidos_actualizados += len(batch)
             
