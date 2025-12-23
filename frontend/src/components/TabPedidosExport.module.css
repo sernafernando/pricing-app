@@ -110,6 +110,22 @@
   border-color: var(--brand-primary);
 }
 
+.selectFilter {
+  padding: 10px 15px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  font-size: 14px;
+  min-width: 180px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.selectFilter:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
 .btnFilter {
   background: var(--brand-primary);
   color: var(--text-inverse);

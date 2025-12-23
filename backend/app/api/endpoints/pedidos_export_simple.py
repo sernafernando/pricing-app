@@ -115,7 +115,9 @@ async def obtener_pedidos(
     solo_activos: bool = Query(True),
     solo_tn: bool = Query(False),
     solo_ml: bool = Query(False),
+    solo_sin_direccion: bool = Query(False),
     user_id: Optional[int] = Query(None),
+    provincia: Optional[str] = Query(None),
     buscar: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0)
@@ -154,6 +156,37 @@ async def obtener_pedidos(
     
     if user_id:
         query = query.filter(SaleOrderHeader.user_id == user_id)
+    
+    if solo_sin_direccion:
+        # Filtrar pedidos SIN dirección en ninguna fuente
+        query = query.filter(
+            and_(
+                # No tiene override
+                or_(
+                    SaleOrderHeader.override_shipping_address.is_(None),
+                    SaleOrderHeader.override_shipping_address == ''
+                ),
+                # No tiene TN
+                or_(
+                    SaleOrderHeader.tiendanube_shipping_address.is_(None),
+                    SaleOrderHeader.tiendanube_shipping_address == ''
+                ),
+                # No tiene ERP
+                or_(
+                    SaleOrderHeader.soh_deliveryaddress.is_(None),
+                    SaleOrderHeader.soh_deliveryaddress == ''
+                )
+            )
+        )
+    
+    if provincia:
+        # Buscar en provincia de override, TN o ERP (en ese orden de prioridad)
+        query = query.filter(
+            or_(
+                SaleOrderHeader.override_shipping_province.ilike(f'%{provincia}%'),
+                SaleOrderHeader.tiendanube_shipping_province.ilike(f'%{provincia}%')
+            )
+        )
     
     if buscar:
         query = query.filter(
@@ -283,10 +316,24 @@ async def obtener_estadisticas(db: Session = Depends(get_db)):
         SaleOrderHeader.soh_mlid.isnot(None)
     ).count()
     
+    # Sin dirección = NO tiene override NI TN NI ERP (o todas vacías)
     sin_direccion = base_query.filter(
         and_(
-            SaleOrderHeader.soh_deliveryaddress.is_(None),
-            SaleOrderHeader.tiendanube_shipping_address.is_(None)
+            # No tiene override
+            or_(
+                SaleOrderHeader.override_shipping_address.is_(None),
+                SaleOrderHeader.override_shipping_address == ''
+            ),
+            # No tiene TN
+            or_(
+                SaleOrderHeader.tiendanube_shipping_address.is_(None),
+                SaleOrderHeader.tiendanube_shipping_address == ''
+            ),
+            # No tiene ERP
+            or_(
+                SaleOrderHeader.soh_deliveryaddress.is_(None),
+                SaleOrderHeader.soh_deliveryaddress == ''
+            )
         )
     ).count()
     
@@ -305,6 +352,60 @@ async def obtener_estadisticas(db: Session = Depends(get_db)):
         sin_direccion=sin_direccion,
         ultima_sync=ultima_sync
     )
+
+
+@router.get("/pedidos-simple/usuarios-disponibles")
+async def obtener_usuarios_disponibles(db: Session = Depends(get_db)):
+    """
+    Obtiene la lista de usuarios (canales) que tienen pedidos activos.
+    Retorna lista con user_id y user_name.
+    """
+    # Obtener user_ids distintos de pedidos activos
+    usuarios = db.query(
+        SaleOrderHeader.user_id,
+        TBUser.user_name
+    ).outerjoin(
+        TBUser,
+        SaleOrderHeader.user_id == TBUser.user_id
+    ).filter(
+        and_(
+            SaleOrderHeader.export_id == 80,
+            SaleOrderHeader.export_activo == True,
+            SaleOrderHeader.user_id.isnot(None)
+        )
+    ).distinct().order_by(TBUser.user_name.asc().nullslast()).all()
+    
+    return [
+        {
+            "user_id": u.user_id,
+            "user_name": u.user_name or f"User {u.user_id}"
+        }
+        for u in usuarios
+    ]
+
+
+@router.get("/pedidos-simple/provincias-disponibles")
+async def obtener_provincias_disponibles(db: Session = Depends(get_db)):
+    """
+    Obtiene la lista de provincias únicas en pedidos activos.
+    Prioriza override > TN > ERP.
+    """
+    # Usar COALESCE para obtener provincia con prioridad
+    provincia_efectiva = func.coalesce(
+        SaleOrderHeader.override_shipping_province,
+        SaleOrderHeader.tiendanube_shipping_province
+    ).label('provincia')
+    
+    provincias = db.query(provincia_efectiva).filter(
+        and_(
+            SaleOrderHeader.export_id == 80,
+            SaleOrderHeader.export_activo == True,
+            provincia_efectiva.isnot(None),
+            provincia_efectiva != ''
+        )
+    ).distinct().order_by(provincia_efectiva.asc()).all()
+    
+    return [p[0] for p in provincias if p[0]]
 
 
 class ShippingOverride(BaseModel):

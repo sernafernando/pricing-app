@@ -33,7 +33,14 @@ export default function TabPedidosExport() {
   const [soloTN, setSoloTN] = useState(false);
   const [soloML, setSoloML] = useState(false);
   const [soloOtros, setSoloOtros] = useState(false);
+  const [soloSinDireccion, setSoloSinDireccion] = useState(false);
+  const [userIdFiltro, setUserIdFiltro] = useState('');
+  const [provinciaFiltro, setProvinciaFiltro] = useState('');
   const [search, setSearch] = useState('');
+  
+  // Listas para dropdowns
+  const [usuariosDisponibles, setUsuariosDisponibles] = useState([]);
+  const [provinciasDisponibles, setProvinciasDisponibles] = useState([]);
   
   const getToken = () => localStorage.getItem('token');
 
@@ -49,6 +56,30 @@ export default function TabPedidosExport() {
     }
   }, []);
 
+  const cargarUsuariosDisponibles = useCallback(async () => {
+    try {
+      const response = await axios.get(
+        `${API_URL}/pedidos-simple/usuarios-disponibles`,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setUsuariosDisponibles(response.data);
+    } catch (error) {
+      console.error('Error cargando usuarios:', error);
+    }
+  }, []);
+
+  const cargarProvinciasDisponibles = useCallback(async () => {
+    try {
+      const response = await axios.get(
+        `${API_URL}/pedidos-simple/provincias-disponibles`,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setProvinciasDisponibles(response.data);
+    } catch (error) {
+      console.error('Error cargando provincias:', error);
+    }
+  }, []);
+
   const cargarPedidos = useCallback(async () => {
     setLoading(true);
     try {
@@ -56,6 +87,9 @@ export default function TabPedidosExport() {
       params.append('solo_activos', soloActivos);
       if (soloTN) params.append('solo_tn', 'true');
       if (soloML) params.append('solo_ml', 'true');
+      if (soloSinDireccion) params.append('solo_sin_direccion', 'true');
+      if (userIdFiltro) params.append('user_id', userIdFiltro);
+      if (provinciaFiltro) params.append('provincia', provinciaFiltro);
       if (search) params.append('buscar', search);
       params.append('limit', '200');
 
@@ -79,7 +113,7 @@ export default function TabPedidosExport() {
     } finally {
       setLoading(false);
     }
-  }, [soloActivos, soloTN, soloML, soloOtros, search]);
+  }, [soloActivos, soloTN, soloML, soloOtros, soloSinDireccion, userIdFiltro, provinciaFiltro, search]);
 
   const sincronizarPedidos = async () => {
     if (!confirm('¿Sincronizar pedidos desde el ERP? Puede tardar 1-2 minutos.')) {
@@ -238,7 +272,9 @@ export default function TabPedidosExport() {
   useEffect(() => {
     cargarPedidos();
     cargarEstadisticas();
-  }, [cargarPedidos, cargarEstadisticas]);
+    cargarUsuariosDisponibles();
+    cargarProvinciasDisponibles();
+  }, [cargarPedidos, cargarEstadisticas, cargarUsuariosDisponibles, cargarProvinciasDisponibles]);
 
   return (
     <div className={styles.container}>
@@ -333,11 +369,54 @@ export default function TabPedidosExport() {
                 if (e.target.checked) {
                   setSoloTN(false);
                   setSoloML(false);
+                  setUserIdFiltro('');
                 }
               }} 
             />
             <span>🏢 Solo Otros Usuarios</span>
           </label>
+
+          <label className={styles.checkbox}>
+            <input 
+              type="checkbox" 
+              checked={soloSinDireccion} 
+              onChange={(e) => setSoloSinDireccion(e.target.checked)} 
+            />
+            <span>📍 Solo Sin Dirección</span>
+          </label>
+
+          <select
+            value={userIdFiltro}
+            onChange={(e) => {
+              setUserIdFiltro(e.target.value);
+              if (e.target.value) {
+                setSoloTN(false);
+                setSoloML(false);
+                setSoloOtros(false);
+              }
+            }}
+            className={styles.selectFilter}
+          >
+            <option value="">Todos los canales</option>
+            {usuariosDisponibles.map(u => (
+              <option key={u.user_id} value={u.user_id}>
+                {u.user_name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={provinciaFiltro}
+            onChange={(e) => setProvinciaFiltro(e.target.value)}
+            className={styles.selectFilter}
+          >
+            <option value="">Todas las provincias</option>
+            {provinciasDisponibles.map(p => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
 
           <input
             type="text"
