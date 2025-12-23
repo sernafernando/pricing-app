@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20251223_094242'
-down_revision = None  # Will be updated by alembic
+down_revision = 'add_export_activo'  # Depends on export_activo field
 branch_labels = None
 depends_on = None
 
