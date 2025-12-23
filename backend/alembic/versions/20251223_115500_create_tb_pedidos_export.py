@@ -1,7 +1,7 @@
 """create tb_pedidos_export table
 
-Revision ID: create_tb_pedidos_export
-Revises: add_export_activo
+Revision ID: 20251223_115500
+Revises: 20251223_105119
 Create Date: 2025-12-23 11:55:00
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'create_tb_pedidos_export'
-down_revision = 'add_export_activo'
+revision = '20251223_115500'
+down_revision = '20251223_105119'
 branch_labels = None
 depends_on = None
 
