@@ -1,7 +1,7 @@
 """add bultos and tipo domicilio to override
 
-Revision ID: add_bultos_tipo_dom
-Revises: 
+Revision ID: 20251223_160000
+Revises: 20251223_130000
 Create Date: 2025-12-23 16:00:00
 
 """
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision = 'add_bultos_tipo_dom'
-down_revision = None
+revision = '20251223_160000'
+down_revision = '20251223_130000'
 branch_labels = None
 depends_on = None
 
