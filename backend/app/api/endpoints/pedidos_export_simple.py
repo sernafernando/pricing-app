@@ -152,11 +152,21 @@ async def obtener_pedidos(
     if solo_tn:
         # Filtrar por ws_internalid (cualquier pedido con Order ID de TN)
         # NO por user_id, porque puede haber pedidos de TN con otro user_id
-        query = query.filter(SaleOrderHeader.ws_internalid.isnot(None))
+        query = query.filter(
+            and_(
+                SaleOrderHeader.ws_internalid.isnot(None),
+                SaleOrderHeader.ws_internalid != ''
+            )
+        )
     
     if solo_ml:
         # Filtrar por soh_mlid (cualquier pedido con ML ID)
-        query = query.filter(SaleOrderHeader.soh_mlid.isnot(None))
+        query = query.filter(
+            and_(
+                SaleOrderHeader.soh_mlid.isnot(None),
+                SaleOrderHeader.soh_mlid != ''
+            )
+        )
     
     if user_id:
         query = query.filter(SaleOrderHeader.user_id == user_id)
@@ -317,11 +327,17 @@ async def obtener_estadisticas(db: Session = Depends(get_db)):
     ).scalar() or 0
     
     con_tiendanube = base_query.filter(
-        SaleOrderHeader.ws_internalid.isnot(None)
+        and_(
+            SaleOrderHeader.ws_internalid.isnot(None),
+            SaleOrderHeader.ws_internalid != ''
+        )
     ).count()
     
     con_mercadolibre = base_query.filter(
-        SaleOrderHeader.soh_mlid.isnot(None)
+        and_(
+            SaleOrderHeader.soh_mlid.isnot(None),
+            SaleOrderHeader.soh_mlid != ''
+        )
     ).count()
     
     # Sin dirección = NO tiene override NI TN NI ERP (o todas vacías)

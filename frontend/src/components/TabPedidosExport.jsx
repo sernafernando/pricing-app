@@ -513,23 +513,20 @@ export default function TabPedidosExport() {
       </div>
 
       {/* Bulk Actions */}
-      {pedidos.length > 0 && (
+      {pedidosSeleccionados.length > 0 && (
         <div className={styles.bulkActions}>
           <button 
             onClick={() => setMostrarModalBulkPrint(true)}
-            disabled={pedidosSeleccionados.length === 0}
             className={styles.btnBulkPrint}
           >
             🖨️ Imprimir Etiquetas ({pedidosSeleccionados.length})
           </button>
-          {pedidosSeleccionados.length > 0 && (
-            <button 
-              onClick={() => setPedidosSeleccionados([])}
-              className={styles.btnClearSelection}
-            >
-              ✖️ Limpiar Selección
-            </button>
-          )}
+          <button 
+            onClick={() => setPedidosSeleccionados([])}
+            className={styles.btnClearSelection}
+          >
+            ✖️ Limpiar Selección
+          </button>
         </div>
       )}
 
