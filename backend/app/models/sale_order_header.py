@@ -94,6 +94,10 @@ class SaleOrderHeader(Base):
     soh_isemailenvied = Column(Boolean)
     soh_deliverylabel = Column(String(255))
     ct_transaction_preinvoice = Column(BigInteger)
+    
+    # Campos personalizados para gestión de envíos
+    codigo_envio_interno = Column(String(100), index=True)  # Para QR en etiquetas
+    export_id = Column(Integer, index=True)  # ID de export del ERP (ej: 80 para pedidos pendientes)
 
     def __repr__(self):
         return f"<SaleOrderHeader(soh_id={self.soh_id}, comp_id={self.comp_id}, mlo_id={self.mlo_id})>"
