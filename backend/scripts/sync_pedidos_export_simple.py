@@ -74,12 +74,25 @@ def sync_pedidos_export():
         
         print(f"📦 Archivados: {archivados} pedidos")
         
-        # 4. Procesar registros
+        # 4. Deduplicar registros (por si el ERP trae duplicados)
+        # Usar un dict con (id_pedido, item_id) como key
+        registros_unicos = {}
+        for record in data:
+            id_pedido = record.get('IDPedido')
+            item_id = record.get('item_id')
+            if id_pedido and item_id:
+                key = (id_pedido, item_id)
+                # Guardar el último (más reciente) si hay duplicados
+                registros_unicos[key] = record
+        
+        print(f"✓ {len(registros_unicos)} registros únicos (de {len(data)} totales)")
+        
+        # 5. Procesar registros únicos
         nuevos = 0
         actualizados = 0
         errores = 0
         
-        for record in data:
+        for record in registros_unicos.values():
             try:
                 id_pedido = record.get('IDPedido')
                 item_id = record.get('item_id')
