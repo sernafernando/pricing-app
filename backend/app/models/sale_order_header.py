@@ -108,6 +108,17 @@ class SaleOrderHeader(Base):
     tiendanube_shipping_province = Column(String(100))  # Provincia
     tiendanube_shipping_zipcode = Column(String(20))  # Código postal
     tiendanube_recipient_name = Column(String(200))  # Nombre del destinatario
+    
+    # Campos de override manual de dirección de envío (prioridad para visualización)
+    override_shipping_address = Column(Text)  # Dirección sobrescrita manualmente
+    override_shipping_city = Column(String(255))  # Ciudad sobrescrita
+    override_shipping_province = Column(String(255))  # Provincia sobrescrita
+    override_shipping_zipcode = Column(String(20))  # Código postal sobrescrito
+    override_shipping_phone = Column(String(100))  # Teléfono sobrescrito
+    override_shipping_recipient = Column(String(255))  # Destinatario sobrescrito
+    override_notes = Column(Text)  # Notas adicionales del override
+    override_modified_by = Column(Integer)  # user_id que hizo el cambio
+    override_modified_at = Column(DateTime)  # Fecha de modificación
 
     def __repr__(self):
         return f"<SaleOrderHeader(soh_id={self.soh_id}, comp_id={self.comp_id}, mlo_id={self.mlo_id})>"

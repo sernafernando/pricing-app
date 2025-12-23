@@ -71,6 +71,16 @@ class PedidoDetallado(BaseModel):
     soh_mlid: Optional[str]
     mlshippingid: Optional[int]
     
+    # Override de dirección de envío (prioridad para visualización)
+    override_shipping_address: Optional[str]
+    override_shipping_city: Optional[str]
+    override_shipping_province: Optional[str]
+    override_shipping_zipcode: Optional[str]
+    override_shipping_phone: Optional[str]
+    override_shipping_recipient: Optional[str]
+    override_notes: Optional[str]
+    override_modified_at: Optional[datetime]
+    
     # Otros
     soh_packagesqty: Optional[int]  # Bultos
     soh_total: Optional[float]
@@ -210,6 +220,14 @@ async def obtener_pedidos(
             tiendanube_recipient_name=pedido.tiendanube_recipient_name,
             soh_mlid=pedido.soh_mlid,
             mlshippingid=pedido.mlshippingid,
+            override_shipping_address=pedido.override_shipping_address,
+            override_shipping_city=pedido.override_shipping_city,
+            override_shipping_province=pedido.override_shipping_province,
+            override_shipping_zipcode=pedido.override_shipping_zipcode,
+            override_shipping_phone=pedido.override_shipping_phone,
+            override_shipping_recipient=pedido.override_shipping_recipient,
+            override_notes=pedido.override_notes,
+            override_modified_at=pedido.override_modified_at,
             soh_packagesqty=pedido.soh_packagesqty,
             soh_total=float(pedido.soh_total) if pedido.soh_total else None,
             total_items=len(items),
@@ -274,6 +292,98 @@ async def obtener_estadisticas(db: Session = Depends(get_db)):
         sin_direccion=sin_direccion,
         ultima_sync=ultima_sync
     )
+
+
+class ShippingOverride(BaseModel):
+    """Datos para sobrescribir dirección de envío"""
+    direccion: str
+    ciudad: Optional[str] = None
+    provincia: Optional[str] = None
+    codigo_postal: Optional[str] = None
+    telefono: Optional[str] = None
+    destinatario: Optional[str] = None
+    notas: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+@router.put("/pedidos-simple/{soh_id}/override-shipping")
+async def actualizar_direccion_envio(
+    soh_id: int,
+    override_data: ShippingOverride,
+    db: Session = Depends(get_db)
+):
+    """
+    Sobrescribe la dirección de envío de un pedido específico.
+    Este override tiene prioridad para VISUALIZACIÓN, pero las etiquetas ZPL
+    deben usar los datos reales de TN/ERP cuando estén disponibles.
+    """
+    # Buscar el pedido
+    pedido = db.query(SaleOrderHeader).filter(
+        SaleOrderHeader.soh_id == soh_id
+    ).first()
+    
+    if not pedido:
+        raise HTTPException(404, f"Pedido {soh_id} no encontrado")
+    
+    # Actualizar campos de override
+    pedido.override_shipping_address = override_data.direccion
+    pedido.override_shipping_city = override_data.ciudad
+    pedido.override_shipping_province = override_data.provincia
+    pedido.override_shipping_zipcode = override_data.codigo_postal
+    pedido.override_shipping_phone = override_data.telefono
+    pedido.override_shipping_recipient = override_data.destinatario
+    pedido.override_notes = override_data.notas
+    pedido.override_modified_at = datetime.now()
+    # TODO: pedido.override_modified_by = current_user.user_id cuando tengamos auth
+    
+    db.commit()
+    db.refresh(pedido)
+    
+    logger.info(f"✅ Override de dirección actualizado para pedido {soh_id}")
+    
+    return {
+        "mensaje": "Dirección de envío actualizada exitosamente",
+        "soh_id": soh_id,
+        "override_modified_at": pedido.override_modified_at
+    }
+
+
+@router.delete("/pedidos-simple/{soh_id}/override-shipping")
+async def eliminar_override_direccion(
+    soh_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Elimina el override de dirección de envío, volviendo a los datos originales.
+    """
+    pedido = db.query(SaleOrderHeader).filter(
+        SaleOrderHeader.soh_id == soh_id
+    ).first()
+    
+    if not pedido:
+        raise HTTPException(404, f"Pedido {soh_id} no encontrado")
+    
+    # Limpiar campos de override
+    pedido.override_shipping_address = None
+    pedido.override_shipping_city = None
+    pedido.override_shipping_province = None
+    pedido.override_shipping_zipcode = None
+    pedido.override_shipping_phone = None
+    pedido.override_shipping_recipient = None
+    pedido.override_notes = None
+    pedido.override_modified_at = None
+    pedido.override_modified_by = None
+    
+    db.commit()
+    
+    logger.info(f"🗑️ Override de dirección eliminado para pedido {soh_id}")
+    
+    return {
+        "mensaje": "Override eliminado, usando datos originales",
+        "soh_id": soh_id
+    }
 
 
 @router.post("/pedidos-simple/sincronizar")
