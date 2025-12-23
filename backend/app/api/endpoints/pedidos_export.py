@@ -295,7 +295,6 @@ async def obtener_todos_pedidos_export(
 async def sincronizar_export_80(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
     force_full: bool = Query(False, description="Forzar sincronización completa (puede tardar varios minutos)")
 ):
     """
