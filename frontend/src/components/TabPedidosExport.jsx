@@ -10,6 +10,16 @@ export default function TabPedidosExport() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [pedidoSeleccionado, setPedidoSeleccionado] = useState(null);
+  const [editandoDireccion, setEditandoDireccion] = useState(false);
+  const [direccionForm, setDireccionForm] = useState({
+    direccion: '',
+    ciudad: '',
+    provincia: '',
+    codigo_postal: '',
+    telefono: '',
+    destinatario: '',
+    notas: ''
+  });
   
   // Filtros
   const [soloActivos, setSoloActivos] = useState(true);
@@ -89,6 +99,78 @@ export default function TabPedidosExport() {
       alert('❌ Error en sincronización: ' + (error.response?.data?.detail || error.message));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  // Obtener dirección con prioridad: override > TN > ERP
+  const getDireccionDisplay = (pedido) => {
+    return {
+      direccion: pedido.override_shipping_address || pedido.tiendanube_shipping_address || pedido.soh_deliveryaddress,
+      ciudad: pedido.override_shipping_city || pedido.tiendanube_shipping_city,
+      provincia: pedido.override_shipping_province || pedido.tiendanube_shipping_province,
+      codigo_postal: pedido.override_shipping_zipcode || pedido.tiendanube_shipping_zipcode,
+      telefono: pedido.override_shipping_phone || pedido.tiendanube_shipping_phone,
+      destinatario: pedido.override_shipping_recipient || pedido.tiendanube_recipient_name,
+      hasOverride: !!pedido.override_shipping_address
+    };
+  };
+
+  const abrirEditarDireccion = (pedido) => {
+    const dir = getDireccionDisplay(pedido);
+    setDireccionForm({
+      direccion: dir.direccion || '',
+      ciudad: dir.ciudad || '',
+      provincia: dir.provincia || '',
+      codigo_postal: dir.codigo_postal || '',
+      telefono: dir.telefono || '',
+      destinatario: dir.destinatario || '',
+      notas: pedido.override_notes || ''
+    });
+    setEditandoDireccion(true);
+  };
+
+  const guardarDireccion = async () => {
+    try {
+      await axios.put(
+        `${API_URL}/pedidos-simple/${pedidoSeleccionado.soh_id}/override-shipping`,
+        direccionForm,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      
+      alert('✅ Dirección actualizada correctamente');
+      setEditandoDireccion(false);
+      await cargarPedidos();
+      
+      // Actualizar pedido seleccionado
+      const pedidoActualizado = await axios.get(
+        `${API_URL}/pedidos-simple?solo_activos=true&limit=1`,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      const updated = pedidoActualizado.data.find(p => p.soh_id === pedidoSeleccionado.soh_id);
+      if (updated) setPedidoSeleccionado(updated);
+      
+    } catch (error) {
+      console.error('Error guardando dirección:', error);
+      alert('❌ Error guardando dirección: ' + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  const eliminarOverride = async () => {
+    if (!confirm('¿Eliminar override y volver a los datos originales?')) return;
+    
+    try {
+      await axios.delete(
+        `${API_URL}/pedidos-simple/${pedidoSeleccionado.soh_id}/override-shipping`,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      
+      alert('✅ Override eliminado, mostrando datos originales');
+      setEditandoDireccion(false);
+      await cargarPedidos();
+      
+    } catch (error) {
+      console.error('Error eliminando override:', error);
+      alert('❌ Error: ' + (error.response?.data?.detail || error.message));
     }
   };
 
@@ -404,31 +486,59 @@ export default function TabPedidosExport() {
                 )}
 
                 <div className={styles.infoSection}>
-                  <h3>Dirección de Envío</h3>
-                  {pedidoSeleccionado.soh_deliveryaddress || pedidoSeleccionado.tiendanube_shipping_address ? (
-                    <>
-                      <div className={styles.infoRow}>
-                        <strong>Dirección:</strong> {pedidoSeleccionado.soh_deliveryaddress || pedidoSeleccionado.tiendanube_shipping_address}
-                      </div>
-                      {pedidoSeleccionado.tiendanube_shipping_city && (
-                        <>
-                          <div className={styles.infoRow}>
-                            <strong>Localidad:</strong> {pedidoSeleccionado.tiendanube_shipping_city}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3>Dirección de Envío</h3>
+                    <button 
+                      onClick={() => abrirEditarDireccion(pedidoSeleccionado)}
+                      className={styles.btnEditDireccion}
+                      title="Editar dirección de envío"
+                    >
+                      ✏️ Editar
+                    </button>
+                  </div>
+                  
+                  {(() => {
+                    const dir = getDireccionDisplay(pedidoSeleccionado);
+                    return dir.direccion ? (
+                      <>
+                        {dir.hasOverride && (
+                          <div className={styles.overrideBadge}>
+                            ⚠️ Dirección modificada manualmente
                           </div>
+                        )}
+                        <div className={styles.infoRow}>
+                          <strong>Dirección:</strong> {dir.direccion}
+                        </div>
+                        {dir.ciudad && (
                           <div className={styles.infoRow}>
-                            <strong>Provincia:</strong> {pedidoSeleccionado.tiendanube_shipping_province}
+                            <strong>Localidad:</strong> {dir.ciudad}
                           </div>
-                          {pedidoSeleccionado.tiendanube_shipping_zipcode && (
-                            <div className={styles.infoRow}>
-                              <strong>Código Postal:</strong> {pedidoSeleccionado.tiendanube_shipping_zipcode}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <div className={styles.textMuted}>Sin dirección de envío</div>
-                  )}
+                        )}
+                        {dir.provincia && (
+                          <div className={styles.infoRow}>
+                            <strong>Provincia:</strong> {dir.provincia}
+                          </div>
+                        )}
+                        {dir.codigo_postal && (
+                          <div className={styles.infoRow}>
+                            <strong>Código Postal:</strong> {dir.codigo_postal}
+                          </div>
+                        )}
+                        {dir.telefono && (
+                          <div className={styles.infoRow}>
+                            <strong>Teléfono:</strong> {dir.telefono}
+                          </div>
+                        )}
+                        {dir.destinatario && (
+                          <div className={styles.infoRow}>
+                            <strong>Destinatario:</strong> {dir.destinatario}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className={styles.textMuted}>Sin dirección de envío</div>
+                    );
+                  })()}
                 </div>
 
                 {pedidoSeleccionado.soh_observation1 && (
@@ -475,6 +585,132 @@ export default function TabPedidosExport() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de edición de dirección */}
+      {editandoDireccion && pedidoSeleccionado && (
+        <div className={styles.modal} onClick={() => setEditandoDireccion(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className={styles.modalHeader}>
+              <h2>✏️ Editar Dirección de Envío</h2>
+              <button 
+                onClick={() => setEditandoDireccion(false)}
+                className={styles.btnClose}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className={styles.modalBody}>
+              <div style={{ marginBottom: '15px', padding: '10px', background: 'var(--warning-bg)', borderRadius: '6px', color: 'var(--warning-text)' }}>
+                <strong>⚠️ Nota:</strong> Este cambio es solo para visualización. Las etiquetas ZPL usarán los datos reales de TN/ERP.
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Dirección Completa *</label>
+                <textarea
+                  value={direccionForm.direccion}
+                  onChange={(e) => setDireccionForm({...direccionForm, direccion: e.target.value})}
+                  rows="3"
+                  className={styles.formInput}
+                  placeholder="Calle, número, piso, depto"
+                />
+              </div>
+
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}>
+                  <label>Ciudad/Localidad</label>
+                  <input
+                    type="text"
+                    value={direccionForm.ciudad}
+                    onChange={(e) => setDireccionForm({...direccionForm, ciudad: e.target.value})}
+                    className={styles.formInput}
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Provincia</label>
+                  <input
+                    type="text"
+                    value={direccionForm.provincia}
+                    onChange={(e) => setDireccionForm({...direccionForm, provincia: e.target.value})}
+                    className={styles.formInput}
+                  />
+                </div>
+              </div>
+
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}>
+                  <label>Código Postal</label>
+                  <input
+                    type="text"
+                    value={direccionForm.codigo_postal}
+                    onChange={(e) => setDireccionForm({...direccionForm, codigo_postal: e.target.value})}
+                    className={styles.formInput}
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Teléfono</label>
+                  <input
+                    type="text"
+                    value={direccionForm.telefono}
+                    onChange={(e) => setDireccionForm({...direccionForm, telefono: e.target.value})}
+                    className={styles.formInput}
+                  />
+                </div>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Destinatario</label>
+                <input
+                  type="text"
+                  value={direccionForm.destinatario}
+                  onChange={(e) => setDireccionForm({...direccionForm, destinatario: e.target.value})}
+                  className={styles.formInput}
+                  placeholder="Nombre de quien recibe"
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Notas Adicionales</label>
+                <textarea
+                  value={direccionForm.notas}
+                  onChange={(e) => setDireccionForm({...direccionForm, notas: e.target.value})}
+                  rows="2"
+                  className={styles.formInput}
+                  placeholder="Ej: Timbre roto, entregar por portería, etc."
+                />
+              </div>
+
+              <div className={styles.modalActions}>
+                <button 
+                  onClick={guardarDireccion}
+                  className={styles.btnGuardar}
+                  disabled={!direccionForm.direccion}
+                >
+                  💾 Guardar
+                </button>
+                
+                {getDireccionDisplay(pedidoSeleccionado).hasOverride && (
+                  <button 
+                    onClick={eliminarOverride}
+                    className={styles.btnEliminar}
+                  >
+                    🗑️ Eliminar Override
+                  </button>
+                )}
+
+                <button 
+                  onClick={() => setEditandoDireccion(false)}
+                  className={styles.btnCancelar}
+                >
+                  Cancelar
+                </button>
               </div>
             </div>
           </div>

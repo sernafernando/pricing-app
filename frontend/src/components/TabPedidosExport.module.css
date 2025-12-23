@@ -497,3 +497,131 @@
   font-weight: 600;
   color: var(--success);
 }
+
+/* Botón de editar dirección */
+.btnEditDireccion {
+  background: var(--brand-primary);
+  color: var(--text-inverse);
+  border: none;
+  padding: 6px 12px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btnEditDireccion:hover {
+  background: var(--brand-primary-hover);
+}
+
+/* Badge de override */
+.overrideBadge {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-left: 3px solid var(--warning);
+}
+
+/* Formulario */
+.formGroup {
+  margin-bottom: 15px;
+  flex: 1;
+}
+
+.formGroup label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.formInput {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+
+.formInput:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
+.formInput::placeholder {
+  color: var(--text-tertiary);
+}
+
+.formRow {
+  display: flex;
+  gap: 15px;
+}
+
+/* Acciones del modal */
+.modalActions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.btnGuardar {
+  background: var(--success);
+  color: var(--text-inverse);
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btnGuardar:hover:not(:disabled) {
+  background: var(--success-hover);
+}
+
+.btnGuardar:disabled {
+  background: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.btnEliminar {
+  background: var(--error);
+  color: var(--text-inverse);
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btnEliminar:hover {
+  background: var(--error-hover);
+}
+
+.btnCancelar {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-secondary);
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: auto;
+}
+
+.btnCancelar:hover {
+  background: var(--bg-hover);
+}
