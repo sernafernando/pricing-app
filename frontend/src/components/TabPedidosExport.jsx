@@ -229,20 +229,10 @@ export default function TabPedidosExport() {
     }
   };
 
-  const getUserLabel = (userId) => {
-    const labels = {
-      50003: 'TiendaNube Web',
-      50006: 'MercadoLibre',
-      50007: 'Notas/Devoluciones',
-      50009: 'Gauss Interno',
-      50010: 'Gauss Mayorista',
-      50011: 'Gauss Minorista',
-      50015: 'Gauss Corporativo',
-      50017: 'Gauss General',
-      50021: 'TiendaNube',
-      50031: 'Gauss Gobierno',
-    };
-    return labels[userId] || `User ${userId}`;
+  const getUserLabel = (pedido) => {
+    // Usar user_name del backend (viene desde tb_user)
+    // Si no existe, fallback a user_id
+    return pedido.user_name || `User ${pedido.user_id}`;
   };
 
   useEffect(() => {
@@ -395,7 +385,7 @@ export default function TabPedidosExport() {
                       <strong>GBP: {pedido.soh_id}</strong>
                       {pedido.user_id && (
                         <div className={styles.userBadge}>
-                          {getUserLabel(pedido.user_id)}
+                          {getUserLabel(pedido)}
                         </div>
                       )}
                     </div>
@@ -532,7 +522,7 @@ export default function TabPedidosExport() {
                     <strong>ID Cliente:</strong> {pedidoSeleccionado.cust_id || 'N/A'}
                   </div>
                   <div className={styles.infoRow}>
-                    <strong>Canal:</strong> {getUserLabel(pedidoSeleccionado.user_id)}
+                    <strong>Canal:</strong> {getUserLabel(pedidoSeleccionado)}
                   </div>
                   {pedidoSeleccionado.tiendanube_recipient_name && (
                     <div className={styles.infoRow}>

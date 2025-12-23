@@ -209,7 +209,7 @@ export default function PedidosPreparacion() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <h1 className={styles.title}>Pedidos en Preparacion</h1>
+        <h1 className={styles.title}>Envíos Pendientes</h1>
       </div>
 
       {/* Navegación por Tabs */}
@@ -224,7 +224,7 @@ export default function PedidosPreparacion() {
           className={`${styles.tabBtn} ${tabActiva === 'export' ? styles.tabActiva : ''}`}
           onClick={() => setTabActiva('export')}
         >
-          📊 Export (ERP Query 80)
+          📋 Pedidos Pendientes
         </button>
       </div>
 

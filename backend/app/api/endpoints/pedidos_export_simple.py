@@ -19,6 +19,7 @@ from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_detail import SaleOrderDetail
 from app.models.tb_customer import TBCustomer
 from app.models.tb_item import TBItem
+from app.models.tb_user import TBUser
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -47,6 +48,9 @@ class PedidoDetallado(BaseModel):
     
     # Cliente
     nombre_cliente: Optional[str]
+    
+    # Usuario (canal de venta)
+    user_name: Optional[str]
     
     # Fechas
     soh_cd: Optional[datetime]  # Fecha creación
@@ -120,16 +124,20 @@ async def obtener_pedidos(
     Obtiene pedidos DIRECTAMENTE desde tb_sale_order_header.
     Filtra por export_id=80 y export_activo=true.
     """
-    # Query base con JOIN para obtener nombre_cliente
+    # Query base con JOINs para obtener nombre_cliente y user_name
     query = db.query(
         SaleOrderHeader,
-        TBCustomer.cust_name.label('nombre_cliente')
+        TBCustomer.cust_name.label('nombre_cliente'),
+        TBUser.user_name.label('user_name')
     ).outerjoin(
         TBCustomer,
         and_(
             SaleOrderHeader.cust_id == TBCustomer.cust_id,
             SaleOrderHeader.comp_id == TBCustomer.comp_id
         )
+    ).outerjoin(
+        TBUser,
+        SaleOrderHeader.user_id == TBUser.user_id
     ).filter(
         SaleOrderHeader.export_id == 80
     )
@@ -165,6 +173,7 @@ async def obtener_pedidos(
     for row in pedidos_db:
         pedido = row[0]  # SaleOrderHeader
         nombre_cliente = row[1] if len(row) > 1 else None  # cust_name
+        user_name = row[2] if len(row) > 2 else None  # user_name
         # Obtener items del pedido con descripción y código
         # Para combos usar sod_item_id_origin, para items normales usar item_id
         # Excluir items 2953 y 2954 (descuentos/servicios de TiendaNube)
@@ -207,6 +216,7 @@ async def obtener_pedidos(
             cust_id=pedido.cust_id,
             user_id=pedido.user_id,
             nombre_cliente=nombre_cliente,
+            user_name=user_name,
             soh_cd=pedido.soh_cd,
             soh_deliverydate=pedido.soh_deliverydate,
             soh_deliveryaddress=pedido.soh_deliveryaddress,
