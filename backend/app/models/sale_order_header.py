@@ -98,6 +98,7 @@ class SaleOrderHeader(Base):
     # Campos personalizados para gestión de envíos
     codigo_envio_interno = Column(String(100), index=True)  # Para QR en etiquetas
     export_id = Column(Integer, index=True)  # ID de export del ERP (ej: 80 para pedidos pendientes)
+    export_activo = Column(Boolean, default=True)  # True = activo en el export, False = archivado
 
     def __repr__(self):
         return f"<SaleOrderHeader(soh_id={self.soh_id}, comp_id={self.comp_id}, mlo_id={self.mlo_id})>"

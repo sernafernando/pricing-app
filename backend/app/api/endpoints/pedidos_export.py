@@ -2,12 +2,14 @@
 Endpoint para visualización de pedidos de exportación.
 Integración del visualizador-pedidos en la pricing-app.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, desc
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from pydantic import BaseModel
+import httpx
+import logging
 
 from app.core.database import get_db
 from app.models.sale_order_header import SaleOrderHeader
@@ -15,6 +17,7 @@ from app.models.sale_order_detail import SaleOrderDetail
 from app.api.deps import get_current_user
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # Schemas
@@ -86,17 +89,23 @@ async def obtener_pedidos_por_export(
     export_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
+    solo_activos: bool = Query(True, description="Solo pedidos activos (no archivados)"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0)
 ):
     """
     Obtiene pedidos filtrados por export_id del ERP.
     Export ID 80 típicamente corresponde a pedidos pendientes de preparación.
+    Por defecto solo muestra activos, usar solo_activos=false para ver archivados.
     """
     # Query principal
     query = db.query(SaleOrderHeader).filter(
         SaleOrderHeader.export_id == export_id
     )
+    
+    # Filtrar por activos/archivados
+    if solo_activos:
+        query = query.filter(SaleOrderHeader.export_activo == True)
     
     # Ordenar por fecha descendente
     query = query.order_by(desc(SaleOrderHeader.soh_cd))
@@ -280,3 +289,188 @@ async def obtener_todos_pedidos_export(
         ))
     
     return result
+
+
+@router.post("/pedidos-export/sincronizar-export-80")
+async def sincronizar_export_80(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    force_full: bool = Query(False, description="Forzar sincronización completa (puede tardar varios minutos)")
+):
+    """
+    Sincroniza pedidos desde el export_id 87 del ERP (sin filtros) via gbp-parser.
+    Marca los pedidos con export_id=80 para mantener compatibilidad.
+    
+    Query 87 = TODOS los pedidos pendientes sin filtros
+    Los filtros se aplican después en nuestra DB.
+    
+    Si force_full=true, hace sincronización completa (puede tardar).
+    """
+    logger.info("Iniciando sincronización desde export_id=87 (query sin filtros)")
+    
+    try:
+        # Llamar a gbp-parser para obtener datos del export 87 (sin filtros)
+        async with httpx.AsyncClient(timeout=300.0) as client:  # 5 minutos timeout para sync masivo
+            response = await client.post(
+                "http://localhost:8002/api/gbp-parser",
+                json={"intExpgr_id": 87}  # Query 87 = todos los pedidos sin filtros
+            )
+            response.raise_for_status()
+            data = response.json()
+        
+        if not data or not isinstance(data, list):
+            raise HTTPException(500, "No se obtuvieron datos del export 87")
+        
+        logger.info(f"Obtenidos {len(data)} registros desde export_id=87 (query sin filtros)")
+        
+        # Procesar y guardar en background
+        background_tasks.add_task(procesar_pedidos_export_80, data, db, force_full)
+        
+        return {
+            "mensaje": "Sincronización iniciada en background",
+            "registros_obtenidos": len(data),
+            "export_id_origen": 87,
+            "export_id_destino": 80,
+            "modo": "completo" if force_full else "incremental"
+        }
+        
+    except httpx.HTTPError as e:
+        logger.error(f"Error llamando a gbp-parser: {e}")
+        raise HTTPException(500, f"Error consultando ERP: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error sincronizando export 80: {e}", exc_info=True)
+        raise HTTPException(500, f"Error en sincronización: {str(e)}")
+
+
+def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_full: bool = False):
+    """
+    Procesa los datos del export 80 y actualiza la DB.
+    Marca pedidos activos y archiva los que ya no están.
+    Se ejecuta en background.
+    
+    Args:
+        data: Lista de registros desde el ERP
+        db: Session de SQLAlchemy
+        force_full: Si True, hace commit cada N registros para evitar timeout en syncs masivos
+    """
+    try:
+        pedidos_actualizados = 0
+        pedidos_archivados = 0
+        soh_ids_actuales = set()
+        
+        # 1. Recolectar IDs de pedidos actuales en el export
+        logger.info(f"Procesando {len(data)} registros desde el export 80")
+        for row in data:
+            soh_id = row.get("IDPedido")
+            if soh_id:
+                soh_ids_actuales.add(soh_id)
+        
+        logger.info(f"Total de pedidos únicos en el export: {len(soh_ids_actuales)}")
+        
+        # 2. Marcar pedidos actuales como activos (batch por performance)
+        batch_size = 100
+        soh_ids_list = list(soh_ids_actuales)
+        
+        for i in range(0, len(soh_ids_list), batch_size):
+            batch = soh_ids_list[i:i + batch_size]
+            
+            # Update masivo
+            db.query(SaleOrderHeader).filter(
+                SaleOrderHeader.soh_id.in_(batch)
+            ).update(
+                {
+                    "export_id": 80,
+                    "export_activo": True
+                },
+                synchronize_session=False
+            )
+            
+            pedidos_actualizados += len(batch)
+            
+            if force_full and i % 500 == 0:
+                db.commit()  # Commit parcial cada 500 registros
+                logger.info(f"Procesados {pedidos_actualizados} pedidos...")
+        
+        # 3. Archivar pedidos que ya no están en el export 80
+        pedidos_archivados_count = db.query(SaleOrderHeader).filter(
+            and_(
+                SaleOrderHeader.export_id == 80,
+                SaleOrderHeader.export_activo == True,
+                SaleOrderHeader.soh_id.notin_(soh_ids_actuales)
+            )
+        ).update(
+            {"export_activo": False},
+            synchronize_session=False
+        )
+        
+        pedidos_archivados = pedidos_archivados_count
+        
+        db.commit()
+        logger.info(
+            f"✅ Sincronización completada: {pedidos_actualizados} pedidos activos, "
+            f"{pedidos_archivados} pedidos archivados"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Error procesando pedidos export 80: {e}", exc_info=True)
+
+
+@router.get("/pedidos-export/{soh_id}/items", response_model=List[PedidoExportItem])
+async def obtener_items_pedido(
+    soh_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Obtiene los items/productos de un pedido específico"""
+    
+    items = db.query(SaleOrderDetail).filter(
+        SaleOrderDetail.soh_id == soh_id
+    ).all()
+    
+    result = []
+    for item in items:
+        result.append(PedidoExportItem(
+            item_id=item.item_id,
+            item_code=None,  # TODO: Join con tabla items
+            item_desc=None,   # TODO: Join con tabla items
+            cantidad=float(item.sod_qty) if item.sod_qty else 0,
+            precio_unitario=float(item.sod_price) if hasattr(item, 'sod_price') and item.sod_price else None
+        ))
+    
+    return result
+
+
+@router.get("/pedidos-export/estadisticas-sincronizacion")
+async def estadisticas_sincronizacion(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Obtiene estadísticas de la última sincronización del export 80"""
+    
+    total_export_80 = db.query(func.count(SaleOrderHeader.soh_id)).filter(
+        SaleOrderHeader.export_id == 80
+    ).scalar() or 0
+    
+    activos = db.query(func.count(SaleOrderHeader.soh_id)).filter(
+        and_(
+            SaleOrderHeader.export_id == 80,
+            SaleOrderHeader.export_activo == True
+        )
+    ).scalar() or 0
+    
+    archivados = db.query(func.count(SaleOrderHeader.soh_id)).filter(
+        and_(
+            SaleOrderHeader.export_id == 80,
+            SaleOrderHeader.export_activo == False
+        )
+    ).scalar() or 0
+    
+    return {
+        "export_id": 80,
+        "total_pedidos": total_export_80,
+        "activos": activos,
+        "archivados": archivados,
+        "porcentaje_activos": round((activos / total_export_80 * 100), 2) if total_export_80 > 0 else 0
+    }
