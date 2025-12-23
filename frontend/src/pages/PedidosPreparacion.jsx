@@ -210,18 +210,6 @@ export default function PedidosPreparacion() {
     <div className={styles.container}>
       <div className={styles.header}>
         <h1 className={styles.title}>Pedidos en Preparacion</h1>
-        <div className={styles.headerButtons}>
-          <button onClick={cargarDatos} className={styles.refreshBtn} disabled={loading}>
-            Actualizar
-          </button>
-          <button
-            onClick={sincronizarDatos}
-            className={styles.syncBtn}
-            disabled={syncing}
-          >
-            {syncing ? 'Sincronizando...' : 'Sincronizar ERP'}
-          </button>
-        </div>
       </div>
 
       {/* Navegación por Tabs */}
@@ -243,6 +231,20 @@ export default function PedidosPreparacion() {
       {/* Contenido condicional según tab activa */}
       {tabActiva === 'preparacion' ? (
         <>
+          {/* Botones de control del tab Preparación */}
+          <div className={styles.tabControls}>
+            <button onClick={cargarDatos} className={styles.refreshBtn} disabled={loading}>
+              Actualizar
+            </button>
+            <button
+              onClick={sincronizarDatos}
+              className={styles.syncBtn}
+              disabled={syncing}
+            >
+              {syncing ? 'Sincronizando...' : 'Sincronizar ERP'}
+            </button>
+          </div>
+        
           {/* Estadísticas */}
           {estadisticas && (
             <div className={styles.statsGrid}>

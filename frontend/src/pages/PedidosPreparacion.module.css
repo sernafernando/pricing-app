@@ -794,3 +794,14 @@
     width: 100%;
   }
 }
+
+/* Controles del tab */
+.tabControls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+}
