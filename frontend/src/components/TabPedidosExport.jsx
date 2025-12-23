@@ -735,8 +735,9 @@ export default function TabPedidosExport() {
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <button 
                   onClick={() => {
-                    setNumBultos(1);
-                    setTipoDomicilio('Particular');
+                    // Usar los valores del pedido (override si existe, sino defaults)
+                    setNumBultos(pedidoSeleccionado.override_num_bultos || 1);
+                    setTipoDomicilio(pedidoSeleccionado.override_tipo_domicilio || 'Particular');
                     setTipoEnvio('');
                     setMostrarModalEtiqueta(true);
                   }}
@@ -772,6 +773,59 @@ export default function TabPedidosExport() {
                       <strong>Destinatario TN:</strong> {pedidoSeleccionado.tiendanube_recipient_name}
                     </div>
                   )}
+                </div>
+
+                <div className={styles.infoSection}>
+                  <h3>Configuración de Etiquetas</h3>
+                  <div className={styles.infoRow}>
+                    <strong>Número de Bultos:</strong>
+                    <select
+                      value={pedidoSeleccionado.override_num_bultos || 1}
+                      onChange={(e) => {
+                        const newValue = parseInt(e.target.value);
+                        actualizarBultosDomicilio(
+                          pedidoSeleccionado.soh_id, 
+                          newValue, 
+                          pedidoSeleccionado.override_tipo_domicilio
+                        );
+                        setPedidoSeleccionado({
+                          ...pedidoSeleccionado,
+                          override_num_bultos: newValue
+                        });
+                      }}
+                      className={styles.selectInModal}
+                    >
+                      {[1,2,3,4,5,6,7,8,9,10].map(n => (
+                        <option key={n} value={n}>{n} bulto{n > 1 ? 's' : ''}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className={styles.infoRow}>
+                    <strong>Tipo de Domicilio:</strong>
+                    <select
+                      value={pedidoSeleccionado.override_tipo_domicilio || 'Particular'}
+                      onChange={(e) => {
+                        const newValue = e.target.value;
+                        actualizarBultosDomicilio(
+                          pedidoSeleccionado.soh_id, 
+                          pedidoSeleccionado.override_num_bultos || 1, 
+                          newValue
+                        );
+                        setPedidoSeleccionado({
+                          ...pedidoSeleccionado,
+                          override_tipo_domicilio: newValue
+                        });
+                      }}
+                      className={styles.selectInModal}
+                    >
+                      <option value="Particular">🏠 Particular</option>
+                      <option value="Comercial">🏢 Comercial</option>
+                      <option value="Sucursal">📦 Sucursal</option>
+                    </select>
+                  </div>
+                  <div className={styles.infoRow} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                    💡 Estos valores se guardan automáticamente y se usan para generar las etiquetas
+                  </div>
                 </div>
 
                 {pedidoSeleccionado.ws_internalid && (

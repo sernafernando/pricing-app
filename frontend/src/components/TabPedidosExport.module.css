@@ -164,6 +164,23 @@
   border-color: var(--brand-primary);
 }
 
+.selectInModal {
+  padding: 8px 12px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  min-width: 180px;
+  margin-left: 10px;
+}
+
+.selectInModal:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
 .btnFilter {
   background: var(--brand-primary);
   color: var(--text-inverse);
