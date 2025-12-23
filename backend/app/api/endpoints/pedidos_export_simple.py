@@ -9,10 +9,13 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel
 import logging
+import httpx
 
 from app.core.database import get_db
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_detail import SaleOrderDetail
+from app.models.tb_customer import TBCustomer
+from app.models.tb_item import TBItem
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -104,8 +107,17 @@ async def obtener_pedidos(
     Obtiene pedidos DIRECTAMENTE desde tb_sale_order_header.
     Filtra por export_id=80 y export_activo=true.
     """
-    # Query base
-    query = db.query(SaleOrderHeader).filter(
+    # Query base con JOIN para obtener nombre_cliente
+    query = db.query(
+        SaleOrderHeader,
+        TBCustomer.cust_name.label('nombre_cliente')
+    ).outerjoin(
+        TBCustomer,
+        and_(
+            SaleOrderHeader.cust_id == TBCustomer.cust_id,
+            SaleOrderHeader.comp_id == TBCustomer.comp_id
+        )
+    ).filter(
         SaleOrderHeader.export_id == 80
     )
     
@@ -137,11 +149,21 @@ async def obtener_pedidos(
     
     # Transformar a response
     result = []
-    for pedido in pedidos_db:
-        # Obtener items del pedido
+    for row in pedidos_db:
+        pedido = row[0]  # SaleOrderHeader
+        nombre_cliente = row[1] if len(row) > 1 else None  # cust_name
+        # Obtener items del pedido con descripción y código
         items_query = db.query(
             SaleOrderDetail.item_id,
-            SaleOrderDetail.sod_qty
+            SaleOrderDetail.sod_qty,
+            TBItem.item_desc,
+            TBItem.item_code
+        ).outerjoin(
+            TBItem,
+            and_(
+                SaleOrderDetail.item_id == TBItem.item_id,
+                SaleOrderDetail.comp_id == TBItem.comp_id
+            )
         ).filter(
             SaleOrderDetail.soh_id == pedido.soh_id
         ).all()
@@ -150,8 +172,8 @@ async def obtener_pedidos(
             ItemPedidoDetalle(
                 item_id=i.item_id,
                 cantidad=float(i.sod_qty) if i.sod_qty else 0,
-                item_desc=None,  # TODO: JOIN con tb_items si se necesita
-                item_code=None
+                item_desc=i.item_desc,
+                item_code=i.item_code
             ) for i in items_query
         ]
         
@@ -161,7 +183,7 @@ async def obtener_pedidos(
             bra_id=pedido.bra_id,
             cust_id=pedido.cust_id,
             user_id=pedido.user_id,
-            nombre_cliente=None,  # TODO: JOIN con tb_customer si existe
+            nombre_cliente=nombre_cliente,
             soh_cd=pedido.soh_cd,
             soh_deliverydate=pedido.soh_deliverydate,
             soh_deliveryaddress=pedido.soh_deliveryaddress,
@@ -242,3 +264,36 @@ async def obtener_estadisticas(db: Session = Depends(get_db)):
         sin_direccion=sin_direccion,
         ultima_sync=ultima_sync
     )
+
+
+@router.post("/pedidos-simple/sincronizar")
+async def sincronizar_pedidos(db: Session = Depends(get_db)):
+    """
+    Sincroniza pedidos desde el Export 87 del ERP.
+    Llama al endpoint existente que ya tiene toda la lógica.
+    """
+    logger.info("🔄 Iniciando sincronización desde Export 87...")
+    
+    try:
+        # Llamar al endpoint existente de sincronización
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(
+                "http://localhost:8002/api/pedidos-export/sincronizar-export-80"
+            )
+            response.raise_for_status()
+            data = response.json()
+        
+        logger.info(f"✅ Sincronización completada: {data}")
+        
+        return {
+            "mensaje": "Sincronización completada exitosamente",
+            "registros_obtenidos": data.get("registros_obtenidos", 0),
+            "detalle": data
+        }
+        
+    except httpx.HTTPError as e:
+        logger.error(f"❌ Error en sincronización: {e}")
+        raise HTTPException(500, f"Error en sincronización: {str(e)}")
+    except Exception as e:
+        logger.error(f"❌ Error inesperado: {e}", exc_info=True)
+        raise HTTPException(500, f"Error inesperado: {str(e)}")
