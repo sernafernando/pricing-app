@@ -40,7 +40,6 @@ export default function TabPedidosExport() {
   const [soloSinDireccion, setSoloSinDireccion] = useState(false);
   const [userIdFiltro, setUserIdFiltro] = useState('');
   const [provinciaFiltro, setProvinciaFiltro] = useState('');
-  const [clienteFiltro, setClienteFiltro] = useState('');
   const [search, setSearch] = useState('');
   
   // Listas para dropdowns
@@ -95,7 +94,6 @@ export default function TabPedidosExport() {
       if (soloSinDireccion) params.append('solo_sin_direccion', 'true');
       if (userIdFiltro) params.append('user_id', userIdFiltro);
       if (provinciaFiltro) params.append('provincia', provinciaFiltro);
-      if (clienteFiltro) params.append('cliente', clienteFiltro);
       if (search) params.append('buscar', search);
       params.append('limit', '200');
 
@@ -119,7 +117,7 @@ export default function TabPedidosExport() {
     } finally {
       setLoading(false);
     }
-  }, [soloActivos, soloTN, soloML, soloOtros, soloSinDireccion, userIdFiltro, provinciaFiltro, clienteFiltro, search]);
+  }, [soloActivos, soloTN, soloML, soloOtros, soloSinDireccion, userIdFiltro, provinciaFiltro, search]);
 
   const sincronizarPedidos = async () => {
     if (!confirm('¿Sincronizar pedidos desde el ERP? Puede tardar 1-2 minutos.')) {
@@ -497,18 +495,10 @@ export default function TabPedidosExport() {
 
             <input
               type="text"
-              placeholder="Filtrar por cliente..."
-              value={clienteFiltro}
-              onChange={(e) => setClienteFiltro(e.target.value)}
-              className={styles.searchInput}
-            />
-
-            <input
-              type="text"
-              placeholder="Buscar por orden TN o ID pedido..."
+              placeholder="🔍 Buscar en todo (cliente, dirección, orden TN, ID pedido, provincia, ciudad...)"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className={styles.searchInput}
+              className={styles.searchInputWide}
             />
 
             <button onClick={cargarPedidos} className={styles.btnFilter}>

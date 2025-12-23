@@ -116,6 +116,22 @@
   border-color: var(--brand-primary);
 }
 
+.searchInputWide {
+  padding: 10px 15px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  font-size: 14px;
+  flex: 2;
+  min-width: 400px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.searchInputWide:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
 .selectFilter {
   padding: 10px 15px;
   border: 1px solid var(--border-secondary);

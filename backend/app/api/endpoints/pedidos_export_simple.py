@@ -118,14 +118,16 @@ async def obtener_pedidos(
     solo_sin_direccion: bool = Query(False),
     user_id: Optional[int] = Query(None),
     provincia: Optional[str] = Query(None),
-    cliente: Optional[str] = Query(None),
-    buscar: Optional[str] = Query(None),
+    buscar: Optional[str] = Query(None, description="Búsqueda universal: cliente, dirección, orden TN, ID pedido, provincia, ciudad, destinatario, observaciones"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0)
 ):
     """
     Obtiene pedidos DIRECTAMENTE desde tb_sale_order_header.
     Filtra por export_id=80 y export_activo=true.
+    
+    El parámetro 'buscar' es un buscador universal que busca en:
+    - ID Pedido, Orden TN, Cliente, Dirección, Provincia, Ciudad, Destinatario, Observaciones
     """
     # Query base con JOINs para obtener nombre_cliente y user_name
     query = db.query(
@@ -202,16 +204,33 @@ async def obtener_pedidos(
             )
         )
     
-    if cliente:
-        # Buscar por nombre de cliente
-        query = query.filter(TBCustomer.cust_name.ilike(f'%{cliente}%'))
-    
     if buscar:
+        # Búsqueda universal: busca en TODO
         query = query.filter(
             or_(
+                # ID Pedido (si es número)
                 SaleOrderHeader.soh_id == int(buscar) if buscar.isdigit() else False,
+                # Orden TN
                 SaleOrderHeader.tiendanube_number.ilike(f'%{buscar}%'),
-                SaleOrderHeader.soh_internalannotation.ilike(f'%{buscar}%')
+                SaleOrderHeader.ws_internalid.ilike(f'%{buscar}%'),
+                SaleOrderHeader.soh_internalannotation.ilike(f'%{buscar}%'),
+                # Cliente
+                TBCustomer.cust_name.ilike(f'%{buscar}%'),
+                # Direcciones (override, TN, ERP)
+                SaleOrderHeader.override_shipping_address.ilike(f'%{buscar}%'),
+                SaleOrderHeader.tiendanube_shipping_address.ilike(f'%{buscar}%'),
+                SaleOrderHeader.soh_deliveryaddress.ilike(f'%{buscar}%'),
+                # Provincia
+                SaleOrderHeader.override_shipping_province.ilike(f'%{buscar}%'),
+                SaleOrderHeader.tiendanube_shipping_province.ilike(f'%{buscar}%'),
+                # Ciudad
+                SaleOrderHeader.override_shipping_city.ilike(f'%{buscar}%'),
+                SaleOrderHeader.tiendanube_shipping_city.ilike(f'%{buscar}%'),
+                # Destinatario
+                SaleOrderHeader.override_shipping_recipient.ilike(f'%{buscar}%'),
+                SaleOrderHeader.tiendanube_recipient_name.ilike(f'%{buscar}%'),
+                # Observaciones
+                SaleOrderHeader.soh_observation1.ilike(f'%{buscar}%')
             )
         )
     
