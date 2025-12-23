@@ -4,7 +4,7 @@ Sin quilombo de tablas intermedias.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_, text
+from sqlalchemy import func, and_, or_, text, case
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel
@@ -153,28 +153,38 @@ async def obtener_pedidos(
         pedido = row[0]  # SaleOrderHeader
         nombre_cliente = row[1] if len(row) > 1 else None  # cust_name
         # Obtener items del pedido con descripción y código
+        # Para combos usar sod_item_id_origin, para items normales usar item_id
+        # Excluir items 2953 y 2954 (descuentos/servicios de TiendaNube)
+        
+        # COALESCE: si item_id es NULL (combo), usar sod_item_id_origin
+        item_id_efectivo = func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).label('item_id_efectivo')
+        
         items_query = db.query(
-            SaleOrderDetail.item_id,
+            item_id_efectivo,
             SaleOrderDetail.sod_qty,
             TBItem.item_desc,
             TBItem.item_code
         ).outerjoin(
             TBItem,
             and_(
-                SaleOrderDetail.item_id == TBItem.item_id,
+                func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin) == TBItem.item_id,
                 SaleOrderDetail.comp_id == TBItem.comp_id
             )
         ).filter(
-            SaleOrderDetail.soh_id == pedido.soh_id
+            and_(
+                SaleOrderDetail.soh_id == pedido.soh_id,
+                func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).notin_([2953, 2954])  # Excluir descuentos
+            )
         ).all()
         
+        # Los resultados son tuplas: (item_id, sod_qty, item_desc, item_code)
         items = [
             ItemPedidoDetalle(
-                item_id=i.item_id,
-                cantidad=float(i.sod_qty) if i.sod_qty else 0,
-                item_desc=i.item_desc,
-                item_code=i.item_code
-            ) for i in items_query
+                item_id=row[0],  # item_id de la tupla
+                cantidad=float(row[1]) if row[1] else 0,  # sod_qty
+                item_desc=row[2],  # item_desc (puede ser None si no existe en tb_item)
+                item_code=row[3]   # item_code (puede ser None si no existe en tb_item)
+            ) for row in items_query if row[0] is not None  # Filtrar solo si item_id existe
         ]
         
         result.append(PedidoDetallado(

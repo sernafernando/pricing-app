@@ -611,6 +611,33 @@ async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Sessi
         db.commit()
         logger.info(f"✅ Copiados {pedidos_tn_actualizados} tno_orderid a ws_internalid")
         
+        # 6.5. Parsear soh_internalannotation para extraer ws_internalid si falta
+        # Formato: "Orden: 548 (1802267737)" donde 1802267737 es el order_id de TN
+        import re
+        logger.info("🔍 Parseando notas internas para extraer order_id de TN...")
+        pedidos_tn_sin_orderid = db.query(SaleOrderHeader).filter(
+            and_(
+                SaleOrderHeader.soh_id.in_(soh_ids_validos),
+                SaleOrderHeader.user_id == 50021,
+                SaleOrderHeader.ws_internalid.is_(None),
+                SaleOrderHeader.soh_internalannotation.isnot(None)
+            )
+        ).all()
+        
+        parsed_count = 0
+        pattern = r'Orden:.*?\((\d+)\)'  # Captura el número dentro de paréntesis
+        
+        for pedido in pedidos_tn_sin_orderid:
+            match = re.search(pattern, pedido.soh_internalannotation)
+            if match:
+                order_id_tn = match.group(1)
+                pedido.ws_internalid = order_id_tn
+                parsed_count += 1
+        
+        if parsed_count > 0:
+            db.commit()
+            logger.info(f"✅ Parseados {parsed_count} order_id desde notas internas")
+        
         # 7. Enriquecer pedidos TN con datos de la API (ahora await directo, no asyncio.run)
         tn_enriquecidos = 0
         try:
