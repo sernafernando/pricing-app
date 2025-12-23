@@ -379,23 +379,29 @@ export default function TabPedidosExport() {
                   </td>
                   
                   <td>
-                    {pedido.soh_deliveryaddress || pedido.tiendanube_shipping_address ? (
-                      <div className={styles.direccion}>
-                        <div>{pedido.soh_deliveryaddress || pedido.tiendanube_shipping_address}</div>
-                        {pedido.tiendanube_shipping_city && (
-                          <div className={styles.localidad}>
-                            {pedido.tiendanube_shipping_city}, {pedido.tiendanube_shipping_province}
-                          </div>
-                        )}
-                        {pedido.tiendanube_shipping_phone && (
-                          <div className={styles.telefono}>
-                            📞 {pedido.tiendanube_shipping_phone}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className={styles.sinDireccion}>Sin dirección</span>
-                    )}
+                    {(() => {
+                      const dir = getDireccionDisplay(pedido);
+                      return dir.direccion ? (
+                        <div className={styles.direccion}>
+                          {dir.hasOverride && (
+                            <div className={styles.overrideBadgeSmall}>✏️</div>
+                          )}
+                          <div>{dir.direccion}</div>
+                          {dir.ciudad && (
+                            <div className={styles.localidad}>
+                              {dir.ciudad}{dir.provincia ? `, ${dir.provincia}` : ''}
+                            </div>
+                          )}
+                          {dir.telefono && (
+                            <div className={styles.telefono}>
+                              📞 {dir.telefono}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className={styles.sinDireccion}>Sin dirección</span>
+                      );
+                    })()}
                   </td>
                   
                   <td>

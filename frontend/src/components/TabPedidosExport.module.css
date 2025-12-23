@@ -625,3 +625,15 @@
 .btnCancelar:hover {
   background: var(--bg-hover);
 }
+
+/* Badge pequeño de override en tabla */
+.overrideBadgeSmall {
+  display: inline-block;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
