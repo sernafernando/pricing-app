@@ -10,7 +10,46 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 16px;
+}
+
+/* Tabs */
+.tabsContainer {
+  display: flex;
+  gap: 8px;
   margin-bottom: 24px;
+  border-bottom: 2px solid var(--border-primary);
+  padding-bottom: 0;
+}
+
+.tabBtn {
+  padding: 12px 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  position: relative;
+}
+
+.tabBtn:hover {
+  color: var(--brand-primary);
+  background: var(--bg-hover);
+}
+
+.tabActiva {
+  color: var(--brand-primary);
+  border-bottom-color: var(--brand-primary);
+  font-weight: 600;
+}
+
+.tabActiva:hover {
+  color: var(--brand-primary);
+  background: transparent;
 }
 
 .title {
@@ -64,6 +103,26 @@
   cursor: not-allowed;
 }
 
+.syncButton {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--brand-primary);
+  background: var(--brand-primary);
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.syncButton:hover:not(:disabled) {
+  background: var(--brand-primary-hover, #2563eb);
+}
+
+.syncButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .ultimaActualizacion {
   text-align: center;
   font-size: 13px;
@@ -84,6 +143,14 @@
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+/* Stats Container (usado por TabPedidosExport) */
+.statsContainer {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -562,6 +629,16 @@
 .badgeDefault {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+.badgeSuccess {
+  background: #10b981;
+  color: white;
+}
+
+.badgeWarning {
+  background: #f59e0b;
+  color: white;
 }
 
 .estadoPendiente {

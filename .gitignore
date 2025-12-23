@@ -1,5 +1,12 @@
 .claude/
 
+# Node.js
+node_modules/
+dist/
+.npm
+.eslintcache
+package-lock.json
+
 # Python
 __pycache__/
 *.py[cod]

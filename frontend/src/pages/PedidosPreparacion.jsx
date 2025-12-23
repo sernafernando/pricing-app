@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import styles from './PedidosPreparacion.module.css';
+import TabPedidosExport from '../components/TabPedidosExport';
 
 const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
@@ -84,6 +85,9 @@ export default function PedidosPreparacion() {
   const [tiposEnvio, setTiposEnvio] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+
+  // Tab activa
+  const [tabActiva, setTabActiva] = useState('preparacion'); // 'preparacion' | 'export'
 
   // Filtros
   const [tipoEnvio, setTipoEnvio] = useState('');
@@ -220,164 +224,187 @@ export default function PedidosPreparacion() {
         </div>
       </div>
 
-      {/* Estadísticas */}
-      {estadisticas && (
-        <div className={styles.statsGrid}>
-          <div className={styles.statCard}>
-            <div className={styles.statValue}>{estadisticas.total_items}</div>
-            <div className={styles.statLabel}>Items distintos</div>
-          </div>
-          <div className={styles.statCard}>
-            <div className={styles.statValue}>{Math.round(estadisticas.total_unidades)}</div>
-            <div className={styles.statLabel}>Unidades total</div>
-          </div>
-          <div className={styles.statCard}>
-            <div className={styles.statValue}>{estadisticas.total_paquetes}</div>
-            <div className={styles.statLabel}>Paquetes total</div>
-          </div>
-          {estadisticas.por_tipo_envio?.map((tipo) => (
-            <div key={tipo.tipo} className={styles.statCard}>
-              <div className={styles.statValue}>{Math.round(tipo.unidades)}</div>
-              <div className={styles.statLabel}>{tipo.tipo}</div>
-              <div className={styles.statSub}>{tipo.paquetes} paquetes</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Última actualización */}
-      {estadisticas?.ultima_actualizacion && (
-        <div className={styles.ultimaActualizacion}>
-          Ultima actualizacion: {formatearFecha(estadisticas.ultima_actualizacion)}
-          <span className={styles.updateInfo}>(se actualiza cada 5 min)</span>
-        </div>
-      )}
-
-      {/* Filtros */}
-      <div className={styles.filtrosContainer}>
-        <div className={styles.filtrosRow}>
-          <button
-            className={`${styles.vistaBtn} ${vistaProduccion ? styles.vistaActiva : ''}`}
-            onClick={() => setVistaProduccion(!vistaProduccion)}
-          >
-            Vista Produccion
-          </button>
-
-          <div className={styles.modoVistaButtons}>
-            <button
-              className={`${styles.modoVistaBtn} ${modoVista === 'lista' ? styles.modoVistaActivo : ''}`}
-              onClick={() => setModoVista('lista')}
-              title="Vista Lista"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            </button>
-            <button
-              className={`${styles.modoVistaBtn} ${modoVista === 'cards' ? styles.modoVistaActivo : ''}`}
-              onClick={() => setModoVista('cards')}
-              title="Vista Cards"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="7" height="7" />
-                <rect x="14" y="3" width="7" height="7" />
-                <rect x="3" y="14" width="7" height="7" />
-                <rect x="14" y="14" width="7" height="7" />
-              </svg>
-            </button>
-          </div>
-
-          <select
-            value={tipoEnvio}
-            onChange={(e) => setTipoEnvio(e.target.value)}
-            className={styles.select}
-          >
-            <option value="">Todos los envios</option>
-            {tiposEnvio.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-
-          <input
-            type="text"
-            placeholder="Buscar codigo o descripcion..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className={styles.searchInput}
-          />
-        </div>
-        {vistaProduccion && (
-          <div className={styles.vistaInfo}>
-            Filtrando: EAN con guion + Notebooks, NB, PC ARMADA, AIO
-          </div>
-        )}
+      {/* Navegación por Tabs */}
+      <div className={styles.tabsContainer}>
+        <button
+          className={`${styles.tabBtn} ${tabActiva === 'preparacion' ? styles.tabActiva : ''}`}
+          onClick={() => setTabActiva('preparacion')}
+        >
+          📦 Preparación
+        </button>
+        <button
+          className={`${styles.tabBtn} ${tabActiva === 'export' ? styles.tabActiva : ''}`}
+          onClick={() => setTabActiva('export')}
+        >
+          📊 Export (ERP Query 80)
+        </button>
       </div>
 
-      {/* Contenido */}
-      {loading ? (
-        <div className={styles.loading}>Cargando pedidos...</div>
-      ) : modoVista === 'lista' ? (
-        <div className={styles.tableContainer}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Producto</th>
-                <th>Cantidad</th>
-                <th>Paquetes</th>
-                <th>Tipo Envio</th>
-              </tr>
-            </thead>
-            <tbody>
+      {/* Contenido condicional según tab activa */}
+      {tabActiva === 'preparacion' ? (
+        <>
+          {/* Estadísticas */}
+          {estadisticas && (
+            <div className={styles.statsGrid}>
+              <div className={styles.statCard}>
+                <div className={styles.statValue}>{estadisticas.total_items}</div>
+                <div className={styles.statLabel}>Items distintos</div>
+              </div>
+              <div className={styles.statCard}>
+                <div className={styles.statValue}>{Math.round(estadisticas.total_unidades)}</div>
+                <div className={styles.statLabel}>Unidades total</div>
+              </div>
+              <div className={styles.statCard}>
+                <div className={styles.statValue}>{estadisticas.total_paquetes}</div>
+                <div className={styles.statLabel}>Paquetes total</div>
+              </div>
+              {estadisticas.por_tipo_envio?.map((tipo) => (
+                <div key={tipo.tipo} className={styles.statCard}>
+                  <div className={styles.statValue}>{Math.round(tipo.unidades)}</div>
+                  <div className={styles.statLabel}>{tipo.tipo}</div>
+                  <div className={styles.statSub}>{tipo.paquetes} paquetes</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Última actualización */}
+          {estadisticas?.ultima_actualizacion && (
+            <div className={styles.ultimaActualizacion}>
+              Ultima actualizacion: {formatearFecha(estadisticas.ultima_actualizacion)}
+              <span className={styles.updateInfo}>(se actualiza cada 5 min)</span>
+            </div>
+          )}
+
+          {/* Filtros */}
+          <div className={styles.filtrosContainer}>
+            <div className={styles.filtrosRow}>
+              <button
+                className={`${styles.vistaBtn} ${vistaProduccion ? styles.vistaActiva : ''}`}
+                onClick={() => setVistaProduccion(!vistaProduccion)}
+              >
+                Vista Produccion
+              </button>
+
+              <div className={styles.modoVistaButtons}>
+                <button
+                  className={`${styles.modoVistaBtn} ${modoVista === 'lista' ? styles.modoVistaActivo : ''}`}
+                  onClick={() => setModoVista('lista')}
+                  title="Vista Lista"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="3" y1="12" x2="21" y2="12" />
+                    <line x1="3" y1="18" x2="21" y2="18" />
+                  </svg>
+                </button>
+                <button
+                  className={`${styles.modoVistaBtn} ${modoVista === 'cards' ? styles.modoVistaActivo : ''}`}
+                  onClick={() => setModoVista('cards')}
+                  title="Vista Cards"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="7" height="7" />
+                    <rect x="14" y="3" width="7" height="7" />
+                    <rect x="3" y="14" width="7" height="7" />
+                    <rect x="14" y="14" width="7" height="7" />
+                  </svg>
+                </button>
+              </div>
+
+              <select
+                value={tipoEnvio}
+                onChange={(e) => setTipoEnvio(e.target.value)}
+                className={styles.select}
+              >
+                <option value="">Todos los envios</option>
+                {tiposEnvio.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+
+              <input
+                type="text"
+                placeholder="Buscar codigo o descripcion..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className={styles.searchInput}
+              />
+            </div>
+            {vistaProduccion && (
+              <div className={styles.vistaInfo}>
+                Filtrando: EAN con guion + Notebooks, NB, PC ARMADA, AIO
+              </div>
+            )}
+          </div>
+
+          {/* Contenido */}
+          {loading ? (
+            <div className={styles.loading}>Cargando pedidos...</div>
+          ) : modoVista === 'lista' ? (
+            <div className={styles.tableContainer}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Cantidad</th>
+                    <th>Paquetes</th>
+                    <th>Tipo Envio</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resumen.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className={styles.empty}>No hay datos para mostrar</td>
+                    </tr>
+                  ) : (
+                    resumen.map((r) => (
+                      <tr key={r.id}>
+                        <td>
+                          <div className={styles.producto}>
+                            <strong>{r.item_code || '-'}</strong>
+                            <span className={styles.descripcion}>{r.item_desc || '-'}</span>
+                          </div>
+                        </td>
+                        <td className={styles.cantidadGrande}>{r.cantidad}</td>
+                        <td className={styles.cantidad}>{r.prepara_paquete}</td>
+                        <td>
+                          <span className={`${styles.badge} ${getBadgeClass(r.ml_logistic_type)}`}>
+                            {r.ml_logistic_type || 'N/A'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className={styles.cardsContainer}>
               {resumen.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className={styles.empty}>No hay datos para mostrar</td>
-                </tr>
+                <div className={styles.empty}>No hay datos para mostrar</div>
               ) : (
                 resumen.map((r) => (
-                  <tr key={r.id}>
-                    <td>
-                      <div className={styles.producto}>
-                        <strong>{r.item_code || '-'}</strong>
-                        <span className={styles.descripcion}>{r.item_desc || '-'}</span>
-                      </div>
-                    </td>
-                    <td className={styles.cantidadGrande}>{r.cantidad}</td>
-                    <td className={styles.cantidad}>{r.prepara_paquete}</td>
-                    <td>
-                      <span className={`${styles.badge} ${getBadgeClass(r.ml_logistic_type)}`}>
-                        {r.ml_logistic_type || 'N/A'}
-                      </span>
-                    </td>
-                  </tr>
+                  <ProductoCard
+                    key={r.id}
+                    producto={r}
+                    componentes={componentes[r.item_id]}
+                    onLoadComponentes={() => cargarComponentes(r.item_id)}
+                    getBadgeClass={getBadgeClass}
+                  />
                 ))
               )}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className={styles.cardsContainer}>
-          {resumen.length === 0 ? (
-            <div className={styles.empty}>No hay datos para mostrar</div>
-          ) : (
-            resumen.map((r) => (
-              <ProductoCard
-                key={r.id}
-                producto={r}
-                componentes={componentes[r.item_id]}
-                onLoadComponentes={() => cargarComponentes(r.item_id)}
-                getBadgeClass={getBadgeClass}
-              />
-            ))
+            </div>
           )}
-        </div>
-      )}
 
-      {/* Contador de resultados */}
-      <div className={styles.footer}>
-        <span>Mostrando {resumen.length} productos</span>
-      </div>
+          {/* Contador de resultados */}
+          <div className={styles.footer}>
+            <span>Mostrando {resumen.length} productos</span>
+          </div>
+        </>
+      ) : (
+        <TabPedidosExport />
+      )}
     </div>
   );
 }
