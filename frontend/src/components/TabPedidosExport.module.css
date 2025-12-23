@@ -73,11 +73,17 @@
   cursor: not-allowed;
 }
 
-.filters {
+.filtersWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+}
+
+.filtersRow {
   display: flex;
   gap: 15px;
   align-items: center;
-  flex: 1;
   flex-wrap: wrap;
 }
 

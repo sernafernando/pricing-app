@@ -392,123 +392,129 @@ export default function TabPedidosExport() {
           {syncing ? '⏳ Sincronizando...' : '🔄 Sincronizar desde ERP'}
         </button>
 
-        <div className={styles.filters}>
-          <label className={styles.checkbox}>
-            <input 
-              type="checkbox" 
-              checked={soloActivos} 
-              onChange={(e) => setSoloActivos(e.target.checked)} 
-            />
-            <span>Solo Activos</span>
-          </label>
+        <div className={styles.filtersWrapper}>
+          {/* Fila 1: Checkboxes */}
+          <div className={styles.filtersRow}>
+            <label className={styles.checkbox}>
+              <input 
+                type="checkbox" 
+                checked={soloActivos} 
+                onChange={(e) => setSoloActivos(e.target.checked)} 
+              />
+              <span>Solo Activos</span>
+            </label>
 
-          <label className={styles.checkbox}>
-            <input 
-              type="checkbox" 
-              checked={soloTN} 
+            <label className={styles.checkbox}>
+              <input 
+                type="checkbox" 
+                checked={soloTN} 
+                onChange={(e) => {
+                  setSoloTN(e.target.checked);
+                  if (e.target.checked) {
+                    setSoloML(false);
+                    setSoloOtros(false);
+                  }
+                }} 
+              />
+              <span>🛒 Solo TiendaNube</span>
+            </label>
+
+            <label className={styles.checkbox}>
+              <input 
+                type="checkbox" 
+                checked={soloML} 
+                onChange={(e) => {
+                  setSoloML(e.target.checked);
+                  if (e.target.checked) {
+                    setSoloTN(false);
+                    setSoloOtros(false);
+                  }
+                }} 
+              />
+              <span>📦 Solo MercadoLibre</span>
+            </label>
+
+            <label className={styles.checkbox}>
+              <input 
+                type="checkbox" 
+                checked={soloOtros} 
+                onChange={(e) => {
+                  setSoloOtros(e.target.checked);
+                  if (e.target.checked) {
+                    setSoloTN(false);
+                    setSoloML(false);
+                    setUserIdFiltro('');
+                  }
+                }} 
+              />
+              <span>🏢 Solo Otros Usuarios</span>
+            </label>
+
+            <label className={styles.checkbox}>
+              <input 
+                type="checkbox" 
+                checked={soloSinDireccion} 
+                onChange={(e) => setSoloSinDireccion(e.target.checked)} 
+              />
+              <span>📍 Solo Sin Dirección</span>
+            </label>
+          </div>
+
+          {/* Fila 2: Selects + Búsquedas */}
+          <div className={styles.filtersRow}>
+            <select
+              value={userIdFiltro}
               onChange={(e) => {
-                setSoloTN(e.target.checked);
-                if (e.target.checked) {
+                setUserIdFiltro(e.target.value);
+                if (e.target.value) {
+                  setSoloTN(false);
                   setSoloML(false);
                   setSoloOtros(false);
                 }
-              }} 
+              }}
+              className={styles.selectFilter}
+            >
+              <option value="">Todos los canales</option>
+              {usuariosDisponibles.map(u => (
+                <option key={u.user_id} value={u.user_id}>
+                  {u.user_name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={provinciaFiltro}
+              onChange={(e) => setProvinciaFiltro(e.target.value)}
+              className={styles.selectFilter}
+            >
+              <option value="">Todas las provincias</option>
+              {provinciasDisponibles.map(p => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+
+            <input
+              type="text"
+              placeholder="Filtrar por cliente..."
+              value={clienteFiltro}
+              onChange={(e) => setClienteFiltro(e.target.value)}
+              className={styles.searchInput}
             />
-            <span>🛒 Solo TiendaNube</span>
-          </label>
 
-          <label className={styles.checkbox}>
-            <input 
-              type="checkbox" 
-              checked={soloML} 
-              onChange={(e) => {
-                setSoloML(e.target.checked);
-                if (e.target.checked) {
-                  setSoloTN(false);
-                  setSoloOtros(false);
-                }
-              }} 
+            <input
+              type="text"
+              placeholder="Buscar por orden TN o ID pedido..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className={styles.searchInput}
             />
-            <span>📦 Solo MercadoLibre</span>
-          </label>
 
-          <label className={styles.checkbox}>
-            <input 
-              type="checkbox" 
-              checked={soloOtros} 
-              onChange={(e) => {
-                setSoloOtros(e.target.checked);
-                if (e.target.checked) {
-                  setSoloTN(false);
-                  setSoloML(false);
-                  setUserIdFiltro('');
-                }
-              }} 
-            />
-            <span>🏢 Solo Otros Usuarios</span>
-          </label>
-
-          <label className={styles.checkbox}>
-            <input 
-              type="checkbox" 
-              checked={soloSinDireccion} 
-              onChange={(e) => setSoloSinDireccion(e.target.checked)} 
-            />
-            <span>📍 Solo Sin Dirección</span>
-          </label>
-
-          <select
-            value={userIdFiltro}
-            onChange={(e) => {
-              setUserIdFiltro(e.target.value);
-              if (e.target.value) {
-                setSoloTN(false);
-                setSoloML(false);
-                setSoloOtros(false);
-              }
-            }}
-            className={styles.selectFilter}
-          >
-            <option value="">Todos los canales</option>
-            {usuariosDisponibles.map(u => (
-              <option key={u.user_id} value={u.user_id}>
-                {u.user_name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={provinciaFiltro}
-            onChange={(e) => setProvinciaFiltro(e.target.value)}
-            className={styles.selectFilter}
-          >
-            <option value="">Todas las provincias</option>
-            {provinciasDisponibles.map(p => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="text"
-            placeholder="Filtrar por cliente..."
-            value={clienteFiltro}
-            onChange={(e) => setClienteFiltro(e.target.value)}
-            className={styles.searchInput}
-          />
-
-          <input
-            type="text"
-            placeholder="Buscar por orden TN o ID pedido..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className={styles.searchInput}
-          />
-
-          <button onClick={cargarPedidos} className={styles.btnFilter}>
-            🔍 Filtrar
-          </button>
+            <button onClick={cargarPedidos} className={styles.btnFilter}>
+              🔍 Filtrar
+            </button>
+          </div>
         </div>
       </div>
 
