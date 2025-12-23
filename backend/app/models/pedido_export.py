@@ -21,6 +21,8 @@ class PedidoExport(Base):
     
     # Item
     cantidad = Column(Numeric(10, 2))
+    item_code = Column(Text)  # EAN
+    item_desc = Column(Text)  # Descripción del producto
     
     # Envío
     tipo_envio = Column(Text)

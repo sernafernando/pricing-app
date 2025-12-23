@@ -120,6 +120,8 @@ def sync_pedidos_export():
                     'nombre_cliente': record.get('NombreCliente'),
                     'user_id': user_id,  # 50021=TN, 50006=ML
                     'cantidad': record.get('Cantidad'),
+                    'item_code': record.get('EAN'),
+                    'item_desc': record.get('Descripción'),
                     'tipo_envio': record.get('Tipo de Envío'),
                     'direccion_envio': record.get('Dirección de Envío'),
                     'fecha_envio': record.get('Fecha de envío'),

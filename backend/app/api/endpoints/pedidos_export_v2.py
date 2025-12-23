@@ -25,6 +25,8 @@ class ItemPedido(BaseModel):
     """Item dentro de un pedido"""
     item_id: int
     cantidad: float
+    item_code: Optional[str] = None  # EAN
+    item_desc: Optional[str] = None  # Descripción
     
     class Config:
         from_attributes = True
