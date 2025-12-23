@@ -62,7 +62,8 @@ SCRIPT_CONFIG = {
     "scriptFiscalClass": ["fcID"],
     "scriptTaxNumberType": ["tntID"],
     "scriptState": ["countryID", "stateID"],
-    "scriptItemAssociation": ["itemAID", "itemAID4update", "itemID", "item1ID"]
+    "scriptItemAssociation": ["itemAID", "itemAID4update", "itemID", "item1ID"],
+    "scriptTiendaNubeOrders": ["fromDate", "toDate", "tnoID", "tnoIDfrom", "tnoIDto"]
 }
 
 # Configuración de operaciones
