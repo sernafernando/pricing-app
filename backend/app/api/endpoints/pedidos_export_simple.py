@@ -205,7 +205,10 @@ async def obtener_pedidos(
         )
     
     if buscar:
-        # Búsqueda universal: busca en TODO
+        # Búsqueda universal con fuzzy pattern matching
+        # Ej: "trda" → "%t%r%d%a%" (encuentra "terrada")
+        fuzzy_pattern = '%' + '%'.join(buscar) + '%'
+        
         query = query.filter(
             or_(
                 # ID Pedido (si es número)
@@ -214,23 +217,23 @@ async def obtener_pedidos(
                 SaleOrderHeader.tiendanube_number.ilike(f'%{buscar}%'),
                 SaleOrderHeader.ws_internalid.ilike(f'%{buscar}%'),
                 SaleOrderHeader.soh_internalannotation.ilike(f'%{buscar}%'),
-                # Cliente
-                TBCustomer.cust_name.ilike(f'%{buscar}%'),
-                # Direcciones (override, TN, ERP)
-                SaleOrderHeader.override_shipping_address.ilike(f'%{buscar}%'),
-                SaleOrderHeader.tiendanube_shipping_address.ilike(f'%{buscar}%'),
-                SaleOrderHeader.soh_deliveryaddress.ilike(f'%{buscar}%'),
+                # Cliente (fuzzy)
+                TBCustomer.cust_name.ilike(fuzzy_pattern),
+                # Direcciones (fuzzy para encontrar "trda" → "terrada")
+                SaleOrderHeader.override_shipping_address.ilike(fuzzy_pattern),
+                SaleOrderHeader.tiendanube_shipping_address.ilike(fuzzy_pattern),
+                SaleOrderHeader.soh_deliveryaddress.ilike(fuzzy_pattern),
                 # Provincia
-                SaleOrderHeader.override_shipping_province.ilike(f'%{buscar}%'),
-                SaleOrderHeader.tiendanube_shipping_province.ilike(f'%{buscar}%'),
+                SaleOrderHeader.override_shipping_province.ilike(fuzzy_pattern),
+                SaleOrderHeader.tiendanube_shipping_province.ilike(fuzzy_pattern),
                 # Ciudad
-                SaleOrderHeader.override_shipping_city.ilike(f'%{buscar}%'),
-                SaleOrderHeader.tiendanube_shipping_city.ilike(f'%{buscar}%'),
+                SaleOrderHeader.override_shipping_city.ilike(fuzzy_pattern),
+                SaleOrderHeader.tiendanube_shipping_city.ilike(fuzzy_pattern),
                 # Destinatario
-                SaleOrderHeader.override_shipping_recipient.ilike(f'%{buscar}%'),
-                SaleOrderHeader.tiendanube_recipient_name.ilike(f'%{buscar}%'),
+                SaleOrderHeader.override_shipping_recipient.ilike(fuzzy_pattern),
+                SaleOrderHeader.tiendanube_recipient_name.ilike(fuzzy_pattern),
                 # Observaciones
-                SaleOrderHeader.soh_observation1.ilike(f'%{buscar}%')
+                SaleOrderHeader.soh_observation1.ilike(fuzzy_pattern)
             )
         )
     
