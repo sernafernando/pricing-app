@@ -205,35 +205,37 @@ async def obtener_pedidos(
         )
     
     if buscar:
-        # Búsqueda universal con fuzzy pattern matching
-        # Ej: "trda" → "%t%r%d%a%" (encuentra "terrada")
-        fuzzy_pattern = '%' + '%'.join(buscar) + '%'
+        # Búsqueda universal con fuzzy pattern matching SIN ESPACIOS
+        # Ej: "trda" → regex que encuentra "terrada" pero NO "tierra derretida"
+        # Patrón: cada letra puede tener caracteres NO-ESPACIO entre ellas
+        # "trda" → "t[^ ]*r[^ ]*d[^ ]*a" (case-insensitive)
+        fuzzy_regex = '.*' + '[^ ]*'.join(buscar.lower()) + '.*'
         
         query = query.filter(
             or_(
                 # ID Pedido (si es número)
                 SaleOrderHeader.soh_id == int(buscar) if buscar.isdigit() else False,
-                # Orden TN
+                # Orden TN (búsqueda exacta)
                 SaleOrderHeader.tiendanube_number.ilike(f'%{buscar}%'),
                 SaleOrderHeader.ws_internalid.ilike(f'%{buscar}%'),
                 SaleOrderHeader.soh_internalannotation.ilike(f'%{buscar}%'),
-                # Cliente (fuzzy)
-                TBCustomer.cust_name.ilike(fuzzy_pattern),
-                # Direcciones (fuzzy para encontrar "trda" → "terrada")
-                SaleOrderHeader.override_shipping_address.ilike(fuzzy_pattern),
-                SaleOrderHeader.tiendanube_shipping_address.ilike(fuzzy_pattern),
-                SaleOrderHeader.soh_deliveryaddress.ilike(fuzzy_pattern),
+                # Cliente (fuzzy sin espacios)
+                TBCustomer.cust_name.op('~*')(fuzzy_regex),
+                # Direcciones (fuzzy sin espacios)
+                SaleOrderHeader.override_shipping_address.op('~*')(fuzzy_regex),
+                SaleOrderHeader.tiendanube_shipping_address.op('~*')(fuzzy_regex),
+                SaleOrderHeader.soh_deliveryaddress.op('~*')(fuzzy_regex),
                 # Provincia
-                SaleOrderHeader.override_shipping_province.ilike(fuzzy_pattern),
-                SaleOrderHeader.tiendanube_shipping_province.ilike(fuzzy_pattern),
+                SaleOrderHeader.override_shipping_province.op('~*')(fuzzy_regex),
+                SaleOrderHeader.tiendanube_shipping_province.op('~*')(fuzzy_regex),
                 # Ciudad
-                SaleOrderHeader.override_shipping_city.ilike(fuzzy_pattern),
-                SaleOrderHeader.tiendanube_shipping_city.ilike(fuzzy_pattern),
+                SaleOrderHeader.override_shipping_city.op('~*')(fuzzy_regex),
+                SaleOrderHeader.tiendanube_shipping_city.op('~*')(fuzzy_regex),
                 # Destinatario
-                SaleOrderHeader.override_shipping_recipient.ilike(fuzzy_pattern),
-                SaleOrderHeader.tiendanube_recipient_name.ilike(fuzzy_pattern),
+                SaleOrderHeader.override_shipping_recipient.op('~*')(fuzzy_regex),
+                SaleOrderHeader.tiendanube_recipient_name.op('~*')(fuzzy_regex),
                 # Observaciones
-                SaleOrderHeader.soh_observation1.ilike(fuzzy_pattern)
+                SaleOrderHeader.soh_observation1.op('~*')(fuzzy_regex)
             )
         )
     
