@@ -127,15 +127,24 @@ def sync_pedidos_export():
                 
                 # Commit cada 100 registros
                 if (nuevos + actualizados) % 100 == 0:
-                    db.commit()
-                    print(f"  ⚙️  Procesados: {nuevos + actualizados}...")
+                    try:
+                        db.commit()
+                        print(f"  ⚙️  Procesados: {nuevos + actualizados}...")
+                    except Exception as commit_error:
+                        print(f"⚠️  Error en commit batch: {commit_error}")
+                        db.rollback()
+                        # Continuar con el siguiente batch
                     
             except Exception as e:
                 print(f"❌ Error procesando registro IDPedido={record.get('IDPedido')}, item_id={record.get('item_id')}: {e}")
                 errores += 1
         
         # Commit final
-        db.commit()
+        try:
+            db.commit()
+        except Exception as final_commit_error:
+            print(f"⚠️  Error en commit final: {final_commit_error}")
+            db.rollback()
         
         print(f"\n✅ Sincronización completada:")
         print(f"   - Nuevos: {nuevos}")
