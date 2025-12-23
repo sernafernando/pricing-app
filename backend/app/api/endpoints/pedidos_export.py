@@ -591,20 +591,20 @@ async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Sessi
             f"{pedidos_archivados} pedidos archivados, {pedidos_excluidos} excluidos por filtros"
         )
         
-        # 6. Copiar tno_orderid a ws_internalid desde tb_tiendanube_orders
-        logger.info("🔄 Copiando tno_orderid a ws_internalid...")
+        # 6. Copiar tno_orderID a ws_internalid desde tb_tiendanube_orders
+        logger.info("🔄 Copiando tno_orderID a ws_internalid...")
         pedidos_tn_actualizados = db.execute(
             text("""
             UPDATE tb_sale_order_header tsoh
-            SET ws_internalid = tno.tno_orderid::text
+            SET ws_internalid = tno."tno_orderID"::text
             FROM tb_tiendanube_orders tno
             WHERE tsoh.soh_id = tno.soh_id
               AND tsoh.bra_id = tno.bra_id
               AND tsoh.user_id = 50021
               AND tsoh.export_id = 80
               AND tsoh.export_activo = true
-              AND tno.tno_orderid IS NOT NULL
-              AND (tsoh.ws_internalid IS NULL OR tsoh.ws_internalid != tno.tno_orderid::text)
+              AND tno."tno_orderID" IS NOT NULL
+              AND (tsoh.ws_internalid IS NULL OR tsoh.ws_internalid != tno."tno_orderID"::text)
             """)
         ).rowcount
         
