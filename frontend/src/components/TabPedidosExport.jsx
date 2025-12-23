@@ -24,6 +24,8 @@ export default function TabPedidosExport() {
   // Etiquetas
   const [mostrarModalEtiqueta, setMostrarModalEtiqueta] = useState(false);
   const [numBultos, setNumBultos] = useState(1);
+  const [tipoDomicilio, setTipoDomicilio] = useState('Particular');
+  const [tipoEnvio, setTipoEnvio] = useState('');
   const [generandoEtiqueta, setGenerandoEtiqueta] = useState(false);
   
   // Filtros
@@ -187,10 +189,20 @@ export default function TabPedidosExport() {
 
     setGenerandoEtiqueta(true);
     try {
+      const params = { 
+        num_bultos: numBultos,
+        tipo_domicilio_manual: tipoDomicilio
+      };
+      
+      // Si hay tipo de envío manual, agregarlo
+      if (tipoEnvio.trim()) {
+        params.tipo_envio_manual = tipoEnvio;
+      }
+
       const response = await axios.get(
         `${API_URL}/pedidos-simple/${pedidoSeleccionado.soh_id}/etiqueta-zpl`,
         {
-          params: { num_bultos: numBultos },
+          params: params,
           headers: { Authorization: `Bearer ${getToken()}` },
           responseType: 'blob'
         }
@@ -489,7 +501,12 @@ export default function TabPedidosExport() {
               <h2>Pedido GBP: {pedidoSeleccionado.soh_id}</h2>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <button 
-                  onClick={() => setMostrarModalEtiqueta(true)}
+                  onClick={() => {
+                    setNumBultos(1);
+                    setTipoDomicilio('Particular');
+                    setTipoEnvio('');
+                    setMostrarModalEtiqueta(true);
+                  }}
                   className={styles.btnPrintLabel}
                   title="Imprimir etiqueta de envío"
                 >
@@ -812,6 +829,37 @@ export default function TabPedidosExport() {
                 />
                 <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '5px' }}>
                   Se generará una etiqueta por bulto (1/3, 2/3, 3/3, etc.)
+                </div>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Tipo de Domicilio *</label>
+                <select
+                  value={tipoDomicilio}
+                  onChange={(e) => setTipoDomicilio(e.target.value)}
+                  className={styles.formInput}
+                  style={{ fontSize: '16px' }}
+                >
+                  <option value="Particular">🏠 Particular</option>
+                  <option value="Comercial">🏢 Comercial</option>
+                  <option value="Sucursal">📦 Sucursal</option>
+                </select>
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '5px' }}>
+                  Aparece en el lateral derecho de la etiqueta
+                </div>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Tipo de Envío (opcional)</label>
+                <input
+                  type="text"
+                  value={tipoEnvio}
+                  onChange={(e) => setTipoEnvio(e.target.value)}
+                  className={styles.formInput}
+                  placeholder="Ej: Envío a Domicilio, Retiro en Sucursal..."
+                />
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '5px' }}>
+                  Si no se completa, usa el dato del ERP
                 </div>
               </div>
 
