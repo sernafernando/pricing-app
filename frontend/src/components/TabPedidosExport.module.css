@@ -637,3 +637,24 @@
   font-weight: 600;
   margin-bottom: 4px;
 }
+
+/* Botón de imprimir etiqueta */
+.btnPrintLabel {
+  background: var(--purple);
+  color: var(--text-inverse);
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btnPrintLabel:hover {
+  background: var(--info-hover);
+  transform: translateY(-1px);
+}

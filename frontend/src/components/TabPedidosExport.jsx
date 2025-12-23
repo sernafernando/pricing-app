@@ -21,6 +21,11 @@ export default function TabPedidosExport() {
     notas: ''
   });
   
+  // Etiquetas
+  const [mostrarModalEtiqueta, setMostrarModalEtiqueta] = useState(false);
+  const [numBultos, setNumBultos] = useState(1);
+  const [generandoEtiqueta, setGenerandoEtiqueta] = useState(false);
+  
   // Filtros
   const [soloActivos, setSoloActivos] = useState(true);
   const [soloTN, setSoloTN] = useState(false);
@@ -171,6 +176,44 @@ export default function TabPedidosExport() {
     } catch (error) {
       console.error('Error eliminando override:', error);
       alert('❌ Error: ' + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  const generarEtiqueta = async () => {
+    if (numBultos < 1 || numBultos > 10) {
+      alert('⚠️ El número de bultos debe estar entre 1 y 10');
+      return;
+    }
+
+    setGenerandoEtiqueta(true);
+    try {
+      const response = await axios.get(
+        `${API_URL}/pedidos-simple/${pedidoSeleccionado.soh_id}/etiqueta-zpl`,
+        {
+          params: { num_bultos: numBultos },
+          headers: { Authorization: `Bearer ${getToken()}` },
+          responseType: 'blob'
+        }
+      );
+
+      // Crear blob y descargar
+      const blob = new Blob([response.data], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `etiqueta_pedido_${pedidoSeleccionado.soh_id}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      setMostrarModalEtiqueta(false);
+      alert(`✅ Etiqueta descargada: ${numBultos} bulto${numBultos > 1 ? 's' : ''}`);
+    } catch (error) {
+      console.error('Error generando etiqueta:', error);
+      alert('❌ Error generando etiqueta: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setGenerandoEtiqueta(false);
     }
   };
 
@@ -444,12 +487,21 @@ export default function TabPedidosExport() {
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>Pedido GBP: {pedidoSeleccionado.soh_id}</h2>
-              <button 
-                onClick={() => setPedidoSeleccionado(null)}
-                className={styles.btnClose}
-              >
-                ✕
-              </button>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button 
+                  onClick={() => setMostrarModalEtiqueta(true)}
+                  className={styles.btnPrintLabel}
+                  title="Imprimir etiqueta de envío"
+                >
+                  🖨️ Imprimir Etiqueta
+                </button>
+                <button 
+                  onClick={() => setPedidoSeleccionado(null)}
+                  className={styles.btnClose}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             <div className={styles.modalBody}>
@@ -717,6 +769,71 @@ export default function TabPedidosExport() {
                 >
                   Cancelar
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de etiquetas */}
+      {mostrarModalEtiqueta && pedidoSeleccionado && (
+        <div className={styles.modal} onClick={() => setMostrarModalEtiqueta(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <div className={styles.modalHeader}>
+              <h2>🖨️ Generar Etiqueta</h2>
+              <button 
+                onClick={() => setMostrarModalEtiqueta(false)}
+                className={styles.btnClose}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className={styles.modalBody}>
+              <div style={{ marginBottom: '20px', padding: '12px', background: 'var(--info-bg)', borderRadius: '6px', color: 'var(--info-text)', fontSize: '14px' }}>
+                <strong>📋 Datos de la etiqueta:</strong>
+                <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px' }}>
+                  <li>Usa <strong>override</strong> si existe</li>
+                  <li>Sino usa datos de <strong>TiendaNube</strong></li>
+                  <li>Fallback: datos del <strong>ERP</strong></li>
+                </ul>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Número de Bultos</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={numBultos}
+                  onChange={(e) => setNumBultos(parseInt(e.target.value) || 1)}
+                  className={styles.formInput}
+                  style={{ fontSize: '18px', textAlign: 'center' }}
+                />
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '5px' }}>
+                  Se generará una etiqueta por bulto (1/3, 2/3, 3/3, etc.)
+                </div>
+              </div>
+
+              <div className={styles.modalActions}>
+                <button 
+                  onClick={generarEtiqueta}
+                  className={styles.btnGuardar}
+                  disabled={generandoEtiqueta || numBultos < 1 || numBultos > 10}
+                >
+                  {generandoEtiqueta ? '⏳ Generando...' : '🖨️ Generar y Descargar'}
+                </button>
+
+                <button 
+                  onClick={() => setMostrarModalEtiqueta(false)}
+                  className={styles.btnCancelar}
+                >
+                  Cancelar
+                </button>
+              </div>
+
+              <div style={{ marginTop: '15px', padding: '10px', background: 'var(--bg-tertiary)', borderRadius: '6px', fontSize: '13px' }}>
+                <strong>💡 Tip:</strong> Abrí el archivo .txt con el software de tu impresora Zebra (Zebra Browser Print o ZebraDesigner) para imprimir.
               </div>
             </div>
           </div>
