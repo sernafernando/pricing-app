@@ -94,7 +94,7 @@ export default function TabPedidosExport() {
       if (userIdFiltro) params.append('user_id', userIdFiltro);
       if (provinciaFiltro) params.append('provincia', provinciaFiltro);
       if (search) params.append('buscar', search);
-      params.append('limit', '200');
+      params.append('limit', '500');
 
       const response = await axios.get(
         `${API_URL}/pedidos-simple?${params.toString()}`,
