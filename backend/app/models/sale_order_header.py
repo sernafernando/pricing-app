@@ -99,6 +99,15 @@ class SaleOrderHeader(Base):
     codigo_envio_interno = Column(String(100), index=True)  # Para QR en etiquetas
     export_id = Column(Integer, index=True)  # ID de export del ERP (ej: 80 para pedidos pendientes)
     export_activo = Column(Boolean, default=True)  # True = activo en el export, False = archivado
+    
+    # Campos enriquecidos desde TiendaNube API
+    tiendanube_number = Column(String(50), index=True)  # Número de orden TN (NRO-XXXXX)
+    tiendanube_shipping_phone = Column(String(50))  # Teléfono del destinatario
+    tiendanube_shipping_address = Column(Text)  # Dirección completa formateada
+    tiendanube_shipping_city = Column(String(100))  # Ciudad/Barrio
+    tiendanube_shipping_province = Column(String(100))  # Provincia
+    tiendanube_shipping_zipcode = Column(String(20))  # Código postal
+    tiendanube_recipient_name = Column(String(200))  # Nombre del destinatario
 
     def __repr__(self):
         return f"<SaleOrderHeader(soh_id={self.soh_id}, comp_id={self.comp_id}, mlo_id={self.mlo_id})>"

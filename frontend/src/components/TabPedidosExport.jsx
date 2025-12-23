@@ -264,16 +264,35 @@ export default function TabPedidosExport() {
                   </td>
                   <td>{formatearFecha(pedido.fecha_pedido)}</td>
                   <td>
-                    {pedido.nombre_cliente || `Cliente ${pedido.cust_id}`}
+                    <div>
+                      {pedido.nombre_cliente || `Cliente ${pedido.cust_id}`}
+                    </div>
+                    {pedido.tiendanube_recipient_name && pedido.tiendanube_recipient_name !== pedido.nombre_cliente && (
+                      <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
+                        📦 {pedido.tiendanube_recipient_name}
+                      </div>
+                    )}
                   </td>
                   <td>
-                    <div style={{ 
-                      maxWidth: '300px', 
-                      overflow: 'hidden', 
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      {pedido.direccion_entrega || '-'}
+                    <div style={{ maxWidth: '300px' }}>
+                      <div style={{ 
+                        overflow: 'hidden', 
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {pedido.tiendanube_shipping_address || pedido.direccion_entrega || '-'}
+                      </div>
+                      {pedido.tiendanube_shipping_phone && (
+                        <div style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>
+                          📞 {pedido.tiendanube_shipping_phone}
+                        </div>
+                      )}
+                      {pedido.tiendanube_shipping_city && pedido.tiendanube_shipping_province && (
+                        <div style={{ fontSize: '10px', color: '#999', marginTop: '2px' }}>
+                          {pedido.tiendanube_shipping_city}, {pedido.tiendanube_shipping_province}
+                          {pedido.tiendanube_shipping_zipcode && ` (${pedido.tiendanube_shipping_zipcode})`}
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td>
@@ -284,9 +303,13 @@ export default function TabPedidosExport() {
                     ) : '-'}
                   </td>
                   <td>
-                    {pedido.tiendanube_order_id ? (
+                    {pedido.tiendanube_number ? (
                       <span className={styles.badge} style={{ background: '#3b82f6' }}>
-                        {pedido.tiendanube_order_id}
+                        {pedido.tiendanube_number}
+                      </span>
+                    ) : pedido.tiendanube_order_id ? (
+                      <span className={styles.badge} style={{ background: '#64748b', fontSize: '11px' }}>
+                        ID: {pedido.tiendanube_order_id}
                       </span>
                     ) : '-'}
                   </td>

@@ -230,11 +230,44 @@ WHERE user_isactive = true
 ORDER BY user_name;
 ```
 
+## ✅ Integración TiendaNube API
+
+### Datos Enriquecidos
+
+Cuando se sincroniza un pedido de TiendaNube (`user_id=50021` y `ws_internalid` presente), el sistema:
+
+1. **Consulta TiendaNube API:** `GET /orders/{ws_internalid}`
+2. **Extrae datos de envío:**
+   - `tiendanube_number` - Número de orden visible (NRO-XXXXX)
+   - `tiendanube_shipping_phone` - Teléfono del destinatario
+   - `tiendanube_shipping_address` - Dirección formateada (calle + número + piso)
+   - `tiendanube_shipping_city` - Ciudad/Barrio
+   - `tiendanube_shipping_province` - Provincia
+   - `tiendanube_shipping_zipcode` - Código postal
+   - `tiendanube_recipient_name` - Nombre del destinatario
+3. **Almacena en DB:** Evita re-consultar la API en cada vista
+
+### Configuración TN API
+
+Variables de entorno requeridas en `.env`:
+```bash
+TN_STORE_ID=XXXXX
+TN_ACCESS_TOKEN=your_access_token_here
+```
+
+### Visualización Frontend
+
+- **Orden TN:** Muestra `tiendanube_number` en vez del ID interno
+- **Dirección:** Prioriza dirección formateada de TN sobre la del ERP
+- **Teléfono:** Se muestra debajo de la dirección
+- **Ciudad/Provincia/CP:** Info adicional en texto pequeño
+- **Destinatario:** Si difiere del cliente ERP, se muestra debajo
+
 ## 📝 TODOs Futuros
 
 - [ ] JOIN con `tb_customer` para traer nombre del cliente
 - [ ] JOIN con `tb_item` para traer items del pedido
-- [ ] Consulta a TiendaNube API para datos adicionales
+- [x] ~~Consulta a TiendaNube API para datos adicionales~~ ✅ COMPLETADO
 - [ ] Generación de etiquetas ZPL para impresoras Zebra
 - [ ] Asignación automática de códigos de envío
 - [ ] Expandible rows para ver items del pedido

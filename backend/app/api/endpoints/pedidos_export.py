@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_detail import SaleOrderDetail
 from app.api.deps import get_current_user
+from app.services.tienda_nube_order_client import TiendaNubeOrderClient
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -61,6 +62,15 @@ class PedidoExportResponse(BaseModel):
     ml_order_id: Optional[str]
     ml_shipping_id: Optional[int]
     tiendanube_order_id: Optional[str]
+    
+    # Datos enriquecidos desde TiendaNube API
+    tiendanube_number: Optional[str]  # Número de orden visible en TN (NRO-XXXXX)
+    tiendanube_shipping_phone: Optional[str]
+    tiendanube_shipping_address: Optional[str]
+    tiendanube_shipping_city: Optional[str]
+    tiendanube_shipping_province: Optional[str]
+    tiendanube_shipping_zipcode: Optional[str]
+    tiendanube_recipient_name: Optional[str]
     
     # Envío
     codigo_envio_interno: Optional[str]
@@ -165,6 +175,13 @@ async def obtener_pedidos_por_export(
             ml_order_id=pedido.soh_mlid,
             ml_shipping_id=pedido.mlshippingid,
             tiendanube_order_id=pedido.ws_internalid,
+            tiendanube_number=pedido.tiendanube_number,
+            tiendanube_shipping_phone=pedido.tiendanube_shipping_phone,
+            tiendanube_shipping_address=pedido.tiendanube_shipping_address,
+            tiendanube_shipping_city=pedido.tiendanube_shipping_city,
+            tiendanube_shipping_province=pedido.tiendanube_shipping_province,
+            tiendanube_shipping_zipcode=pedido.tiendanube_shipping_zipcode,
+            tiendanube_recipient_name=pedido.tiendanube_recipient_name,
             codigo_envio_interno=pedido.codigo_envio_interno,
             tipo_envio=None,  # TODO: Derivar de campos ML/TN
             bultos=pedido.soh_packagesqty,
@@ -318,6 +335,13 @@ async def obtener_todos_pedidos_export(
             ml_order_id=pedido.soh_mlid,
             ml_shipping_id=pedido.mlshippingid,
             tiendanube_order_id=pedido.ws_internalid,
+            tiendanube_number=pedido.tiendanube_number,
+            tiendanube_shipping_phone=pedido.tiendanube_shipping_phone,
+            tiendanube_shipping_address=pedido.tiendanube_shipping_address,
+            tiendanube_shipping_city=pedido.tiendanube_shipping_city,
+            tiendanube_shipping_province=pedido.tiendanube_shipping_province,
+            tiendanube_shipping_zipcode=pedido.tiendanube_shipping_zipcode,
+            tiendanube_recipient_name=pedido.tiendanube_recipient_name,
             codigo_envio_interno=pedido.codigo_envio_interno,
             tipo_envio=None,
             bultos=pedido.soh_packagesqty,
@@ -378,6 +402,69 @@ async def sincronizar_export_80(
     except Exception as e:
         logger.error(f"Error sincronizando export 80: {e}", exc_info=True)
         raise HTTPException(500, f"Error en sincronización: {str(e)}")
+
+
+async def enriquecer_pedidos_tiendanube(db: Session, soh_ids: set):
+    """
+    Enriquece pedidos de TiendaNube con datos de la API.
+    Solo enriquece pedidos que:
+    - user_id = 50021 (TiendaNube)
+    - Tienen ws_internalid (order ID de TN)
+    - NO tienen tiendanube_number (aún no enriquecidos)
+    """
+    # Buscar pedidos TN sin enriquecer
+    pedidos_tn = db.query(SaleOrderHeader).filter(
+        and_(
+            SaleOrderHeader.soh_id.in_(soh_ids),
+            SaleOrderHeader.user_id == 50021,
+            SaleOrderHeader.ws_internalid.isnot(None),
+            SaleOrderHeader.tiendanube_number.is_(None)  # No enriquecido
+        )
+    ).all()
+    
+    if not pedidos_tn:
+        logger.info("No hay pedidos TN nuevos para enriquecer")
+        return
+    
+    logger.info(f"Enriqueciendo {len(pedidos_tn)} pedidos TN con API...")
+    
+    tn_client = TiendaNubeOrderClient()
+    enriquecidos = 0
+    errores = 0
+    
+    for pedido in pedidos_tn:
+        try:
+            tn_order_id = int(pedido.ws_internalid)
+            tn_data = await tn_client.get_order_details(tn_order_id)
+            
+            if not tn_data:
+                logger.warning(f"No se obtuvieron datos TN para orden {tn_order_id}")
+                errores += 1
+                continue
+            
+            # Actualizar campos con datos de TN
+            pedido.tiendanube_number = tn_data.get('number')
+            
+            shipping_address = tn_data.get('shipping_address', {})
+            if shipping_address:
+                pedido.tiendanube_shipping_phone = shipping_address.get('phone')
+                pedido.tiendanube_shipping_address = tn_client.build_shipping_address(shipping_address)
+                pedido.tiendanube_shipping_city = shipping_address.get('city')
+                pedido.tiendanube_shipping_province = shipping_address.get('province')
+                pedido.tiendanube_shipping_zipcode = shipping_address.get('zipcode')
+                pedido.tiendanube_recipient_name = shipping_address.get('name')
+            
+            enriquecidos += 1
+            
+        except (ValueError, TypeError) as e:
+            logger.error(f"Error convirtiendo ws_internalid '{pedido.ws_internalid}' a int: {e}")
+            errores += 1
+        except Exception as e:
+            logger.error(f"Error enriqueciendo pedido {pedido.soh_id}: {e}")
+            errores += 1
+    
+    db.commit()
+    logger.info(f"✅ Enriquecimiento TN completado: {enriquecidos} OK, {errores} errores")
 
 
 def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_full: bool = False):
@@ -483,6 +570,13 @@ def procesar_pedidos_export_80(data: List[Dict[str, Any]], db: Session, force_fu
             f"✅ Sincronización completada: {pedidos_actualizados} pedidos activos, "
             f"{pedidos_archivados} pedidos archivados, {pedidos_excluidos} excluidos por filtros"
         )
+        
+        # 6. Enriquecer pedidos TN con datos de la API (ejecuta de forma síncrona)
+        import asyncio
+        try:
+            asyncio.run(enriquecer_pedidos_tiendanube(db, soh_ids_validos))
+        except Exception as e:
+            logger.error(f"Error en enriquecimiento TN: {e}")
         
     except Exception as e:
         db.rollback()
