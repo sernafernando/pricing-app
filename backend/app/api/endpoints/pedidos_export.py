@@ -434,18 +434,35 @@ def guardar_export_87_snapshot(data: List[Dict[str, Any]], db: Session) -> int:
     
     snapshot_date = datetime.now()
     registros_guardados = 0
-    batch_size = 500
     
-    for i in range(0, len(data), batch_size):
-        batch = data[i:i + batch_size]
+    # Agrupar por soh_id para evitar duplicados (Export 87 trae 1 fila por ITEM, no por PEDIDO)
+    pedidos_map = {}
+    for row in data:
+        soh_id = row.get("IDPedido")
+        if not soh_id:
+            continue
+        
+        # Si ya vimos este pedido, solo actualizar order_id si existe
+        if soh_id in pedidos_map:
+            # Actualizar orderID si el registro actual lo tiene y el anterior no
+            if row.get("orderID") and not pedidos_map[soh_id].get("orderID"):
+                pedidos_map[soh_id]["orderID"] = row.get("orderID")
+        else:
+            # Primera vez que vemos este pedido
+            pedidos_map[soh_id] = row
+    
+    logger.info(f"  Agrupados {len(pedidos_map)} pedidos únicos de {len(data)} registros")
+    
+    # Insertar pedidos únicos en batches
+    batch_size = 500
+    pedidos_list = list(pedidos_map.values())
+    
+    for i in range(0, len(pedidos_list), batch_size):
+        batch = pedidos_list[i:i + batch_size]
         snapshots = []
         
         for row in batch:
-            # Convertir camelCase a snake_case y extraer campos
             soh_id = row.get("IDPedido")
-            if not soh_id:
-                continue
-                
             snapshot = Export87Snapshot(
                 soh_id=int(soh_id),
                 bra_id=int(row.get("braID")) if row.get("braID") else None,
@@ -455,7 +472,7 @@ def guardar_export_87_snapshot(data: List[Dict[str, Any]], db: Session) -> int:
                 ssos_id=int(row.get("ssosID")) if row.get("ssosID") else None,
                 snapshot_date=snapshot_date,
                 export_id=87,
-                raw_data=row  # Guardar JSON crudo
+                raw_data=row  # Guardar JSON crudo del primer registro del pedido
             )
             snapshots.append(snapshot)
         
