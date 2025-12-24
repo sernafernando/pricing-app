@@ -725,6 +725,10 @@ async def generar_etiqueta_zpl(
         label_context = context.copy()
         label_context['BULTO_ACTUAL'] = str(i)
         
+        # Generar código interno único por bulto: {bra_id}-{soh_id}-{bulto_num}
+        codigo_envio = f"{pedido.bra_id}-{pedido.soh_id}-{i}"
+        label_context['CODIGO_ENVIO'] = codigo_envio
+        
         # Reemplazar variables en template
         rendered_zpl = zpl_template
         for key, value in label_context.items():

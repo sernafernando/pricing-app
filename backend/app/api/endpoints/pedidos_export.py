@@ -684,6 +684,29 @@ async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Sessi
             f"{pedidos_archivados} pedidos archivados, {pedidos_excluidos} excluidos por filtros"
         )
         
+        # 5.5. Generar códigos internos para pedidos que no sean ML (user_id != 50001)
+        logger.info("🔢 Generando códigos internos para pedidos NO-ML...")
+        pedidos_sin_codigo = db.query(SaleOrderHeader).filter(
+            and_(
+                SaleOrderHeader.soh_id.in_(soh_ids_validos),
+                SaleOrderHeader.user_id != 50001,  # Excluir ML
+                or_(
+                    SaleOrderHeader.codigo_envio_interno.is_(None),
+                    SaleOrderHeader.codigo_envio_interno == ''
+                )
+            )
+        ).all()
+        
+        codigos_generados = 0
+        for pedido in pedidos_sin_codigo:
+            # Generar código: {bra_id}-{soh_id}
+            pedido.codigo_envio_interno = f"{pedido.bra_id}-{pedido.soh_id}"
+            codigos_generados += 1
+        
+        if codigos_generados > 0:
+            db.commit()
+            logger.info(f"✅ Generados {codigos_generados} códigos internos")
+        
         # 6. Copiar tno_orderID a ws_internalid desde tb_tiendanube_orders
         logger.info("🔄 Copiando tno_orderID a ws_internalid...")
         pedidos_tn_actualizados = db.execute(
