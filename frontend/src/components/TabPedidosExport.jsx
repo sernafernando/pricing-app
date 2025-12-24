@@ -577,6 +577,7 @@ export default function TabPedidosExport() {
                   />
                 </th>
                 <th>ID PEDIDO</th>
+                <th>CÓDIGO</th>
                 <th>CLIENTE</th>
                 <th>ITEMS</th>
                 <th>BULTOS</th>
@@ -607,6 +608,22 @@ export default function TabPedidosExport() {
                         <div className={styles.userBadge}>
                           {getUserLabel(pedido)}
                         </div>
+                      )}
+                    </div>
+                  </td>
+                  
+                  <td onClick={() => setPedidoSeleccionado(pedido)}>
+                    <div className={styles.codigoInterno}>
+                      {pedido.user_id === 50001 ? (
+                        // MercadoLibre: mostrar ml_shipping_id
+                        <span className={styles.codigoML} title="Shipping ID de ML">
+                          📦 {pedido.ml_shipping_id || 'Sin ID'}
+                        </span>
+                      ) : (
+                        // TiendaNube/Otros: mostrar codigo_envio_interno
+                        <span className={styles.codigoTN} title="Código interno">
+                          🏷️ {pedido.codigo_envio_interno || `${pedido.bra_id}-${pedido.soh_id}`}
+                        </span>
                       )}
                     </div>
                   </td>

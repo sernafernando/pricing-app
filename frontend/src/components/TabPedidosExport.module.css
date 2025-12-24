@@ -788,3 +788,26 @@
   background: var(--info-hover);
   transform: translateY(-1px);
 }
+
+/* Códigos internos y de ML */
+.codigoInterno {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.codigoTN {
+  color: var(--success);
+  background: rgba(76, 175, 80, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.codigoML {
+  color: var(--warning);
+  background: rgba(255, 193, 7, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
