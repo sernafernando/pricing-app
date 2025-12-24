@@ -601,10 +601,21 @@ async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Sessi
         soh_ids_filtrados = set([p.soh_id for p in pedidos_filtrados])
         logger.info(f"Pedidos que existen en DB (sin filtro ssos_id): {len(soh_ids_filtrados)}")
         
-        # 3. Excluir pedidos que SOLO tienen items 2953/2954 (envíos/servicios)
-        # Verificamos pedidos que tienen TODOS sus items en (2953, 2954)
-        pedidos_solo_servicio = db.query(SaleOrderDetail.soh_id).filter(
+        # 3. Excluir pedidos SIN items o que SOLO tienen items 2953/2954 (envíos/servicios)
+        
+        # 3.1. Pedidos que tienen items (al menos 1)
+        pedidos_con_items = db.query(SaleOrderDetail.soh_id).filter(
             SaleOrderDetail.soh_id.in_(soh_ids_filtrados)
+        ).distinct().all()
+        soh_ids_con_items = set([p.soh_id for p in pedidos_con_items])
+        
+        # 3.2. Pedidos SIN items
+        soh_ids_sin_items = soh_ids_filtrados - soh_ids_con_items
+        logger.info(f"Pedidos sin items (excluidos): {len(soh_ids_sin_items)}")
+        
+        # 3.3. Pedidos que SOLO tienen items 2953/2954 (servicios)
+        pedidos_solo_servicio = db.query(SaleOrderDetail.soh_id).filter(
+            SaleOrderDetail.soh_id.in_(soh_ids_con_items)
         ).group_by(SaleOrderDetail.soh_id).having(
             func.count(SaleOrderDetail.item_id) == func.sum(
                 case(
@@ -614,11 +625,15 @@ async def procesar_pedidos_export_80_async(data: List[Dict[str, Any]], db: Sessi
             )
         ).all()
         
-        soh_ids_excluidos = set([p.soh_id for p in pedidos_solo_servicio])
+        soh_ids_solo_servicio = set([p.soh_id for p in pedidos_solo_servicio])
+        logger.info(f"Pedidos solo con items 2953/2954 (excluidos): {len(soh_ids_solo_servicio)}")
+        
+        # 3.4. Combinar exclusiones
+        soh_ids_excluidos = soh_ids_sin_items | soh_ids_solo_servicio
         soh_ids_validos = soh_ids_filtrados - soh_ids_excluidos
         
         pedidos_excluidos = len(soh_ids_excluidos)
-        logger.info(f"Pedidos excluidos (solo items 2953/2954): {pedidos_excluidos}")
+        logger.info(f"Total pedidos excluidos: {pedidos_excluidos}")
         logger.info(f"Pedidos válidos finales: {len(soh_ids_validos)}")
         
         # 4. Marcar pedidos válidos como activos y actualizar ws_internalid
