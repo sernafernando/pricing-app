@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, desc, case, text
 from typing import List, Optional, Dict, Any
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pydantic import BaseModel
 import httpx
 import logging
@@ -14,6 +14,7 @@ import logging
 from app.core.database import get_db
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_detail import SaleOrderDetail
+from app.models.export_87_snapshot import Export87Snapshot
 from app.api.deps import get_current_user
 from app.services.tienda_nube_order_client import TiendaNubeOrderClient
 
@@ -384,6 +385,11 @@ async def sincronizar_export_80(
         
         logger.info(f"Obtenidos {len(data)} registros desde export_id=87")
         
+        # 1.5. Guardar snapshot en tb_export_87_snapshot
+        logger.info("💾 Guardando snapshot de Export 87...")
+        snapshot_guardados = guardar_export_87_snapshot(data, db)
+        logger.info(f"✅ Guardados {snapshot_guardados} registros en snapshot")
+        
         # 2. Procesar EN PRIMER PLANO (no background)
         resultado = await procesar_pedidos_export_80_async(data, db, force_full)
         
@@ -405,6 +411,64 @@ async def sincronizar_export_80(
     except Exception as e:
         logger.error(f"Error sincronizando export 80: {e}", exc_info=True)
         raise HTTPException(500, f"Error en sincronización: {str(e)}")
+
+
+def guardar_export_87_snapshot(data: List[Dict[str, Any]], db: Session) -> int:
+    """
+    Guarda los datos del Export 87 en tb_export_87_snapshot.
+    Permite tener un fallback si el ERP no responde y enriquecer datos.
+    
+    Args:
+        data: Lista de registros del Export 87
+        db: Session de SQLAlchemy
+        
+    Returns:
+        Cantidad de registros guardados
+    """
+    from datetime import datetime
+    
+    # Borrar snapshots viejos (>7 días)
+    db.query(Export87Snapshot).filter(
+        Export87Snapshot.snapshot_date < datetime.now() - timedelta(days=7)
+    ).delete(synchronize_session=False)
+    
+    snapshot_date = datetime.now()
+    registros_guardados = 0
+    batch_size = 500
+    
+    for i in range(0, len(data), batch_size):
+        batch = data[i:i + batch_size]
+        snapshots = []
+        
+        for row in batch:
+            # Convertir camelCase a snake_case y extraer campos
+            soh_id = row.get("IDPedido")
+            if not soh_id:
+                continue
+                
+            snapshot = Export87Snapshot(
+                soh_id=int(soh_id),
+                bra_id=int(row.get("braID")) if row.get("braID") else None,
+                comp_id=int(row.get("compID")) if row.get("compID") else None,
+                user_id=int(row.get("userID")) if row.get("userID") else None,
+                order_id=str(row.get("orderID")) if row.get("orderID") else None,
+                ssos_id=int(row.get("ssosID")) if row.get("ssosID") else None,
+                snapshot_date=snapshot_date,
+                export_id=87,
+                raw_data=row  # Guardar JSON crudo
+            )
+            snapshots.append(snapshot)
+        
+        if snapshots:
+            db.bulk_save_objects(snapshots)
+            registros_guardados += len(snapshots)
+        
+        if i % 1000 == 0 and i > 0:
+            db.commit()
+            logger.info(f"  Guardados {registros_guardados} snapshots...")
+    
+    db.commit()
+    return registros_guardados
 
 
 async def enriquecer_pedidos_tiendanube(db: Session, soh_ids: set):

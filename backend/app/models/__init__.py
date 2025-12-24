@@ -32,6 +32,7 @@ from app.models.markup_tienda import MarkupTiendaBrand
 from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
 from app.models.rol import Rol
 from app.models.pedido_preparacion_cache import PedidoPreparacionCache
+from app.models.export_87_snapshot import Export87Snapshot
 
 __all__ = [
     "ProductoERP",
@@ -75,5 +76,6 @@ __all__ = [
     "RolPermisoBase",
     "UsuarioPermisoOverride",
     "Rol",
-    "PedidoPreparacionCache"
+    "PedidoPreparacionCache",
+    "Export87Snapshot"
 ]
