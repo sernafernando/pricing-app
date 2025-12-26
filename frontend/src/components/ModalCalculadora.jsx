@@ -27,7 +27,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
   const [constantes, setConstantes] = useState(null);
   const [preciosCuotas, setPreciosCuotas] = useState([]);
   const [calculandoCuotas, setCalculandoCuotas] = useState(false);
-  const [adicionalMarkup, setAdicionalMarkup] = useState(4.0);
+  const [adicionalMarkup, setAdicionalMarkup] = useState(0); // Se carga desde BD al abrir modal
   const [gruposComision, setGruposComision] = useState([]);
   const [grupoSeleccionado, setGrupoSeleccionado] = useState(1); // Default: Grupo 1
 
@@ -58,18 +58,15 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
         headers: { Authorization: `Bearer ${token}` }
       });
       setConstantes(response.data);
+      
+      // Setear adicional de markup desde la BD
+      if (response.data.markup_adicional_cuotas !== undefined) {
+        setAdicionalMarkup(response.data.markup_adicional_cuotas);
+      }
     } catch (error) {
       console.error('Error cargando constantes:', error);
-      // Usar valores por defecto si falla
-      setConstantes({
-        monto_tier1: 15000,
-        monto_tier2: 24000,
-        monto_tier3: 33000,
-        comision_tier1: 1115,
-        comision_tier2: 2300,
-        comision_tier3: 2810,
-        varios_porcentaje: 6.5
-      });
+      alert('Error cargando constantes de pricing. No se pueden realizar cálculos.');
+      setConstantes(null);
     }
   };
 
