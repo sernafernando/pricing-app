@@ -16,7 +16,7 @@
   background-color: var(--bg-primary);
   border-radius: 12px;
   width: 90%;
-  max-width: 750px;
+  max-width: 650px;
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
@@ -31,13 +31,13 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--border-color);
 }
 
 .modal-header h2 {
   margin: 0;
-  font-size: 24px;
+  font-size: 20px;
   color: var(--text-primary);
 }
 
@@ -88,14 +88,14 @@
 }
 
 .modal-body {
-  padding: 20px;
+  padding: 16px 20px;
 }
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
 }
 
 .form-group {
@@ -105,14 +105,14 @@
 
 .form-group label {
   font-weight: 600;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .form-group input,
 .form-group select {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 14px;
@@ -130,28 +130,28 @@
 
 .resultados-section {
   background-color: var(--bg-secondary);
-  padding: 20px;
+  padding: 16px;
   border-radius: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .resultados-section h3 {
-  margin: 0 0 16px 0;
-  font-size: 18px;
+  margin: 0 0 12px 0;
+  font-size: 16px;
   color: var(--text-primary);
 }
 
 .resultados-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  gap: 10px;
 }
 
 .resultado-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
+  padding: 10px 12px;
   background-color: var(--bg-primary);
   border-radius: 6px;
   border: 1px solid var(--border-color);
@@ -166,13 +166,15 @@
 .resultado-label {
   font-weight: 600;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .resultado-valor {
   font-weight: 700;
-  color: var(--text-primary);
-  font-size: 16px;
+  color: var(--success);
+  font-size: 15px;
 }
 
 .guardar-section {
@@ -203,8 +205,8 @@
 .modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  padding: 20px;
+  gap: 10px;
+  padding: 16px 20px;
   border-top: 1px solid var(--border-color);
 }
 
