@@ -466,3 +466,156 @@
   border-top: 1px solid var(--border-color);
   background: rgba(0, 0, 0, 0.2);
 }
+
+/* ===== BADGES DE SEVERIDAD Y ESTADO ===== */
+
+.severidadBadge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.severidadBadge.urgent {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  box-shadow: 0 0 8px rgba(220, 38, 38, 0.3);
+  animation: pulse 2s infinite;
+}
+
+.severidadBadge.critical {
+  background: #fed7aa;
+  color: #9a3412;
+  border: 1px solid #fdba74;
+}
+
+.severidadBadge.warning {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.severidadBadge.info {
+  background: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #93c5fd;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(220, 38, 38, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(220, 38, 38, 0.6);
+  }
+}
+
+.estadoBadge {
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  display: inline-block;
+}
+
+.estadoBadge.pendiente {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.estadoBadge.revisada {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.estadoBadge.descartada {
+  background: #e5e7eb;
+  color: #4b5563;
+  text-decoration: line-through;
+}
+
+.estadoBadge.en-gestion {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.estadoBadge.resuelta {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+/* ===== BOTONES DE GESTIÓN ===== */
+
+.btnSuccess {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btnSuccess:hover {
+  background: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+}
+
+.btnWarning {
+  background: #f59e0b;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btnWarning:hover {
+  background: #d97706;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(245, 158, 11, 0.3);
+}
+
+.btnInfo {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btnInfo:hover {
+  background: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
+}
+
+.actionGroup {
+  background: #f9fafb;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.actionGroup h5 {
+  margin: 0 0 8px 0;
+  font-size: 0.9rem;
+  color: #666;
+  font-weight: 600;
+}

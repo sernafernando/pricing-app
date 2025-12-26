@@ -141,6 +141,56 @@ export default function Notificaciones() {
     }
   };
 
+  // ===== NUEVAS FUNCIONES DE GESTIÓN =====
+  
+  const descartarNotificacion = async (notifId) => {
+    try {
+      await api.patch(`/api/notificaciones/${notifId}/descartar`);
+      await fetchNotificaciones();
+    } catch (error) {
+      console.error('Error al descartar notificación:', error);
+    }
+  };
+
+  const revisarNotificacion = async (notifId) => {
+    try {
+      await api.patch(`/api/notificaciones/${notifId}/revisar`);
+      await fetchNotificaciones();
+    } catch (error) {
+      console.error('Error al revisar notificación:', error);
+    }
+  };
+
+  const resolverNotificacion = async (notifId) => {
+    try {
+      await api.patch(`/api/notificaciones/${notifId}/resolver`);
+      await fetchNotificaciones();
+    } catch (error) {
+      console.error('Error al resolver notificación:', error);
+    }
+  };
+
+  const getSeveridadBadge = (severidad) => {
+    const badges = {
+      'URGENT': { icon: '🔴', text: 'Urgente', class: 'urgent' },
+      'CRITICAL': { icon: '🟠', text: 'Crítico', class: 'critical' },
+      'WARNING': { icon: '🟡', text: 'Advertencia', class: 'warning' },
+      'INFO': { icon: '🟢', text: 'Info', class: 'info' }
+    };
+    return badges[severidad] || badges['INFO'];
+  };
+
+  const getEstadoBadge = (estado) => {
+    const badges = {
+      'PENDIENTE': { text: 'Pendiente', class: 'pendiente' },
+      'REVISADA': { text: 'Revisada', class: 'revisada' },
+      'DESCARTADA': { text: 'Descartada', class: 'descartada' },
+      'EN_GESTION': { text: 'En Gestión', class: 'en-gestion' },
+      'RESUELTA': { text: 'Resuelta', class: 'resuelta' }
+    };
+    return badges[estado] || badges['PENDIENTE'];
+  };
+
   const fetchOrderData = async (notif) => {
     if (!notif.id_operacion) return;
 
@@ -320,6 +370,18 @@ export default function Notificaciones() {
                       {grupo.codigo_producto} - {grupo.descripcion_producto}
                     </div>
                     <div className={styles.grupoInfo}>
+                      {/* Badge de severidad */}
+                      {grupo.notificacion_reciente.severidad && (
+                        <span className={`${styles.severidadBadge} ${styles[getSeveridadBadge(grupo.notificacion_reciente.severidad).class]}`}>
+                          {getSeveridadBadge(grupo.notificacion_reciente.severidad).icon} {getSeveridadBadge(grupo.notificacion_reciente.severidad).text}
+                        </span>
+                      )}
+                      {/* Badge de estado */}
+                      {grupo.notificacion_reciente.estado && (
+                        <span className={`${styles.estadoBadge} ${styles[getEstadoBadge(grupo.notificacion_reciente.estado).class]}`}>
+                          {getEstadoBadge(grupo.notificacion_reciente.estado).text}
+                        </span>
+                      )}
                       <span className={styles.grupoMarkup}>Markup Real: {grupo.markup_real}%</span>
                       <span className={styles.grupoCount}>({grupo.count} notificación{grupo.count > 1 ? 'es' : ''})</span>
                       {grupo.pm && <span className={styles.pmTag}>PM: {grupo.pm}</span>}
@@ -411,35 +473,78 @@ export default function Notificaciones() {
                     </div>
 
                     <div className={styles.detalleActions}>
-                      {grupo.notificacion_reciente.ml_id && (
-                        <button
-                          onClick={() => abrirEnML(grupo.notificacion_reciente)}
-                          className={styles.btnPrimary}
-                        >
-                          🔗 Ver última en MercadoLibre
-                        </button>
-                      )}
-                      {grupo.notificacion_reciente.leida && (
+                      {/* Botones de Gestión */}
+                      <div className={styles.actionGroup}>
+                        <h5 style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: '#666' }}>Gestión:</h5>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <button
+                            onClick={() => {
+                              Promise.all(grupo.notificaciones_ids.map(id => revisarNotificacion(id)));
+                            }}
+                            className={styles.btnSuccess}
+                            title="Marcar como revisada (no desaparece)"
+                          >
+                            ✓ Revisar ({grupo.count})
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`¿Descartar ${grupo.count} notificación${grupo.count > 1 ? 'es' : ''}? No volverán a aparecer como pendientes.`)) {
+                                Promise.all(grupo.notificaciones_ids.map(id => descartarNotificacion(id)))
+                                  .then(() => setExpandedGrupo(null));
+                              }
+                            }}
+                            className={styles.btnWarning}
+                            title="Descartar (no volver a mostrar como pendiente)"
+                          >
+                            ✕ Descartar ({grupo.count})
+                          </button>
+                          <button
+                            onClick={() => {
+                              Promise.all(grupo.notificaciones_ids.map(id => resolverNotificacion(id)));
+                            }}
+                            className={styles.btnInfo}
+                            title="Marcar como resuelta"
+                          >
+                            ✓✓ Resolver ({grupo.count})
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Separador */}
+                      <hr style={{ margin: '12px 0', border: 'none', borderTop: '1px solid #ddd' }} />
+
+                      {/* Botones de Acción */}
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {grupo.notificacion_reciente.ml_id && (
+                          <button
+                            onClick={() => abrirEnML(grupo.notificacion_reciente)}
+                            className={styles.btnPrimary}
+                          >
+                            🔗 Ver última en MercadoLibre
+                          </button>
+                        )}
+                        {grupo.notificacion_reciente.leida && (
+                          <button
+                            onClick={() => {
+                              Promise.all(grupo.notificaciones_ids.map(id => marcarComoNoLeida(id)));
+                            }}
+                            className={styles.btnSecondary}
+                          >
+                            ○ Marcar no leídas ({grupo.count})
+                          </button>
+                        )}
                         <button
                           onClick={() => {
-                            Promise.all(grupo.notificaciones_ids.map(id => marcarComoNoLeida(id)));
+                            if (confirm(`¿Eliminar ${grupo.count} notificación${grupo.count > 1 ? 'es' : ''}?`)) {
+                              Promise.all(grupo.notificaciones_ids.map(id => eliminarNotificacion(id)))
+                                .then(() => setExpandedGrupo(null));
+                            }
                           }}
-                          className={styles.btnSecondary}
+                          className={styles.btnDanger}
                         >
-                          ○ Marcar no leídas ({grupo.count})
+                          🗑️ Eliminar todas ({grupo.count})
                         </button>
-                      )}
-                      <button
-                        onClick={() => {
-                          if (confirm(`¿Eliminar ${grupo.count} notificación${grupo.count > 1 ? 'es' : ''}?`)) {
-                            Promise.all(grupo.notificaciones_ids.map(id => eliminarNotificacion(id)))
-                              .then(() => setExpandedGrupo(null));
-                          }
-                        }}
-                        className={styles.btnDanger}
-                      >
-                        🗑️ Eliminar todas ({grupo.count})
-                      </button>
+                      </div>
                     </div>
                   </div>
                 )}
