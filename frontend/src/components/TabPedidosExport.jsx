@@ -615,9 +615,9 @@ export default function TabPedidosExport() {
                   <td onClick={() => setPedidoSeleccionado(pedido)}>
                     <div className={styles.codigoInterno}>
                       {pedido.user_id === 50001 ? (
-                        // MercadoLibre: mostrar ml_shipping_id
+                        // MercadoLibre: mostrar soh_mlguia (shipping ID)
                         <span className={styles.codigoML} title="Shipping ID de ML">
-                          📦 {pedido.ml_shipping_id || 'Sin ID'}
+                          📦 {pedido.soh_mlguia || pedido.soh_mlid || 'Sin ID'}
                         </span>
                       ) : (
                         // TiendaNube/Otros: mostrar codigo_envio_interno
