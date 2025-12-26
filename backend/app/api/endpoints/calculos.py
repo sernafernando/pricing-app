@@ -283,6 +283,7 @@ async def calcular_precios_cuotas(
     ]
     
     resultados = []
+    errores = []
     
     for cuotas, pricelist_id in cuotas_config:
         try:
@@ -309,13 +310,21 @@ async def calcular_precios_cuotas(
                     limpio=resultado["limpio"],
                     markup_real=resultado["markup_real"]
                 ))
+            else:
+                errores.append(f"{cuotas}C: {resultado['error']}")
         except Exception as e:
             # Si falla el cálculo de una cuota, continuar con las demás
-            print(f"Error calculando cuotas {cuotas}: {e}")
+            error_msg = f"{cuotas}C: {str(e)}"
+            print(f"❌ Error calculando cuotas {cuotas}: {e}")
+            import traceback
+            traceback.print_exc()
+            errores.append(error_msg)
             continue
     
     if not resultados:
-        raise HTTPException(status_code=400, detail="No se pudieron calcular precios de cuotas")
+        error_detail = f"No se pudieron calcular precios de cuotas. Errores: {'; '.join(errores)}"
+        print(f"❌ {error_detail}")
+        raise HTTPException(status_code=400, detail=error_detail)
     
     return resultados
 

@@ -137,36 +137,56 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
   // Calcular cuotas automáticamente cuando cambia el markup o el adicional
   useEffect(() => {
     const markup = parseFloat(resultados.markupPorcentaje);
-    if (markup && !isNaN(markup) && formData.costo && formData.precioFinal && formData.tipoCambio) {
+    const costo = parseFloat(formData.costo);
+    const precioFinal = parseFloat(formData.precioFinal);
+    const tipoCambio = parseFloat(formData.tipoCambio);
+    
+    console.log('🔍 Verificando condiciones para calcular cuotas:', {
+      markup,
+      costo,
+      precioFinal,
+      tipoCambio,
+      formData
+    });
+    
+    if (markup && !isNaN(markup) && markup > 0 && costo > 0 && precioFinal > 0 && tipoCambio > 0) {
+      console.log('✅ Calculando cuotas...');
       calcularCuotas();
     } else {
+      console.log('❌ No se cumplen condiciones para calcular cuotas');
       setPreciosCuotas([]);
     }
-  }, [resultados.markupPorcentaje, adicionalMarkup]);
+  }, [resultados.markupPorcentaje, adicionalMarkup, formData.costo, formData.precioFinal, formData.tipoCambio]);
 
   const calcularCuotas = async () => {
     try {
       setCalculandoCuotas(true);
       const token = localStorage.getItem('token');
       
+      const requestData = {
+        costo: parseFloat(formData.costo),
+        moneda_costo: formData.monedaCosto,
+        iva: parseFloat(formData.iva),
+        envio: parseFloat(formData.costoEnvio) || 0,
+        markup_objetivo: parseFloat(resultados.markupPorcentaje),
+        tipo_cambio: parseFloat(formData.tipoCambio),
+        subcategoria_id: 1, // Default
+        adicional_markup: adicionalMarkup
+      };
+      
+      console.log('📤 Enviando request calcular cuotas:', requestData);
+      
       const response = await axios.post(
         'https://pricing.gaussonline.com.ar/api/calculos/calcular-cuotas',
-        {
-          costo: parseFloat(formData.costo),
-          moneda_costo: formData.monedaCosto,
-          iva: parseFloat(formData.iva),
-          envio: parseFloat(formData.costoEnvio) || 0,
-          markup_objetivo: parseFloat(resultados.markupPorcentaje),
-          tipo_cambio: parseFloat(formData.tipoCambio),
-          subcategoria_id: 1, // Default
-          adicional_markup: adicionalMarkup
-        },
+        requestData,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
+      console.log('📥 Respuesta cuotas:', response.data);
       setPreciosCuotas(response.data);
     } catch (error) {
-      console.error('Error calculando cuotas:', error);
+      console.error('❌ Error calculando cuotas:', error);
+      console.error('Error response:', error.response?.data);
       setPreciosCuotas([]);
     } finally {
       setCalculandoCuotas(false);
