@@ -30,6 +30,11 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
   const [ofertas, setOfertas] = useState(null);
   const [loadingOfertas, setLoadingOfertas] = useState(true);
 
+  // Early return si no hay producto
+  if (!producto) {
+    return null;
+  }
+
   const cambiarModo = (nuevoModo) => {
     setModo(nuevoModo);
     setResultado(null);
