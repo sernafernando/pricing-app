@@ -29,13 +29,18 @@
   /* Transición suave */
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   
-  /* Layout */
+  /* Layout - Por defecto arriba (para sub-items) */
   display: flex;
   flex-direction: column;
-  justify-content: center; /* Centra verticalmente */
+  justify-content: flex-start;
   gap: var(--spacing-md);
   text-align: center;
   min-height: 140px; /* Altura mínima para consistencia */
+}
+
+/* Cards de valor único - Centradas verticalmente */
+.stat-card-single {
+  justify-content: center;
 }
 
 /* Hover effect - Elevación sutil */

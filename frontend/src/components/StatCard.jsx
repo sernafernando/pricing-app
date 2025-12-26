@@ -29,7 +29,7 @@ export default function StatCard({
 
   return (
     <div 
-      className={`stat-card-tesla ${onClick ? 'stat-card-clickable' : ''}`}
+      className={`stat-card-tesla ${onClick ? 'stat-card-clickable' : ''} ${subItems.length === 0 ? 'stat-card-single' : ''}`}
       onClick={onClick}
     >
       {/* Indicador visual si es clickeable */}
