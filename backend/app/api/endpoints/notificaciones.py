@@ -40,16 +40,16 @@ class NotificacionResponse(BaseModel):
     fecha_lectura: Optional[datetime]
     
     # Nuevos campos
-    severidad: SeveridadNotificacion
-    estado: EstadoNotificacion
-    fecha_revision: Optional[datetime]
-    fecha_descarte: Optional[datetime]
-    fecha_resolucion: Optional[datetime]
-    notas_revision: Optional[str]
+    severidad: Optional[SeveridadNotificacion] = None
+    estado: Optional[EstadoNotificacion] = None
+    fecha_revision: Optional[datetime] = None
+    fecha_descarte: Optional[datetime] = None
+    fecha_resolucion: Optional[datetime] = None
+    notas_revision: Optional[str] = None
     diferencia_markup: Optional[float] = None
     diferencia_markup_porcentual: Optional[float] = None
-    es_critica: bool = False
-    requiere_atencion: bool = True
+    es_critica: Optional[bool] = None
+    requiere_atencion: Optional[bool] = None
 
     class Config:
         from_attributes = True

@@ -7,19 +7,19 @@ import enum
 
 class SeveridadNotificacion(str, enum.Enum):
     """Severidad/prioridad de una notificación"""
-    INFO = "info"           # Normal, informativa
-    WARNING = "warning"     # Advertencia, requiere atención
-    CRITICAL = "critical"   # Crítica, requiere acción inmediata
-    URGENT = "urgent"       # Urgente, impacto alto en negocio
+    INFO = "INFO"           # Normal, informativa
+    WARNING = "WARNING"     # Advertencia, requiere atención
+    CRITICAL = "CRITICAL"   # Crítica, requiere acción inmediata
+    URGENT = "URGENT"       # Urgente, impacto alto en negocio
 
 
 class EstadoNotificacion(str, enum.Enum):
     """Estado de gestión de una notificación"""
-    PENDIENTE = "pendiente"     # Creada, esperando revisión
-    REVISADA = "revisada"       # Revisada por usuario, puede estar leída o no
-    DESCARTADA = "descartada"   # Descartada, no requiere acción (no volver a mostrar)
-    EN_GESTION = "en_gestion"   # Se está trabajando en resolverla
-    RESUELTA = "resuelta"       # Resuelta, problema solucionado
+    PENDIENTE = "PENDIENTE"     # Creada, esperando revisión
+    REVISADA = "REVISADA"       # Revisada por usuario, puede estar leída o no
+    DESCARTADA = "DESCARTADA"   # Descartada, no requiere acción (no volver a mostrar)
+    EN_GESTION = "EN_GESTION"   # Se está trabajando en resolverla
+    RESUELTA = "RESUELTA"       # Resuelta, problema solucionado
 
 
 class Notificacion(Base):
