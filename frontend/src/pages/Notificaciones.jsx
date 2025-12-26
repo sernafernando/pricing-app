@@ -390,16 +390,16 @@ export default function Notificaciones() {
 
         <div className={styles.actions}>
           {stats.no_leidas > 0 && (
-            <button onClick={marcarTodasLeidas} className={styles.btnSecondary}>
-              ✓ Marcar todas como leídas
+            <button onClick={marcarTodasLeidas} className="btn-tesla secondary sm">
+              ✓ Marcar todas leídas
             </button>
           )}
           {stats.leidas > 0 && (
-            <button onClick={marcarTodasNoLeidas} className={styles.btnSecondary}>
-              ○ Marcar todas como no leídas
+            <button onClick={marcarTodasNoLeidas} className="btn-tesla secondary sm">
+              ○ Marcar todas no leídas
             </button>
           )}
-          <button onClick={limpiarLeidas} className={styles.btnDanger}>
+          <button onClick={limpiarLeidas} className="btn-tesla ghost sm" style={{ color: 'var(--error)' }}>
             🗑️ Limpiar leídas
           </button>
         </div>
@@ -544,53 +544,50 @@ export default function Notificaciones() {
 
                     <div className={styles.detalleActions}>
                       {/* Botones de Gestión */}
-                      <div className={styles.actionGroup}>
-                        <h5 style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: '#666' }}>Gestión:</h5>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                          <button
-                            onClick={() => {
-                              Promise.all(grupo.notificaciones_ids.map(id => revisarNotificacion(id)));
-                            }}
-                            className={styles.btnSuccess}
-                            title="Marcar como revisada (no desaparece)"
-                          >
-                            ✓ Revisar ({grupo.count})
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`¿Descartar ${grupo.count} notificación${grupo.count > 1 ? 'es' : ''}? No volverán a aparecer como pendientes.`)) {
-                                Promise.all(grupo.notificaciones_ids.map(id => descartarNotificacion(id)))
-                                  .then(() => setExpandedGrupo(null));
-                              }
-                            }}
-                            className={styles.btnWarning}
-                            title="Descartar (no volver a mostrar como pendiente)"
-                          >
-                            ✕ Descartar ({grupo.count})
-                          </button>
-                          <button
-                            onClick={() => {
-                              Promise.all(grupo.notificaciones_ids.map(id => resolverNotificacion(id)));
-                            }}
-                            className={styles.btnInfo}
-                            title="Marcar como resuelta"
-                          >
-                            ✓✓ Resolver ({grupo.count})
-                          </button>
-                        </div>
+                      <div className="btn-group-tesla compact" style={{ marginBottom: '12px' }}>
+                        <button
+                          onClick={() => {
+                            Promise.all(grupo.notificaciones_ids.map(id => revisarNotificacion(id)));
+                          }}
+                          className="btn-tesla outline-success sm"
+                          title="Marcar como revisada (no desaparece)"
+                        >
+                          ✓ Revisar ({grupo.count})
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`¿Descartar ${grupo.count} notificación${grupo.count > 1 ? 'es' : ''}? No volverán a aparecer como pendientes.`)) {
+                              Promise.all(grupo.notificaciones_ids.map(id => descartarNotificacion(id)))
+                                .then(() => setExpandedGrupo(null));
+                            }
+                          }}
+                          className="btn-tesla outline-danger sm"
+                          title="Descartar (no volver a mostrar como pendiente)"
+                        >
+                          ✕ Descartar ({grupo.count})
+                        </button>
+                        <button
+                          onClick={() => {
+                            Promise.all(grupo.notificaciones_ids.map(id => resolverNotificacion(id)));
+                          }}
+                          className="btn-tesla outline sm"
+                          title="Marcar como resuelta"
+                        >
+                          ✓✓ Resolver ({grupo.count})
+                        </button>
                       </div>
 
                       {/* Separador */}
-                      <hr style={{ margin: '12px 0', border: 'none', borderTop: '1px solid #ddd' }} />
+                      <hr style={{ margin: '12px 0', border: 'none', borderTop: '1px solid var(--border-color)', opacity: 0.3 }} />
 
                       {/* Botones de Acción */}
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <div className="btn-group-tesla compact">
                         {grupo.notificacion_reciente.ml_id && (
                           <button
                             onClick={() => abrirEnML(grupo.notificacion_reciente)}
-                            className={styles.btnPrimary}
+                            className="btn-tesla primary sm"
                           >
-                            🔗 Ver última en MercadoLibre
+                            🔗 Ver última en ML
                           </button>
                         )}
                         {grupo.notificacion_reciente.leida && (
@@ -598,7 +595,7 @@ export default function Notificaciones() {
                             onClick={() => {
                               Promise.all(grupo.notificaciones_ids.map(id => marcarComoNoLeida(id)));
                             }}
-                            className={styles.btnSecondary}
+                            className="btn-tesla secondary sm"
                           >
                             ○ Marcar no leídas ({grupo.count})
                           </button>
@@ -610,9 +607,10 @@ export default function Notificaciones() {
                                 .then(() => setExpandedGrupo(null));
                             }
                           }}
-                          className={styles.btnDanger}
+                          className="btn-tesla ghost sm"
+                          style={{ color: 'var(--error)' }}
                         >
-                          🗑️ Eliminar todas ({grupo.count})
+                          🗑️ Eliminar ({grupo.count})
                         </button>
                       </div>
                     </div>

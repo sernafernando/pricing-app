@@ -98,50 +98,7 @@
   gap: 0.5rem;
 }
 
-.btnSecondary,
-.btnDanger,
-.btnPrimary {
-  padding: 0.625rem 1.25rem;
-  border-radius: 6px;
-  border: none;
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 0.9rem;
-  transition: all 0.2s;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.btnSecondary {
-  background: var(--primary-color);
-  color: white;
-}
-
-.btnSecondary:hover {
-  opacity: 0.85;
-  transform: translateY(-1px);
-}
-
-.btnDanger {
-  background: #ef4444;
-  color: white;
-}
-
-.btnDanger:hover {
-  background: #dc2626;
-  transform: translateY(-1px);
-}
-
-.btnPrimary {
-  background: #3b82f6;
-  color: white;
-}
-
-.btnPrimary:hover {
-  background: #2563eb;
-  transform: translateY(-1px);
-}
+/* Botones ahora usan buttons-tesla.css */
 
 .loading,
 .empty {
@@ -539,77 +496,11 @@
   color: #4b5563;
   text-decoration: line-through;
 }
-/* ===== BOTONES DE GESTIÓN ===== */
-
-.btnSuccess {
-  background: #10b981;
-  color: white;
-  border: none;
-  padding: 4px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 500;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-
-.btnSuccess:hover {
-  background: #059669;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
-}
-
-.btnWarning {
-  background: #f59e0b;
-  color: white;
-  border: none;
-  padding: 4px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 500;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-
-.btnWarning:hover {
-  background: #d97706;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
-}
-
-.btnInfo {
-  background: #3b82f6;
-  color: white;
-  border: none;
-  padding: 4px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 500;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-
-.btnInfo:hover {
-  background: #2563eb;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
-}
-
-.actionGroup {
-  background: rgba(249, 250, 251, 0.5);
-  padding: 8px;
-  border-radius: 6px;
-  margin-bottom: 8px;
-}
-
-.actionGroup h5 {
-  margin: 0 0 6px 0;
-  font-size: 0.75rem;
-  color: #666;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
+/* Botones de gestión ahora usan buttons-tesla.css con clases:
+   - btn-tesla outline-success sm → Revisar
+   - btn-tesla outline-danger sm → Descartar
+   - btn-tesla outline sm → Resolver
+   - btn-tesla primary sm → Ver en ML
+   - btn-tesla secondary sm → Marcar no leídas
+   - btn-tesla ghost sm → Eliminar
+*/
