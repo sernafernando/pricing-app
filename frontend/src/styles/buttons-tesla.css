@@ -1,0 +1,406 @@
+/**
+ * BUTTONS TESLA - Sistema de Botones Estandarizado
+ * 
+ * Características:
+ * - Variantes: primary, secondary, success, danger, ghost, outline
+ * - Tamaños: sm, base, lg
+ * - Estados: hover, active, disabled, loading
+ * - Iconos integrados
+ * - Animaciones suaves
+ */
+
+/* ============================================
+   BASE BUTTON - Estilos compartidos
+   ============================================ */
+
+.btn-tesla {
+  /* Layout */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  
+  /* Sizing */
+  height: var(--btn-height-base);
+  padding: 0 var(--spacing-lg);
+  
+  /* Typography */
+  font-family: inherit;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  
+  /* Visual */
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  
+  /* Cursor */
+  cursor: pointer;
+  user-select: none;
+  
+  /* Transition suave */
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Shadow base */
+  box-shadow: var(--shadow-sm);
+  
+  /* Prevent double-tap zoom on mobile */
+  touch-action: manipulation;
+}
+
+/* ============================================
+   VARIANTES - Primary, Secondary, etc.
+   ============================================ */
+
+/* PRIMARY - Acción principal */
+.btn-tesla.primary {
+  background: var(--gradient-primary);
+  color: var(--text-inverse);
+  border-color: transparent;
+}
+
+.btn-tesla.primary:hover {
+  background: var(--brand-primary-hover);
+  transform: translateY(-2px);
+  box-shadow: 
+    0 4px 12px rgba(92, 140, 255, 0.3),
+    var(--shadow-md);
+}
+
+.btn-tesla.primary:active {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+/* SECONDARY - Acción secundaria */
+.btn-tesla.secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-secondary);
+  box-shadow: none;
+}
+
+.btn-tesla.secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-tesla.secondary:active {
+  background: var(--bg-active);
+  transform: translateY(0);
+}
+
+/* SUCCESS - Guardar, confirmar */
+.btn-tesla.success {
+  background: var(--gradient-success);
+  color: var(--text-inverse);
+  border-color: transparent;
+}
+
+.btn-tesla.success:hover {
+  background: var(--success-hover);
+  transform: translateY(-2px);
+  box-shadow: 
+    0 4px 12px rgba(0, 204, 102, 0.3),
+    var(--shadow-md);
+}
+
+.btn-tesla.success:active {
+  transform: translateY(-1px);
+}
+
+/* DANGER - Eliminar, cancelar crítico */
+.btn-tesla.danger {
+  background: var(--gradient-error);
+  color: var(--text-inverse);
+  border-color: transparent;
+}
+
+.btn-tesla.danger:hover {
+  background: var(--error-hover);
+  transform: translateY(-2px);
+  box-shadow: 
+    0 4px 12px rgba(227, 25, 55, 0.3),
+    var(--shadow-md);
+}
+
+.btn-tesla.danger:active {
+  transform: translateY(-1px);
+}
+
+/* GHOST - Transparente sutil */
+.btn-tesla.ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.btn-tesla.ghost:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-tesla.ghost:active {
+  background: var(--bg-active);
+}
+
+/* OUTLINE - Borde con fondo transparente */
+.btn-tesla.outline {
+  background: transparent;
+  color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  box-shadow: none;
+}
+
+.btn-tesla.outline:hover {
+  background: var(--brand-primary-light);
+  border-color: var(--brand-primary-hover);
+  transform: translateY(-1px);
+}
+
+.btn-tesla.outline:active {
+  background: var(--brand-primary-light);
+  transform: translateY(0);
+}
+
+/* OUTLINE variants */
+.btn-tesla.outline-success {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.btn-tesla.outline-success:hover {
+  background: var(--success-light);
+  border-color: var(--success-hover);
+}
+
+.btn-tesla.outline-danger {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.btn-tesla.outline-danger:hover {
+  background: var(--error-light);
+  border-color: var(--error-hover);
+}
+
+/* ============================================
+   TAMAÑOS - sm, base, lg
+   ============================================ */
+
+.btn-tesla.sm {
+  height: var(--btn-height-sm);
+  padding: 0 var(--spacing-md);
+  font-size: var(--font-xs);
+  gap: var(--spacing-xs);
+}
+
+.btn-tesla.lg {
+  height: var(--btn-height-lg);
+  padding: 0 var(--spacing-xl);
+  font-size: var(--font-base);
+  gap: var(--spacing-md);
+}
+
+/* Full width */
+.btn-tesla.full {
+  width: 100%;
+}
+
+/* ============================================
+   ESTADOS - Disabled, Loading
+   ============================================ */
+
+.btn-tesla:disabled,
+.btn-tesla.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+  pointer-events: none;
+}
+
+.btn-tesla.loading {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+}
+
+.btn-tesla.loading::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================
+   ICON BUTTONS - Solo icono
+   ============================================ */
+
+.btn-tesla.icon-only {
+  width: var(--btn-height-base);
+  padding: 0;
+  aspect-ratio: 1;
+}
+
+.btn-tesla.icon-only.sm {
+  width: var(--btn-height-sm);
+}
+
+.btn-tesla.icon-only.lg {
+  width: var(--btn-height-lg);
+}
+
+/* ============================================
+   BUTTON GROUPS - Botones juntos
+   ============================================ */
+
+.btn-group-tesla {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.btn-group-tesla.compact {
+  gap: var(--spacing-xs);
+}
+
+.btn-group-tesla.separated {
+  gap: var(--spacing-md);
+}
+
+.btn-group-tesla.right {
+  justify-content: flex-end;
+}
+
+.btn-group-tesla.center {
+  justify-content: center;
+}
+
+.btn-group-tesla.between {
+  justify-content: space-between;
+}
+
+/* ============================================
+   CLOSE BUTTON - Para modales
+   ============================================ */
+
+.btn-close-tesla {
+  position: absolute;
+  top: var(--spacing-md);
+  right: var(--spacing-md);
+  
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-base);
+  
+  color: var(--text-secondary);
+  font-size: 1.5rem;
+  line-height: 1;
+  
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-close-tesla:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  transform: rotate(90deg);
+}
+
+.btn-close-tesla:active {
+  background: var(--bg-active);
+  transform: rotate(90deg) scale(0.95);
+}
+
+/* ============================================
+   RESPONSIVE - Mobile
+   ============================================ */
+
+@media (max-width: 768px) {
+  .btn-tesla {
+    height: var(--btn-height-sm);
+    padding: 0 var(--spacing-md);
+    font-size: var(--font-xs);
+  }
+  
+  .btn-tesla.lg {
+    height: var(--btn-height-base);
+    padding: 0 var(--spacing-lg);
+    font-size: var(--font-sm);
+  }
+  
+  .btn-group-tesla {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .btn-group-tesla .btn-tesla {
+    width: 100%;
+  }
+}
+
+/* ============================================
+   DARK MODE - Ajustes específicos
+   ============================================ */
+
+:root[data-theme="dark"] .btn-tesla.secondary {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme="dark"] .btn-tesla.secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+:root[data-theme="dark"] .btn-tesla.ghost:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+/* Con icono a la izquierda */
+.btn-tesla .icon-left {
+  margin-right: calc(var(--spacing-xs) * -1);
+}
+
+/* Con icono a la derecha */
+.btn-tesla .icon-right {
+  margin-left: calc(var(--spacing-xs) * -1);
+}
+
+/* Badge dentro del botón */
+.btn-tesla .badge {
+  margin-left: var(--spacing-xs);
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-full);
+  font-size: 0.625rem;
+  font-weight: var(--font-semibold);
+}
