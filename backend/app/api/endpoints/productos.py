@@ -870,7 +870,7 @@ async def listar_productos(
                             db=db,
                             grupo_id=grupo_id_pvp
                         )
-                        markup_pvp = calcular_markup(limpio_pvp, costo_pvp) * 100
+                        markup_pvp = round(calcular_markup(limpio_pvp, costo_pvp) * 100, 2)
                 except Exception:
                     pass
 
@@ -908,7 +908,7 @@ async def listar_productos(
                                 db=db,
                                 grupo_id=grupo_id_cuota_pvp
                             )
-                            markup_calculado_pvp = calcular_markup(limpio_cuota_pvp, costo_cuota_pvp) * 100
+                            markup_calculado_pvp = round(calcular_markup(limpio_cuota_pvp, costo_cuota_pvp) * 100, 2)
 
                             if nombre_cuota_pvp == 'pvp_3_cuotas':
                                 markup_pvp_3_cuotas = markup_calculado_pvp
@@ -1727,7 +1727,7 @@ async def obtener_producto(item_id: int, db: Session = Depends(get_db)):
                         db=db,
                         grupo_id=grupo_id_pvp
                     )
-                    markup_pvp = calcular_markup(limpio_pvp, costo_pvp) * 100
+                    markup_pvp = round(calcular_markup(limpio_pvp, costo_pvp) * 100, 2)
             except Exception:
                 pass
 
