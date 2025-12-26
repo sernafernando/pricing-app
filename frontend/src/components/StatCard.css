@@ -1,0 +1,233 @@
+/**
+ * STAT CARD - Diseño Tesla Minimalista
+ * 
+ * Inspiración: https://www.tesla.com/
+ * - Espacios generosos
+ * - Bordes sutiles
+ * - Animaciones suaves
+ * - Glassmorphism ligero
+ */
+
+.stat-card-tesla {
+  position: relative;
+  flex: 0 1 260px;
+  min-width: 220px;
+  
+  /* Espaciado generoso estilo Tesla */
+  padding: var(--spacing-lg);
+  
+  /* Visual minimalista */
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  
+  /* Sombra sutil */
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 0 0 1px rgba(0, 0, 0, 0.02);
+  
+  /* Transición suave */
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Layout */
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  text-align: center;
+}
+
+/* Hover effect - Elevación sutil */
+.stat-card-clickable {
+  cursor: pointer;
+}
+
+.stat-card-clickable:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-secondary);
+  box-shadow: 
+    0 8px 16px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+.stat-card-clickable:active {
+  transform: translateY(-1px);
+  transition-duration: 0.1s;
+}
+
+/* Indicador visual de interactividad (borde superior) */
+.stat-card-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--gradient-primary);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.stat-card-clickable:hover .stat-card-indicator {
+  opacity: 1;
+}
+
+/* Label - Tipografía mejorada */
+.stat-card-label {
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.8;
+  
+  /* Separación del emoji */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+}
+
+/* Value - Número grande con animación */
+.stat-card-value {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  font-size: 2.5rem;
+  font-weight: var(--font-bold);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  
+  /* Animación sutil al aparecer */
+  animation: statValueAppear 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-card-number {
+  /* Números tabulares para mejor alineación */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Colores con mejor contraste */
+.stat-color-green {
+  color: var(--success);
+}
+
+.stat-color-red {
+  color: var(--error);
+}
+
+.stat-color-blue {
+  color: var(--brand-primary);
+}
+
+.stat-color-orange {
+  color: #ff9800;
+}
+
+.stat-color-purple {
+  color: #9c27b0;
+}
+
+/* Sub-items container */
+.stat-card-subitems {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+}
+
+/* Sub-item individual */
+.stat-subitem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  
+  /* Espaciado interno */
+  padding: var(--spacing-sm) var(--spacing-md);
+  
+  /* Visual */
+  background: var(--bg-secondary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  
+  /* Tipografía */
+  font-size: var(--font-sm);
+  
+  /* Transición */
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-subitem-clickable {
+  cursor: pointer;
+}
+
+.stat-subitem-clickable:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-secondary);
+  transform: translateX(4px);
+}
+
+.stat-subitem-clickable:active {
+  transform: translateX(2px);
+  transition-duration: 0.1s;
+}
+
+.stat-subitem-label {
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  font-size: 0.8125rem; /* 13px */
+}
+
+.stat-subitem-value {
+  font-weight: var(--font-semibold);
+  font-size: 0.9375rem; /* 15px */
+  /* Números tabulares */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Animaciones */
+@keyframes statValueAppear {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Responsive - Mobile */
+@media (max-width: 768px) {
+  .stat-card-tesla {
+    flex: 1 1 100%;
+    min-width: unset;
+  }
+  
+  .stat-card-value {
+    font-size: 2rem;
+  }
+}
+
+/* Dark mode - Glassmorphism sutil */
+:root[data-theme="dark"] .stat-card-tesla {
+  background: rgba(10, 10, 10, 0.6);
+  backdrop-filter: blur(10px);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+:root[data-theme="dark"] .stat-card-clickable:hover {
+  background: rgba(20, 20, 20, 0.8);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme="dark"] .stat-subitem {
+  background: rgba(20, 20, 20, 0.6);
+  border-color: rgba(255, 255, 255, 0.02);
+}
+
+:root[data-theme="dark"] .stat-subitem-clickable:hover {
+  background: rgba(30, 30, 30, 0.8);
+  border-color: rgba(255, 255, 255, 0.08);
+}
