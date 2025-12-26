@@ -26,6 +26,8 @@ import Clientes from './pages/Clientes';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
+import './styles/design-tokens.css';
+import './styles/components.css';
 import './styles/theme.css';
 
 function PrivateRoute({ children }) {

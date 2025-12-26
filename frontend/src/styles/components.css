@@ -1,0 +1,486 @@
+/**
+ * COMPONENTES BASE - SISTEMA DE DISEÑO TESLA
+ * 
+ * Componentes reutilizables que usan design tokens.
+ * Todos los componentes siguen las guías de diseño Tesla.
+ */
+
+/* ============================================
+   BUTTONS - Botones estandarizados
+   ============================================ */
+
+.btn {
+  /* Base */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  
+  /* Typography */
+  font-weight: var(--font-medium);
+  font-size: var(--font-sm);
+  letter-spacing: var(--tracking-wide);
+  line-height: var(--leading-none);
+  
+  /* Spacing */
+  padding: var(--spacing-sm) var(--spacing-md);
+  height: var(--btn-height-base);
+  
+  /* Visual */
+  border: var(--border-1) solid transparent;
+  border-radius: var(--radius-base);
+  box-shadow: var(--shadow-sm);
+  
+  /* Interaction */
+  cursor: pointer;
+  user-select: none;
+  transition: all var(--duration-200) var(--ease-in-out);
+  
+  /* States */
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+  }
+  
+  &:active {
+    transform: translateY(0);
+    box-shadow: var(--shadow-sm);
+  }
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+}
+
+/* Button variants */
+.btn-primary {
+  background: var(--gradient-primary);
+  color: var(--text-inverse);
+  border-color: transparent;
+  
+  &:hover {
+    background: var(--brand-primary-hover);
+  }
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-secondary);
+  
+  &:hover {
+    background: var(--bg-hover);
+  }
+}
+
+.btn-success {
+  background: var(--gradient-success);
+  color: var(--text-inverse);
+  border-color: transparent;
+  
+  &:hover {
+    background: var(--success-hover);
+  }
+}
+
+.btn-danger {
+  background: var(--gradient-error);
+  color: var(--text-inverse);
+  border-color: transparent;
+  
+  &:hover {
+    background: var(--error-hover);
+  }
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: transparent;
+  box-shadow: none;
+  
+  &:hover {
+    background: var(--bg-hover);
+  }
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  box-shadow: none;
+  
+  &:hover {
+    background: var(--brand-primary-light);
+  }
+}
+
+/* Button sizes */
+.btn-sm {
+  height: var(--btn-height-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+}
+
+.btn-lg {
+  height: var(--btn-height-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-size: var(--font-base);
+}
+
+.btn-full {
+  width: 100%;
+}
+
+/* ============================================
+   INPUTS - Campos de formulario
+   ============================================ */
+
+.input {
+  /* Base */
+  width: 100%;
+  height: var(--input-height-base);
+  
+  /* Typography */
+  font-size: var(--font-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  
+  /* Spacing */
+  padding: var(--spacing-sm) var(--spacing-md);
+  
+  /* Visual */
+  background: var(--bg-primary);
+  border: var(--border-1) solid var(--border-secondary);
+  border-radius: var(--radius-base);
+  box-shadow: var(--shadow-sm);
+  
+  /* Interaction */
+  transition: all var(--duration-200) var(--ease-in-out);
+  
+  &:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 3px rgba(92, 140, 255, 0.1);
+  }
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--bg-secondary);
+  }
+  
+  &::placeholder {
+    color: var(--text-tertiary);
+  }
+}
+
+.input-sm {
+  height: var(--input-height-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+}
+
+.input-lg {
+  height: var(--input-height-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-size: var(--font-base);
+}
+
+.input-error {
+  border-color: var(--error);
+  
+  &:focus {
+    box-shadow: 0 0 0 3px rgba(227, 25, 55, 0.1);
+  }
+}
+
+/* ============================================
+   CARDS - Tarjetas
+   ============================================ */
+
+.card {
+  background: var(--bg-primary);
+  border: var(--border-1) solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--spacing-lg);
+  transition: all var(--duration-200) var(--ease-in-out);
+}
+
+.card-hover {
+  cursor: pointer;
+  
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+}
+
+.card-header {
+  padding-bottom: var(--spacing-md);
+  border-bottom: var(--border-1) solid var(--border-primary);
+  margin-bottom: var(--spacing-md);
+}
+
+.card-title {
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.card-body {
+  color: var(--text-secondary);
+}
+
+.card-footer {
+  padding-top: var(--spacing-md);
+  border-top: var(--border-1) solid var(--border-primary);
+  margin-top: var(--spacing-md);
+}
+
+/* ============================================
+   MODALS - Modales
+   ============================================ */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+  z-index: var(--z-modal-backdrop);
+  
+  /* Animation */
+  animation: fadeIn var(--duration-200) var(--ease-out);
+}
+
+.modal {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  max-width: var(--max-width-2xl);
+  max-height: 90vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  z-index: var(--z-modal);
+  
+  /* Animation */
+  animation: slideUp var(--duration-300) var(--ease-out);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-lg);
+  border-bottom: var(--border-1) solid var(--border-primary);
+}
+
+.modal-title {
+  font-size: var(--font-xl);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-base);
+  transition: all var(--duration-150) var(--ease-in-out);
+  
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+}
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-lg);
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg);
+  border-top: var(--border-1) solid var(--border-primary);
+}
+
+/* ============================================
+   TABLES - Tablas
+   ============================================ */
+
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: var(--radius-lg);
+  border: var(--border-1) solid var(--border-primary);
+  background: var(--bg-primary);
+}
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--font-sm);
+}
+
+.table thead {
+  background: var(--bg-secondary);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+
+.table th {
+  padding: var(--spacing-md);
+  text-align: left;
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  border-bottom: var(--border-2) solid var(--border-secondary);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--spacing-md);
+  color: var(--text-secondary);
+  border-bottom: var(--border-1) solid var(--border-primary);
+}
+
+.table tbody tr {
+  transition: background var(--duration-150) var(--ease-in-out);
+  
+  &:hover {
+    background: var(--bg-hover);
+  }
+  
+  &:last-child td {
+    border-bottom: none;
+  }
+}
+
+.table-striped tbody tr:nth-child(even) {
+  background: var(--bg-secondary);
+}
+
+/* ============================================
+   BADGES - Insignias
+   ============================================ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  line-height: var(--leading-none);
+  white-space: nowrap;
+}
+
+.badge-primary {
+  background: var(--brand-primary-light);
+  color: var(--brand-primary);
+}
+
+.badge-success {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.badge-warning {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+
+.badge-danger {
+  background: var(--error-light);
+  color: var(--error);
+}
+
+.badge-neutral {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================
+   LOADING STATES
+   ============================================ */
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-primary);
+  border-top-color: var(--brand-primary);
+  border-radius: var(--radius-full);
+  animation: spin var(--duration-700) linear infinite;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-secondary) 0%,
+    var(--bg-tertiary) 50%,
+    var(--bg-secondary) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton var(--duration-1000) ease-in-out infinite;
+}
+
+@keyframes skeleton {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
