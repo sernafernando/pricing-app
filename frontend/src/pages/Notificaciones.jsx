@@ -146,27 +146,87 @@ export default function Notificaciones() {
   const descartarNotificacion = async (notifId) => {
     try {
       await api.patch(`/api/notificaciones/${notifId}/descartar`);
-      await fetchNotificaciones();
+      // Actualizar localmente en vista agrupada
+      if (vistaAgrupada) {
+        setNotificaciones(notificaciones.map(grupo => {
+          if (grupo.notificaciones_ids && grupo.notificaciones_ids.includes(notifId)) {
+            return {
+              ...grupo,
+              notificacion_reciente: {
+                ...grupo.notificacion_reciente,
+                estado: 'DESCARTADA',
+                fecha_descarte: new Date().toISOString()
+              }
+            };
+          }
+          return grupo;
+        }));
+      } else {
+        setNotificaciones(notificaciones.map(n =>
+          n.id === notifId ? { ...n, estado: 'DESCARTADA', fecha_descarte: new Date().toISOString() } : n
+        ));
+      }
     } catch (error) {
       console.error('Error al descartar notificación:', error);
+      await fetchNotificaciones();
     }
   };
 
   const revisarNotificacion = async (notifId) => {
     try {
       await api.patch(`/api/notificaciones/${notifId}/revisar`);
-      await fetchNotificaciones();
+      // Actualizar localmente en vista agrupada
+      if (vistaAgrupada) {
+        setNotificaciones(notificaciones.map(grupo => {
+          if (grupo.notificaciones_ids && grupo.notificaciones_ids.includes(notifId)) {
+            return {
+              ...grupo,
+              notificacion_reciente: {
+                ...grupo.notificacion_reciente,
+                estado: 'REVISADA',
+                fecha_revision: new Date().toISOString()
+              }
+            };
+          }
+          return grupo;
+        }));
+      } else {
+        setNotificaciones(notificaciones.map(n =>
+          n.id === notifId ? { ...n, estado: 'REVISADA', fecha_revision: new Date().toISOString() } : n
+        ));
+      }
     } catch (error) {
       console.error('Error al revisar notificación:', error);
+      await fetchNotificaciones();
     }
   };
 
   const resolverNotificacion = async (notifId) => {
     try {
       await api.patch(`/api/notificaciones/${notifId}/resolver`);
-      await fetchNotificaciones();
+      // Actualizar localmente en vista agrupada
+      if (vistaAgrupada) {
+        setNotificaciones(notificaciones.map(grupo => {
+          if (grupo.notificaciones_ids && grupo.notificaciones_ids.includes(notifId)) {
+            return {
+              ...grupo,
+              notificacion_reciente: {
+                ...grupo.notificacion_reciente,
+                estado: 'RESUELTA',
+                fecha_resolucion: new Date().toISOString()
+              }
+            };
+          }
+          return grupo;
+        }));
+      } else {
+        setNotificaciones(notificaciones.map(n =>
+          n.id === notifId ? { ...n, estado: 'RESUELTA', fecha_resolucion: new Date().toISOString() } : n
+        ));
+      }
     } catch (error) {
       console.error('Error al resolver notificación:', error);
+      await fetchNotificaciones();
     }
   };
 
