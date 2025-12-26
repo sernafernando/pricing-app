@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import styles from './PedidosPreparacion.module.css';
 import TabPedidosExport from '../components/TabPedidosExport';
+import { usePermisos } from '../contexts/PermisosContext';
 
 const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
@@ -80,6 +81,8 @@ function ProductoCard({ producto, componentes, onLoadComponentes, getBadgeClass 
 }
 
 export default function PedidosPreparacion() {
+  const { tienePermiso } = usePermisos();
+  
   const [resumen, setResumen] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
   const [tiposEnvio, setTiposEnvio] = useState([]);
@@ -98,52 +101,93 @@ export default function PedidosPreparacion() {
 
   // Estados para banlist y prearmado
   const [procesando, setProcesando] = useState(new Set());
+  const [modalPrearmado, setModalPrearmado] = useState(null); // { item_id, item_code, item_desc, cantidad_actual }
 
   const getToken = () => localStorage.getItem('token');
   
-  // Obtener rol del usuario desde localStorage
-  const getUserRole = () => {
-    try {
-      const userStr = localStorage.getItem('user');
-      if (!userStr) return null;
-      const user = JSON.parse(userStr);
-      return user.rol;
-    } catch {
-      return null;
-    }
-  };
-  
-  const isAdmin = getUserRole() === 'admin';
+  // Permisos
+  const puedeGestionarBanlist = tienePermiso('admin.gestionar_produccion_banlist');
+  const puedeMarcarPrearmado = tienePermiso('produccion.marcar_prearmado');
 
-  // Marcar/desmarcar pre-armado
-  const togglePrearmado = async (itemId, estaPrearmado) => {
-    if (procesando.has(itemId)) return;
+  // Abrir modal de pre-armado
+  const abrirModalPrearmado = (producto) => {
+    if (!puedeMarcarPrearmado) {
+      alert('No tenés permiso para marcar productos como pre-armados');
+      return;
+    }
     
-    setProcesando(prev => new Set([...prev, itemId]));
+    setModalPrearmado({
+      item_id: producto.item_id,
+      item_code: producto.item_code,
+      item_desc: producto.item_desc,
+      cantidad_actual: producto.cantidad_prearmada || 0,
+      cantidad_pendiente: Math.round(producto.cantidad)
+    });
+  };
+
+  // Guardar cantidad pre-armada
+  const guardarPrearmado = async () => {
+    const cantidad = parseInt(document.getElementById('input-prearmado').value);
+    
+    if (isNaN(cantidad) || cantidad < 0) {
+      alert('Ingresá una cantidad válida');
+      return;
+    }
+    
+    if (cantidad === 0) {
+      // Si es 0, desmarcar
+      await desmarcarPrearmado(modalPrearmado.item_id);
+      setModalPrearmado(null);
+      return;
+    }
+    
+    setProcesando(prev => new Set([...prev, modalPrearmado.item_id]));
     
     try {
-      if (estaPrearmado) {
-        // Desmarcar
-        await axios.delete(`${API_URL}/produccion-prearmado/${itemId}`, {
-          headers: { Authorization: `Bearer ${getToken()}` }
-        });
-      } else {
-        // Marcar
-        await axios.post(`${API_URL}/produccion-prearmado/${itemId}`, null, {
-          headers: { Authorization: `Bearer ${getToken()}` }
-        });
-      }
+      await axios.post(`${API_URL}/produccion-prearmado/${modalPrearmado.item_id}`, 
+        { cantidad },
+        { headers: { Authorization: `Bearer ${getToken()}` }}
+      );
       
       // Actualizar estado local
       setResumen(prev => prev.map(item => 
+        item.item_id === modalPrearmado.item_id 
+          ? { ...item, esta_prearmado: true, cantidad_prearmada: cantidad }
+          : item
+      ));
+      
+      setModalPrearmado(null);
+      
+    } catch (error) {
+      console.error('Error marcando prearmado:', error);
+      alert('Error al marcar pre-armado: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setProcesando(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(modalPrearmado.item_id);
+        return newSet;
+      });
+    }
+  };
+  
+  // Desmarcar pre-armado
+  const desmarcarPrearmado = async (itemId) => {
+    setProcesando(prev => new Set([...prev, itemId]));
+    
+    try {
+      await axios.delete(`${API_URL}/produccion-prearmado/${itemId}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      
+      setResumen(prev => prev.map(item => 
         item.item_id === itemId 
-          ? { ...item, esta_prearmado: !estaPrearmado }
+          ? { ...item, esta_prearmado: false, cantidad_prearmada: 0 }
           : item
       ));
       
     } catch (error) {
-      console.error('Error toggling prearmado:', error);
-      alert('Error al actualizar estado de pre-armado: ' + (error.response?.data?.detail || error.message));
+      console.error('Error desmarcando prearmado:', error);
+      alert('Error al desmarcar pre-armado: ' + (error.response?.data?.detail || error.message));
     } finally {
       setProcesando(prev => {
         const newSet = new Set(prev);
@@ -153,10 +197,10 @@ export default function PedidosPreparacion() {
     }
   };
 
-  // Bannear producto (solo admin)
+  // Bannear producto
   const bannearProducto = async (itemId, itemCode, itemDesc) => {
-    if (!isAdmin) {
-      alert('Solo administradores pueden bannear productos');
+    if (!puedeGestionarBanlist) {
+      alert('No tenés permiso para gestionar el banlist de producción');
       return;
     }
     
@@ -460,8 +504,8 @@ export default function PedidosPreparacion() {
                             <strong>{r.item_code || '-'}</strong>
                             <span className={styles.descripcion}>{r.item_desc || '-'}</span>
                             {r.esta_prearmado && (
-                              <span className={styles.badgePrearmado} title="En pre-armado">
-                                🔧 Pre-armado
+                              <span className={styles.badgePrearmado} title={`Pre-armando: ${r.cantidad_prearmada} unidades`}>
+                                🔧 {r.cantidad_prearmada} pre-armando
                               </span>
                             )}
                           </div>
@@ -475,15 +519,17 @@ export default function PedidosPreparacion() {
                         </td>
                         <td>
                           <div className={styles.accionesContainer}>
-                            <button
-                              className={`${styles.btnPrearmado} ${r.esta_prearmado ? styles.btnPrearmadoActivo : ''}`}
-                              onClick={() => togglePrearmado(r.item_id, r.esta_prearmado)}
-                              disabled={procesando.has(r.item_id)}
-                              title={r.esta_prearmado ? "Desmarcar pre-armado" : "Marcar como pre-armado"}
-                            >
-                              {procesando.has(r.item_id) ? '⏳' : (r.esta_prearmado ? '✓ Pre-armado' : '🔧 Pre-armar')}
-                            </button>
-                            {vistaProduccion && isAdmin && (
+                            {puedeMarcarPrearmado && (
+                              <button
+                                className={`${styles.btnPrearmado} ${r.esta_prearmado ? styles.btnPrearmadoActivo : ''}`}
+                                onClick={() => abrirModalPrearmado(r)}
+                                disabled={procesando.has(r.item_id)}
+                                title={r.esta_prearmado ? `Pre-armando: ${r.cantidad_prearmada}` : "Marcar como pre-armado"}
+                              >
+                                {procesando.has(r.item_id) ? '⏳' : (r.esta_prearmado ? `✓ ${r.cantidad_prearmada}` : '🔧 Pre-armar')}
+                              </button>
+                            )}
+                            {vistaProduccion && puedeGestionarBanlist && (
                               <button
                                 className={styles.btnBannear}
                                 onClick={() => bannearProducto(r.item_id, r.item_code, r.item_desc)}
@@ -526,6 +572,60 @@ export default function PedidosPreparacion() {
         </>
       ) : (
         <TabPedidosExport />
+      )}
+
+      {/* Modal Pre-armado */}
+      {modalPrearmado && (
+        <div className={styles.modalOverlay} onClick={() => setModalPrearmado(null)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>🔧 Pre-armar Producto</h3>
+              <button className={styles.modalClose} onClick={() => setModalPrearmado(null)}>×</button>
+            </div>
+            
+            <div className={styles.modalBody}>
+              <div className={styles.modalProducto}>
+                <strong>{modalPrearmado.item_code}</strong>
+                <span>{modalPrearmado.item_desc}</span>
+              </div>
+              
+              <div className={styles.modalInfo}>
+                <div className={styles.modalInfoItem}>
+                  <span>Cantidad pendiente:</span>
+                  <strong>{modalPrearmado.cantidad_pendiente}</strong>
+                </div>
+                <div className={styles.modalInfoItem}>
+                  <span>Actualmente pre-armando:</span>
+                  <strong>{modalPrearmado.cantidad_actual}</strong>
+                </div>
+              </div>
+              
+              <div className={styles.modalInput}>
+                <label htmlFor="input-prearmado">¿Cuántas unidades estás pre-armando?</label>
+                <input
+                  id="input-prearmado"
+                  type="number"
+                  min="0"
+                  max={modalPrearmado.cantidad_pendiente}
+                  defaultValue={modalPrearmado.cantidad_actual}
+                  className={styles.inputCantidad}
+                  autoFocus
+                  onKeyPress={(e) => e.key === 'Enter' && guardarPrearmado()}
+                />
+                <small>Ingresá 0 para desmarcar</small>
+              </div>
+            </div>
+            
+            <div className={styles.modalFooter}>
+              <button className={styles.btnCancelar} onClick={() => setModalPrearmado(null)}>
+                Cancelar
+              </button>
+              <button className={styles.btnGuardar} onClick={guardarPrearmado}>
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -46,6 +46,7 @@ class ResumenProductoResponse(BaseModel):
     prepara_paquete: int
     updated_at: Optional[datetime]
     esta_prearmado: bool = False  # Flag si está marcado como pre-armado
+    cantidad_prearmada: int = 0  # Cantidad de unidades pre-armando
 
     class Config:
         from_attributes = True
@@ -129,9 +130,9 @@ async def obtener_resumen(
 
     results = query.offset(offset).limit(limit).all()
     
-    # Obtener lista de items pre-armados
-    prearmados = db.query(ProduccionPrearmado.item_id).all()
-    prearmados_set = {p.item_id for p in prearmados}
+    # Obtener lista de items pre-armados con cantidades
+    prearmados = db.query(ProduccionPrearmado).all()
+    prearmados_dict = {p.item_id: p.cantidad for p in prearmados}
 
     return [
         ResumenProductoResponse(
@@ -143,7 +144,8 @@ async def obtener_resumen(
             ml_logistic_type=r.ml_logistic_type,
             prepara_paquete=r.prepara_paquete or 0,
             updated_at=convert_to_argentina_tz(r.updated_at),
-            esta_prearmado=r.item_id in prearmados_set if r.item_id else False
+            esta_prearmado=r.item_id in prearmados_dict if r.item_id else False,
+            cantidad_prearmada=prearmados_dict.get(r.item_id, 0) if r.item_id else 0
         )
         for r in results
     ]

@@ -36,11 +36,16 @@ class BanlistItemResponse(BaseModel):
 class PrearmadoItemResponse(BaseModel):
     id: int
     item_id: int
+    cantidad: int
     usuario_id: int
     fecha_creacion: datetime
 
     class Config:
         from_attributes = True
+
+
+class PrearmadoRequest(BaseModel):
+    cantidad: int = 1
 
 
 # ========================================================================
@@ -124,10 +129,11 @@ async def obtener_prearmados(
 @router.post("/produccion-prearmado/{item_id}", response_model=PrearmadoItemResponse)
 async def marcar_prearmado(
     item_id: int,
+    request: PrearmadoRequest,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Marca un item como pre-armado"""
+    """Marca un item como pre-armado con cantidad específica"""
     
     # Verificar que el producto existe
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
@@ -137,11 +143,17 @@ async def marcar_prearmado(
     # Verificar si ya está marcado
     existe = db.query(ProduccionPrearmado).filter(ProduccionPrearmado.item_id == item_id).first()
     if existe:
-        raise HTTPException(400, "El producto ya está marcado como pre-armado")
+        # Si ya existe, actualizar la cantidad
+        existe.cantidad = request.cantidad
+        existe.usuario_id = current_user.id
+        db.commit()
+        db.refresh(existe)
+        return existe
     
-    # Crear registro
+    # Crear registro nuevo
     prearmado_item = ProduccionPrearmado(
         item_id=item_id,
+        cantidad=request.cantidad,
         usuario_id=current_user.id
     )
     

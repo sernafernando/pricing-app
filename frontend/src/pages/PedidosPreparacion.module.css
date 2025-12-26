@@ -878,3 +878,174 @@
   font-weight: 600;
   margin-left: 8px;
 }
+
+/* Modal Pre-armado */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modalContent {
+  background: var(--bg-primary);
+  border-radius: 8px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+.modalClose {
+  background: none;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modalClose:hover {
+  color: var(--text-primary);
+}
+
+.modalBody {
+  padding: 20px;
+}
+
+.modalProducto {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+}
+
+.modalProducto strong {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.modalProducto span {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.modalInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.modalInfoItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+
+.modalInfoItem span {
+  color: var(--text-secondary);
+}
+
+.modalInfoItem strong {
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.modalInput {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modalInput label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.inputCantidad {
+  padding: 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  font-size: 16px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.inputCantidad:focus {
+  outline: none;
+  border-color: #4a90e2;
+}
+
+.modalInput small {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.modalFooter {
+  display: flex;
+  gap: 12px;
+  padding: 20px;
+  border-top: 1px solid var(--border-primary);
+  justify-content: flex-end;
+}
+
+.btnCancelar,
+.btnGuardar {
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btnCancelar {
+  background: transparent;
+  border: 1px solid var(--border-primary);
+  color: var(--text-primary);
+}
+
+.btnCancelar:hover {
+  background: var(--bg-secondary);
+}
+
+.btnGuardar {
+  background: #4a90e2;
+  border: 1px solid #4a90e2;
+  color: white;
+}
+
+.btnGuardar:hover {
+  background: #357abd;
+  border-color: #357abd;
+}
