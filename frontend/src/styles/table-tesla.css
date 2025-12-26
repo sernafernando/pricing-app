@@ -72,11 +72,13 @@
 }
 
 /* ============================================
-   HEADER - Con Glassmorphism (SIN sticky por navbar)
+   HEADER - Sticky debajo del navbar
    ============================================ */
 
 .table-tesla-head {
-  /* NO sticky para no colisionar con navbar */
+  position: sticky;
+  top: 70px; /* Altura del navbar */
+  z-index: 100; /* Menos que navbar (1000) */
   
   /* Glassmorphism sutil */
   background: var(--bg-secondary);
