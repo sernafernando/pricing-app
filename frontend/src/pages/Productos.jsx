@@ -1375,23 +1375,13 @@ export default function Productos() {
           }
         );
 
-        // Si se borraron todos los precios (precio = 0)
+        // Si se borraron precios PVP (precio = 0)
         if (response.data.precios_borrados) {
           setProductos(prods => prods.map(p =>
             p.item_id === itemId
               ? {
                   ...p,
-                  // Limpiar TODOS los precios (Web y PVP)
-                  precio_lista_ml: null,
-                  markup: null,
-                  precio_3_cuotas: null,
-                  precio_6_cuotas: null,
-                  precio_9_cuotas: null,
-                  precio_12_cuotas: null,
-                  markup_3_cuotas: null,
-                  markup_6_cuotas: null,
-                  markup_9_cuotas: null,
-                  markup_12_cuotas: null,
+                  // Limpiar solo precios PVP
                   precio_pvp: null,
                   markup_pvp: null,
                   precio_pvp_3_cuotas: null,
@@ -1401,14 +1391,11 @@ export default function Productos() {
                   markup_pvp_3_cuotas: null,
                   markup_pvp_6_cuotas: null,
                   markup_pvp_9_cuotas: null,
-                  markup_pvp_12_cuotas: null,
-                  precio_web_transferencia: null,
-                  markup_web_real: null,
-                  tiene_precio: false
+                  markup_pvp_12_cuotas: null
                 }
               : p
           ));
-          alert('✅ Todos los precios fueron borrados');
+          alert('✅ Precios PVP borrados');
         } else {
           // Actualización normal de precios
           setProductos(prods => prods.map(p =>
@@ -1452,13 +1439,13 @@ export default function Productos() {
         }
       );
 
-      // Si se borraron todos los precios (precio = 0)
+      // Si se borraron precios Web (precio = 0)
       if (response.data.precios_borrados) {
         setProductos(prods => prods.map(p =>
           p.item_id === itemId
             ? {
                 ...p,
-                // Limpiar TODOS los precios (Web y PVP)
+                // Limpiar solo precios Web
                 precio_lista_ml: null,
                 markup: null,
                 precio_3_cuotas: null,
@@ -1469,23 +1456,15 @@ export default function Productos() {
                 markup_6_cuotas: null,
                 markup_9_cuotas: null,
                 markup_12_cuotas: null,
-                precio_pvp: null,
-                markup_pvp: null,
-                precio_pvp_3_cuotas: null,
-                precio_pvp_6_cuotas: null,
-                precio_pvp_9_cuotas: null,
-                precio_pvp_12_cuotas: null,
-                markup_pvp_3_cuotas: null,
-                markup_pvp_6_cuotas: null,
-                markup_pvp_9_cuotas: null,
-                markup_pvp_12_cuotas: null,
                 precio_web_transferencia: null,
                 markup_web_real: null,
-                tiene_precio: false
+                precio_rebate: null,
+                markup_rebate: null,
+                markup_oferta: null
               }
             : p
         ));
-        alert('✅ Todos los precios fueron borrados');
+        alert('✅ Precios Web borrados');
       } else {
         // Actualización normal de precios
         setProductos(prods => prods.map(p =>

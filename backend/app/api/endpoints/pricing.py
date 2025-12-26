@@ -627,36 +627,43 @@ async def setear_precio_rapido(
     if not producto:
         raise HTTPException(404, "Producto no encontrado")
     
-    # Si precio es 0, borrar TODOS los precios (Web y PVP)
+    # Si precio es 0, borrar precios según lista_tipo
     if precio == 0:
         pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
         if pricing:
-            # Limpiar todos los campos de precio
-            pricing.precio_lista_ml = None
-            pricing.markup_calculado = None
-            pricing.precio_3_cuotas = None
-            pricing.precio_6_cuotas = None
-            pricing.precio_9_cuotas = None
-            pricing.precio_12_cuotas = None
-            pricing.precio_pvp = None
-            pricing.markup_pvp = None
-            pricing.precio_pvp_3_cuotas = None
-            pricing.precio_pvp_6_cuotas = None
-            pricing.precio_pvp_9_cuotas = None
-            pricing.precio_pvp_12_cuotas = None
-            pricing.precio_web_transferencia = None
-            pricing.markup_web_real = None
-            pricing.markup_rebate = None
-            pricing.markup_oferta = None
+            if lista_tipo == "pvp":
+                # Borrar solo precios PVP
+                pricing.precio_pvp = None
+                pricing.markup_pvp = None
+                pricing.precio_pvp_3_cuotas = None
+                pricing.precio_pvp_6_cuotas = None
+                pricing.precio_pvp_9_cuotas = None
+                pricing.precio_pvp_12_cuotas = None
+                mensaje = "Precios PVP borrados"
+            else:
+                # Borrar solo precios Web
+                pricing.precio_lista_ml = None
+                pricing.markup_calculado = None
+                pricing.precio_3_cuotas = None
+                pricing.precio_6_cuotas = None
+                pricing.precio_9_cuotas = None
+                pricing.precio_12_cuotas = None
+                pricing.precio_web_transferencia = None
+                pricing.markup_web_real = None
+                pricing.markup_rebate = None
+                pricing.markup_oferta = None
+                mensaje = "Precios Web borrados"
+            
             pricing.usuario_id = current_user.id
             pricing.fecha_modificacion = datetime.now()
             
             db.commit()
             
             return {
-                "message": "Todos los precios fueron borrados",
+                "message": mensaje,
                 "item_id": item_id,
-                "precios_borrados": True
+                "precios_borrados": True,
+                "lista_tipo": lista_tipo
             }
         else:
             raise HTTPException(404, "No hay precios configurados para este producto")
