@@ -517,22 +517,43 @@
     inset 0 -1px 0 rgba(0, 0, 0, 0.02);
 }
 
-/* Hover en filas con color manual - reemplazar con hover estándar */
-.table-tesla-body tr[style*="background-color"]:hover {
-  background: var(--bg-hover) !important;
-  box-shadow: 
-    inset 0 1px 0 rgba(0, 0, 0, 0.02),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.02),
-    inset 3px 0 0 rgba(0, 0, 0, 0.15); /* Borde izquierdo para indicar que tenía color */
+/* ============================================
+   HOVER PARA FILAS COLOREADAS - Por color específico
+   ============================================ */
+
+/* Rojo - Oscurecer el fondo manteniendo la familia de color */
+.table-tesla-body tr.row-color-rojo:hover {
+  background-color: #fecaca !important; /* Un tono más oscuro */
 }
 
-/* Dark mode - mismo comportamiento */
-:root[data-theme="dark"] .table-tesla-body tr[style*="background-color"]:hover {
-  background: var(--bg-hover) !important;
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.02),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.02),
-    inset 3px 0 0 rgba(255, 255, 255, 0.2); /* Borde izquierdo más visible */
+/* Naranja */
+.table-tesla-body tr.row-color-naranja:hover {
+  background-color: #fdba74 !important;
+}
+
+/* Amarillo */
+.table-tesla-body tr.row-color-amarillo:hover {
+  background-color: #fde68a !important;
+}
+
+/* Verde */
+.table-tesla-body tr.row-color-verde:hover {
+  background-color: #a7f3d0 !important;
+}
+
+/* Azul */
+.table-tesla-body tr.row-color-azul:hover {
+  background-color: #bfdbfe !important;
+}
+
+/* Púrpura - El que estaba oscuro */
+.table-tesla-body tr.row-color-purpura:hover {
+  background-color: #d8b4fe !important;
+}
+
+/* Gris */
+.table-tesla-body tr.row-color-gris:hover {
+  background-color: #d1d5db !important;
 }
 
 .table-tesla-body td {
