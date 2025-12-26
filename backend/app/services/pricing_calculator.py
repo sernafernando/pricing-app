@@ -134,6 +134,18 @@ def obtener_comision_versionada(db: Session, grupo_id: int, pricelist_id: int, f
     Returns:
         Comisión en porcentaje (ej: 15.5 para 15.5%) o None si no se encuentra
     """
+    # Mapeo de pricelists PVP a Web (mismas comisiones)
+    pricelist_pvp_to_web = {
+        12: 4,   # PVP Clásica -> Web Clásica
+        18: 17,  # PVP 3C -> Web 3C
+        19: 14,  # PVP 6C -> Web 6C
+        20: 13,  # PVP 9C -> Web 9C
+        21: 23   # PVP 12C -> Web 12C
+    }
+    
+    # Si es una pricelist PVP, usar la equivalente Web
+    pricelist_id = pricelist_pvp_to_web.get(pricelist_id, pricelist_id)
+    
     if fecha is None:
         fecha = date.today()
 
