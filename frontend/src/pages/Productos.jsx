@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { productosAPI } from '../services/api';
-import PricingModal from '../components/PricingModal';
+import PricingModalTesla from '../components/PricingModalTesla';
 import { useDebounce } from '../hooks/useDebounce';
 import styles from './Productos.module.css';
 import axios from 'axios';
@@ -3850,17 +3850,16 @@ export default function Productos() {
         )}
       </div>
 
-      {productoSeleccionado && (
-        <PricingModal
-          producto={productoSeleccionado}
-          onClose={() => setProductoSeleccionado(null)}
-          onSave={() => {
-            setProductoSeleccionado(null);
-            cargarProductos();
-            cargarStats();
-          }}
-        />
-      )}
+      <PricingModalTesla
+        isOpen={!!productoSeleccionado}
+        producto={productoSeleccionado}
+        onClose={() => setProductoSeleccionado(null)}
+        onSave={() => {
+          setProductoSeleccionado(null);
+          cargarProductos();
+          cargarStats();
+        }}
+      />
 
       {mostrarModalInfo && (
         <ModalInfoProducto

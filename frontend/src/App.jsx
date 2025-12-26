@@ -29,6 +29,7 @@ import SmartRedirect from './components/SmartRedirect';
 import './styles/design-tokens.css';
 import './styles/components.css';
 import './styles/buttons-tesla.css';
+import './styles/modals-tesla.css';
 import './styles/table-tesla.css';
 import './styles/theme.css';
 
