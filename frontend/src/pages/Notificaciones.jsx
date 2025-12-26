@@ -21,6 +21,8 @@ export default function Notificaciones() {
   const [loading, setLoading] = useState(false);
   const [filtroTipo, setFiltroTipo] = useState(null);
   const [filtroPM, setFiltroPM] = useState(null);
+  const [filtroSeveridad, setFiltroSeveridad] = useState(null);
+  const [ordenamiento, setOrdenamiento] = useState('severidad_desc'); // severidad_desc, fecha_desc, markup_asc
   const [soloNoLeidas, setSoloNoLeidas] = useState(false);
   const [paginaActual, setPaginaActual] = useState(0);
   const [expandedNotif, setExpandedNotif] = useState(null);
@@ -58,10 +60,10 @@ export default function Notificaciones() {
     fetchNotificaciones();
   }, [soloNoLeidas, filtroTipo, vistaAgrupada]);
 
-  // Resetear página cuando cambie el filtro de PM
+  // Resetear página cuando cambien los filtros u ordenamiento
   useEffect(() => {
     setPaginaActual(0);
-  }, [filtroPM]);
+  }, [filtroPM, filtroSeveridad, ordenamiento]);
 
   const marcarComoLeida = async (notifId) => {
     try {
@@ -338,14 +340,71 @@ export default function Notificaciones() {
     }
   };
 
-  // Filtrar por PM en el frontend
-  const notificacionesFiltradas = filtroPM
-    ? notificaciones.filter(n => {
-        // En vista agrupada, el PM está en notificacion_reciente
-        const pm = vistaAgrupada ? n.notificacion_reciente?.pm : n.pm;
-        return pm === filtroPM;
-      })
-    : notificaciones;
+  // Extraer PMs únicos para el filtro
+  const pmsUnicos = [...new Set(
+    notificaciones
+      .map(n => vistaAgrupada ? n.notificacion_reciente?.pm : n.pm)
+      .filter(pm => pm && pm.trim() !== '')
+  )].sort();
+
+  // Filtrar por PM y Severidad en el frontend
+  let notificacionesFiltradas = notificaciones.filter(n => {
+    // Extraer datos según vista
+    const pm = vistaAgrupada ? n.notificacion_reciente?.pm : n.pm;
+    const severidad = vistaAgrupada ? n.notificacion_reciente?.severidad : n.severidad;
+
+    // Filtro PM
+    if (filtroPM && pm !== filtroPM) return false;
+    
+    // Filtro Severidad
+    if (filtroSeveridad && severidad !== filtroSeveridad) return false;
+
+    return true;
+  });
+
+  // Ordenar notificaciones
+  const getSeveridadValue = (sev) => {
+    const valores = { 'URGENT': 4, 'CRITICAL': 3, 'WARNING': 2, 'INFO': 1 };
+    return valores[sev] || 0;
+  };
+
+  notificacionesFiltradas = [...notificacionesFiltradas].sort((a, b) => {
+    const aSev = vistaAgrupada ? a.notificacion_reciente?.severidad : a.severidad;
+    const bSev = vistaAgrupada ? b.notificacion_reciente?.severidad : b.severidad;
+    const aFecha = vistaAgrupada ? a.ultima_fecha : a.fecha_creacion;
+    const bFecha = vistaAgrupada ? b.ultima_fecha : b.fecha_creacion;
+    const aMarkup = vistaAgrupada ? a.markup_real : a.markup_real;
+    const bMarkup = vistaAgrupada ? b.markup_real : b.markup_real;
+
+    switch (ordenamiento) {
+      case 'severidad_desc':
+        // Primero por severidad descendente, luego por fecha descendente
+        const sevDiff = getSeveridadValue(bSev) - getSeveridadValue(aSev);
+        if (sevDiff !== 0) return sevDiff;
+        return new Date(bFecha) - new Date(aFecha);
+      
+      case 'fecha_desc':
+        return new Date(bFecha) - new Date(aFecha);
+      
+      case 'fecha_asc':
+        return new Date(aFecha) - new Date(bFecha);
+      
+      case 'markup_asc':
+        // Markup ascendente (más negativo primero)
+        if (aMarkup === null) return 1;
+        if (bMarkup === null) return -1;
+        return aMarkup - bMarkup;
+      
+      case 'markup_desc':
+        // Markup descendente (más positivo primero)
+        if (aMarkup === null) return 1;
+        if (bMarkup === null) return -1;
+        return bMarkup - aMarkup;
+      
+      default:
+        return 0;
+    }
+  });
 
   const notificacionesPaginadas = notificacionesFiltradas.slice(
     paginaActual * ITEMS_PER_PAGE,
@@ -353,13 +412,6 @@ export default function Notificaciones() {
   );
 
   const totalPaginas = Math.ceil(notificacionesFiltradas.length / ITEMS_PER_PAGE);
-
-  // Extraer PMs únicos para el filtro
-  const pmsUnicos = [...new Set(
-    notificaciones
-      .map(n => vistaAgrupada ? n.notificacion_reciente?.pm : n.pm)
-      .filter(pm => pm && pm.trim() !== '')
-  )].sort();
 
   return (
     <div className={styles.container}>
