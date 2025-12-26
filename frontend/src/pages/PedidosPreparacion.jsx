@@ -96,7 +96,99 @@ export default function PedidosPreparacion() {
   const [modoVista, setModoVista] = useState('lista'); // 'lista' o 'cards'
   const [componentes, setComponentes] = useState({}); // Cache de componentes por item_id
 
+  // Estados para banlist y prearmado
+  const [procesando, setProcesando] = useState(new Set());
+
   const getToken = () => localStorage.getItem('token');
+  
+  // Obtener rol del usuario desde localStorage
+  const getUserRole = () => {
+    try {
+      const userStr = localStorage.getItem('user');
+      if (!userStr) return null;
+      const user = JSON.parse(userStr);
+      return user.rol;
+    } catch {
+      return null;
+    }
+  };
+  
+  const isAdmin = getUserRole() === 'admin';
+
+  // Marcar/desmarcar pre-armado
+  const togglePrearmado = async (itemId, estaPrearmado) => {
+    if (procesando.has(itemId)) return;
+    
+    setProcesando(prev => new Set([...prev, itemId]));
+    
+    try {
+      if (estaPrearmado) {
+        // Desmarcar
+        await axios.delete(`${API_URL}/produccion-prearmado/${itemId}`, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        });
+      } else {
+        // Marcar
+        await axios.post(`${API_URL}/produccion-prearmado/${itemId}`, null, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        });
+      }
+      
+      // Actualizar estado local
+      setResumen(prev => prev.map(item => 
+        item.item_id === itemId 
+          ? { ...item, esta_prearmado: !estaPrearmado }
+          : item
+      ));
+      
+    } catch (error) {
+      console.error('Error toggling prearmado:', error);
+      alert('Error al actualizar estado de pre-armado: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setProcesando(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(itemId);
+        return newSet;
+      });
+    }
+  };
+
+  // Bannear producto (solo admin)
+  const bannearProducto = async (itemId, itemCode, itemDesc) => {
+    if (!isAdmin) {
+      alert('Solo administradores pueden bannear productos');
+      return;
+    }
+    
+    const motivo = prompt(`¿Por qué querés bannear "${itemCode} - ${itemDesc}" de la vista de producción?`);
+    if (!motivo || motivo.trim() === '') return;
+    
+    setProcesando(prev => new Set([...prev, itemId]));
+    
+    try {
+      await axios.post(`${API_URL}/produccion-banlist`, {
+        item_id: itemId,
+        motivo: motivo.trim()
+      }, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      
+      alert('✅ Producto baneado de la vista de producción');
+      
+      // Quitar de la lista local
+      setResumen(prev => prev.filter(item => item.item_id !== itemId));
+      
+    } catch (error) {
+      console.error('Error baneando producto:', error);
+      alert('Error al bannear producto: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setProcesando(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(itemId);
+        return newSet;
+      });
+    }
+  };
 
   const cargarTiposEnvio = useCallback(async () => {
     try {
@@ -352,12 +444,13 @@ export default function PedidosPreparacion() {
                     <th>Cantidad</th>
                     <th>Paquetes</th>
                     <th>Tipo Envio</th>
+                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {resumen.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className={styles.empty}>No hay datos para mostrar</td>
+                      <td colSpan={5} className={styles.empty}>No hay datos para mostrar</td>
                     </tr>
                   ) : (
                     resumen.map((r) => (
@@ -366,6 +459,11 @@ export default function PedidosPreparacion() {
                           <div className={styles.producto}>
                             <strong>{r.item_code || '-'}</strong>
                             <span className={styles.descripcion}>{r.item_desc || '-'}</span>
+                            {r.esta_prearmado && (
+                              <span className={styles.badgePrearmado} title="En pre-armado">
+                                🔧 Pre-armado
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className={styles.cantidadGrande}>{r.cantidad}</td>
@@ -374,6 +472,28 @@ export default function PedidosPreparacion() {
                           <span className={`${styles.badge} ${getBadgeClass(r.ml_logistic_type)}`}>
                             {r.ml_logistic_type || 'N/A'}
                           </span>
+                        </td>
+                        <td>
+                          <div className={styles.accionesContainer}>
+                            <button
+                              className={`${styles.btnPrearmado} ${r.esta_prearmado ? styles.btnPrearmadoActivo : ''}`}
+                              onClick={() => togglePrearmado(r.item_id, r.esta_prearmado)}
+                              disabled={procesando.has(r.item_id)}
+                              title={r.esta_prearmado ? "Desmarcar pre-armado" : "Marcar como pre-armado"}
+                            >
+                              {procesando.has(r.item_id) ? '⏳' : (r.esta_prearmado ? '✓ Pre-armado' : '🔧 Pre-armar')}
+                            </button>
+                            {vistaProduccion && isAdmin && (
+                              <button
+                                className={styles.btnBannear}
+                                onClick={() => bannearProducto(r.item_id, r.item_code, r.item_desc)}
+                                disabled={procesando.has(r.item_id)}
+                                title="Bannear de vista producción"
+                              >
+                                🚫
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
