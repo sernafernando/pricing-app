@@ -94,7 +94,10 @@ export default function Navbar() {
           {facturadoHoy !== null ? (
             <Link to="/dashboard-metricas-ml" className={styles.facturadoHoy} title="Facturado ML hoy - Click para ver métricas">
               <span className={styles.facturadoLabel}>Hoy ML:</span>
-              <span className={styles.facturadoMonto}>${Number(facturadoHoy).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+              <span className={styles.facturadoMonto}>
+                <span className={styles.facturadoIcon}>$</span>
+                {Number(facturadoHoy).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </span>
             </Link>
           ) : (
             <span className={styles.title}>Pricing App</span>
@@ -108,7 +111,7 @@ export default function Navbar() {
               to="/productos"
               className={`${styles.link} ${isActive('/productos') ? styles.active : ''}`}
             >
-              📦 Productos
+              Productos
             </Link>
           )}
 
@@ -117,7 +120,7 @@ export default function Navbar() {
               to="/tienda"
               className={`${styles.link} ${isActive('/tienda') ? styles.active : ''}`}
             >
-              🛒 Tienda
+              Tienda
             </Link>
           )}
 
@@ -126,7 +129,7 @@ export default function Navbar() {
               to="/precios-listas"
               className={`${styles.link} ${isActive('/precios-listas') ? styles.active : ''}`}
             >
-              💰 Precios por Lista
+              Precios por Lista
             </Link>
           )}
 
@@ -135,7 +138,7 @@ export default function Navbar() {
               to="/mla-banlist"
               className={`${styles.link} ${isActive('/mla-banlist') ? styles.active : ''}`}
             >
-              🚫 Banlist
+              Banlist
             </Link>
           )}
 
@@ -144,7 +147,7 @@ export default function Navbar() {
               to="/items-sin-mla"
               className={`${styles.link} ${isActive('/items-sin-mla') ? styles.active : ''}`}
             >
-              📋 Items sin MLA
+              Items sin MLA
             </Link>
           )}
 
@@ -153,7 +156,7 @@ export default function Navbar() {
               to="/pedidos-preparacion"
               className={`${styles.link} ${isActive('/pedidos-preparacion') ? styles.active : ''}`}
             >
-              📦 Preparación
+              Preparación
             </Link>
           )}
 
@@ -162,7 +165,7 @@ export default function Navbar() {
               to="/clientes"
               className={`${styles.link} ${isActive('/clientes') ? styles.active : ''}`}
             >
-              👥 Clientes
+              Clientes
             </Link>
           )}
 
@@ -177,7 +180,7 @@ export default function Navbar() {
                 className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-ventas', '/dashboard-metricas-ml', '/dashboard-ventas-fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
                 onClick={() => setDropdownOpen(dropdownOpen === 'reportes' ? null : 'reportes')}
               >
-                📊 Reportes ▾
+                Reportes ▾
               </div>
               {dropdownOpen === 'reportes' && (
                 <div
@@ -190,7 +193,7 @@ export default function Navbar() {
                       className={`${styles.dropdownItem} ${isActive('/dashboard-ventas') ? styles.activeDropdown : ''}`}
                       onClick={() => setDropdownOpen(null)}
                     >
-                      📊 Dashboard Ventas
+                      Dashboard Ventas
                     </Link>
                   )}
                   {puedeVerMetricasML && (
@@ -199,7 +202,7 @@ export default function Navbar() {
                       className={`${styles.dropdownItem} ${isActive('/dashboard-metricas-ml') ? styles.activeDropdown : ''}`}
                       onClick={() => setDropdownOpen(null)}
                     >
-                      📈 Métricas ML
+                      Métricas ML
                     </Link>
                   )}
                   {puedeVerVentasFuera && (
@@ -208,7 +211,7 @@ export default function Navbar() {
                       className={`${styles.dropdownItem} ${isActive('/dashboard-ventas-fuera') ? styles.activeDropdown : ''}`}
                       onClick={() => setDropdownOpen(null)}
                     >
-                      🏪 Ventas por Fuera
+                      Ventas por Fuera
                     </Link>
                   )}
                   {puedeVerTiendaNube && (
@@ -217,7 +220,7 @@ export default function Navbar() {
                       className={`${styles.dropdownItem} ${isActive('/dashboard-tienda-nube') ? styles.activeDropdown : ''}`}
                       onClick={() => setDropdownOpen(null)}
                     >
-                      🛒 Tienda Nube
+                      Tienda Nube
                     </Link>
                   )}
                   {puedeVerCalculos && (
@@ -226,7 +229,7 @@ export default function Navbar() {
                       className={`${styles.dropdownItem} ${isActive('/calculos') ? styles.activeDropdown : ''}`}
                       onClick={() => setDropdownOpen(null)}
                     >
-                      🧮 Cálculos
+                      Cálculos
                     </Link>
                   )}
                   {puedeVerHistorial && (
@@ -235,7 +238,7 @@ export default function Navbar() {
                       className={`${styles.dropdownItem} ${isActive('/ultimos-cambios') ? styles.activeDropdown : ''}`}
                       onClick={() => setDropdownOpen(null)}
                     >
-                      📋 Últimos Cambios
+                      Últimos Cambios
                     </Link>
                   )}
                 </div>
@@ -254,7 +257,7 @@ export default function Navbar() {
                 className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/gestion-pm', '/admin']) ? styles.active : ''}`}
                 onClick={() => setDropdownOpen(dropdownOpen === 'gestion' ? null : 'gestion')}
               >
-                ⚙️ Gestión ▾
+                Gestión ▾
               </div>
               {dropdownOpen === 'gestion' && (
                 <div
@@ -267,7 +270,7 @@ export default function Navbar() {
                       className={`${styles.dropdownItem} ${isActive('/gestion-pm') ? styles.activeDropdown : ''}`}
                       onClick={() => setDropdownOpen(null)}
                     >
-                      👤 Gestión PMs
+                      Gestión PMs
                     </Link>
                   )}
                   {puedeVerAdmin && (
@@ -276,7 +279,7 @@ export default function Navbar() {
                       className={`${styles.dropdownItem} ${isActive('/admin') ? styles.activeDropdown : ''}`}
                       onClick={() => setDropdownOpen(null)}
                     >
-                      ⚙️ Admin
+                      Admin
                     </Link>
                   )}
                 </div>
@@ -297,8 +300,8 @@ export default function Navbar() {
           )}
           <NotificationBell />
           <ThemeToggle />
-          <button onClick={handleLogout} className={styles.logoutBtn}>
-            🚪 Salir
+          <button onClick={handleLogout} className="btn-tesla danger sm">
+            Salir
           </button>
         </div>
 
@@ -321,7 +324,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/productos') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              📦 Productos
+              Productos
             </Link>
           )}
 
@@ -331,7 +334,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/tienda') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              🛒 Tienda
+              Tienda
             </Link>
           )}
 
@@ -341,7 +344,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/precios-listas') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              💰 Precios por Lista
+              Precios por Lista
             </Link>
           )}
 
@@ -351,7 +354,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/mla-banlist') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              🚫 Banlist MLAs
+              Banlist MLAs
             </Link>
           )}
 
@@ -361,7 +364,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/pedidos-preparacion') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              📦 Preparación
+              Preparación
             </Link>
           )}
 
@@ -371,7 +374,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/dashboard-ventas') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              📊 Dashboard Ventas
+              Dashboard Ventas
             </Link>
           )}
 
@@ -381,7 +384,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/dashboard-metricas-ml') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              📈 Métricas ML
+              Métricas ML
             </Link>
           )}
 
@@ -391,7 +394,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/dashboard-ventas-fuera') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              🏪 Ventas por Fuera
+              Ventas por Fuera
             </Link>
           )}
 
@@ -401,7 +404,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/dashboard-tienda-nube') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              🛒 Tienda Nube
+              Tienda Nube
             </Link>
           )}
 
@@ -411,7 +414,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/calculos') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              🧮 Cálculos
+              Cálculos
             </Link>
           )}
 
@@ -421,7 +424,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/ultimos-cambios') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              📋 Últimos Cambios
+              Últimos Cambios
             </Link>
           )}
 
@@ -431,7 +434,7 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/gestion-pm') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              👤 Gestión PMs
+              Gestión PMs
             </Link>
           )}
 
@@ -441,13 +444,13 @@ export default function Navbar() {
               className={`${styles.mobileLink} ${isActive('/admin') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
-              ⚙️ Admin
+              Admin
             </Link>
           )}
 
           {user && (
             <div className={styles.mobileUserInfo}>
-              <div className={styles.mobileUserName}>👤 {user.nombre_usuario}</div>
+              <div className={styles.mobileUserName}>{user.nombre_usuario}</div>
               <div className={`${styles.mobileRoleBadge} ${getRoleBadgeColor(user.rol)}`}>
                 {user.rol}
               </div>
@@ -458,8 +461,8 @@ export default function Navbar() {
             <ThemeToggle />
           </div>
 
-          <button onClick={handleLogout} className={styles.mobileLogoutBtn}>
-            🚪 Cerrar Sesión
+          <button onClick={handleLogout} className="btn-tesla danger full">
+            Cerrar Sesión
           </button>
         </div>
       )}
