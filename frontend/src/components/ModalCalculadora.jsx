@@ -471,8 +471,18 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
                   <input
                     type="number"
                     step="0.1"
+                    min="0"
                     value={adicionalMarkup}
-                    onChange={(e) => setAdicionalMarkup(parseFloat(e.target.value) || 4.0)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      // Permitir vacío temporalmente, pero al perder foco volverá a 0
+                      if (val === '' || val === null) {
+                        setAdicionalMarkup(0);
+                      } else {
+                        const num = parseFloat(val);
+                        setAdicionalMarkup(isNaN(num) ? 0 : num);
+                      }
+                    }}
                     style={{ width: '60px', padding: '4px 8px', fontSize: '13px' }}
                   />
                   <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>%</span>
