@@ -1353,6 +1353,12 @@ export default function Productos() {
       // Normalizar: reemplazar coma por punto
       const precioNormalizado = parseFloat(precioTemp.toString().replace(',', '.'));
 
+      // Determinar si recalcular cuotas: primero verificar configuración individual del producto
+      const producto = productos.find(p => p.item_id === itemId);
+      const shouldRecalcularCuotas = producto?.recalcular_cuotas_auto !== null 
+        ? producto.recalcular_cuotas_auto 
+        : recalcularCuotasAuto;
+
       // Si estamos en modo PVP, usar set-rapido con lista_tipo=pvp
       if (modoVista === 'pvp') {
         const response = await axios.post(
@@ -1363,7 +1369,7 @@ export default function Productos() {
             params: {
               item_id: itemId,
               precio: precioNormalizado,
-              recalcular_cuotas: true,  // Siempre recalcular cuotas PVP
+              recalcular_cuotas: shouldRecalcularCuotas,  // Respetar config individual o global
               lista_tipo: 'pvp'
             }
           }
@@ -1403,7 +1409,7 @@ export default function Productos() {
           params: {
             item_id: itemId,
             precio: precioNormalizado,
-            recalcular_cuotas: recalcularCuotasAuto  // Enviar flag de recalculo
+            recalcular_cuotas: shouldRecalcularCuotas  // Respetar config individual o global
           }
         }
       );
