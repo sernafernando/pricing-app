@@ -517,22 +517,22 @@
     inset 0 -1px 0 rgba(0, 0, 0, 0.02);
 }
 
-/* Hover en filas con color manual - borde visible + brightness */
+/* Hover en filas con color manual - reemplazar con hover estándar */
 .table-tesla-body tr[style*="background-color"]:hover {
-  filter: brightness(0.85) saturate(1.1);
+  background: var(--bg-hover) !important;
   box-shadow: 
-    inset 0 0 0 2px rgba(0, 0, 0, 0.3),
-    0 2px 8px rgba(0, 0, 0, 0.15);
-  transform: scale(1.001); /* Efecto sutil de elevación */
+    inset 0 1px 0 rgba(0, 0, 0, 0.02),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.02),
+    inset 3px 0 0 rgba(0, 0, 0, 0.15); /* Borde izquierdo para indicar que tenía color */
 }
 
-/* Dark mode - borde blanco visible + brightness alto */
+/* Dark mode - mismo comportamiento */
 :root[data-theme="dark"] .table-tesla-body tr[style*="background-color"]:hover {
-  filter: brightness(1.4) saturate(1.2);
+  background: var(--bg-hover) !important;
   box-shadow: 
-    inset 0 0 0 2px rgba(255, 255, 255, 0.4),
-    0 2px 8px rgba(255, 255, 255, 0.1);
-  transform: scale(1.001);
+    inset 0 1px 0 rgba(255, 255, 255, 0.02),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.02),
+    inset 3px 0 0 rgba(255, 255, 255, 0.2); /* Borde izquierdo más visible */
 }
 
 .table-tesla-body td {
