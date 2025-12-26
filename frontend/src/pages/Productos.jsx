@@ -2172,7 +2172,7 @@ export default function Productos() {
       <div className="search-bar">
         <input
           type="text"
-          placeholder="Buscar por código, descripción o marca... (ej: ean:123456, marca:Samsung, *123, código*)"
+          placeholder="Buscar productos..."
           value={searchInput}
           onChange={handleSearchChange}
           onFocus={(e) => e.target.select()}
@@ -2190,7 +2190,7 @@ export default function Productos() {
             className="filter-select-compact"
             title="Filtrar por stock"
           >
-            <option value="todos">📦 Stock</option>
+            <option value="todos">Stock</option>
             <option value="con_stock">Con stock</option>
             <option value="sin_stock">Sin stock</option>
           </select>
@@ -2201,7 +2201,7 @@ export default function Productos() {
             className="filter-select-compact"
             title="Filtrar por precio"
           >
-            <option value="todos">💰 Precio</option>
+            <option value="todos">Precio</option>
             <option value="con_precio">Con precio</option>
             <option value="sin_precio">Sin precio</option>
           </select>
@@ -2209,9 +2209,9 @@ export default function Productos() {
           {/* Botones de filtro */}
           <button
             onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'marcas' ? null : 'marcas')}
-            className={`filter-button marcas ${marcasSeleccionadas.length > 0 ? 'active' : ''}`}
+            className={`filter-button ${marcasSeleccionadas.length > 0 ? 'active' : ''}`}
           >
-            🏷️ Marcas
+            Marcas
             {marcasSeleccionadas.length > 0 && (
               <span className="filter-badge">{marcasSeleccionadas.length}</span>
             )}
@@ -2219,9 +2219,9 @@ export default function Productos() {
 
           <button
             onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias')}
-            className={`filter-button subcategorias ${subcategoriasSeleccionadas.length > 0 ? 'active' : ''}`}
+            className={`filter-button ${subcategoriasSeleccionadas.length > 0 ? 'active' : ''}`}
           >
-            📋 Subcategorías
+            Subcategorías
             {subcategoriasSeleccionadas.length > 0 && (
               <span className="filter-badge">{subcategoriasSeleccionadas.length}</span>
             )}
@@ -2229,9 +2229,9 @@ export default function Productos() {
 
           <button
             onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'pms' ? null : 'pms')}
-            className={`filter-button pms ${pmsSeleccionados.length > 0 ? 'active' : ''}`}
+            className={`filter-button ${pmsSeleccionados.length > 0 ? 'active' : ''}`}
           >
-            👤 PM
+            PM
             {pmsSeleccionados.length > 0 && (
               <span className="filter-badge">{pmsSeleccionados.length}</span>
             )}
@@ -2239,9 +2239,9 @@ export default function Productos() {
 
           <button
             onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'auditoria' ? null : 'auditoria')}
-            className={`filter-button auditoria ${(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0 || filtrosAuditoria.fecha_desde || filtrosAuditoria.fecha_hasta) ? 'active' : ''}`}
+            className={`filter-button ${(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0 || filtrosAuditoria.fecha_desde || filtrosAuditoria.fecha_hasta) ? 'active' : ''}`}
           >
-            🔍 Auditoría
+            Auditoría
             {(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0) && (
               <span className="filter-badge">
                 {filtrosAuditoria.usuarios.length + filtrosAuditoria.tipos_accion.length}
@@ -2251,9 +2251,9 @@ export default function Productos() {
 
           <button
             onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
-            className={`filter-button advanced ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
+            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
           >
-            🎯 Avanzados
+            Avanzados
             {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) && (
               <span className="filter-badge">
                 {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length}
@@ -2266,7 +2266,7 @@ export default function Productos() {
             className="filter-button clear-all"
             title="Limpiar todos los filtros"
           >
-            🧹
+            Limpiar
           </button>
 
           {/* Separador visual */}

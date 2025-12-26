@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { productosAPI } from '../services/api';
-import PricingModal from '../components/PricingModal';
+import PricingModalTesla from '../components/PricingModalTesla';
 import { useDebounce } from '../hooks/useDebounce';
 import './Tienda.css';
 import styles from './Productos.module.css';
@@ -14,6 +14,7 @@ import xlsIcon from '../assets/xls.svg';
 import CalcularWebModal from '../components/CalcularWebModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import SetupMarkups from '../components/SetupMarkups';
+import StatCard from '../components/StatCard';
 import './Productos.css';
 
 export default function Productos() {
@@ -2258,97 +2259,131 @@ export default function Productos() {
       ) : (
         <>
       <div className="stats-grid">
-        <div className="stat-card clickable" title="Click para limpiar todos los filtros" onClick={limpiarFiltros}>
-          <div className="stat-label">📦 Total Productos</div>
-          <div className="stat-value">{stats?.total_productos?.toLocaleString('es-AR') || 0}</div>
-        </div>
+        <StatCard
+          title="Total Productos"
+          value={stats?.total_productos?.toLocaleString('es-AR') || 0}
+          onClick={limpiarFiltros}
+          tooltip="Click para limpiar todos los filtros"
+        />
 
-        <div className="stat-card clickable" title="Desglose de stock y precios">
-          <div className="stat-label">📊 Stock & Precio</div>
-          <div className="stat-value-group">
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ stock: 'con_stock' })}>
-              <span className="stat-sub-label">Con Stock:</span>
-              <span className="stat-sub-value green">{stats?.con_stock?.toLocaleString('es-AR') || 0}</span>
-            </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ precio: 'con_precio' })}>
-              <span className="stat-sub-label">Con Precio:</span>
-              <span className="stat-sub-value blue">{stats?.con_precio?.toLocaleString('es-AR') || 0}</span>
-            </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ stock: 'con_stock', precio: 'sin_precio' })}>
-              <span className="stat-sub-label">Stock sin $:</span>
-              <span className="stat-sub-value red">{stats?.con_stock_sin_precio?.toLocaleString('es-AR') || 0}</span>
-            </div>
-          </div>
-        </div>
+        <StatCard
+          title="Stock & Precio"
+          tooltip="Desglose de stock y precios"
+          subItems={[
+            {
+              label: 'Con Stock:',
+              value: stats?.con_stock?.toLocaleString('es-AR') || 0,
+              color: 'green',
+              onClick: () => aplicarFiltroStat({ stock: 'con_stock' })
+            },
+            {
+              label: 'Con Precio:',
+              value: stats?.con_precio?.toLocaleString('es-AR') || 0,
+              color: 'blue',
+              onClick: () => aplicarFiltroStat({ precio: 'con_precio' })
+            },
+            {
+              label: 'Stock sin $:',
+              value: stats?.con_stock_sin_precio?.toLocaleString('es-AR') || 0,
+              color: 'red',
+              onClick: () => aplicarFiltroStat({ stock: 'con_stock', precio: 'sin_precio' })
+            }
+          ]}
+        />
 
-        <div className="stat-card clickable" title="Productos cargados en los últimos 7 días">
-          <div className="stat-label">✨ Nuevos (7 días)</div>
-          <div className="stat-value-group">
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ nuevos: 'ultimos_7_dias' })}>
-              <span className="stat-sub-label">Total:</span>
-              <span className="stat-sub-value blue">{stats?.nuevos_ultimos_7_dias?.toLocaleString('es-AR') || 0}</span>
-            </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ nuevos: 'ultimos_7_dias', precio: 'sin_precio' })}>
-              <span className="stat-sub-label">Sin Precio:</span>
-              <span className="stat-sub-value red">{stats?.nuevos_sin_precio?.toLocaleString('es-AR') || 0}</span>
-            </div>
-          </div>
-        </div>
+        <StatCard
+          title="Nuevos (7 días)"
+          tooltip="Productos cargados en los últimos 7 días"
+          subItems={[
+            {
+              label: 'Total:',
+              value: stats?.nuevos_ultimos_7_dias?.toLocaleString('es-AR') || 0,
+              color: 'blue',
+              onClick: () => aplicarFiltroStat({ nuevos: 'ultimos_7_dias' })
+            },
+            {
+              label: 'Sin Precio:',
+              value: stats?.nuevos_sin_precio?.toLocaleString('es-AR') || 0,
+              color: 'red',
+              onClick: () => aplicarFiltroStat({ nuevos: 'ultimos_7_dias', precio: 'sin_precio' })
+            }
+          ]}
+        />
 
-        <div className="stat-card clickable" title="Productos sin publicación en MercadoLibre (excluye banlist)">
-          <div className="stat-label">🔍 Sin MLA</div>
-          <div className="stat-value-group">
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ mla: 'sin_mla' })}>
-              <span className="stat-sub-label">Total:</span>
-              <span className="stat-sub-value orange">{stats?.sin_mla_no_banlist?.toLocaleString('es-AR') || 0}</span>
-            </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ mla: 'sin_mla', stock: 'con_stock' })}>
-              <span className="stat-sub-label">Con Stock:</span>
-              <span className="stat-sub-value green">{stats?.sin_mla_con_stock?.toLocaleString('es-AR') || 0}</span>
-            </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ mla: 'sin_mla', stock: 'sin_stock' })}>
-              <span className="stat-sub-label">Sin Stock:</span>
-              <span className="stat-sub-value">{stats?.sin_mla_sin_stock?.toLocaleString('es-AR') || 0}</span>
-            </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ mla: 'sin_mla', nuevos: 'ultimos_7_dias' })}>
-              <span className="stat-sub-label">Nuevos:</span>
-              <span className="stat-sub-value blue">{stats?.sin_mla_nuevos?.toLocaleString('es-AR') || 0}</span>
-            </div>
-          </div>
-        </div>
+        <StatCard
+          title="Sin MLA"
+          tooltip="Productos sin publicación en MercadoLibre (excluye banlist)"
+          subItems={[
+            {
+              label: 'Total:',
+              value: stats?.sin_mla_no_banlist?.toLocaleString('es-AR') || 0,
+              color: 'orange',
+              onClick: () => aplicarFiltroStat({ mla: 'sin_mla' })
+            },
+            {
+              label: 'Con Stock:',
+              value: stats?.sin_mla_con_stock?.toLocaleString('es-AR') || 0,
+              color: 'green',
+              onClick: () => aplicarFiltroStat({ mla: 'sin_mla', stock: 'con_stock' })
+            },
+            {
+              label: 'Sin Stock:',
+              value: stats?.sin_mla_sin_stock?.toLocaleString('es-AR') || 0,
+              onClick: () => aplicarFiltroStat({ mla: 'sin_mla', stock: 'sin_stock' })
+            },
+            {
+              label: 'Nuevos:',
+              value: stats?.sin_mla_nuevos?.toLocaleString('es-AR') || 0,
+              color: 'blue',
+              onClick: () => aplicarFiltroStat({ mla: 'sin_mla', nuevos: 'ultimos_7_dias' })
+            }
+          ]}
+        />
 
-        <div className="stat-card clickable" title="Click para filtrar productos con oferta sin rebate" onClick={() => aplicarFiltroStat({ oferta: 'con_oferta', rebate: 'sin_rebate' })}>
-          <div className="stat-label">💎 Oferta sin Rebate</div>
-          <div className="stat-value purple">{stats?.mejor_oferta_sin_rebate?.toLocaleString('es-AR') || 0}</div>
-        </div>
+        <StatCard
+          title="Oferta sin Rebate"
+          value={stats?.mejor_oferta_sin_rebate?.toLocaleString('es-AR') || 0}
+          valueColor="purple"
+          onClick={() => aplicarFiltroStat({ oferta: 'con_oferta', rebate: 'sin_rebate' })}
+          tooltip="Click para filtrar productos con oferta sin rebate"
+        />
 
-        <div className="stat-card clickable" title="Productos con markup negativo en diferentes modalidades">
-          <div className="stat-label">📉 Markup Negativo</div>
-          <div className="stat-value-group">
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ markupClasica: 'negativo' })}>
-              <span className="stat-sub-label">Clásica:</span>
-              <span className="stat-sub-value red">{stats?.markup_negativo_clasica || 0}</span>
-            </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ markupRebate: 'negativo' })}>
-              <span className="stat-sub-label">Rebate:</span>
-              <span className="stat-sub-value red">{stats?.markup_negativo_rebate || 0}</span>
-            </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ markupOferta: 'negativo' })}>
-              <span className="stat-sub-label">Oferta:</span>
-              <span className="stat-sub-value red">{stats?.markup_negativo_oferta || 0}</span>
-            </div>
-            <div className="stat-sub-item clickable-sub" onClick={() => aplicarFiltroStat({ markupWebTransf: 'negativo' })}>
-              <span className="stat-sub-label">Web:</span>
-              <span className="stat-sub-value red">{stats?.markup_negativo_web || 0}</span>
-            </div>
-          </div>
-        </div>
+        <StatCard
+          title="Markup Negativo"
+          tooltip="Productos con markup negativo en diferentes modalidades"
+          subItems={[
+            {
+              label: 'Clásica:',
+              value: stats?.markup_negativo_clasica || 0,
+              color: 'red',
+              onClick: () => aplicarFiltroStat({ markupClasica: 'negativo' })
+            },
+            {
+              label: 'Rebate:',
+              value: stats?.markup_negativo_rebate || 0,
+              color: 'red',
+              onClick: () => aplicarFiltroStat({ markupRebate: 'negativo' })
+            },
+            {
+              label: 'Oferta:',
+              value: stats?.markup_negativo_oferta || 0,
+              color: 'red',
+              onClick: () => aplicarFiltroStat({ markupOferta: 'negativo' })
+            },
+            {
+              label: 'Web:',
+              value: stats?.markup_negativo_web || 0,
+              color: 'red',
+              onClick: () => aplicarFiltroStat({ markupWebTransf: 'negativo' })
+            }
+          ]}
+        />
       </div>
 
       <div className="search-bar">
         <input
           type="text"
-          placeholder="Buscar por código, descripción o marca... (ej: ean:123456, marca:Samsung, *123, código*)"
+          placeholder="Buscar productos..."
           value={searchInput}
           onChange={handleSearchChange}
           onFocus={(e) => e.target.select()}
@@ -2366,7 +2401,7 @@ export default function Productos() {
             className="filter-select-compact"
             title="Filtrar por stock"
           >
-            <option value="todos">📦 Stock</option>
+            <option value="todos">Stock</option>
             <option value="con_stock">Con stock</option>
             <option value="sin_stock">Sin stock</option>
           </select>
@@ -2377,7 +2412,7 @@ export default function Productos() {
             className="filter-select-compact"
             title="Filtrar por precio"
           >
-            <option value="todos">💰 Precio</option>
+            <option value="todos">Precio</option>
             <option value="con_precio">Con precio</option>
             <option value="sin_precio">Sin precio</option>
           </select>
@@ -2385,9 +2420,9 @@ export default function Productos() {
           {/* Botones de filtro */}
           <button
             onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'marcas' ? null : 'marcas')}
-            className={`filter-button marcas ${marcasSeleccionadas.length > 0 ? 'active' : ''}`}
+            className={`filter-button ${marcasSeleccionadas.length > 0 ? 'active' : ''}`}
           >
-            🏷️ Marcas
+            Marcas
             {marcasSeleccionadas.length > 0 && (
               <span className="filter-badge">{marcasSeleccionadas.length}</span>
             )}
@@ -2395,9 +2430,9 @@ export default function Productos() {
 
           <button
             onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias')}
-            className={`filter-button subcategorias ${subcategoriasSeleccionadas.length > 0 ? 'active' : ''}`}
+            className={`filter-button ${subcategoriasSeleccionadas.length > 0 ? 'active' : ''}`}
           >
-            📋 Subcategorías
+            Subcategorías
             {subcategoriasSeleccionadas.length > 0 && (
               <span className="filter-badge">{subcategoriasSeleccionadas.length}</span>
             )}
@@ -2405,9 +2440,9 @@ export default function Productos() {
 
           <button
             onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'pms' ? null : 'pms')}
-            className={`filter-button pms ${pmsSeleccionados.length > 0 ? 'active' : ''}`}
+            className={`filter-button ${pmsSeleccionados.length > 0 ? 'active' : ''}`}
           >
-            👤 PM
+            PM
             {pmsSeleccionados.length > 0 && (
               <span className="filter-badge">{pmsSeleccionados.length}</span>
             )}
@@ -2415,9 +2450,9 @@ export default function Productos() {
 
           <button
             onClick={() => setPanelFiltroActivo(panelFiltroActivo === 'auditoria' ? null : 'auditoria')}
-            className={`filter-button auditoria ${(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0 || filtrosAuditoria.fecha_desde || filtrosAuditoria.fecha_hasta) ? 'active' : ''}`}
+            className={`filter-button ${(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0 || filtrosAuditoria.fecha_desde || filtrosAuditoria.fecha_hasta) ? 'active' : ''}`}
           >
-            🔍 Auditoría
+            Auditoría
             {(filtrosAuditoria.usuarios.length > 0 || filtrosAuditoria.tipos_accion.length > 0) && (
               <span className="filter-badge">
                 {filtrosAuditoria.usuarios.length + filtrosAuditoria.tipos_accion.length}
@@ -2427,9 +2462,9 @@ export default function Productos() {
 
           <button
             onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
-            className={`filter-button advanced ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
+            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
           >
-            🎯 Avanzados
+            Avanzados
             {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) && (
               <span className="filter-badge">
                 {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length}
@@ -2442,7 +2477,7 @@ export default function Productos() {
             className="filter-button clear-all"
             title="Limpiar todos los filtros"
           >
-            🧹
+            Limpiar
           </button>
 
           {/* Separador visual */}
@@ -3207,13 +3242,13 @@ export default function Productos() {
         </div>
       </div>
 
-      <div className="table-container">
+      <div className="table-container-tesla">
         {loading ? (
           <div className="loading">Cargando...</div>
         ) : (
           <>
-            <table className="table">
-              <thead className="table-head">
+            <table className="table-tesla striped">
+              <thead className="table-tesla-head">
                 <tr>
                   <th style={{ width: '40px', textAlign: 'center' }}>
                     <input
@@ -3274,7 +3309,7 @@ export default function Productos() {
                   <th>Acciones</th>
                 </tr>
               </thead>
-              <tbody className="table-body">
+              <tbody className="table-tesla-body">
                 {productosOrdenados.map((p, rowIndex) => {
                   const isRowActive = modoNavegacion && celdaActiva?.rowIndex === rowIndex;
                   const colorClass = p.color_marcado_tienda ? `row-color-${p.color_marcado_tienda}` : '';
@@ -3922,7 +3957,7 @@ export default function Productos() {
                           <th>Valores Nuevos</th>
                         </tr>
                       </thead>
-                      <tbody className="table-body">
+                      <tbody className="table-tesla-body">
                         {auditoriaData.map(item => {
                           const formatearTipoAccion = (tipo) => {
                             const tipos = {
@@ -3993,17 +4028,16 @@ export default function Productos() {
         )}
       </div>
 
-      {productoSeleccionado && (
-        <PricingModal
-          producto={productoSeleccionado}
-          onClose={() => setProductoSeleccionado(null)}
-          onSave={() => {
-            setProductoSeleccionado(null);
-            cargarProductos();
-            cargarStats();
-          }}
-        />
-      )}
+      <PricingModalTesla
+        isOpen={!!productoSeleccionado}
+        producto={productoSeleccionado}
+        onClose={() => setProductoSeleccionado(null)}
+        onSave={() => {
+          setProductoSeleccionado(null);
+          cargarProductos();
+          cargarStats();
+        }}
+      />
 
       {mostrarModalInfo && (
         <ModalInfoProducto
