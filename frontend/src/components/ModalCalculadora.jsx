@@ -9,7 +9,6 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     costo: '',
     monedaCosto: 'USD',
     iva: '21',
-    comisionML: '',
     costoEnvio: '0',
     precioFinal: '',
     tipoCambio: ''
@@ -88,11 +87,14 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
 
   const calcular = () => {
     const costo = parseFloat(formData.costo) || 0;
-    const comisionML = parseFloat(formData.comisionML) || 0;
     const costoEnvio = parseFloat(formData.costoEnvio) || 0;
     const precioFinal = parseFloat(formData.precioFinal) || 0;
     const iva = parseFloat(formData.iva);
     const tipoCambio = parseFloat(formData.tipoCambio) || 1;
+
+    // Obtener comisión base del grupo seleccionado (lista 4 = clásica)
+    const grupoData = gruposComision.find(g => g.grupo_id === grupoSeleccionado);
+    const comisionML = grupoData ? grupoData.lista_4 : 0;
 
     if (costo === 0 || precioFinal === 0 || comisionML === 0 || !constantes) {
       return;
@@ -147,7 +149,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
 
   useEffect(() => {
     calcular();
-  }, [formData]);
+  }, [formData, grupoSeleccionado, gruposComision]);
 
   // Calcular cuotas automáticamente cuando cambia el markup o el adicional
   useEffect(() => {
@@ -236,6 +238,10 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
         }))
       } : null;
 
+      // Obtener comisión ML del grupo seleccionado
+      const grupoData = gruposComision.find(g => g.grupo_id === grupoSeleccionado);
+      const comisionML = grupoData ? grupoData.lista_4 : 0;
+
       await axios.post(
         'https://pricing.gaussonline.com.ar/api/calculos',
         {
@@ -244,7 +250,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
           costo: parseFloat(formData.costo),
           moneda_costo: formData.monedaCosto,
           iva: parseFloat(formData.iva),
-          comision_ml: parseFloat(formData.comisionML),
+          comision_ml: comisionML,  // ← Usar comisión del grupo
           costo_envio: parseFloat(formData.costoEnvio),
           precio_final: parseFloat(formData.precioFinal),
           markup_porcentaje: parseFloat(resultados.markupPorcentaje),
@@ -273,7 +279,6 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
       costo: '',
       monedaCosto: 'USD',
       iva: '21',
-      comisionML: '',
       costoEnvio: '0',
       precioFinal: '',
       tipoCambio: formData.tipoCambio // Mantener el tipo de cambio
