@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.usuario import Usuario
-from app.models.notificacion import Notificacion
+from app.models.notificacion import Notificacion, SeveridadNotificacion, EstadoNotificacion
 
 router = APIRouter()
 
@@ -38,6 +38,18 @@ class NotificacionResponse(BaseModel):
     leida: bool
     fecha_creacion: datetime
     fecha_lectura: Optional[datetime]
+    
+    # Nuevos campos
+    severidad: SeveridadNotificacion
+    estado: EstadoNotificacion
+    fecha_revision: Optional[datetime]
+    fecha_descarte: Optional[datetime]
+    fecha_resolucion: Optional[datetime]
+    notas_revision: Optional[str]
+    diferencia_markup: Optional[float] = None
+    diferencia_markup_porcentual: Optional[float] = None
+    es_critica: bool = False
+    requiere_atencion: bool = True
 
     class Config:
         from_attributes = True
@@ -78,11 +90,23 @@ async def listar_notificaciones(
     offset: int = 0,
     solo_no_leidas: bool = False,
     tipo: Optional[str] = None,
+    severidad: Optional[SeveridadNotificacion] = None,
+    estado: Optional[EstadoNotificacion] = None,
+    solo_criticas: bool = False,
+    solo_pendientes: bool = False,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """
     Lista las notificaciones del usuario actual ordenadas por fecha de creación (más recientes primero)
+    
+    Filtros disponibles:
+    - solo_no_leidas: Solo notificaciones no leídas
+    - tipo: Filtrar por tipo específico
+    - severidad: Filtrar por severidad (info, warning, critical, urgent)
+    - estado: Filtrar por estado (pendiente, revisada, descartada, en_gestion, resuelta)
+    - solo_criticas: Solo notificaciones críticas o urgentes
+    - solo_pendientes: Solo notificaciones pendientes o en gestión
     """
     query = db.query(Notificacion).filter(Notificacion.user_id == current_user.id)
 
@@ -91,8 +115,25 @@ async def listar_notificaciones(
 
     if tipo:
         query = query.filter(Notificacion.tipo == tipo)
+    
+    if severidad:
+        query = query.filter(Notificacion.severidad == severidad)
+    
+    if estado:
+        query = query.filter(Notificacion.estado == estado)
+    
+    if solo_criticas:
+        query = query.filter(Notificacion.severidad.in_([SeveridadNotificacion.CRITICAL, SeveridadNotificacion.URGENT]))
+    
+    if solo_pendientes:
+        query = query.filter(Notificacion.estado.in_([EstadoNotificacion.PENDIENTE, EstadoNotificacion.EN_GESTION]))
 
-    notificaciones = query.order_by(desc(Notificacion.fecha_creacion)).offset(offset).limit(limit).all()
+    notificaciones = query.order_by(
+        # Ordenar primero por severidad (urgent > critical > warning > info)
+        desc(Notificacion.severidad),
+        # Luego por fecha de creación
+        desc(Notificacion.fecha_creacion)
+    ).offset(offset).limit(limit).all()
 
     return notificaciones
 
@@ -337,3 +378,171 @@ async def limpiar_notificaciones_leidas(
     db.commit()
 
     return {"mensaje": f"{count} notificaciones leídas eliminadas"}
+
+
+# ========== NUEVOS ENDPOINTS DE GESTIÓN ==========
+
+class CambiarEstadoRequest(BaseModel):
+    estado: EstadoNotificacion
+    notas: Optional[str] = None
+
+@router.patch("/notificaciones/{notificacion_id}/estado")
+async def cambiar_estado_notificacion(
+    notificacion_id: int,
+    request: CambiarEstadoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Cambia el estado de una notificación (revisada, descartada, en_gestion, resuelta)
+    """
+    notificacion = db.query(Notificacion).filter(
+        Notificacion.id == notificacion_id,
+        Notificacion.user_id == current_user.id
+    ).first()
+
+    if not notificacion:
+        raise HTTPException(404, "Notificación no encontrada")
+
+    notificacion.estado = request.estado
+    
+    # Actualizar notas si se proveyeron
+    if request.notas:
+        notificacion.notas_revision = request.notas
+    
+    # Actualizar fechas según el estado
+    ahora = datetime.now()
+    if request.estado == EstadoNotificacion.REVISADA and not notificacion.fecha_revision:
+        notificacion.fecha_revision = ahora
+    elif request.estado == EstadoNotificacion.DESCARTADA:
+        notificacion.fecha_descarte = ahora
+    elif request.estado == EstadoNotificacion.RESUELTA:
+        notificacion.fecha_resolucion = ahora
+    
+    db.commit()
+    db.refresh(notificacion)
+
+    return {"mensaje": f"Notificación marcada como {request.estado.value}", "notificacion": notificacion}
+
+
+@router.patch("/notificaciones/{notificacion_id}/revisar")
+async def revisar_notificacion(
+    notificacion_id: int,
+    notas: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Marca una notificación como revisada (atajo para cambiar a estado REVISADA)
+    """
+    request = CambiarEstadoRequest(estado=EstadoNotificacion.REVISADA, notas=notas)
+    return await cambiar_estado_notificacion(notificacion_id, request, db, current_user)
+
+
+@router.patch("/notificaciones/{notificacion_id}/descartar")
+async def descartar_notificacion(
+    notificacion_id: int,
+    notas: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Descarta una notificación (no volver a mostrar como pendiente)
+    """
+    request = CambiarEstadoRequest(estado=EstadoNotificacion.DESCARTADA, notas=notas)
+    return await cambiar_estado_notificacion(notificacion_id, request, db, current_user)
+
+
+@router.patch("/notificaciones/{notificacion_id}/resolver")
+async def resolver_notificacion(
+    notificacion_id: int,
+    notas: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Marca una notificación como resuelta
+    """
+    request = CambiarEstadoRequest(estado=EstadoNotificacion.RESUELTA, notas=notas)
+    return await cambiar_estado_notificacion(notificacion_id, request, db, current_user)
+
+
+@router.post("/notificaciones/bulk-descartar")
+async def descartar_notificaciones_bulk(
+    notificaciones_ids: List[int],
+    notas: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Descarta múltiples notificaciones a la vez
+    """
+    ahora = datetime.now()
+    
+    count = db.query(Notificacion).filter(
+        Notificacion.id.in_(notificaciones_ids),
+        Notificacion.user_id == current_user.id
+    ).update({
+        "estado": EstadoNotificacion.DESCARTADA,
+        "fecha_descarte": ahora,
+        "notas_revision": notas
+    }, synchronize_session=False)
+    
+    db.commit()
+
+    return {"mensaje": f"{count} notificaciones descartadas"}
+
+
+@router.get("/notificaciones/dashboard")
+async def dashboard_notificaciones(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Dashboard con métricas clave de notificaciones
+    """
+    # Total
+    total = db.query(Notificacion).filter(Notificacion.user_id == current_user.id).count()
+    
+    # Por estado
+    estados = db.query(
+        Notificacion.estado,
+        func.count(Notificacion.id).label('count')
+    ).filter(
+        Notificacion.user_id == current_user.id
+    ).group_by(Notificacion.estado).all()
+    
+    por_estado = {estado.value: count for estado, count in estados}
+    
+    # Por severidad
+    severidades = db.query(
+        Notificacion.severidad,
+        func.count(Notificacion.id).label('count')
+    ).filter(
+        Notificacion.user_id == current_user.id,
+        Notificacion.estado.in_([EstadoNotificacion.PENDIENTE, EstadoNotificacion.EN_GESTION])
+    ).group_by(Notificacion.severidad).all()
+    
+    por_severidad = {sev.value: count for sev, count in severidades}
+    
+    # Críticas pendientes
+    criticas_pendientes = db.query(Notificacion).filter(
+        Notificacion.user_id == current_user.id,
+        Notificacion.severidad.in_([SeveridadNotificacion.CRITICAL, SeveridadNotificacion.URGENT]),
+        Notificacion.estado.in_([EstadoNotificacion.PENDIENTE, EstadoNotificacion.EN_GESTION])
+    ).count()
+    
+    # No leídas
+    no_leidas = db.query(Notificacion).filter(
+        Notificacion.user_id == current_user.id,
+        Notificacion.leida == False
+    ).count()
+    
+    return {
+        "total": total,
+        "por_estado": por_estado,
+        "por_severidad": por_severidad,
+        "criticas_pendientes": criticas_pendientes,
+        "no_leidas": no_leidas,
+        "requieren_atencion": por_estado.get('pendiente', 0) + por_estado.get('en_gestion', 0)
+    }
