@@ -11,7 +11,7 @@ from datetime import datetime
 from app.core.database import get_db
 from app.models.produccion_banlist import ProduccionBanlist, ProduccionPrearmado
 from app.models.producto import ProductoERP
-from app.api.deps import get_current_user, require_permissions
+from app.api.deps import get_current_user, get_current_admin
 
 router = APIRouter()
 
@@ -61,7 +61,7 @@ async def obtener_banlist(
 async def agregar_a_banlist(
     request: BanlistItemRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_permissions(["admin.gestionar_produccion_banlist"]))
+    current_user = Depends(get_current_admin)
 ):
     """Agrega un item al banlist de producción (solo admin)"""
     
@@ -79,7 +79,7 @@ async def agregar_a_banlist(
     banlist_item = ProduccionBanlist(
         item_id=request.item_id,
         motivo=request.motivo,
-        usuario_id=current_user["id"]
+        usuario_id=current_user.id
     )
     
     db.add(banlist_item)
@@ -93,7 +93,7 @@ async def agregar_a_banlist(
 async def quitar_de_banlist(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_permissions(["admin.gestionar_produccion_banlist"]))
+    current_user = Depends(get_current_admin)
 ):
     """Quita un item del banlist de producción (solo admin)"""
     
@@ -125,7 +125,7 @@ async def obtener_prearmados(
 async def marcar_prearmado(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_permissions(["produccion.marcar_prearmado"]))
+    current_user = Depends(get_current_user)
 ):
     """Marca un item como pre-armado"""
     
@@ -142,7 +142,7 @@ async def marcar_prearmado(
     # Crear registro
     prearmado_item = ProduccionPrearmado(
         item_id=item_id,
-        usuario_id=current_user["id"]
+        usuario_id=current_user.id
     )
     
     db.add(prearmado_item)
@@ -156,7 +156,7 @@ async def marcar_prearmado(
 async def desmarcar_prearmado(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_permissions(["produccion.marcar_prearmado"]))
+    current_user = Depends(get_current_user)
 ):
     """Desmarca un item como pre-armado"""
     
@@ -173,7 +173,7 @@ async def desmarcar_prearmado(
 @router.post("/produccion-prearmado/limpiar-desaparecidos")
 async def limpiar_prearmados_desaparecidos(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_permissions(["produccion.marcar_prearmado"]))
+    current_user = Depends(get_current_user)
 ):
     """
     Limpia marcas de pre-armado de productos que ya no existen en el ERP.
