@@ -3025,13 +3025,13 @@ export default function Productos() {
         </div>
       </div>
 
-      <div className="table-container">
+      <div className="table-container-tesla">
         {loading ? (
           <div className="loading">Cargando...</div>
         ) : (
           <>
-            <table className="table">
-              <thead className="table-head">
+            <table className="table-tesla striped">
+              <thead className="table-tesla-head">
                 <tr>
                   <th style={{ width: '40px', textAlign: 'center' }}>
                     <input
@@ -3111,7 +3111,7 @@ export default function Productos() {
                   <th>Acciones</th>
                 </tr>
               </thead>
-              <tbody className="table-body">
+              <tbody className="table-tesla-body">
                 {productosOrdenados.map((p, rowIndex) => {
                   const isRowActive = modoNavegacion && celdaActiva?.rowIndex === rowIndex;
                   const colorClass = p.color_marcado ? `row-color-${p.color_marcado}` : '';
@@ -3779,7 +3779,7 @@ export default function Productos() {
                           <th>Valores Nuevos</th>
                         </tr>
                       </thead>
-                      <tbody className="table-body">
+                      <tbody className="table-tesla-body">
                         {auditoriaData.map(item => {
                           const formatearTipoAccion = (tipo) => {
                             const tipos = {

@@ -1,0 +1,486 @@
+/**
+ * TABLA TESLA - Diseño Minimalista Premium
+ * 
+ * Mejoras sobre tabla actual:
+ * - Bordes sutiles multicapa
+ * - Hover effects con elevación sutil
+ * - Headers sticky con glassmorphism
+ * - Focus rings suaves en edición
+ * - Zebra stripes opcionales
+ * - Transiciones cubic-bezier
+ */
+
+/* ============================================
+   CONTENEDOR DE TABLA
+   ============================================ */
+
+.table-container-tesla {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: visible;
+  min-height: 600px;
+  
+  /* Visual Tesla */
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  
+  /* Sombra multicapa sutil */
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 0 0 1px rgba(0, 0, 0, 0.02);
+  
+  /* Transición suave */
+  transition: box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.table-container-tesla:hover {
+  box-shadow: 
+    0 2px 4px rgba(0, 0, 0, 0.06),
+    0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+/* Scrollbar personalizado */
+.table-container-tesla::-webkit-scrollbar {
+  height: 8px;
+}
+
+.table-container-tesla::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+}
+
+.table-container-tesla::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: var(--radius-full);
+  transition: background 0.2s ease;
+}
+
+.table-container-tesla::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* ============================================
+   TABLA BASE
+   ============================================ */
+
+.table-tesla {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums; /* Números alineados */
+}
+
+/* ============================================
+   HEADER - Sticky con Glassmorphism
+   ============================================ */
+
+.table-tesla-head {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  
+  /* Glassmorphism sutil */
+  background: var(--bg-secondary);
+  backdrop-filter: blur(10px);
+  
+  /* Sombra inferior para separar del body */
+  box-shadow: 0 1px 0 var(--border-primary);
+}
+
+.table-tesla-head th {
+  padding: var(--spacing-md) var(--spacing-md);
+  text-align: left;
+  
+  /* Tipografía mejorada */
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  
+  /* Bordes internos sutiles */
+  border-bottom: 2px solid var(--border-secondary);
+  
+  /* Transición suave */
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Prevenir selección de texto */
+  user-select: none;
+}
+
+/* Hover en headers (para columnas ordenables) */
+.table-tesla-head th.sortable {
+  cursor: pointer;
+}
+
+.table-tesla-head th.sortable:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.table-tesla-head th.sortable:active {
+  background: var(--bg-active);
+}
+
+/* Indicador de columna ordenada */
+.table-tesla-head th.sorted {
+  color: var(--brand-primary);
+  background: var(--brand-primary-light);
+}
+
+/* ============================================
+   BODY - Filas con hover effect
+   ============================================ */
+
+.table-tesla-body tr {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.table-tesla-body tr:hover {
+  background: var(--bg-hover);
+  
+  /* Elevación sutil en hover */
+  box-shadow: 
+    inset 0 1px 0 rgba(0, 0, 0, 0.02),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.02);
+}
+
+.table-tesla-body tr:active {
+  background: var(--bg-active);
+}
+
+/* Zebra stripes opcionales (sutil) */
+.table-tesla.striped .table-tesla-body tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.01);
+}
+
+.table-tesla.striped .table-tesla-body tr:nth-child(even):hover {
+  background: var(--bg-hover);
+}
+
+/* Fila seleccionada */
+.table-tesla-body tr.selected {
+  background: var(--brand-primary-light);
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+
+.table-tesla-body tr.selected:hover {
+  background: var(--brand-primary-light);
+  opacity: 0.95;
+}
+
+/* ============================================
+   CELDAS
+   ============================================ */
+
+.table-tesla-body td {
+  padding: var(--spacing-md);
+  
+  /* Bordes sutiles */
+  border-bottom: 1px solid var(--border-primary);
+  
+  /* Tipografía */
+  font-size: var(--font-sm);
+  font-weight: var(--font-normal);
+  color: var(--text-primary);
+  
+  /* Alineación vertical */
+  vertical-align: middle;
+  
+  /* Transición para backgrounds */
+  transition: background 0.2s ease;
+}
+
+/* Última fila sin borde inferior */
+.table-tesla-body tr:last-child td {
+  border-bottom: none;
+}
+
+/* Alineación de texto */
+.table-tesla-body td.align-right {
+  text-align: right;
+}
+
+.table-tesla-body td.align-center {
+  text-align: center;
+}
+
+/* Números con formato tabular */
+.table-tesla-body td.numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ============================================
+   EDICIÓN INLINE - Focus rings mejorados
+   ============================================ */
+
+.table-tesla-body .editable-cell {
+  cursor: pointer;
+  position: relative;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-base);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.table-tesla-body .editable-cell:hover {
+  background: var(--bg-secondary);
+  box-shadow: 0 0 0 1px var(--border-secondary);
+}
+
+/* Input de edición inline */
+.table-tesla-body .inline-edit-input {
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  
+  /* Visual */
+  background: var(--bg-primary);
+  border: 2px solid var(--brand-primary);
+  border-radius: var(--radius-base);
+  
+  /* Tipografía */
+  font-size: var(--font-sm);
+  font-family: inherit;
+  color: var(--text-primary);
+  
+  /* Focus ring mejorado */
+  box-shadow: 0 0 0 3px rgba(92, 140, 255, 0.15);
+  
+  /* Transición */
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.table-tesla-body .inline-edit-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(92, 140, 255, 0.2);
+}
+
+/* Botones de acción inline */
+.table-tesla-body .inline-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+}
+
+.table-tesla-body .inline-actions button {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  border: none;
+  border-radius: var(--radius-base);
+  cursor: pointer;
+  font-weight: var(--font-medium);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.table-tesla-body .inline-actions button.save {
+  background: var(--gradient-success);
+  color: white;
+}
+
+.table-tesla-body .inline-actions button.save:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.table-tesla-body .inline-actions button.cancel {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.table-tesla-body .inline-actions button.cancel:hover {
+  background: var(--bg-tertiary);
+}
+
+/* ============================================
+   BADGES Y ESTADOS
+   ============================================ */
+
+.table-tesla-body .badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  line-height: 1;
+}
+
+.table-tesla-body .badge-success {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.table-tesla-body .badge-warning {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+
+.table-tesla-body .badge-error {
+  background: var(--error-light);
+  color: var(--error);
+}
+
+.table-tesla-body .badge-info {
+  background: var(--info-light);
+  color: var(--info);
+}
+
+.table-tesla-body .badge-neutral {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+/* ============================================
+   BOTONES DE ACCIÓN
+   ============================================ */
+
+.table-tesla-body .action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  
+  /* Visual */
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-base);
+  
+  /* Cursor */
+  cursor: pointer;
+  
+  /* Transición */
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.table-tesla-body .action-button:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-secondary);
+  transform: translateY(-1px);
+}
+
+.table-tesla-body .action-button:active {
+  transform: translateY(0);
+}
+
+.table-tesla-body .action-button.primary {
+  color: var(--brand-primary);
+}
+
+.table-tesla-body .action-button.danger {
+  color: var(--error);
+}
+
+.table-tesla-body .action-button.success {
+  color: var(--success);
+}
+
+/* ============================================
+   CHECKBOX DE SELECCIÓN
+   ============================================ */
+
+.table-tesla-body .checkbox-cell {
+  width: 40px;
+  padding: var(--spacing-sm);
+}
+
+.table-tesla-body input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--brand-primary);
+}
+
+/* ============================================
+   LOADING STATE
+   ============================================ */
+
+.table-tesla-body tr.loading {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.table-tesla-body tr.loading td {
+  background: linear-gradient(
+    90deg,
+    var(--bg-primary) 0%,
+    var(--bg-secondary) 50%,
+    var(--bg-primary) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ============================================
+   EMPTY STATE
+   ============================================ */
+
+.table-empty {
+  padding: var(--spacing-2xl);
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+.table-empty-icon {
+  font-size: 3rem;
+  margin-bottom: var(--spacing-md);
+  opacity: 0.3;
+}
+
+.table-empty-message {
+  font-size: var(--font-base);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+}
+
+/* ============================================
+   DARK MODE - Glassmorphism mejorado
+   ============================================ */
+
+:root[data-theme="dark"] .table-tesla-head {
+  background: rgba(10, 10, 10, 0.8);
+  backdrop-filter: blur(12px);
+  box-shadow: 
+    0 1px 0 rgba(255, 255, 255, 0.05),
+    0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="dark"] .table-container-tesla {
+  background: rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+:root[data-theme="dark"] .table-tesla-body tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+}
+
+/* ============================================
+   RESPONSIVE - Mobile
+   ============================================ */
+
+@media (max-width: 768px) {
+  .table-tesla-head th {
+    padding: var(--spacing-sm);
+    font-size: 0.625rem; /* 10px */
+  }
+  
+  .table-tesla-body td {
+    padding: var(--spacing-sm);
+    font-size: 0.75rem; /* 12px */
+  }
+}
