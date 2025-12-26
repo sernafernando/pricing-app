@@ -378,14 +378,22 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
             </div>
 
             <div className="form-group">
-              <label>Comisión ML (%)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.comisionML}
-                onChange={(e) => handleChange('comisionML', e.target.value)}
-                placeholder="0.00"
-              />
+              <label>Grupo Comisión</label>
+              <select
+                value={grupoSeleccionado}
+                onChange={(e) => setGrupoSeleccionado(parseInt(e.target.value))}
+                title="Grupo de comisión para cálculos"
+              >
+                {gruposComision.length === 0 ? (
+                  <option value="1">Cargando grupos...</option>
+                ) : (
+                  gruposComision.map(grupo => (
+                    <option key={grupo.grupo_id} value={grupo.grupo_id}>
+                      Grupo {grupo.grupo_id} - Base {grupo.lista_4.toFixed(2)}%
+                    </option>
+                  ))
+                )}
+              </select>
             </div>
 
             <div className="form-group">
@@ -420,25 +428,6 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
                 placeholder="0.00"
               />
             </div>
-
-            <div className="form-group">
-              <label>Grupo Comisión (para cuotas)</label>
-              <select
-                value={grupoSeleccionado}
-                onChange={(e) => setGrupoSeleccionado(parseInt(e.target.value))}
-                title="Selecciona el grupo de comisión para calcular precios de cuotas"
-              >
-                {gruposComision.length === 0 ? (
-                  <option value="1">Grupo 1 (cargando...)</option>
-                ) : (
-                  gruposComision.map(grupo => (
-                    <option key={grupo.grupo_id} value={grupo.grupo_id}>
-                      Grupo {grupo.grupo_id} - Base {grupo.lista_4.toFixed(2)}%
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
           </div>
 
           <div className="resultados-section">
@@ -468,20 +457,43 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
           {/* Precios de Cuotas */}
           {preciosCuotas.length > 0 && (
             <div className="cuotas-section">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <h3>Precios de Cuotas (Markup Convergente)</h3>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    Adicional:
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={adicionalMarkup}
-                    onChange={(e) => setAdicionalMarkup(parseFloat(e.target.value) || 4.0)}
-                    style={{ width: '60px', padding: '4px 8px', fontSize: '13px' }}
-                  />
-                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>%</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '12px' }}>
+                <h3 style={{ margin: 0 }}>Precios de Cuotas (Markup Convergente)</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      Grupo:
+                    </label>
+                    <select
+                      value={grupoSeleccionado}
+                      onChange={(e) => setGrupoSeleccionado(parseInt(e.target.value))}
+                      style={{ padding: '4px 8px', fontSize: '13px', minWidth: '140px' }}
+                      title="Grupo de comisión para calcular cuotas"
+                    >
+                      {gruposComision.length === 0 ? (
+                        <option value="1">Cargando...</option>
+                      ) : (
+                        gruposComision.map(grupo => (
+                          <option key={grupo.grupo_id} value={grupo.grupo_id}>
+                            G{grupo.grupo_id} - {grupo.lista_4.toFixed(2)}%
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      Adicional:
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={adicionalMarkup}
+                      onChange={(e) => setAdicionalMarkup(parseFloat(e.target.value) || 4.0)}
+                      style={{ width: '60px', padding: '4px 8px', fontSize: '13px' }}
+                    />
+                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>%</span>
+                  </div>
                 </div>
               </div>
               
