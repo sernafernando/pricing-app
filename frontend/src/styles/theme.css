@@ -1,172 +1,181 @@
 /* ===== TEMA CLARO ===== */
 :root[data-theme="light"] {
-  /* Backgrounds */
+  /* Backgrounds - Grises claros minimalistas */
   --bg-primary: #ffffff;
-  --bg-secondary: #f9fafb;
-  --bg-tertiary: #f3f4f6;
-  --bg-hover: #f0f0f0;
-  --bg-active: #e5e7eb;
+  --bg-secondary: #f7f7f7;
+  --bg-tertiary: #eeeeee;
+  --bg-hover: #e8e8e8;
+  --bg-active: #dddddd;
 
   /* Text colors */
-  --text-primary: #111827;
-  --text-secondary: #6b7280;
-  --text-tertiary: #9ca3af;
+  --text-primary: #171a20;
+  --text-secondary: #5c5e62;
+  --text-tertiary: #939598;
   --text-inverse: #ffffff;
 
-  /* Borders */
-  --border-primary: #e5e7eb;
-  --border-secondary: #d1d5db;
-  --border-focus: #3b82f6;
-  --border-color: #e5e7eb;
+  /* Borders - Sutiles */
+  --border-primary: #e0e0e0;
+  --border-secondary: #d0d0d0;
+  --border-focus: #3e6ae1;
+  --border-color: #e0e0e0;
 
-  /* Brand colors */
-  --brand-primary: #3b82f6;
-  --brand-primary-hover: #2563eb;
-  --brand-primary-light: #dbeafe;
-  --primary: #3b82f6;
-  --primary-light: #eff6ff;
-  --danger: #ef4444;
+  /* Brand colors - Azul eléctrico Tesla */
+  --brand-primary: #3e6ae1;
+  --brand-primary-hover: #1e4fc2;
+  --brand-primary-light: #e8eef9;
+  --primary: #3e6ae1;
+  --primary-light: #f0f4fc;
+  --danger: #e31937;
   --purple: #8b5cf6;
 
   /* Accent */
-  --accent-bg: #dbeafe;
-  --accent-text: #1e40af;
+  --accent-bg: #e8eef9;
+  --accent-text: #1e4fc2;
 
-  /* Success */
-  --success: #10b981;
-  --success-hover: #059669;
-  --success-light: #d1fae5;
-  --success-text: #065f46;
-  --success-bg: #dcfce7;
+  /* Success - Verde Tesla */
+  --success: #00cc66;
+  --success-hover: #00b359;
+  --success-light: #e5f9f0;
+  --success-text: #006633;
+  --success-bg: #e5f9f0;
 
-  /* Warning */
-  --warning: #f59e0b;
-  --warning-hover: #d97706;
-  --warning-light: #fef3c7;
-  --warning-bg: #fef3c7;
-  --warning-text: #92400e;
+  /* Warning - Amarillo/Naranja */
+  --warning: #ff9800;
+  --warning-hover: #f57c00;
+  --warning-light: #fff3e0;
+  --warning-bg: #fff3e0;
+  --warning-text: #e65100;
 
-  /* Error */
-  --error: #ef4444;
-  --error-hover: #dc2626;
-  --error-light: #fee2e2;
-  --error-text: #991b1b;
-  --error-bg: #fee2e2;
+  /* Error - Rojo Tesla */
+  --error: #e31937;
+  --error-hover: #c41230;
+  --error-light: #fce8ec;
+  --error-text: #8b0000;
+  --error-bg: #fce8ec;
 
   /* Info */
-  --info: #8b5cf6;
-  --info-hover: #7c3aed;
-  --info-light: #ede9fe;
-  --info-text: #5b21b6;
-  --info-bg: #dbeafe;
+  --info: #3e6ae1;
+  --info-hover: #1e4fc2;
+  --info-light: #e8eef9;
+  --info-text: #1e4fc2;
+  --info-bg: #e8eef9;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  /* Shadows - Sutiles */
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 2px 8px 0 rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 16px 0 rgba(0, 0, 0, 0.14);
+  --shadow-xl: 0 12px 24px 0 rgba(0, 0, 0, 0.16);
 
-  /* Gradients */
-  --gradient-primary: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  --gradient-warning: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-  --gradient-error: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  --gradient-info: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
-  --gradient-navbar: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  /* Gradients - Minimalistas */
+  --gradient-primary: linear-gradient(135deg, #3e6ae1 0%, #1e4fc2 100%);
+  --gradient-success: linear-gradient(135deg, #00cc66 0%, #00b359 100%);
+  --gradient-warning: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+  --gradient-error: linear-gradient(135deg, #e31937 0%, #c41230 100%);
+  --gradient-info: linear-gradient(135deg, #3e6ae1 0%, #1e4fc2 100%);
+  --gradient-navbar: linear-gradient(135deg, #171a20 0%, #0a0c10 100%);
 }
 
-/* ===== TEMA OSCURO ===== */
+/* ===== TEMA OSCURO - ESTILO TESLA ===== */
 :root[data-theme="dark"] {
-  /* Backgrounds */
-  --bg-primary: #1e293b;
-  --bg-secondary: #0f172a;
-  --bg-tertiary: #334155;
-  --bg-hover: #475569;
-  --bg-active: #64748b;
+  /* Backgrounds - Negros profundos Tesla */
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #141414;
+  --bg-hover: #1a1a1a;
+  --bg-active: #222222;
 
-  /* Text colors */
-  --text-primary: #f1f5f9;
-  --text-secondary: #cbd5e1;
-  --text-tertiary: #94a3b8;
+  /* Text colors - Grises y blancos puros */
+  --text-primary: #f4f4f4;
+  --text-secondary: #b8b8b8;
+  --text-tertiary: #7c7c7c;
   --text-inverse: #ffffff;
 
-  /* Borders */
-  --border-primary: #334155;
-  --border-secondary: #475569;
-  --border-focus: #60a5fa;
-  --border-color: #334155;
+  /* Borders - Sutiles en negro */
+  --border-primary: #1f1f1f;
+  --border-secondary: #2a2a2a;
+  --border-focus: #3e6ae1;
+  --border-color: #1f1f1f;
 
-  /* Brand colors - más brillantes para dark mode */
-  --brand-primary: #60a5fa;
-  --brand-primary-hover: #3b82f6;
-  --brand-primary-light: #1e3a8a;
-  --primary: #60a5fa;
-  --primary-light: #1e3a5a;
-  --danger: #f87171;
+  /* Brand colors - Azul eléctrico brillante */
+  --brand-primary: #5c8cff;
+  --brand-primary-hover: #3e6ae1;
+  --brand-primary-light: #1a2847;
+  --primary: #5c8cff;
+  --primary-light: #1a2847;
+  --danger: #ff3b5c;
   --purple: #a78bfa;
 
   /* Accent */
-  --accent-bg: #1e3a8a;
-  --accent-text: #93c5fd;
+  --accent-bg: #1a2847;
+  --accent-text: #5c8cff;
 
-  /* Success - ajustado para dark mode */
-  --success: #34d399;
-  --success-hover: #10b981;
-  --success-light: #064e3b;
-  --success-text: #6ee7b7;
-  --success-bg: #064e3b;
+  /* Success - Verde eléctrico */
+  --success: #00ff88;
+  --success-hover: #00cc66;
+  --success-light: #0d2818;
+  --success-text: #00ff88;
+  --success-bg: #0d2818;
 
-  /* Warning - ajustado para dark mode */
-  --warning: #fbbf24;
-  --warning-hover: #f59e0b;
-  --warning-light: #78350f;
-  --warning-bg: #78350f;
-  --warning-text: #fcd34d;
+  /* Warning - Amarillo eléctrico */
+  --warning: #ffb800;
+  --warning-hover: #ff9800;
+  --warning-light: #2a1f00;
+  --warning-bg: #2a1f00;
+  --warning-text: #ffb800;
 
-  /* Error - ajustado para dark mode */
-  --error: #f87171;
-  --error-hover: #ef4444;
-  --error-light: #7f1d1d;
-  --error-text: #fca5a5;
-  --error-bg: #7f1d1d;
+  /* Error - Rojo eléctrico */
+  --error: #ff3b5c;
+  --error-hover: #e31937;
+  --error-light: #2a0a0f;
+  --error-text: #ff3b5c;
+  --error-bg: #2a0a0f;
 
-  /* Info - ajustado para dark mode */
-  --info: #a78bfa;
-  --info-hover: #8b5cf6;
-  --info-light: #4c1d95;
-  --info-text: #c4b5fd;
-  --info-bg: #1e3a5a;
+  /* Info */
+  --info: #5c8cff;
+  --info-hover: #3e6ae1;
+  --info-light: #1a2847;
+  --info-text: #5c8cff;
+  --info-bg: #1a2847;
 
-  /* Shadows - más sutiles en dark mode */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+  /* Shadows - Profundas en negro */
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 2px 8px 0 rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 8px 16px 0 rgba(0, 0, 0, 0.8);
+  --shadow-xl: 0 12px 24px 0 rgba(0, 0, 0, 0.9);
 
-  /* Gradients - ajustados para dark mode */
-  --gradient-primary: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
-  --gradient-success: linear-gradient(135deg, #34d399 0%, #10b981 100%);
-  --gradient-warning: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
-  --gradient-error: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
-  --gradient-info: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
-  --gradient-navbar: linear-gradient(135deg, #0f172a 0%, #020617 100%);
+  /* Gradients - Eléctricos sobre negro */
+  --gradient-primary: linear-gradient(135deg, #5c8cff 0%, #3e6ae1 100%);
+  --gradient-success: linear-gradient(135deg, #00ff88 0%, #00cc66 100%);
+  --gradient-warning: linear-gradient(135deg, #ffb800 0%, #ff9800 100%);
+  --gradient-error: linear-gradient(135deg, #ff3b5c 0%, #e31937 100%);
+  --gradient-info: linear-gradient(135deg, #5c8cff 0%, #3e6ae1 100%);
+  --gradient-navbar: linear-gradient(135deg, #000000 0%, #0a0a0a 100%);
 }
 
-/* Reset global con variables de tema */
+/* Reset global con transiciones suaves */
 * {
-  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 body {
   background-color: var(--bg-secondary);
   color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Forzar estilos en elementos de formulario */
+/* Formularios con estilo Tesla */
 select,
 option {
   background: var(--bg-primary) !important;
   color: var(--text-primary) !important;
+  border: 1px solid var(--border-secondary) !important;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 14px;
 }
 
 input[type="text"],
@@ -177,7 +186,10 @@ input[type="password"],
 textarea {
   background: var(--bg-primary) !important;
   color: var(--text-primary) !important;
-  border-color: var(--border-secondary) !important;
+  border: 1px solid var(--border-secondary) !important;
+  border-radius: 4px;
+  padding: 10px 14px;
+  font-size: 14px;
 }
 
 input[type="text"]:focus,
@@ -187,4 +199,41 @@ input[type="email"]:focus,
 input[type="password"]:focus,
 textarea:focus {
   border-color: var(--brand-primary) !important;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(92, 140, 255, 0.1);
+}
+
+/* Botones estilo Tesla */
+button {
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  border-radius: 4px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+/* Scrollbars minimalistas */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
 }
