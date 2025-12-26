@@ -1,369 +1,313 @@
-# 🎨 PREVIEW DEL SISTEMA DE DISEÑO TESLA
+# 🎨 PREVIEW - Sistema de Diseño Tesla Completo
 
-## 📊 Comparativa: Antes vs Después
+## ✅ Componentes Implementados
 
-### 🔴 ANTES - Sistema Actual (Inconsistente)
+### 1. **StatCards** ✅
+- Diseño Tesla con glassmorphism
+- Hover con elevación
+- Animaciones suaves
+- **Ubicación:** Productos, Dashboards
 
-**Problemas identificados:**
+### 2. **Tabla** ✅
+- Bordes sutiles multicapa
+- Headers con glassmorphism
+- Zebra stripes
+- Hover effects
+- **Ubicación:** Productos, Tienda
 
-1. **Espaciado caótico** - 20+ valores arbitrarios:
-```css
-/* Productos.css - Líneas diferentes */
-padding: 20px;      /* ¿Por qué 20? */
-margin-bottom: 24px; /* ¿Por qué 24? */
-gap: 16px;          /* ¿Por qué 16? */
-padding: 8px 12px;  /* ¿Por qué 8 y 12? */
+### 3. **Botones** ✅ (RECIÉN AGREGADO)
+- 6 variantes (primary, secondary, success, danger, ghost, outline)
+- 3 tamaños (sm, base, lg)
+- Estados (hover, active, disabled, loading)
+- Icon buttons
+- Close button especial
+- **Ubicación:** Modales, Navbar, Tablas, Filtros
+
+---
+
+## 🎯 Sistema Completo Disponible
+
+### Archivos CSS Globales:
+```
+frontend/src/styles/
+├── design-tokens.css    ← Espaciado, tipografía, transitions
+├── theme.css            ← Colores dark/light mode
+├── buttons-tesla.css    ← Botones estandarizados ✨ NUEVO
+├── table-tesla.css      ← Tablas mejoradas
+└── components.css       ← Cards, modals base
 ```
 
-2. **Tipografía sin escala**:
-```css
-font-size: 14px;  /* En un lugar */
-font-size: 13px;  /* En otro */
-font-size: 32px;  /* Stat cards */
-font-size: 11px;  /* Badges */
+### Componentes React:
 ```
-
-3. **Duplicación masiva**:
-- `Productos.css` = 1,986 líneas
-- `Tienda.css` = 1,986 líneas (DUPLICADO IDÉNTICO!)
-- Total: **3,972 líneas** → Desperdicio de **~60KB**
-
-4. **Componentes no reutilizables**:
-```css
-/* Cada modal tiene su propio estilo */
-.pricing-modal { ... }
-.export-modal { ... }
-.calcular-web-modal { ... }
-
-/* Cada botón reinventa la rueda */
-.btn-clear { ... }
-.btn-apply { ... }
-.stat-card.clickable { ... }
+frontend/src/components/
+└── StatCard.jsx         ← Stat cards estandarizados
 ```
 
 ---
 
-### ✅ DESPUÉS - Sistema de Diseño Estandarizado
+## 🔘 Preview de Botones
 
-**Sistema base 8px + Design Tokens:**
+### Variantes:
+```html
+<!-- Primary -->
+<button class="btn-tesla primary">Guardar</button>
+<!-- Azul eléctrico con gradiente -->
 
-#### 1. **Espaciado consistente** (escala de 8px)
-```css
-/* design-tokens.css */
---space-1: 0.25rem;  /* 4px  - Padding interno mínimo */
---space-2: 0.5rem;   /* 8px  - Gap pequeño */
---space-4: 1rem;     /* 16px - Padding estándar */
---space-6: 1.5rem;   /* 24px - Margin entre secciones */
---space-8: 2rem;     /* 32px - Espaciado grande */
+<!-- Secondary -->
+<button class="btn-tesla secondary">Cancelar</button>
+<!-- Gris sutil con borde -->
 
-/* USO REAL */
-.stat-card {
-  padding: var(--space-5);      /* 20px → Ahora es 24px (space-6) */
-  margin-bottom: var(--space-6); /* 24px → Consistente */
-  gap: var(--space-4);           /* 16px → Consistente */
-}
+<!-- Success -->
+<button class="btn-tesla success">✓ Confirmar</button>
+<!-- Verde con gradiente -->
+
+<!-- Danger -->
+<button class="btn-tesla danger">🗑️ Eliminar</button>
+<!-- Rojo con gradiente -->
+
+<!-- Ghost -->
+<button class="btn-tesla ghost">Más opciones</button>
+<!-- Transparente -->
+
+<!-- Outline -->
+<button class="btn-tesla outline">Exportar</button>
+<!-- Solo borde -->
 ```
 
-**Beneficio:** En lugar de 20+ valores arbitrarios, tenemos **8 tokens** que cubren el 95% de casos.
-
----
-
-#### 2. **Tipografía escalable**
-```css
-/* design-tokens.css */
---font-xs: 0.75rem;    /* 12px - Labels pequeños */
---font-sm: 0.875rem;   /* 14px - Texto estándar */
---font-base: 1rem;     /* 16px - Texto normal */
---font-lg: 1.125rem;   /* 18px - Subtítulos */
---font-xl: 1.25rem;    /* 20px - Títulos */
---font-2xl: 1.5rem;    /* 24px - Headings */
---font-3xl: 1.875rem;  /* 30px - Stats */
-
-/* USO REAL */
-.stat-value {
-  font-size: var(--font-3xl);  /* 32px → Ahora 30px (más armónico) */
-  font-weight: var(--font-bold);
-}
-
-.stat-label {
-  font-size: var(--font-sm);   /* 14px → Consistente */
-  font-weight: var(--font-medium);
-}
+### Tamaños:
+```html
+<button class="btn-tesla primary sm">Pequeño (32px)</button>
+<button class="btn-tesla primary">Normal (40px)</button>
+<button class="btn-tesla primary lg">Grande (48px)</button>
 ```
 
-**Beneficio:** Escala visual armónica basada en ratios matemáticos (no al ojo).
-
----
-
-#### 3. **Componentes reutilizables**
-
-**ANTES (40+ líneas por botón):**
-```css
-/* Productos.css */
-.btn-clear {
-  padding: 6px 12px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-secondary);
-  border-radius: 4px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.btn-clear:hover { ... }
-
-/* PricingModal.module.css */
-.botonCalcular {
-  padding: 10px 20px;
-  background: var(--gradient-primary);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  /* ... más estilos ... */
-}
+### Estados:
+```html
+<button class="btn-tesla primary" disabled>Deshabilitado</button>
+<button class="btn-tesla primary loading">Cargando...</button>
 ```
 
-**DESPUÉS (1 línea de HTML):**
-```jsx
-{/* Usa clase global del design system */}
-<button className="btn btn-secondary btn-sm">Limpiar</button>
-<button className="btn btn-primary">Calcular</button>
-<button className="btn btn-success btn-lg">Guardar</button>
-```
-
-```css
-/* components.css - 1 componente, infinitos usos */
-.btn {
-  /* Base común (height, font, transitions) */
-}
-.btn-primary { /* Variante azul */ }
-.btn-secondary { /* Variante gris */ }
-.btn-sm { /* Tamaño pequeño */ }
-.btn-lg { /* Tamaño grande */ }
-```
-
-**Beneficio:** 
-- **Antes:** 10 archivos × 40 líneas = 400 líneas CSS
-- **Después:** 60 líneas base + variantes = **80% menos código**
-
----
-
-#### 4. **Modales estandarizados**
-
-**ANTES (cada modal tiene su CSS):**
-```css
-/* PricingModal.module.css - 250 líneas */
-.modal { ... }
-.modalOverlay { ... }
-.modalHeader { ... }
-.modalBody { ... }
-.modalFooter { ... }
-/* × 5 modales diferentes = 1,250 líneas */
-```
-
-**DESPUÉS (1 componente reutilizable):**
-```jsx
-{/* Todos los modales usan la misma estructura */}
-<div className="modal-overlay">
-  <div className="modal">
-    <div className="modal-header">
-      <h2 className="modal-title">Título</h2>
-      <button className="modal-close">×</button>
-    </div>
-    <div className="modal-body">
-      {/* Contenido aquí */}
-    </div>
-    <div className="modal-footer">
-      <button className="btn btn-secondary">Cancelar</button>
-      <button className="btn btn-primary">Guardar</button>
-    </div>
-  </div>
+### Button Groups:
+```html
+<div class="btn-group-tesla right">
+  <button class="btn-tesla secondary">Cancelar</button>
+  <button class="btn-tesla primary">Guardar</button>
 </div>
 ```
 
-**Beneficio:** 1,250 líneas → **150 líneas** (88% menos código)
-
 ---
 
-#### 5. **Tablas consistentes**
+## 📊 Tabla Tesla Preview
 
-**ANTES (cada página tiene su tabla custom):**
-```css
-/* Productos.css */
-.productos-table { ... }
-.productos-table thead { ... }
-.productos-table th { ... }
-/* 200+ líneas */
-
-/* Pedidos.css */
-.pedidos-table { ... }
-/* Otro 200+ líneas duplicadas */
-```
-
-**DESPUÉS (1 tabla para todo):**
-```jsx
-<div className="table-container">
-  <table className="table table-striped">
-    <thead>
+```html
+<div class="table-container-tesla">
+  <table class="table-tesla striped">
+    <thead class="table-tesla-head">
       <tr>
-        <th>Producto</th>
-        <th>Precio</th>
+        <th class="sortable">Código</th>
+        <th class="sortable sorted">Precio</th>
+        <th>Stock</th>
       </tr>
     </thead>
-    <tbody>
-      {/* rows */}
+    <tbody class="table-tesla-body">
+      <tr>
+        <td>001</td>
+        <td class="numeric">$1,234.56</td>
+        <td><span class="badge badge-success">En stock</span></td>
+      </tr>
+      <tr class="selected">
+        <td>002</td>
+        <td class="numeric">$5,678.90</td>
+        <td><span class="badge badge-warning">Bajo</span></td>
+      </tr>
     </tbody>
   </table>
 </div>
 ```
 
-**Beneficio:** Todas las tablas se ven idénticas (consistencia visual)
+---
+
+## 🎴 StatCard Preview
+
+```jsx
+import StatCard from '../components/StatCard';
+
+<StatCard
+  label="📦 Total Productos"
+  value="3,710"
+  onClick={handleClick}
+/>
+
+<StatCard
+  label="📊 Stock & Precio"
+  subItems={[
+    { label: 'Con Stock:', value: '1,046', color: 'green', onClick: handleFilter },
+    { label: 'Sin Stock:', value: '135', color: 'red', onClick: handleFilter }
+  ]}
+/>
+```
 
 ---
 
-## 📈 Métricas del Impacto
+## 🎨 Design Tokens Disponibles
 
-| Métrica | ANTES | DESPUÉS | Mejora |
-|---------|-------|---------|--------|
-| **Líneas CSS totales** | ~8,000 | ~3,500 | **-56%** |
-| **Archivos CSS** | 25+ | 10 | **-60%** |
-| **Tamaño bundle CSS** | ~120KB | ~50KB | **-58%** |
-| **Valores de espaciado** | 25+ arbitrarios | 8 tokens | **-68%** |
-| **Código duplicado** | ~60KB (Productos + Tienda) | 0KB | **-100%** |
-| **Tiempo de carga** | ~200ms (parse CSS) | ~80ms | **-60%** |
+### Espaciado (escala 8px):
+```css
+var(--space-1)  /* 4px */
+var(--space-2)  /* 8px */
+var(--space-4)  /* 16px */
+var(--space-6)  /* 24px */
+var(--space-8)  /* 32px */
+
+/* Aliases semánticos */
+var(--spacing-xs)  /* 4px */
+var(--spacing-sm)  /* 8px */
+var(--spacing-md)  /* 16px */
+var(--spacing-lg)  /* 24px */
+var(--spacing-xl)  /* 32px */
+```
+
+### Tipografía:
+```css
+var(--font-xs)    /* 12px */
+var(--font-sm)    /* 14px */
+var(--font-base)  /* 16px */
+var(--font-lg)    /* 18px */
+var(--font-xl)    /* 20px */
+var(--font-2xl)   /* 24px */
+
+/* Weights */
+var(--font-normal)    /* 400 */
+var(--font-medium)    /* 500 */
+var(--font-semibold)  /* 600 */
+var(--font-bold)      /* 700 */
+```
+
+### Colores (ya definidos en theme.css):
+```css
+/* Backgrounds */
+var(--bg-primary)
+var(--bg-secondary)
+var(--bg-tertiary)
+var(--bg-hover)
+var(--bg-active)
+
+/* Text */
+var(--text-primary)
+var(--text-secondary)
+var(--text-tertiary)
+var(--text-inverse)
+
+/* Brand */
+var(--brand-primary)        /* #5c8cff dark, #3e6ae1 light */
+var(--brand-primary-hover)
+var(--brand-primary-light)
+
+/* Semantic */
+var(--success)  /* Verde */
+var(--warning)  /* Naranja */
+var(--error)    /* Rojo */
+var(--info)     /* Azul */
+
+/* Shadows */
+var(--shadow-sm)
+var(--shadow-md)
+var(--shadow-lg)
+var(--shadow-xl)
+```
+
+### Borders & Radius:
+```css
+var(--radius-base)  /* 4px */
+var(--radius-md)    /* 6px */
+var(--radius-lg)    /* 8px */
+var(--radius-xl)    /* 12px */
+var(--radius-full)  /* 9999px */
+
+var(--border-1)  /* 1px */
+var(--border-2)  /* 2px */
+```
+
+### Transitions:
+```css
+var(--duration-150)  /* 150ms */
+var(--duration-200)  /* 200ms */
+var(--duration-300)  /* 300ms */
+
+var(--ease-in-out)  /* cubic-bezier(0.4, 0, 0.2, 1) */
+```
 
 ---
 
-## 🎯 Plan de Implementación
+## 🚀 Cómo Usar el Sistema
 
-### **Fase 1: Fundación (1-2 horas)**
-1. ✅ Crear `design-tokens.css` (espaciado, tipografía)
-2. ✅ Crear `components.css` (botones, modales, tablas)
-3. ✅ Eliminar `Tienda.css` (duplicado)
-4. ✅ Importar tokens en `main.jsx`:
+### 1. Importar clases globales:
+Ya están importadas en `App.jsx`:
 ```jsx
 import './styles/design-tokens.css';
-import './styles/components.css';
+import './styles/buttons-tesla.css';
+import './styles/table-tesla.css';
 import './styles/theme.css';
 ```
 
-### **Fase 2: Migración gradual (3-4 horas)**
-5. ⏳ Refactorizar `Productos.jsx` para usar componentes base
-6. ⏳ Refactorizar `PricingModal.jsx`
-7. ⏳ Refactorizar `TabPedidosExport.jsx`
-8. ⏳ Migrar resto de páginas
-
-### **Fase 3: Cleanup (1 hora)**
-9. ⏳ Eliminar CSS custom innecesario
-10. ⏳ Consolidar estilos restantes
-11. ⏳ Audit final de consistencia
-
-**Tiempo total estimado:** 5-7 horas
-**Reducción de código:** ~4,500 líneas CSS eliminadas
-
----
-
-## 🖼️ Ejemplos Visuales
-
-### **Botones - Antes vs Después**
-
-**ANTES:**
+### 2. Usar en componentes:
 ```jsx
-<button className={styles.botonCalcular}>Calcular</button>
-// styles.botonCalcular = 15 líneas CSS custom
+// Botón simple
+<button className="btn-tesla primary">Guardar</button>
+
+// Botón con loading
+<button className="btn-tesla primary loading" disabled>
+  Guardando...
+</button>
+
+// Tabla
+<div className="table-container-tesla">
+  <table className="table-tesla striped">
+    ...
+  </table>
+</div>
+
+// StatCard
+import StatCard from '../components/StatCard';
+<StatCard label="Total" value="123" color="blue" />
 ```
 
-**DESPUÉS:**
-```jsx
-<button className="btn btn-primary">Calcular</button>
-// Usa sistema global = 0 líneas custom
-```
-
-**Visual:** Ambos se ven IDÉNTICOS, pero el segundo reutiliza código.
-
----
-
-### **Stat Cards - Antes vs Después**
-
-**ANTES:**
+### 3. Usar tokens en CSS custom:
 ```css
-.stat-card {
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
+.mi-componente {
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  transition: all var(--duration-200) var(--ease-in-out);
 }
 ```
 
-**DESPUÉS:**
-```jsx
-<div className="card">
-  <div className="card-header">
-    <h3 className="card-title text-sm font-medium">
-      Productos Activos
-    </h3>
-  </div>
-  <div className="card-body">
-    <span className="text-3xl font-bold">1,234</span>
-  </div>
-</div>
-```
+---
 
-**Beneficio:** Semántica clara + reutilización + tokens consistentes
+## 📈 Estado Actual del Rediseño
+
+| Componente | Estado | Notas |
+|------------|--------|-------|
+| **Design Tokens** | ✅ Completo | Espaciado, tipografía, colores |
+| **Theme (Dark/Light)** | ✅ Completo | Negro puro + azul eléctrico |
+| **StatCards** | ✅ Completo | Glassmorphism, animaciones |
+| **Tabla** | ✅ Completo | Sticky header, zebra stripes, hover |
+| **Botones** | ✅ Completo | 6 variantes, 3 tamaños, estados |
+| **Modales** | ⏳ Pendiente | Siguiente en la lista |
+| **Navbar** | ⏳ Pendiente | Refinamiento |
+| **Inputs/Forms** | ⏳ Pendiente | Estandarización |
 
 ---
 
-### **Modales - Estructura Única**
+## 🎯 Próximos Pasos
 
-**ANTES:** 5 modales diferentes, 5 estilos distintos
-**DESPUÉS:** 1 estructura, N usos
-
-```jsx
-{/* PricingModal.jsx */}
-<div className="modal-overlay">
-  <div className="modal">
-    <div className="modal-header">
-      <h2 className="modal-title">Calcular Precio</h2>
-      <button className="modal-close">×</button>
-    </div>
-    <div className="modal-body">
-      {/* Custom content */}
-    </div>
-    <div className="modal-footer">
-      <button className="btn btn-secondary">Cancelar</button>
-      <button className="btn btn-primary">Calcular</button>
-    </div>
-  </div>
-</div>
-```
+1. **Modales** - Estandarizar estructura (header, body, footer)
+2. **Navbar** - Refinamiento con botones nuevos
+3. **Inputs** - Sistema de formularios consistente
 
 ---
 
-## 🚀 Próximos Pasos
-
-**¿Te copa arrancar con esto?**
-
-1. **Opción A:** Arrancamos YA con Fase 1 (crear tokens + componentes base)
-2. **Opción B:** Primero hacemos un componente de ejemplo (ej: refactorizar PricingModal)
-3. **Opción C:** Me decís qué ajustar del sistema antes de implementar
-
-**Lo que ganás:**
-- ✅ Código más limpio y mantenible
-- ✅ Diseño consistente en toda la app
-- ✅ Desarrollo 3x más rápido (reutilizas componentes)
-- ✅ Bundle más liviano (-60% CSS)
-- ✅ Onboarding de devs más fácil (sistema documentado)
-
----
-
-## 📝 Notas Finales
-
-**Este sistema NO rompe nada:**
-- Los estilos actuales siguen funcionando
-- Migramos página por página (incremental)
-- Primero agregamos, después limpiamos
-- Git te salva si algo se rompe
-
-**Filosofía Tesla:**
-> "Simple, funcional, hermoso. Sin boludeces decorativas."
-
-¿Qué decís? ¿Le damos para adelante?
+**¿Querés que siga con los modales ahora?**

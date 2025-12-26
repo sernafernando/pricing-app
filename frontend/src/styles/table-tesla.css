@@ -153,16 +153,25 @@
 
 /* Zebra stripes opcionales (sutil) - Mayor especificidad */
 .table-tesla.striped tbody.table-tesla-body tr:nth-child(even) {
-  background: rgba(0, 0, 0, 0.02) !important;
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .table-tesla.striped tbody.table-tesla-body tr:nth-child(even):hover {
-  background: var(--bg-hover) !important;
+  background: var(--bg-hover);
 }
 
 /* Dark mode - Stripes más visibles */
 :root[data-theme="dark"] .table-tesla.striped tbody.table-tesla-body tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.02) !important;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* IMPORTANTE: Colores manuales tienen prioridad sobre stripes */
+.table-tesla.striped tbody.table-tesla-body tr[style*="background"] {
+  /* El background inline tiene prioridad */
+}
+
+.table-tesla.striped tbody.table-tesla-body tr.row-colored {
+  /* Clase de color manual tiene prioridad */
 }
 
 /* Fila seleccionada */
@@ -494,23 +503,29 @@
    OVERRIDES - Anular estilos viejos
    ============================================ */
 
-/* Anular estilos de Productos.css */
+/* Anular estilos de Productos.css - SIN !important para permitir colores inline */
 .table-tesla-body tr {
-  background: transparent !important;
+  background: transparent;
 }
 
 .table-tesla-body tr:hover {
-  background: var(--bg-hover) !important;
+  background: var(--bg-hover);
   box-shadow: 
     inset 0 1px 0 rgba(0, 0, 0, 0.02),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.02) !important;
+    inset 0 -1px 0 rgba(0, 0, 0, 0.02);
+}
+
+/* Filas con color manual (inline style) tienen prioridad */
+.table-tesla-body tr[style*="background-color"]:hover {
+  /* Mantener color base + overlay hover sutil */
+  filter: brightness(0.95);
 }
 
 .table-tesla-body td {
-  border-bottom: 1px solid var(--border-primary) !important;
+  border-bottom: 1px solid var(--border-primary);
 }
 
 /* Última fila sin borde */
 .table-tesla-body tr:last-child td {
-  border-bottom: none !important;
+  border-bottom: none;
 }
