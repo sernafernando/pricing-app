@@ -710,8 +710,10 @@ const Calculos = () => {
                             <div className="cuotas-header-expandido">
                               <h4>💳 Precios de Cuotas (Markup Convergente)</h4>
                               <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span className="adicional-badge">
+                                  Adicional: {formData.adicional_cuotas}%
+                                </span>
                                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                  <label style={{ fontSize: '13px' }}>Adicional:</label>
                                   <input
                                     type="number"
                                     step="0.1"
@@ -719,8 +721,8 @@ const Calculos = () => {
                                     value={formData.adicional_cuotas}
                                     onChange={(e) => setFormData({ ...formData, adicional_cuotas: parseFloat(e.target.value) || 0 })}
                                     style={{ width: '60px', padding: '4px 8px', fontSize: '13px' }}
+                                    title="Markup adicional para cuotas (%)"
                                   />
-                                  <span style={{ fontSize: '13px' }}>%</span>
                                 </div>
                                 <button
                                   onClick={recalcularCuotasEnEdicion}
