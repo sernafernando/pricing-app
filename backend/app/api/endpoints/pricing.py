@@ -615,17 +615,53 @@ async def calcular_precios_completos(
 @router.post("/precios/set-rapido")
 async def setear_precio_rapido(
     item_id: int,
-    precio: float = Query(gt=0, le=999999999.99),
+    precio: float = Query(ge=0, le=999999999.99),  # Permitir 0 para borrar precios
     recalcular_cuotas: bool = Query(True, description="Si True, recalcula precios de cuotas automáticamente"),
     lista_tipo: str = Query("web", regex="^(web|pvp)$", description="Tipo de lista: web o pvp"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Setea precio clásica (web o pvp) y calcula markup al instante. Opcionalmente recalcula cuotas."""
+    """Setea precio clásica (web o pvp) y calcula markup al instante. Si precio=0, borra todos los precios del producto."""
 
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
         raise HTTPException(404, "Producto no encontrado")
+    
+    # Si precio es 0, borrar TODOS los precios (Web y PVP)
+    if precio == 0:
+        pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+        if pricing:
+            # Limpiar todos los campos de precio
+            pricing.precio_lista_ml = None
+            pricing.markup_calculado = None
+            pricing.precio_3_cuotas = None
+            pricing.precio_6_cuotas = None
+            pricing.precio_9_cuotas = None
+            pricing.precio_12_cuotas = None
+            pricing.precio_pvp = None
+            pricing.markup_pvp = None
+            pricing.precio_pvp_3_cuotas = None
+            pricing.precio_pvp_6_cuotas = None
+            pricing.precio_pvp_9_cuotas = None
+            pricing.precio_pvp_12_cuotas = None
+            pricing.precio_web_transferencia = None
+            pricing.markup_web_real = None
+            pricing.markup_rebate = None
+            pricing.markup_oferta = None
+            pricing.usuario_id = current_user.id
+            pricing.fecha_modificacion = datetime.now()
+            
+            db.commit()
+            
+            return {
+                "message": "Todos los precios fueron borrados",
+                "item_id": item_id,
+                "precios_borrados": True
+            }
+        else:
+            raise HTTPException(404, "No hay precios configurados para este producto")
+    
+    # Continuar con lógica normal si precio > 0
     
     # Obtener TC si es USD
     tipo_cambio = None

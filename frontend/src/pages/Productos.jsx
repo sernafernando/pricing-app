@@ -1375,25 +1375,63 @@ export default function Productos() {
           }
         );
 
-        setProductos(prods => prods.map(p =>
-          p.item_id === itemId
-            ? {
-                ...p,
-                precio_pvp: precioNormalizado,
-                markup_pvp: response.data.markup_pvp,
-                // Actualizar cuotas PVP recalculadas
-                precio_pvp_3_cuotas: response.data.precio_pvp_3_cuotas || p.precio_pvp_3_cuotas,
-                precio_pvp_6_cuotas: response.data.precio_pvp_6_cuotas || p.precio_pvp_6_cuotas,
-                precio_pvp_9_cuotas: response.data.precio_pvp_9_cuotas || p.precio_pvp_9_cuotas,
-                precio_pvp_12_cuotas: response.data.precio_pvp_12_cuotas || p.precio_pvp_12_cuotas,
-                // Actualizar markups de cuotas PVP si vienen en la respuesta
-                markup_pvp_3_cuotas: response.data.markup_pvp_3_cuotas !== undefined ? response.data.markup_pvp_3_cuotas : p.markup_pvp_3_cuotas,
-                markup_pvp_6_cuotas: response.data.markup_pvp_6_cuotas !== undefined ? response.data.markup_pvp_6_cuotas : p.markup_pvp_6_cuotas,
-                markup_pvp_9_cuotas: response.data.markup_pvp_9_cuotas !== undefined ? response.data.markup_pvp_9_cuotas : p.markup_pvp_9_cuotas,
-                markup_pvp_12_cuotas: response.data.markup_pvp_12_cuotas !== undefined ? response.data.markup_pvp_12_cuotas : p.markup_pvp_12_cuotas
-              }
-            : p
-        ));
+        // Si se borraron todos los precios (precio = 0)
+        if (response.data.precios_borrados) {
+          setProductos(prods => prods.map(p =>
+            p.item_id === itemId
+              ? {
+                  ...p,
+                  // Limpiar TODOS los precios (Web y PVP)
+                  precio_lista_ml: null,
+                  markup: null,
+                  precio_3_cuotas: null,
+                  precio_6_cuotas: null,
+                  precio_9_cuotas: null,
+                  precio_12_cuotas: null,
+                  markup_3_cuotas: null,
+                  markup_6_cuotas: null,
+                  markup_9_cuotas: null,
+                  markup_12_cuotas: null,
+                  precio_pvp: null,
+                  markup_pvp: null,
+                  precio_pvp_3_cuotas: null,
+                  precio_pvp_6_cuotas: null,
+                  precio_pvp_9_cuotas: null,
+                  precio_pvp_12_cuotas: null,
+                  markup_pvp_3_cuotas: null,
+                  markup_pvp_6_cuotas: null,
+                  markup_pvp_9_cuotas: null,
+                  markup_pvp_12_cuotas: null,
+                  precio_web_transferencia: null,
+                  markup_web_real: null,
+                  tiene_precio: false
+                }
+              : p
+          ));
+          alert('✅ Todos los precios fueron borrados');
+        } else {
+          // Actualización normal de precios
+          setProductos(prods => prods.map(p =>
+            p.item_id === itemId
+              ? {
+                  ...p,
+                  precio_pvp: precioNormalizado,
+                  markup_pvp: response.data.markup_pvp,
+                  // Actualizar cuotas PVP recalculadas
+                  precio_pvp_3_cuotas: response.data.precio_pvp_3_cuotas || p.precio_pvp_3_cuotas,
+                  precio_pvp_6_cuotas: response.data.precio_pvp_6_cuotas || p.precio_pvp_6_cuotas,
+                  precio_pvp_9_cuotas: response.data.precio_pvp_9_cuotas || p.precio_pvp_9_cuotas,
+                  precio_pvp_12_cuotas: response.data.precio_pvp_12_cuotas || p.precio_pvp_12_cuotas,
+                  // Actualizar markups de cuotas PVP si vienen en la respuesta
+                  markup_pvp_3_cuotas: response.data.markup_pvp_3_cuotas !== undefined ? response.data.markup_pvp_3_cuotas : p.markup_pvp_3_cuotas,
+                  markup_pvp_6_cuotas: response.data.markup_pvp_6_cuotas !== undefined ? response.data.markup_pvp_6_cuotas : p.markup_pvp_6_cuotas,
+                  markup_pvp_9_cuotas: response.data.markup_pvp_9_cuotas !== undefined ? response.data.markup_pvp_9_cuotas : p.markup_pvp_9_cuotas,
+                  markup_pvp_12_cuotas: response.data.markup_pvp_12_cuotas !== undefined ? response.data.markup_pvp_12_cuotas : p.markup_pvp_12_cuotas,
+                  tiene_precio: true
+                }
+              : p
+          ));
+        }
 
         setEditandoPrecio(null);
         cargarStats();
@@ -1414,29 +1452,67 @@ export default function Productos() {
         }
       );
 
-      setProductos(prods => prods.map(p =>
-        p.item_id === itemId
-          ? {
-              ...p,
-              precio_lista_ml: precioNormalizado,
-              markup: response.data.markup,
-              // Actualizar precios de cuotas si vienen en la respuesta
-              precio_3_cuotas: response.data.precio_3_cuotas || p.precio_3_cuotas,
-              precio_6_cuotas: response.data.precio_6_cuotas || p.precio_6_cuotas,
-              precio_9_cuotas: response.data.precio_9_cuotas || p.precio_9_cuotas,
-              precio_12_cuotas: response.data.precio_12_cuotas || p.precio_12_cuotas,
-              // Actualizar markups de cuotas si vienen en la respuesta
-              markup_3_cuotas: response.data.markup_3_cuotas !== undefined ? response.data.markup_3_cuotas : p.markup_3_cuotas,
-              markup_6_cuotas: response.data.markup_6_cuotas !== undefined ? response.data.markup_6_cuotas : p.markup_6_cuotas,
-              markup_9_cuotas: response.data.markup_9_cuotas !== undefined ? response.data.markup_9_cuotas : p.markup_9_cuotas,
-              markup_12_cuotas: response.data.markup_12_cuotas !== undefined ? response.data.markup_12_cuotas : p.markup_12_cuotas,
-              // Actualizar rebate y web transferencia si vienen en la respuesta
-              precio_rebate: response.data.precio_rebate !== null && response.data.precio_rebate !== undefined ? response.data.precio_rebate : p.precio_rebate,
-              precio_web_transferencia: response.data.precio_web_transferencia !== null && response.data.precio_web_transferencia !== undefined ? response.data.precio_web_transferencia : p.precio_web_transferencia,
-              markup_web_real: response.data.markup_web_real !== null && response.data.markup_web_real !== undefined ? response.data.markup_web_real : p.markup_web_real
-            }
-          : p
-      ));
+      // Si se borraron todos los precios (precio = 0)
+      if (response.data.precios_borrados) {
+        setProductos(prods => prods.map(p =>
+          p.item_id === itemId
+            ? {
+                ...p,
+                // Limpiar TODOS los precios (Web y PVP)
+                precio_lista_ml: null,
+                markup: null,
+                precio_3_cuotas: null,
+                precio_6_cuotas: null,
+                precio_9_cuotas: null,
+                precio_12_cuotas: null,
+                markup_3_cuotas: null,
+                markup_6_cuotas: null,
+                markup_9_cuotas: null,
+                markup_12_cuotas: null,
+                precio_pvp: null,
+                markup_pvp: null,
+                precio_pvp_3_cuotas: null,
+                precio_pvp_6_cuotas: null,
+                precio_pvp_9_cuotas: null,
+                precio_pvp_12_cuotas: null,
+                markup_pvp_3_cuotas: null,
+                markup_pvp_6_cuotas: null,
+                markup_pvp_9_cuotas: null,
+                markup_pvp_12_cuotas: null,
+                precio_web_transferencia: null,
+                markup_web_real: null,
+                tiene_precio: false
+              }
+            : p
+        ));
+        alert('✅ Todos los precios fueron borrados');
+      } else {
+        // Actualización normal de precios
+        setProductos(prods => prods.map(p =>
+          p.item_id === itemId
+            ? {
+                ...p,
+                precio_lista_ml: precioNormalizado,
+                markup: response.data.markup,
+                // Actualizar precios de cuotas si vienen en la respuesta
+                precio_3_cuotas: response.data.precio_3_cuotas || p.precio_3_cuotas,
+                precio_6_cuotas: response.data.precio_6_cuotas || p.precio_6_cuotas,
+                precio_9_cuotas: response.data.precio_9_cuotas || p.precio_9_cuotas,
+                precio_12_cuotas: response.data.precio_12_cuotas || p.precio_12_cuotas,
+                // Actualizar markups de cuotas si vienen en la respuesta
+                markup_3_cuotas: response.data.markup_3_cuotas !== undefined ? response.data.markup_3_cuotas : p.markup_3_cuotas,
+                markup_6_cuotas: response.data.markup_6_cuotas !== undefined ? response.data.markup_6_cuotas : p.markup_6_cuotas,
+                markup_9_cuotas: response.data.markup_9_cuotas !== undefined ? response.data.markup_9_cuotas : p.markup_9_cuotas,
+                markup_12_cuotas: response.data.markup_12_cuotas !== undefined ? response.data.markup_12_cuotas : p.markup_12_cuotas,
+                // Actualizar rebate y web transferencia si vienen en la respuesta
+                precio_rebate: response.data.precio_rebate !== null && response.data.precio_rebate !== undefined ? response.data.precio_rebate : p.precio_rebate,
+                precio_web_transferencia: response.data.precio_web_transferencia !== null && response.data.precio_web_transferencia !== undefined ? response.data.precio_web_transferencia : p.precio_web_transferencia,
+                markup_web_real: response.data.markup_web_real !== null && response.data.markup_web_real !== undefined ? response.data.markup_web_real : p.markup_web_real,
+                tiene_precio: true
+              }
+            : p
+        ));
+      }
 
       setEditandoPrecio(null);
       cargarStats();
