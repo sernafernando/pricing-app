@@ -552,19 +552,19 @@ export default function Notificaciones() {
                           className="btn-tesla outline-success sm"
                           title="Marcar como revisada (no desaparece)"
                         >
-                          ✓ Revisar ({grupo.count})
+                          Revisada ({grupo.count})
                         </button>
                         <button
                           onClick={() => {
-                            if (confirm(`¿Descartar ${grupo.count} notificación${grupo.count > 1 ? 'es' : ''}? No volverán a aparecer como pendientes.`)) {
+                            if (confirm(`¿Ignorar ${grupo.count} notificación${grupo.count > 1 ? 'es' : ''}?\n\nSe creará una regla para NO notificar futuras ventas del mismo producto con el mismo markup.`)) {
                               Promise.all(grupo.notificaciones_ids.map(id => descartarNotificacion(id)))
                                 .then(() => setExpandedGrupo(null));
                             }
                           }}
                           className="btn-tesla outline-danger sm"
-                          title="Descartar (no volver a mostrar como pendiente)"
+                          title="Ignorar (no volver a notificar para este producto/markup)"
                         >
-                          ✕ Descartar ({grupo.count})
+                          Ignorar ({grupo.count})
                         </button>
                         <button
                           onClick={() => {
@@ -573,7 +573,7 @@ export default function Notificaciones() {
                           className="btn-tesla outline sm"
                           title="Marcar como resuelta"
                         >
-                          ✓✓ Resolver ({grupo.count})
+                          Resuelta ({grupo.count})
                         </button>
                       </div>
 
