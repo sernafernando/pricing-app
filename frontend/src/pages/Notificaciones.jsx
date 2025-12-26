@@ -20,6 +20,7 @@ export default function Notificaciones() {
   const [stats, setStats] = useState({ total: 0, no_leidas: 0, por_tipo: {} });
   const [loading, setLoading] = useState(false);
   const [filtroTipo, setFiltroTipo] = useState(null);
+  const [filtroPM, setFiltroPM] = useState(null);
   const [soloNoLeidas, setSoloNoLeidas] = useState(false);
   const [paginaActual, setPaginaActual] = useState(0);
   const [expandedNotif, setExpandedNotif] = useState(null);
@@ -56,6 +57,11 @@ export default function Notificaciones() {
   useEffect(() => {
     fetchNotificaciones();
   }, [soloNoLeidas, filtroTipo, vistaAgrupada]);
+
+  // Resetear página cuando cambie el filtro de PM
+  useEffect(() => {
+    setPaginaActual(0);
+  }, [filtroPM]);
 
   const marcarComoLeida = async (notifId) => {
     try {
@@ -332,12 +338,28 @@ export default function Notificaciones() {
     }
   };
 
-  const notificacionesPaginadas = notificaciones.slice(
+  // Filtrar por PM en el frontend
+  const notificacionesFiltradas = filtroPM
+    ? notificaciones.filter(n => {
+        // En vista agrupada, el PM está en notificacion_reciente
+        const pm = vistaAgrupada ? n.notificacion_reciente?.pm : n.pm;
+        return pm === filtroPM;
+      })
+    : notificaciones;
+
+  const notificacionesPaginadas = notificacionesFiltradas.slice(
     paginaActual * ITEMS_PER_PAGE,
     (paginaActual + 1) * ITEMS_PER_PAGE
   );
 
-  const totalPaginas = Math.ceil(notificaciones.length / ITEMS_PER_PAGE);
+  const totalPaginas = Math.ceil(notificacionesFiltradas.length / ITEMS_PER_PAGE);
+
+  // Extraer PMs únicos para el filtro
+  const pmsUnicos = [...new Set(
+    notificaciones
+      .map(n => vistaAgrupada ? n.notificacion_reciente?.pm : n.pm)
+      .filter(pm => pm && pm.trim() !== '')
+  )].sort();
 
   return (
     <div className={styles.container}>
@@ -385,6 +407,16 @@ export default function Notificaciones() {
             <option value="markup_bajo">⚠️ Markup Bajo</option>
             <option value="stock_bajo">📦 Stock Bajo</option>
             <option value="precio_desactualizado">💰 Precio Desactualizado</option>
+          </select>
+        </div>
+
+        <div className={styles.filterGroup}>
+          <label>PM:</label>
+          <select value={filtroPM || ''} onChange={(e) => setFiltroPM(e.target.value || null)}>
+            <option value="">Todos</option>
+            {pmsUnicos.map(pm => (
+              <option key={pm} value={pm}>{pm}</option>
+            ))}
           </select>
         </div>
 
