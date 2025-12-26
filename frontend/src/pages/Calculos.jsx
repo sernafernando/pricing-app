@@ -17,7 +17,6 @@ const Calculos = () => {
   const [filtroExportar, setFiltroExportar] = useState('todos');
   const [constantes, setConstantes] = useState(null);
   const [filaExpandida, setFilaExpandida] = useState(null);
-  const [editandoCuotas, setEditandoCuotas] = useState({}); // {calculoId: {adicional, cuotas[], loading}}
   const [gruposComision, setGruposComision] = useState([]);
 
   useEffect(() => {
@@ -89,6 +88,11 @@ const Calculos = () => {
 
   const iniciarEdicion = (calculo) => {
     setCalculoEditando(calculo.id);
+    
+    // Derivar grupo desde comision_ml
+    const grupoMatch = gruposComision.find(g => Math.abs(g.lista_4 - parseFloat(calculo.comision_ml)) < 0.01);
+    const grupo = grupoMatch ? grupoMatch.grupo_id : 1;
+    
     setFormData({
       descripcion: calculo.descripcion,
       ean: calculo.ean || '',
@@ -99,7 +103,12 @@ const Calculos = () => {
       comision_ml: calculo.comision_ml,
       costo_envio: calculo.costo_envio,
       precio_final: calculo.precio_final,
-      tipo_cambio_usado: calculo.tipo_cambio_usado || tipoCambio
+      tipo_cambio_usado: calculo.tipo_cambio_usado || tipoCambio,
+      // Cuotas
+      grupo_cuotas: grupo,
+      adicional_cuotas: calculo.precios_cuotas?.adicional_markup || constantes?.markup_adicional_cuotas || 0,
+      cuotas_calculadas: calculo.precios_cuotas?.cuotas || [],
+      cuotas_loading: false
     });
   };
 
@@ -184,20 +193,49 @@ const Calculos = () => {
       const resultados = recalcular(formData);
       const token = localStorage.getItem('token');
 
+      // Preparar datos de cuotas si existen
+      let cuotasData = null;
+      if (formData.cuotas_calculadas && formData.cuotas_calculadas.length > 0) {
+        cuotasData = {
+          adicional_markup: formData.adicional_cuotas,
+          cuotas: formData.cuotas_calculadas.map(c => ({
+            cuotas: c.cuotas,
+            pricelist_id: c.pricelist_id,
+            precio: c.precio,
+            comision_base_pct: c.comision_base_pct,
+            comision_total: c.comision_total,
+            limpio: c.limpio,
+            markup_real: c.markup_real
+          }))
+        };
+      }
+
+      // Guardar datos básicos
       await axios.put(
         `https://pricing.gaussonline.com.ar/api/calculos/${calculoEditando}`,
         {
-          ...formData,
-          ...resultados
+          descripcion: formData.descripcion,
+          ean: formData.ean,
+          cantidad: formData.cantidad,
+          costo: formData.costo,
+          moneda_costo: formData.moneda_costo,
+          iva: formData.iva,
+          comision_ml: formData.comision_ml,
+          costo_envio: formData.costo_envio,
+          precio_final: formData.precio_final,
+          tipo_cambio_usado: formData.tipo_cambio_usado,
+          ...resultados,
+          precios_cuotas: cuotasData
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       await cargarCalculos();
       cancelarEdicion();
+      alert('✅ Cálculo actualizado correctamente');
     } catch (error) {
       console.error('Error guardando cambios:', error);
-      alert('Error al guardar los cambios');
+      alert('Error al guardar los cambios: ' + (error.response?.data?.detail || error.message));
     }
   };
 
@@ -220,115 +258,40 @@ const Calculos = () => {
     }
   };
 
-  const iniciarEdicionCuotas = (calculo) => {
-    const adicional = calculo.precios_cuotas?.adicional_markup || constantes?.markup_adicional_cuotas || 4.0;
-    
-    // Derivar grupo desde comision_ml
-    const grupoMatch = gruposComision.find(g => Math.abs(g.lista_4 - parseFloat(calculo.comision_ml)) < 0.01);
-    const grupo = grupoMatch ? grupoMatch.grupo_id : 1;
-    
-    setEditandoCuotas({
-      ...editandoCuotas,
-      [calculo.id]: {
-        adicional,
-        grupo,
-        cuotas: calculo.precios_cuotas?.cuotas || [],
-        loading: false
-      }
-    });
-  };
+  const recalcularCuotasEnEdicion = async () => {
+    if (!formData) return;
 
-  const recalcularCuotas = async (calculo) => {
-    const edicion = editandoCuotas[calculo.id];
-    if (!edicion) return;
-
-    setEditandoCuotas({
-      ...editandoCuotas,
-      [calculo.id]: { ...edicion, loading: true }
-    });
+    setFormData({ ...formData, cuotas_loading: true });
 
     try {
+      const resultadosBasicos = recalcular(formData);
       const token = localStorage.getItem('token');
+      
       const response = await axios.post(
         'https://pricing.gaussonline.com.ar/api/calculos/calcular-cuotas',
         {
-          costo: calculo.costo,
-          moneda_costo: calculo.moneda_costo,
-          iva: calculo.iva,
-          envio: calculo.costo_envio || 0,
-          markup_objetivo: calculo.markup_porcentaje,
-          tipo_cambio: calculo.tipo_cambio_usado,
-          grupo_id: edicion.grupo,
-          adicional_markup: edicion.adicional
+          costo: formData.costo,
+          moneda_costo: formData.moneda_costo,
+          iva: formData.iva,
+          envio: formData.costo_envio || 0,
+          markup_objetivo: parseFloat(resultadosBasicos.markup_porcentaje),
+          tipo_cambio: formData.tipo_cambio_usado,
+          grupo_id: formData.grupo_cuotas,
+          adicional_markup: formData.adicional_cuotas
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setEditandoCuotas({
-        ...editandoCuotas,
-        [calculo.id]: {
-          ...edicion,
-          cuotas: response.data,
-          loading: false
-        }
+      setFormData({
+        ...formData,
+        cuotas_calculadas: response.data,
+        cuotas_loading: false
       });
     } catch (error) {
       console.error('Error recalculando cuotas:', error);
       alert('Error al recalcular cuotas: ' + (error.response?.data?.detail || error.message));
-      setEditandoCuotas({
-        ...editandoCuotas,
-        [calculo.id]: { ...edicion, loading: false }
-      });
+      setFormData({ ...formData, cuotas_loading: false });
     }
-  };
-
-  const guardarCuotas = async (calculo) => {
-    const edicion = editandoCuotas[calculo.id];
-    if (!edicion || edicion.cuotas.length === 0) {
-      alert('Debe recalcular las cuotas antes de guardar');
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem('token');
-      const cuotasData = {
-        adicional_markup: edicion.adicional,
-        cuotas: edicion.cuotas.map(c => ({
-          cuotas: c.cuotas,
-          pricelist_id: c.pricelist_id,
-          precio: c.precio,
-          comision_base_pct: c.comision_base_pct,
-          comision_total: c.comision_total,
-          limpio: c.limpio,
-          markup_real: c.markup_real
-        }))
-      };
-
-      await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/calculos/${calculo.id}/cuotas`,
-        { precios_cuotas: cuotasData },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      // Recargar cálculos desde la BD para asegurar sincronización
-      await cargarCalculos();
-
-      // Limpiar edición
-      const newEditando = { ...editandoCuotas };
-      delete newEditando[calculo.id];
-      setEditandoCuotas(newEditando);
-
-      alert('✅ Cuotas actualizadas correctamente');
-    } catch (error) {
-      console.error('Error guardando cuotas:', error);
-      alert('Error al guardar cuotas: ' + (error.response?.data?.detail || error.message));
-    }
-  };
-
-  const cancelarEdicionCuotas = (calculoId) => {
-    const newEditando = { ...editandoCuotas };
-    delete newEditando[calculoId];
-    setEditandoCuotas(newEditando);
   };
 
   const toggleSeleccion = (id) => {
@@ -737,100 +700,114 @@ const Calculos = () => {
                 </tr>
                 
                 {/* Fila expandida con cuotas */}
-                {filaExpandida === calculo.id && calculo.precios_cuotas && calculo.precios_cuotas.cuotas && (
+                {filaExpandida === calculo.id && (
                   <tr className="fila-expandida">
                     <td colSpan="16" style={{ padding: 0 }}>
                       <div className="cuotas-expandidas">
-                        <div className="cuotas-header-expandido">
-                          <h4>💳 Precios de Cuotas (Markup Convergente)</h4>
-                          
-                          {editandoCuotas[calculo.id] ? (
-                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                <label style={{ fontSize: '13px' }}>Adicional:</label>
-                                <input
-                                  type="number"
-                                  step="0.1"
-                                  min="0"
-                                  value={editandoCuotas[calculo.id].adicional}
-                                  onChange={(e) => setEditandoCuotas({
-                                    ...editandoCuotas,
-                                    [calculo.id]: { ...editandoCuotas[calculo.id], adicional: parseFloat(e.target.value) || 0 }
-                                  })}
-                                  style={{ width: '60px', padding: '4px 8px', fontSize: '13px' }}
-                                />
-                                <span style={{ fontSize: '13px' }}>%</span>
-                              </div>
-                              <button
-                                onClick={() => recalcularCuotas(calculo)}
-                                disabled={editandoCuotas[calculo.id].loading}
-                                className="btn-primary"
-                                style={{ padding: '4px 12px', fontSize: '13px' }}
-                              >
-                                {editandoCuotas[calculo.id].loading ? '⏳ Calculando...' : '🔄 Recalcular'}
-                              </button>
-                              <button
-                                onClick={() => guardarCuotas(calculo)}
-                                disabled={editandoCuotas[calculo.id].loading}
-                                className="btn-success"
-                                style={{ padding: '4px 12px', fontSize: '13px' }}
-                              >
-                                💾 Guardar
-                              </button>
-                              <button
-                                onClick={() => cancelarEdicionCuotas(calculo.id)}
-                                className="btn-cancel"
-                                style={{ padding: '4px 12px', fontSize: '13px' }}
-                              >
-                                ✕ Cancelar
-                              </button>
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                              <span className="adicional-badge">
-                                Adicional: {calculo.precios_cuotas.adicional_markup || 4.0}%
-                              </span>
-                              <button
-                                onClick={() => iniciarEdicionCuotas(calculo)}
-                                className="btn-secondary"
-                                style={{ padding: '4px 12px', fontSize: '13px' }}
-                              >
-                                ✏️ Editar
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="cuotas-grid-expandido">
-                          {(editandoCuotas[calculo.id]?.cuotas || calculo.precios_cuotas.cuotas).map((cuota) => (
-                            <div key={cuota.cuotas} className="cuota-card-expandido">
-                              <div className="cuota-card-header">
-                                <span className="cuota-numero">{cuota.cuotas} Cuotas</span>
-                                <span className="cuota-precio">${parseFloat(cuota.precio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                              </div>
-                              <div className="cuota-card-details">
-                                <div className="cuota-detail">
-                                  <span className="label">Comisión:</span>
-                                  <span className="value">{parseFloat(cuota.comision_base_pct).toFixed(2)}%</span>
+                        {calculoEditando === calculo.id && formData ? (
+                          // MODO EDICIÓN: Controles para recalcular cuotas
+                          <>
+                            <div className="cuotas-header-expandido">
+                              <h4>💳 Precios de Cuotas (Markup Convergente)</h4>
+                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                  <label style={{ fontSize: '13px' }}>Adicional:</label>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    value={formData.adicional_cuotas}
+                                    onChange={(e) => setFormData({ ...formData, adicional_cuotas: parseFloat(e.target.value) || 0 })}
+                                    style={{ width: '60px', padding: '4px 8px', fontSize: '13px' }}
+                                  />
+                                  <span style={{ fontSize: '13px' }}>%</span>
                                 </div>
-                                <div className="cuota-detail">
-                                  <span className="label">Comisión Total:</span>
-                                  <span className="value">${parseFloat(cuota.comision_total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                                </div>
-                                <div className="cuota-detail">
-                                  <span className="label">Limpio:</span>
-                                  <span className="value">${parseFloat(cuota.limpio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                                </div>
-                                <div className="cuota-detail highlight">
-                                  <span className="label">Markup:</span>
-                                  <span className="value" style={{ color: getMarkupColor(cuota.markup_real), fontWeight: 'bold' }}>
-                                    {parseFloat(cuota.markup_real).toFixed(2)}%
-                                  </span>
-                                </div>
+                                <button
+                                  onClick={recalcularCuotasEnEdicion}
+                                  disabled={formData.cuotas_loading}
+                                  className="btn-primary"
+                                  style={{ padding: '4px 12px', fontSize: '13px' }}
+                                >
+                                  {formData.cuotas_loading ? '⏳ Calculando...' : '🔄 Recalcular Cuotas'}
+                                </button>
                               </div>
                             </div>
-                          ))}
-                        </div>
+                            {formData.cuotas_calculadas && formData.cuotas_calculadas.length > 0 && (
+                              <div className="cuotas-grid-expandido">
+                                {formData.cuotas_calculadas.map((cuota) => (
+                                  <div key={cuota.cuotas} className="cuota-card-expandido">
+                                    <div className="cuota-card-header">
+                                      <span className="cuota-numero">{cuota.cuotas} Cuotas</span>
+                                      <span className="cuota-precio">${parseFloat(cuota.precio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                    <div className="cuota-card-details">
+                                      <div className="cuota-detail">
+                                        <span className="label">Comisión:</span>
+                                        <span className="value">{parseFloat(cuota.comision_base_pct).toFixed(2)}%</span>
+                                      </div>
+                                      <div className="cuota-detail">
+                                        <span className="label">Comisión Total:</span>
+                                        <span className="value">${parseFloat(cuota.comision_total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div className="cuota-detail">
+                                        <span className="label">Limpio:</span>
+                                        <span className="value">${parseFloat(cuota.limpio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div className="cuota-detail highlight">
+                                        <span className="label">Markup:</span>
+                                        <span className="value" style={{ color: getMarkupColor(cuota.markup_real), fontWeight: 'bold' }}>
+                                          {parseFloat(cuota.markup_real).toFixed(2)}%
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          // MODO VISTA: Solo mostrar cuotas guardadas
+                          calculo.precios_cuotas && calculo.precios_cuotas.cuotas && (
+                            <>
+                              <div className="cuotas-header-expandido">
+                                <h4>💳 Precios de Cuotas (Markup Convergente)</h4>
+                                <span className="adicional-badge">
+                                  Adicional: {calculo.precios_cuotas.adicional_markup || 0}%
+                                </span>
+                              </div>
+                              <div className="cuotas-grid-expandido">
+                                {calculo.precios_cuotas.cuotas.map((cuota) => (
+                                  <div key={cuota.cuotas} className="cuota-card-expandido">
+                                    <div className="cuota-card-header">
+                                      <span className="cuota-numero">{cuota.cuotas} Cuotas</span>
+                                      <span className="cuota-precio">${parseFloat(cuota.precio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                    <div className="cuota-card-details">
+                                      <div className="cuota-detail">
+                                        <span className="label">Comisión:</span>
+                                        <span className="value">{parseFloat(cuota.comision_base_pct).toFixed(2)}%</span>
+                                      </div>
+                                      <div className="cuota-detail">
+                                        <span className="label">Comisión Total:</span>
+                                        <span className="value">${parseFloat(cuota.comision_total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div className="cuota-detail">
+                                        <span className="label">Limpio:</span>
+                                        <span className="value">${parseFloat(cuota.limpio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div className="cuota-detail highlight">
+                                        <span className="label">Markup:</span>
+                                        <span className="value" style={{ color: getMarkupColor(cuota.markup_real), fontWeight: 'bold' }}>
+                                          {parseFloat(cuota.markup_real).toFixed(2)}%
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )
+                        )}
                       </div>
                     </td>
                   </tr>
