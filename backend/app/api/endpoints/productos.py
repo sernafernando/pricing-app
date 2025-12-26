@@ -836,6 +836,91 @@ async def listar_productos(
                         # Si hay error calculando el markup, simplemente no lo mostramos
                         pass
 
+        # Calcular markups para precios PVP
+        markup_pvp = None
+        markup_pvp_3_cuotas = None
+        markup_pvp_6_cuotas = None
+        markup_pvp_9_cuotas = None
+        markup_pvp_12_cuotas = None
+
+        if producto_pricing:
+            # Markup PVP clásica
+            if producto_pricing.precio_pvp and float(producto_pricing.precio_pvp) > 0:
+                try:
+                    tipo_cambio_pvp = None
+                    if producto_erp.moneda_costo == "USD":
+                        tipo_cambio_pvp = obtener_tipo_cambio_actual(db, "USD")
+
+                    costo_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_pvp)
+                    grupo_id_pvp = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+                    comision_base_pvp = obtener_comision_base(db, 12, grupo_id_pvp)  # Pricelist 12 = PVP clásica
+
+                    if comision_base_pvp:
+                        comisiones_pvp = calcular_comision_ml_total(
+                            float(producto_pricing.precio_pvp),
+                            comision_base_pvp,
+                            producto_erp.iva,
+                            db=db
+                        )
+                        limpio_pvp = calcular_limpio(
+                            float(producto_pricing.precio_pvp),
+                            producto_erp.iva,
+                            producto_erp.envio or 0,
+                            comisiones_pvp["comision_total"],
+                            db=db,
+                            grupo_id=grupo_id_pvp
+                        )
+                        markup_pvp = calcular_markup(limpio_pvp, costo_pvp) * 100
+                except Exception:
+                    pass
+
+            # Markups PVP cuotas
+            cuotas_pvp_config = [
+                (producto_pricing.precio_pvp_3_cuotas, 18, 'pvp_3_cuotas'),
+                (producto_pricing.precio_pvp_6_cuotas, 19, 'pvp_6_cuotas'),
+                (producto_pricing.precio_pvp_9_cuotas, 20, 'pvp_9_cuotas'),
+                (producto_pricing.precio_pvp_12_cuotas, 21, 'pvp_12_cuotas')
+            ]
+
+            for precio_cuota_pvp, pricelist_id_pvp, nombre_cuota_pvp in cuotas_pvp_config:
+                if precio_cuota_pvp and float(precio_cuota_pvp) > 0:
+                    try:
+                        tipo_cambio_cuota_pvp = None
+                        if producto_erp.moneda_costo == "USD":
+                            tipo_cambio_cuota_pvp = obtener_tipo_cambio_actual(db, "USD")
+
+                        costo_cuota_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota_pvp)
+                        grupo_id_cuota_pvp = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+                        comision_base_cuota_pvp = obtener_comision_base(db, pricelist_id_pvp, grupo_id_cuota_pvp)
+
+                        if comision_base_cuota_pvp:
+                            comisiones_cuota_pvp = calcular_comision_ml_total(
+                                float(precio_cuota_pvp),
+                                comision_base_cuota_pvp,
+                                producto_erp.iva,
+                                db=db
+                            )
+                            limpio_cuota_pvp = calcular_limpio(
+                                float(precio_cuota_pvp),
+                                producto_erp.iva,
+                                producto_erp.envio or 0,
+                                comisiones_cuota_pvp["comision_total"],
+                                db=db,
+                                grupo_id=grupo_id_cuota_pvp
+                            )
+                            markup_calculado_pvp = calcular_markup(limpio_cuota_pvp, costo_cuota_pvp) * 100
+
+                            if nombre_cuota_pvp == 'pvp_3_cuotas':
+                                markup_pvp_3_cuotas = markup_calculado_pvp
+                            elif nombre_cuota_pvp == 'pvp_6_cuotas':
+                                markup_pvp_6_cuotas = markup_calculado_pvp
+                            elif nombre_cuota_pvp == 'pvp_9_cuotas':
+                                markup_pvp_9_cuotas = markup_calculado_pvp
+                            elif nombre_cuota_pvp == 'pvp_12_cuotas':
+                                markup_pvp_12_cuotas = markup_calculado_pvp
+                    except Exception:
+                        pass
+
         producto_obj = ProductoResponse(
             item_id=producto_erp.item_id,
             codigo=producto_erp.codigo,
@@ -887,11 +972,11 @@ async def listar_productos(
             precio_pvp_6_cuotas=float(producto_pricing.precio_pvp_6_cuotas) if producto_pricing and producto_pricing.precio_pvp_6_cuotas else None,
             precio_pvp_9_cuotas=float(producto_pricing.precio_pvp_9_cuotas) if producto_pricing and producto_pricing.precio_pvp_9_cuotas else None,
             precio_pvp_12_cuotas=float(producto_pricing.precio_pvp_12_cuotas) if producto_pricing and producto_pricing.precio_pvp_12_cuotas else None,
-            markup_pvp=float(producto_pricing.markup_pvp) if producto_pricing and producto_pricing.markup_pvp else None,
-            markup_pvp_3_cuotas=float(producto_pricing.markup_pvp_3_cuotas) if producto_pricing and producto_pricing.markup_pvp_3_cuotas else None,
-            markup_pvp_6_cuotas=float(producto_pricing.markup_pvp_6_cuotas) if producto_pricing and producto_pricing.markup_pvp_6_cuotas else None,
-            markup_pvp_9_cuotas=float(producto_pricing.markup_pvp_9_cuotas) if producto_pricing and producto_pricing.markup_pvp_9_cuotas else None,
-            markup_pvp_12_cuotas=float(producto_pricing.markup_pvp_12_cuotas) if producto_pricing and producto_pricing.markup_pvp_12_cuotas else None,
+            markup_pvp=markup_pvp,
+            markup_pvp_3_cuotas=markup_pvp_3_cuotas,
+            markup_pvp_6_cuotas=markup_pvp_6_cuotas,
+            markup_pvp_9_cuotas=markup_pvp_9_cuotas,
+            markup_pvp_12_cuotas=markup_pvp_12_cuotas,
             catalog_status=None,  # Se llenará después
             has_catalog=None,  # Se llenará después
         )
@@ -1597,6 +1682,102 @@ async def obtener_producto(item_id: int, db: Session = Depends(get_db)):
     producto_erp, producto_pricing = result
     costo_ars = producto_erp.costo if producto_erp.moneda_costo == "ARS" else None
 
+    # Importar funciones de cálculo
+    from app.services.pricing_calculator import (
+        obtener_tipo_cambio_actual,
+        convertir_a_pesos,
+        obtener_grupo_subcategoria,
+        obtener_comision_base,
+        calcular_comision_ml_total,
+        calcular_limpio,
+        calcular_markup
+    )
+
+    # Calcular markups PVP
+    markup_pvp = None
+    markup_pvp_3_cuotas = None
+    markup_pvp_6_cuotas = None
+    markup_pvp_9_cuotas = None
+    markup_pvp_12_cuotas = None
+
+    if producto_pricing:
+        # Markup PVP clásica
+        if producto_pricing.precio_pvp and float(producto_pricing.precio_pvp) > 0:
+            try:
+                tipo_cambio_pvp = None
+                if producto_erp.moneda_costo == "USD":
+                    tipo_cambio_pvp = obtener_tipo_cambio_actual(db, "USD")
+
+                costo_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_pvp)
+                grupo_id_pvp = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+                comision_base_pvp = obtener_comision_base(db, 12, grupo_id_pvp)
+
+                if comision_base_pvp:
+                    comisiones_pvp = calcular_comision_ml_total(
+                        float(producto_pricing.precio_pvp),
+                        comision_base_pvp,
+                        producto_erp.iva,
+                        db=db
+                    )
+                    limpio_pvp = calcular_limpio(
+                        float(producto_pricing.precio_pvp),
+                        producto_erp.iva,
+                        producto_erp.envio or 0,
+                        comisiones_pvp["comision_total"],
+                        db=db,
+                        grupo_id=grupo_id_pvp
+                    )
+                    markup_pvp = calcular_markup(limpio_pvp, costo_pvp) * 100
+            except Exception:
+                pass
+
+        # Markups PVP cuotas
+        cuotas_pvp_config = [
+            (producto_pricing.precio_pvp_3_cuotas, 18, 'pvp_3_cuotas'),
+            (producto_pricing.precio_pvp_6_cuotas, 19, 'pvp_6_cuotas'),
+            (producto_pricing.precio_pvp_9_cuotas, 20, 'pvp_9_cuotas'),
+            (producto_pricing.precio_pvp_12_cuotas, 21, 'pvp_12_cuotas')
+        ]
+
+        for precio_cuota_pvp, pricelist_id_pvp, nombre_cuota_pvp in cuotas_pvp_config:
+            if precio_cuota_pvp and float(precio_cuota_pvp) > 0:
+                try:
+                    tipo_cambio_cuota_pvp = None
+                    if producto_erp.moneda_costo == "USD":
+                        tipo_cambio_cuota_pvp = obtener_tipo_cambio_actual(db, "USD")
+
+                    costo_cuota_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota_pvp)
+                    grupo_id_cuota_pvp = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+                    comision_base_cuota_pvp = obtener_comision_base(db, pricelist_id_pvp, grupo_id_cuota_pvp)
+
+                    if comision_base_cuota_pvp:
+                        comisiones_cuota_pvp = calcular_comision_ml_total(
+                            float(precio_cuota_pvp),
+                            comision_base_cuota_pvp,
+                            producto_erp.iva,
+                            db=db
+                        )
+                        limpio_cuota_pvp = calcular_limpio(
+                            float(precio_cuota_pvp),
+                            producto_erp.iva,
+                            producto_erp.envio or 0,
+                            comisiones_cuota_pvp["comision_total"],
+                            db=db,
+                            grupo_id=grupo_id_cuota_pvp
+                        )
+                        markup_calculado_pvp = calcular_markup(limpio_cuota_pvp, costo_cuota_pvp) * 100
+
+                        if nombre_cuota_pvp == 'pvp_3_cuotas':
+                            markup_pvp_3_cuotas = markup_calculado_pvp
+                        elif nombre_cuota_pvp == 'pvp_6_cuotas':
+                            markup_pvp_6_cuotas = markup_calculado_pvp
+                        elif nombre_cuota_pvp == 'pvp_9_cuotas':
+                            markup_pvp_9_cuotas = markup_calculado_pvp
+                        elif nombre_cuota_pvp == 'pvp_12_cuotas':
+                            markup_pvp_12_cuotas = markup_calculado_pvp
+                except Exception:
+                    pass
+
     return ProductoResponse(
         item_id=producto_erp.item_id,
         codigo=producto_erp.codigo,
@@ -1648,11 +1829,11 @@ async def obtener_producto(item_id: int, db: Session = Depends(get_db)):
         precio_pvp_6_cuotas=float(producto_pricing.precio_pvp_6_cuotas) if producto_pricing and producto_pricing.precio_pvp_6_cuotas else None,
         precio_pvp_9_cuotas=float(producto_pricing.precio_pvp_9_cuotas) if producto_pricing and producto_pricing.precio_pvp_9_cuotas else None,
         precio_pvp_12_cuotas=float(producto_pricing.precio_pvp_12_cuotas) if producto_pricing and producto_pricing.precio_pvp_12_cuotas else None,
-        markup_pvp=float(producto_pricing.markup_pvp) if producto_pricing and producto_pricing.markup_pvp else None,
-        markup_pvp_3_cuotas=float(producto_pricing.markup_pvp_3_cuotas) if producto_pricing and producto_pricing.markup_pvp_3_cuotas else None,
-        markup_pvp_6_cuotas=float(producto_pricing.markup_pvp_6_cuotas) if producto_pricing and producto_pricing.markup_pvp_6_cuotas else None,
-        markup_pvp_9_cuotas=float(producto_pricing.markup_pvp_9_cuotas) if producto_pricing and producto_pricing.markup_pvp_9_cuotas else None,
-        markup_pvp_12_cuotas=float(producto_pricing.markup_pvp_12_cuotas) if producto_pricing and producto_pricing.markup_pvp_12_cuotas else None,
+        markup_pvp=markup_pvp,
+        markup_pvp_3_cuotas=markup_pvp_3_cuotas,
+        markup_pvp_6_cuotas=markup_pvp_6_cuotas,
+        markup_pvp_9_cuotas=markup_pvp_9_cuotas,
+        markup_pvp_12_cuotas=markup_pvp_12_cuotas,
         catalog_status=None,
         has_catalog=None
     )
