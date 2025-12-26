@@ -32,8 +32,10 @@
   /* Layout */
   display: flex;
   flex-direction: column;
+  justify-content: center; /* Centra verticalmente */
   gap: var(--spacing-md);
   text-align: center;
+  min-height: 140px; /* Altura mínima para consistencia */
 }
 
 /* Hover effect - Elevación sutil */
