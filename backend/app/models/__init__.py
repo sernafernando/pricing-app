@@ -33,6 +33,7 @@ from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
 from app.models.rol import Rol
 from app.models.pedido_preparacion_cache import PedidoPreparacionCache
 from app.models.export_87_snapshot import Export87Snapshot
+from app.models.produccion_banlist import ProduccionBanlist, ProduccionPrearmado
 
 __all__ = [
     "ProductoERP",
@@ -77,5 +78,7 @@ __all__ = [
     "UsuarioPermisoOverride",
     "Rol",
     "PedidoPreparacionCache",
-    "Export87Snapshot"
+    "Export87Snapshot",
+    "ProduccionBanlist",
+    "ProduccionPrearmado"
 ]

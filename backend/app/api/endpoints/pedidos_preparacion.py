@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.models.pedido_preparacion_cache import PedidoPreparacionCache
 from app.models.tb_item_association import TbItemAssociation
 from app.models.producto import ProductoERP
+from app.models.produccion_banlist import ProduccionBanlist, ProduccionPrearmado
 from app.api.deps import get_current_user
 
 router = APIRouter()
@@ -44,6 +45,7 @@ class ResumenProductoResponse(BaseModel):
     ml_logistic_type: Optional[str]
     prepara_paquete: int
     updated_at: Optional[datetime]
+    esta_prearmado: bool = False  # Flag si está marcado como pre-armado
 
     class Config:
         from_attributes = True
@@ -98,11 +100,17 @@ async def obtener_resumen(
 
     # Filtro vista Producción: EAN con "-" Y (Notebook OR NB OR PC ARMADA OR AIO)
     if vista_produccion:
-        from sqlalchemy import or_
+        from sqlalchemy import or_, and_
         query = query.filter(
             PedidoPreparacionCache.item_code.like('%-%'),
             or_(*[PedidoPreparacionCache.item_desc.ilike(p) for p in PRODUCCION_PATRONES])
         )
+        
+        # Excluir items del banlist de producción
+        banlist_items = db.query(ProduccionBanlist.item_id).all()
+        if banlist_items:
+            banlist_item_ids = [b.item_id for b in banlist_items]
+            query = query.filter(~PedidoPreparacionCache.item_id.in_(banlist_item_ids))
 
     # Filtro por tipo de envío
     if logistic_type:
@@ -120,6 +128,10 @@ async def obtener_resumen(
     query = query.order_by(PedidoPreparacionCache.cantidad.desc())
 
     results = query.offset(offset).limit(limit).all()
+    
+    # Obtener lista de items pre-armados
+    prearmados = db.query(ProduccionPrearmado.item_id).all()
+    prearmados_set = {p.item_id for p in prearmados}
 
     return [
         ResumenProductoResponse(
@@ -130,7 +142,8 @@ async def obtener_resumen(
             cantidad=float(r.cantidad) if r.cantidad else 0,
             ml_logistic_type=r.ml_logistic_type,
             prepara_paquete=r.prepara_paquete or 0,
-            updated_at=convert_to_argentina_tz(r.updated_at)
+            updated_at=convert_to_argentina_tz(r.updated_at),
+            esta_prearmado=r.item_id in prearmados_set if r.item_id else False
         )
         for r in results
     ]

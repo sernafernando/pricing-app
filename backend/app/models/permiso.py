@@ -405,6 +405,20 @@ PERMISOS_SISTEMA = [
         "categoria": CategoriaPermiso.ADMINISTRACION,
         "orden": 57
     },
+    {
+        "codigo": "admin.gestionar_produccion_banlist",
+        "nombre": "Gestionar banlist de producción",
+        "descripcion": "Agregar y quitar items del banlist de Producción - Preparación",
+        "categoria": CategoriaPermiso.ADMINISTRACION,
+        "orden": 58
+    },
+    {
+        "codigo": "produccion.marcar_prearmado",
+        "nombre": "Marcar productos pre-armados",
+        "descripcion": "Marcar/desmarcar productos que están siendo pre-armados en producción",
+        "categoria": CategoriaPermiso.PRODUCTOS,
+        "orden": 59
+    },
 
     # =========================================================================
     # CONFIGURACIÓN
@@ -414,14 +428,14 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver comisiones",
         "descripcion": "Ver configuración de comisiones ML",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 60
+        "orden": 62
     },
     {
         "codigo": "config.editar_comisiones",
         "nombre": "Editar comisiones",
         "descripcion": "Crear nuevas versiones de comisiones",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 61,
+        "orden": 63,
         "es_critico": True
     },
     {
@@ -429,14 +443,14 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver constantes de pricing",
         "descripcion": "Ver configuración de constantes (tiers, varios, etc.)",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 62
+        "orden": 64
     },
     {
         "codigo": "config.editar_constantes",
         "nombre": "Editar constantes de pricing",
         "descripcion": "Crear nuevas versiones de constantes",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 63,
+        "orden": 65,
         "es_critico": True
     },
     {
@@ -492,6 +506,8 @@ PERMISOS_POR_ROL = {
         "admin.limpieza_masiva",
         "admin.gestionar_banlist",
         "admin.gestionar_mla_banlist",
+        "admin.gestionar_produccion_banlist",
+        "produccion.marcar_prearmado",
         "config.*",
     ],
     "GERENTE": [
