@@ -472,6 +472,28 @@ export default function Notificaciones() {
           </select>
         </div>
 
+        <div className={styles.filterGroup}>
+          <label>Urgencia:</label>
+          <select value={filtroSeveridad || ''} onChange={(e) => setFiltroSeveridad(e.target.value || null)}>
+            <option value="">Todas</option>
+            <option value="URGENT">🔴 Urgente</option>
+            <option value="CRITICAL">🟠 Crítico</option>
+            <option value="WARNING">🟡 Advertencia</option>
+            <option value="INFO">🟢 Info</option>
+          </select>
+        </div>
+
+        <div className={styles.filterGroup}>
+          <label>Ordenar:</label>
+          <select value={ordenamiento} onChange={(e) => setOrdenamiento(e.target.value)}>
+            <option value="severidad_desc">📊 Urgencia (↓)</option>
+            <option value="fecha_desc">📅 Más recientes</option>
+            <option value="fecha_asc">📅 Más antiguas</option>
+            <option value="markup_asc">📉 Markup peor → mejor</option>
+            <option value="markup_desc">📈 Markup mejor → peor</option>
+          </select>
+        </div>
+
         <div className={styles.actions}>
           {stats.no_leidas > 0 && (
             <button onClick={marcarTodasLeidas} className="btn-tesla secondary sm">
