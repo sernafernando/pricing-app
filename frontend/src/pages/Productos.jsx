@@ -1353,17 +1353,17 @@ export default function Productos() {
       // Normalizar: reemplazar coma por punto
       const precioNormalizado = parseFloat(precioTemp.toString().replace(',', '.'));
 
-      // Si estamos en modo PVP, usar endpoint de cuotas con lista_tipo=pvp
+      // Si estamos en modo PVP, usar set-rapido con lista_tipo=pvp
       if (modoVista === 'pvp') {
         const response = await axios.post(
-          'https://pricing.gaussonline.com.ar/api/precios/set-cuota',
+          'https://pricing.gaussonline.com.ar/api/precios/set-rapido',
           null,
           {
             headers: { Authorization: `Bearer ${token}` },
             params: {
               item_id: itemId,
-              tipo_cuota: 'clasica',
               precio: precioNormalizado,
+              recalcular_cuotas: true,  // Siempre recalcular cuotas PVP
               lista_tipo: 'pvp'
             }
           }
@@ -1374,7 +1374,17 @@ export default function Productos() {
             ? {
                 ...p,
                 precio_pvp: precioNormalizado,
-                markup_pvp: response.data.markup_pvp
+                markup_pvp: response.data.markup_pvp,
+                // Actualizar cuotas PVP recalculadas
+                precio_pvp_3_cuotas: response.data.precio_pvp_3_cuotas || p.precio_pvp_3_cuotas,
+                precio_pvp_6_cuotas: response.data.precio_pvp_6_cuotas || p.precio_pvp_6_cuotas,
+                precio_pvp_9_cuotas: response.data.precio_pvp_9_cuotas || p.precio_pvp_9_cuotas,
+                precio_pvp_12_cuotas: response.data.precio_pvp_12_cuotas || p.precio_pvp_12_cuotas,
+                // Actualizar markups de cuotas PVP si vienen en la respuesta
+                markup_pvp_3_cuotas: response.data.markup_pvp_3_cuotas !== undefined ? response.data.markup_pvp_3_cuotas : p.markup_pvp_3_cuotas,
+                markup_pvp_6_cuotas: response.data.markup_pvp_6_cuotas !== undefined ? response.data.markup_pvp_6_cuotas : p.markup_pvp_6_cuotas,
+                markup_pvp_9_cuotas: response.data.markup_pvp_9_cuotas !== undefined ? response.data.markup_pvp_9_cuotas : p.markup_pvp_9_cuotas,
+                markup_pvp_12_cuotas: response.data.markup_pvp_12_cuotas !== undefined ? response.data.markup_pvp_12_cuotas : p.markup_pvp_12_cuotas
               }
             : p
         ));

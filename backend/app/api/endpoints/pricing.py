@@ -617,10 +617,11 @@ async def setear_precio_rapido(
     item_id: int,
     precio: float = Query(gt=0, le=999999999.99),
     recalcular_cuotas: bool = Query(True, description="Si True, recalcula precios de cuotas automáticamente"),
+    lista_tipo: str = Query("web", regex="^(web|pvp)$", description="Tipo de lista: web o pvp"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Setea precio clásica y calcula markup al instante. Opcionalmente recalcula cuotas."""
+    """Setea precio clásica (web o pvp) y calcula markup al instante. Opcionalmente recalcula cuotas."""
 
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
@@ -643,7 +644,10 @@ async def setear_precio_rapido(
     
     costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
     grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
-    comision_base = obtener_comision_base(db, 4, grupo_id)  # Lista clásica
+    
+    # Seleccionar pricelist según lista_tipo
+    pricelist_clasica = 12 if lista_tipo == "pvp" else 4
+    comision_base = obtener_comision_base(db, pricelist_clasica, grupo_id)
 
     if not comision_base:
         raise HTTPException(400, "No hay comisión configurada")
@@ -653,7 +657,11 @@ async def setear_precio_rapido(
     markup = calcular_markup(limpio, costo_ars)
 
     # Calcular precios de cuotas si recalcular_cuotas es True
-    precios_cuotas = {'precio_3_cuotas': None, 'precio_6_cuotas': None, 'precio_9_cuotas': None, 'precio_12_cuotas': None}
+    # Nombres de campos según lista_tipo
+    if lista_tipo == "pvp":
+        precios_cuotas = {'precio_pvp_3_cuotas': None, 'precio_pvp_6_cuotas': None, 'precio_pvp_9_cuotas': None, 'precio_pvp_12_cuotas': None}
+    else:
+        precios_cuotas = {'precio_3_cuotas': None, 'precio_6_cuotas': None, 'precio_9_cuotas': None, 'precio_12_cuotas': None}
 
     # Obtener pricing para verificar configuración custom de cuotas
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
@@ -662,12 +670,21 @@ async def setear_precio_rapido(
         # markup está en decimal (ej: 0.355 para 35.5%), convertir a porcentaje
         markup_porcentaje = round(markup * 100, 2)
 
-        cuotas_config = {
-            'precio_3_cuotas': 17,
-            'precio_6_cuotas': 14,
-            'precio_9_cuotas': 13,
-            'precio_12_cuotas': 23
-        }
+        # Configuración de cuotas según lista_tipo
+        if lista_tipo == "pvp":
+            cuotas_config = {
+                'precio_pvp_3_cuotas': 18,
+                'precio_pvp_6_cuotas': 19,
+                'precio_pvp_9_cuotas': 20,
+                'precio_pvp_12_cuotas': 21
+            }
+        else:
+            cuotas_config = {
+                'precio_3_cuotas': 17,
+                'precio_6_cuotas': 14,
+                'precio_9_cuotas': 13,
+                'precio_12_cuotas': 23
+            }
 
         # Obtener markup adicional: primero del producto, si no de configuración global
         if pricing and pricing.markup_adicional_cuotas_custom is not None:
@@ -740,16 +757,29 @@ async def setear_precio_rapido(
             motivo="Edición rápida"
         )
         db.add(historial)
-        pricing.precio_lista_ml = precio
-        pricing.markup_calculado = round(markup * 100, 2)
+        # Actualizar precio según lista_tipo
+        if lista_tipo == "pvp":
+            pricing.precio_pvp = precio
+            pricing.markup_pvp = round(markup * 100, 2)
+        else:
+            pricing.precio_lista_ml = precio
+            pricing.markup_calculado = round(markup * 100, 2)
+        
         pricing.usuario_id = current_user.id
         pricing.fecha_modificacion = datetime.now()
+        
         # Actualizar precios de cuotas si se recalcularon
         if recalcular_cuotas:
-            pricing.precio_3_cuotas = precios_cuotas['precio_3_cuotas']
-            pricing.precio_6_cuotas = precios_cuotas['precio_6_cuotas']
-            pricing.precio_9_cuotas = precios_cuotas['precio_9_cuotas']
-            pricing.precio_12_cuotas = precios_cuotas['precio_12_cuotas']
+            if lista_tipo == "pvp":
+                pricing.precio_pvp_3_cuotas = precios_cuotas['precio_pvp_3_cuotas']
+                pricing.precio_pvp_6_cuotas = precios_cuotas['precio_pvp_6_cuotas']
+                pricing.precio_pvp_9_cuotas = precios_cuotas['precio_pvp_9_cuotas']
+                pricing.precio_pvp_12_cuotas = precios_cuotas['precio_pvp_12_cuotas']
+            else:
+                pricing.precio_3_cuotas = precios_cuotas['precio_3_cuotas']
+                pricing.precio_6_cuotas = precios_cuotas['precio_6_cuotas']
+                pricing.precio_9_cuotas = precios_cuotas['precio_9_cuotas']
+                pricing.precio_12_cuotas = precios_cuotas['precio_12_cuotas']
 
         # Calcular y actualizar markup_rebate y markup_oferta
         pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
@@ -795,31 +825,55 @@ async def setear_precio_rapido(
     if pricing.participa_rebate and pricing.porcentaje_rebate:
         precio_rebate = precio / (1 - float(pricing.porcentaje_rebate) / 100)
 
-    response = {
-        "item_id": item_id,
-        "precio": precio,
-        "markup": round(markup * 100, 2),
-        "limpio": round(limpio, 2),
-        "costo_ars": round(costo_ars, 2),
-        "precio_rebate": round(precio_rebate, 2) if precio_rebate else None,
-        "precio_web_transferencia": float(pricing.precio_web_transferencia) if pricing.precio_web_transferencia else None,
-        "markup_web_real": float(pricing.markup_web_real) if pricing.markup_web_real else None
-    }
+    # Construir respuesta según lista_tipo
+    if lista_tipo == "pvp":
+        response = {
+            "item_id": item_id,
+            "precio_pvp": precio,
+            "markup_pvp": round(markup * 100, 2),
+            "limpio": round(limpio, 2),
+            "costo_ars": round(costo_ars, 2)
+        }
+    else:
+        response = {
+            "item_id": item_id,
+            "precio": precio,
+            "markup": round(markup * 100, 2),
+            "limpio": round(limpio, 2),
+            "costo_ars": round(costo_ars, 2),
+            "precio_rebate": round(precio_rebate, 2) if precio_rebate else None,
+            "precio_web_transferencia": float(pricing.precio_web_transferencia) if pricing.precio_web_transferencia else None,
+            "markup_web_real": float(pricing.markup_web_real) if pricing.markup_web_real else None
+        }
 
     # Agregar precios de cuotas si se recalcularon
     if recalcular_cuotas:
-        response["precio_3_cuotas"] = precios_cuotas['precio_3_cuotas']
-        response["precio_6_cuotas"] = precios_cuotas['precio_6_cuotas']
-        response["precio_9_cuotas"] = precios_cuotas['precio_9_cuotas']
-        response["precio_12_cuotas"] = precios_cuotas['precio_12_cuotas']
+        if lista_tipo == "pvp":
+            response["precio_pvp_3_cuotas"] = precios_cuotas['precio_pvp_3_cuotas']
+            response["precio_pvp_6_cuotas"] = precios_cuotas['precio_pvp_6_cuotas']
+            response["precio_pvp_9_cuotas"] = precios_cuotas['precio_pvp_9_cuotas']
+            response["precio_pvp_12_cuotas"] = precios_cuotas['precio_pvp_12_cuotas']
+        else:
+            response["precio_3_cuotas"] = precios_cuotas['precio_3_cuotas']
+            response["precio_6_cuotas"] = precios_cuotas['precio_6_cuotas']
+            response["precio_9_cuotas"] = precios_cuotas['precio_9_cuotas']
+            response["precio_12_cuotas"] = precios_cuotas['precio_12_cuotas']
 
         # Calcular markups de cuotas si los precios fueron calculados
-        cuotas_pricelists = [
-            (precios_cuotas['precio_3_cuotas'], 17, 'markup_3_cuotas'),
-            (precios_cuotas['precio_6_cuotas'], 14, 'markup_6_cuotas'),
-            (precios_cuotas['precio_9_cuotas'], 13, 'markup_9_cuotas'),
-            (precios_cuotas['precio_12_cuotas'], 23, 'markup_12_cuotas')
-        ]
+        if lista_tipo == "pvp":
+            cuotas_pricelists = [
+                (precios_cuotas['precio_pvp_3_cuotas'], 18, 'markup_pvp_3_cuotas'),
+                (precios_cuotas['precio_pvp_6_cuotas'], 19, 'markup_pvp_6_cuotas'),
+                (precios_cuotas['precio_pvp_9_cuotas'], 20, 'markup_pvp_9_cuotas'),
+                (precios_cuotas['precio_pvp_12_cuotas'], 21, 'markup_pvp_12_cuotas')
+            ]
+        else:
+            cuotas_pricelists = [
+                (precios_cuotas['precio_3_cuotas'], 17, 'markup_3_cuotas'),
+                (precios_cuotas['precio_6_cuotas'], 14, 'markup_6_cuotas'),
+                (precios_cuotas['precio_9_cuotas'], 13, 'markup_9_cuotas'),
+                (precios_cuotas['precio_12_cuotas'], 23, 'markup_12_cuotas')
+            ]
 
         for precio_cuota, pricelist_id, nombre_markup in cuotas_pricelists:
             if precio_cuota and float(precio_cuota) > 0:
