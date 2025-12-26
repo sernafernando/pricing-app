@@ -17,8 +17,8 @@
 .table-container-tesla {
   position: relative;
   overflow-x: auto;
-  overflow-y: visible;
-  min-height: 600px;
+  overflow-y: auto; /* Auto scroll vertical para sticky header */
+  max-height: calc(100vh - 200px); /* Altura máxima para scroll interno */
   
   /* Visual Tesla */
   background: var(--bg-primary);
@@ -72,13 +72,13 @@
 }
 
 /* ============================================
-   HEADER - Sticky debajo del navbar
+   HEADER - Sticky dentro del contenedor
    ============================================ */
 
 .table-tesla-head {
   position: sticky;
-  top: 70px; /* Altura del navbar */
-  z-index: 100; /* Menos que navbar (1000) */
+  top: 0; /* Sticky relativo a su contenedor */
+  z-index: 10; /* Dentro del contenedor */
   
   /* Glassmorphism sutil */
   background: var(--bg-secondary);
