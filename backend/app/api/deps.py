@@ -62,7 +62,7 @@ def require_role(allowed_roles: list[RolUsuario]):
 
 # Dependencias específicas por rol
 async def get_current_admin(current_user: Usuario = Depends(get_current_user)) -> Usuario:
-    if current_user.rol != RolUsuario.ADMIN:
+    if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo administradores pueden realizar esta acción"
