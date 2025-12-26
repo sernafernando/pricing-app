@@ -506,7 +506,6 @@
 /* Anular estilos de Productos.css - SIN !important para permitir colores inline */
 .table-tesla-body tr {
   background: transparent;
-  position: relative;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -518,20 +517,18 @@
     inset 0 -1px 0 rgba(0, 0, 0, 0.02);
 }
 
-/* Hover en filas con color manual - overlay semitransparente */
-.table-tesla-body tr[style*="background-color"]:hover::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.08);
-  pointer-events: none;
-  z-index: 1;
+/* Hover en filas con color manual - oscurecer/aclarar según tema */
+.table-tesla-body tr[style*="background-color"]:hover {
+  filter: brightness(0.85);
+  box-shadow: 
+    inset 0 0 0 1px rgba(0, 0, 0, 0.15);
 }
 
-/* Asegurar que el contenido de las celdas esté sobre el overlay */
-.table-tesla-body tr[style*="background-color"]:hover td {
-  position: relative;
-  z-index: 2;
+/* Dark mode - aclarar en lugar de oscurecer */
+:root[data-theme="dark"] .table-tesla-body tr[style*="background-color"]:hover {
+  filter: brightness(1.15);
+  box-shadow: 
+    inset 0 0 0 1px rgba(255, 255, 255, 0.15);
 }
 
 .table-tesla-body td {
