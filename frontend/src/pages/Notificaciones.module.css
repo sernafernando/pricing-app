@@ -539,83 +539,77 @@
   color: #4b5563;
   text-decoration: line-through;
 }
-
-.estadoBadge.en-gestion {
-  background: #e0e7ff;
-  color: #3730a3;
-}
-
-.estadoBadge.resuelta {
-  background: #d1fae5;
-  color: #065f46;
-}
-
 /* ===== BOTONES DE GESTIÓN ===== */
 
 .btnSuccess {
   background: #10b981;
   color: white;
   border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 500;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .btnSuccess:hover {
   background: #059669;
   transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
 }
 
 .btnWarning {
   background: #f59e0b;
   color: white;
   border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 500;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .btnWarning:hover {
   background: #d97706;
   transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(245, 158, 11, 0.3);
+  box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
 }
 
 .btnInfo {
   background: #3b82f6;
   color: white;
   border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 500;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .btnInfo:hover {
   background: #2563eb;
   transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
 }
 
 .actionGroup {
-  background: #f9fafb;
-  padding: 12px;
-  border-radius: 8px;
+  background: rgba(249, 250, 251, 0.5);
+  padding: 8px;
+  border-radius: 6px;
   margin-bottom: 8px;
 }
 
 .actionGroup h5 {
-  margin: 0 0 8px 0;
-  font-size: 0.9rem;
+  margin: 0 0 6px 0;
+  font-size: 0.75rem;
   color: #666;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }

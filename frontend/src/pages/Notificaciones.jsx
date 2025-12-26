@@ -145,7 +145,16 @@ export default function Notificaciones() {
   
   const descartarNotificacion = async (notifId) => {
     try {
-      await api.patch(`/api/notificaciones/${notifId}/descartar`);
+      const response = await api.patch(`/api/notificaciones/${notifId}/descartar`);
+      
+      // Mostrar mensaje informativo al usuario
+      alert('✓ Notificación descartada.\n\n' +
+            '🔕 Se creó una regla para ignorar futuras notificaciones similares:\n' +
+            '• Mismo producto\n' +
+            '• Mismo tipo\n' +
+            '• Mismo markup\n\n' +
+            'Podés gestionar estas reglas desde Admin → Notificaciones Ignoradas');
+      
       // Actualizar localmente en vista agrupada
       if (vistaAgrupada) {
         setNotificaciones(notificaciones.map(grupo => {
@@ -168,6 +177,7 @@ export default function Notificaciones() {
       }
     } catch (error) {
       console.error('Error al descartar notificación:', error);
+      alert('Error al descartar notificación');
       await fetchNotificaciones();
     }
   };

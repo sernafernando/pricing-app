@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from decimal import Decimal
 
 from app.models.notificacion import Notificacion, SeveridadNotificacion, EstadoNotificacion
+from app.models.notificacion_ignorada import NotificacionIgnorada
 
 logger = logging.getLogger(__name__)
 
@@ -43,15 +44,20 @@ class NotificacionService:
         """
         Calcula la severidad de una notificación de markup.
         
-        Lógica:
-        - >25% diferencia → URGENT
-        - >15% diferencia → CRITICAL
-        - >10% diferencia → WARNING
-        - <=10% diferencia → INFO
+        Lógica (DIFERENCIA ABSOLUTA en puntos porcentuales):
+        - >25 puntos → URGENT (ej: 5% vs 30% = 25 puntos de diferencia)
+        - >15 puntos → CRITICAL
+        - >10 puntos → WARNING
+        - <=10 puntos → INFO
+        
+        IMPORTANTE: No confundir con diferencia porcentual RELATIVA.
+        Ejemplo: markup real -1.32% vs objetivo 3.79%
+          → Diferencia absoluta: |-1.32 - 3.79| = 5.11 puntos → WARNING
+          → Diferencia relativa: |(-1.32-3.79)/3.79*100| = 134.8% (INCORRECTO)
         
         Args:
-            markup_real: Markup real de la venta
-            markup_objetivo: Markup objetivo configurado
+            markup_real: Markup real de la venta (ej: -1.32)
+            markup_objetivo: Markup objetivo configurado (ej: 3.79)
             tipo_notificacion: Tipo de notificación (markup_bajo, etc)
         
         Returns:
@@ -61,23 +67,16 @@ class NotificacionService:
         if markup_real is None or markup_objetivo is None:
             return SeveridadNotificacion.INFO
         
-        # Calcular diferencia porcentual
-        if markup_objetivo == 0:
-            # Si el objetivo es 0, cualquier markup negativo es crítico
-            if markup_real < 0:
-                return SeveridadNotificacion.URGENT
-            return SeveridadNotificacion.INFO
+        # Calcular DIFERENCIA ABSOLUTA en puntos porcentuales
+        # Ejemplo: -1.32% vs 3.79% → |-1.32 - 3.79| = 5.11 puntos
+        diferencia_absoluta = abs(float(markup_real) - float(markup_objetivo))
         
-        diferencia_porcentual = abs(
-            (float(markup_real) - float(markup_objetivo)) / float(markup_objetivo) * 100
-        )
-        
-        # Aplicar umbrales
-        if diferencia_porcentual > self.UMBRAL_URGENT:
+        # Aplicar umbrales (en puntos porcentuales)
+        if diferencia_absoluta > self.UMBRAL_URGENT:
             return SeveridadNotificacion.URGENT
-        elif diferencia_porcentual > self.UMBRAL_CRITICAL:
+        elif diferencia_absoluta > self.UMBRAL_CRITICAL:
             return SeveridadNotificacion.CRITICAL
-        elif diferencia_porcentual > self.UMBRAL_WARNING:
+        elif diferencia_absoluta > self.UMBRAL_WARNING:
             return SeveridadNotificacion.WARNING
         else:
             return SeveridadNotificacion.INFO
@@ -122,6 +121,41 @@ class NotificacionService:
         else:
             return SeveridadNotificacion.INFO
     
+    def esta_ignorada(
+        self,
+        user_id: int,
+        item_id: Optional[int],
+        tipo: str,
+        markup_real: Optional[Decimal]
+    ) -> bool:
+        """
+        Verifica si existe una regla de ignorar para esta combinación.
+        
+        Args:
+            user_id: ID del usuario
+            item_id: ID del producto
+            tipo: Tipo de notificación
+            markup_real: Markup real
+        
+        Returns:
+            True si está ignorada, False si debe notificar
+        """
+        if not item_id or markup_real is None:
+            return False
+        
+        # Redondear markup a 2 decimales para matching
+        markup_redondeado = round(float(markup_real), 2)
+        
+        # Buscar regla que matchee
+        regla = self.db.query(NotificacionIgnorada).filter(
+            NotificacionIgnorada.user_id == user_id,
+            NotificacionIgnorada.item_id == item_id,
+            NotificacionIgnorada.tipo == tipo,
+            NotificacionIgnorada.markup_real == markup_redondeado
+        ).first()
+        
+        return regla is not None
+    
     def crear_notificacion(
         self,
         user_id: int,
@@ -129,9 +163,11 @@ class NotificacionService:
         mensaje: str,
         severidad: Optional[SeveridadNotificacion] = None,
         **campos_adicionales
-    ) -> Notificacion:
+    ) -> Optional[Notificacion]:
         """
         Crea una notificación con severidad automática.
+        
+        IMPORTANTE: Verifica primero si está ignorada. Si lo está, retorna None.
         
         Args:
             user_id: ID del usuario destinatario
@@ -141,13 +177,24 @@ class NotificacionService:
             **campos_adicionales: Otros campos (item_id, markup_real, etc)
         
         Returns:
-            Notificación creada
+            Notificación creada o None si está ignorada
         """
+        # Verificar si está ignorada
+        item_id = campos_adicionales.get('item_id')
+        markup_real = campos_adicionales.get('markup_real')
+        
+        if self.esta_ignorada(user_id, item_id, tipo, markup_real):
+            logger.info(
+                f"Notificación ignorada: tipo={tipo}, user_id={user_id}, "
+                f"item_id={item_id}, markup={markup_real} (regla de ignorar activa)"
+            )
+            return None
+        
         # Calcular severidad si no se proveyó
         if severidad is None:
             severidad = self.calcular_severidad(
                 tipo=tipo,
-                markup_real=campos_adicionales.get('markup_real'),
+                markup_real=markup_real,
                 markup_objetivo=campos_adicionales.get('markup_objetivo'),
                 **campos_adicionales
             )
@@ -168,10 +215,71 @@ class NotificacionService:
         
         logger.info(
             f"Notificación creada: tipo={tipo}, severidad={severidad.value}, "
-            f"user_id={user_id}, item_id={campos_adicionales.get('item_id')}"
+            f"user_id={user_id}, item_id={item_id}"
         )
         
         return notificacion
+    
+    def agregar_regla_ignorar(
+        self,
+        user_id: int,
+        item_id: int,
+        tipo: str,
+        markup_real: Decimal,
+        codigo_producto: Optional[str] = None,
+        descripcion_producto: Optional[str] = None,
+        notificacion_id: Optional[int] = None
+    ) -> NotificacionIgnorada:
+        """
+        Agrega una regla para ignorar futuras notificaciones.
+        
+        Args:
+            user_id: ID del usuario
+            item_id: ID del producto
+            tipo: Tipo de notificación
+            markup_real: Markup real (se redondea a 2 decimales)
+            codigo_producto: Código del producto (opcional, para UI)
+            descripcion_producto: Descripción del producto (opcional, para UI)
+            notificacion_id: ID de la notificación que disparó el ignorar
+        
+        Returns:
+            Regla creada (o existente si ya había una)
+        """
+        markup_redondeado = round(float(markup_real), 2)
+        
+        # Verificar si ya existe
+        regla_existente = self.db.query(NotificacionIgnorada).filter(
+            NotificacionIgnorada.user_id == user_id,
+            NotificacionIgnorada.item_id == item_id,
+            NotificacionIgnorada.tipo == tipo,
+            NotificacionIgnorada.markup_real == markup_redondeado
+        ).first()
+        
+        if regla_existente:
+            logger.info(f"Regla de ignorar ya existe: {regla_existente}")
+            return regla_existente
+        
+        # Crear nueva regla
+        regla = NotificacionIgnorada(
+            user_id=user_id,
+            item_id=item_id,
+            tipo=tipo,
+            markup_real=markup_redondeado,
+            codigo_producto=codigo_producto,
+            descripcion_producto=descripcion_producto,
+            ignorado_por_notificacion_id=notificacion_id
+        )
+        
+        self.db.add(regla)
+        self.db.commit()
+        self.db.refresh(regla)
+        
+        logger.info(
+            f"Regla de ignorar creada: user={user_id}, item={item_id}, "
+            f"tipo={tipo}, markup={markup_redondeado}"
+        )
+        
+        return regla
     
     def existe_notificacion_similar(
         self,

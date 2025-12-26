@@ -8,6 +8,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.models.notificacion import Notificacion, SeveridadNotificacion, EstadoNotificacion
+from app.services.notificacion_service import NotificacionService
 
 router = APIRouter()
 
@@ -443,12 +444,42 @@ async def revisar_notificacion(
 async def descartar_notificacion(
     notificacion_id: int,
     notas: Optional[str] = None,
+    crear_regla_ignorar: bool = True,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Descarta una notificación (no volver a mostrar como pendiente)
+    Descarta una notificación y opcionalmente crea regla para ignorar futuras similares.
+    
+    Args:
+        notificacion_id: ID de la notificación a descartar
+        notas: Notas opcionales sobre el descarte
+        crear_regla_ignorar: Si True, crea regla para ignorar futuras notificaciones 
+                            del mismo producto + tipo + markup (default: True)
     """
+    # Obtener notificación antes de cambiar estado
+    notificacion = db.query(Notificacion).filter(
+        Notificacion.id == notificacion_id,
+        Notificacion.user_id == current_user.id
+    ).first()
+    
+    if not notificacion:
+        raise HTTPException(404, "Notificación no encontrada")
+    
+    # Crear regla de ignorar si se solicitó y tenemos los datos necesarios
+    if crear_regla_ignorar and notificacion.item_id and notificacion.markup_real is not None:
+        servicio = NotificacionService(db)
+        servicio.agregar_regla_ignorar(
+            user_id=current_user.id,
+            item_id=notificacion.item_id,
+            tipo=notificacion.tipo,
+            markup_real=notificacion.markup_real,
+            codigo_producto=notificacion.codigo_producto,
+            descripcion_producto=notificacion.descripcion_producto,
+            notificacion_id=notificacion_id
+        )
+    
+    # Cambiar estado a descartada
     request = CambiarEstadoRequest(estado=EstadoNotificacion.DESCARTADA, notas=notas)
     return await cambiar_estado_notificacion(notificacion_id, request, db, current_user)
 
@@ -471,12 +502,41 @@ async def resolver_notificacion(
 async def descartar_notificaciones_bulk(
     notificaciones_ids: List[int],
     notas: Optional[str] = None,
+    crear_reglas_ignorar: bool = True,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Descarta múltiples notificaciones a la vez
+    Descarta múltiples notificaciones a la vez y opcionalmente crea reglas de ignorar.
+    
+    Args:
+        notificaciones_ids: IDs de las notificaciones a descartar
+        notas: Notas opcionales sobre el descarte
+        crear_reglas_ignorar: Si True, crea reglas de ignorar para cada notificación (default: True)
     """
+    # Si se solicitan reglas de ignorar, obtener las notificaciones primero
+    if crear_reglas_ignorar:
+        notificaciones = db.query(Notificacion).filter(
+            Notificacion.id.in_(notificaciones_ids),
+            Notificacion.user_id == current_user.id
+        ).all()
+        
+        servicio = NotificacionService(db)
+        
+        # Crear reglas de ignorar para cada una que tenga datos completos
+        for notif in notificaciones:
+            if notif.item_id and notif.markup_real is not None:
+                servicio.agregar_regla_ignorar(
+                    user_id=current_user.id,
+                    item_id=notif.item_id,
+                    tipo=notif.tipo,
+                    markup_real=notif.markup_real,
+                    codigo_producto=notif.codigo_producto,
+                    descripcion_producto=notif.descripcion_producto,
+                    notificacion_id=notif.id
+                )
+    
+    # Descartar las notificaciones
     ahora = datetime.now()
     
     count = db.query(Notificacion).filter(
@@ -545,4 +605,164 @@ async def dashboard_notificaciones(
         "criticas_pendientes": criticas_pendientes,
         "no_leidas": no_leidas,
         "requieren_atencion": por_estado.get('pendiente', 0) + por_estado.get('en_gestion', 0)
+    }
+
+
+# ========== ENDPOINTS DE GESTIÓN DE REGLAS IGNORADAS ==========
+
+from app.models.notificacion_ignorada import NotificacionIgnorada
+
+class ReglaIgnoradaResponse(BaseModel):
+    id: int
+    user_id: int
+    item_id: int
+    tipo: str
+    markup_real: float
+    codigo_producto: Optional[str]
+    descripcion_producto: Optional[str]
+    fecha_creacion: datetime
+    ignorado_por_notificacion_id: Optional[int]
+    
+    class Config:
+        from_attributes = True
+
+
+@router.get("/notificaciones/ignoradas", response_model=List[ReglaIgnoradaResponse])
+async def listar_reglas_ignoradas(
+    limit: int = 100,
+    offset: int = 0,
+    tipo: Optional[str] = None,
+    codigo_producto: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Lista todas las reglas de ignorar del usuario actual.
+    
+    Permite filtrar por:
+    - tipo: Tipo de notificación
+    - codigo_producto: Búsqueda parcial en código de producto
+    """
+    query = db.query(NotificacionIgnorada).filter(
+        NotificacionIgnorada.user_id == current_user.id
+    )
+    
+    if tipo:
+        query = query.filter(NotificacionIgnorada.tipo == tipo)
+    
+    if codigo_producto:
+        query = query.filter(
+            NotificacionIgnorada.codigo_producto.ilike(f"%{codigo_producto}%")
+        )
+    
+    reglas = query.order_by(
+        desc(NotificacionIgnorada.fecha_creacion)
+    ).offset(offset).limit(limit).all()
+    
+    return reglas
+
+
+@router.delete("/notificaciones/ignoradas/{regla_id}")
+async def eliminar_regla_ignorada(
+    regla_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Elimina una regla de ignorar (re-habilita notificaciones para ese producto/tipo/markup).
+    """
+    regla = db.query(NotificacionIgnorada).filter(
+        NotificacionIgnorada.id == regla_id,
+        NotificacionIgnorada.user_id == current_user.id
+    ).first()
+    
+    if not regla:
+        raise HTTPException(404, "Regla no encontrada")
+    
+    db.delete(regla)
+    db.commit()
+    
+    return {
+        "mensaje": "Regla eliminada. Ahora recibirás notificaciones para este caso.",
+        "regla": {
+            "item_id": regla.item_id,
+            "tipo": regla.tipo,
+            "markup_real": regla.markup_real,
+            "codigo_producto": regla.codigo_producto
+        }
+    }
+
+
+@router.delete("/notificaciones/ignoradas/bulk")
+async def eliminar_reglas_ignoradas_bulk(
+    reglas_ids: List[int],
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Elimina múltiples reglas de ignorar a la vez.
+    """
+    count = db.query(NotificacionIgnorada).filter(
+        NotificacionIgnorada.id.in_(reglas_ids),
+        NotificacionIgnorada.user_id == current_user.id
+    ).delete(synchronize_session=False)
+    
+    db.commit()
+    
+    return {"mensaje": f"{count} reglas eliminadas"}
+
+
+@router.get("/notificaciones/ignoradas/stats")
+async def stats_reglas_ignoradas(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Estadísticas sobre las reglas de ignorar del usuario.
+    """
+    # Total de reglas
+    total = db.query(NotificacionIgnorada).filter(
+        NotificacionIgnorada.user_id == current_user.id
+    ).count()
+    
+    # Por tipo
+    tipos_query = db.query(
+        NotificacionIgnorada.tipo,
+        func.count(NotificacionIgnorada.id).label('count')
+    ).filter(
+        NotificacionIgnorada.user_id == current_user.id
+    ).group_by(NotificacionIgnorada.tipo).all()
+    
+    por_tipo = {tipo: count for tipo, count in tipos_query}
+    
+    # Productos más ignorados
+    productos_query = db.query(
+        NotificacionIgnorada.item_id,
+        NotificacionIgnorada.codigo_producto,
+        NotificacionIgnorada.descripcion_producto,
+        func.count(NotificacionIgnorada.id).label('count')
+    ).filter(
+        NotificacionIgnorada.user_id == current_user.id
+    ).group_by(
+        NotificacionIgnorada.item_id,
+        NotificacionIgnorada.codigo_producto,
+        NotificacionIgnorada.descripcion_producto
+    ).order_by(
+        desc('count')
+    ).limit(10).all()
+    
+    productos_top = [
+        {
+            "item_id": item_id,
+            "codigo_producto": codigo,
+            "descripcion_producto": descripcion,
+            "reglas_count": count
+        }
+        for item_id, codigo, descripcion, count in productos_query
+    ]
+    
+    return {
+        "total": total,
+        "por_tipo": por_tipo,
+        "productos_mas_ignorados": productos_top
     }
