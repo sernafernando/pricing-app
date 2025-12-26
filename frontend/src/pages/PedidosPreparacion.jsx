@@ -102,6 +102,11 @@ export default function PedidosPreparacion() {
   // Estados para banlist y prearmado
   const [procesando, setProcesando] = useState(new Set());
   const [modalPrearmado, setModalPrearmado] = useState(null); // { item_id, item_code, item_desc, cantidad_actual }
+  const [modalBanlist, setModalBanlist] = useState(false);
+  const [banlist, setBanlist] = useState([]);
+  const [modalAgregarPrearmado, setModalAgregarPrearmado] = useState(false);
+  const [busquedaPrearmado, setBusquedaPrearmado] = useState('');
+  const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
 
   const getToken = () => localStorage.getItem('token');
   
@@ -198,6 +203,29 @@ export default function PedidosPreparacion() {
   };
 
   // Bannear producto
+  // Cargar banlist
+  const cargarBanlist = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/produccion-banlist`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setBanlist(response.data);
+    } catch (error) {
+      console.error('Error cargando banlist:', error);
+    }
+  };
+
+  // Abrir modal de banlist
+  const abrirModalBanlist = () => {
+    if (!puedeGestionarBanlist) {
+      alert('No tenés permiso para gestionar el banlist de producción');
+      return;
+    }
+    cargarBanlist();
+    setModalBanlist(true);
+  };
+
+  // Bannear producto
   const bannearProducto = async (itemId, itemCode, itemDesc) => {
     if (!puedeGestionarBanlist) {
       alert('No tenés permiso para gestionar el banlist de producción');
@@ -231,6 +259,78 @@ export default function PedidosPreparacion() {
         newSet.delete(itemId);
         return newSet;
       });
+    }
+  };
+
+  // Quitar de banlist
+  const quitarDeBanlist = async (itemId) => {
+    if (!confirm('¿Seguro que querés quitar este producto del banlist?')) return;
+    
+    try {
+      await axios.delete(`${API_URL}/produccion-banlist/${itemId}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      
+      // Actualizar lista local
+      setBanlist(prev => prev.filter(b => b.item_id !== itemId));
+      
+      alert('✅ Producto removido del banlist');
+      
+    } catch (error) {
+      console.error('Error quitando de banlist:', error);
+      alert('Error: ' + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  // Buscar productos para agregar a pre-armado
+  const buscarProductosParaPrearmar = async (termino) => {
+    if (!termino || termino.length < 3) {
+      setResultadosBusqueda([]);
+      return;
+    }
+
+    try {
+      const response = await axios.get(`${API_URL}/productos`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: {
+          search: termino,
+          page: 1,
+          page_size: 20
+        }
+      });
+      
+      setResultadosBusqueda(response.data.productos || []);
+    } catch (error) {
+      console.error('Error buscando productos:', error);
+    }
+  };
+
+  // Agregar producto a pre-armado manualmente
+  const agregarPrearmadoManual = async (producto) => {
+    const cantidad = parseInt(prompt(`¿Cuántas unidades de "${producto.codigo}" estás pre-armando?`, '1'));
+    
+    if (isNaN(cantidad) || cantidad <= 0) {
+      alert('Cantidad inválida');
+      return;
+    }
+
+    try {
+      await axios.post(`${API_URL}/produccion-prearmado/${producto.item_id}`, 
+        { cantidad },
+        { headers: { Authorization: `Bearer ${getToken()}` }}
+      );
+      
+      alert(`✅ Pre-armado agregado: ${cantidad} unidades de ${producto.codigo}`);
+      setModalAgregarPrearmado(false);
+      setBusquedaPrearmado('');
+      setResultadosBusqueda([]);
+      
+      // Refrescar datos si estamos en la vista
+      cargarDatos();
+      
+    } catch (error) {
+      console.error('Error agregando pre-armado:', error);
+      alert('Error: ' + (error.response?.data?.detail || error.message));
     }
   };
 
@@ -379,6 +479,24 @@ export default function PedidosPreparacion() {
             >
               {syncing ? 'Sincronizando...' : 'Sincronizar ERP'}
             </button>
+            {puedeGestionarBanlist && (
+              <button
+                onClick={abrirModalBanlist}
+                className={styles.banlistBtn}
+                title="Gestionar productos baneados"
+              >
+                🚫 Banlist ({banlist.length})
+              </button>
+            )}
+            {puedeMarcarPrearmado && (
+              <button
+                onClick={() => setModalAgregarPrearmado(true)}
+                className={styles.agregarPrearmadoBtn}
+                title="Agregar producto a pre-armado manualmente"
+              >
+                + Pre-armado
+              </button>
+            )}
           </div>
         
           {/* Estadísticas */}
@@ -622,6 +740,113 @@ export default function PedidosPreparacion() {
               </button>
               <button className={styles.btnGuardar} onClick={guardarPrearmado}>
                 Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Banlist */}
+      {modalBanlist && (
+        <div className={styles.modalOverlay} onClick={() => setModalBanlist(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>🚫 Productos Baneados de Vista Producción</h3>
+              <button className={styles.modalClose} onClick={() => setModalBanlist(false)}>×</button>
+            </div>
+            
+            <div className={styles.modalBody}>
+              {banlist.length === 0 ? (
+                <div className={styles.emptyBanlist}>
+                  No hay productos en el banlist
+                </div>
+              ) : (
+                <div className={styles.banlistTable}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Item ID</th>
+                        <th>Motivo</th>
+                        <th>Fecha</th>
+                        <th>Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {banlist.map(b => (
+                        <tr key={b.id}>
+                          <td><strong>{b.item_id}</strong></td>
+                          <td>{b.motivo || '-'}</td>
+                          <td>{new Date(b.fecha_creacion).toLocaleDateString()}</td>
+                          <td>
+                            <button
+                              className={styles.btnDesbanear}
+                              onClick={() => quitarDeBanlist(b.item_id)}
+                            >
+                              ✓ Quitar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            
+            <div className={styles.modalFooter}>
+              <button className={styles.btnCancelar} onClick={() => setModalBanlist(false)}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Agregar Pre-armado Manual */}
+      {modalAgregarPrearmado && (
+        <div className={styles.modalOverlay} onClick={() => setModalAgregarPrearmado(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>➕ Agregar Pre-Armado Manual</h3>
+              <button className={styles.modalClose} onClick={() => setModalAgregarPrearmado(false)}>×</button>
+            </div>
+            
+            <div className={styles.modalBody}>
+              <div className={styles.modalInput}>
+                <label>Buscar producto (código o descripción):</label>
+                <input
+                  type="text"
+                  value={busquedaPrearmado}
+                  onChange={(e) => {
+                    setBusquedaPrearmado(e.target.value);
+                    buscarProductosParaPrearmar(e.target.value);
+                  }}
+                  placeholder="Ingresá al menos 3 caracteres..."
+                  className={styles.inputCantidad}
+                  autoFocus
+                />
+              </div>
+              
+              {resultadosBusqueda.length > 0 && (
+                <div className={styles.resultadosBusqueda}>
+                  {resultadosBusqueda.map(p => (
+                    <div 
+                      key={p.item_id} 
+                      className={styles.resultadoItem}
+                      onClick={() => agregarPrearmadoManual(p)}
+                    >
+                      <strong>{p.codigo}</strong>
+                      <span>{p.descripcion}</span>
+                      <small>Stock: {p.stock || 0}</small>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            <div className={styles.modalFooter}>
+              <button className={styles.btnCancelar} onClick={() => setModalAgregarPrearmado(false)}>
+                Cancelar
               </button>
             </div>
           </div>
