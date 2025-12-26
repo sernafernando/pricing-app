@@ -378,9 +378,15 @@ export default function Notificaciones() {
 
     switch (ordenamiento) {
       case 'severidad_desc':
-        // Primero por severidad descendente, luego por fecha descendente
-        const sevDiff = getSeveridadValue(bSev) - getSeveridadValue(aSev);
-        if (sevDiff !== 0) return sevDiff;
+        // Urgente → Info, luego más recientes
+        const sevDiffDesc = getSeveridadValue(bSev) - getSeveridadValue(aSev);
+        if (sevDiffDesc !== 0) return sevDiffDesc;
+        return new Date(bFecha) - new Date(aFecha);
+      
+      case 'severidad_asc':
+        // Info → Urgente, luego más recientes
+        const sevDiffAsc = getSeveridadValue(aSev) - getSeveridadValue(bSev);
+        if (sevDiffAsc !== 0) return sevDiffAsc;
         return new Date(bFecha) - new Date(aFecha);
       
       case 'fecha_desc':
@@ -430,6 +436,19 @@ export default function Notificaciones() {
       </div>
 
       <div className={styles.filters}>
+        <div className={styles.filterGroup}>
+          <span style={{ 
+            fontSize: '0.85rem', 
+            color: 'var(--text-secondary)',
+            fontWeight: 500,
+            padding: '0 8px'
+          }}>
+            📋 Mostrando: <strong style={{ color: 'var(--primary-color)' }}>
+              {notificacionesFiltradas.length}
+            </strong> de {notificaciones.length}
+          </span>
+        </div>
+
         <div className={styles.filterGroup}>
           <label>
             <input
@@ -486,7 +505,8 @@ export default function Notificaciones() {
         <div className={styles.filterGroup}>
           <label>Ordenar:</label>
           <select value={ordenamiento} onChange={(e) => setOrdenamiento(e.target.value)}>
-            <option value="severidad_desc">📊 Urgencia (↓)</option>
+            <option value="severidad_desc">🚨 Urgente → Info</option>
+            <option value="severidad_asc">🟢 Info → Urgente</option>
             <option value="fecha_desc">📅 Más recientes</option>
             <option value="fecha_asc">📅 Más antiguas</option>
             <option value="markup_asc">📉 Markup peor → mejor</option>
