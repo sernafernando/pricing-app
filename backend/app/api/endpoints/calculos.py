@@ -248,7 +248,7 @@ class CalcularCuotasRequest(BaseModel):
     envio: float = Field(default=0, ge=0)
     markup_objetivo: float = Field(..., description="Markup objetivo en porcentaje (ej: 15.5)")
     tipo_cambio: Optional[float] = None
-    subcategoria_id: int = Field(default=1, description="ID de subcategoría, default 1")
+    grupo_id: int = Field(default=1, description="ID del grupo de comisión (1-13)")
     adicional_markup: float = Field(default=4.0, description="Markup adicional para cuotas en puntos porcentuales")
 
 class PrecioCuotaResponse(BaseModel):
@@ -272,6 +272,9 @@ async def calcular_precios_cuotas(
     Dado un markup objetivo (ej: 15%), calcula el precio necesario para cada plan de cuotas
     de manera que mantengan el mismo markup después de aplicar las comisiones específicas de cada plan.
     """
+    print(f"🔍 Request recibido: {request}")
+    print(f"🔍 User: {current_user.username if current_user else 'None'}")
+    
     from app.services.pricing_calculator import calcular_precio_producto
     
     # Configuración de cuotas: nombre -> (cantidad_cuotas, pricelist_id)
@@ -293,7 +296,7 @@ async def calcular_precios_cuotas(
                 moneda_costo=request.moneda_costo,
                 iva=request.iva,
                 envio=request.envio,
-                subcategoria_id=request.subcategoria_id,
+                grupo_id=request.grupo_id,  # ← Usar grupo_id directo
                 pricelist_id=pricelist_id,
                 markup_objetivo=request.markup_objetivo,
                 tipo_cambio=request.tipo_cambio,

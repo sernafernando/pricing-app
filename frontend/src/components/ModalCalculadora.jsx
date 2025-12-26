@@ -29,11 +29,14 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
   const [preciosCuotas, setPreciosCuotas] = useState([]);
   const [calculandoCuotas, setCalculandoCuotas] = useState(false);
   const [adicionalMarkup, setAdicionalMarkup] = useState(4.0);
+  const [gruposComision, setGruposComision] = useState([]);
+  const [grupoSeleccionado, setGrupoSeleccionado] = useState(1); // Default: Grupo 1
 
   useEffect(() => {
     if (isOpen) {
       cargarTipoCambio();
       cargarConstantes();
+      cargarGruposComision();
     }
   }, [isOpen]);
 
@@ -68,6 +71,18 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
         comision_tier3: 2810,
         varios_porcentaje: 6.5
       });
+    }
+  };
+
+  const cargarGruposComision = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('https://pricing.gaussonline.com.ar/api/comisiones/calculadas', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setGruposComision(response.data); // Array de {grupo_id, lista_4, lista_3_cuotas, ...}
+    } catch (error) {
+      console.error('Error cargando grupos de comisión:', error);
     }
   };
 
@@ -170,7 +185,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
         envio: parseFloat(formData.costoEnvio) || 0,
         markup_objetivo: parseFloat(resultados.markupPorcentaje),
         tipo_cambio: parseFloat(formData.tipoCambio),
-        subcategoria_id: 1, // Default
+        grupo_id: grupoSeleccionado, // Usar grupo seleccionado del dropdown
         adicional_markup: adicionalMarkup
       };
       
@@ -404,6 +419,25 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
                 onChange={(e) => handleChange('tipoCambio', e.target.value)}
                 placeholder="0.00"
               />
+            </div>
+
+            <div className="form-group">
+              <label>Grupo Comisión (para cuotas)</label>
+              <select
+                value={grupoSeleccionado}
+                onChange={(e) => setGrupoSeleccionado(parseInt(e.target.value))}
+                title="Selecciona el grupo de comisión para calcular precios de cuotas"
+              >
+                {gruposComision.length === 0 ? (
+                  <option value="1">Grupo 1 (cargando...)</option>
+                ) : (
+                  gruposComision.map(grupo => (
+                    <option key={grupo.grupo_id} value={grupo.grupo_id}>
+                      Grupo {grupo.grupo_id} - Base {grupo.lista_4.toFixed(2)}%
+                    </option>
+                  ))
+                )}
+              </select>
             </div>
           </div>
 

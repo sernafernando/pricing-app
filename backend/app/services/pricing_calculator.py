@@ -374,13 +374,18 @@ def calcular_precio_producto(
     moneda_costo: str,
     iva: float,
     envio: float,
-    subcategoria_id: int,
-    pricelist_id: int,
-    markup_objetivo: float,
+    subcategoria_id: Optional[int] = None,
+    pricelist_id: int = 4,
+    markup_objetivo: float = 0,
     tipo_cambio: Optional[float] = None,
-    adicional_markup: float = 4.0
+    adicional_markup: float = 4.0,
+    grupo_id: Optional[int] = None
 ) -> Dict:
-    """Calcula precio usando comisiones de la base de datos"""
+    """Calcula precio usando comisiones de la base de datos
+    
+    Args:
+        grupo_id: Si se provee, se usa directamente. Sino se obtiene de subcategoria_id.
+    """
 
     costo_ars = convertir_a_pesos(costo, moneda_costo, tipo_cambio)
 
@@ -388,8 +393,12 @@ def calcular_precio_producto(
     constantes = obtener_constantes_pricing(db)
     varios = constantes["varios"]
 
-    # Obtener grupo (usa grupo 1 si no está asignado)
-    grupo_id = obtener_grupo_subcategoria(db, subcategoria_id)
+    # Obtener grupo: primero intentar con grupo_id directo, sino desde subcategoria
+    if grupo_id is None:
+        if subcategoria_id is not None:
+            grupo_id = obtener_grupo_subcategoria(db, subcategoria_id)
+        else:
+            grupo_id = GRUPO_DEFAULT  # Usar grupo 1 por defecto
 
     # Obtener comisión base
     comision_base = obtener_comision_base(db, pricelist_id, grupo_id)
