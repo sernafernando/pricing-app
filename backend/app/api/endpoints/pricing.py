@@ -857,28 +857,51 @@ async def setear_precio_rapido(
 @router.post("/precios/set-cuota")
 async def setear_precio_cuota(
     item_id: int,
-    tipo_cuota: str = Query(regex="^(3|6|9|12)$"),  # Solo acepta 3, 6, 9 o 12
+    tipo_cuota: str = Query(regex="^(clasica|3|6|9|12)$"),  # Acepta clasica, 3, 6, 9 o 12
     precio: float = Query(gt=0, le=999999999.99),
+    lista_tipo: str = Query("web", regex="^(web|pvp)$", description="Tipo de lista: web o pvp"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Setea el precio de un tipo de cuota específico y calcula su markup."""
+    """Setea el precio de un tipo de cuota específico (web o pvp) y calcula su markup."""
 
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
         raise HTTPException(404, "Producto no encontrado")
 
-    # Mapeo de tipo_cuota a campo en la base de datos
-    campo_precio = f"precio_{tipo_cuota}_cuotas"
-    campo_markup = f"markup_{tipo_cuota}_cuotas"
+    # Mapeo de tipo_cuota a campo en la base de datos según lista_tipo
+    if lista_tipo == "pvp":
+        if tipo_cuota == "clasica":
+            campo_precio = "precio_pvp"
+            campo_markup = "markup_pvp"
+        else:
+            campo_precio = f"precio_pvp_{tipo_cuota}_cuotas"
+            campo_markup = f"markup_pvp_{tipo_cuota}_cuotas"
+    else:  # web (comportamiento original)
+        if tipo_cuota == "clasica":
+            campo_precio = "precio_lista_ml"
+            campo_markup = "markup"
+        else:
+            campo_precio = f"precio_{tipo_cuota}_cuotas"
+            campo_markup = f"markup_{tipo_cuota}_cuotas"
 
-    # Mapeo de tipo_cuota a pricelist_id
-    pricelist_map = {
-        '3': 17,
-        '6': 14,
-        '9': 13,
-        '12': 23
-    }
+    # Mapeo de tipo_cuota a pricelist_id según lista_tipo
+    if lista_tipo == "pvp":
+        pricelist_map = {
+            'clasica': 12,  # Clásica PVP
+            '3': 18,        # 3 Cuotas PVP
+            '6': 19,        # 6 Cuotas PVP
+            '9': 20,        # 9 Cuotas PVP
+            '12': 21        # 12 Cuotas PVP
+        }
+    else:  # web (comportamiento original)
+        pricelist_map = {
+            'clasica': 4,   # Clásica Web
+            '3': 17,
+            '6': 14,
+            '9': 13,
+            '12': 23
+        }
     pricelist_id = pricelist_map[tipo_cuota]
 
     # Obtener TC si es USD

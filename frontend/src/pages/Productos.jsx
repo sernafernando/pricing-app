@@ -1173,7 +1173,9 @@ export default function Productos() {
 
   const iniciarEdicion = (producto) => {
     setEditandoPrecio(producto.item_id);
-    setPrecioTemp(producto.precio_lista_ml || '');
+    // Si estamos en modo PVP, usar precio_pvp, sino precio_lista_ml
+    const precioInicial = modoVista === 'pvp' ? (producto.precio_pvp || '') : (producto.precio_lista_ml || '');
+    setPrecioTemp(precioInicial);
   };
 
   const iniciarEdicionCuota = (producto, tipo) => {
@@ -1182,7 +1184,7 @@ export default function Productos() {
     setCuotaTemp(producto[campoPrecio] || '');
   };
 
-  const guardarCuota = async (itemId, tipo) => {
+  const guardarCuota = async (itemId, tipo, esPVP = false) => {
     try {
       const token = localStorage.getItem('token');
       const precioNormalizado = parseFloat(cuotaTemp.toString().replace(',', '.'));
@@ -1195,13 +1197,21 @@ export default function Productos() {
           params: {
             item_id: itemId,
             tipo_cuota: tipo,
-            precio: precioNormalizado
+            precio: precioNormalizado,
+            lista_tipo: esPVP ? 'pvp' : 'web'  // ← NUEVO: distinguir web/pvp
           }
         }
       );
 
-      const campoPrecio = `precio_${tipo}_cuotas`;
-      const campoMarkup = `markup_${tipo}_cuotas`;
+      // Determinar nombres de campos según si es PVP o Web
+      let campoPrecio, campoMarkup;
+      if (esPVP) {
+        campoPrecio = tipo === 'clasica' ? 'precio_pvp' : `precio_pvp_${tipo}_cuotas`;
+        campoMarkup = tipo === 'clasica' ? 'markup_pvp' : `markup_pvp_${tipo}_cuotas`;
+      } else {
+        campoPrecio = tipo === 'clasica' ? 'precio_lista_ml' : `precio_${tipo}_cuotas`;
+        campoMarkup = tipo === 'clasica' ? 'markup' : `markup_${tipo}_cuotas`;
+      }
 
       setProductos(prods => prods.map(p =>
         p.item_id === itemId
@@ -1216,7 +1226,8 @@ export default function Productos() {
       setEditandoCuota(null);
       cargarStats();
     } catch (error) {
-      alert('Error al guardar precio de cuota');
+      console.error('Error guardando cuota:', error);
+      alert('Error al guardar precio de cuota: ' + (error.response?.data?.detail || error.message));
     }
   };
 
@@ -1342,6 +1353,38 @@ export default function Productos() {
       // Normalizar: reemplazar coma por punto
       const precioNormalizado = parseFloat(precioTemp.toString().replace(',', '.'));
 
+      // Si estamos en modo PVP, usar endpoint de cuotas con lista_tipo=pvp
+      if (modoVista === 'pvp') {
+        const response = await axios.post(
+          'https://pricing.gaussonline.com.ar/api/precios/set-cuota',
+          null,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            params: {
+              item_id: itemId,
+              tipo_cuota: 'clasica',
+              precio: precioNormalizado,
+              lista_tipo: 'pvp'
+            }
+          }
+        );
+
+        setProductos(prods => prods.map(p =>
+          p.item_id === itemId
+            ? {
+                ...p,
+                precio_pvp: precioNormalizado,
+                markup_pvp: response.data.markup_pvp
+              }
+            : p
+        ));
+
+        setEditandoPrecio(null);
+        cargarStats();
+        return;
+      }
+
+      // Modo web (comportamiento original)
       const response = await axios.post(
         'https://pricing.gaussonline.com.ar/api/precios/set-rapido',
         null,  // No body needed, all params go in URL
@@ -3614,59 +3657,127 @@ export default function Productos() {
                       </>
                     )}
 
-                    {/* Vista PVP: PVP 3, 6, 9, 12 cuotas */}
+                    {/* Vista PVP: PVP 3, 6, 9, 12 cuotas - EDITABLES */}
                     {modoVista === 'pvp' && (
                       <>
                         <td className={isRowActive && celdaActiva?.colIndex === 1 ? 'keyboard-cell-active' : ''}>
-                          <div>
-                            <div>
-                              {p.precio_pvp_3_cuotas ? `$${p.precio_pvp_3_cuotas.toLocaleString('es-AR')}` : '-'}
+                          {editandoCuota?.item_id === p.item_id && editandoCuota?.tipo === '3' && editandoCuota?.esPVP ? (
+                            <div className="inline-edit">
+                              <input
+                                type="text"
+                                value={cuotaTemp}
+                                onChange={(e) => setCuotaTemp(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') { e.preventDefault(); guardarCuota(p.item_id, '3', true); }
+                                }}
+                                onFocus={(e) => e.target.select()}
+                                autoFocus
+                              />
+                              <button onClick={() => guardarCuota(p.item_id, '3', true)}>✓</button>
+                              <button onClick={() => setEditandoCuota(null)}>✗</button>
                             </div>
-                            {p.markup_pvp_3_cuotas !== null && p.markup_pvp_3_cuotas !== undefined && (
-                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_3_cuotas) }}>
-                                {p.markup_pvp_3_cuotas.toFixed(2)}%
+                          ) : (
+                            <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '3', esPVP: true }) && setCuotaTemp(p.precio_pvp_3_cuotas || '')}>
+                              <div className={puedeEditar ? 'editable-field' : ''}>
+                                {p.precio_pvp_3_cuotas ? `$${p.precio_pvp_3_cuotas.toLocaleString('es-AR')}` : '-'}
                               </div>
-                            )}
-                          </div>
+                              {p.markup_pvp_3_cuotas !== null && p.markup_pvp_3_cuotas !== undefined && (
+                                <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_3_cuotas) }}>
+                                  {p.markup_pvp_3_cuotas.toFixed(2)}%
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </td>
 
                         <td className={isRowActive && celdaActiva?.colIndex === 2 ? 'keyboard-cell-active' : ''}>
-                          <div>
-                            <div>
-                              {p.precio_pvp_6_cuotas ? `$${p.precio_pvp_6_cuotas.toLocaleString('es-AR')}` : '-'}
+                          {editandoCuota?.item_id === p.item_id && editandoCuota?.tipo === '6' && editandoCuota?.esPVP ? (
+                            <div className="inline-edit">
+                              <input
+                                type="text"
+                                value={cuotaTemp}
+                                onChange={(e) => setCuotaTemp(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') { e.preventDefault(); guardarCuota(p.item_id, '6', true); }
+                                }}
+                                onFocus={(e) => e.target.select()}
+                                autoFocus
+                              />
+                              <button onClick={() => guardarCuota(p.item_id, '6', true)}>✓</button>
+                              <button onClick={() => setEditandoCuota(null)}>✗</button>
                             </div>
-                            {p.markup_pvp_6_cuotas !== null && p.markup_pvp_6_cuotas !== undefined && (
-                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_6_cuotas) }}>
-                                {p.markup_pvp_6_cuotas.toFixed(2)}%
+                          ) : (
+                            <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '6', esPVP: true }) && setCuotaTemp(p.precio_pvp_6_cuotas || '')}>
+                              <div className={puedeEditar ? 'editable-field' : ''}>
+                                {p.precio_pvp_6_cuotas ? `$${p.precio_pvp_6_cuotas.toLocaleString('es-AR')}` : '-'}
                               </div>
-                            )}
-                          </div>
+                              {p.markup_pvp_6_cuotas !== null && p.markup_pvp_6_cuotas !== undefined && (
+                                <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_6_cuotas) }}>
+                                  {p.markup_pvp_6_cuotas.toFixed(2)}%
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </td>
 
                         <td className={isRowActive && celdaActiva?.colIndex === 3 ? 'keyboard-cell-active' : ''}>
-                          <div>
-                            <div>
-                              {p.precio_pvp_9_cuotas ? `$${p.precio_pvp_9_cuotas.toLocaleString('es-AR')}` : '-'}
+                          {editandoCuota?.item_id === p.item_id && editandoCuota?.tipo === '9' && editandoCuota?.esPVP ? (
+                            <div className="inline-edit">
+                              <input
+                                type="text"
+                                value={cuotaTemp}
+                                onChange={(e) => setCuotaTemp(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') { e.preventDefault(); guardarCuota(p.item_id, '9', true); }
+                                }}
+                                onFocus={(e) => e.target.select()}
+                                autoFocus
+                              />
+                              <button onClick={() => guardarCuota(p.item_id, '9', true)}>✓</button>
+                              <button onClick={() => setEditandoCuota(null)}>✗</button>
                             </div>
-                            {p.markup_pvp_9_cuotas !== null && p.markup_pvp_9_cuotas !== undefined && (
-                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_9_cuotas) }}>
-                                {p.markup_pvp_9_cuotas.toFixed(2)}%
+                          ) : (
+                            <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '9', esPVP: true }) && setCuotaTemp(p.precio_pvp_9_cuotas || '')}>
+                              <div className={puedeEditar ? 'editable-field' : ''}>
+                                {p.precio_pvp_9_cuotas ? `$${p.precio_pvp_9_cuotas.toLocaleString('es-AR')}` : '-'}
                               </div>
-                            )}
-                          </div>
+                              {p.markup_pvp_9_cuotas !== null && p.markup_pvp_9_cuotas !== undefined && (
+                                <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_9_cuotas) }}>
+                                  {p.markup_pvp_9_cuotas.toFixed(2)}%
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </td>
 
                         <td className={isRowActive && celdaActiva?.colIndex === 4 ? 'keyboard-cell-active' : ''}>
-                          <div>
-                            <div>
-                              {p.precio_pvp_12_cuotas ? `$${p.precio_pvp_12_cuotas.toLocaleString('es-AR')}` : '-'}
+                          {editandoCuota?.item_id === p.item_id && editandoCuota?.tipo === '12' && editandoCuota?.esPVP ? (
+                            <div className="inline-edit">
+                              <input
+                                type="text"
+                                value={cuotaTemp}
+                                onChange={(e) => setCuotaTemp(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') { e.preventDefault(); guardarCuota(p.item_id, '12', true); }
+                                }}
+                                onFocus={(e) => e.target.select()}
+                                autoFocus
+                              />
+                              <button onClick={() => guardarCuota(p.item_id, '12', true)}>✓</button>
+                              <button onClick={() => setEditandoCuota(null)}>✗</button>
                             </div>
-                            {p.markup_pvp_12_cuotas !== null && p.markup_pvp_12_cuotas !== undefined && (
-                              <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_12_cuotas) }}>
-                                {p.markup_pvp_12_cuotas.toFixed(2)}%
+                          ) : (
+                            <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '12', esPVP: true }) && setCuotaTemp(p.precio_pvp_12_cuotas || '')}>
+                              <div className={puedeEditar ? 'editable-field' : ''}>
+                                {p.precio_pvp_12_cuotas ? `$${p.precio_pvp_12_cuotas.toLocaleString('es-AR')}` : '-'}
                               </div>
-                            )}
-                          </div>
+                              {p.markup_pvp_12_cuotas !== null && p.markup_pvp_12_cuotas !== undefined && (
+                                <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp_12_cuotas) }}>
+                                  {p.markup_pvp_12_cuotas.toFixed(2)}%
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </td>
                       </>
                     )}
