@@ -781,26 +781,42 @@ async def setear_precio_rapido(
                 pricing.precio_9_cuotas = precios_cuotas['precio_9_cuotas']
                 pricing.precio_12_cuotas = precios_cuotas['precio_12_cuotas']
 
-        # Calcular y actualizar markup_rebate y markup_oferta
-        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
-        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
+        # Calcular y actualizar markup_rebate y markup_oferta (solo para web)
+        if lista_tipo == "web":
+            pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
+            pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
     else:
-        pricing = ProductoPricing(
-            item_id=item_id,
-            precio_lista_ml=precio,
-            usuario_id=current_user.id,
-            motivo_cambio="Edición rápida",
-            precio_3_cuotas=precios_cuotas['precio_3_cuotas'] if recalcular_cuotas else None,
-            precio_6_cuotas=precios_cuotas['precio_6_cuotas'] if recalcular_cuotas else None,
-            precio_9_cuotas=precios_cuotas['precio_9_cuotas'] if recalcular_cuotas else None,
-            precio_12_cuotas=precios_cuotas['precio_12_cuotas'] if recalcular_cuotas else None
-        )
+        # Crear nuevo registro según lista_tipo
+        if lista_tipo == "pvp":
+            pricing = ProductoPricing(
+                item_id=item_id,
+                precio_pvp=precio,
+                markup_pvp=round(markup * 100, 2),
+                usuario_id=current_user.id,
+                motivo_cambio="Edición rápida PVP",
+                precio_pvp_3_cuotas=precios_cuotas['precio_pvp_3_cuotas'] if recalcular_cuotas else None,
+                precio_pvp_6_cuotas=precios_cuotas['precio_pvp_6_cuotas'] if recalcular_cuotas else None,
+                precio_pvp_9_cuotas=precios_cuotas['precio_pvp_9_cuotas'] if recalcular_cuotas else None,
+                precio_pvp_12_cuotas=precios_cuotas['precio_pvp_12_cuotas'] if recalcular_cuotas else None
+            )
+        else:
+            pricing = ProductoPricing(
+                item_id=item_id,
+                precio_lista_ml=precio,
+                usuario_id=current_user.id,
+                motivo_cambio="Edición rápida",
+                precio_3_cuotas=precios_cuotas['precio_3_cuotas'] if recalcular_cuotas else None,
+                precio_6_cuotas=precios_cuotas['precio_6_cuotas'] if recalcular_cuotas else None,
+                precio_9_cuotas=precios_cuotas['precio_9_cuotas'] if recalcular_cuotas else None,
+                precio_12_cuotas=precios_cuotas['precio_12_cuotas'] if recalcular_cuotas else None
+            )
         db.add(pricing)
         db.flush()
 
-        # Calcular y actualizar markup_rebate y markup_oferta
-        pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
-        pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
+        # Calcular y actualizar markup_rebate y markup_oferta (solo para web)
+        if lista_tipo == "web":
+            pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
+            pricing.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio)
 
     # Recalcular web transferencia si está activo
     # NO hacer refresh aquí porque sobrescribe los valores asignados antes del commit
