@@ -157,6 +157,7 @@ async def actualizar_calculo(
     calculo_db.comision_total = calculo.comision_total
     calculo_db.tipo_cambio_usado = calculo.tipo_cambio_usado
     calculo_db.cantidad = calculo.cantidad
+    calculo_db.precios_cuotas = calculo.precios_cuotas  # ← AGREGAR ESTO
     calculo_db.fecha_modificacion = datetime.now()
 
     db.commit()
