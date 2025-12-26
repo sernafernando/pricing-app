@@ -16,6 +16,7 @@ const Calculos = () => {
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [filtroExportar, setFiltroExportar] = useState('todos');
   const [constantes, setConstantes] = useState(null);
+  const [filaExpandida, setFilaExpandida] = useState(null);
 
   useEffect(() => {
     cargarCalculos();
@@ -332,6 +333,10 @@ const Calculos = () => {
     }
   };
 
+  const toggleExpandirFila = (calculoId) => {
+    setFilaExpandida(filaExpandida === calculoId ? null : calculoId);
+  };
+
   const getMarkupColor = (markup) => {
     const valor = parseFloat(markup);
     if (valor >= 30) return '#22c55e';
@@ -400,6 +405,7 @@ const Calculos = () => {
               <thead>
                 <tr>
                   <th style={{ width: '40px' }}>✓</th>
+                  <th style={{ width: '30px' }}>💳</th>
                   <th>Descripción</th>
                   <th>EAN</th>
                   <th>Cant.</th>
@@ -418,7 +424,8 @@ const Calculos = () => {
               </thead>
             <tbody>
               {calculos.map((calculo) => (
-                <tr key={calculo.id}>
+                <React.Fragment key={calculo.id}>
+                <tr>
                   {calculoEditando === calculo.id ? (
                     <>
                       <td>
@@ -428,6 +435,7 @@ const Calculos = () => {
                           onChange={() => toggleSeleccion(calculo.id)}
                         />
                       </td>
+                      <td></td>
                       <td>
                         <input
                           type="text"
@@ -541,6 +549,19 @@ const Calculos = () => {
                           onChange={() => toggleSeleccion(calculo.id)}
                         />
                       </td>
+                      <td>
+                        {calculo.precios_cuotas ? (
+                          <button
+                            onClick={() => toggleExpandirFila(calculo.id)}
+                            className="btn-expand"
+                            title={filaExpandida === calculo.id ? "Ocultar cuotas" : "Ver cuotas"}
+                          >
+                            {filaExpandida === calculo.id ? '▼' : '▶'}
+                          </button>
+                        ) : (
+                          <span style={{ opacity: 0.3 }}>—</span>
+                        )}
+                      </td>
                       <td>{calculo.descripcion}</td>
                       <td>{calculo.ean || '-'}</td>
                       <td>
@@ -574,6 +595,54 @@ const Calculos = () => {
                     </>
                   )}
                 </tr>
+                
+                {/* Fila expandida con cuotas */}
+                {filaExpandida === calculo.id && calculo.precios_cuotas && calculo.precios_cuotas.cuotas && (
+                  <tr className="fila-expandida">
+                    <td colSpan="16" style={{ padding: 0 }}>
+                      <div className="cuotas-expandidas">
+                        <div className="cuotas-header-expandido">
+                          <h4>💳 Precios de Cuotas (Markup Convergente)</h4>
+                          <span className="adicional-badge">
+                            Adicional: {calculo.precios_cuotas.adicional_markup || 4.0}%
+                          </span>
+                        </div>
+                        
+                        <div className="cuotas-grid-expandido">
+                          {calculo.precios_cuotas.cuotas.map((cuota) => (
+                            <div key={cuota.cuotas} className="cuota-card-expandido">
+                              <div className="cuota-card-header">
+                                <span className="cuota-numero">{cuota.cuotas} Cuotas</span>
+                                <span className="cuota-precio">${parseFloat(cuota.precio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                              </div>
+                              <div className="cuota-card-details">
+                                <div className="cuota-detail">
+                                  <span className="label">Comisión:</span>
+                                  <span className="value">{parseFloat(cuota.comision_base_pct).toFixed(2)}%</span>
+                                </div>
+                                <div className="cuota-detail">
+                                  <span className="label">Comisión Total:</span>
+                                  <span className="value">${parseFloat(cuota.comision_total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="cuota-detail">
+                                  <span className="label">Limpio:</span>
+                                  <span className="value">${parseFloat(cuota.limpio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="cuota-detail highlight">
+                                  <span className="label">Markup:</span>
+                                  <span className="value" style={{ color: getMarkupColor(cuota.markup_real), fontWeight: 'bold' }}>
+                                    {parseFloat(cuota.markup_real).toFixed(2)}%
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>

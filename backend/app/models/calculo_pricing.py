@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
 from app.core.database import Base
 
@@ -29,6 +30,9 @@ class CalculoPricing(Base):
 
     # Cantidad para presupuesto/pedido
     cantidad = Column(Integer, default=0)
+
+    # Precios de cuotas calculados automáticamente (JSONB)
+    precios_cuotas = Column(JSONB, nullable=True)
 
     fecha_creacion = Column(DateTime, default=datetime.now)
     fecha_modificacion = Column(DateTime, default=datetime.now, onupdate=datetime.now)

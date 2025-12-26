@@ -392,6 +392,140 @@
   }
 }
 
+/* ===== BOTÓN EXPANDIR ===== */
+.btn-expand {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  color: var(--primary-color);
+  transition: all 0.2s;
+  border-radius: 4px;
+}
+
+.btn-expand:hover {
+  background: rgba(59, 130, 246, 0.1);
+  transform: scale(1.1);
+}
+
+/* ===== FILA EXPANDIDA ===== */
+.fila-expandida {
+  background: var(--bg-secondary) !important;
+}
+
+.fila-expandida:hover {
+  background: var(--bg-secondary) !important;
+}
+
+.cuotas-expandidas {
+  padding: 20px;
+  background: linear-gradient(to bottom, rgba(59, 130, 246, 0.03), transparent);
+  border-top: 2px solid rgba(59, 130, 246, 0.2);
+}
+
+.cuotas-header-expandido {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.cuotas-header-expandido h4 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.adicional-badge {
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.cuotas-grid-expandido {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.cuota-card-expandido {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  transition: all 0.2s;
+}
+
+.cuota-card-expandido:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+  transform: translateY(-2px);
+}
+
+.cuota-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.cuota-numero {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary-color);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cuota-precio {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.cuota-card-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cuota-detail {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.cuota-detail .label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.cuota-detail .value {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.cuota-detail.highlight {
+  padding-top: 6px;
+  margin-top: 6px;
+  border-top: 1px solid var(--border-color);
+}
+
+@media (max-width: 1200px) {
+  .cuotas-grid-expandido {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 @media (max-width: 768px) {
   .calculos-container {
     padding: 16px;
@@ -403,5 +537,13 @@
 
   .calculos-table {
     table-layout: auto;
+  }
+  
+  .cuotas-grid-expandido {
+    grid-template-columns: 1fr;
+  }
+  
+  .cuotas-expandidas {
+    padding: 12px;
   }
 }

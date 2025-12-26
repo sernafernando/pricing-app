@@ -240,9 +240,90 @@
   background-color: var(--bg-tertiary);
 }
 
+/* ===== PRECIOS DE CUOTAS ===== */
+
+.cuotas-section {
+  background-color: rgba(59, 130, 246, 0.05);
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.cuotas-section h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.cuotas-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.cuota-item {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px;
+  transition: all 0.2s;
+}
+
+.cuota-item:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+  transform: translateY(-2px);
+}
+
+.cuota-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.cuota-numero {
+  font-weight: 700;
+  font-size: 14px;
+  color: #3b82f6;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cuota-precio {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.cuota-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cuota-detail-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.cuota-detail-row span:first-child {
+  color: var(--text-secondary);
+}
+
+.cuota-detail-row span:last-child {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 @media (max-width: 640px) {
   .form-grid,
-  .resultados-grid {
+  .resultados-grid,
+  .cuotas-grid {
     grid-template-columns: 1fr;
   }
 

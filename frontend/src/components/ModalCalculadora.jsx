@@ -26,6 +26,9 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
   const [descripcion, setDescripcion] = useState('');
   const [ean, setEan] = useState('');
   const [constantes, setConstantes] = useState(null);
+  const [preciosCuotas, setPreciosCuotas] = useState([]);
+  const [calculandoCuotas, setCalculandoCuotas] = useState(false);
+  const [adicionalMarkup, setAdicionalMarkup] = useState(4.0);
 
   useEffect(() => {
     if (isOpen) {
@@ -131,6 +134,45 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     calcular();
   }, [formData]);
 
+  // Calcular cuotas automáticamente cuando cambia el markup o el adicional
+  useEffect(() => {
+    const markup = parseFloat(resultados.markupPorcentaje);
+    if (markup && !isNaN(markup) && formData.costo && formData.precioFinal && formData.tipoCambio) {
+      calcularCuotas();
+    } else {
+      setPreciosCuotas([]);
+    }
+  }, [resultados.markupPorcentaje, adicionalMarkup]);
+
+  const calcularCuotas = async () => {
+    try {
+      setCalculandoCuotas(true);
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.post(
+        'https://pricing.gaussonline.com.ar/api/calculos/calcular-cuotas',
+        {
+          costo: parseFloat(formData.costo),
+          moneda_costo: formData.monedaCosto,
+          iva: parseFloat(formData.iva),
+          envio: parseFloat(formData.costoEnvio) || 0,
+          markup_objetivo: parseFloat(resultados.markupPorcentaje),
+          tipo_cambio: parseFloat(formData.tipoCambio),
+          subcategoria_id: 1, // Default
+          adicional_markup: adicionalMarkup
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      setPreciosCuotas(response.data);
+    } catch (error) {
+      console.error('Error calculando cuotas:', error);
+      setPreciosCuotas([]);
+    } finally {
+      setCalculandoCuotas(false);
+    }
+  };
+
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
@@ -144,6 +186,20 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
     try {
       setGuardando(true);
       const token = localStorage.getItem('token');
+
+      // Preparar datos de cuotas para JSONB
+      const cuotasData = preciosCuotas.length > 0 ? {
+        adicional_markup: adicionalMarkup,
+        cuotas: preciosCuotas.map(c => ({
+          cuotas: c.cuotas,
+          pricelist_id: c.pricelist_id,
+          precio: c.precio,
+          comision_base_pct: c.comision_base_pct,
+          comision_total: c.comision_total,
+          limpio: c.limpio,
+          markup_real: c.markup_real
+        }))
+      } : null;
 
       await axios.post(
         'https://pricing.gaussonline.com.ar/api/calculos',
@@ -159,7 +215,8 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
           markup_porcentaje: parseFloat(resultados.markupPorcentaje),
           limpio: parseFloat(resultados.limpio),
           comision_total: parseFloat(resultados.comisionTotal),
-          tipo_cambio_usado: parseFloat(formData.tipoCambio)
+          tipo_cambio_usado: parseFloat(formData.tipoCambio),
+          precios_cuotas: cuotasData  // ← Guardar cuotas en JSONB
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -353,6 +410,61 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
               </div>
             </div>
           </div>
+
+          {/* Precios de Cuotas */}
+          {preciosCuotas.length > 0 && (
+            <div className="cuotas-section">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h3>Precios de Cuotas (Markup Convergente)</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    Adicional:
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={adicionalMarkup}
+                    onChange={(e) => setAdicionalMarkup(parseFloat(e.target.value) || 4.0)}
+                    style={{ width: '60px', padding: '4px 8px', fontSize: '13px' }}
+                  />
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>%</span>
+                </div>
+              </div>
+              
+              {calculandoCuotas ? (
+                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
+                  Calculando cuotas...
+                </div>
+              ) : (
+                <div className="cuotas-grid">
+                  {preciosCuotas.map((cuota) => (
+                    <div key={cuota.cuotas} className="cuota-item">
+                      <div className="cuota-header">
+                        <span className="cuota-numero">{cuota.cuotas} Cuotas</span>
+                        <span className="cuota-precio">${cuota.precio.toFixed(2)}</span>
+                      </div>
+                      <div className="cuota-details">
+                        <div className="cuota-detail-row">
+                          <span>Comisión:</span>
+                          <span>{cuota.comision_base_pct.toFixed(2)}%</span>
+                        </div>
+                        <div className="cuota-detail-row">
+                          <span>Limpio:</span>
+                          <span>${cuota.limpio.toFixed(2)}</span>
+                        </div>
+                        <div className="cuota-detail-row">
+                          <span>Markup:</span>
+                          <span style={{ color: markupColor, fontWeight: 'bold' }}>
+                            {cuota.markup_real.toFixed(2)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {guardando && (
             <div className="guardar-section">
