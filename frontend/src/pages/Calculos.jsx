@@ -17,12 +17,27 @@ const Calculos = () => {
   const [filtroExportar, setFiltroExportar] = useState('todos');
   const [constantes, setConstantes] = useState(null);
   const [filaExpandida, setFilaExpandida] = useState(null);
+  const [editandoCuotas, setEditandoCuotas] = useState({}); // {calculoId: {adicional, cuotas[], loading}}
+  const [gruposComision, setGruposComision] = useState([]);
 
   useEffect(() => {
     cargarCalculos();
     cargarTipoCambio();
     cargarConstantes();
+    cargarGruposComision();
   }, []);
+
+  const cargarGruposComision = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('https://pricing.gaussonline.com.ar/api/comisiones/calculadas', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setGruposComision(response.data);
+    } catch (error) {
+      console.error('Error cargando grupos de comisión:', error);
+    }
+  };
 
   const cargarTipoCambio = async () => {
     try {
@@ -203,6 +218,116 @@ const Calculos = () => {
       console.error('Error actualizando cantidad:', error);
       alert('Error al actualizar la cantidad');
     }
+  };
+
+  const iniciarEdicionCuotas = (calculo) => {
+    const adicional = calculo.precios_cuotas?.adicional_markup || constantes?.markup_adicional_cuotas || 4.0;
+    const grupo = gruposComision.length > 0 ? gruposComision[0].grupo_id : 1;
+    
+    setEditandoCuotas({
+      ...editandoCuotas,
+      [calculo.id]: {
+        adicional,
+        grupo,
+        cuotas: calculo.precios_cuotas?.cuotas || [],
+        loading: false
+      }
+    });
+  };
+
+  const recalcularCuotas = async (calculo) => {
+    const edicion = editandoCuotas[calculo.id];
+    if (!edicion) return;
+
+    setEditandoCuotas({
+      ...editandoCuotas,
+      [calculo.id]: { ...edicion, loading: true }
+    });
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(
+        'https://pricing.gaussonline.com.ar/api/calculos/calcular-cuotas',
+        {
+          costo: calculo.costo,
+          moneda_costo: calculo.moneda_costo,
+          iva: calculo.iva,
+          envio: calculo.costo_envio || 0,
+          markup_objetivo: calculo.markup_porcentaje,
+          tipo_cambio: calculo.tipo_cambio_usado,
+          grupo_id: edicion.grupo,
+          adicional_markup: edicion.adicional
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setEditandoCuotas({
+        ...editandoCuotas,
+        [calculo.id]: {
+          ...edicion,
+          cuotas: response.data,
+          loading: false
+        }
+      });
+    } catch (error) {
+      console.error('Error recalculando cuotas:', error);
+      alert('Error al recalcular cuotas: ' + (error.response?.data?.detail || error.message));
+      setEditandoCuotas({
+        ...editandoCuotas,
+        [calculo.id]: { ...edicion, loading: false }
+      });
+    }
+  };
+
+  const guardarCuotas = async (calculo) => {
+    const edicion = editandoCuotas[calculo.id];
+    if (!edicion || edicion.cuotas.length === 0) {
+      alert('Debe recalcular las cuotas antes de guardar');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const cuotasData = {
+        adicional_markup: edicion.adicional,
+        cuotas: edicion.cuotas.map(c => ({
+          cuotas: c.cuotas,
+          pricelist_id: c.pricelist_id,
+          precio: c.precio,
+          comision_base_pct: c.comision_base_pct,
+          comision_total: c.comision_total,
+          limpio: c.limpio,
+          markup_real: c.markup_real
+        }))
+      };
+
+      await axios.patch(
+        `https://pricing.gaussonline.com.ar/api/calculos/${calculo.id}/cuotas`,
+        { precios_cuotas: cuotasData },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      // Actualizar el cálculo en el estado
+      setCalculos(calculos.map(c =>
+        c.id === calculo.id ? { ...c, precios_cuotas: cuotasData } : c
+      ));
+
+      // Limpiar edición
+      const newEditando = { ...editandoCuotas };
+      delete newEditando[calculo.id];
+      setEditandoCuotas(newEditando);
+
+      alert('✅ Cuotas actualizadas correctamente');
+    } catch (error) {
+      console.error('Error guardando cuotas:', error);
+      alert('Error al guardar cuotas: ' + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  const cancelarEdicionCuotas = (calculoId) => {
+    const newEditando = { ...editandoCuotas };
+    delete newEditando[calculoId];
+    setEditandoCuotas(newEditando);
   };
 
   const toggleSeleccion = (id) => {
@@ -603,13 +728,83 @@ const Calculos = () => {
                       <div className="cuotas-expandidas">
                         <div className="cuotas-header-expandido">
                           <h4>💳 Precios de Cuotas (Markup Convergente)</h4>
-                          <span className="adicional-badge">
-                            Adicional: {calculo.precios_cuotas.adicional_markup || 4.0}%
-                          </span>
+                          
+                          {editandoCuotas[calculo.id] ? (
+                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <label style={{ fontSize: '13px' }}>Grupo:</label>
+                                <select
+                                  value={editandoCuotas[calculo.id].grupo}
+                                  onChange={(e) => setEditandoCuotas({
+                                    ...editandoCuotas,
+                                    [calculo.id]: { ...editandoCuotas[calculo.id], grupo: parseInt(e.target.value) }
+                                  })}
+                                  style={{ padding: '4px 8px', fontSize: '13px' }}
+                                >
+                                  {gruposComision.map(g => (
+                                    <option key={g.grupo_id} value={g.grupo_id}>
+                                      G{g.grupo_id} - {g.lista_4.toFixed(2)}%
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <label style={{ fontSize: '13px' }}>Adicional:</label>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  value={editandoCuotas[calculo.id].adicional}
+                                  onChange={(e) => setEditandoCuotas({
+                                    ...editandoCuotas,
+                                    [calculo.id]: { ...editandoCuotas[calculo.id], adicional: parseFloat(e.target.value) || 0 }
+                                  })}
+                                  style={{ width: '60px', padding: '4px 8px', fontSize: '13px' }}
+                                />
+                                <span style={{ fontSize: '13px' }}>%</span>
+                              </div>
+                              <button
+                                onClick={() => recalcularCuotas(calculo)}
+                                disabled={editandoCuotas[calculo.id].loading}
+                                className="btn-primary"
+                                style={{ padding: '4px 12px', fontSize: '13px' }}
+                              >
+                                {editandoCuotas[calculo.id].loading ? '⏳ Calculando...' : '🔄 Recalcular'}
+                              </button>
+                              <button
+                                onClick={() => guardarCuotas(calculo)}
+                                disabled={editandoCuotas[calculo.id].loading}
+                                className="btn-success"
+                                style={{ padding: '4px 12px', fontSize: '13px' }}
+                              >
+                                💾 Guardar
+                              </button>
+                              <button
+                                onClick={() => cancelarEdicionCuotas(calculo.id)}
+                                className="btn-cancel"
+                                style={{ padding: '4px 12px', fontSize: '13px' }}
+                              >
+                                ✕ Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                              <span className="adicional-badge">
+                                Adicional: {calculo.precios_cuotas.adicional_markup || 4.0}%
+                              </span>
+                              <button
+                                onClick={() => iniciarEdicionCuotas(calculo)}
+                                className="btn-secondary"
+                                style={{ padding: '4px 12px', fontSize: '13px' }}
+                              >
+                                ✏️ Editar
+                              </button>
+                            </div>
+                          )}
                         </div>
                         
                         <div className="cuotas-grid-expandido">
-                          {calculo.precios_cuotas.cuotas.map((cuota) => (
+                          {(editandoCuotas[calculo.id]?.cuotas || calculo.precios_cuotas.cuotas).map((cuota) => (
                             <div key={cuota.cuotas} className="cuota-card-expandido">
                               <div className="cuota-card-header">
                                 <span className="cuota-numero">{cuota.cuotas} Cuotas</span>

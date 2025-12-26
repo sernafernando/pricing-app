@@ -332,6 +332,29 @@ async def calcular_precios_cuotas(
     return resultados
 
 
+@router.patch("/calculos/{calculo_id}/cuotas")
+async def actualizar_cuotas_calculo(
+    calculo_id: int,
+    precios_cuotas: dict,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Actualiza los precios de cuotas de un cálculo guardado"""
+    calculo = db.query(CalculoPricing).filter(
+        CalculoPricing.id == calculo_id,
+        CalculoPricing.usuario_id == current_user.id
+    ).first()
+    
+    if not calculo:
+        raise HTTPException(404, "Cálculo no encontrado")
+    
+    # Actualizar campo JSONB
+    calculo.precios_cuotas = precios_cuotas.get('precios_cuotas')
+    db.commit()
+    
+    return {"mensaje": "Cuotas actualizadas correctamente"}
+
+
 @router.get("/calculos/exportar/excel")
 async def exportar_calculos_excel(
     filtro: Optional[str] = None,  # 'todos', 'con_cantidad', 'seleccionados'
