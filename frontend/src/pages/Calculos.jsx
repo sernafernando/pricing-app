@@ -222,7 +222,10 @@ const Calculos = () => {
 
   const iniciarEdicionCuotas = (calculo) => {
     const adicional = calculo.precios_cuotas?.adicional_markup || constantes?.markup_adicional_cuotas || 4.0;
-    const grupo = gruposComision.length > 0 ? gruposComision[0].grupo_id : 1;
+    
+    // Derivar grupo desde comision_ml
+    const grupoMatch = gruposComision.find(g => Math.abs(g.lista_4 - parseFloat(calculo.comision_ml)) < 0.01);
+    const grupo = grupoMatch ? grupoMatch.grupo_id : 1;
     
     setEditandoCuotas({
       ...editandoCuotas,
@@ -307,10 +310,8 @@ const Calculos = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      // Actualizar el cálculo en el estado
-      setCalculos(calculos.map(c =>
-        c.id === calculo.id ? { ...c, precios_cuotas: cuotasData } : c
-      ));
+      // Recargar cálculos desde la BD para asegurar sincronización
+      await cargarCalculos();
 
       // Limpiar edición
       const newEditando = { ...editandoCuotas };
@@ -626,13 +627,22 @@ const Calculos = () => {
                         </select>
                       </td>
                       <td>
-                        <input
-                          type="number"
-                          value={formData.comision_ml}
-                          onChange={(e) => setFormData({ ...formData, comision_ml: e.target.value })}
+                        <select
+                          value={gruposComision.find(g => g.lista_4 === parseFloat(formData.comision_ml))?.grupo_id || 1}
+                          onChange={(e) => {
+                            const grupo = gruposComision.find(g => g.grupo_id === parseInt(e.target.value));
+                            if (grupo) {
+                              setFormData({ ...formData, comision_ml: grupo.lista_4 });
+                            }
+                          }}
                           className="edit-input small"
-                          step="0.01"
-                        />
+                        >
+                          {gruposComision.map(g => (
+                            <option key={g.grupo_id} value={g.grupo_id}>
+                              G{g.grupo_id} - {g.lista_4.toFixed(2)}%
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td>
                         <input
@@ -703,7 +713,12 @@ const Calculos = () => {
                       <td>{calculo.moneda_costo}</td>
                       <td>{calculo.tipo_cambio_usado ? parseFloat(calculo.tipo_cambio_usado).toFixed(2) : '-'}</td>
                       <td>{calculo.iva}%</td>
-                      <td>{calculo.comision_ml}%</td>
+                      <td>
+                        {(() => {
+                          const grupo = gruposComision.find(g => Math.abs(g.lista_4 - parseFloat(calculo.comision_ml)) < 0.01);
+                          return grupo ? `G${grupo.grupo_id} - ${parseFloat(calculo.comision_ml).toFixed(2)}%` : `${parseFloat(calculo.comision_ml).toFixed(2)}%`;
+                        })()}
+                      </td>
                       <td>${parseFloat(calculo.costo_envio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td>${parseFloat(calculo.precio_final).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td style={{ color: getMarkupColor(calculo.markup_porcentaje), fontWeight: 'bold' }}>
@@ -731,23 +746,6 @@ const Calculos = () => {
                           
                           {editandoCuotas[calculo.id] ? (
                             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                <label style={{ fontSize: '13px' }}>Grupo:</label>
-                                <select
-                                  value={editandoCuotas[calculo.id].grupo}
-                                  onChange={(e) => setEditandoCuotas({
-                                    ...editandoCuotas,
-                                    [calculo.id]: { ...editandoCuotas[calculo.id], grupo: parseInt(e.target.value) }
-                                  })}
-                                  style={{ padding: '4px 8px', fontSize: '13px' }}
-                                >
-                                  {gruposComision.map(g => (
-                                    <option key={g.grupo_id} value={g.grupo_id}>
-                                      G{g.grupo_id} - {g.lista_4.toFixed(2)}%
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
                               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                 <label style={{ fontSize: '13px' }}>Adicional:</label>
                                 <input
