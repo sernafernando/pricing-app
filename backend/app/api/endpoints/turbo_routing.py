@@ -622,32 +622,36 @@ async def obtener_estadisticas(
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
         raise HTTPException(status_code=403, detail="Sin permiso")
     
-    # 1. Obtener envíos Turbo desde BD (solo IDs)
-    envios_turbo_bd = db.query(MercadoLibreOrderShipping).filter(
+    # 1. Obtener solo IDs de envíos Turbo desde BD (query optimizada)
+    turbo_ids_query = db.query(MercadoLibreOrderShipping.mlshippingid).filter(
         MercadoLibreOrderShipping.mlshipping_method_id == '515282'
     ).all()
-    turbo_map = {str(e.mlshippingid): e for e in envios_turbo_bd}
+    turbo_ids_set = {str(sid[0]) for sid in turbo_ids_query}
     
-    # 2. Obtener datos actualizados desde scriptEnvios
+    # 2. Obtener datos actualizados desde scriptEnvios (CON CACHE)
     envios_erp = await obtener_envios_desde_erp(dias_atras)
     
-    # 3. Contar envíos Turbo realmente pendientes (según scriptEnvios)
-    envios_pendientes_ids = []
-    for envio_erp in envios_erp:
-        shipment_id = str(envio_erp.get("Número de Envío", ""))
-        estado_real = envio_erp.get("Estado", "").lower()
-        
-        if shipment_id in turbo_map and estado_real in ['ready_to_ship', 'not_delivered']:
-            envios_pendientes_ids.append(shipment_id)
+    # 3. Pre-filtrar scriptEnvios: solo estados pendientes
+    envios_pendientes_erp = [
+        e for e in envios_erp 
+        if e.get("Estado", "").lower() in ['ready_to_ship', 'not_delivered']
+    ]
     
-    # 4. Filtrar asignados
-    asignados_ids = db.query(AsignacionTurbo.mlshippingid).filter(
+    # 4. Contar envíos Turbo pendientes (cruce optimizado con set)
+    envios_pendientes_ids = {
+        str(e.get("Número de Envío", ""))
+        for e in envios_pendientes_erp
+        if str(e.get("Número de Envío", "")) in turbo_ids_set
+    }
+    
+    # 5. Filtrar asignados (query optimizada con set)
+    asignados_ids_query = db.query(AsignacionTurbo.mlshippingid).filter(
         AsignacionTurbo.estado != 'cancelado'
     ).all()
-    asignados_ids_set = {str(a.mlshippingid) for a in asignados_ids}
+    asignados_ids_set = {str(a[0]) for a in asignados_ids_query}
     
-    # Contar solo los NO asignados
-    total_pendientes = len([sid for sid in envios_pendientes_ids if sid not in asignados_ids_set])
+    # Contar solo los NO asignados (operación de sets: O(n) en lugar de O(n²))
+    total_pendientes = len(envios_pendientes_ids - asignados_ids_set)
     
     # Total asignados
     total_asignados = len(asignados_ids_set)
