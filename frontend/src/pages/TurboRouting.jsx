@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import styles from './TurboRouting.module.css';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -38,31 +38,29 @@ export default function TurboRouting() {
   // FETCH DATA
   // ========================================
   
-  const fetchEnvios = async () => {
+  const fetchEnvios = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/turbo/envios/pendientes`, {
         headers: { Authorization: `Bearer ${getToken()}` }
       });
       setEnvios(response.data);
     } catch (error) {
-      console.error('Error al cargar envíos:', error);
       alert('Error al cargar envíos pendientes');
     }
-  };
+  }, []);
   
-  const fetchMotoqueros = async () => {
+  const fetchMotoqueros = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/turbo/motoqueros`, {
         headers: { Authorization: `Bearer ${getToken()}` }
       });
       setMotoqueros(response.data);
     } catch (error) {
-      console.error('Error al cargar motoqueros:', error);
       alert('Error al cargar motoqueros');
     }
-  };
+  }, []);
   
-  const fetchEstadisticas = async () => {
+  const fetchEstadisticas = useCallback(async () => {
     try {
       const [statsRes, resumenRes] = await Promise.all([
         axios.get(`${API_URL}/turbo/estadisticas`, {
@@ -75,16 +73,16 @@ export default function TurboRouting() {
       setEstadisticas(statsRes.data);
       setResumen(resumenRes.data);
     } catch (error) {
-      console.error('Error al cargar estadísticas:', error);
+      alert('Error al cargar estadísticas');
     }
-  };
+  }, []);
   
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       if (tabActiva === 'envios') {
         await fetchEnvios();
-        await fetchMotoqueros(); // Necesario para selector
+        await fetchMotoqueros();
       } else if (tabActiva === 'motoqueros') {
         await fetchMotoqueros();
       } else if (tabActiva === 'estadisticas') {
@@ -93,11 +91,11 @@ export default function TurboRouting() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tabActiva, fetchEnvios, fetchMotoqueros, fetchEstadisticas]);
   
   useEffect(() => {
     loadData();
-  }, [tabActiva]);
+  }, [loadData]);
   
   // ========================================
   // HANDLERS - ENVÍOS
@@ -119,7 +117,7 @@ export default function TurboRouting() {
     if (enviosSeleccionados.size === enviosFiltrados.length) {
       setEnviosSeleccionados(new Set());
     } else {
-      setEnviosSeleccionados(new Set(enviosFiltrados.map(e => e.shipment_id)));
+      setEnviosSeleccionados(new Set(enviosFiltrados.map(e => e.mlshippingid)));
     }
   };
   
@@ -147,7 +145,7 @@ export default function TurboRouting() {
         `${API_URL}/turbo/asignacion/manual`,
         {
           motoquero_id: motoqueroSeleccionado,
-          shipment_ids: Array.from(enviosSeleccionados)
+          mlshippingids: Array.from(enviosSeleccionados)
         },
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
@@ -158,7 +156,6 @@ export default function TurboRouting() {
       setMotoqueroSeleccionado(null);
       await fetchEnvios();
     } catch (error) {
-      console.error('Error al asignar:', error);
       alert(error.response?.data?.detail || 'Error al asignar envíos');
     } finally {
       setProcesando(false);
@@ -216,7 +213,6 @@ export default function TurboRouting() {
       setModalMotoquero(null);
       await fetchMotoqueros();
     } catch (error) {
-      console.error('Error al guardar motoquero:', error);
       alert(error.response?.data?.detail || 'Error al guardar motoquero');
     } finally {
       setProcesando(false);
@@ -233,7 +229,6 @@ export default function TurboRouting() {
       alert('✅ Motoquero desactivado');
       await fetchMotoqueros();
     } catch (error) {
-      console.error('Error al desactivar:', error);
       alert(error.response?.data?.detail || 'Error al desactivar motoquero');
     }
   };
@@ -245,9 +240,9 @@ export default function TurboRouting() {
   const enviosFiltrados = envios.filter(envio => {
     const matchEstado = !filtroEstado || envio.mlstatus === filtroEstado;
     const matchSearch = !search || 
-      envio.shipment_id?.toString().includes(search) ||
+      envio.mlshippingid?.toString().includes(search) ||
       envio.mlreceiver_name?.toLowerCase().includes(search.toLowerCase()) ||
-      envio.mlreceiver_address?.toLowerCase().includes(search.toLowerCase());
+      envio.direccion_completa?.toLowerCase().includes(search.toLowerCase());
     
     return matchEstado && matchSearch;
   });
@@ -466,32 +461,32 @@ function TabEnvios({
           <tbody className="table-tesla-body">
             {envios.length === 0 ? (
               <tr>
-                <td colSpan="7" style={{ textAlign: 'center', padding: '2rem' }}>
+                <td colSpan="7" className={styles.emptyRow}>
                   No hay envíos Turbo pendientes
                 </td>
               </tr>
             ) : (
               envios.map(envio => (
-                <tr key={envio.shipment_id}>
+                <tr key={envio.mlshippingid}>
                   <td>
                     <input 
                       type="checkbox"
-                      checked={enviosSeleccionados.has(envio.shipment_id)}
-                      onChange={() => onToggleSeleccion(envio.shipment_id)}
+                      checked={enviosSeleccionados.has(envio.mlshippingid)}
+                      onChange={() => onToggleSeleccion(envio.mlshippingid)}
                     />
                   </td>
-                  <td><strong>{envio.shipment_id}</strong></td>
+                  <td><strong>{envio.mlshippingid}</strong></td>
                   <td>
                     <span className={`${styles.estadoBadge} ${styles[envio.mlstatus]}`}>
                       {envio.mlstatus}
                     </span>
                   </td>
                   <td>{envio.mlreceiver_name || '-'}</td>
-                  <td className={styles.direccion}>
-                    {envio.mlreceiver_address || '-'}
+                  <td className={styles.direccion} title={envio.direccion_completa}>
+                    {envio.direccion_completa || '-'}
                   </td>
-                  <td>{envio.mldate_shipping ? new Date(envio.mldate_shipping).toLocaleString('es-AR') : '-'}</td>
-                  <td>{envio.mlorder_id || '-'}</td>
+                  <td>{envio.mlestimated_delivery_limit ? new Date(envio.mlestimated_delivery_limit).toLocaleString('es-AR') : '-'}</td>
+                  <td>{envio.mlo_id || '-'}</td>
                 </tr>
               ))
             )}
@@ -543,7 +538,7 @@ function TabMotoqueros({ motoqueros, search, onSearchChange, onCrear, onEditar, 
           <tbody className="table-tesla-body">
             {motoqueros.length === 0 ? (
               <tr>
-                <td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>
+                <td colSpan="6" className={styles.emptyRow}>
                   No hay motoqueros registrados
                 </td>
               </tr>
@@ -558,7 +553,7 @@ function TabMotoqueros({ motoqueros, search, onSearchChange, onCrear, onEditar, 
                       {moto.activo ? '✅ Activo' : '❌ Inactivo'}
                     </span>
                   </td>
-                  <td>{new Date(moto.fecha_creacion).toLocaleDateString('es-AR')}</td>
+                  <td>{moto.created_at ? new Date(moto.created_at).toLocaleDateString('es-AR') : '-'}</td>
                   <td>
                     <div className={styles.acciones}>
                       <button 
@@ -630,16 +625,16 @@ function TabEstadisticas({ estadisticas, resumen }) {
           <tbody className="table-tesla-body">
             {resumen.length === 0 ? (
               <tr>
-                <td colSpan="3" style={{ textAlign: 'center', padding: '2rem' }}>
+                <td colSpan="3" className={styles.emptyRow}>
                   No hay asignaciones registradas
                 </td>
               </tr>
             ) : (
               resumen.map(r => (
                 <tr key={r.motoquero_id}>
-                  <td><strong>{r.motoquero_nombre}</strong></td>
+                  <td><strong>{r.nombre}</strong></td>
                   <td>{r.total_envios}</td>
-                  <td>{new Date(r.ultima_asignacion).toLocaleString('es-AR')}</td>
+                  <td>{r.ultima_asignacion ? new Date(r.ultima_asignacion).toLocaleString('es-AR') : '-'}</td>
                 </tr>
               ))
             )}
@@ -672,18 +667,17 @@ function ModalAsignacion({
         </div>
         
         <div className="modal-body-tesla">
-          <p style={{ marginBottom: '1rem' }}>
+          <p className={styles.modalInfo}>
             Vas a asignar <strong>{enviosCount} envíos</strong> al motoquero seleccionado:
           </p>
           
-          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
+          <label className={styles.modalLabel}>
             Seleccionar Motoquero:
           </label>
           <select 
             value={motoqueroSeleccionado || ''}
             onChange={(e) => onMotoqueroChange(Number(e.target.value))}
-            className={styles.select}
-            style={{ width: '100%' }}
+            className={`${styles.select} ${styles.modalSelect}`}
           >
             <option value="">-- Seleccioná un motoquero --</option>
             {motoqueros.map(m => (
@@ -731,37 +725,35 @@ function ModalMotoquero({ mode, data, onChange, onGuardar, onCancelar, procesand
         </div>
         
         <div className="modal-body-tesla">
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
+          <div className={styles.modalField}>
+            <label className={styles.modalLabel}>
               Nombre *
             </label>
             <input 
               type="text"
               value={data.nombre}
               onChange={(e) => onChange('nombre', e.target.value)}
-              className={styles.input}
-              style={{ width: '100%' }}
+              className={`${styles.input} ${styles.modalSelect}`}
               placeholder="Ej: Juan Pérez"
             />
           </div>
           
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
+          <div className={styles.modalField}>
+            <label className={styles.modalLabel}>
               Teléfono
             </label>
             <input 
               type="text"
               value={data.telefono || ''}
               onChange={(e) => onChange('telefono', e.target.value)}
-              className={styles.input}
-              style={{ width: '100%' }}
+              className={`${styles.input} ${styles.modalSelect}`}
               placeholder="Ej: +54 9 11 1234-5678"
             />
           </div>
           
           {mode === 'edit' && (
             <div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+              <label className={styles.modalCheckboxLabel}>
                 <input 
                   type="checkbox"
                   checked={data.activo}

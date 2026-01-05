@@ -4,11 +4,13 @@ Sistema de asignación de envíos a motoqueros con zonas y optimización de ruta
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
-from typing import List, Optional
-from datetime import datetime
+from sqlalchemy import func, and_
+from typing import List, Optional, Dict, Any
+from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 import pytz
+import httpx
+import logging
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -20,6 +22,10 @@ from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# URL del gbp-parser interno
+GBP_PARSER_URL = "http://localhost:8000/api/gbp-parser"
 
 # Timezone de Argentina
 ARGENTINA_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
@@ -32,6 +38,56 @@ def convert_to_argentina_tz(utc_dt):
     if utc_dt.tzinfo is None:
         utc_dt = pytz.utc.localize(utc_dt)
     return utc_dt.astimezone(ARGENTINA_TZ)
+
+
+async def obtener_envios_desde_erp(dias_atras: int = 30) -> List[Dict[str, Any]]:
+    """
+    Obtiene envíos desde el ERP usando scriptEnvios.
+    
+    Args:
+        dias_atras: Cantidad de días hacia atrás para consultar (default 30)
+        
+    Returns:
+        Lista de envíos con estructura:
+        {
+            "Número de Envío": int,
+            "Dirección de Entrega": str,
+            "Cordón": str,
+            "Costo de envío": float,
+            "Monto": float,
+            "Usuario": str,
+            "Estado": str (ready_to_ship, not_delivered, shipped, delivered, cancelled),
+            "Pedido": str
+        }
+    """
+    try:
+        fecha_hasta = datetime.now().strftime('%Y-%m-%d')
+        fecha_desde = (datetime.now() - timedelta(days=dias_atras)).strftime('%Y-%m-%d')
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                GBP_PARSER_URL,
+                json={
+                    "strScriptLabel": "scriptEnvios",
+                    "fromDate": fecha_desde,
+                    "toDate": fecha_hasta
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            # Filtrar error -9
+            if data and len(data) == 1 and data[0].get("Column1") == "-9":
+                return []
+            
+            return data
+            
+    except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as e:
+        logger.error(f"Error al obtener envíos desde ERP: {e}")
+        return []
+    except (ValueError, KeyError) as e:
+        logger.error(f"Error al parsear respuesta de scriptEnvios: {e}")
+        return []
 
 
 # ==================== SCHEMAS ====================
@@ -130,8 +186,10 @@ class AsignacionResponse(BaseModel):
 
 class EnvioPorMotoqueroStat(BaseModel):
     """Estadística de envíos por motoquero"""
-    motoquero: str
-    total: int
+    motoquero_id: int
+    nombre: str
+    total_envios: int
+    ultima_asignacion: Optional[datetime]
 
 class EstadisticasResponse(BaseModel):
     """Estadísticas generales de Turbo Routing"""
@@ -139,7 +197,12 @@ class EstadisticasResponse(BaseModel):
     total_envios_asignados: int
     total_motoqueros_activos: int
     total_zonas_activas: int
-    envios_por_motoquero: List[EnvioPorMotoqueroStat]
+    asignaciones_hoy: int
+
+class DeleteResponse(BaseModel):
+    """Respuesta estándar para operaciones DELETE"""
+    message: str
+    success: bool = True
 
 
 # ==================== ENDPOINTS: ENVÍOS TURBO ====================
@@ -150,94 +213,104 @@ async def obtener_envios_turbo_pendientes(
     current_user: dict = Depends(get_current_user),
     incluir_asignados: bool = Query(False, description="Incluir envíos ya asignados"),
     limit: int = Query(200, ge=1, le=500),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
+    dias_atras: int = Query(30, ge=1, le=90, description="Días hacia atrás para consultar scriptEnvios")
 ):
     """
-    Obtiene envíos Turbo pendientes desde tb_mercadolibre_orders_shipping.
-    Filtra por mlshipping_method_id = '515282' (Turbo).
+    Obtiene envíos Turbo pendientes ACTUALIZADOS desde scriptEnvios del ERP.
     
-    NOTA: Los estados 'ready_to_ship' y 'not_delivered' pueden estar desactualizados en la tabla.
-    Considerar implementar consulta en tiempo real via scriptEnvios en el futuro.
+    Proceso:
+    1. Obtiene todos los envíos Turbo (mlshipping_method_id = 515282) de la BD
+    2. Cruza con scriptEnvios para actualizar estado y dirección real
+    3. Filtra solo los que estén realmente pendientes (ready_to_ship, not_delivered)
+    
+    Esto garantiza direcciones completas y estados actualizados.
     """
     # Verificar permiso
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
         raise HTTPException(status_code=403, detail="Sin permiso para gestionar Turbo Routing")
     
-    # Query base: envíos Turbo pendientes (ready_to_ship o not_delivered)
-    query = db.query(MercadoLibreOrderShipping).filter(
-        MercadoLibreOrderShipping.mlshipping_method_id == '515282',
-        MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered'])
-    )
+    # 1. Obtener envíos Turbo desde la BD (solo para saber qué shipment IDs son Turbo)
+    envios_turbo_bd = db.query(MercadoLibreOrderShipping).filter(
+        MercadoLibreOrderShipping.mlshipping_method_id == '515282'
+    ).all()
     
-    # Si no incluir asignados, excluir los que ya tienen asignación
+    # Crear mapa: shipment_id -> datos BD
+    turbo_map = {str(e.mlshippingid): e for e in envios_turbo_bd}
+    
+    # 2. Obtener datos actualizados desde scriptEnvios
+    envios_erp = await obtener_envios_desde_erp(dias_atras)
+    
+    # 3. Filtrar solo los que son Turbo y están pendientes
+    envios_turbo_actualizados = []
+    for envio_erp in envios_erp:
+        shipment_id = str(envio_erp.get("Número de Envío", ""))
+        estado_real = envio_erp.get("Estado", "").lower()
+        
+        # Solo procesar si es Turbo (existe en turbo_map) y está pendiente
+        if shipment_id in turbo_map and estado_real in ['ready_to_ship', 'not_delivered']:
+            envios_turbo_actualizados.append({
+                "envio_bd": turbo_map[shipment_id],
+                "envio_erp": envio_erp,
+                "estado_real": estado_real
+            })
+    
+    # 4. Filtrar asignados si corresponde
     if not incluir_asignados:
         asignados_ids = db.query(AsignacionTurbo.mlshippingid).filter(
             AsignacionTurbo.estado != 'cancelado'
         ).all()
-        asignados_ids = [a.mlshippingid for a in asignados_ids]
-        if asignados_ids:
-            query = query.filter(~MercadoLibreOrderShipping.mlshippingid.in_(asignados_ids))
+        asignados_ids_set = {str(a.mlshippingid) for a in asignados_ids}
+        envios_turbo_actualizados = [
+            e for e in envios_turbo_actualizados 
+            if str(e["envio_bd"].mlshippingid) not in asignados_ids_set
+        ]
     
-    # Ordenar por fecha límite de entrega (urgentes primero)
-    query = query.order_by(MercadoLibreOrderShipping.mlestimated_delivery_limit.asc())
-    
-    envios = query.offset(offset).limit(limit).all()
-    
-    # Obtener asignaciones existentes
+    # 5. Obtener asignaciones existentes
     asignaciones_map = {}
-    if incluir_asignados:
+    if incluir_asignados and envios_turbo_actualizados:
+        shipment_ids = [str(e["envio_bd"].mlshippingid) for e in envios_turbo_actualizados]
         asignaciones = db.query(AsignacionTurbo).filter(
-            AsignacionTurbo.mlshippingid.in_([e.mlshippingid for e in envios])
+            AsignacionTurbo.mlshippingid.in_(shipment_ids)
         ).all()
         for asig in asignaciones:
-            asignaciones_map[asig.mlshippingid] = asig
+            asignaciones_map[str(asig.mlshippingid)] = asig
     
-    # Construir respuesta
+    # 6. Construir respuesta con paginación
+    total = len(envios_turbo_actualizados)
+    envios_paginados = envios_turbo_actualizados[offset:offset+limit]
+    
     resultado = []
-    for envio in envios:
-        asignacion = asignaciones_map.get(envio.mlshippingid)
+    for item in envios_paginados:
+        envio_bd = item["envio_bd"]
+        envio_erp = item["envio_erp"]
+        estado_real = item["estado_real"]
         
-        # Construir dirección completa
-        direccion_partes = []
-        if envio.mlstreet_name:
-            direccion_partes.append(envio.mlstreet_name)
-        if envio.mlstreet_number:
-            direccion_partes.append(envio.mlstreet_number)
-        if envio.mlzip_code:
-            direccion_partes.append(f"CP {envio.mlzip_code}")
-        if envio.mlcity_name:
-            direccion_partes.append(envio.mlcity_name)
-        direccion_completa = ", ".join(direccion_partes) or "Dirección no disponible"
+        shipment_id = str(envio_bd.mlshippingid)
+        asignacion = asignaciones_map.get(shipment_id)
         
-        # Determinar tipo de envío (prioridad: turbo > self_service > cross_docking > normal)
-        if envio.mlshipping_method_id == '515282':
-            tipo_envio = 'turbo'
-        elif envio.mlself_service == 'True':
-            tipo_envio = 'self_service'
-        elif envio.mlcross_docking == 'True':
-            tipo_envio = 'cross_docking'
-        else:
-            tipo_envio = 'normal'
+        # Usar dirección del ERP (más completa)
+        direccion_completa = envio_erp.get("Dirección de Entrega", "Dirección no disponible")
         
         resultado.append(EnvioTurboResponse(
-            mlshippingid=envio.mlshippingid,
-            mlo_id=envio.mlo_id,
+            mlshippingid=shipment_id,
+            mlo_id=envio_bd.mlo_id,
             direccion_completa=direccion_completa,
-            mlstreet_name=envio.mlstreet_name,
-            mlstreet_number=envio.mlstreet_number,
-            mlzip_code=envio.mlzip_code,
-            mlcity_name=envio.mlcity_name,
-            mlstate_name=envio.mlstate_name,
-            mlreceiver_name=envio.mlreceiver_name,
-            mlreceiver_phone=envio.mlreceiver_phone,
-            mlestimated_delivery_limit=convert_to_argentina_tz(envio.mlestimated_delivery_limit),
-            mlstatus=envio.mlstatus,
-            mllogistic_type=envio.mllogistic_type,
-            mlshipping_mode=envio.mlshipping_mode,
-            mlturbo=envio.mlturbo,
-            mlself_service=envio.mlself_service,
-            mlcross_docking=envio.mlcross_docking,
-            tipo_envio=tipo_envio,
+            mlstreet_name=envio_bd.mlstreet_name,
+            mlstreet_number=envio_bd.mlstreet_number,
+            mlzip_code=envio_bd.mlzip_code,
+            mlcity_name=envio_bd.mlcity_name,
+            mlstate_name=envio_bd.mlstate_name,
+            mlreceiver_name=envio_bd.mlreceiver_name,
+            mlreceiver_phone=envio_bd.mlreceiver_phone,
+            mlestimated_delivery_limit=convert_to_argentina_tz(envio_bd.mlestimated_delivery_limit),
+            mlstatus=estado_real,  # ESTADO REAL desde scriptEnvios
+            mllogistic_type=envio_bd.mllogistic_type,
+            mlshipping_mode=envio_bd.mlshipping_mode,
+            mlturbo=envio_bd.mlturbo,
+            mlself_service=envio_bd.mlself_service,
+            mlcross_docking=envio_bd.mlcross_docking,
+            tipo_envio='turbo',
             asignado=asignacion is not None,
             motoquero_id=asignacion.motoquero_id if asignacion else None,
             motoquero_nombre=asignacion.motoquero.nombre if asignacion and asignacion.motoquero else None
@@ -308,8 +381,8 @@ async def actualizar_motoquero(
     return db_motoquero
 
 
-@router.delete("/turbo/motoqueros/{motoquero_id}")
-async def eliminar_motoquero(
+@router.delete("/turbo/motoqueros/{motoquero_id}", response_model=DeleteResponse)
+async def desactivar_motoquero(
     motoquero_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
@@ -325,7 +398,7 @@ async def eliminar_motoquero(
     db_motoquero.activo = False
     db.commit()
     
-    return {"status": "ok", "message": "Motoquero desactivado"}
+    return DeleteResponse(message="Motoquero desactivado", success=True)
 
 
 # ==================== ENDPOINTS: ZONAS ====================
@@ -369,7 +442,7 @@ async def crear_zona(
     return nueva_zona
 
 
-@router.delete("/turbo/zonas/{zona_id}")
+@router.delete("/turbo/zonas/{zona_id}", response_model=DeleteResponse)
 async def eliminar_zona(
     zona_id: int,
     db: Session = Depends(get_db),
@@ -386,7 +459,7 @@ async def eliminar_zona(
     db_zona.activa = False
     db.commit()
     
-    return {"status": "ok", "message": "Zona desactivada"}
+    return DeleteResponse(message="Zona desactivada", success=True)
 
 
 # ==================== ENDPOINTS: ASIGNACIONES ====================
@@ -471,7 +544,7 @@ async def asignar_envios_manual(
     return asignaciones_creadas
 
 
-@router.get("/turbo/asignaciones/resumen", response_model=List[dict])
+@router.get("/turbo/asignaciones/resumen", response_model=List[EnvioPorMotoqueroStat])
 async def obtener_resumen_asignaciones(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
@@ -487,7 +560,7 @@ async def obtener_resumen_asignaciones(
         Motoquero.id,
         Motoquero.nombre,
         func.count(AsignacionTurbo.id).label('total_envios'),
-        func.count(func.nullif(AsignacionTurbo.estado, 'entregado')).label('pendientes')
+        func.max(AsignacionTurbo.asignado_at).label('ultima_asignacion')
     ).join(
         AsignacionTurbo, AsignacionTurbo.motoquero_id == Motoquero.id
     ).filter(
@@ -498,12 +571,12 @@ async def obtener_resumen_asignaciones(
     ).all()
     
     return [
-        {
-            "motoquero_id": r.id,
-            "nombre": r.nombre,
-            "total_envios": r.total_envios,
-            "pendientes": r.pendientes
-        }
+        EnvioPorMotoqueroStat(
+            motoquero_id=r.id,
+            nombre=r.nombre,
+            total_envios=r.total_envios,
+            ultima_asignacion=r.ultima_asignacion
+        )
         for r in resumen
     ]
 
@@ -540,25 +613,17 @@ async def obtener_estadisticas(
     # Zonas activas
     total_zonas = db.query(func.count(ZonaReparto.id)).filter(ZonaReparto.activa.is_(True)).scalar() or 0
     
-    # Envíos por motoquero
-    envios_por_motoquero_data = db.query(
-        Motoquero.nombre,
-        func.count(AsignacionTurbo.id).label('total')
-    ).join(
-        AsignacionTurbo, AsignacionTurbo.motoquero_id == Motoquero.id
-    ).filter(
+    # Asignaciones hoy (fecha actual en Argentina)
+    hoy_inicio = datetime.now(ARGENTINA_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    asignaciones_hoy = db.query(func.count(AsignacionTurbo.id)).filter(
+        AsignacionTurbo.asignado_at >= hoy_inicio,
         AsignacionTurbo.estado != 'cancelado'
-    ).group_by(Motoquero.nombre).all()
-    
-    envios_por_motoquero = [
-        EnvioPorMotoqueroStat(motoquero=r.nombre, total=r.total)
-        for r in envios_por_motoquero_data
-    ]
+    ).scalar() or 0
     
     return EstadisticasResponse(
         total_envios_pendientes=total_pendientes,
         total_envios_asignados=total_asignados,
         total_motoqueros_activos=total_motoqueros,
         total_zonas_activas=total_zonas,
-        envios_por_motoquero=envios_por_motoquero
+        asignaciones_hoy=asignaciones_hoy
     )

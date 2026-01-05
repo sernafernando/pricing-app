@@ -374,3 +374,33 @@
     grid-template-columns: 1fr;
   }
 }
+.emptyRow { text-align: center; padding: 2rem; color: var(--text-secondary); }
+
+/* ============================================
+   MODAL INTERNALS
+   ============================================ */
+
+.modalInfo {
+  margin-bottom: 1rem;
+}
+
+.modalLabel {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.modalField {
+  margin-bottom: 1rem;
+}
+
+.modalSelect {
+  width: 100%;
+}
+
+.modalCheckboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
