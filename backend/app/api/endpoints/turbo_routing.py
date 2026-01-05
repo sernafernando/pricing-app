@@ -509,7 +509,7 @@ async def obtener_estadisticas(
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
         raise HTTPException(status_code=403, detail="Sin permiso")
     
-    # Total envíos Turbo pendientes (sin asignar)
+    # Total envíos Turbo pendientes (sin asignar, solo ready_to_ship y not_delivered)
     asignados_ids = db.query(AsignacionTurbo.mlshippingid).filter(
         AsignacionTurbo.estado != 'cancelado'
     ).all()
@@ -517,7 +517,7 @@ async def obtener_estadisticas(
     
     total_pendientes = db.query(func.count(MercadoLibreOrderShipping.mlshippingid)).filter(
         MercadoLibreOrderShipping.mlshipping_method_id == '515282',
-        MercadoLibreOrderShipping.mlstatus.notin_(['cancelled', 'delivered']),
+        MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered']),
         ~MercadoLibreOrderShipping.mlshippingid.in_(asignados_ids) if asignados_ids else True
     ).scalar() or 0
     
