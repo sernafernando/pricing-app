@@ -89,6 +89,9 @@ class EnvioTurboResponse(BaseModel):
     mlreceiver_phone: Optional[str]
     mlestimated_delivery_limit: Optional[datetime]
     mlstatus: Optional[str]
+    mllogistic_type: Optional[str] = None  # 'xd_drop_off' o similar
+    mlshipping_mode: Optional[str] = None  # Modo de envío
+    mlturbo: Optional[str] = None  # Flag de Turbo
     asignado: bool = False  # True si ya está asignado
     motoquero_id: Optional[int] = None
     motoquero_nombre: Optional[str] = None
@@ -143,16 +146,16 @@ async def obtener_envios_turbo_pendientes(
 ):
     """
     Obtiene envíos Turbo pendientes desde tb_mercadolibre_orders_shipping.
-    Filtra por mlshipping_method_id = '515282' (Turbo).
+    Filtra por mlshipping_method_id = '515282' (Turbo) y mlstatus = 'ready_to_ship'.
     """
     # Verificar permiso
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
         raise HTTPException(status_code=403, detail="Sin permiso para gestionar Turbo Routing")
     
-    # Query base: envíos Turbo
+    # Query base: envíos Turbo pendientes (ready_to_ship o not_delivered)
     query = db.query(MercadoLibreOrderShipping).filter(
         MercadoLibreOrderShipping.mlshipping_method_id == '515282',
-        MercadoLibreOrderShipping.mlstatus.notin_(['cancelled', 'delivered'])
+        MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered'])
     )
     
     # Si no incluir asignados, excluir los que ya tienen asignación
@@ -208,6 +211,9 @@ async def obtener_envios_turbo_pendientes(
             mlreceiver_phone=envio.mlreceiver_phone,
             mlestimated_delivery_limit=convert_to_argentina_tz(envio.mlestimated_delivery_limit),
             mlstatus=envio.mlstatus,
+            mllogistic_type=envio.mllogistic_type,
+            mlshipping_mode=envio.mlshipping_mode,
+            mlturbo=envio.mlturbo,
             asignado=asignacion is not None,
             motoquero_id=asignacion.motoquero_id if asignacion else None,
             motoquero_nombre=asignacion.motoquero.nombre if asignacion and asignacion.motoquero else None
