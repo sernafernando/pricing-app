@@ -34,6 +34,10 @@ from app.models.rol import Rol
 from app.models.pedido_preparacion_cache import PedidoPreparacionCache
 from app.models.export_87_snapshot import Export87Snapshot
 from app.models.produccion_banlist import ProduccionBanlist, ProduccionPrearmado
+from app.models.motoquero import Motoquero
+from app.models.zona_reparto import ZonaReparto
+from app.models.asignacion_turbo import AsignacionTurbo
+from app.models.geocoding_cache import GeocodingCache
 
 __all__ = [
     "ProductoERP",
@@ -80,5 +84,9 @@ __all__ = [
     "PedidoPreparacionCache",
     "Export87Snapshot",
     "ProduccionBanlist",
-    "ProduccionPrearmado"
+    "ProduccionPrearmado",
+    "Motoquero",
+    "ZonaReparto",
+    "AsignacionTurbo",
+    "GeocodingCache"
 ]
