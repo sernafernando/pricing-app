@@ -30,6 +30,13 @@ GBP_PARSER_URL = "http://localhost:8000/api/gbp-parser"
 # Timezone de Argentina
 ARGENTINA_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
 
+# Cache en memoria para scriptEnvios (evitar martillar el ERP)
+_envios_cache: Dict[str, Any] = {
+    "data": [],
+    "timestamp": None,
+    "ttl_seconds": 300  # 5 minutos
+}
+
 
 def convert_to_argentina_tz(utc_dt):
     """Convierte un datetime UTC a timezone de Argentina"""
@@ -40,12 +47,13 @@ def convert_to_argentina_tz(utc_dt):
     return utc_dt.astimezone(ARGENTINA_TZ)
 
 
-async def obtener_envios_desde_erp(dias_atras: int = 30) -> List[Dict[str, Any]]:
+async def obtener_envios_desde_erp(dias_atras: int = 30, usar_cache: bool = True) -> List[Dict[str, Any]]:
     """
-    Obtiene envíos desde el ERP usando scriptEnvios.
+    Obtiene envíos desde el ERP usando scriptEnvios CON CACHE para performance.
     
     Args:
         dias_atras: Cantidad de días hacia atrás para consultar (default 30)
+        usar_cache: Si True, usa cache de 5 minutos para evitar martillar el ERP
         
     Returns:
         Lista de envíos con estructura:
@@ -60,9 +68,18 @@ async def obtener_envios_desde_erp(dias_atras: int = 30) -> List[Dict[str, Any]]
             "Pedido": str
         }
     """
+    # Verificar cache
+    if usar_cache and _envios_cache["timestamp"]:
+        cache_age = (datetime.now() - _envios_cache["timestamp"]).total_seconds()
+        if cache_age < _envios_cache["ttl_seconds"]:
+            logger.info(f"Usando cache de scriptEnvios (edad: {cache_age:.1f}s)")
+            return _envios_cache["data"]
+    
     try:
         fecha_hasta = datetime.now().strftime('%Y-%m-%d')
         fecha_desde = (datetime.now() - timedelta(days=dias_atras)).strftime('%Y-%m-%d')
+        
+        logger.info(f"Consultando scriptEnvios (desde={fecha_desde}, hasta={fecha_hasta})")
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -80,10 +97,20 @@ async def obtener_envios_desde_erp(dias_atras: int = 30) -> List[Dict[str, Any]]
             if data and len(data) == 1 and data[0].get("Column1") == "-9":
                 return []
             
+            # Guardar en cache
+            if usar_cache:
+                _envios_cache["data"] = data
+                _envios_cache["timestamp"] = datetime.now()
+                logger.info(f"Cache actualizado con {len(data)} envíos")
+            
             return data
             
     except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as e:
         logger.error(f"Error al obtener envíos desde ERP: {e}")
+        # Si hay cache viejo, usarlo como fallback
+        if usar_cache and _envios_cache["data"]:
+            logger.warning("Usando cache antiguo como fallback")
+            return _envios_cache["data"]
         return []
     except (ValueError, KeyError) as e:
         logger.error(f"Error al parsear respuesta de scriptEnvios: {e}")
@@ -584,28 +611,46 @@ async def obtener_resumen_asignaciones(
 @router.get("/turbo/estadisticas", response_model=EstadisticasResponse)
 async def obtener_estadisticas(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    dias_atras: int = Query(30, ge=1, le=90, description="Días hacia atrás para consultar scriptEnvios")
 ):
-    """Obtiene estadísticas generales del sistema de Turbo Routing."""
+    """
+    Obtiene estadísticas generales del sistema de Turbo Routing.
+    
+    IMPORTANTE: Usa scriptEnvios para contar envíos pendientes REALES (no datos stale).
+    """
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
         raise HTTPException(status_code=403, detail="Sin permiso")
     
-    # Total envíos Turbo pendientes (sin asignar, solo ready_to_ship y not_delivered)
+    # 1. Obtener envíos Turbo desde BD (solo IDs)
+    envios_turbo_bd = db.query(MercadoLibreOrderShipping).filter(
+        MercadoLibreOrderShipping.mlshipping_method_id == '515282'
+    ).all()
+    turbo_map = {str(e.mlshippingid): e for e in envios_turbo_bd}
+    
+    # 2. Obtener datos actualizados desde scriptEnvios
+    envios_erp = await obtener_envios_desde_erp(dias_atras)
+    
+    # 3. Contar envíos Turbo realmente pendientes (según scriptEnvios)
+    envios_pendientes_ids = []
+    for envio_erp in envios_erp:
+        shipment_id = str(envio_erp.get("Número de Envío", ""))
+        estado_real = envio_erp.get("Estado", "").lower()
+        
+        if shipment_id in turbo_map and estado_real in ['ready_to_ship', 'not_delivered']:
+            envios_pendientes_ids.append(shipment_id)
+    
+    # 4. Filtrar asignados
     asignados_ids = db.query(AsignacionTurbo.mlshippingid).filter(
         AsignacionTurbo.estado != 'cancelado'
     ).all()
-    asignados_ids = [a.mlshippingid for a in asignados_ids]
+    asignados_ids_set = {str(a.mlshippingid) for a in asignados_ids}
     
-    total_pendientes = db.query(func.count(MercadoLibreOrderShipping.mlshippingid)).filter(
-        MercadoLibreOrderShipping.mlshipping_method_id == '515282',
-        MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered']),
-        ~MercadoLibreOrderShipping.mlshippingid.in_(asignados_ids) if asignados_ids else True
-    ).scalar() or 0
+    # Contar solo los NO asignados
+    total_pendientes = len([sid for sid in envios_pendientes_ids if sid not in asignados_ids_set])
     
     # Total asignados
-    total_asignados = db.query(func.count(AsignacionTurbo.id)).filter(
-        AsignacionTurbo.estado != 'cancelado'
-    ).scalar() or 0
+    total_asignados = len(asignados_ids_set)
     
     # Motoqueros activos
     total_motoqueros = db.query(func.count(Motoquero.id)).filter(Motoquero.activo.is_(True)).scalar() or 0
@@ -627,3 +672,21 @@ async def obtener_estadisticas(
         total_zonas_activas=total_zonas,
         asignaciones_hoy=asignaciones_hoy
     )
+
+
+@router.post("/turbo/cache/invalidar", response_model=DeleteResponse)
+async def invalidar_cache_envios(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Invalida el cache de scriptEnvios para forzar actualización inmediata.
+    Útil después de asignar envíos o cuando se necesitan datos frescos.
+    """
+    if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
+        raise HTTPException(status_code=403, detail="Sin permiso")
+    
+    _envios_cache["timestamp"] = None
+    _envios_cache["data"] = []
+    
+    return DeleteResponse(message="Cache invalidado correctamente", success=True)

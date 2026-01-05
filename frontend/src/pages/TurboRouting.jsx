@@ -150,6 +150,13 @@ export default function TurboRouting() {
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
       
+      // Invalidar cache para que stats se actualicen
+      await axios.post(
+        `${API_URL}/turbo/cache/invalidar`,
+        {},
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      ).catch(() => {}); // Ignore errors
+      
       alert(`✅ ${enviosSeleccionados.size} envíos asignados correctamente`);
       setModalAsignacion(false);
       setEnviosSeleccionados(new Set());
@@ -277,6 +284,24 @@ export default function TurboRouting() {
           </p>
         </div>
         <div className={styles.headerRight}>
+          <button 
+            className="btn-tesla ghost"
+            onClick={async () => {
+              try {
+                await axios.post(`${API_URL}/turbo/cache/invalidar`, {}, {
+                  headers: { Authorization: `Bearer ${getToken()}` }
+                });
+                alert('✅ Cache invalidado');
+                await loadData();
+              } catch (error) {
+                alert('Error al invalidar cache');
+              }
+            }}
+            disabled={loading}
+            title="Forzar actualización desde ERP"
+          >
+            ⚡ Refrescar Cache
+          </button>
           <button 
             className="btn-tesla secondary"
             onClick={loadData}
