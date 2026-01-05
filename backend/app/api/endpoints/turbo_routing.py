@@ -257,53 +257,74 @@ async def obtener_envios_turbo_pendientes(
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
         raise HTTPException(status_code=403, detail="Sin permiso para gestionar Turbo Routing")
     
-    # 1. Obtener envíos Turbo desde la BD (solo para saber qué shipment IDs son Turbo)
-    envios_turbo_bd = db.query(MercadoLibreOrderShipping).filter(
+    # 1. Obtener solo IDs de envíos Turbo desde BD (query optimizada - solo IDs necesarios)
+    turbo_query = db.query(
+        MercadoLibreOrderShipping.mlshippingid,
+        MercadoLibreOrderShipping.mlo_id,
+        MercadoLibreOrderShipping.mlstreet_name,
+        MercadoLibreOrderShipping.mlstreet_number,
+        MercadoLibreOrderShipping.mlzip_code,
+        MercadoLibreOrderShipping.mlcity_name,
+        MercadoLibreOrderShipping.mlstate_name,
+        MercadoLibreOrderShipping.mlreceiver_name,
+        MercadoLibreOrderShipping.mlreceiver_phone,
+        MercadoLibreOrderShipping.mlestimated_delivery_limit,
+        MercadoLibreOrderShipping.mllogistic_type,
+        MercadoLibreOrderShipping.mlshipping_mode,
+        MercadoLibreOrderShipping.mlturbo,
+        MercadoLibreOrderShipping.mlself_service,
+        MercadoLibreOrderShipping.mlcross_docking
+    ).filter(
         MercadoLibreOrderShipping.mlshipping_method_id == '515282'
     ).all()
     
-    # Crear mapa: shipment_id -> datos BD
-    turbo_map = {str(e.mlshippingid): e for e in envios_turbo_bd}
+    # Crear mapa: shipment_id -> datos BD (solo campos necesarios)
+    turbo_map = {str(row.mlshippingid): row for row in turbo_query}
     
-    # 2. Obtener datos actualizados desde scriptEnvios
+    # 2. Obtener datos actualizados desde scriptEnvios (CON CACHE)
     envios_erp = await obtener_envios_desde_erp(dias_atras)
     
-    # 3. Filtrar solo los que son Turbo y están pendientes
+    # 3. Pre-filtrar scriptEnvios solo estados pendientes (reduce iteraciones)
+    envios_pendientes_erp = [
+        e for e in envios_erp 
+        if e.get("Estado", "").lower() in ['ready_to_ship', 'not_delivered']
+    ]
+    
+    # 4. Cruce optimizado: solo procesar envíos pendientes que sean Turbo
     envios_turbo_actualizados = []
-    for envio_erp in envios_erp:
+    for envio_erp in envios_pendientes_erp:
         shipment_id = str(envio_erp.get("Número de Envío", ""))
-        estado_real = envio_erp.get("Estado", "").lower()
         
-        # Solo procesar si es Turbo (existe en turbo_map) y está pendiente
-        if shipment_id in turbo_map and estado_real in ['ready_to_ship', 'not_delivered']:
+        if shipment_id in turbo_map:
             envios_turbo_actualizados.append({
                 "envio_bd": turbo_map[shipment_id],
                 "envio_erp": envio_erp,
-                "estado_real": estado_real
+                "estado_real": envio_erp.get("Estado", "").lower()
             })
     
-    # 4. Filtrar asignados si corresponde
+    # 5. Filtrar asignados si corresponde (query optimizada)
     if not incluir_asignados:
-        asignados_ids = db.query(AsignacionTurbo.mlshippingid).filter(
+        asignados_ids_query = db.query(AsignacionTurbo.mlshippingid).filter(
             AsignacionTurbo.estado != 'cancelado'
         ).all()
-        asignados_ids_set = {str(a.mlshippingid) for a in asignados_ids}
+        asignados_ids_set = {str(a[0]) for a in asignados_ids_query}
+        
+        # Filtrado usando set comprehension (más rápido)
         envios_turbo_actualizados = [
             e for e in envios_turbo_actualizados 
             if str(e["envio_bd"].mlshippingid) not in asignados_ids_set
         ]
     
-    # 5. Obtener asignaciones existentes
+    # 6. Obtener asignaciones existentes (solo si incluye asignados)
     asignaciones_map = {}
     if incluir_asignados and envios_turbo_actualizados:
         shipment_ids = [str(e["envio_bd"].mlshippingid) for e in envios_turbo_actualizados]
         asignaciones = db.query(AsignacionTurbo).filter(
             AsignacionTurbo.mlshippingid.in_(shipment_ids)
         ).all()
-        for asig in asignaciones:
-            asignaciones_map[str(asig.mlshippingid)] = asig
+        asignaciones_map = {str(asig.mlshippingid): asig for asig in asignaciones}
     
-    # 6. Construir respuesta con paginación
+    # 7. Construir respuesta con paginación
     total = len(envios_turbo_actualizados)
     envios_paginados = envios_turbo_actualizados[offset:offset+limit]
     
