@@ -128,13 +128,18 @@ class AsignacionResponse(BaseModel):
         from_attributes = True
 
 
+class EnvioPorMotoqueroStat(BaseModel):
+    """Estadística de envíos por motoquero"""
+    motoquero: str
+    total: int
+
 class EstadisticasResponse(BaseModel):
     """Estadísticas generales de Turbo Routing"""
     total_envios_pendientes: int
     total_envios_asignados: int
     total_motoqueros_activos: int
     total_zonas_activas: int
-    envios_por_motoquero: List[dict]
+    envios_por_motoquero: List[EnvioPorMotoqueroStat]
 
 
 # ==================== ENDPOINTS: ENVÍOS TURBO ====================
@@ -149,7 +154,10 @@ async def obtener_envios_turbo_pendientes(
 ):
     """
     Obtiene envíos Turbo pendientes desde tb_mercadolibre_orders_shipping.
-    Filtra por mlshipping_method_id = '515282' (Turbo) y mlstatus = 'ready_to_ship'.
+    Filtra por mlshipping_method_id = '515282' (Turbo).
+    
+    NOTA: Los estados 'ready_to_ship' y 'not_delivered' pueden estar desactualizados en la tabla.
+    Considerar implementar consulta en tiempo real via scriptEnvios en el futuro.
     """
     # Verificar permiso
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
@@ -252,7 +260,7 @@ async def obtener_motoqueros(
     
     query = db.query(Motoquero)
     if solo_activos:
-        query = query.filter(Motoquero.activo == True)
+        query = query.filter(Motoquero.activo.is_(True))
     
     motoqueros = query.order_by(Motoquero.nombre).all()
     return motoqueros
@@ -268,7 +276,7 @@ async def crear_motoquero(
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
         raise HTTPException(status_code=403, detail="Sin permiso")
     
-    nuevo_motoquero = Motoquero(**motoquero.dict())
+    nuevo_motoquero = Motoquero(**motoquero.model_dump())
     db.add(nuevo_motoquero)
     db.commit()
     db.refresh(nuevo_motoquero)
@@ -291,7 +299,7 @@ async def actualizar_motoquero(
     if not db_motoquero:
         raise HTTPException(status_code=404, detail="Motoquero no encontrado")
     
-    for key, value in motoquero.dict().items():
+    for key, value in motoquero.model_dump().items():
         setattr(db_motoquero, key, value)
     
     db.commit()
@@ -334,7 +342,7 @@ async def obtener_zonas(
     
     query = db.query(ZonaReparto)
     if solo_activas:
-        query = query.filter(ZonaReparto.activa == True)
+        query = query.filter(ZonaReparto.activa.is_(True))
     
     zonas = query.order_by(ZonaReparto.nombre).all()
     return zonas
@@ -351,7 +359,7 @@ async def crear_zona(
         raise HTTPException(status_code=403, detail="Sin permiso")
     
     nueva_zona = ZonaReparto(
-        **zona.dict(),
+        **zona.model_dump(),
         creado_por=current_user.get('id')
     )
     db.add(nueva_zona)
@@ -483,7 +491,7 @@ async def obtener_resumen_asignaciones(
     ).join(
         AsignacionTurbo, AsignacionTurbo.motoquero_id == Motoquero.id
     ).filter(
-        Motoquero.activo == True,
+        Motoquero.activo.is_(True),
         AsignacionTurbo.estado != 'cancelado'
     ).group_by(
         Motoquero.id, Motoquero.nombre
@@ -527,10 +535,10 @@ async def obtener_estadisticas(
     ).scalar() or 0
     
     # Motoqueros activos
-    total_motoqueros = db.query(func.count(Motoquero.id)).filter(Motoquero.activo == True).scalar() or 0
+    total_motoqueros = db.query(func.count(Motoquero.id)).filter(Motoquero.activo.is_(True)).scalar() or 0
     
     # Zonas activas
-    total_zonas = db.query(func.count(ZonaReparto.id)).filter(ZonaReparto.activa == True).scalar() or 0
+    total_zonas = db.query(func.count(ZonaReparto.id)).filter(ZonaReparto.activa.is_(True)).scalar() or 0
     
     # Envíos por motoquero
     envios_por_motoquero_data = db.query(
@@ -543,7 +551,7 @@ async def obtener_estadisticas(
     ).group_by(Motoquero.nombre).all()
     
     envios_por_motoquero = [
-        {"motoquero": r.nombre, "total": r.total}
+        EnvioPorMotoqueroStat(motoquero=r.nombre, total=r.total)
         for r in envios_por_motoquero_data
     ]
     

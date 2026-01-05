@@ -63,7 +63,8 @@ SCRIPT_CONFIG = {
     "scriptTaxNumberType": ["tntID"],
     "scriptState": ["countryID", "stateID"],
     "scriptItemAssociation": ["itemAID", "itemAID4update", "itemID", "item1ID"],
-    "scriptTiendaNubeOrders": ["fromDate", "toDate", "tnoID", "tnoIDfrom", "tnoIDto"]
+    "scriptTiendaNubeOrders": ["fromDate", "toDate", "tnoID", "tnoIDfrom", "tnoIDto"],
+    "scriptEnvios": ["fromDate", "toDate"]
 }
 
 # Configuración de operaciones
@@ -255,7 +256,7 @@ def parse_soap_response(xml_content: str) -> Any:
                     if (first == '{' and last == '}') or (first == '[' and last == ']'):
                         try:
                             value = json.loads(value)
-                        except:
+                        except (json.JSONDecodeError, ValueError):
                             pass
 
                 row[tag_name] = value
@@ -275,7 +276,7 @@ def parse_soap_response(xml_content: str) -> Any:
         if json_match:
             try:
                 return json.loads(json_match.group(1))
-            except:
+            except (json.JSONDecodeError, ValueError):
                 return [{"raw": inner_xml}]
         else:
             return [{"raw": inner_xml}]
@@ -302,7 +303,7 @@ async def gbp_parser(request: Request):
                             body[k] = int(num_val)
                         else:
                             body[k] = num_val
-                    except:
+                    except (ValueError, AttributeError):
                         pass
         else:
             body = await request.json()
