@@ -321,9 +321,14 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
 
   if (!isOpen) return null;
 
-  const markupColor = parseFloat(resultados.markupPorcentaje) >= 30 ? '#22c55e' :
-                      parseFloat(resultados.markupPorcentaje) >= 15 ? '#f59e0b' :
-                      '#ef4444';
+  const getMarkupColor = (markup) => {
+    const value = parseFloat(markup);
+    if (isNaN(value)) return '#6b7280'; // Gris si no es número
+    if (value < 0) return '#ef4444'; // Rojo si es negativo
+    return '#22c55e'; // Verde si es positivo
+  };
+
+  const markupColor = getMarkupColor(resultados.markupPorcentaje);
 
   return (
     <div
@@ -509,7 +514,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
                         </div>
                         <div className="cuota-detail-row">
                           <span>Markup:</span>
-                          <span style={{ color: markupColor, fontWeight: 'bold' }}>
+                          <span style={{ color: getMarkupColor(cuota.markup_real), fontWeight: 'bold' }}>
                             {cuota.markup_real.toFixed(2)}%
                           </span>
                         </div>
