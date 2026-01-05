@@ -23,6 +23,7 @@ import TestStatsDinamicos from './pages/TestStatsDinamicos';
 import Notificaciones from './pages/Notificaciones';
 import PedidosPreparacion from './pages/PedidosPreparacion';
 import Clientes from './pages/Clientes';
+import TurboRouting from './pages/TurboRouting';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
@@ -161,6 +162,11 @@ function App() {
                 <Route path="/clientes" element={
                   <ProtectedRoute permiso="clientes.ver">
                     <Clientes />
+                  </ProtectedRoute>
+                } />
+                <Route path="/turbo-routing" element={
+                  <ProtectedRoute permiso="ordenes.gestionar_turbo_routing">
+                    <TurboRouting />
                   </ProtectedRoute>
                 } />
               </Routes>

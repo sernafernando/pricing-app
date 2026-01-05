@@ -37,6 +37,7 @@ export default function Navbar() {
   const puedeVerBanlist = tienePermiso('admin.gestionar_mla_banlist');
   const puedeVerItemsSinMLA = tienePermiso('admin.gestionar_mla_banlist');
   const puedeVerPedidosPreparacion = tienePermiso('ordenes.ver_preparacion');
+  const puedeGestionarTurbo = tienePermiso('ordenes.gestionar_turbo_routing');
   const puedeVerTienda = tienePermiso('productos.ver_tienda');
   const puedeVerPreciosListas = tienePermiso('productos.ver');
   const puedeVerDashboardVentas = tieneAlgunPermiso(['ventas_ml.ver_dashboard', 'ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard']);
@@ -157,6 +158,15 @@ export default function Navbar() {
               className={`${styles.link} ${isActive('/pedidos-preparacion') ? styles.active : ''}`}
             >
               Preparación
+            </Link>
+          )}
+
+          {puedeGestionarTurbo && (
+            <Link
+              to="/turbo-routing"
+              className={`${styles.link} ${isActive('/turbo-routing') ? styles.active : ''}`}
+            >
+              🏍️ Turbo
             </Link>
           )}
 
