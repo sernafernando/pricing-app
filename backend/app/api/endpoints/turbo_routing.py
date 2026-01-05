@@ -92,6 +92,9 @@ class EnvioTurboResponse(BaseModel):
     mllogistic_type: Optional[str] = None  # 'xd_drop_off' o similar
     mlshipping_mode: Optional[str] = None  # Modo de envío
     mlturbo: Optional[str] = None  # Flag de Turbo
+    mlself_service: Optional[str] = None  # Self service
+    mlcross_docking: Optional[str] = None  # Cross docking
+    tipo_envio: Optional[str] = None  # 'turbo', 'self_service', 'cross_docking', 'normal'
     asignado: bool = False  # True si ya está asignado
     motoquero_id: Optional[int] = None
     motoquero_nombre: Optional[str] = None
@@ -198,6 +201,16 @@ async def obtener_envios_turbo_pendientes(
             direccion_partes.append(envio.mlcity_name)
         direccion_completa = ", ".join(direccion_partes) or "Dirección no disponible"
         
+        # Determinar tipo de envío (prioridad: turbo > self_service > cross_docking > normal)
+        if envio.mlshipping_method_id == '515282':
+            tipo_envio = 'turbo'
+        elif envio.mlself_service == 'True':
+            tipo_envio = 'self_service'
+        elif envio.mlcross_docking == 'True':
+            tipo_envio = 'cross_docking'
+        else:
+            tipo_envio = 'normal'
+        
         resultado.append(EnvioTurboResponse(
             mlshippingid=envio.mlshippingid,
             mlo_id=envio.mlo_id,
@@ -214,6 +227,9 @@ async def obtener_envios_turbo_pendientes(
             mllogistic_type=envio.mllogistic_type,
             mlshipping_mode=envio.mlshipping_mode,
             mlturbo=envio.mlturbo,
+            mlself_service=envio.mlself_service,
+            mlcross_docking=envio.mlcross_docking,
+            tipo_envio=tipo_envio,
             asignado=asignacion is not None,
             motoquero_id=asignacion.motoquero_id if asignacion else None,
             motoquero_nombre=asignacion.motoquero.nombre if asignacion and asignacion.motoquero else None
