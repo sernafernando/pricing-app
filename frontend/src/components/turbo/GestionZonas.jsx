@@ -34,8 +34,7 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
       position: 'topright',
       edit: {
         featureGroup: drawnItems,
-        remove: true,
-        edit: true
+        remove: true
       },
       draw: {
         polygon: {
