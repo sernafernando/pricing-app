@@ -163,6 +163,20 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
     }
   };
   
+  const handleZoomToZona = (zona) => {
+    if (!mapRef.current || !zona.poligono?.coordinates?.[0]) return;
+    
+    // Convertir coordenadas de GeoJSON [lng, lat] a Leaflet [lat, lng]
+    const coords = zona.poligono.coordinates[0].map(c => [c[1], c[0]]);
+    
+    // Crear bounds y hacer zoom
+    const bounds = L.latLngBounds(coords);
+    mapRef.current.fitBounds(bounds, { 
+      padding: [50, 50],
+      maxZoom: 14
+    });
+  };
+  
   return (
     <div className={styles.container}>
       <div className={styles.panel}>
@@ -230,6 +244,61 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
             💡 <strong>Tip:</strong> Leaflet.Geoman permite polígonos de cualquier cantidad de puntos. Para editar, usá el botón ✏️ Edit.
           </p>
         </div>
+        </div>
+        
+        {/* LISTA DE ZONAS */}
+        <div className={styles.zonasSection}>
+          <h3>Zonas Creadas ({zonas.length})</h3>
+          
+          {zonas.length === 0 ? (
+            <div className={styles.emptyZonas}>
+              <p>📍 No hay zonas creadas aún</p>
+              <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                Dibujá tu primera zona en el mapa
+              </p>
+            </div>
+          ) : (
+            <div className={styles.zonasList}>
+              {zonas.map(zona => (
+                <div key={zona.id} className={styles.zonaCard}>
+                  <div 
+                    className={styles.zonaColor} 
+                    style={{ backgroundColor: zona.color || '#3388ff' }}
+                  />
+                  <div className={styles.zonaInfo}>
+                    <h4>{zona.nombre}</h4>
+                    {zona.descripcion && <p>{zona.descripcion}</p>}
+                    <div className={styles.zonaMeta}>
+                      <span className={styles.zonaPoints}>
+                        {zona.poligono?.coordinates?.[0]?.length - 1 || 0} puntos
+                      </span>
+                      {zona.activa ? (
+                        <span className={styles.zonaStatus} style={{ color: '#22c55e' }}>● Activa</span>
+                      ) : (
+                        <span className={styles.zonaStatus} style={{ color: '#ef4444' }}>● Inactiva</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className={styles.zonaActions}>
+                    <button 
+                      className={styles.btnIcon}
+                      onClick={() => handleZoomToZona(zona)}
+                      title="Ver en mapa"
+                    >
+                      🔍
+                    </button>
+                    <button 
+                      className={`${styles.btnIcon} ${styles.btnIconDanger}`}
+                      onClick={() => handleEliminarZona(zona.id)}
+                      title="Eliminar zona"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       

@@ -196,6 +196,141 @@
 }
 
 /* ============================================
+   LISTA DE ZONAS
+   ============================================ */
+
+.zonasSection {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  margin-top: var(--spacing-lg);
+}
+
+.zonasSection h3 {
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: var(--font-lg);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}
+
+.emptyZonas {
+  text-align: center;
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  color: var(--text-secondary);
+}
+
+.emptyZonas p:first-child {
+  font-size: var(--font-base);
+  margin: 0;
+}
+
+.zonasList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.zonaCard {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+}
+
+.zonaCard:hover {
+  transform: translateX(2px);
+  box-shadow: var(--shadow-sm);
+  border-color: var(--brand-primary);
+}
+
+.zonaColor {
+  width: 12px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.zonaInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.zonaInfo h4 {
+  margin: 0 0 var(--spacing-xs) 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zonaInfo p {
+  margin: 0 0 var(--spacing-xs) 0;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zonaMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-xs);
+}
+
+.zonaPoints {
+  color: var(--text-secondary);
+  background: rgba(92, 140, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.zonaStatus {
+  font-weight: var(--font-medium);
+  font-size: var(--font-xs);
+}
+
+.zonaActions {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.btnIcon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btnIcon:hover {
+  background: var(--bg-secondary);
+  border-color: var(--brand-primary);
+  transform: translateY(-1px);
+}
+
+.btnIconDanger:hover {
+  background: #fef2f2;
+  border-color: #ef4444;
+}
+
+/* ============================================
    POPUP EN EL MAPA
    ============================================ */
 
