@@ -561,8 +561,8 @@ async def auto_generar_zonas(
         # 1. Obtener envíos Turbo SIN asignar
         envios_sin_asignar = db.query(MercadoLibreOrderShipping).filter(
             and_(
-                MercadoLibreOrderShipping.mlshipping_mode == 'me2',
-                MercadoLibreOrderShipping.mlstatus == 'ready_to_ship',
+                MercadoLibreOrderShipping.mlshipping_method_id == '515282',
+                MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered']),
                 ~MercadoLibreOrderShipping.mlshippingid.in_(
                     db.query(AsignacionTurbo.mlshippingid).filter(
                         AsignacionTurbo.estado != 'cancelado'
@@ -1062,8 +1062,8 @@ async def geocodificar_batch_ml_webhook(
     # 1. Obtener envíos Turbo SIN asignar  
     envios_sin_asignar = db.query(MercadoLibreOrderShipping).filter(
         and_(
-            MercadoLibreOrderShipping.mlshipping_mode == 'me2',
-            MercadoLibreOrderShipping.mlstatus == 'ready_to_ship',
+            MercadoLibreOrderShipping.mlshipping_method_id == '515282',
+            MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered']),
             ~MercadoLibreOrderShipping.mlshippingid.in_(
                 db.query(AsignacionTurbo.mlshippingid).filter(
                     AsignacionTurbo.estado != 'cancelado'
