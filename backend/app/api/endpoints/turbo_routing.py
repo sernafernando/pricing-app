@@ -29,6 +29,11 @@ from app.services.kmeans_zone_service import (
     validar_envios_geocodificados
 )
 from app.services.geocoding_service import geocode_address
+from app.services.ml_webhook_service import (
+    fetch_shipment_data,
+    extraer_coordenadas,
+    extraer_direccion_completa
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1021,3 +1026,154 @@ async def geocodificar_batch(
     db.commit()
     
     return resultados
+
+
+@router.post("/turbo/geocoding/batch-ml", response_model=dict)
+async def geocodificar_batch_ml_webhook(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Geocodifica TODOS los envíos Turbo sin asignar usando ML Webhook API.
+    
+    Ventajas sobre Mapbox:
+    - 100% precisión (ML ya hizo el geocoding)
+    - 0 costo (API interna)
+    - Más rápido (sin rate limiting externo)
+    
+    Algoritmo:
+    1. Obtiene envíos Turbo sin asignar
+    2. Por cada envío, llama a ML Webhook con mlshippingid
+    3. Extrae lat/lng del JSON
+    4. Guarda en geocoding_cache
+    
+    Returns:
+        Estadísticas de geocodificación batch
+    """
+    if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
+        raise HTTPException(status_code=403, detail="Sin permiso")
+    
+    logger.info("🚀 Iniciando geocoding batch desde ML Webhook...")
+    
+    # 1. Obtener envíos Turbo SIN asignar
+    envios_sin_asignar = db.query(MercadoLibreOrderShipping).filter(
+        and_(
+            MercadoLibreOrderShipping.mlshipping_mode == 'me2',
+            MercadoLibreOrderShipping.mlstatus == 'ready_to_ship',
+            ~MercadoLibreOrderShipping.mlshippingid.in_(
+                db.query(AsignacionTurbo.mlshippingid).filter(
+                    AsignacionTurbo.estado != 'cancelado'
+                )
+            )
+        )
+    ).all()
+    
+    total_envios = len(envios_sin_asignar)
+    
+    if total_envios == 0:
+        return {
+            "total": 0,
+            "exitosos": 0,
+            "fallidos": 0,
+            "sin_shipping_id": 0,
+            "sin_coordenadas": 0,
+            "mensaje": "No hay envíos Turbo pendientes"
+        }
+    
+    logger.info(f"📦 {total_envios} envíos Turbo sin asignar")
+    
+    # Contadores
+    exitosos = 0
+    fallidos = 0
+    sin_shipping_id = 0
+    sin_coordenadas = 0
+    
+    # 2. Procesar cada envío
+    for envio in envios_sin_asignar:
+        try:
+            # Validar que tenga shipping_id
+            if not envio.mlshippingid:
+                sin_shipping_id += 1
+                logger.warning(f"Envío sin mlshippingid: mlo_id={envio.mlo_id}")
+                continue
+            
+            # Llamar a ML Webhook
+            data = await fetch_shipment_data(envio.mlshippingid)
+            
+            if not data:
+                fallidos += 1
+                continue
+            
+            # Extraer coordenadas
+            lat, lng = extraer_coordenadas(data)
+            
+            if lat is None or lng is None:
+                sin_coordenadas += 1
+                logger.warning(
+                    f"Envío {envio.mlshippingid} sin coordenadas en ML Webhook"
+                )
+                continue
+            
+            # Construir dirección normalizada
+            direccion_completa = extraer_direccion_completa(data)
+            
+            if not direccion_completa:
+                # Fallback: usar datos de la BD
+                direccion_completa = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
+            
+            # Guardar en cache de geocoding (merge = insert or update)
+            cache_entry = GeocodingCache(
+                direccion_normalizada=direccion_completa,
+                latitud=lat,
+                longitud=lng,
+                fuente='ml_webhook',
+                precision='ROOFTOP'  # ML Webhook siempre da alta precisión
+            )
+            
+            # Merge: si existe la dirección, actualiza; si no, inserta
+            existing = db.query(GeocodingCache).filter(
+                GeocodingCache.direccion_normalizada == direccion_completa
+            ).first()
+            
+            if existing:
+                existing.latitud = lat
+                existing.longitud = lng
+                existing.fuente = 'ml_webhook'
+                existing.precision = 'ROOFTOP'
+            else:
+                db.add(cache_entry)
+            
+            exitosos += 1
+            
+            # Log cada 10 envíos
+            if exitosos % 10 == 0:
+                logger.info(f"✅ Geocodificados: {exitosos}/{total_envios}")
+            
+            # Pequeño delay para no saturar (ML Webhook es rápido, pero moderamos)
+            await asyncio.sleep(0.05)  # 50ms = ~20 req/seg
+            
+        except Exception as e:
+            fallidos += 1
+            logger.error(
+                f"Error geocodificando envío {envio.mlshippingid}: {e}",
+                exc_info=True
+            )
+            continue
+    
+    # Commit final
+    db.commit()
+    
+    logger.info(
+        f"✅ Geocoding batch completado: "
+        f"{exitosos} exitosos, {fallidos} fallidos, "
+        f"{sin_shipping_id} sin ID, {sin_coordenadas} sin coords"
+    )
+    
+    return {
+        "total": total_envios,
+        "exitosos": exitosos,
+        "fallidos": fallidos,
+        "sin_shipping_id": sin_shipping_id,
+        "sin_coordenadas": sin_coordenadas,
+        "porcentaje_exito": round((exitosos / total_envios * 100), 2) if total_envios > 0 else 0
+    }
