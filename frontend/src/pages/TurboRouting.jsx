@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import styles from './TurboRouting.module.css';
 import { usePermisos } from '../contexts/PermisosContext';
+import MapaEnvios from '../components/turbo/MapaEnvios';
+import GestionZonas from '../components/turbo/GestionZonas';
 
 const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
@@ -10,7 +12,7 @@ export default function TurboRouting() {
   
   // Estados principales
   const [loading, setLoading] = useState(true);
-  const [tabActiva, setTabActiva] = useState('envios'); // 'envios' | 'motoqueros' | 'estadisticas'
+  const [tabActiva, setTabActiva] = useState('envios'); // 'envios' | 'motoqueros' | 'mapa' | 'zonas' | 'estadisticas'
   
   // Envíos Turbo
   const [envios, setEnvios] = useState([]);
@@ -26,6 +28,9 @@ export default function TurboRouting() {
   // Estadísticas
   const [estadisticas, setEstadisticas] = useState(null);
   const [resumen, setResumen] = useState([]);
+  
+  // Zonas
+  const [zonas, setZonas] = useState([]);
   
   // Asignación
   const [modalAsignacion, setModalAsignacion] = useState(false);
@@ -77,6 +82,18 @@ export default function TurboRouting() {
     }
   }, []);
   
+  const fetchZonas = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/turbo/zonas`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: { solo_activas: true }
+      });
+      setZonas(response.data);
+    } catch (error) {
+      alert('Error al cargar zonas');
+    }
+  }, []);
+  
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -85,13 +102,17 @@ export default function TurboRouting() {
         await fetchMotoqueros();
       } else if (tabActiva === 'motoqueros') {
         await fetchMotoqueros();
+      } else if (tabActiva === 'mapa') {
+        await Promise.all([fetchEnvios(), fetchZonas()]);
+      } else if (tabActiva === 'zonas') {
+        await fetchZonas();
       } else if (tabActiva === 'estadisticas') {
         await fetchEstadisticas();
       }
     } finally {
       setLoading(false);
     }
-  }, [tabActiva, fetchEnvios, fetchMotoqueros, fetchEstadisticas]);
+  }, [tabActiva, fetchEnvios, fetchMotoqueros, fetchZonas, fetchEstadisticas]);
   
   useEffect(() => {
     loadData();
@@ -329,6 +350,19 @@ export default function TurboRouting() {
           {motoqueros.length > 0 && <span className={styles.badge}>{motoqueros.length}</span>}
         </button>
         <button 
+          className={`${styles.tab} ${tabActiva === 'mapa' ? styles.tabActiva : ''}`}
+          onClick={() => setTabActiva('mapa')}
+        >
+          🗺️ Mapa
+        </button>
+        <button 
+          className={`${styles.tab} ${tabActiva === 'zonas' ? styles.tabActiva : ''}`}
+          onClick={() => setTabActiva('zonas')}
+        >
+          📍 Zonas
+          {zonas.length > 0 && <span className={styles.badge}>{zonas.length}</span>}
+        </button>
+        <button 
           className={`${styles.tab} ${tabActiva === 'estadisticas' ? styles.tabActiva : ''}`}
           onClick={() => setTabActiva('estadisticas')}
         >
@@ -364,6 +398,31 @@ export default function TurboRouting() {
               onEditar={abrirModalEditarMotoquero}
               onDesactivar={desactivarMotoquero}
             />
+          )}
+          
+          {tabActiva === 'mapa' && (
+            <div className={styles.mapaContainer}>
+              <MapaEnvios 
+                envios={envios}
+                zonas={zonas}
+                onEnvioClick={(envio) => console.log('Click en envío:', envio)}
+                onZonaClick={(zona) => console.log('Click en zona:', zona)}
+              />
+            </div>
+          )}
+          
+          {tabActiva === 'zonas' && (
+            <div className={styles.zonasContainer}>
+              <GestionZonas 
+                zonas={zonas}
+                onZonaCreada={(nuevaZona) => {
+                  setZonas([...zonas, nuevaZona]);
+                }}
+                onZonaEliminada={(zonaId) => {
+                  setZonas(zonas.filter(z => z.id !== zonaId));
+                }}
+              />
+            </div>
           )}
           
           {tabActiva === 'estadisticas' && (

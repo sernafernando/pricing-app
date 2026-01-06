@@ -404,3 +404,23 @@
   gap: 0.5rem;
   cursor: pointer;
 }
+
+/* ============================================
+   MAPA Y ZONAS
+   ============================================ */
+
+.mapaContainer {
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  height: calc(100vh - 300px);
+  min-height: 600px;
+}
+
+.zonasContainer {
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  height: calc(100vh - 300px);
+  min-height: 600px;
+}

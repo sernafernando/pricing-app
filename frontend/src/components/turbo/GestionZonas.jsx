@@ -1,10 +1,13 @@
-import { useState } from 'react';
-import { MapContainer, TileLayer, FeatureGroup } from 'react-leaflet';
-import { EditControl } from 'react-leaflet-draw';
+import { useState, useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, Polygon, Popup } from 'react-leaflet';
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import styles from './GestionZonas.module.css';
 import api from '../../services/api';
+
+// Importar leaflet-draw
+import 'leaflet-draw';
 
 export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
   const [nombre, setNombre] = useState('');
@@ -12,22 +15,65 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
   const [color, setColor] = useState('#3388ff');
   const [poligonoTemporal, setPoligonoTemporal] = useState(null);
   const [guardando, setGuardando] = useState(false);
+  const mapRef = useRef(null);
+  const drawnItemsRef = useRef(null);
   
-  const handleCrearPoligono = (e) => {
-    const { layerType, layer } = e;
+  // Inicializar controles de dibujo cuando el mapa esté listo
+  useEffect(() => {
+    if (!mapRef.current) return;
     
-    if (layerType === 'polygon') {
-      const coords = layer.getLatLngs()[0].map(latlng => [latlng.lng, latlng.lat]);
+    const map = mapRef.current;
+    
+    // FeatureGroup para las capas dibujadas
+    const drawnItems = new L.FeatureGroup();
+    map.addLayer(drawnItems);
+    drawnItemsRef.current = drawnItems;
+    
+    // Control de dibujo
+    const drawControl = new L.Control.Draw({
+      edit: {
+        featureGroup: drawnItems,
+        remove: true
+      },
+      draw: {
+        polygon: {
+          allowIntersection: false,
+          showArea: true,
+          shapeOptions: {
+            color: color
+          }
+        },
+        polyline: false,
+        rectangle: false,
+        circle: false,
+        marker: false,
+        circlemarker: false
+      }
+    });
+    
+    map.addControl(drawControl);
+    
+    // Event handlers
+    map.on(L.Draw.Event.CREATED, (e) => {
+      const layer = e.layer;
+      drawnItems.addLayer(layer);
       
-      // GeoJSON format: [[[lng, lat], [lng, lat], ...]]
+      // Convertir a GeoJSON
+      const coords = layer.getLatLngs()[0].map(latlng => [latlng.lng, latlng.lat]);
       const geojson = {
         type: 'Polygon',
         coordinates: [[...coords, coords[0]]] // Cerrar el polígono
       };
       
       setPoligonoTemporal(geojson);
-    }
-  };
+    });
+    
+    return () => {
+      map.off(L.Draw.Event.CREATED);
+      map.removeControl(drawControl);
+      map.removeLayer(drawnItems);
+    };
+  }, [color]);
   
   const handleGuardarZona = async () => {
     if (!nombre.trim()) {
@@ -58,6 +104,11 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
       setDescripcion('');
       setPoligonoTemporal(null);
       
+      // Limpiar mapa
+      if (drawnItemsRef.current) {
+        drawnItemsRef.current.clearLayers();
+      }
+      
       if (onZonaCreada) {
         onZonaCreada(response.data);
       }
@@ -86,128 +137,112 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
   
   return (
     <div className={styles.container}>
-      {/* MAPA CON DRAWING TOOLS */}
-      <div className={styles.mapaSection}>
-        <h3 className={styles.seccionTitulo}>Dibujar Nueva Zona</h3>
-        <div className={styles.mapaContainer}>
-          <MapContainer
-            center={[-34.6037, -58.3816]}
-            zoom={12}
-            className={styles.mapa}
-          >
-            <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; OpenStreetMap'
+      <div className={styles.panel}>
+        <h3>Crear Nueva Zona</h3>
+        
+        <div className={styles.form}>
+          <div className={styles.field}>
+            <label>Nombre *</label>
+            <input 
+              type="text"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              placeholder="Ej: Zona Centro"
+              className={styles.input}
             />
-            
-            <FeatureGroup>
-              <EditControl
-                position="topright"
-                onCreated={handleCrearPoligono}
-                draw={{
-                  rectangle: false,
-                  circle: false,
-                  circlemarker: false,
-                  marker: false,
-                  polyline: false,
-                  polygon: {
-                    allowIntersection: false,
-                    shapeOptions: {
-                      color: color,
-                      fillOpacity: 0.3
-                    }
-                  }
-                }}
-              />
-            </FeatureGroup>
-          </MapContainer>
+          </div>
+          
+          <div className={styles.field}>
+            <label>Descripción</label>
+            <textarea 
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value)}
+              placeholder="Opcional"
+              className={styles.textarea}
+              rows={2}
+            />
+          </div>
+          
+          <div className={styles.field}>
+            <label>Color</label>
+            <input 
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className={styles.colorPicker}
+            />
+          </div>
+          
+          {poligonoTemporal && (
+            <div className={styles.success}>
+              ✅ Polígono dibujado ({poligonoTemporal.coordinates[0].length - 1} puntos)
+            </div>
+          )}
+          
+          <button 
+            className={`${styles.btn} ${styles.btnPrimary}`}
+            onClick={handleGuardarZona}
+            disabled={guardando || !nombre || !poligonoTemporal}
+          >
+            {guardando ? '💾 Guardando...' : '💾 Guardar Zona'}
+          </button>
         </div>
         
-        {poligonoTemporal && (
-          <div className={styles.poligonoInfo}>
-            ✅ Polígono dibujado ({poligonoTemporal.coordinates[0].length - 1} puntos)
-          </div>
-        )}
+        <div className={styles.instrucciones}>
+          <p><strong>Instrucciones:</strong></p>
+          <ol>
+            <li>Hacé click en el botón de polígono en el mapa (📐)</li>
+            <li>Dibujá el área de la zona haciendo click en el mapa</li>
+            <li>Hacé doble click para finalizar el polígono</li>
+            <li>Completá el formulario y guardá</li>
+          </ol>
+        </div>
       </div>
       
-      {/* FORMULARIO */}
-      <div className={styles.formularioSection}>
-        <h3 className={styles.seccionTitulo}>Datos de la Zona</h3>
-        
-        <div className={styles.campo}>
-          <label className={styles.label}>Nombre *</label>
-          <input
-            type="text"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            className={styles.input}
-            placeholder="Ej: Zona Norte"
-          />
-        </div>
-        
-        <div className={styles.campo}>
-          <label className={styles.label}>Descripción</label>
-          <textarea
-            value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
-            className={styles.textarea}
-            placeholder="Descripción opcional"
-            rows={3}
-          />
-        </div>
-        
-        <div className={styles.campo}>
-          <label className={styles.label}>Color</label>
-          <input
-            type="color"
-            value={color}
-            onChange={(e) => setColor(e.target.value)}
-            className={styles.colorPicker}
-          />
-        </div>
-        
-        <button
-          className="btn-tesla primary"
-          onClick={handleGuardarZona}
-          disabled={guardando || !poligonoTemporal}
+      <div className={styles.mapWrapper}>
+        <MapContainer
+          center={[-34.6037, -58.3816]} // Buenos Aires
+          zoom={12}
+          style={{ height: '100%', width: '100%' }}
+          whenReady={(mapInstance) => {
+            mapRef.current = mapInstance.target;
+          }}
         >
-          {guardando ? 'Guardando...' : '💾 Guardar Zona'}
-        </button>
-      </div>
-      
-      {/* LISTA DE ZONAS */}
-      <div className={styles.listadoSection}>
-        <h3 className={styles.seccionTitulo}>Zonas Existentes</h3>
-        
-        {zonas.length === 0 ? (
-          <p className={styles.emptyMessage}>No hay zonas creadas</p>
-        ) : (
-          <div className={styles.zonasList}>
-            {zonas.map(zona => (
-              <div key={zona.id} className={styles.zonaCard}>
-                <div 
-                  className={styles.zonaColor} 
-                  style={{ backgroundColor: zona.color }}
-                />
-                <div className={styles.zonaInfo}>
-                  <h4>{zona.nombre}</h4>
-                  {zona.descripcion && <p>{zona.descripcion}</p>}
-                  <span className={styles.zonaStatus}>
-                    {zona.activa ? '✅ Activa' : '❌ Inactiva'}
-                  </span>
-                </div>
-                {zona.activa && (
-                  <button
-                    className="btn-tesla danger"
-                    onClick={() => handleEliminarZona(zona.id)}
-                  >
-                    🗑️
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          
+          {/* Zonas existentes */}
+          {zonas.map(zona => {
+            const coords = zona.poligono?.coordinates?.[0]?.map(c => [c[1], c[0]]) || [];
+            
+            return coords.length > 0 ? (
+              <Polygon
+                key={zona.id}
+                positions={coords}
+                pathOptions={{
+                  color: zona.color || '#3388ff',
+                  fillColor: zona.color || '#3388ff',
+                  fillOpacity: 0.2
+                }}
+              >
+                <Popup>
+                  <div className={styles.popup}>
+                    <h4>{zona.nombre}</h4>
+                    {zona.descripcion && <p>{zona.descripcion}</p>}
+                    <button 
+                      className={styles.btnDanger}
+                      onClick={() => handleEliminarZona(zona.id)}
+                    >
+                      🗑️ Eliminar
+                    </button>
+                  </div>
+                </Popup>
+              </Polygon>
+            ) : null;
+          })}
+        </MapContainer>
       </div>
     </div>
   );
