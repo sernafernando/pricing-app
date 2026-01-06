@@ -2,12 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Polygon, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import 'leaflet-draw/dist/leaflet.draw.css';
+import '@geoman-io/leaflet-geoman-free';
+import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css';
 import styles from './GestionZonas.module.css';
 import api from '../../services/api';
-
-// Importar leaflet-draw
-import 'leaflet-draw';
 
 export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
   const [nombre, setNombre] = useState('');
@@ -16,83 +14,39 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
   const [poligonoTemporal, setPoligonoTemporal] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const mapRef = useRef(null);
-  const drawnItemsRef = useRef(null);
   
-  // Inicializar controles de dibujo cuando el mapa esté listo
+  // Inicializar Leaflet.Geoman cuando el mapa esté listo
   useEffect(() => {
     if (!mapRef.current) return;
     
     const map = mapRef.current;
     
-    // FeatureGroup para las capas dibujadas
-    const drawnItems = new L.FeatureGroup();
-    map.addLayer(drawnItems);
-    drawnItemsRef.current = drawnItems;
-    
-    // Control de dibujo CON CONFIGURACIÓN CORRECTA
-    const drawControl = new L.Control.Draw({
+    // Agregar controles de Geoman
+    map.pm.addControls({
       position: 'topright',
-      edit: {
-        featureGroup: drawnItems,
-        remove: true
-      },
-      draw: {
-        polygon: {
-          allowIntersection: false,
-          drawError: {
-            color: '#e74c3c',
-            message: '<strong>Error:</strong> Las líneas no pueden cruzarse!'
-          },
-          shapeOptions: {
-            color: color,
-            weight: 3,
-            fillOpacity: 0.3,
-            fillColor: color
-          },
-          showArea: true,
-          metric: true,
-          // CLAVE: Estas opciones permiten polígonos de N puntos
-          icon: new L.DivIcon({
-            iconSize: new L.Point(8, 8),
-            className: 'leaflet-div-icon leaflet-editing-icon'
-          }),
-          touchIcon: new L.DivIcon({
-            iconSize: new L.Point(20, 20),
-            className: 'leaflet-div-icon leaflet-editing-icon leaflet-touch-icon'
-          }),
-          guidelineDistance: 20,
-          maxGuideLineLength: 4000,
-          shapeOptions: {
-            stroke: true,
-            color: color,
-            weight: 4,
-            opacity: 0.5,
-            fill: true,
-            fillColor: color,
-            fillOpacity: 0.2,
-            clickable: true
-          },
-          metric: true,
-          showArea: true,
-          repeatMode: false
-        },
-        polyline: false,
-        rectangle: false,
-        circle: false,
-        marker: false,
-        circlemarker: false
-      }
+      drawMarker: false,
+      drawCircle: false,
+      drawCircleMarker: false,
+      drawPolyline: false,
+      drawRectangle: false,
+      drawPolygon: true,
+      editMode: true,
+      dragMode: false,
+      cutPolygon: false,
+      removalMode: true,
     });
     
-    map.addControl(drawControl);
+    // Configurar opciones de dibujo
+    map.pm.setPathOptions({
+      color: color,
+      fillColor: color,
+      fillOpacity: 0.3,
+      weight: 3,
+    });
     
-    // Event handlers
-    map.on(L.Draw.Event.CREATED, (e) => {
+    // Event handler cuando se crea un polígono
+    map.on('pm:create', (e) => {
       const layer = e.layer;
-      
-      // Limpiar capas anteriores
-      drawnItems.clearLayers();
-      drawnItems.addLayer(layer);
       
       // Convertir a GeoJSON
       const coords = layer.getLatLngs()[0].map(latlng => [latlng.lng, latlng.lat]);
@@ -102,31 +56,47 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
       };
       
       setPoligonoTemporal(geojson);
+      
+      // Guardar referencia para poder eliminar después
+      layer._zonaTemp = true;
     });
     
-    map.on(L.Draw.Event.EDITED, (e) => {
-      const layers = e.layers;
-      layers.eachLayer((layer) => {
-        const coords = layer.getLatLngs()[0].map(latlng => [latlng.lng, latlng.lat]);
-        const geojson = {
-          type: 'Polygon',
-          coordinates: [[...coords, coords[0]]]
-        };
-        setPoligonoTemporal(geojson);
-      });
+    // Event handler cuando se edita
+    map.on('pm:edit', (e) => {
+      const layer = e.layer;
+      const coords = layer.getLatLngs()[0].map(latlng => [latlng.lng, latlng.lat]);
+      const geojson = {
+        type: 'Polygon',
+        coordinates: [[...coords, coords[0]]]
+      };
+      setPoligonoTemporal(geojson);
     });
     
-    map.on(L.Draw.Event.DELETED, () => {
-      setPoligonoTemporal(null);
+    // Event handler cuando se elimina
+    map.on('pm:remove', (e) => {
+      if (e.layer._zonaTemp) {
+        setPoligonoTemporal(null);
+      }
     });
     
     return () => {
-      map.off(L.Draw.Event.CREATED);
-      map.off(L.Draw.Event.EDITED);
-      map.off(L.Draw.Event.DELETED);
-      map.removeControl(drawControl);
-      map.removeLayer(drawnItems);
+      map.off('pm:create');
+      map.off('pm:edit');
+      map.off('pm:remove');
+      map.pm.removeControls();
     };
+  }, [color]);
+  
+  // Actualizar color cuando cambia
+  useEffect(() => {
+    if (mapRef.current) {
+      mapRef.current.pm.setPathOptions({
+        color: color,
+        fillColor: color,
+        fillOpacity: 0.3,
+        weight: 3,
+      });
+    }
   }, [color]);
   
   const handleGuardarZona = async () => {
@@ -158,9 +128,13 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
       setDescripcion('');
       setPoligonoTemporal(null);
       
-      // Limpiar mapa
-      if (drawnItemsRef.current) {
-        drawnItemsRef.current.clearLayers();
+      // Limpiar polígono temporal del mapa
+      if (mapRef.current) {
+        mapRef.current.eachLayer((layer) => {
+          if (layer._zonaTemp) {
+            mapRef.current.removeLayer(layer);
+          }
+        });
       }
       
       if (onZonaCreada) {
@@ -246,14 +220,14 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
         <div className={styles.instrucciones}>
           <p><strong>📍 Cómo dibujar una zona:</strong></p>
           <ol>
-            <li>Hacé click en el botón <strong>📐 Draw a polygon</strong> (arriba a la derecha del mapa)</li>
-            <li>Hacé click en el mapa para agregar cada vértice del polígono</li>
-            <li>Agregá todos los puntos que necesites (mínimo 3)</li>
-            <li><strong style={{color: 'var(--brand-primary)'}}>IMPORTANTE: Hacé click en el PRIMER punto (el círculo inicial) para cerrar el polígono</strong></li>
-            <li>Completá el formulario y hacé click en <strong>Guardar Zona</strong></li>
+            <li>Hacé click en el botón <strong>🔷 Draw Polygon</strong> (arriba a la derecha del mapa)</li>
+            <li>Hacé click en el mapa para agregar cada punto del polígono</li>
+            <li>Agregá todos los puntos que necesites (mínimo 3, máximo ilimitado)</li>
+            <li><strong style={{color: 'var(--brand-primary)'}}>Hacé click en el ÚLTIMO punto nuevamente para finalizar</strong></li>
+            <li>Completá el formulario y guardá</li>
           </ol>
           <p style={{ marginTop: '0.5rem', fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
-            💡 <strong>Tip:</strong> Para cancelar, presioná ESC. Para editar una zona dibujada, usá el botón ✏️ Edit layers.
+            💡 <strong>Tip:</strong> Leaflet.Geoman permite polígonos de cualquier cantidad de puntos. Para editar, usá el botón ✏️ Edit.
           </p>
         </div>
         </div>
