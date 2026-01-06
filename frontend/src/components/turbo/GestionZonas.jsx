@@ -409,8 +409,8 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           
-          {/* Zonas existentes */}
-          {zonas.map(zona => {
+          {/* Zonas existentes - SOLO ACTIVAS en el mapa */}
+          {zonas.filter(z => z.activa).map(zona => {
             const coords = zona.poligono?.coordinates?.[0]?.map(c => [c[1], c[0]]) || [];
             
             return coords.length > 0 ? (
