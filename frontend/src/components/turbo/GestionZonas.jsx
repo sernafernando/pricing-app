@@ -29,7 +29,7 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
     map.addLayer(drawnItems);
     drawnItemsRef.current = drawnItems;
     
-    // Control de dibujo
+    // Control de dibujo CON CONFIGURACIÓN CORRECTA
     const drawControl = new L.Control.Draw({
       position: 'topright',
       edit: {
@@ -50,11 +50,30 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
             fillColor: color
           },
           showArea: true,
-          showLength: true,
           metric: true,
-          feet: false,
-          nautic: false,
-          // IMPORTANTE: Esto permite más de 3 puntos
+          // CLAVE: Estas opciones permiten polígonos de N puntos
+          icon: new L.DivIcon({
+            iconSize: new L.Point(8, 8),
+            className: 'leaflet-div-icon leaflet-editing-icon'
+          }),
+          touchIcon: new L.DivIcon({
+            iconSize: new L.Point(20, 20),
+            className: 'leaflet-div-icon leaflet-editing-icon leaflet-touch-icon'
+          }),
+          guidelineDistance: 20,
+          maxGuideLineLength: 4000,
+          shapeOptions: {
+            stroke: true,
+            color: color,
+            weight: 4,
+            opacity: 0.5,
+            fill: true,
+            fillColor: color,
+            fillOpacity: 0.2,
+            clickable: true
+          },
+          metric: true,
+          showArea: true,
           repeatMode: false
         },
         polyline: false,
@@ -70,6 +89,9 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
     // Event handlers
     map.on(L.Draw.Event.CREATED, (e) => {
       const layer = e.layer;
+      
+      // Limpiar capas anteriores
+      drawnItems.clearLayers();
       drawnItems.addLayer(layer);
       
       // Convertir a GeoJSON
@@ -82,8 +104,26 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
       setPoligonoTemporal(geojson);
     });
     
+    map.on(L.Draw.Event.EDITED, (e) => {
+      const layers = e.layers;
+      layers.eachLayer((layer) => {
+        const coords = layer.getLatLngs()[0].map(latlng => [latlng.lng, latlng.lat]);
+        const geojson = {
+          type: 'Polygon',
+          coordinates: [[...coords, coords[0]]]
+        };
+        setPoligonoTemporal(geojson);
+      });
+    });
+    
+    map.on(L.Draw.Event.DELETED, () => {
+      setPoligonoTemporal(null);
+    });
+    
     return () => {
       map.off(L.Draw.Event.CREATED);
+      map.off(L.Draw.Event.EDITED);
+      map.off(L.Draw.Event.DELETED);
       map.removeControl(drawControl);
       map.removeLayer(drawnItems);
     };
@@ -152,6 +192,7 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
   return (
     <div className={styles.container}>
       <div className={styles.panel}>
+        <div className={styles.formSection}>
         <h3>Crear Nueva Zona</h3>
         
         <div className={styles.form}>
@@ -208,12 +249,13 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
             <li>Hacé click en el botón <strong>📐 Draw a polygon</strong> (arriba a la derecha del mapa)</li>
             <li>Hacé click en el mapa para agregar cada vértice del polígono</li>
             <li>Agregá todos los puntos que necesites (mínimo 3)</li>
-            <li>Hacé click en el <strong>primer punto</strong> para cerrar el polígono</li>
+            <li><strong style={{color: 'var(--brand-primary)'}}>IMPORTANTE: Hacé click en el PRIMER punto (el círculo inicial) para cerrar el polígono</strong></li>
             <li>Completá el formulario y hacé click en <strong>Guardar Zona</strong></li>
           </ol>
           <p style={{ marginTop: '0.5rem', fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
-            💡 <strong>Tip:</strong> Para cancelar, presioná ESC. Para editar, usá el botón de edición (✏️).
+            💡 <strong>Tip:</strong> Para cancelar, presioná ESC. Para editar una zona dibujada, usá el botón ✏️ Edit layers.
           </p>
+        </div>
         </div>
       </div>
       
