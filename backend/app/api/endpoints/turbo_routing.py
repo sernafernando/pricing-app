@@ -559,17 +559,20 @@ async def auto_generar_zonas(
         logger.info(f"🤖 Auto-generando {cantidad_motoqueros} zonas con K-Means clustering...")
         
         # 1. Obtener envíos Turbo SIN asignar
+        # NOTA: Filtramos por estados que NO sean finales (delivered, cancelled, returned)
+        # porque mlstatus en BD puede estar desactualizado. Para datos actualizados
+        # usar /turbo/envios/pendientes que cruza con scriptEnvios.
         envios_sin_asignar = db.query(MercadoLibreOrderShipping).filter(
             and_(
                 MercadoLibreOrderShipping.mlshipping_method_id == '515282',
-                MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered']),
+                MercadoLibreOrderShipping.mlstatus.notin_(['delivered', 'cancelled', 'returned', 'lost', 'damaged']),
                 ~MercadoLibreOrderShipping.mlshippingid.in_(
                     db.query(AsignacionTurbo.mlshippingid).filter(
                         AsignacionTurbo.estado != 'cancelado'
                     )
                 )
             )
-        ).all()
+        ).limit(100).all()  # Limitar a 100 para testing
         
         if not envios_sin_asignar:
             raise HTTPException(
@@ -1060,17 +1063,18 @@ async def geocodificar_batch_ml_webhook(
     logger.info("🚀 Iniciando geocoding batch desde ML Webhook...")
     
     # 1. Obtener envíos Turbo SIN asignar  
+    # NOTA: Filtramos excluyendo estados finales porque mlstatus en BD puede estar desactualizado
     envios_sin_asignar = db.query(MercadoLibreOrderShipping).filter(
         and_(
             MercadoLibreOrderShipping.mlshipping_method_id == '515282',
-            MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered']),
+            MercadoLibreOrderShipping.mlstatus.notin_(['delivered', 'cancelled', 'returned', 'lost', 'damaged']),
             ~MercadoLibreOrderShipping.mlshippingid.in_(
                 db.query(AsignacionTurbo.mlshippingid).filter(
                     AsignacionTurbo.estado != 'cancelado'
                 )
             )
         )
-    ).all()
+    ).limit(200).all()  # Limitar para evitar sobrecarga en geocoding batch
     
     total_envios = len(envios_sin_asignar)
     
