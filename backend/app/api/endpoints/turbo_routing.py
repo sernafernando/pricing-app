@@ -656,15 +656,28 @@ async def auto_generar_zonas(
         
         logger.info(mensaje)
         
-        # 4. Desactivar TODAS las zonas activas (manuales + automáticas) si se solicita
+        # 4. Eliminar zonas anteriores si se solicita
         if eliminar_anteriores:
-            zonas_anteriores = db.query(ZonaReparto).filter(
-                ZonaReparto.activa.is_(True)
+            # Manuales: DESACTIVAR (conservar en BD)
+            zonas_manuales = db.query(ZonaReparto).filter(
+                ZonaReparto.activa.is_(True),
+                ZonaReparto.tipo_generacion == 'manual'
             ).all()
-            for zona in zonas_anteriores:
+            for zona in zonas_manuales:
                 zona.activa = False
+            
+            # Automáticas: ELIMINAR FÍSICAMENTE
+            zonas_automaticas = db.query(ZonaReparto).filter(
+                ZonaReparto.tipo_generacion == 'automatica'
+            ).all()
+            for zona in zonas_automaticas:
+                db.delete(zona)
+            
             db.commit()
-            logger.info(f"🗑️ Desactivadas {len(zonas_anteriores)} zonas anteriores (todas: manuales + automáticas)")
+            logger.info(
+                f"🗑️ Zonas manuales desactivadas: {len(zonas_manuales)} | "
+                f"Zonas automáticas eliminadas: {len(zonas_automaticas)}"
+            )
         
         # 5. Generar zonas usando K-Means
         zonas_data = generar_zonas_kmeans(
