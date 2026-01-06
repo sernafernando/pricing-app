@@ -271,7 +271,7 @@ async def obtener_envios_turbo_pendientes(
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
         raise HTTPException(status_code=403, detail="Sin permiso para gestionar Turbo Routing")
     
-    # 1. Obtener solo IDs de envíos Turbo desde BD (query optimizada - solo IDs necesarios)
+    # 1. Obtener envíos Turbo desde BD (incluir mlstatus para sincronización)
     turbo_query = db.query(
         MercadoLibreOrderShipping.mlshippingid,
         MercadoLibreOrderShipping.mlo_id,
@@ -287,7 +287,8 @@ async def obtener_envios_turbo_pendientes(
         MercadoLibreOrderShipping.mlshipping_mode,
         MercadoLibreOrderShipping.mlturbo,
         MercadoLibreOrderShipping.mlself_service,
-        MercadoLibreOrderShipping.mlcross_docking
+        MercadoLibreOrderShipping.mlcross_docking,
+        MercadoLibreOrderShipping.mlstatus
     ).filter(
         MercadoLibreOrderShipping.mlshipping_method_id == '515282'
     ).all()
