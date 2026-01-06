@@ -558,11 +558,13 @@ async def auto_generar_zonas(
     try:
         logger.info(f"🤖 Auto-generando {cantidad_motoqueros} zonas con K-Means clustering...")
         
-        # 1. Obtener envíos Turbo SIN asignar
-        # NOTA: Filtramos por estados que NO sean finales (delivered, cancelled, returned)
-        # porque mlstatus en BD puede estar desactualizado. Para datos actualizados
-        # usar /turbo/envios/pendientes que cruza con scriptEnvios.
-        envios_sin_asignar = db.query(MercadoLibreOrderShipping).filter(
+        # 1. Obtener envíos Turbo SIN asignar que TENGAN GEOCODING
+        # Primero obtenemos los hashes de direcciones que están en el cache
+        direcciones_geocodificadas = db.query(GeocodingCache.direccion_normalizada).all()
+        direcciones_set = {d[0] for d in direcciones_geocodificadas}
+        
+        # Obtener envíos Turbo sin asignar
+        envios_candidatos = db.query(MercadoLibreOrderShipping).filter(
             and_(
                 MercadoLibreOrderShipping.mlshipping_method_id == '515282',
                 MercadoLibreOrderShipping.mlstatus.notin_(['delivered', 'cancelled', 'returned', 'lost', 'damaged']),
@@ -572,7 +574,14 @@ async def auto_generar_zonas(
                     )
                 )
             )
-        ).limit(100).all()  # Limitar a 100 para testing
+        ).limit(200).all()  # Traer más para filtrar los geocodificados
+        
+        # Filtrar solo los que tienen geocoding
+        envios_sin_asignar = []
+        for envio in envios_candidatos:
+            direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
+            if direccion in direcciones_set:
+                envios_sin_asignar.append(envio)
         
         if not envios_sin_asignar:
             raise HTTPException(
