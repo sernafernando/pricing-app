@@ -1244,8 +1244,7 @@ async def geocodificar_batch_ml_webhook(
                 direccion_normalizada=direccion_completa,
                 latitud=lat,
                 longitud=lng,
-                fuente='ml_webhook',
-                precision='ROOFTOP'  # ML Webhook siempre da alta precisión
+                provider='ml_webhook'
             )
             
             # Merge: si existe la dirección, actualiza; si no, inserta
@@ -1256,8 +1255,7 @@ async def geocodificar_batch_ml_webhook(
             if existing:
                 existing.latitud = lat
                 existing.longitud = lng
-                existing.fuente = 'ml_webhook'
-                existing.precision = 'ROOFTOP'
+                existing.provider = 'ml_webhook'
             else:
                 db.add(cache_entry)
             
