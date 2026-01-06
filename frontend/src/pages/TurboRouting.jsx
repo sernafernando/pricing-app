@@ -448,7 +448,7 @@ export default function TurboRouting() {
             <div className={styles.mapaContainer}>
               <MapaEnvios 
                 envios={envios}
-                zonas={zonas}
+                zonas={zonas.filter(z => z.activa)}
                 onEnvioClick={() => {/* TODO: implementar click en envío */}}
                 onZonaClick={() => {/* TODO: implementar click en zona */}}
               />
