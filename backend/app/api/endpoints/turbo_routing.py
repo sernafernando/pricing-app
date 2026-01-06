@@ -621,12 +621,12 @@ async def auto_generar_zonas(
         # 4. Eliminar zonas auto-generadas anteriores si se solicita
         if eliminar_anteriores:
             zonas_auto = db.query(ZonaReparto).filter(
-                ZonaReparto.nombre.like('%Auto%')
+                ZonaReparto.activa.is_(True)
             ).all()
             for zona in zonas_auto:
                 zona.activa = False
             db.commit()
-            logger.info(f"🗑️ Desactivadas {len(zonas_auto)} zonas automáticas anteriores")
+            logger.info(f"🗑️ Desactivadas {len(zonas_auto)} zonas anteriores (todas)")
         
         # 5. Generar zonas usando K-Means
         zonas_data = generar_zonas_kmeans(
