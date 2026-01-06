@@ -36,6 +36,9 @@ export default function TurboRouting() {
   const [modalAsignacion, setModalAsignacion] = useState(false);
   const [procesando, setProcesando] = useState(false);
   
+  // Geocoding
+  const [geocodificando, setGeocodificando] = useState(false);
+  
   const getToken = () => localStorage.getItem('token');
   const puedeGestionar = tienePermiso('ordenes.gestionar_turbo_routing');
   
@@ -187,6 +190,45 @@ export default function TurboRouting() {
       alert(error.response?.data?.detail || 'Error al asignar envíos');
     } finally {
       setProcesando(false);
+    }
+  };
+  
+  const geocodificarTodos = async () => {
+    if (!puedeGestionar) {
+      alert('No tenés permiso para geocodificar envíos');
+      return;
+    }
+    
+    const confirmacion = confirm(
+      '🗺️ ¿Geocodificar todos los envíos Turbo pendientes?\n\n' +
+      'Usará ML Webhook API (100% precisión, 0 costo)\n' +
+      'Necesario para auto-generar zonas con K-Means\n\n' +
+      'Esto puede tardar unos segundos...'
+    );
+    
+    if (!confirmacion) return;
+    
+    setGeocodificando(true);
+    try {
+      const response = await axios.post(
+        `${API_URL}/turbo/geocoding/batch-ml`,
+        {},
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      
+      const { exitosos, total, sin_coordenadas, porcentaje_exito } = response.data;
+      
+      alert(
+        `✅ Geocoding completado\n\n` +
+        `• Total: ${total} envíos\n` +
+        `• Geocodificados: ${exitosos} (${porcentaje_exito}%)\n` +
+        `• Sin coordenadas: ${sin_coordenadas}\n\n` +
+        `Ahora podés auto-generar zonas con K-Means`
+      );
+    } catch (error) {
+      alert(error.response?.data?.detail || 'Error al geocodificar envíos');
+    } finally {
+      setGeocodificando(false);
     }
   };
   
@@ -381,11 +423,13 @@ export default function TurboRouting() {
               enviosSeleccionados={enviosSeleccionados}
               filtroEstado={filtroEstado}
               search={search}
+              geocodificando={geocodificando}
               onToggleSeleccion={toggleSeleccionEnvio}
               onSeleccionarTodos={seleccionarTodos}
               onFiltroEstadoChange={setFiltroEstado}
               onSearchChange={setSearch}
               onAsignar={abrirModalAsignacion}
+              onGeocodificar={geocodificarTodos}
             />
           )}
           
@@ -405,8 +449,8 @@ export default function TurboRouting() {
               <MapaEnvios 
                 envios={envios}
                 zonas={zonas}
-                onEnvioClick={(envio) => console.log('Click en envío:', envio)}
-                onZonaClick={(zona) => console.log('Click en zona:', zona)}
+                onEnvioClick={() => {/* TODO: implementar click en envío */}}
+                onZonaClick={() => {/* TODO: implementar click en zona */}}
               />
             </div>
           )}
@@ -473,11 +517,13 @@ function TabEnvios({
   enviosSeleccionados, 
   filtroEstado, 
   search,
+  geocodificando,
   onToggleSeleccion, 
   onSeleccionarTodos,
   onFiltroEstadoChange,
   onSearchChange,
-  onAsignar
+  onAsignar,
+  onGeocodificar
 }) {
   const todosSeleccionados = envios.length > 0 && enviosSeleccionados.size === envios.length;
   
@@ -506,6 +552,15 @@ function TabEnvios({
         </div>
         
         <div className={styles.toolbarRight}>
+          <button 
+            className="btn-tesla secondary"
+            onClick={onGeocodificar}
+            disabled={geocodificando}
+            title="Geocodificar todos los envíos Turbo usando ML Webhook (100% precisión)"
+          >
+            {geocodificando ? '⏳ Geocodificando...' : '🗺️ Geocodificar Todos'}
+          </button>
+          
           {enviosSeleccionados.size > 0 && (
             <>
               <span className={styles.seleccionInfo}>
