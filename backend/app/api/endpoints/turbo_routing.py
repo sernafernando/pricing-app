@@ -22,6 +22,7 @@ from app.models.zona_reparto import ZonaReparto
 from app.models.asignacion_turbo import AsignacionTurbo
 from app.models.geocoding_cache import GeocodingCache
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
+from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
 from app.services.geocoding_service import geocode_address
 
@@ -474,7 +475,7 @@ async def obtener_zonas(
 async def crear_zona(
     zona: ZonaRepartoCreate,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user)
 ):
     """Crea una nueva zona de reparto."""
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
@@ -482,7 +483,7 @@ async def crear_zona(
     
     nueva_zona = ZonaReparto(
         **zona.model_dump(),
-        creado_por=current_user.get('id')
+        creado_por=current_user.id
     )
     db.add(nueva_zona)
     db.commit()
