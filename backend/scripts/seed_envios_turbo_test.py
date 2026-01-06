@@ -37,6 +37,7 @@ ENVIOS_TEST = [
         'mlm_id': 8000001,
         'comp_id': 1,
         'mlshipping_mode': 'me2',
+        'mlshipping_method_id': '515282',
         'mlstatus': 'ready_to_ship',
         'mlstreet_name': 'Av. Santa Fe',
         'mlstreet_number': '3100',
