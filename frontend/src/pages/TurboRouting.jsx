@@ -459,8 +459,9 @@ export default function TurboRouting() {
             <div className={styles.zonasContainer}>
               <GestionZonas 
                 zonas={zonas}
-                onZonaCreada={(nuevaZona) => {
-                  setZonas([...zonas, nuevaZona]);
+                onZonaCreada={() => {
+                  // Recargar TODAS las zonas desde el servidor (estado fresh)
+                  fetchZonas();
                 }}
                 onZonaEliminada={(zonaId) => {
                   setZonas(zonas.filter(z => z.id !== zonaId));
