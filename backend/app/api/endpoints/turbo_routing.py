@@ -390,8 +390,12 @@ async def obtener_envios_turbo_pendientes(
         shipment_id = str(envio_bd.mlshippingid)
         asignacion = asignaciones_map.get(shipment_id)
         
-        # Usar dirección del ERP (más completa)
-        direccion_completa = envio_erp.get("Dirección de Entrega", "Dirección no disponible")
+        # Usar dirección del ERP si existe, sino de la BD
+        if envio_erp:
+            direccion_completa = envio_erp.get("Dirección de Entrega", "Dirección no disponible")
+        else:
+            # Fallback: construir desde BD
+            direccion_completa = f"{envio_bd.mlstreet_name} {envio_bd.mlstreet_number}, {envio_bd.mlcity_name}".strip()
         
         # Obtener coordenadas: SOLO desde geocoding_cache (más rápido)
         # El batch geocodificar_batch_ml_webhook ya pobló el cache
