@@ -582,13 +582,17 @@ async def auto_generar_zonas(
         # 2. Filtrar envíos geocodificados (lat/lng válidos)
         envios_coords = []
         for envio in envios_sin_asignar:
+            # Construir dirección normalizada
+            direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
+            
             # Buscar en cache de geocoding
+            direccion_hash = GeocodingCache.hash_direccion(direccion)
             cache = db.query(GeocodingCache).filter(
-                GeocodingCache.direccion_normalizada == f"{envio.receiver_address_street_name} {envio.receiver_address_street_number}, {envio.receiver_address_city}"
+                GeocodingCache.direccion_hash == direccion_hash
             ).first()
             
             if cache and cache.latitud and cache.longitud:
-                envios_coords.append((cache.latitud, cache.longitud, envio.id))
+                envios_coords.append((float(cache.latitud), float(cache.longitud), envio.mlm_id))
         
         # 3. Validar porcentaje de geocodificación
         es_valido, mensaje = validar_envios_geocodificados(
