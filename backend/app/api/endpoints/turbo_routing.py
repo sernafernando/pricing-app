@@ -354,32 +354,20 @@ async def obtener_envios_turbo_pendientes(
         # Usar dirección del ERP (más completa)
         direccion_completa = envio_erp.get("Dirección de Entrega", "Dirección no disponible")
         
-        # Obtener coordenadas: primero ML Webhook, luego geocoding_cache
+        # Obtener coordenadas: SOLO desde geocoding_cache (más rápido)
+        # El batch geocodificar_batch_ml_webhook ya pobló el cache
         latitud = None
         longitud = None
         
-        # 1. Intentar con ML Webhook (coordenadas precisas)
-        try:
-            ml_data = await fetch_shipment_data(shipment_id)
-            if ml_data:
-                lat_ml, lng_ml = extraer_coordenadas(ml_data)
-                if lat_ml and lng_ml:
-                    latitud = lat_ml
-                    longitud = lng_ml
-        except Exception:
-            pass  # Continuar con fallback
+        direccion_normalizada = f"{envio_bd.mlstreet_name} {envio_bd.mlstreet_number}, {envio_bd.mlcity_name}".strip()
+        direccion_hash = GeocodingCache.hash_direccion(direccion_normalizada)
+        cache = db.query(GeocodingCache).filter(
+            GeocodingCache.direccion_hash == direccion_hash
+        ).first()
         
-        # 2. Fallback: geocoding_cache
-        if not latitud or not longitud:
-            direccion_normalizada = f"{envio_bd.mlstreet_name} {envio_bd.mlstreet_number}, {envio_bd.mlcity_name}".strip()
-            direccion_hash = GeocodingCache.hash_direccion(direccion_normalizada)
-            cache = db.query(GeocodingCache).filter(
-                GeocodingCache.direccion_hash == direccion_hash
-            ).first()
-            
-            if cache and cache.latitud and cache.longitud:
-                latitud = float(cache.latitud)
-                longitud = float(cache.longitud)
+        if cache and cache.latitud and cache.longitud:
+            latitud = float(cache.latitud)
+            longitud = float(cache.longitud)
         
         resultado.append(EnvioTurboResponse(
             mlshippingid=shipment_id,
