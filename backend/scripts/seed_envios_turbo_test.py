@@ -548,14 +548,21 @@ def seed_envios_test(db: Session):
         # Crear entrada en geocoding_cache
         direccion = f"{envio_data['mlstreet_name']} {envio_data['mlstreet_number']}, {envio_data['mlcity_name']}"
         
-        cache_entry = GeocodingCache(
-            direccion_normalizada=direccion,
-            latitud=lat,
-            longitud=lng,
-            fuente='seed_test',
-            precision='ROOFTOP'
-        )
-        db.add(cache_entry)
+        # Verificar si ya existe en cache
+        direccion_hash = GeocodingCache.hash_direccion(direccion)
+        existing_cache = db.query(GeocodingCache).filter(
+            GeocodingCache.direccion_hash == direccion_hash
+        ).first()
+        
+        if not existing_cache:
+            cache_entry = GeocodingCache(
+                direccion_hash=direccion_hash,
+                direccion_normalizada=direccion,
+                latitud=lat,
+                longitud=lng,
+                provider='seed_test'
+            )
+            db.add(cache_entry)
         
         creados += 1
         
