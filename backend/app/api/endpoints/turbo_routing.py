@@ -1206,6 +1206,9 @@ async def geocodificar_batch_ml_webhook(
     sin_shipping_id = 0
     sin_coordenadas = 0
     
+    # Set para trackear hashes procesados en este batch (evitar duplicados)
+    hashes_procesados_batch = set()
+    
     # 2. Procesar cada envío
     for envio in envios_sin_asignar:
         try:
@@ -1242,6 +1245,12 @@ async def geocodificar_batch_ml_webhook(
             # Guardar en cache de geocoding (merge = insert or update)
             direccion_hash = GeocodingCache.hash_direccion(direccion_completa)
             
+            # Si ya procesamos este hash en este batch, skipear
+            # (evita UniqueViolation cuando hay direcciones repetidas)
+            if direccion_hash in hashes_procesados_batch:
+                exitosos += 1  # Contar como exitoso (ya está cacheado)
+                continue
+            
             # Merge: si existe la dirección (buscar por PK), actualiza; si no, inserta
             existing = db.query(GeocodingCache).filter(
                 GeocodingCache.direccion_hash == direccion_hash
@@ -1262,6 +1271,9 @@ async def geocodificar_batch_ml_webhook(
                     provider='ml_webhook'
                 )
                 db.add(cache_entry)
+            
+            # Marcar hash como procesado
+            hashes_procesados_batch.add(direccion_hash)
             
             exitosos += 1
             
