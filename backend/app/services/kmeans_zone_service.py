@@ -77,11 +77,13 @@ def generar_zonas_kmeans(
         
         logger.info(f"Aplicando K-Means con K={cantidad_zonas} sobre {len(coords)} envíos")
         
-        # Aplicar K-Means
+        # Aplicar K-Means con múltiples inicializaciones para mejor distribución
         kmeans = KMeans(
             n_clusters=cantidad_zonas,
-            random_state=42,  # Para reproducibilidad
-            n_init=10  # Número de inicializaciones
+            init='k-means++',  # Mejor inicialización que random
+            n_init=50,  # Más inicializaciones = mejor resultado (default es 10)
+            max_iter=300,
+            random_state=None  # Permitir aleatoriedad para mejor distribución
         )
         labels = kmeans.fit_predict(coords)
         
