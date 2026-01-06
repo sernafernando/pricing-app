@@ -1240,7 +1240,9 @@ async def geocodificar_batch_ml_webhook(
                 direccion_completa = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
             
             # Guardar en cache de geocoding (merge = insert or update)
+            direccion_hash = GeocodingCache.hash_direccion(direccion_completa)
             cache_entry = GeocodingCache(
+                direccion_hash=direccion_hash,
                 direccion_normalizada=direccion_completa,
                 latitud=lat,
                 longitud=lng,
