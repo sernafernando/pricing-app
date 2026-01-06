@@ -89,7 +89,7 @@ export default function TurboRouting() {
     try {
       const response = await axios.get(`${API_URL}/turbo/zonas`, {
         headers: { Authorization: `Bearer ${getToken()}` },
-        params: { solo_activas: true }
+        params: { solo_activas: false } // Mostrar TODAS las zonas (activas e inactivas)
       });
       setZonas(response.data);
     } catch (error) {

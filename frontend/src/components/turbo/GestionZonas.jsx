@@ -163,19 +163,21 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
     }
   };
   
-  const handleEliminarZona = async (zonaId) => {
-    if (!confirm('¿Desactivar esta zona?')) return;
+  const handleToggleZona = async (zona) => {
+    const accion = zona.activa ? 'desactivar' : 'activar';
+    if (!confirm(`¿${accion.charAt(0).toUpperCase() + accion.slice(1)} la zona "${zona.nombre}"?`)) return;
     
     try {
-      await api.delete(`/turbo/zonas/${zonaId}`);
+      const response = await api.put(`/turbo/zonas/${zona.id}/toggle`);
       
-      alert('✅ Zona desactivada');
+      alert(`✅ Zona ${zona.activa ? 'desactivada' : 'activada'} correctamente`);
       
-      if (onZonaEliminada) {
-        onZonaEliminada(zonaId);
+      // Actualizar zona en la lista (simulando recarga)
+      if (onZonaCreada) {
+        onZonaCreada(response.data);
       }
     } catch (error) {
-      alert(error.response?.data?.detail || 'Error al eliminar zona');
+      alert(error.response?.data?.detail || `Error al ${accion} zona`);
     }
   };
   
@@ -378,12 +380,12 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
                       🔍
                     </button>
                     <button 
-                      className={`${styles.btnIcon} ${styles.btnIconDanger}`}
-                      onClick={() => handleEliminarZona(zona.id)}
-                      title="Eliminar zona"
-                      aria-label="Eliminar zona"
+                      className={`${styles.btnIcon} ${zona.activa ? styles.btnIconSuccess : styles.btnIconWarning}`}
+                      onClick={() => handleToggleZona(zona)}
+                      title={zona.activa ? 'Desactivar zona' : 'Activar zona'}
+                      aria-label={zona.activa ? 'Desactivar zona' : 'Activar zona'}
                     >
-                      🗑️
+                      {zona.activa ? '✅' : '❌'}
                     </button>
                   </div>
                 </div>
@@ -426,10 +428,10 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
                     <h4>{zona.nombre}</h4>
                     {zona.descripcion && <p>{zona.descripcion}</p>}
                     <button 
-                      className={styles.btnDanger}
-                      onClick={() => handleEliminarZona(zona.id)}
+                      className={zona.activa ? styles.btnDanger : styles.btnSuccess}
+                      onClick={() => handleToggleZona(zona)}
                     >
-                      🗑️ Eliminar
+                      {zona.activa ? '❌ Desactivar' : '✅ Activar'}
                     </button>
                   </div>
                 </Popup>

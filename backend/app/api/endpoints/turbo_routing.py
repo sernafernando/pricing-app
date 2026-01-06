@@ -154,6 +154,7 @@ class ZonaRepartoBase(BaseModel):
     poligono: dict  # GeoJSON
     color: str = Field(..., max_length=7)  # Hex color
     activa: bool = True
+    tipo_generacion: str = Field(default='manual', max_length=20)  # 'manual' o 'automatica'
 
 
 class ZonaRepartoCreate(ZonaRepartoBase):
@@ -486,12 +487,16 @@ async def crear_zona(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Crea una nueva zona de reparto."""
+    """Crea una nueva zona de reparto MANUAL."""
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
         raise HTTPException(status_code=403, detail="Sin permiso")
     
+    zona_data = zona.model_dump()
+    # Forzar tipo_generacion='manual' para zonas creadas por usuarios
+    zona_data['tipo_generacion'] = 'manual'
+    
     nueva_zona = ZonaReparto(
-        **zona.model_dump(),
+        **zona_data,
         creado_por=current_user.id
     )
     db.add(nueva_zona)
@@ -519,6 +524,39 @@ async def eliminar_zona(
     db.commit()
     
     return DeleteResponse(message="Zona desactivada", success=True)
+
+
+@router.put("/turbo/zonas/{zona_id}/toggle", response_model=ZonaRepartoResponse)
+async def toggle_zona(
+    zona_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Activa/desactiva una zona de reparto (toggle del campo activa).
+    
+    Casos de uso:
+    - Desactivar zonas manuales temporalmente sin perderlas
+    - Reactivar zonas manuales después de auto-generar
+    - Activar/desactivar zonas para control fino de asignaciones
+    
+    El campo tipo_generacion se preserva para distinguir origen (manual/automatica).
+    """
+    if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
+        raise HTTPException(status_code=403, detail="Sin permiso")
+    
+    db_zona = db.query(ZonaReparto).filter(ZonaReparto.id == zona_id).first()
+    if not db_zona:
+        raise HTTPException(status_code=404, detail="Zona no encontrada")
+    
+    # Toggle estado
+    db_zona.activa = not db_zona.activa
+    db.commit()
+    db.refresh(db_zona)
+    
+    logger.info(f"Zona {zona_id} {'activada' if db_zona.activa else 'desactivada'} por usuario {current_user.get('id', 'unknown')}")
+    
+    return db_zona
 
 
 @router.post("/turbo/zonas/auto-generar", response_model=List[ZonaRepartoResponse])
@@ -618,15 +656,15 @@ async def auto_generar_zonas(
         
         logger.info(mensaje)
         
-        # 4. Eliminar zonas auto-generadas anteriores si se solicita
+        # 4. Desactivar TODAS las zonas activas (manuales + automáticas) si se solicita
         if eliminar_anteriores:
-            zonas_auto = db.query(ZonaReparto).filter(
+            zonas_anteriores = db.query(ZonaReparto).filter(
                 ZonaReparto.activa.is_(True)
             ).all()
-            for zona in zonas_auto:
+            for zona in zonas_anteriores:
                 zona.activa = False
             db.commit()
-            logger.info(f"🗑️ Desactivadas {len(zonas_auto)} zonas anteriores (todas)")
+            logger.info(f"🗑️ Desactivadas {len(zonas_anteriores)} zonas anteriores (todas: manuales + automáticas)")
         
         # 5. Generar zonas usando K-Means
         zonas_data = generar_zonas_kmeans(
@@ -640,14 +678,34 @@ async def auto_generar_zonas(
                 detail="No se pudieron generar zonas. Verificar logs del servidor."
             )
         
-        # 6. Guardar en BD
+        # 6. Guardar en BD (validar nombres duplicados)
+        # Obtener nombres existentes de zonas activas
+        nombres_existentes_query = db.query(ZonaReparto.nombre).filter(
+            ZonaReparto.activa.is_(True)
+        ).all()
+        nombres_existentes_set = {n[0] for n in nombres_existentes_query}
+        
         zonas_creadas = []
         for zona_data in zonas_data:
+            # Combinar nombre + descripción
+            nombre_base = f"{zona_data['nombre']} - {zona_data['descripcion']}"
+            
+            # Si el nombre ya existe, agregar timestamp
+            nombre_final = nombre_base
+            if nombre_base in nombres_existentes_set:
+                timestamp = datetime.now(ARGENTINA_TZ).strftime("%H:%M:%S")
+                nombre_final = f"{nombre_base} [{timestamp}]"
+                logger.warning(f"⚠️ Nombre duplicado detectado: '{nombre_base}' → '{nombre_final}'")
+            
+            # Agregar al set para evitar duplicados dentro del mismo batch
+            nombres_existentes_set.add(nombre_final)
+            
             nueva_zona = ZonaReparto(
-                nombre=f"{zona_data['nombre']} - {zona_data['descripcion']}",  # Combinar nombre + descripción
+                nombre=nombre_final,
                 poligono=zona_data['poligono'],
                 color=zona_data['color'],
                 activa=True,
+                tipo_generacion='automatica',  # Marcar como auto-generada por K-Means
                 creado_por=current_user.id
             )
             db.add(nueva_zona)

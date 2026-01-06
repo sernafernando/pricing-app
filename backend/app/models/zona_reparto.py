@@ -18,6 +18,7 @@ class ZonaReparto(Base):
     color = Column(String(7), nullable=False)  # Hex color (ej: #FF5733)
     activa = Column(Boolean, default=True, nullable=False, index=True)
     creado_por = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
+    tipo_generacion = Column(String(20), default='manual', nullable=False, index=True)  # 'manual' o 'automatica'
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
