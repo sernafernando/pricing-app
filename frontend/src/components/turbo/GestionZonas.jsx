@@ -13,7 +13,23 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
   const [color, setColor] = useState('#3388ff');
   const [poligonoTemporal, setPoligonoTemporal] = useState(null);
   const [guardando, setGuardando] = useState(false);
+  const [autoGenerando, setAutoGenerando] = useState(false);
+  const [motoqueros, setMotoqueros] = useState([]);
   const mapRef = useRef(null);
+  
+  // Cargar motoqueros activos
+  useEffect(() => {
+    const cargarMotoqueros = async () => {
+      try {
+        const response = await api.get('/turbo/motoqueros');
+        setMotoqueros(response.data);
+      } catch (error) {
+        // Error silencioso: si falla, el botón auto-generar quedará deshabilitado
+      }
+    };
+    
+    cargarMotoqueros();
+  }, []);
   
   // Inicializar Leaflet.Geoman cuando el mapa esté listo
   useEffect(() => {
@@ -177,11 +193,84 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
     });
   };
   
+  const handleAutoGenerar = async () => {
+    const motoquerosActivos = motoqueros.filter(m => m.activo);
+    const cantidadZonas = motoquerosActivos.length;
+    
+    if (cantidadZonas === 0) {
+      alert('⚠️ No hay motoqueros activos. Creá al menos 1 motoquero primero.');
+      return;
+    }
+    
+    if (cantidadZonas > 6) {
+      alert('⚠️ Máximo 6 zonas permitidas. Tenés ' + cantidadZonas + ' motoqueros activos.');
+      return;
+    }
+    
+    const confirmacion = confirm(
+      `🤖 ¿Generar ${cantidadZonas} zonas automáticamente?\n\n` +
+      `Algoritmo: K-Means Clustering\n` +
+      `• Se agruparán los envíos Turbo pendientes\n` +
+      `• Distribución equitativa por zona\n` +
+      `• Se desactivarán zonas auto-generadas previas\n\n` +
+      `Requisito: Al menos 70% de envíos deben estar geocodificados`
+    );
+    
+    if (!confirmacion) return;
+    
+    setAutoGenerando(true);
+    try {
+      const response = await api.post('/turbo/zonas/auto-generar', null, {
+        params: {
+          cantidad_motoqueros: cantidadZonas,
+          eliminar_anteriores: true
+        }
+      });
+      
+      const zonasCreadas = response.data;
+      
+      alert(
+        `✅ ${zonasCreadas.length} zonas generadas correctamente\n\n` +
+        zonasCreadas.map((z, i) => `${i + 1}. ${z.nombre} (${z.descripcion})`).join('\n')
+      );
+      
+      // Notificar al padre para actualizar lista
+      if (onZonaCreada) {
+        zonasCreadas.forEach(zona => onZonaCreada(zona));
+      }
+      
+      // Limpiar formulario manual (por las dudas)
+      setNombre('');
+      setDescripcion('');
+      setPoligonoTemporal(null);
+      
+    } catch (error) {
+      const errorMsg = error.response?.data?.detail || 'Error al generar zonas';
+      alert('❌ ' + errorMsg);
+    } finally {
+      setAutoGenerando(false);
+    }
+  };
+  
   return (
     <div className={styles.container}>
       <div className={styles.panel}>
         <div className={styles.formSection}>
-        <h3>Crear Nueva Zona</h3>
+        <div className={styles.header}>
+          <h3>Crear Nueva Zona</h3>
+          <button 
+            className={`${styles.btn} ${styles.btnAuto}`}
+            onClick={handleAutoGenerar}
+            disabled={autoGenerando || motoqueros.filter(m => m.activo).length === 0}
+            title={
+              motoqueros.filter(m => m.activo).length === 0 
+                ? 'No hay motoqueros activos' 
+                : `Generar ${motoqueros.filter(m => m.activo).length} zonas automáticamente`
+            }
+          >
+            {autoGenerando ? '⏳ Generando...' : `🤖 Auto-generar ${motoqueros.filter(m => m.activo).length} Zonas`}
+          </button>
+        </div>
         
         <div className={styles.form}>
           <div className={styles.field}>
@@ -284,6 +373,7 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
                       className={styles.btnIcon}
                       onClick={() => handleZoomToZona(zona)}
                       title="Ver en mapa"
+                      aria-label="Ver zona en mapa"
                     >
                       🔍
                     </button>
@@ -291,6 +381,7 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
                       className={`${styles.btnIcon} ${styles.btnIconDanger}`}
                       onClick={() => handleEliminarZona(zona.id)}
                       title="Eliminar zona"
+                      aria-label="Eliminar zona"
                     >
                       🗑️
                     </button>
