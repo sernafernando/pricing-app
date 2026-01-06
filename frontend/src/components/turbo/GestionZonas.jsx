@@ -31,17 +31,32 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
     
     // Control de dibujo
     const drawControl = new L.Control.Draw({
+      position: 'topright',
       edit: {
         featureGroup: drawnItems,
-        remove: true
+        remove: true,
+        edit: true
       },
       draw: {
         polygon: {
           allowIntersection: false,
-          showArea: true,
+          drawError: {
+            color: '#e74c3c',
+            message: '<strong>Error:</strong> Las líneas no pueden cruzarse!'
+          },
           shapeOptions: {
-            color: color
-          }
+            color: color,
+            weight: 3,
+            fillOpacity: 0.3,
+            fillColor: color
+          },
+          showArea: true,
+          showLength: true,
+          metric: true,
+          feet: false,
+          nautic: false,
+          // IMPORTANTE: Esto permite más de 3 puntos
+          repeatMode: false
         },
         polyline: false,
         rectangle: false,
@@ -189,13 +204,17 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
         </div>
         
         <div className={styles.instrucciones}>
-          <p><strong>Instrucciones:</strong></p>
+          <p><strong>📍 Cómo dibujar una zona:</strong></p>
           <ol>
-            <li>Hacé click en el botón de polígono en el mapa (📐)</li>
-            <li>Dibujá el área de la zona haciendo click en el mapa</li>
-            <li>Hacé doble click para finalizar el polígono</li>
-            <li>Completá el formulario y guardá</li>
+            <li>Hacé click en el botón <strong>📐 Draw a polygon</strong> (arriba a la derecha del mapa)</li>
+            <li>Hacé click en el mapa para agregar cada vértice del polígono</li>
+            <li>Agregá todos los puntos que necesites (mínimo 3)</li>
+            <li>Hacé click en el <strong>primer punto</strong> para cerrar el polígono</li>
+            <li>Completá el formulario y hacé click en <strong>Guardar Zona</strong></li>
           </ol>
+          <p style={{ marginTop: '0.5rem', fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
+            💡 <strong>Tip:</strong> Para cancelar, presioná ESC. Para editar, usá el botón de edición (✏️).
+          </p>
         </div>
       </div>
       
