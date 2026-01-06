@@ -1241,24 +1241,26 @@ async def geocodificar_batch_ml_webhook(
             
             # Guardar en cache de geocoding (merge = insert or update)
             direccion_hash = GeocodingCache.hash_direccion(direccion_completa)
-            cache_entry = GeocodingCache(
-                direccion_hash=direccion_hash,
-                direccion_normalizada=direccion_completa,
-                latitud=lat,
-                longitud=lng,
-                provider='ml_webhook'
-            )
             
-            # Merge: si existe la dirección, actualiza; si no, inserta
+            # Merge: si existe la dirección (buscar por PK), actualiza; si no, inserta
             existing = db.query(GeocodingCache).filter(
-                GeocodingCache.direccion_normalizada == direccion_completa
+                GeocodingCache.direccion_hash == direccion_hash
             ).first()
             
             if existing:
+                # Actualizar registro existente
                 existing.latitud = lat
                 existing.longitud = lng
                 existing.provider = 'ml_webhook'
             else:
+                # Crear nuevo registro
+                cache_entry = GeocodingCache(
+                    direccion_hash=direccion_hash,
+                    direccion_normalizada=direccion_completa,
+                    latitud=lat,
+                    longitud=lng,
+                    provider='ml_webhook'
+                )
                 db.add(cache_entry)
             
             exitosos += 1
