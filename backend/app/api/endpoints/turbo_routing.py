@@ -644,8 +644,7 @@ async def auto_generar_zonas(
         zonas_creadas = []
         for zona_data in zonas_data:
             nueva_zona = ZonaReparto(
-                nombre=zona_data['nombre'],
-                descripcion=zona_data['descripcion'],
+                nombre=f"{zona_data['nombre']} - {zona_data['descripcion']}",  # Combinar nombre + descripción
                 poligono=zona_data['poligono'],
                 color=zona_data['color'],
                 activa=True,
