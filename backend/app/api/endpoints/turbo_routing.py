@@ -2,17 +2,20 @@
 Endpoint para gestión de routing de envíos Turbo de MercadoLibre.
 Sistema de asignación de envíos a motoqueros con zonas y optimización de rutas.
 """
-from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
-from pydantic import BaseModel, Field
-import pytz
-import httpx
+import asyncio
 import logging
+from datetime import datetime, timedelta
+from typing import List, Optional, Dict, Any
+
+import httpx
+import pytz
+from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import func, and_
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.api.deps import get_current_user
 from app.models.motoquero import Motoquero
 from app.models.zona_reparto import ZonaReparto
@@ -20,12 +23,10 @@ from app.models.asignacion_turbo import AsignacionTurbo
 from app.models.geocoding_cache import GeocodingCache
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.services.permisos_service import verificar_permiso
+from app.services.geocoding_service import geocode_address
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# URL del gbp-parser interno
-GBP_PARSER_URL = "http://localhost:8000/api/gbp-parser"
 
 # Timezone de Argentina
 ARGENTINA_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
@@ -38,7 +39,7 @@ _envios_cache: Dict[str, Any] = {
 }
 
 
-def convert_to_argentina_tz(utc_dt):
+def convert_to_argentina_tz(utc_dt: Optional[datetime]) -> Optional[datetime]:
     """Convierte un datetime UTC a timezone de Argentina"""
     if not utc_dt:
         return None
@@ -83,7 +84,7 @@ async def obtener_envios_desde_erp(dias_atras: int = 30, usar_cache: bool = True
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                GBP_PARSER_URL,
+                settings.GBP_PARSER_URL,
                 json={
                     "strScriptLabel": "scriptEnvios",
                     "fromDate": fecha_desde,
@@ -715,3 +716,166 @@ async def invalidar_cache_envios(
     _envios_cache["data"] = []
     
     return DeleteResponse(message="Cache invalidado correctamente", success=True)
+
+
+# ==================== ENDPOINTS: GEOCODING ====================
+
+@router.post("/turbo/geocoding/envio/{shipment_id}", response_model=dict)
+async def geocodificar_envio(
+    shipment_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Geocodifica un envío específico usando su dirección.
+    Guarda el resultado en la tabla geocoding_cache y actualiza asignaciones_turbo si existe.
+    """
+    if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
+        raise HTTPException(status_code=403, detail="Sin permiso")
+    
+    # Buscar envío en BD
+    envio = db.query(MercadoLibreOrderShipping).filter(
+        MercadoLibreOrderShipping.mlshippingid == shipment_id
+    ).first()
+    
+    if not envio:
+        raise HTTPException(status_code=404, detail="Envío no encontrado")
+    
+    # Construir dirección
+    direccion_partes = []
+    if envio.mlstreet_name:
+        direccion_partes.append(envio.mlstreet_name)
+    if envio.mlstreet_number:
+        direccion_partes.append(envio.mlstreet_number)
+    
+    direccion = " ".join(direccion_partes) if direccion_partes else None
+    ciudad = envio.mlcity_name or "Buenos Aires"
+    
+    if not direccion:
+        raise HTTPException(status_code=400, detail="Envío sin dirección válida")
+    
+    # Geocodificar
+    coords = await geocode_address(direccion, ciudad=ciudad, db=db)
+    
+    if not coords:
+        raise HTTPException(status_code=404, detail="No se pudo geocodificar la dirección")
+    
+    latitud, longitud = coords
+    
+    # Actualizar asignación si existe
+    asignacion = db.query(AsignacionTurbo).filter(
+        AsignacionTurbo.mlshippingid == shipment_id,
+        AsignacionTurbo.estado != 'cancelado'
+    ).first()
+    
+    if asignacion:
+        asignacion.latitud = latitud
+        asignacion.longitud = longitud
+        asignacion.direccion = f"{direccion}, {ciudad}"
+        db.commit()
+    
+    return {
+        "shipment_id": shipment_id,
+        "direccion": f"{direccion}, {ciudad}",
+        "latitud": latitud,
+        "longitud": longitud,
+        "actualizado_en_asignacion": asignacion is not None
+    }
+
+
+@router.post("/turbo/geocoding/batch", response_model=dict)
+async def geocodificar_batch(
+    shipment_ids: list[str],
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Geocodifica múltiples envíos en batch.
+    IMPORTANTE: Esto puede tomar tiempo. Mapbox permite ~10 req/seg.
+    """
+    if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
+        raise HTTPException(status_code=403, detail="Sin permiso")
+    
+    if len(shipment_ids) > 100:
+        raise HTTPException(status_code=400, detail="Máximo 100 envíos por batch")
+    
+    resultados = {
+        "total": len(shipment_ids),
+        "exitosos": 0,
+        "fallidos": 0,
+        "detalles": []
+    }
+    
+    for shipment_id in shipment_ids:
+        # Buscar envío
+        envio = db.query(MercadoLibreOrderShipping).filter(
+            MercadoLibreOrderShipping.mlshippingid == shipment_id
+        ).first()
+        
+        if not envio:
+            resultados["fallidos"] += 1
+            resultados["detalles"].append({
+                "shipment_id": shipment_id,
+                "status": "error",
+                "mensaje": "Envío no encontrado"
+            })
+            continue
+        
+        # Construir dirección
+        direccion_partes = []
+        if envio.mlstreet_name:
+            direccion_partes.append(envio.mlstreet_name)
+        if envio.mlstreet_number:
+            direccion_partes.append(envio.mlstreet_number)
+        
+        direccion = " ".join(direccion_partes) if direccion_partes else None
+        ciudad = envio.mlcity_name or "Buenos Aires"
+        
+        if not direccion:
+            resultados["fallidos"] += 1
+            resultados["detalles"].append({
+                "shipment_id": shipment_id,
+                "status": "error",
+                "mensaje": "Sin dirección válida"
+            })
+            continue
+        
+        # Geocodificar
+        coords = await geocode_address(direccion, ciudad=ciudad, db=db)
+        
+        if not coords:
+            resultados["fallidos"] += 1
+            resultados["detalles"].append({
+                "shipment_id": shipment_id,
+                "status": "error",
+                "mensaje": "No se pudo geocodificar"
+            })
+            continue
+        
+        latitud, longitud = coords
+        
+        # Actualizar asignación si existe
+        asignacion = db.query(AsignacionTurbo).filter(
+            AsignacionTurbo.mlshippingid == shipment_id,
+            AsignacionTurbo.estado != 'cancelado'
+        ).first()
+        
+        if asignacion:
+            asignacion.latitud = latitud
+            asignacion.longitud = longitud
+            asignacion.direccion = f"{direccion}, {ciudad}"
+        
+        resultados["exitosos"] += 1
+        resultados["detalles"].append({
+            "shipment_id": shipment_id,
+            "status": "success",
+            "latitud": latitud,
+            "longitud": longitud
+        })
+        
+        # Rate limiting: Mapbox permite ~10 req/seg (100ms delay)
+        await asyncio.sleep(0.1)
+    
+    db.commit()
+    
+    return resultados

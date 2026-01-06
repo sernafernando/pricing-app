@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     ML_USER_ID: Optional[str] = None
     ML_REFRESH_TOKEN: Optional[str] = None
 
+    # Mapbox Geocoding API
+    MAPBOX_ACCESS_TOKEN: Optional[str] = None
+    
+    # GBP Parser (internal service)
+    GBP_PARSER_URL: str = "http://localhost:8000/api/gbp-parser"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

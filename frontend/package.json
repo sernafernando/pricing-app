@@ -12,10 +12,14 @@
   "dependencies": {
     "@tanstack/react-query": "^5.90.2",
     "@tanstack/react-table": "^8.21.3",
+    "@turf/turf": "^7.1.0",
     "axios": "^1.12.2",
+    "leaflet": "^1.9.4",
+    "leaflet-draw": "^1.0.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-icons": "^5.5.0",
+    "react-leaflet": "^4.2.1",
     "react-router-dom": "^7.9.3",
     "zustand": "^5.0.8"
   },
