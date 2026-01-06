@@ -24,6 +24,10 @@ from app.models.geocoding_cache import GeocodingCache
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
+from app.services.kmeans_zone_service import (
+    generar_zonas_kmeans,
+    validar_envios_geocodificados
+)
 from app.services.geocoding_service import geocode_address
 
 router = APIRouter()
@@ -510,6 +514,143 @@ async def eliminar_zona(
     db.commit()
     
     return DeleteResponse(message="Zona desactivada", success=True)
+
+
+@router.post("/turbo/zonas/auto-generar", response_model=List[ZonaRepartoResponse])
+async def auto_generar_zonas(
+    cantidad_motoqueros: int = Query(..., description="Cantidad de zonas a generar"),
+    eliminar_anteriores: bool = Query(False, description="Eliminar zonas auto-generadas anteriores"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Auto-genera zonas de reparto usando K-Means clustering sobre envíos geocodificados.
+    
+    Algoritmo:
+    1. Obtiene envíos Turbo pendientes (sin asignar)
+    2. Filtra solo los geocodificados (lat/lng válidos)
+    3. Valida que al menos 70% estén geocodificados
+    4. Aplica K-Means para agrupar en K clusters (K = cantidad_motoqueros)
+    5. Genera polígono ConvexHull por cada cluster
+    6. Balancea automáticamente cantidad de paquetes por zona
+    
+    Args:
+        cantidad_motoqueros: Cantidad de zonas a crear (1 zona por motoquero)
+        eliminar_anteriores: Si True, desactiva zonas auto-generadas previas
+        
+    Returns:
+        Lista de zonas creadas con distribución equitativa de envíos
+    """
+    if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
+        raise HTTPException(status_code=403, detail="Sin permiso")
+    
+    if cantidad_motoqueros < 1 or cantidad_motoqueros > 6:
+        raise HTTPException(
+            status_code=400, 
+            detail="Cantidad debe estar entre 1 y 6"
+        )
+    
+    try:
+        logger.info(f"🤖 Auto-generando {cantidad_motoqueros} zonas con K-Means clustering...")
+        
+        # 1. Obtener envíos Turbo SIN asignar
+        envios_sin_asignar = db.query(MercadoLibreOrderShipping).filter(
+            and_(
+                MercadoLibreOrderShipping.shipping_mode == 'me2',
+                MercadoLibreOrderShipping.substatus == 'ready_to_print',
+                ~MercadoLibreOrderShipping.ml_order_id.in_(
+                    db.query(AsignacionTurbo.ml_order_id).filter(
+                        AsignacionTurbo.fecha_desasignacion.is_(None)
+                    )
+                )
+            )
+        ).all()
+        
+        if not envios_sin_asignar:
+            raise HTTPException(
+                status_code=400,
+                detail="No hay envíos Turbo pendientes para asignar"
+            )
+        
+        logger.info(f"📦 {len(envios_sin_asignar)} envíos Turbo sin asignar")
+        
+        # 2. Filtrar envíos geocodificados (lat/lng válidos)
+        envios_coords = []
+        for envio in envios_sin_asignar:
+            # Buscar en cache de geocoding
+            cache = db.query(GeocodingCache).filter(
+                GeocodingCache.direccion_normalizada == f"{envio.receiver_address_street_name} {envio.receiver_address_street_number}, {envio.receiver_address_city}"
+            ).first()
+            
+            if cache and cache.latitud and cache.longitud:
+                envios_coords.append((cache.latitud, cache.longitud, envio.id))
+        
+        # 3. Validar porcentaje de geocodificación
+        es_valido, mensaje = validar_envios_geocodificados(
+            total_envios=len(envios_sin_asignar),
+            envios_geocodificados=len(envios_coords),
+            porcentaje_minimo=0.7
+        )
+        
+        if not es_valido:
+            raise HTTPException(status_code=400, detail=mensaje)
+        
+        logger.info(mensaje)
+        
+        # 4. Eliminar zonas auto-generadas anteriores si se solicita
+        if eliminar_anteriores:
+            zonas_auto = db.query(ZonaReparto).filter(
+                ZonaReparto.nombre.like('%Auto%')
+            ).all()
+            for zona in zonas_auto:
+                zona.activa = False
+            db.commit()
+            logger.info(f"🗑️ Desactivadas {len(zonas_auto)} zonas automáticas anteriores")
+        
+        # 5. Generar zonas usando K-Means
+        zonas_data = generar_zonas_kmeans(
+            envios_coords=envios_coords,
+            cantidad_zonas=cantidad_motoqueros
+        )
+        
+        if not zonas_data:
+            raise HTTPException(
+                status_code=500,
+                detail="No se pudieron generar zonas. Verificar logs del servidor."
+            )
+        
+        # 6. Guardar en BD
+        zonas_creadas = []
+        for zona_data in zonas_data:
+            nueva_zona = ZonaReparto(
+                nombre=zona_data['nombre'],
+                descripcion=zona_data['descripcion'],
+                poligono=zona_data['poligono'],
+                color=zona_data['color'],
+                activa=True,
+                creado_por=current_user.id
+            )
+            db.add(nueva_zona)
+            zonas_creadas.append(nueva_zona)
+        
+        db.commit()
+        
+        # Refrescar para obtener IDs
+        for zona in zonas_creadas:
+            db.refresh(zona)
+        
+        logger.info(f"✅ {len(zonas_creadas)} zonas auto-generadas con K-Means")
+        return zonas_creadas
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error auto-generando zonas: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generando zonas: {str(e)}"
+        )
 
 
 # ==================== ENDPOINTS: ASIGNACIONES ====================
