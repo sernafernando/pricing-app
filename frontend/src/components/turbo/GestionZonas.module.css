@@ -207,13 +207,13 @@
   margin: 0 0 var(--spacing-xs) 0;
   font-size: var(--font-base);
   font-weight: var(--font-bold);
-  color: var(--text-primary);
+  color: #1a1a1a !important; /* Forzar color oscuro (popup tiene fondo blanco) */
 }
 
 .popup p {
   margin: 0 0 var(--spacing-sm) 0;
   font-size: var(--font-sm);
-  color: var(--text-secondary);
+  color: #666 !important; /* Forzar gris oscuro */
 }
 
 /* ============================================
