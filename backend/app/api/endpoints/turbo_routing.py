@@ -193,6 +193,8 @@ class EnvioTurboResponse(BaseModel):
     asignado: bool = False  # True si ya está asignado
     motoquero_id: Optional[int] = None
     motoquero_nombre: Optional[str] = None
+    latitud: Optional[float] = None  # Coordenadas desde geocoding_cache
+    longitud: Optional[float] = None  # Coordenadas desde geocoding_cache
     
     class Config:
         from_attributes = True
@@ -352,6 +354,33 @@ async def obtener_envios_turbo_pendientes(
         # Usar dirección del ERP (más completa)
         direccion_completa = envio_erp.get("Dirección de Entrega", "Dirección no disponible")
         
+        # Obtener coordenadas: primero ML Webhook, luego geocoding_cache
+        latitud = None
+        longitud = None
+        
+        # 1. Intentar con ML Webhook (coordenadas precisas)
+        try:
+            ml_data = await fetch_shipment_data(shipment_id)
+            if ml_data:
+                lat_ml, lng_ml = extraer_coordenadas(ml_data)
+                if lat_ml and lng_ml:
+                    latitud = lat_ml
+                    longitud = lng_ml
+        except Exception:
+            pass  # Continuar con fallback
+        
+        # 2. Fallback: geocoding_cache
+        if not latitud or not longitud:
+            direccion_normalizada = f"{envio_bd.mlstreet_name} {envio_bd.mlstreet_number}, {envio_bd.mlcity_name}".strip()
+            direccion_hash = GeocodingCache.hash_direccion(direccion_normalizada)
+            cache = db.query(GeocodingCache).filter(
+                GeocodingCache.direccion_hash == direccion_hash
+            ).first()
+            
+            if cache and cache.latitud and cache.longitud:
+                latitud = float(cache.latitud)
+                longitud = float(cache.longitud)
+        
         resultado.append(EnvioTurboResponse(
             mlshippingid=shipment_id,
             mlo_id=envio_bd.mlo_id,
@@ -373,7 +402,9 @@ async def obtener_envios_turbo_pendientes(
             tipo_envio='turbo',
             asignado=asignacion is not None,
             motoquero_id=asignacion.motoquero_id if asignacion else None,
-            motoquero_nombre=asignacion.motoquero.nombre if asignacion and asignacion.motoquero else None
+            motoquero_nombre=asignacion.motoquero.nombre if asignacion and asignacion.motoquero else None,
+            latitud=latitud,
+            longitud=longitud
         ))
     
     return resultado
