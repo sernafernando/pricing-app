@@ -1843,3 +1843,124 @@ async def desbanear_envio_turbo(
         "success": True,
         "message": f"Envío {mlshippingid} removido de la banlist"
     }
+
+
+# ============================================================================
+# ENDPOINTS: ASIGNACIONES DEL DÍA (SEGUIMIENTO)
+# ============================================================================
+
+@router.get("/turbo/asignaciones/hoy")
+async def obtener_asignaciones_del_dia(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    fecha: Optional[str] = Query(None, description="Fecha en formato YYYY-MM-DD (default: hoy)")
+):
+    """
+    Obtiene todas las asignaciones del día agrupadas por motoquero.
+    Incluye estado actualizado de cada envío desde ML.
+    
+    Útil para:
+    - Seguimiento en tiempo real del trabajo de cada motoquero
+    - Ver qué envíos están pendientes, en camino o entregados
+    - Control de performance del día
+    """
+    if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
+        raise HTTPException(status_code=403, detail="Sin permiso para gestionar Turbo Routing")
+    
+    # Fecha objetivo (hoy si no se especifica)
+    if fecha:
+        try:
+            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usar YYYY-MM-DD")
+    else:
+        fecha_obj = datetime.now(ARGENTINA_TZ).date()
+    
+    # Obtener asignaciones del día
+    fecha_inicio = datetime.combine(fecha_obj, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ)
+    fecha_fin = datetime.combine(fecha_obj, datetime.max.time()).replace(tzinfo=ARGENTINA_TZ)
+    
+    asignaciones = db.query(AsignacionTurbo).filter(
+        AsignacionTurbo.asignado_at >= fecha_inicio,
+        AsignacionTurbo.asignado_at <= fecha_fin,
+        AsignacionTurbo.estado != 'cancelado'
+    ).order_by(AsignacionTurbo.motoquero_id, AsignacionTurbo.asignado_at).all()
+    
+    # Agrupar por motoquero
+    motoqueros_dict = {}
+    
+    for asig in asignaciones:
+        motoquero_id = asig.motoquero_id
+        
+        if motoquero_id not in motoqueros_dict:
+            motoqueros_dict[motoquero_id] = {
+                "motoquero_id": motoquero_id,
+                "nombre": asig.motoquero.nombre if asig.motoquero else "Sin nombre",
+                "activo": asig.motoquero.activo if asig.motoquero else False,
+                "envios": [],
+                "total_envios": 0,
+                "pendientes": 0,
+                "en_camino": 0,
+                "entregados": 0,
+                "cancelados": 0
+            }
+        
+        # Obtener estado actual del envío desde ML
+        envio_ml = db.query(MercadoLibreOrderShipping).filter(
+            MercadoLibreOrderShipping.mlshippingid == asig.mlshippingid
+        ).first()
+        
+        estado_ml = envio_ml.mlstatus if envio_ml else 'unknown'
+        
+        # Mapear estado ML a estado interno
+        if estado_ml in ['delivered', 'delivered_picked_up']:
+            estado_display = 'entregado'
+        elif estado_ml in ['shipped', 'handling', 'ready_to_ship']:
+            estado_display = 'en_camino' if estado_ml == 'shipped' else 'pendiente'
+        else:
+            estado_display = 'pendiente'
+        
+        # Construir objeto de envío
+        envio_data = {
+            "asignacion_id": asig.id,
+            "mlshippingid": asig.mlshippingid,
+            "direccion": asig.direccion,
+            "latitud": float(asig.latitud) if asig.latitud else None,
+            "longitud": float(asig.longitud) if asig.longitud else None,
+            "zona_nombre": asig.zona.nombre if asig.zona else None,
+            "estado_asignacion": asig.estado,
+            "estado_ml": estado_ml,
+            "estado_display": estado_display,
+            "orden_ruta": asig.orden_ruta,
+            "asignado_at": convert_to_argentina_tz(asig.asignado_at) if asig.asignado_at else None,
+            "entregado_at": convert_to_argentina_tz(asig.entregado_at) if asig.entregado_at else None,
+            "destinatario": envio_ml.mlreceiver_name if envio_ml else None,
+            "telefono": envio_ml.mlreceiver_phone if envio_ml else None
+        }
+        
+        motoqueros_dict[motoquero_id]["envios"].append(envio_data)
+        motoqueros_dict[motoquero_id]["total_envios"] += 1
+        
+        # Contadores por estado
+        if estado_display == 'entregado':
+            motoqueros_dict[motoquero_id]["entregados"] += 1
+        elif estado_display == 'en_camino':
+            motoqueros_dict[motoquero_id]["en_camino"] += 1
+        else:
+            motoqueros_dict[motoquero_id]["pendientes"] += 1
+    
+    # Convertir a lista
+    motoqueros_list = list(motoqueros_dict.values())
+    
+    # Calcular totales generales
+    total_asignaciones = sum(m["total_envios"] for m in motoqueros_list)
+    total_entregados = sum(m["entregados"] for m in motoqueros_list)
+    total_pendientes = sum(m["pendientes"] for m in motoqueros_list)
+    
+    return {
+        "fecha": fecha_obj.isoformat(),
+        "total_asignaciones": total_asignaciones,
+        "total_entregados": total_entregados,
+        "total_pendientes": total_pendientes,
+        "motoqueros": motoqueros_list
+    }
