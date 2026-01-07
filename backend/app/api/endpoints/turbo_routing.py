@@ -297,46 +297,9 @@ async def obtener_envios_turbo_pendientes(
     # Crear mapa: shipment_id -> datos BD
     turbo_map = {str(row.mlshippingid): row for row in turbo_query}
     
-    # 2. Actualizar estados desde ML Webhook API (solo envíos NO TEST)
-    # Filtrar solo envíos reales (no TEST) para consultar a ML
-    envios_reales = [sid for sid in turbo_map.keys() if not sid.startswith('TEST_')]
-    
-    logger.info(f"Actualizando estados de {len(envios_reales)} envíos desde ML Webhook")
-    
-    # Consultar ML Webhook en paralelo (batch de 50 para no saturar)
-    BATCH_SIZE = 50
-    for i in range(0, len(envios_reales), BATCH_SIZE):
-        batch = envios_reales[i:i+BATCH_SIZE]
-        tasks = [fetch_shipment_data(sid) for sid in batch]
-        resultados = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        for shipment_id, ml_data in zip(batch, resultados):
-            if isinstance(ml_data, Exception) or not ml_data:
-                continue
-            
-            # Extraer estado de ML
-            ml_status = ml_data.get('status', '').lower()
-            
-            # Mapeo de estados de ML a nuestro formato
-            # ML: shipped, ready_to_ship, delivered, cancelled, etc.
-            nuevo_estado = ml_status if ml_status else 'unknown'
-            
-            # Actualizar en BD si cambió
-            row = turbo_map.get(shipment_id)
-            if row and row.mlstatus != nuevo_estado:
-                envio_bd_obj = db.query(MercadoLibreOrderShipping).filter(
-                    MercadoLibreOrderShipping.mlshippingid == shipment_id
-                ).first()
-                if envio_bd_obj:
-                    envio_bd_obj.mlstatus = nuevo_estado
-                    logger.debug(f"Envío {shipment_id}: {row.mlstatus} → {nuevo_estado}")
-        
-        # Rate limiting: pequeña pausa entre batches
-        if i + BATCH_SIZE < len(envios_reales):
-            await asyncio.sleep(0.5)
-    
-    db.commit()
-    logger.info("Estados actualizados en BD")
+    # 2. NO actualizar estados automáticamente (muy lento con 200+ envíos)
+    # Los estados se actualizan solo al abrir detalle individual
+    # O manualmente con un botón "Actualizar Estados" en UI
     
     # Refrescar query para obtener estados actualizados
     turbo_query = db.query(
