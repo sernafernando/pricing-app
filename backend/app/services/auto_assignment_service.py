@@ -69,12 +69,22 @@ def asignar_envio_a_zona(
     Returns:
         ID de la zona que contiene el punto, o None si no está en ninguna
     """
+    logger.debug(f"Buscando zona para punto: lat={lat}, lng={lng}")
+    logger.debug(f"Total zonas disponibles: {len(zonas)}")
+    
     for zona in zonas:
-        if punto_en_poligono(lat, lng, zona['poligono']):
-            logger.debug(f"Punto ({lat}, {lng}) encontrado en zona {zona['nombre']}")
+        if 'poligono' not in zona:
+            logger.warning(f"Zona {zona.get('id')} sin poligono definido")
+            continue
+            
+        resultado = punto_en_poligono(lat, lng, zona['poligono'])
+        logger.debug(f"  Zona '{zona['nombre']}' (ID {zona['id']}): {'MATCH' if resultado else 'NO MATCH'}")
+        
+        if resultado:
+            logger.info(f"Punto ({lat}, {lng}) encontrado en zona {zona['nombre']}")
             return zona['id']
     
-    logger.warning(f"Punto ({lat}, {lng}) no está en ninguna zona")
+    logger.warning(f"Punto ({lat}, {lng}) NO esta en ninguna de las {len(zonas)} zonas")
     return None
 
 
