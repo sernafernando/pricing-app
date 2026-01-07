@@ -281,6 +281,24 @@ async def obtener_envios_turbo_pendientes(
     banned_ids_query = db.query(EnvioTurboBanlist.mlshippingid).all()
     banned_ids_set = {str(row[0]) for row in banned_ids_query}
     
+    # Construir filtros base
+    filtros_base = [
+        MercadoLibreOrderShipping.mlshipping_method_id == '515282',
+        # Solo envíos recientes O envíos TEST
+        (MercadoLibreOrderShipping.mlestimated_delivery_limit >= fecha_desde) |
+        (MercadoLibreOrderShipping.mlshippingid.like('TEST_%')),
+        # Excluir envíos baneados (banlist)
+        ~MercadoLibreOrderShipping.mlshippingid.in_(banned_ids_set) if banned_ids_set else True
+    ]
+    
+    # FILTRO CONDICIONAL DE ESTADO:
+    # - Si NO incluye asignados: solo estados pendientes (ready_to_ship, not_delivered)
+    # - Si incluye asignados: todos los estados (para seguimiento en tiempo real)
+    if not incluir_asignados:
+        filtros_base.append(
+            MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered'])
+        )
+    
     turbo_query = db.query(
         MercadoLibreOrderShipping.mlshippingid,
         MercadoLibreOrderShipping.mlo_id,
@@ -298,15 +316,7 @@ async def obtener_envios_turbo_pendientes(
         MercadoLibreOrderShipping.mlself_service,
         MercadoLibreOrderShipping.mlcross_docking,
         MercadoLibreOrderShipping.mlstatus
-    ).filter(
-        MercadoLibreOrderShipping.mlshipping_method_id == '515282',
-        MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered']),
-        # Solo envíos recientes O envíos TEST
-        (MercadoLibreOrderShipping.mlestimated_delivery_limit >= fecha_desde) |
-        (MercadoLibreOrderShipping.mlshippingid.like('TEST_%')),
-        # Excluir envíos baneados (banlist)
-        ~MercadoLibreOrderShipping.mlshippingid.in_(banned_ids_set) if banned_ids_set else True
-    ).all()
+    ).filter(*filtros_base).all()
     
     # 2. Crear lista de envíos pendientes
     envios_turbo_actualizados = []

@@ -20,6 +20,7 @@ export default function TurboRouting() {
   const [enviosSeleccionados, setEnviosSeleccionados] = useState(new Set());
   const [filtroEstado, setFiltroEstado] = useState('');
   const [search, setSearch] = useState('');
+  const [incluirAsignados, setIncluirAsignados] = useState(false);
   
   // Motoqueros
   const [motoqueros, setMotoqueros] = useState([]);
@@ -53,13 +54,14 @@ export default function TurboRouting() {
   const fetchEnvios = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/turbo/envios/pendientes`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: { incluir_asignados: incluirAsignados }
       });
       setEnvios(response.data);
     } catch (error) {
       alert('Error al cargar envíos pendientes');
     }
-  }, []);
+  }, [incluirAsignados]);
   
   const fetchMotoqueros = useCallback(async () => {
     try {
@@ -477,12 +479,14 @@ export default function TurboRouting() {
               enviosSeleccionados={enviosSeleccionados}
               filtroEstado={filtroEstado}
               search={search}
+              incluirAsignados={incluirAsignados}
               geocodificando={geocodificando}
               asignandoAutomatico={asignandoAutomatico}
               onToggleSeleccion={toggleSeleccionEnvio}
               onSeleccionarTodos={seleccionarTodos}
               onFiltroEstadoChange={setFiltroEstado}
               onSearchChange={setSearch}
+              onIncluirAsignadosChange={setIncluirAsignados}
               onAsignar={abrirModalAsignacion}
               onGeocodificar={geocodificarTodos}
               onAsignarAutomatico={asignarAutomaticamente}
@@ -578,12 +582,14 @@ function TabEnvios({
   enviosSeleccionados, 
   filtroEstado, 
   search,
+  incluirAsignados,
   geocodificando,
   asignandoAutomatico,
   onToggleSeleccion, 
   onSeleccionarTodos,
   onFiltroEstadoChange,
   onSearchChange,
+  onIncluirAsignadosChange,
   onAsignar,
   onGeocodificar,
   onAsignarAutomatico
@@ -612,6 +618,15 @@ function TabEnvios({
             <option value="ready_to_ship">ready_to_ship</option>
             <option value="not_delivered">not_delivered</option>
           </select>
+          
+          <label className={styles.checkboxLabel}>
+            <input 
+              type="checkbox"
+              checked={incluirAsignados}
+              onChange={(e) => onIncluirAsignadosChange(e.target.checked)}
+            />
+            <span>Mostrar asignados</span>
+          </label>
         </div>
         
         <div className={styles.toolbarRight}>
