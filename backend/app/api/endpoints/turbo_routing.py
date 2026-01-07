@@ -28,6 +28,7 @@ from app.services.kmeans_zone_service import (
     generar_zonas_kmeans,
     validar_envios_geocodificados
 )
+from app.services.auto_assignment_service import asignar_envios_automaticamente
 from app.services.geocoding_service import geocode_address
 from app.services.ml_webhook_service import (
     fetch_shipment_data,
@@ -1339,4 +1340,183 @@ async def geocodificar_batch_ml_webhook(
         "sin_shipping_id": sin_shipping_id,
         "sin_coordenadas": sin_coordenadas,
         "porcentaje_exito": round((exitosos / total_envios * 100), 2) if total_envios > 0 else 0
+    }
+
+
+# ==================== ASIGNACIÓN AUTOMÁTICA ====================
+
+@router.post("/turbo/asignar-automatico")
+async def asignar_automaticamente_por_zona(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Asigna automáticamente envíos pendientes a motoqueros según su zona.
+    
+    Proceso:
+    1. Obtiene envíos Turbo pendientes con coordenadas
+    2. Obtiene zonas activas con motoqueros asignados
+    3. Usa point-in-polygon para determinar qué zona contiene cada envío
+    4. Crea asignaciones automáticas en la BD
+    5. Retorna resumen de asignaciones creadas
+    """
+    if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
+        raise HTTPException(status_code=403, detail="Sin permiso para gestionar Turbo Routing")
+    
+    # 1. Obtener envíos pendientes con coordenadas (sin asignar)
+    envios_sin_asignar = db.query(
+        MercadoLibreOrderShipping.mlshippingid,
+        MercadoLibreOrderShipping.mlstreet_name,
+        MercadoLibreOrderShipping.mlstreet_number,
+        MercadoLibreOrderShipping.mlcity_name,
+        MercadoLibreOrderShipping.mlstatus
+    ).filter(
+        MercadoLibreOrderShipping.mlshipping_method_id == '515282',
+        MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered']),
+        ~MercadoLibreOrderShipping.mlshippingid.in_(
+            db.query(AsignacionTurbo.mlshippingid).filter(
+                AsignacionTurbo.estado != 'cancelado'
+            )
+        )
+    ).all()
+    
+    if not envios_sin_asignar:
+        return {
+            "total_procesados": 0,
+            "total_asignados": 0,
+            "total_sin_zona": 0,
+            "asignaciones": [],
+            "sin_zona": [],
+            "mensaje": "No hay envíos pendientes sin asignar"
+        }
+    
+    # 2. Obtener coordenadas desde geocoding_cache
+    envios_coords = []
+    for envio in envios_sin_asignar:
+        direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
+        direccion_hash = GeocodingCache.hash_direccion(direccion)
+        
+        cache = db.query(GeocodingCache).filter(
+            GeocodingCache.direccion_hash == direccion_hash
+        ).first()
+        
+        if cache and cache.latitud and cache.longitud:
+            envios_coords.append((
+                str(envio.mlshippingid),
+                float(cache.latitud),
+                float(cache.longitud)
+            ))
+    
+    if not envios_coords:
+        return {
+            "total_procesados": len(envios_sin_asignar),
+            "total_asignados": 0,
+            "total_sin_zona": len(envios_sin_asignar),
+            "asignaciones": [],
+            "sin_zona": [str(e.mlshippingid) for e in envios_sin_asignar],
+            "mensaje": f"Ningún envío tiene coordenadas. Ejecutá geocoding batch primero."
+        }
+    
+    # 3. Obtener zonas activas con motoqueros asignados
+    zonas_query = db.query(
+        ZonaReparto.id,
+        ZonaReparto.nombre,
+        ZonaReparto.poligono
+    ).filter(
+        ZonaReparto.activa.is_(True)
+    ).all()
+    
+    if not zonas_query:
+        return {
+            "total_procesados": len(envios_coords),
+            "total_asignados": 0,
+            "total_sin_zona": len(envios_coords),
+            "asignaciones": [],
+            "sin_zona": [e[0] for e in envios_coords],
+            "mensaje": "No hay zonas activas. Creá zonas primero."
+        }
+    
+    # Obtener motoqueros por zona (asignación manual previa o configuración)
+    # Por ahora, asignamos 1 motoquero activo por zona de forma round-robin
+    motoqueros_activos = db.query(Motoquero).filter(
+        Motoquero.activo.is_(True)
+    ).order_by(Motoquero.id).all()
+    
+    if not motoqueros_activos:
+        return {
+            "total_procesados": len(envios_coords),
+            "total_asignados": 0,
+            "total_sin_zona": len(envios_coords),
+            "asignaciones": [],
+            "sin_zona": [e[0] for e in envios_coords],
+            "mensaje": "No hay motoqueros activos. Creá motoqueros primero."
+        }
+    
+    # Mapear zona -> motoquero (round-robin)
+    zonas_motoqueros = []
+    for i, zona in enumerate(zonas_query):
+        motoquero = motoqueros_activos[i % len(motoqueros_activos)]
+        zonas_motoqueros.append({
+            'id': zona.id,
+            'nombre': zona.nombre,
+            'poligono': zona.poligono,
+            'motoquero_id': motoquero.id,
+            'motoquero_nombre': motoquero.nombre
+        })
+    
+    # 4. Asignar usando point-in-polygon
+    resultado = asignar_envios_automaticamente(envios_coords, zonas_motoqueros)
+    
+    # 5. Crear asignaciones en BD
+    asignaciones_creadas = []
+    for asignacion_data in resultado['asignaciones']:
+        # Obtener datos del envío
+        envio = db.query(MercadoLibreOrderShipping).filter(
+            MercadoLibreOrderShipping.mlshippingid == asignacion_data['mlshippingid']
+        ).first()
+        
+        if not envio:
+            continue
+        
+        # Construir dirección
+        direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
+        
+        # Obtener coordenadas
+        direccion_hash = GeocodingCache.hash_direccion(direccion)
+        cache = db.query(GeocodingCache).filter(
+            GeocodingCache.direccion_hash == direccion_hash
+        ).first()
+        
+        latitud = float(cache.latitud) if cache else None
+        longitud = float(cache.longitud) if cache else None
+        
+        # Crear asignación
+        asignacion = AsignacionTurbo(
+            mlshippingid=asignacion_data['mlshippingid'],
+            motoquero_id=asignacion_data['motoquero_id'],
+            zona_id=asignacion_data['zona_id'],
+            direccion=direccion[:500],
+            latitud=latitud,
+            longitud=longitud,
+            estado='pendiente',
+            asignado_por='automatico'
+        )
+        
+        db.add(asignacion)
+        asignaciones_creadas.append(asignacion_data)
+    
+    db.commit()
+    
+    logger.info(
+        f"✅ Asignación automática: {len(asignaciones_creadas)} asignados, "
+        f"{resultado['total_sin_zona']} sin zona"
+    )
+    
+    return {
+        "total_procesados": len(envios_coords),
+        "total_asignados": len(asignaciones_creadas),
+        "total_sin_zona": resultado['total_sin_zona'],
+        "asignaciones": asignaciones_creadas,
+        "sin_zona": resultado['sin_zona'],
+        "mensaje": f"✅ {len(asignaciones_creadas)} envíos asignados automáticamente"
     }
