@@ -295,7 +295,7 @@ async def obtener_envios_turbo_pendientes(
         MercadoLibreOrderShipping.mlstatus
     ).filter(
         MercadoLibreOrderShipping.mlshipping_method_id == '515282',
-        MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered']),
+        MercadoLibreOrderShipping.mlstatus == 'ready_to_ship',  # Solo ready_to_ship
         # Solo envíos recientes O envíos TEST
         (MercadoLibreOrderShipping.mlestimated_delivery_limit >= fecha_desde) |
         (MercadoLibreOrderShipping.mlshippingid.like('TEST_%'))
