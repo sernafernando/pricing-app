@@ -39,6 +39,9 @@ export default function TurboRouting() {
   // Geocoding
   const [geocodificando, setGeocodificando] = useState(false);
   
+  // Asignación automática
+  const [asignandoAutomatico, setAsignandoAutomatico] = useState(false);
+  
   const getToken = () => localStorage.getItem('token');
   const puedeGestionar = tienePermiso('ordenes.gestionar_turbo_routing');
   
@@ -229,6 +232,50 @@ export default function TurboRouting() {
       alert(error.response?.data?.detail || 'Error al geocodificar envíos');
     } finally {
       setGeocodificando(false);
+    }
+  };
+  
+  const asignarAutomaticamente = async () => {
+    if (!puedeGestionar) {
+      alert('No tenés permiso para asignar envíos');
+      return;
+    }
+    
+    const confirmacion = confirm(
+      '🤖 ¿Asignar automáticamente envíos por zona?\n\n' +
+      'El sistema usará point-in-polygon para detectar la zona de cada envío\n' +
+      'y lo asignará al motoquero correspondiente.\n\n' +
+      'Solo se asignarán envíos con coordenadas geocodificadas.\n\n' +
+      '¿Continuar?'
+    );
+    
+    if (!confirmacion) return;
+    
+    setAsignandoAutomatico(true);
+    try {
+      const response = await axios.post(
+        `${API_URL}/turbo/asignar-automatico`,
+        {},
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      
+      const { total_procesados, total_asignados, total_sin_zona, mensaje } = response.data;
+      
+      alert(
+        `${mensaje}\n\n` +
+        `• Procesados: ${total_procesados} envíos\n` +
+        `• Asignados: ${total_asignados}\n` +
+        `• Sin zona: ${total_sin_zona}\n\n` +
+        `Recargando datos...`
+      );
+      
+      // Recargar envíos y estadísticas
+      await Promise.all([fetchEnvios(), fetchEstadisticas()]);
+      
+    } catch (error) {
+      alert(error.response?.data?.detail || 'Error al asignar automáticamente');
+    } finally {
+      setAsignandoAutomatico(false);
     }
   };
   
@@ -424,12 +471,14 @@ export default function TurboRouting() {
               filtroEstado={filtroEstado}
               search={search}
               geocodificando={geocodificando}
+              asignandoAutomatico={asignandoAutomatico}
               onToggleSeleccion={toggleSeleccionEnvio}
               onSeleccionarTodos={seleccionarTodos}
               onFiltroEstadoChange={setFiltroEstado}
               onSearchChange={setSearch}
               onAsignar={abrirModalAsignacion}
               onGeocodificar={geocodificarTodos}
+              onAsignarAutomatico={asignarAutomaticamente}
             />
           )}
           
@@ -519,12 +568,14 @@ function TabEnvios({
   filtroEstado, 
   search,
   geocodificando,
+  asignandoAutomatico,
   onToggleSeleccion, 
   onSeleccionarTodos,
   onFiltroEstadoChange,
   onSearchChange,
   onAsignar,
-  onGeocodificar
+  onGeocodificar,
+  onAsignarAutomatico
 }) {
   const todosSeleccionados = envios.length > 0 && enviosSeleccionados.size === envios.length;
   
@@ -560,6 +611,15 @@ function TabEnvios({
             title="Geocodificar todos los envíos Turbo usando ML Webhook (100% precisión)"
           >
             {geocodificando ? '⏳ Geocodificando...' : '🗺️ Geocodificar Todos'}
+          </button>
+          
+          <button 
+            className="btn-tesla primary"
+            onClick={onAsignarAutomatico}
+            disabled={asignandoAutomatico}
+            title="Asignar automáticamente envíos a motoqueros según zona (point-in-polygon)"
+          >
+            {asignandoAutomatico ? '⏳ Asignando...' : '🤖 Asignar Automático'}
           </button>
           
           {enviosSeleccionados.size > 0 && (
