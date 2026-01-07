@@ -74,11 +74,14 @@ export default function MapaEnvios({
   const centroDefault = [-34.6037, -58.3816];
   
   const getIcono = (envio) => {
-    if (envio.estado === 'entregado' || envio.estado === 'delivered') {
+    // Verificar estado ML primero (delivered, shipped, cancelled)
+    if (envio.mlstatus === 'delivered') {
       return iconoEntregado;
     } else if (envio.asignado) {
+      // Asignado pero no entregado todavía
       return iconoAsignado;
     } else {
+      // Pendiente sin asignar
       return iconoPendiente;
     }
   };
