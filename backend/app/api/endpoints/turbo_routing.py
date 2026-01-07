@@ -272,36 +272,7 @@ async def obtener_envios_turbo_pendientes(
     if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
         raise HTTPException(status_code=403, detail="Sin permiso para gestionar Turbo Routing")
     
-    # 1. Obtener envíos Turbo desde BD (incluir mlstatus para sincronización)
-    turbo_query = db.query(
-        MercadoLibreOrderShipping.mlshippingid,
-        MercadoLibreOrderShipping.mlo_id,
-        MercadoLibreOrderShipping.mlstreet_name,
-        MercadoLibreOrderShipping.mlstreet_number,
-        MercadoLibreOrderShipping.mlzip_code,
-        MercadoLibreOrderShipping.mlcity_name,
-        MercadoLibreOrderShipping.mlstate_name,
-        MercadoLibreOrderShipping.mlreceiver_name,
-        MercadoLibreOrderShipping.mlreceiver_phone,
-        MercadoLibreOrderShipping.mlestimated_delivery_limit,
-        MercadoLibreOrderShipping.mllogistic_type,
-        MercadoLibreOrderShipping.mlshipping_mode,
-        MercadoLibreOrderShipping.mlturbo,
-        MercadoLibreOrderShipping.mlself_service,
-        MercadoLibreOrderShipping.mlcross_docking,
-        MercadoLibreOrderShipping.mlstatus
-    ).filter(
-        MercadoLibreOrderShipping.mlshipping_method_id == '515282'
-    ).all()
-    
-    # Crear mapa: shipment_id -> datos BD
-    turbo_map = {str(row.mlshippingid): row for row in turbo_query}
-    
-    # 2. NO actualizar estados automáticamente (muy lento con 200+ envíos)
-    # Los estados se actualizan solo al abrir detalle individual
-    # O manualmente con un botón "Actualizar Estados" en UI
-    
-    # Refrescar query para obtener estados actualizados
+    # 1. Obtener SOLO envíos Turbo pendientes desde BD (filtro directo en query)
     turbo_query = db.query(
         MercadoLibreOrderShipping.mlshippingid,
         MercadoLibreOrderShipping.mlo_id,
@@ -324,7 +295,7 @@ async def obtener_envios_turbo_pendientes(
         MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered'])
     ).all()
     
-    # 3. Crear lista de envíos pendientes (ahora con estados actualizados)
+    # 2. Crear lista de envíos pendientes
     envios_turbo_actualizados = []
     for row in turbo_query:
         envios_turbo_actualizados.append({
