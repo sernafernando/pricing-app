@@ -7,12 +7,12 @@ SELECT
     mlstatus,
     mlreceiver_name,
     mlcity_name
-FROM mercadolibre_order_shipping
+FROM tb_mercadolibre_orders_shipping
 WHERE mlshippingid LIKE 'TEST_%'
 ORDER BY mlshippingid;
 
 -- Marcar 3 envíos TEST como entregados (verdes en el mapa)
-UPDATE mercadolibre_order_shipping
+UPDATE tb_mercadolibre_orders_shipping
 SET mlstatus = 'delivered'
 WHERE mlshippingid IN (
     'TEST_NORTE_001',
@@ -26,7 +26,7 @@ SELECT
     mlstatus,
     mlreceiver_name,
     mlcity_name
-FROM mercadolibre_order_shipping
+FROM tb_mercadolibre_orders_shipping
 WHERE mlshippingid IN ('TEST_NORTE_001', 'TEST_ESTE_002', 'TEST_SUR_003');
 
 -- Resultado esperado:
