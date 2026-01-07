@@ -5,6 +5,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import MapaEnvios from '../components/turbo/MapaEnvios';
 import GestionZonas from '../components/turbo/GestionZonas';
 import TabBanlist from '../components/turbo/TabBanlist';
+import TabAsignaciones from '../components/turbo/TabAsignaciones';
 
 const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
@@ -435,6 +436,12 @@ export default function TurboRouting() {
           {envios.length > 0 && <span className={styles.badge}>{envios.length}</span>}
         </button>
         <button 
+          className={`${styles.tab} ${tabActiva === 'asignaciones' ? styles.tabActiva : ''}`}
+          onClick={() => setTabActiva('asignaciones')}
+        >
+          📋 Asignaciones
+        </button>
+        <button 
           className={`${styles.tab} ${tabActiva === 'motoqueros' ? styles.tabActiva : ''}`}
           onClick={() => setTabActiva('motoqueros')}
         >
@@ -473,6 +480,10 @@ export default function TurboRouting() {
         <div className={styles.loading}>Cargando...</div>
       ) : (
         <>
+          {tabActiva === 'asignaciones' && (
+            <TabAsignaciones />
+          )}
+          
           {tabActiva === 'envios' && (
             <TabEnvios 
               envios={enviosFiltrados}
