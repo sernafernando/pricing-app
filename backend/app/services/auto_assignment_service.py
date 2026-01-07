@@ -36,23 +36,12 @@ def punto_en_poligono(lat: float, lng: float, poligono_geojson: Dict[str, Any]) 
         # Convertir GeoJSON a Shapely Polygon
         poligono = shape(poligono_geojson)
         
-        # DEBUG: Log primera vez para ver si el polígono es válido
-        if not hasattr(punto_en_poligono, '_logged'):
-            logger.info(f"DEBUG Poligono: bounds={poligono.bounds}, is_valid={poligono.is_valid}, area={poligono.area}")
-            logger.info(f"DEBUG Punto ejemplo: ({lng}, {lat}) -> Point coords: {punto.coords[0]}")
-            punto_en_poligono._logged = True
+        # BUFFER: Expandir polígono levemente para incluir puntos en el borde
+        # 0.001 grados ≈ 111 metros (suficiente para compensar puntos en el borde)
+        poligono_buffered = poligono.buffer(0.001)
         
-        # Verificar si el punto está dentro
-        resultado = poligono.contains(punto)
-        
-        # DEBUG: Log cuando hay match o cuando el punto está muy cerca
-        if resultado:
-            logger.info(f"MATCH: Punto ({lng}, {lat}) dentro del poligono")
-        else:
-            # Calcular distancia al borde del polígono
-            distancia = punto.distance(poligono)
-            if distancia < 0.01:  # Muy cerca (menos de ~1km)
-                logger.debug(f"Punto ({lng}, {lat}) cerca del borde: distancia={distancia}")
+        # Verificar si el punto está dentro (usando polígono expandido)
+        resultado = poligono_buffered.contains(punto)
         
         return resultado
         
