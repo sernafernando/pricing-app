@@ -652,3 +652,86 @@
 .textSecondary {
   color: var(--text-secondary);
 }
+
+/* TabAsignaciones - Sistema de clases semánticas */
+.successText {
+  color: var(--success);
+}
+
+.warningText {
+  color: var(--warning);
+}
+
+.errorText {
+  color: var(--error);
+}
+
+.textMuted {
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+.colExpand {
+  width: 50px;
+  text-align: center;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.colNumber {
+  width: 100px;
+  text-align: center;
+}
+
+.clickableRow {
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.clickableRow:hover {
+  background: var(--bg-hover);
+}
+
+.expandedRow {
+  background: var(--bg-secondary);
+}
+
+.expandedCell {
+  padding: 0 !important;
+}
+
+.expandedContent {
+  padding: var(--spacing-lg);
+  background: var(--bg-secondary);
+}
+
+.cardTitle {
+  margin-bottom: var(--spacing-md);
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.badge {
+  display: inline-block;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+}
+
+.badgeSuccess {
+  background: var(--success);
+  color: white;
+}
+
+.badgeWarning {
+  background: var(--warning);
+  color: white;
+}
+
+.badgeError {
+  background: var(--error);
+  color: white;
+}

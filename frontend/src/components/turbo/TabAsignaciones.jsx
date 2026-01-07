@@ -39,16 +39,6 @@ export default function TabAsignaciones() {
     setExpandidos(nuevos);
   };
 
-  const getEstadoBadge = (estadoDisplay) => {
-    const badges = {
-      pendiente: { className: styles.estadoPendiente, text: '⏳ Pendiente' },
-      en_camino: { className: styles.estadoEnCamino, text: '🚚 En camino' },
-      entregado: { className: styles.estadoEntregado, text: '✅ Entregado' }
-    };
-    const badge = badges[estadoDisplay] || badges.pendiente;
-    return <span className={badge.className}>{badge.text}</span>;
-  };
-
   if (loading) {
     return (
       <div className={styles.tabContent}>
@@ -72,13 +62,14 @@ export default function TabAsignaciones() {
 
   return (
     <div className={styles.tabContent}>
+      {/* HEADER */}
       <div className={styles.header}>
         <div>
           <h2>📋 Asignaciones del Día</h2>
           <p className={styles.subtitle}>
-            {data.fecha} • <strong>{data.total_asignaciones} envíos asignados</strong> • 
-            <span style={{ color: 'var(--success)', marginLeft: '0.5rem' }}>✅ {data.total_entregados} entregados</span> • 
-            <span style={{ color: 'var(--error)', marginLeft: '0.5rem' }}>⏳ {data.total_pendientes} pendientes</span>
+            {data.fecha} • <strong>{data.total_asignaciones} envíos</strong> • 
+            <span className={styles.successText}> ✅ {data.total_entregados} entregados</span> • 
+            <span className={styles.errorText}> ⏳ {data.total_pendientes} pendientes</span>
           </p>
         </div>
         <button onClick={fetchAsignaciones} className={styles.btnSecondary}>
@@ -86,64 +77,55 @@ export default function TabAsignaciones() {
         </button>
       </div>
 
-      {/* RESUMEN POR MOTOQUERO */}
+      {/* TABLA RESUMEN */}
       <div className={styles.card}>
-        <h3 className={styles.sectionTitle}>Resumen por Motoquero</h3>
+        <h3 className={styles.cardTitle}>Resumen por Motoquero</h3>
         <div className={styles.tableContainer}>
           <table className={styles.tablaTesla}>
             <thead>
               <tr>
-                <th style={{ width: '50px' }}></th>
+                <th className={styles.colExpand}></th>
                 <th>Motoquero</th>
-                <th style={{ width: '120px', textAlign: 'center' }}>Total</th>
-                <th style={{ width: '120px', textAlign: 'center' }}>✅ Entregados</th>
-                <th style={{ width: '120px', textAlign: 'center' }}>🚚 En Camino</th>
-                <th style={{ width: '120px', textAlign: 'center' }}>⏳ Pendientes</th>
-                <th style={{ width: '150px' }}>Estado</th>
+                <th className={styles.colNumber}>Total</th>
+                <th className={styles.colNumber}>✅ OK</th>
+                <th className={styles.colNumber}>🚚 Camino</th>
+                <th className={styles.colNumber}>⏳ Pend</th>
+                <th>Estado</th>
               </tr>
             </thead>
             <tbody>
-              {data.motoqueros.map((motoquero) => (
-                <Fragment key={motoquero.motoquero_id}>
-                  {/* FILA PRINCIPAL: Motoquero */}
+              {data.motoqueros.map((m) => (
+                <Fragment key={m.motoquero_id}>
                   <tr 
-                    onClick={() => toggleMotoquero(motoquero.motoquero_id)}
-                    className={`${styles.motoqueroRow} ${expandidos.has(motoquero.motoquero_id) ? styles.motoqueroRowExpanded : ''}`}
+                    onClick={() => toggleMotoquero(m.motoquero_id)}
+                    className={styles.clickableRow}
                   >
-                    <td style={{ textAlign: 'center', fontSize: '1.2rem' }}>
-                      {expandidos.has(motoquero.motoquero_id) ? '▼' : '▶'}
+                    <td className={styles.colExpand}>
+                      {expandidos.has(m.motoquero_id) ? '▼' : '▶'}
                     </td>
                     <td>
-                      <strong>{motoquero.nombre}</strong>
-                      {!motoquero.activo && <span className={styles.textSecondary}> (inactivo)</span>}
+                      <strong>{m.nombre}</strong>
+                      {!m.activo && <span className={styles.textMuted}> (inactivo)</span>}
                     </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <strong>{motoquero.total_envios}</strong>
-                    </td>
-                    <td style={{ textAlign: 'center', color: 'var(--success)' }}>
-                      <strong>{motoquero.entregados}</strong>
-                    </td>
-                    <td style={{ textAlign: 'center', color: 'var(--warning)' }}>
-                      <strong>{motoquero.en_camino}</strong>
-                    </td>
-                    <td style={{ textAlign: 'center', color: 'var(--error)' }}>
-                      <strong>{motoquero.pendientes}</strong>
-                    </td>
+                    <td className={styles.colNumber}><strong>{m.total_envios}</strong></td>
+                    <td className={`${styles.colNumber} ${styles.successText}`}><strong>{m.entregados}</strong></td>
+                    <td className={`${styles.colNumber} ${styles.warningText}`}><strong>{m.en_camino}</strong></td>
+                    <td className={`${styles.colNumber} ${styles.errorText}`}><strong>{m.pendientes}</strong></td>
                     <td>
-                      {motoquero.entregados === motoquero.total_envios ? (
-                        <strong style={{ color: 'var(--success)' }}>✅ Completado</strong>
+                      {m.entregados === m.total_envios ? (
+                        <span className={`${styles.badge} ${styles.badgeSuccess}`}>✅ Completado</span>
                       ) : (
-                        <strong style={{ color: 'var(--warning)' }}>⏳ En progreso</strong>
+                        <span className={`${styles.badge} ${styles.badgeWarning}`}>⏳ En progreso</span>
                       )}
                     </td>
                   </tr>
 
-                  {/* FILAS EXPANDIDAS: Detalle de envíos */}
-                  {expandidos.has(motoquero.motoquero_id) && (
-                    <tr className={styles.filaExpandida}>
-                      <td colSpan="7" style={{ padding: 0 }}>
-                        <div style={{ padding: '1rem', background: 'var(--bg-secondary)' }}>
-                          <table className={styles.tablaTesla} style={{ marginBottom: 0 }}>
+                  {/* DETALLE EXPANDIDO */}
+                  {expandidos.has(m.motoquero_id) && (
+                    <tr className={styles.expandedRow}>
+                      <td colSpan="7" className={styles.expandedCell}>
+                        <div className={styles.expandedContent}>
+                          <table className={styles.tablaTesla}>
                             <thead>
                               <tr>
                                 <th>Código ML</th>
@@ -155,46 +137,42 @@ export default function TabAsignaciones() {
                               </tr>
                             </thead>
                             <tbody>
-                              {motoquero.envios.map((envio) => (
-                                <tr key={envio.mlshippingid}>
+                              {m.envios.map((e) => (
+                                <tr key={e.mlshippingid}>
                                   <td>
-                                    <code className={styles.codeTag}>{envio.mlshippingid}</code>
+                                    <code className={styles.codeTag}>{e.mlshippingid}</code>
                                   </td>
+                                  <td>📍 {e.direccion}</td>
                                   <td>
-                                    <div>📍 {envio.direccion}</div>
-                                  </td>
-                                  <td>
-                                    {envio.destinatario ? (
+                                    {e.destinatario ? (
                                       <>
-                                        <div>{envio.destinatario}</div>
-                                        {envio.telefono && (
-                                          <div className={styles.textSecondary}>📞 {envio.telefono}</div>
-                                        )}
+                                        <div>{e.destinatario}</div>
+                                        {e.telefono && <div className={styles.textMuted}>📞 {e.telefono}</div>}
                                       </>
                                     ) : (
-                                      <span className={styles.textSecondary}>-</span>
+                                      <span className={styles.textMuted}>-</span>
                                     )}
                                   </td>
+                                  <td>{e.zona_nombre || <span className={styles.textMuted}>-</span>}</td>
                                   <td>
-                                    {envio.zona_nombre || <span className={styles.textSecondary}>-</span>}
+                                    <span className={`${styles.badge} ${
+                                      e.estado_display === 'entregado' ? styles.badgeSuccess :
+                                      e.estado_display === 'en_camino' ? styles.badgeWarning :
+                                      styles.badgeError
+                                    }`}>
+                                      {e.estado_display === 'entregado' && '✅ Entregado'}
+                                      {e.estado_display === 'en_camino' && '🚚 En camino'}
+                                      {e.estado_display === 'pendiente' && '⏳ Pendiente'}
+                                    </span>
+                                    <div className={styles.textMuted}>ML: {e.estado_ml}</div>
                                   </td>
-                                  <td>
-                                    {getEstadoBadge(envio.estado_display)}
-                                    <div className={styles.textSecondary} style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
-                                      ML: {envio.estado_ml}
-                                    </div>
-                                  </td>
-                                  <td>
-                                    <div style={{ fontSize: '0.85rem' }}>
-                                      <div className={styles.textSecondary}>
-                                        Asignado: {new Date(envio.asignado_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                                  <td className={styles.textMuted}>
+                                    <div>Asignado: {new Date(e.asignado_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</div>
+                                    {e.entregado_at && (
+                                      <div className={styles.successText}>
+                                        Entregado: {new Date(e.entregado_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                                       </div>
-                                      {envio.entregado_at && (
-                                        <div style={{ color: 'var(--success)', marginTop: '0.25rem' }}>
-                                          Entregado: {new Date(envio.entregado_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                                        </div>
-                                      )}
-                                    </div>
+                                    )}
                                   </td>
                                 </tr>
                               ))}
