@@ -4,6 +4,7 @@ import styles from './TurboRouting.module.css';
 import { usePermisos } from '../contexts/PermisosContext';
 import MapaEnvios from '../components/turbo/MapaEnvios';
 import GestionZonas from '../components/turbo/GestionZonas';
+import TabBanlist from '../components/turbo/TabBanlist';
 
 const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
@@ -457,6 +458,12 @@ export default function TurboRouting() {
         >
           📊 Estadísticas
         </button>
+        <button 
+          className={`${styles.tab} ${tabActiva === 'banlist' ? styles.tabActiva : ''}`}
+          onClick={() => setTabActiva('banlist')}
+        >
+          🚫 Banlist
+        </button>
       </div>
       
       {/* CONTENIDO */}
@@ -524,6 +531,10 @@ export default function TurboRouting() {
               estadisticas={estadisticas}
               resumen={resumen}
             />
+          )}
+          
+          {tabActiva === 'banlist' && (
+            <TabBanlist />
           )}
         </>
       )}
