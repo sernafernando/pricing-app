@@ -273,6 +273,9 @@ async def obtener_envios_turbo_pendientes(
         raise HTTPException(status_code=403, detail="Sin permiso para gestionar Turbo Routing")
     
     # 1. Obtener SOLO envíos Turbo pendientes desde BD (filtro directo en query)
+    # Filtrar por fecha: solo últimos dias_atras días O envíos TEST
+    fecha_desde = datetime.now(pytz.timezone('America/Argentina/Buenos_Aires')) - timedelta(days=dias_atras)
+    
     turbo_query = db.query(
         MercadoLibreOrderShipping.mlshippingid,
         MercadoLibreOrderShipping.mlo_id,
@@ -292,7 +295,10 @@ async def obtener_envios_turbo_pendientes(
         MercadoLibreOrderShipping.mlstatus
     ).filter(
         MercadoLibreOrderShipping.mlshipping_method_id == '515282',
-        MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered'])
+        MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered']),
+        # Solo envíos recientes O envíos TEST
+        (MercadoLibreOrderShipping.mlestimated_delivery_limit >= fecha_desde) |
+        (MercadoLibreOrderShipping.mlshippingid.like('TEST_%'))
     ).all()
     
     # 2. Crear lista de envíos pendientes
