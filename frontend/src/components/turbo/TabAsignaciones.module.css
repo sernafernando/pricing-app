@@ -1,0 +1,419 @@
+/**
+ * TAB ASIGNACIONES - Sistema de diseño Tesla
+ * Usa design tokens de design-tokens.css y theme.css
+ */
+
+/* ============================================
+   CONTAINER Y LAYOUT
+   ============================================ */
+
+.container {
+  padding: var(--spacing-xl);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--spacing-xl);
+  padding-bottom: var(--spacing-lg);
+  border-bottom: var(--border-1) solid var(--border-primary);
+}
+
+.headerContent {
+  flex: 1;
+}
+
+.title {
+  font-size: var(--font-2xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  margin: 0 0 var(--spacing-sm) 0;
+}
+
+.subtitle {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.subtitleStrong {
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+}
+
+.statsSuccess {
+  color: var(--success);
+}
+
+.statsWarning {
+  color: var(--warning);
+}
+
+/* ============================================
+   CARD CONTAINER
+   ============================================ */
+
+.card {
+  background: var(--bg-primary);
+  border: var(--border-1) solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.cardHeader {
+  padding: var(--spacing-lg);
+  border-bottom: var(--border-1) solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.cardTitle {
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* ============================================
+   TABLE CONTAINER
+   ============================================ */
+
+.tableContainer {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - 300px);
+  background: var(--bg-primary);
+}
+
+.tableContainer::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.tableContainer::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.tableContainer::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: var(--radius-full);
+  transition: background var(--duration-200) var(--ease-in-out);
+}
+
+.tableContainer::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* ============================================
+   TABLE BASE
+   ============================================ */
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-sm);
+}
+
+.tableHead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-secondary);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 1px 0 var(--border-primary);
+}
+
+.tableHead th {
+  padding: var(--spacing-md);
+  text-align: left;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  border-bottom: 2px solid var(--border-secondary);
+  user-select: none;
+}
+
+.colExpand {
+  width: 50px;
+  text-align: center;
+}
+
+.colNumber {
+  width: 80px;
+  text-align: center;
+}
+
+.colStatus {
+  width: 150px;
+}
+
+.colCode {
+  width: 150px;
+}
+
+.colDest {
+  width: 200px;
+}
+
+.colState {
+  width: 120px;
+}
+
+.colTime {
+  width: 120px;
+}
+
+/* ============================================
+   TABLE BODY - ROWS
+   ============================================ */
+
+.tableBody tr {
+  transition: all var(--duration-200) var(--ease-in-out);
+}
+
+.tableBody tr:hover {
+  background: var(--bg-hover);
+}
+
+.tableBody td {
+  padding: var(--spacing-md);
+  border-bottom: var(--border-1) solid var(--border-primary);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+
+.tableBody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ============================================
+   CLICKABLE ROW
+   ============================================ */
+
+.clickableRow {
+  cursor: pointer;
+}
+
+.clickableRow:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: -2px;
+}
+
+.expandIcon {
+  font-size: var(--font-lg);
+  color: var(--text-tertiary);
+  transition: transform var(--duration-200) var(--ease-in-out);
+}
+
+.expandIconOpen {
+  transform: rotate(90deg);
+}
+
+/* ============================================
+   CELL CONTENT
+   ============================================ */
+
+.cellStrong {
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+}
+
+.cellMuted {
+  color: var(--text-tertiary);
+  font-size: var(--font-sm);
+  margin-left: var(--spacing-xs);
+}
+
+.cellSuccess {
+  color: var(--success);
+  font-weight: var(--font-medium);
+}
+
+.cellWarning {
+  color: var(--warning);
+  font-weight: var(--font-medium);
+}
+
+.cellError {
+  color: var(--error);
+  font-weight: var(--font-medium);
+}
+
+.codeTag {
+  background: var(--bg-tertiary);
+  padding: calc(var(--spacing-xs) * 0.75) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  font-family: 'Courier New', Courier, monospace;
+  color: var(--text-primary);
+}
+
+.textSecondary {
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  margin-top: var(--spacing-xs);
+}
+
+/* ============================================
+   BADGES
+   ============================================ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  line-height: var(--leading-none);
+  white-space: nowrap;
+}
+
+.badgeSuccess {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.badgeWarning {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+
+.badgeError {
+  background: var(--error-light);
+  color: var(--error);
+}
+
+.badgePrimary {
+  background: var(--brand-primary-light);
+  color: var(--brand-primary);
+}
+
+/* ============================================
+   EXPANDED ROW
+   ============================================ */
+
+.expandedRow {
+  background: var(--bg-secondary);
+}
+
+.expandedCell {
+  padding: 0;
+}
+
+.expandedContent {
+  padding: var(--spacing-xl);
+}
+
+.expandedTitle {
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin: 0 0 var(--spacing-md) 0;
+}
+
+/* ============================================
+   LOADING & EMPTY STATES
+   ============================================ */
+
+.loadingState,
+.emptyState {
+  padding: var(--spacing-2xl);
+  text-align: center;
+}
+
+.loadingSpinner {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto var(--spacing-md);
+  border: 3px solid var(--border-primary);
+  border-top-color: var(--brand-primary);
+  border-radius: var(--radius-full);
+  animation: spin var(--duration-700) linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.emptyIcon {
+  font-size: var(--font-3xl);
+  margin-bottom: var(--spacing-md);
+  opacity: 0.3;
+}
+
+.emptyTitle {
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-base);
+}
+
+.emptySubtitle {
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  margin: 0;
+}
+
+.loadingText {
+  color: var(--text-secondary);
+  font-size: var(--font-base);
+  margin: 0;
+}
+
+/* ============================================
+   ADDRESS LAYOUT
+   ============================================ */
+
+.addressMain {
+  margin-bottom: var(--spacing-xs);
+  color: var(--text-primary);
+}
+
+.addressZone {
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+}
+
+.destName {
+  margin-bottom: var(--spacing-xs);
+  color: var(--text-primary);
+}
+
+.destPhone {
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+}
+
+.timeAssigned {
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.timeDelivered {
+  color: var(--success);
+}
+
+/* ============================================
+   DARK MODE ADJUSTMENTS
+   ============================================ */
+
+:root[data-theme="dark"] .tableHead {
+  background: rgba(10, 10, 10, 0.8);
+  backdrop-filter: blur(12px);
+  box-shadow: 
+    0 1px 0 rgba(255, 255, 255, 0.05),
+    0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="dark"] .tableBody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
