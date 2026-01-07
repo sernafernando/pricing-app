@@ -576,9 +576,55 @@
 }
 
 .btnDangerSmall {
-  composes: btnDanger from '../../styles/buttons-tesla.css';
+  /* Basado en btn-tesla.danger pero más pequeño */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  
+  /* Tamaño personalizado (más pequeño) */
   font-size: 0.85rem;
   padding: 0.4rem 0.8rem;
+  height: auto;
+  
+  /* Estilos danger */
+  background: var(--gradient-error);
+  color: var(--text-inverse);
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  
+  /* Typography */
+  font-family: inherit;
+  font-weight: var(--font-medium);
+  line-height: 1;
+  white-space: nowrap;
+  
+  /* Cursor */
+  cursor: pointer;
+  user-select: none;
+  
+  /* Transition */
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: var(--shadow-sm);
+}
+
+.btnDangerSmall:hover {
+  background: var(--error-hover);
+  transform: translateY(-2px);
+  box-shadow: 
+    0 4px 12px rgba(227, 25, 55, 0.3),
+    var(--shadow-md);
+}
+
+.btnDangerSmall:active {
+  transform: translateY(-1px);
+}
+
+.btnDangerSmall:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 .actionColumn {
