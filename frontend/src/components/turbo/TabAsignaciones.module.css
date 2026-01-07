@@ -170,6 +170,11 @@
   width: 120px;
 }
 
+.colActions {
+  width: 120px;
+  text-align: center;
+}
+
 /* ============================================
    TABLE BODY - ROWS
    ============================================ */
@@ -416,4 +421,46 @@
 
 :root[data-theme="dark"] .tableBody tr:hover {
   background: rgba(255, 255, 255, 0.03);
+}
+
+/* ============================================
+   MODAL REASIGNAR
+   ============================================ */
+
+.modalInfoSection {
+  margin-bottom: var(--spacing-lg);
+}
+
+.modalInfoParagraph {
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.modalInfoLabel {
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+}
+
+.selectLabel {
+  display: block;
+  margin-bottom: var(--spacing-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+.selectInput {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--font-base);
+  transition: all var(--duration-200) var(--ease-in-out);
+}
+
+.selectInput:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(92, 140, 255, 0.1);
 }

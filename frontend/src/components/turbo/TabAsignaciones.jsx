@@ -2,6 +2,7 @@ import { useState, useEffect, Fragment } from 'react';
 import axios from 'axios';
 import styles from './TabAsignaciones.module.css';
 import '../../styles/buttons-tesla.css';
+import '../../styles/modals-tesla.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com.ar/api';
 
@@ -26,6 +27,10 @@ export default function TabAsignaciones() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [expandidos, setExpandidos] = useState(new Set());
+  const [motoqueros, setMotoqueros] = useState([]);
+  const [modalReasignar, setModalReasignar] = useState(null); // { mlshippingid, motoquero_actual }
+  const [nuevoMotoqueroId, setNuevoMotoqueroId] = useState(null);
+  const [reasignando, setReasignando] = useState(false);
 
   const getToken = () => localStorage.getItem('token');
 
@@ -48,8 +53,20 @@ export default function TabAsignaciones() {
     }
   };
 
+  const fetchMotoqueros = async () => {
+    try {
+      const { data: response } = await axios.get(`${API_URL}/turbo/motoqueros`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setMotoqueros(response.filter(m => m.activo));
+    } catch (error) {
+      alert('Error al cargar motoqueros');
+    }
+  };
+
   useEffect(() => {
     fetchAsignaciones();
+    fetchMotoqueros();
   }, []);
 
   const toggleMotoquero = (motoqueroId) => {
@@ -66,6 +83,63 @@ export default function TabAsignaciones() {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       toggleMotoquero(motoqueroId);
+    }
+  };
+
+  const abrirModalReasignar = (envio, motoqueroActual) => {
+    setModalReasignar({
+      mlshippingid: envio.mlshippingid,
+      motoquero_actual: motoqueroActual,
+      destinatario: envio.destinatario,
+      direccion: envio.direccion
+    });
+    setNuevoMotoqueroId(null);
+  };
+
+  const reasignarEnvio = async () => {
+    if (!nuevoMotoqueroId) {
+      alert('Seleccioná un motoquero');
+      return;
+    }
+
+    if (nuevoMotoqueroId === modalReasignar.motoquero_actual.id) {
+      alert('El motoquero seleccionado es el mismo que el actual');
+      return;
+    }
+
+    const confirmacion = confirm(
+      `¿Reasignar envío ${modalReasignar.mlshippingid}?\n\n` +
+      `De: ${modalReasignar.motoquero_actual.nombre}\n` +
+      `A: ${motoqueros.find(m => m.id === nuevoMotoqueroId)?.nombre}`
+    );
+
+    if (!confirmacion) return;
+
+    setReasignando(true);
+    try {
+      await axios.post(
+        `${API_URL}/turbo/asignacion/manual`,
+        {
+          mlshippingids: [modalReasignar.mlshippingid],
+          motoquero_id: nuevoMotoqueroId,
+          zona_id: null,
+          asignado_por: 'manual'
+        },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+
+      alert('Envío reasignado correctamente');
+      setModalReasignar(null);
+      fetchAsignaciones(); // Recargar datos
+    } catch (error) {
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+        return;
+      }
+      alert(error.response?.data?.detail || 'Error al reasignar envío');
+    } finally {
+      setReasignando(false);
     }
   };
 
@@ -197,6 +271,7 @@ export default function TabAsignaciones() {
                                     <th className={styles.colDest}>Destinatario</th>
                                     <th className={styles.colState}>Estado</th>
                                     <th className={styles.colTime}>Horarios</th>
+                                    <th className={styles.colActions}>Acciones</th>
                                   </tr>
                                 </thead>
                                 <tbody className={styles.tableBody}>
@@ -248,6 +323,20 @@ export default function TabAsignaciones() {
                                             </div>
                                           )}
                                         </td>
+                                        <td>
+                                          {e.estado_display !== 'entregado' && (
+                                            <button
+                                              onClick={(ev) => {
+                                                ev.stopPropagation();
+                                                abrirModalReasignar(e, { id: m.motoquero_id, nombre: m.nombre });
+                                              }}
+                                              className="btn-tesla secondary sm"
+                                              aria-label="Reasignar envío"
+                                            >
+                                              Reasignar
+                                            </button>
+                                          )}
+                                        </td>
                                       </tr>
                                     );
                                   })}
@@ -265,6 +354,83 @@ export default function TabAsignaciones() {
           </table>
         </div>
       </div>
+
+      {/* MODAL REASIGNAR */}
+      {modalReasignar && (
+        <div className="modal-overlay-tesla" onClick={() => setModalReasignar(null)}>
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h3>Reasignar Envío</h3>
+              <button 
+                className="modal-close-tesla" 
+                onClick={() => setModalReasignar(null)}
+                aria-label="Cerrar modal"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="modal-body-tesla">
+              <div className={styles.modalInfoSection}>
+                <p className={styles.modalInfoParagraph}>
+                  <strong className={styles.modalInfoLabel}>Envío:</strong> {modalReasignar.mlshippingid}
+                </p>
+                <p className={styles.modalInfoParagraph}>
+                  <strong className={styles.modalInfoLabel}>Destinatario:</strong> {modalReasignar.destinatario || 'Sin datos'}
+                </p>
+                <p className={styles.modalInfoParagraph}>
+                  <strong className={styles.modalInfoLabel}>Dirección:</strong> {modalReasignar.direccion}
+                </p>
+                <p className={styles.modalInfoParagraph}>
+                  <strong className={styles.modalInfoLabel}>Motoquero actual:</strong> {modalReasignar.motoquero_actual.nombre}
+                </p>
+              </div>
+
+              <div>
+                <label 
+                  htmlFor="nuevo-motoquero"
+                  className={styles.selectLabel}
+                >
+                  Seleccionar nuevo motoquero:
+                </label>
+                <select
+                  id="nuevo-motoquero"
+                  value={nuevoMotoqueroId || ''}
+                  onChange={(e) => setNuevoMotoqueroId(parseInt(e.target.value))}
+                  className={styles.selectInput}
+                >
+                  <option value="">-- Seleccionar --</option>
+                  {motoqueros
+                    .filter(mot => mot.id !== modalReasignar.motoquero_actual.id)
+                    .map(mot => (
+                      <option key={mot.id} value={mot.id}>
+                        {mot.nombre}
+                      </option>
+                    ))
+                  }
+                </select>
+              </div>
+            </div>
+
+            <div className="modal-footer-tesla">
+              <button 
+                className="btn-tesla secondary"
+                onClick={() => setModalReasignar(null)}
+                disabled={reasignando}
+              >
+                Cancelar
+              </button>
+              <button 
+                className="btn-tesla primary"
+                onClick={reasignarEnvio}
+                disabled={reasignando || !nuevoMotoqueroId}
+              >
+                {reasignando ? 'Reasignando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
