@@ -343,18 +343,23 @@ async def obtener_envios_turbo_pendientes(
         MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered'])
     ).all()
     
-    # 5. Crear lista de envíos pendientes (ya filtrados por BD)
+    # 5. Crear lista de envíos pendientes (solo TEST o que estén en ERP)
     envios_turbo_actualizados = []
     for row in turbo_query:
-        # Buscar datos del ERP si existen
         shipment_id = str(row.mlshippingid)
+        
+        # Solo incluir si:
+        # 1. Es un envío TEST (mlshippingid empieza con 'TEST_')
+        # 2. O está presente en scriptEnvios del ERP
+        es_test = shipment_id.startswith('TEST_')
         envio_erp = next((e for e in envios_erp if str(e.get("Número de Envío", "")) == shipment_id), None)
         
-        envios_turbo_actualizados.append({
-            "envio_bd": row,
-            "envio_erp": envio_erp,
-            "estado_real": row.mlstatus  # Usar estado de BD (ya actualizado)
-        })
+        if es_test or envio_erp:
+            envios_turbo_actualizados.append({
+                "envio_bd": row,
+                "envio_erp": envio_erp,
+                "estado_real": row.mlstatus  # Usar estado de BD (ya actualizado)
+            })
     
     # 6. Filtrar asignados si corresponde (query optimizada)
     if not incluir_asignados:
