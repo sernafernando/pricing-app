@@ -297,28 +297,46 @@ async def obtener_envios_turbo_pendientes(
     # Crear mapa: shipment_id -> datos BD
     turbo_map = {str(row.mlshippingid): row for row in turbo_query}
     
-    # 2. Obtener datos actualizados desde scriptEnvios (CON CACHE)
-    envios_erp = await obtener_envios_desde_erp(dias_atras)
+    # 2. Actualizar estados desde ML Webhook API (solo envíos NO TEST)
+    # Filtrar solo envíos reales (no TEST) para consultar a ML
+    envios_reales = [sid for sid in turbo_map.keys() if not sid.startswith('TEST_')]
     
-    # 3. Crear mapa de estados del ERP
-    estados_erp_map = {
-        str(e.get("Número de Envío", "")): e.get("Estado", "").lower()
-        for e in envios_erp
-    }
+    logger.info(f"Actualizando estados de {len(envios_reales)} envíos desde ML Webhook")
     
-    # 4. Actualizar estados en BD con datos del ERP (sincronización)
-    for shipment_id, row in turbo_map.items():
-        if shipment_id in estados_erp_map:
-            nuevo_estado = estados_erp_map[shipment_id]
-            # Actualizar solo si cambió (evitar writes innecesarios)
-            if row.mlstatus != nuevo_estado:
+    # Consultar ML Webhook en paralelo (batch de 50 para no saturar)
+    BATCH_SIZE = 50
+    for i in range(0, len(envios_reales), BATCH_SIZE):
+        batch = envios_reales[i:i+BATCH_SIZE]
+        tasks = [fetch_shipment_data(sid) for sid in batch]
+        resultados = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for shipment_id, ml_data in zip(batch, resultados):
+            if isinstance(ml_data, Exception) or not ml_data:
+                continue
+            
+            # Extraer estado de ML
+            ml_status = ml_data.get('status', '').lower()
+            
+            # Mapeo de estados de ML a nuestro formato
+            # ML: shipped, ready_to_ship, delivered, cancelled, etc.
+            nuevo_estado = ml_status if ml_status else 'unknown'
+            
+            # Actualizar en BD si cambió
+            row = turbo_map.get(shipment_id)
+            if row and row.mlstatus != nuevo_estado:
                 envio_bd_obj = db.query(MercadoLibreOrderShipping).filter(
                     MercadoLibreOrderShipping.mlshippingid == shipment_id
                 ).first()
                 if envio_bd_obj:
                     envio_bd_obj.mlstatus = nuevo_estado
+                    logger.debug(f"Envío {shipment_id}: {row.mlstatus} → {nuevo_estado}")
+        
+        # Rate limiting: pequeña pausa entre batches
+        if i + BATCH_SIZE < len(envios_reales):
+            await asyncio.sleep(0.5)
     
     db.commit()
+    logger.info("Estados actualizados en BD")
     
     # Refrescar query para obtener estados actualizados
     turbo_query = db.query(
@@ -343,23 +361,14 @@ async def obtener_envios_turbo_pendientes(
         MercadoLibreOrderShipping.mlstatus.in_(['ready_to_ship', 'not_delivered'])
     ).all()
     
-    # 5. Crear lista de envíos pendientes (solo TEST o que estén en ERP)
+    # 3. Crear lista de envíos pendientes (ahora con estados actualizados)
     envios_turbo_actualizados = []
     for row in turbo_query:
-        shipment_id = str(row.mlshippingid)
-        
-        # Solo incluir si:
-        # 1. Es un envío TEST (mlshippingid empieza con 'TEST_')
-        # 2. O está presente en scriptEnvios del ERP
-        es_test = shipment_id.startswith('TEST_')
-        envio_erp = next((e for e in envios_erp if str(e.get("Número de Envío", "")) == shipment_id), None)
-        
-        if es_test or envio_erp:
-            envios_turbo_actualizados.append({
-                "envio_bd": row,
-                "envio_erp": envio_erp,
-                "estado_real": row.mlstatus  # Usar estado de BD (ya actualizado)
-            })
+        envios_turbo_actualizados.append({
+            "envio_bd": row,
+            "envio_erp": None,  # Ya no necesitamos datos del ERP
+            "estado_real": row.mlstatus  # Estado actualizado desde ML Webhook
+        })
     
     # 6. Filtrar asignados si corresponde (query optimizada)
     if not incluir_asignados:
