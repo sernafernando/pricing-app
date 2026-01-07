@@ -104,6 +104,18 @@ export default function TurboRouting() {
     }
   }, []);
   
+  const fetchEnviosParaMapa = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/turbo/envios/pendientes`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: { incluir_asignados: true }
+      });
+      setEnvios(response.data);
+    } catch (error) {
+      alert('Error al cargar envíos para mapa');
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -113,7 +125,7 @@ export default function TurboRouting() {
       } else if (tabActiva === 'motoqueros') {
         await fetchMotoqueros();
       } else if (tabActiva === 'mapa') {
-        await Promise.all([fetchEnvios(), fetchZonas()]);
+        await Promise.all([fetchEnviosParaMapa(), fetchZonas()]);
       } else if (tabActiva === 'zonas') {
         await fetchZonas();
       } else if (tabActiva === 'estadisticas') {
@@ -122,7 +134,7 @@ export default function TurboRouting() {
     } finally {
       setLoading(false);
     }
-  }, [tabActiva, fetchEnvios, fetchMotoqueros, fetchZonas, fetchEstadisticas]);
+  }, [tabActiva, fetchEnvios, fetchMotoqueros, fetchEnviosParaMapa, fetchZonas, fetchEstadisticas]);
   
   useEffect(() => {
     loadData();
