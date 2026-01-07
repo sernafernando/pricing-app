@@ -1534,3 +1534,221 @@ async def asignar_automaticamente_por_zona(
         "sin_zona": resultado['sin_zona'],
         "mensaje": f"✅ {len(asignaciones_creadas)} envíos asignados automáticamente"
     }
+
+
+# ==================== VISTA ADMINISTRATIVA - TODOS LOS ENVÍOS ====================
+
+@router.get("/turbo/envios/todos")
+async def obtener_todos_los_envios_turbo(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    estado: Optional[str] = Query(None, description="Filtrar por estado (ready_to_ship, delivered, etc.)"),
+    search: str = Query("", description="Buscar por ID, destinatario, dirección"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)")
+):
+    """
+    Vista administrativa: obtiene TODOS los envíos Turbo sin filtro por estado.
+    
+    Uso: Para buscar envíos históricos, verificar estados, auditoría.
+    
+    Características:
+    - NO actualiza estados automáticamente (solo consulta BD)
+    - Permite filtrar por estado, fecha, búsqueda
+    - Paginación para performance
+    - Estados se actualizan solo al abrir detalle del envío
+    """
+    if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
+        raise HTTPException(status_code=403, detail="Sin permiso para gestionar Turbo Routing")
+    
+    # Query base
+    query = db.query(
+        MercadoLibreOrderShipping.mlshippingid,
+        MercadoLibreOrderShipping.mlo_id,
+        MercadoLibreOrderShipping.mlstreet_name,
+        MercadoLibreOrderShipping.mlstreet_number,
+        MercadoLibreOrderShipping.mlzip_code,
+        MercadoLibreOrderShipping.mlcity_name,
+        MercadoLibreOrderShipping.mlstate_name,
+        MercadoLibreOrderShipping.mlreceiver_name,
+        MercadoLibreOrderShipping.mlreceiver_phone,
+        MercadoLibreOrderShipping.mlestimated_delivery_limit,
+        MercadoLibreOrderShipping.mllogistic_type,
+        MercadoLibreOrderShipping.mlshipping_mode,
+        MercadoLibreOrderShipping.mlstatus,
+        MercadoLibreOrderShipping.mlturbo,
+        MercadoLibreOrderShipping.mlself_service,
+        MercadoLibreOrderShipping.mlcross_docking
+    ).filter(
+        MercadoLibreOrderShipping.mlshipping_method_id == '515282'
+    )
+    
+    # Filtro por estado
+    if estado:
+        query = query.filter(MercadoLibreOrderShipping.mlstatus == estado)
+    
+    # Filtro por búsqueda
+    if search:
+        query = query.filter(
+            (MercadoLibreOrderShipping.mlshippingid.ilike(f'%{search}%')) |
+            (MercadoLibreOrderShipping.mlreceiver_name.ilike(f'%{search}%')) |
+            (MercadoLibreOrderShipping.mlstreet_name.ilike(f'%{search}%'))
+        )
+    
+    # Filtro por fecha
+    if fecha_desde:
+        query = query.filter(MercadoLibreOrderShipping.mlestimated_delivery_limit >= fecha_desde)
+    if fecha_hasta:
+        query = query.filter(MercadoLibreOrderShipping.mlestimated_delivery_limit <= fecha_hasta)
+    
+    # Ordenar por fecha descendente
+    query = query.order_by(MercadoLibreOrderShipping.mlestimated_delivery_limit.desc())
+    
+    # Contar total
+    total = query.count()
+    
+    # Paginación
+    envios = query.offset(offset).limit(limit).all()
+    
+    # Verificar si tiene asignación
+    envios_ids = [str(e.mlshippingid) for e in envios]
+    asignaciones_map = {}
+    if envios_ids:
+        asignaciones = db.query(AsignacionTurbo).filter(
+            AsignacionTurbo.mlshippingid.in_(envios_ids)
+        ).all()
+        asignaciones_map = {str(a.mlshippingid): a for a in asignaciones}
+    
+    # Construir respuesta
+    resultado = []
+    for envio in envios:
+        shipment_id = str(envio.mlshippingid)
+        asignacion = asignaciones_map.get(shipment_id)
+        
+        # Construir dirección
+        direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
+        
+        # Obtener coordenadas desde cache
+        latitud = None
+        longitud = None
+        direccion_hash = GeocodingCache.hash_direccion(direccion)
+        cache = db.query(GeocodingCache).filter(
+            GeocodingCache.direccion_hash == direccion_hash
+        ).first()
+        
+        if cache and cache.latitud and cache.longitud:
+            latitud = float(cache.latitud)
+            longitud = float(cache.longitud)
+        
+        resultado.append(EnvioTurboResponse(
+            mlshippingid=shipment_id,
+            mlo_id=envio.mlo_id,
+            direccion_completa=direccion,
+            mlstreet_name=envio.mlstreet_name,
+            mlstreet_number=envio.mlstreet_number,
+            mlzip_code=envio.mlzip_code,
+            mlcity_name=envio.mlcity_name,
+            mlstate_name=envio.mlstate_name,
+            mlreceiver_name=envio.mlreceiver_name,
+            mlreceiver_phone=envio.mlreceiver_phone,
+            fecha_estimada_entrega=convert_to_argentina_tz(envio.mlestimated_delivery_limit) if envio.mlestimated_delivery_limit else None,
+            mllogistic_type=envio.mllogistic_type,
+            mlshipping_mode=envio.mlshipping_mode,
+            estado=envio.mlstatus or 'unknown',
+            latitud=latitud,
+            longitud=longitud,
+            asignado_a=asignacion.motoquero.nombre if asignacion and asignacion.motoquero else None,
+            asignado_a_id=asignacion.motoquero_id if asignacion else None,
+            zona_nombre=asignacion.zona.nombre if asignacion and asignacion.zona else None,
+            zona_id=asignacion.zona_id if asignacion else None
+        ))
+    
+    return {
+        "total": total,
+        "envios": resultado,
+        "page": offset // limit + 1,
+        "page_size": limit
+    }
+
+
+@router.get("/turbo/envios/{shipping_id}/detalle")
+async def obtener_detalle_envio_actualizado(
+    shipping_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtiene detalle de un envío específico y ACTUALIZA su estado desde ML Webhook.
+    
+    Usado en modal de detalle para tener info 100% actualizada sin sobrecargar batch.
+    """
+    if not verificar_permiso(db, current_user, 'ordenes.gestionar_turbo_routing'):
+        raise HTTPException(status_code=403, detail="Sin permiso para gestionar Turbo Routing")
+    
+    # Obtener envío de BD
+    envio = db.query(MercadoLibreOrderShipping).filter(
+        MercadoLibreOrderShipping.mlshippingid == shipping_id
+    ).first()
+    
+    if not envio:
+        raise HTTPException(status_code=404, detail="Envío no encontrado")
+    
+    # Actualizar estado desde ML Webhook (solo si NO es TEST)
+    ml_data = None
+    if not shipping_id.startswith('TEST_'):
+        try:
+            ml_data = await fetch_shipment_data(shipping_id)
+            if ml_data:
+                nuevo_estado = ml_data.get('status', '').lower()
+                if nuevo_estado and envio.mlstatus != nuevo_estado:
+                    envio.mlstatus = nuevo_estado
+                    db.commit()
+                    logger.info(f"Estado actualizado para {shipping_id}: {nuevo_estado}")
+        except Exception as e:
+            logger.error(f"Error actualizando estado de {shipping_id}: {e}")
+    
+    # Obtener asignación si existe
+    asignacion = db.query(AsignacionTurbo).filter(
+        AsignacionTurbo.mlshippingid == shipping_id
+    ).first()
+    
+    # Construir dirección
+    direccion = f"{envio.mlstreet_name} {envio.mlstreet_number}, {envio.mlcity_name}".strip()
+    
+    # Obtener coordenadas
+    latitud = None
+    longitud = None
+    direccion_hash = GeocodingCache.hash_direccion(direccion)
+    cache = db.query(GeocodingCache).filter(
+        GeocodingCache.direccion_hash == direccion_hash
+    ).first()
+    
+    if cache and cache.latitud and cache.longitud:
+        latitud = float(cache.latitud)
+        longitud = float(cache.longitud)
+    
+    return {
+        "mlshippingid": str(envio.mlshippingid),
+        "mlo_id": envio.mlo_id,
+        "direccion_completa": direccion,
+        "mlstreet_name": envio.mlstreet_name,
+        "mlstreet_number": envio.mlstreet_number,
+        "mlzip_code": envio.mlzip_code,
+        "mlcity_name": envio.mlcity_name,
+        "mlstate_name": envio.mlstate_name,
+        "mlreceiver_name": envio.mlreceiver_name,
+        "mlreceiver_phone": envio.mlreceiver_phone,
+        "fecha_estimada_entrega": convert_to_argentina_tz(envio.mlestimated_delivery_limit) if envio.mlestimated_delivery_limit else None,
+        "mllogistic_type": envio.mllogistic_type,
+        "mlshipping_mode": envio.mlshipping_mode,
+        "estado": envio.mlstatus or 'unknown',
+        "latitud": latitud,
+        "longitud": longitud,
+        "asignado_a": asignacion.motoquero.nombre if asignacion and asignacion.motoquero else None,
+        "asignado_a_id": asignacion.motoquero_id if asignacion else None,
+        "zona_nombre": asignacion.zona.nombre if asignacion and asignacion.zona else None,
+        "zona_id": asignacion.zona_id if asignacion else None,
+        "ml_data": ml_data  # Datos raw de ML para debugging
+    }
