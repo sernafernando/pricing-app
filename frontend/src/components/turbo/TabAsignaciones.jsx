@@ -358,13 +358,14 @@ export default function TabAsignaciones() {
       {/* MODAL REASIGNAR */}
       {modalReasignar && (
         <div className="modal-overlay-tesla" onClick={() => setModalReasignar(null)}>
-          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-tesla sm" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-tesla">
-              <h3>Reasignar Envío</h3>
+              <h3 className="modal-title-tesla">Reasignar Envío</h3>
               <button 
-                className="modal-close-tesla" 
+                className="btn-tesla ghost icon-only" 
                 onClick={() => setModalReasignar(null)}
                 aria-label="Cerrar modal"
+                type="button"
               >
                 ×
               </button>
