@@ -256,7 +256,7 @@ async def obtener_envios_turbo_pendientes(
     incluir_asignados: bool = Query(False, description="Incluir envíos ya asignados"),
     limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    dias_atras: int = Query(30, ge=1, le=90, description="Días hacia atrás para consultar scriptEnvios")
+    dias_atras: int = Query(7, ge=1, le=90, description="Días hacia atrás para consultar scriptEnvios")
 ):
     """
     Obtiene envíos Turbo pendientes ACTUALIZADOS desde scriptEnvios del ERP.
@@ -935,7 +935,7 @@ async def obtener_resumen_asignaciones(
 async def obtener_estadisticas(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-    dias_atras: int = Query(30, ge=1, le=90, description="Días hacia atrás para consultar scriptEnvios")
+    dias_atras: int = Query(7, ge=1, le=90, description="Días hacia atrás para consultar scriptEnvios")
 ):
     """
     Obtiene estadísticas generales del sistema de Turbo Routing.
