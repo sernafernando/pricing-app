@@ -115,14 +115,14 @@ export default function TabAsignaciones() {
                     {!motoquero.activo && <span className={styles.textSecondary}> (inactivo)</span>}
                   </td>
                   <td><strong>{motoquero.total_envios}</strong></td>
-                  <td className={styles.estadoEntregado}>{motoquero.entregados}</td>
-                  <td className={styles.estadoEnCamino}>{motoquero.en_camino}</td>
-                  <td className={styles.estadoPendiente}>{motoquero.pendientes}</td>
+                  <td><strong style={{ color: 'var(--success)' }}>{motoquero.entregados}</strong></td>
+                  <td><strong style={{ color: 'var(--warning)' }}>{motoquero.en_camino}</strong></td>
+                  <td><strong style={{ color: 'var(--error)' }}>{motoquero.pendientes}</strong></td>
                   <td>
                     {motoquero.entregados === motoquero.total_envios ? (
-                      <span className={styles.estadoEntregado}>✅ Completado</span>
+                      <strong style={{ color: 'var(--success)' }}>✅ Completado</strong>
                     ) : (
-                      <span className={styles.estadoEnCamino}>⏳ En progreso</span>
+                      <strong style={{ color: 'var(--warning)' }}>⏳ En progreso</strong>
                     )}
                   </td>
                 </tr>
