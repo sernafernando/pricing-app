@@ -44,6 +44,9 @@ class TBCustomer(Base):
     cust_mercadolibrenickname = Column(String(255))
     cust_mercadolibreid = Column(String(100))
 
+    # GUID para sync híbrido
+    cust_gbpcomunityid = Column(String(100), index=True)
+
     # Fechas de auditoría
     cust_cd = Column(DateTime)
     cust_lastupdate = Column(DateTime)
