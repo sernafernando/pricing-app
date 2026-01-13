@@ -1,8 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import styles from './DashboardMetricasML.module.css';
 import TabRentabilidad from '../components/TabRentabilidad';
 import { useQueryFilters } from '../hooks/useQueryFilters';
+
+// API base URL
+const API_URL = 'https://pricing.gaussonline.com.ar/api';
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -21,7 +24,7 @@ export default function DashboardMetricasML() {
   
   // Usar query params para tab, fechas y filtros de resumen
   const { getFilter, updateFilters } = useQueryFilters({
-    tab: 'rentabilidad',
+    tab: 'resumen',
     fecha_desde: getDefaultFechaDesde(),
     fecha_hasta: getDefaultFechaHasta(),
     marca: '',
@@ -50,25 +53,7 @@ export default function DashboardMetricasML() {
   const [operaciones, setOperaciones] = useState([]);
   const [busqueda, setBusqueda] = useState('');
 
-  // API base URL
-  const API_URL = 'https://pricing.gaussonline.com.ar/api';
-
-  useEffect(() => {
-    // Cargar listas de marcas y categorías
-    cargarMarcasYCategorias();
-  }, []);
-
-  useEffect(() => {
-    if (fechaDesde && fechaHasta) {
-      if (tabActivo === 'resumen') {
-        cargarDashboard();
-      } else if (tabActivo === 'operaciones') {
-        cargarOperaciones();
-      }
-    }
-  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tabActivo, tiendaOficialSeleccionada]);
-
-  const cargarMarcasYCategorias = async () => {
+  const cargarMarcasYCategorias = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
@@ -81,11 +66,11 @@ export default function DashboardMetricasML() {
       setMarcasDisponibles(marcasRes.data || []);
       setCategoriasDisponibles(categoriasRes.data || []);
     } catch (error) {
-      console.error('Error cargando marcas/categorías:', error);
+      alert('Error al cargar marcas y categorías');
     }
-  };
+  }, []);
 
-  const cargarDashboard = async () => {
+  const cargarDashboard = useCallback(async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -124,12 +109,51 @@ export default function DashboardMetricasML() {
       setVentasPorDia(diasRes.data || []);
       setTopProductos(productosRes.data || []);
     } catch (error) {
-      console.error('Error cargando dashboard:', error);
       alert('Error al cargar el dashboard');
     } finally {
       setLoading(false);
     }
-  };
+  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tiendaOficialSeleccionada]);
+
+  const cargarOperaciones = useCallback(async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const params = {
+        from_date: fechaDesde,
+        to_date: fechaHasta,
+        limit: 1000
+      };
+
+      if (marcaSeleccionada) params.marca = marcaSeleccionada;
+      if (categoriaSeleccionada) params.categoria = categoriaSeleccionada;
+      if (tiendaOficialSeleccionada) params.tienda_oficial = tiendaOficialSeleccionada;
+
+      const response = await axios.get(`${API_URL}/ventas-ml/operaciones-con-metricas`, { params, headers });
+      setOperaciones(response.data || []);
+    } catch (error) {
+      alert('Error al cargar las operaciones');
+    } finally {
+      setLoading(false);
+    }
+  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tiendaOficialSeleccionada]);
+
+  useEffect(() => {
+    // Cargar listas de marcas y categorías
+    cargarMarcasYCategorias();
+  }, [cargarMarcasYCategorias]);
+
+  useEffect(() => {
+    if (fechaDesde && fechaHasta) {
+      if (tabActivo === 'resumen') {
+        cargarDashboard();
+      } else if (tabActivo === 'operaciones') {
+        cargarOperaciones();
+      }
+    }
+  }, [fechaDesde, fechaHasta, tabActivo, cargarDashboard, cargarOperaciones]);
 
   const formatearMoneda = (monto) => {
     return new Intl.NumberFormat('es-AR', {
@@ -150,32 +174,6 @@ export default function DashboardMetricasML() {
       month: '2-digit',
       year: 'numeric'
     });
-  };
-
-  const cargarOperaciones = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const params = {
-        from_date: fechaDesde,
-        to_date: fechaHasta,
-        limit: 1000
-      };
-
-      if (marcaSeleccionada) params.marca = marcaSeleccionada;
-      if (categoriaSeleccionada) params.categoria = categoriaSeleccionada;
-      if (tiendaOficialSeleccionada) params.tienda_oficial = tiendaOficialSeleccionada;
-
-      const response = await axios.get(`${API_URL}/ventas-ml/operaciones-con-metricas`, { params, headers });
-      setOperaciones(response.data || []);
-    } catch (error) {
-      console.error('Error cargando operaciones:', error);
-      alert('Error al cargar las operaciones');
-    } finally {
-      setLoading(false);
-    }
   };
 
   const getTipoLogistica = (tipo) => {
@@ -499,7 +497,7 @@ export default function DashboardMetricasML() {
                 <div className={styles.kpiLabel}>Neto después de ML</div>
                 <div className={styles.kpiValue}>{formatearMoneda(metricasGenerales.total_limpio)}</div>
                 <div className={styles.kpiStats}>
-                  <span>{formatearPorcentaje((metricasGenerales.total_limpio / metricasGenerales.total_ventas_ml) * 100)} del facturado</span>
+                  <span>{formatearPorcentaje((metricasGenerales.total_limpio / (metricasGenerales.total_ventas_ml || 1)) * 100)} del facturado</span>
                 </div>
               </div>
             </div>
@@ -510,37 +508,37 @@ export default function DashboardMetricasML() {
             <div className={styles.metricMini}>
               <span className={styles.metricMiniLabel}>Ticket Promedio</span>
               <span className={styles.metricMiniValue}>
-                {formatearMoneda(metricasGenerales.total_ventas_ml / metricasGenerales.cantidad_operaciones)}
+                {formatearMoneda(metricasGenerales.total_ventas_ml / (metricasGenerales.cantidad_operaciones || 1))}
               </span>
             </div>
             <div className={styles.metricMini}>
               <span className={styles.metricMiniLabel}>Ganancia/Venta</span>
               <span className={styles.metricMiniValue}>
-                {formatearMoneda(metricasGenerales.total_ganancia / metricasGenerales.cantidad_operaciones)}
+                {formatearMoneda(metricasGenerales.total_ganancia / (metricasGenerales.cantidad_operaciones || 1))}
               </span>
             </div>
             <div className={styles.metricMini}>
               <span className={styles.metricMiniLabel}>Unids/Venta</span>
               <span className={styles.metricMiniValue}>
-                {(metricasGenerales.cantidad_unidades / metricasGenerales.cantidad_operaciones).toFixed(1)}
+                {(metricasGenerales.cantidad_unidades / (metricasGenerales.cantidad_operaciones || 1)).toFixed(1)}
               </span>
             </div>
             <div className={styles.metricMini}>
               <span className={styles.metricMiniLabel}>Comisiones ML</span>
-              <span className={styles.metricMiniValue} style={{ color: '#ef4444' }}>
+              <span className={`${styles.metricMiniValue} ${styles.negativo}`}>
                 -{formatearMoneda(metricasGenerales.total_comisiones)}
               </span>
               <span className={styles.metricMiniPercent}>
-                {formatearPorcentaje((metricasGenerales.total_comisiones / metricasGenerales.total_ventas_ml) * 100)}
+                {formatearPorcentaje((metricasGenerales.total_comisiones / (metricasGenerales.total_ventas_ml || 1)) * 100)}
               </span>
             </div>
             <div className={styles.metricMini}>
               <span className={styles.metricMiniLabel}>Envíos</span>
-              <span className={styles.metricMiniValue} style={{ color: '#ef4444' }}>
+              <span className={`${styles.metricMiniValue} ${styles.negativo}`}>
                 -{formatearMoneda(metricasGenerales.total_envios)}
               </span>
               <span className={styles.metricMiniPercent}>
-                {formatearPorcentaje((metricasGenerales.total_envios / metricasGenerales.total_ventas_ml) * 100)}
+                {formatearPorcentaje((metricasGenerales.total_envios / (metricasGenerales.total_ventas_ml || 1)) * 100)}
               </span>
             </div>
           </div>
@@ -718,36 +716,6 @@ export default function DashboardMetricasML() {
             </div>
           )}
 
-          {/* Ventas por Día (Timeline) - REMOVIDO */}
-          {false && ventasPorDia.length > 0 && (
-            <div className={styles.timelineCard}>
-              <h3 className={styles.chartTitle}>📅 Evolución Diaria</h3>
-              <div className={styles.tableWrapper}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Fecha</th>
-                      <th>Ventas</th>
-                      <th>Limpio</th>
-                      <th>Ganancia</th>
-                      <th>Ops</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ventasPorDia.map((item, idx) => (
-                      <tr key={idx}>
-                        <td>{formatearFecha(item.fecha)}</td>
-                        <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
-                        <td className={styles.monto}>{formatearMoneda(item.total_limpio)}</td>
-                        <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>
-                        <td className={styles.centrado}>{item.cantidad_operaciones}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </>
       ) : (
         <div className={styles.noData}>No hay datos disponibles</div>

@@ -548,6 +548,10 @@
   color: var(--text-primary);
 }
 
+.metricMiniValue.negativo {
+  color: var(--error);
+}
+
 .metricMiniPercent {
   font-size: 11px;
   color: var(--text-tertiary);
