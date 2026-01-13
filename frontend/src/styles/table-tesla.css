@@ -134,6 +134,18 @@
    BODY - Filas con hover effect
    ============================================ */
 
+.table-tesla-body {
+  /* Padding bottom para que las últimas filas tengan espacio al navegar */
+  display: table-row-group;
+  position: relative;
+}
+
+.table-tesla-body::after {
+  content: '';
+  display: table-row;
+  height: 200px; /* Espacio virtual al final para scroll */
+}
+
 .table-tesla-body tr {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }

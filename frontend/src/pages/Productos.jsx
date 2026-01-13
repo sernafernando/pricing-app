@@ -1832,29 +1832,18 @@ export default function Productos() {
   useEffect(() => {
     if (modoNavegacion && celdaActiva) {
       // Buscar la fila activa en el DOM
-      const container = document.querySelector('.table-container-tesla');
       const tbody = document.querySelector('.table-tesla-body');
-      if (container && tbody) {
+      if (tbody) {
         const filas = tbody.querySelectorAll('tr');
         const filaActiva = filas[celdaActiva.rowIndex];
         if (filaActiva) {
-          // Calcular la posición de la fila relativa al contenedor
-          const containerRect = container.getBoundingClientRect();
-          const filaRect = filaActiva.getBoundingClientRect();
-          
-          // Si la fila no está visible, hacer scroll
-          if (filaRect.top < containerRect.top || filaRect.bottom > containerRect.bottom) {
-            // Calcular el scroll necesario para centrar la fila
-            const offsetTop = filaActiva.offsetTop;
-            const containerHeight = container.clientHeight;
-            const filaHeight = filaActiva.clientHeight;
-            const scrollPosition = offsetTop - (containerHeight / 2) + (filaHeight / 2);
-            
-            container.scrollTo({
-              top: scrollPosition,
-              behavior: 'smooth'
-            });
-          }
+          // Usar scrollIntoView con block: 'nearest' para scroll inteligente
+          // Esto mantiene la fila visible sin centrarla forzadamente
+          filaActiva.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+            inline: 'nearest'
+          });
         }
       }
     }
@@ -3676,7 +3665,12 @@ export default function Productos() {
                               <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
-                            <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '3', esPVP: true }) && setCuotaTemp(p.precio_pvp_3_cuotas || '')}>
+                            <div onClick={() => {
+                              if (puedeEditar) {
+                                setEditandoCuota({ item_id: p.item_id, tipo: '3', esPVP: true });
+                                setCuotaTemp(p.precio_pvp_3_cuotas || '');
+                              }
+                            }}>
                               <div className={puedeEditar ? 'editable-field' : ''}>
                                 {p.precio_pvp_3_cuotas ? `$${p.precio_pvp_3_cuotas.toLocaleString('es-AR')}` : '-'}
                               </div>
@@ -3706,7 +3700,12 @@ export default function Productos() {
                               <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
-                            <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '6', esPVP: true }) && setCuotaTemp(p.precio_pvp_6_cuotas || '')}>
+                            <div onClick={() => {
+                              if (puedeEditar) {
+                                setEditandoCuota({ item_id: p.item_id, tipo: '6', esPVP: true });
+                                setCuotaTemp(p.precio_pvp_6_cuotas || '');
+                              }
+                            }}>
                               <div className={puedeEditar ? 'editable-field' : ''}>
                                 {p.precio_pvp_6_cuotas ? `$${p.precio_pvp_6_cuotas.toLocaleString('es-AR')}` : '-'}
                               </div>
@@ -3736,7 +3735,12 @@ export default function Productos() {
                               <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
-                            <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '9', esPVP: true }) && setCuotaTemp(p.precio_pvp_9_cuotas || '')}>
+                            <div onClick={() => {
+                              if (puedeEditar) {
+                                setEditandoCuota({ item_id: p.item_id, tipo: '9', esPVP: true });
+                                setCuotaTemp(p.precio_pvp_9_cuotas || '');
+                              }
+                            }}>
                               <div className={puedeEditar ? 'editable-field' : ''}>
                                 {p.precio_pvp_9_cuotas ? `$${p.precio_pvp_9_cuotas.toLocaleString('es-AR')}` : '-'}
                               </div>
@@ -3766,7 +3770,12 @@ export default function Productos() {
                               <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
-                            <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '12', esPVP: true }) && setCuotaTemp(p.precio_pvp_12_cuotas || '')}>
+                            <div onClick={() => {
+                              if (puedeEditar) {
+                                setEditandoCuota({ item_id: p.item_id, tipo: '12', esPVP: true });
+                                setCuotaTemp(p.precio_pvp_12_cuotas || '');
+                              }
+                            }}>
                               <div className={puedeEditar ? 'editable-field' : ''}>
                                 {p.precio_pvp_12_cuotas ? `$${p.precio_pvp_12_cuotas.toLocaleString('es-AR')}` : '-'}
                               </div>
