@@ -343,6 +343,7 @@ async def sync_items_full(db: Session):
             item_liquidation = row.get("item_liquidation")
             item_cd = parse_date(row.get("item_cd"))
             item_LastUpdate = parse_date(row.get("item_LastUpdate"))
+            item_lastUpdate_byProcess = parse_date(row.get("item_lastUpdate_byProcess"))
 
             existente = db.query(TBItem).filter(
                 TBItem.comp_id == comp_id,
@@ -362,6 +363,7 @@ async def sync_items_full(db: Session):
                     existente.brand_id = brand_id
                     existente.item_liquidation = item_liquidation
                     existente.item_LastUpdate = item_LastUpdate
+                    existente.item_lastUpdate_byProcess = item_lastUpdate_byProcess
                     actualizados += 1
             else:
                 nuevo = TBItem(
@@ -374,7 +376,8 @@ async def sync_items_full(db: Session):
                     brand_id=brand_id,
                     item_liquidation=item_liquidation,
                     item_cd=item_cd,
-                    item_LastUpdate=item_LastUpdate
+                    item_LastUpdate=item_LastUpdate,
+                    item_lastUpdate_byProcess=item_lastUpdate_byProcess
                 )
                 db.add(nuevo)
                 nuevos += 1

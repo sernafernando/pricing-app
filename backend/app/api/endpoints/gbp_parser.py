@@ -50,7 +50,7 @@ SCRIPT_CONFIG = {
     "scriptBrand": ["brandID"],
     "scriptCategory": ["catID"],
     "scriptSubCategory": ["catID", "subCatID"],
-    "scriptItem": ["brandID", "catID", "subCatID", "itemID", "itemCode", "lastUpdate"],
+    "scriptItem": ["brandID", "catID", "subCatID", "itemID", "itemCode", "lastUpdate", "lastUpdateByProcess"],
     "scriptTaxName": ["taxID"],
     "scriptItemTaxes": ["taxID", "itemID"],
     "scriptSupplier": ["suppID", "cuit"],

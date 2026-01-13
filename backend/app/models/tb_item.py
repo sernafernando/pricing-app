@@ -18,7 +18,8 @@ class TBItem(Base):
     brand_id = Column(Integer)
     item_liquidation = Column(String(50))
     item_cd = Column(DateTime)  # created date
-    item_LastUpdate = Column(DateTime)  # last update
+    item_LastUpdate = Column(DateTime)  # last update (generic)
+    item_lastUpdate_byProcess = Column(DateTime)  # last update by process (más preciso para sync incremental)
 
     def __repr__(self):
         return f"<TBItem(item_id={self.item_id}, item_code='{self.item_code}', item_desc='{self.item_desc}')>"

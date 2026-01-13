@@ -317,12 +317,12 @@ async def sync_items_incremental(db: Session, minutes: int = 15):
     try:
         # Calcular fecha límite
         fecha_limite = datetime.now() - timedelta(minutes=minutes)
-        fecha_str = fecha_limite.strftime("%Y-%m-%d")
+        fecha_str = fecha_limite.strftime("%Y-%m-%d %H:%M:%S")
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.get(GBP_PARSER_URL, params={
                 "strScriptLabel": "scriptItem",
-                "lastUpdate": fecha_str
+                "lastUpdateByProcess": fecha_str
             })
             response.raise_for_status()
             data = response.json()
@@ -350,6 +350,7 @@ async def sync_items_incremental(db: Session, minutes: int = 15):
             item_liquidation = row.get("item_liquidation")
             item_cd = parse_date(row.get("item_cd"))
             item_LastUpdate = parse_date(row.get("item_LastUpdate"))
+            item_lastUpdate_byProcess = parse_date(row.get("item_lastUpdate_byProcess"))
 
             items_procesados.append(item_id)
 
@@ -372,6 +373,7 @@ async def sync_items_incremental(db: Session, minutes: int = 15):
                     existente.brand_id = brand_id
                     existente.item_liquidation = item_liquidation
                     existente.item_LastUpdate = item_LastUpdate
+                    existente.item_lastUpdate_byProcess = item_lastUpdate_byProcess
                     actualizados += 1
             else:
                 nuevo = TBItem(
@@ -384,7 +386,8 @@ async def sync_items_incremental(db: Session, minutes: int = 15):
                     brand_id=brand_id,
                     item_liquidation=item_liquidation,
                     item_cd=item_cd,
-                    item_LastUpdate=item_LastUpdate
+                    item_LastUpdate=item_LastUpdate,
+                    item_lastUpdate_byProcess=item_lastUpdate_byProcess
                 )
                 db.add(nuevo)
                 nuevos += 1
