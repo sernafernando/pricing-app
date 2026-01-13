@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { productosAPI } from '../services/api';
 import PricingModalTesla from '../components/PricingModalTesla';
 import { useDebounce } from '../hooks/useDebounce';
-import styles from './Productos.module.css';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -13,6 +12,28 @@ import CalcularWebModal from '../components/CalcularWebModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import StatCard from '../components/StatCard';
 import './Productos.css';
+
+// Constantes para filtros
+const FILTER_VALUES = {
+  TODOS: 'todos',
+  CON_STOCK: 'con_stock',
+  SIN_STOCK: 'sin_stock',
+  CON_PRECIO: 'con_precio',
+  SIN_PRECIO: 'sin_precio',
+  CON_REBATE: 'con_rebate',
+  SIN_REBATE: 'sin_rebate',
+  CON_OFERTA: 'con_oferta',
+  SIN_OFERTA: 'sin_oferta',
+  CON_WEB_TRANSF: 'con_web_transf',
+  SIN_WEB_TRANSF: 'sin_web_transf',
+  CON_DESCUENTO: 'con_descuento',
+  SIN_DESCUENTO: 'sin_descuento',
+  NO_PUBLICADO: 'no_publicado',
+  POSITIVO: 'positivo',
+  NEGATIVO: 'negativo',
+  CON_OUT_OF_CARDS: 'con_out_of_cards',
+  SIN_OUT_OF_CARDS: 'sin_out_of_cards'
+};
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -117,6 +138,9 @@ export default function Productos() {
   const user = useAuthStore((state) => state.user);
   const { tienePermiso } = usePermisos();
 
+  const API_URL = import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com.ar';
+  const toastTimeoutRef = useRef(null);
+
   // Permisos granulares de edición
   const puedeEditarPrecioClasica = tienePermiso('productos.editar_precio_clasica');
   const puedeEditarCuotas = tienePermiso('productos.editar_precio_cuotas');
@@ -147,11 +171,22 @@ export default function Productos() {
 
   // Función para mostrar toast
   const showToast = (message, type = 'success') => {
+    // Limpiar timeout anterior si existe
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3000); // Desaparece después de 3 segundos
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
   };
 
-  const API_URL = 'https://pricing.gaussonline.com.ar/api';
+  // Cleanup del toast timeout al desmontar
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Función para sincronizar filtros a la URL
   const syncFiltersToURL = () => {
@@ -357,7 +392,6 @@ export default function Productos() {
           setMarcasPorPM(marcasRes.data.marcas);
           setSubcategoriasPorPM(subcatsRes.data.subcategorias.map(s => s.id));
         } catch (error) {
-          console.error('Error cargando datos por PM:', error);
           setMarcasPorPM([]);
           setSubcategoriasPorPM([]);
         }
@@ -416,150 +450,10 @@ export default function Productos() {
       const statsRes = await productosAPI.statsDinamicos(params);
       setStats(statsRes.data);
     } catch (error) {
-      console.error('Error cargando stats:', error);
+      // Error silencioso, no afecta funcionalidad principal
     }
   };
 
-  const cargarStatsOLD = async () => {
-    try {
-      // VERSIÓN ANTERIOR - Traer TODOS los productos filtrados (sin paginación) para calcular stats
-      const params = {};
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (filtroStock === 'con_stock') params.con_stock = true;
-      if (filtroStock === 'sin_stock') params.con_stock = false;
-      if (filtroPrecio === 'con_precio') params.con_precio = true;
-      if (filtroPrecio === 'sin_precio') params.con_precio = false;
-      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
-      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
-      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-      if (filtroRebate === 'con_rebate') params.con_rebate = true;
-      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-      if (filtroOferta === 'con_oferta') params.con_oferta = true;
-      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-      if (filtroMLA === 'con_mla') params.con_mla = true;
-      if (filtroMLA === 'sin_mla') params.con_mla = false;
-      if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
-      if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
-      if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
-      if (filtroTiendaOficial) params.tienda_oficial = filtroTiendaOficial;
-      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-      if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
-
-      // Primero traer el total para saber cuántos productos filtrados hay
-      const countRes = await productosAPI.listar({ ...params, page: 1, page_size: 1 });
-      const totalFiltrados = countRes.data.total || 0;
-
-      // Ahora traer TODOS los productos filtrados
-      params.page = 1;
-      params.page_size = totalFiltrados || 9999;
-
-      const todosRes = await productosAPI.listar(params);
-      const todosProductos = todosRes.data.productos;
-
-      // Calcular estadísticas sobre TODOS los productos filtrados
-      const fechaLimiteNuevos = new Date();
-      fechaLimiteNuevos.setDate(fechaLimiteNuevos.getDate() - 7);
-
-      let nuevos = 0;
-      let nuevos_sin_precio = 0;
-      let stock_sin_precio = 0;
-      let sin_mla = 0;
-      let sin_mla_con_stock = 0;
-      let sin_mla_sin_stock = 0;
-      let sin_mla_nuevos = 0;
-      let oferta_sin_rebate = 0;
-      let markup_neg_clasica = 0;
-      let markup_neg_rebate = 0;
-      let markup_neg_oferta = 0;
-      let markup_neg_web = 0;
-      let con_stock = 0;
-      let con_precio = 0;
-
-      todosProductos.forEach(p => {
-        // Con stock
-        if (p.stock > 0) con_stock++;
-
-        // Con precio
-        if (p.precio_lista_ml) con_precio++;
-
-        // Nuevos (últimos 7 días)
-        const esNuevo = p.fecha_sync && new Date(p.fecha_sync) >= fechaLimiteNuevos;
-        if (esNuevo) {
-          nuevos++;
-          if (!p.precio_lista_ml) nuevos_sin_precio++;
-        }
-
-        // Stock sin precio
-        if (p.stock > 0 && !p.precio_lista_ml) stock_sin_precio++;
-
-        // Sin MLA
-        if (!p.tiene_mla) {
-          sin_mla++;
-          if (p.stock > 0) sin_mla_con_stock++;
-          else sin_mla_sin_stock++;
-          if (esNuevo) sin_mla_nuevos++;
-        }
-
-        // Oferta sin rebate
-        if (p.tiene_oferta && !p.participa_rebate) oferta_sin_rebate++;
-
-        // Markup negativo clásica
-        if (p.markup_calculado < 0) markup_neg_clasica++;
-
-        // Markup negativo rebate
-        if (p.participa_rebate && p.precio_lista_ml && p.costo) {
-          const precioRebate = p.precio_lista_ml * (1 - (p.porcentaje_rebate || 0) / 100);
-          if (precioRebate < p.costo) markup_neg_rebate++;
-        }
-
-        // Markup negativo oferta
-        if (p.precio_3_cuotas && p.costo && p.precio_3_cuotas < p.costo) markup_neg_oferta++;
-
-        // Markup negativo web
-        if (p.participa_web_transferencia && p.precio_web_transferencia && p.costo && p.precio_web_transferencia < p.costo) {
-          markup_neg_web++;
-        }
-      });
-
-      setStats({
-        total_productos: todosProductos.length,
-        nuevos_ultimos_7_dias: nuevos,
-        nuevos_sin_precio: nuevos_sin_precio,
-        con_stock_sin_precio: stock_sin_precio,
-        sin_mla_no_banlist: sin_mla,
-        sin_mla_con_stock: sin_mla_con_stock,
-        sin_mla_sin_stock: sin_mla_sin_stock,
-        sin_mla_nuevos: sin_mla_nuevos,
-        mejor_oferta_sin_rebate: oferta_sin_rebate,
-        markup_negativo_clasica: markup_neg_clasica,
-        markup_negativo_rebate: markup_neg_rebate,
-        markup_negativo_oferta: markup_neg_oferta,
-        markup_negativo_web: markup_neg_web,
-        con_stock: con_stock,
-        con_precio: con_precio
-      });
-    } catch (error) {
-      console.error('Error cargando stats:', error);
-    }
-  };
 
   useEffect(() => {
     cargarUsuariosAuditoria();
@@ -655,7 +549,7 @@ export default function Productos() {
             showToast(`✅ Código copiado: ${itemCode}`);
           }).catch(err => {
             showToast('❌ Error al copiar al portapapeles', 'error');
-            console.error('Error al copiar:', err);
+            
           });
         }
 
@@ -666,7 +560,7 @@ export default function Productos() {
             showToast(`✅ Enlace 1 copiado: ${itemCode}`);
           }).catch(err => {
             showToast('❌ Error al copiar al portapapeles', 'error');
-            console.error('Error al copiar:', err);
+            
           });
         }
 
@@ -677,7 +571,7 @@ export default function Productos() {
             showToast(`✅ Enlace 2 copiado: ${itemCode}`);
           }).catch(err => {
             showToast('❌ Error al copiar al portapapeles', 'error');
-            console.error('Error al copiar:', err);
+            
           });
         }
       }
@@ -810,7 +704,7 @@ export default function Productos() {
       const response = await productosAPI.marcas(params);
       setMarcas(response.data.marcas);
     } catch (error) {
-      console.error('Error cargando marcas:', error);
+      showToast('Error al cargar marcas', 'error');
     }
   };
 
@@ -830,7 +724,7 @@ export default function Productos() {
       const porcentajeNumerico = parseFloat(webTransfTemp.porcentaje.toString().replace(',', '.')) || 0;
 
       const response = await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/productos/${itemId}/web-transferencia`,
+        `${API_URL}/productos/${itemId}/web-transferencia`,
         null,
         {
           params: {
@@ -857,8 +751,8 @@ export default function Productos() {
 
       setEditandoWebTransf(null);
     } catch (error) {
-      console.error('Error al guardar web transferencia:', error);
-      alert('Error al guardar');
+      
+      showToast('Error al guardar', 'error');
     }
   };
 
@@ -944,26 +838,6 @@ export default function Productos() {
         params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
       }
 
-      /*const productosRes = await productosAPI.listar(params);
-      setTotalProductos(productosRes.data.total || productosRes.data.productos.length);*/
-
-      /*const productosConDatos = await Promise.all(
-        productosRes.data.productos.map(async (p) => {
-          const ofertasRes = await axios.get(`https://pricing.gaussonline.com.ar/api/productos/${p.item_id}/ofertas-vigentes`).catch(() => null);
-
-          const ofertaMinima = ofertasRes?.data.publicaciones
-            .filter(pub => pub.tiene_oferta)
-            .sort((a, b) => a.oferta.precio_final - b.oferta.precio_final)[0];
-
-          return {
-            ...p,
-            // mejor_oferta: ofertaMinima
-            // p.markup ya viene del backend, no hace falta calcularlo
-          };
-        })
-      );
-      setProductos(productosConDatos);*/
-
       if (ordenColumnas.length > 0) {
         params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
         params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
@@ -974,7 +848,7 @@ export default function Productos() {
       setProductos(productosRes.data.productos);
 
     } catch (error) {
-      console.error('Error:', error);
+      showToast('Error al cargar productos', 'error');
     } finally {
       setLoading(false);
     }
@@ -1018,7 +892,7 @@ export default function Productos() {
       const response = await productosAPI.subcategorias(params);
       setSubcategorias(response.data.categorias);
     } catch (error) {
-      console.error('Error cargando subcategorías:', error);
+      showToast('Error al cargar subcategorías', 'error');
     }
   };
 
@@ -1059,39 +933,46 @@ export default function Productos() {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/productos/${productoId}/auditoria`,
+        `${API_URL}/productos/${productoId}/auditoria`,
         { headers: { Authorization: `Bearer ${token}` }}
       );
       setAuditoriaData(response.data);
       setAuditoriaVisible(true);
     } catch (error) {
-      console.error('Error cargando auditoría:', error);
-      alert('Error al cargar el historial');
+      
+      showToast('Error al cargar el historial', 'error');
     }
   };
 
   const getMarkupColor = (markup) => {
-    if (markup === null || markup === undefined) return '#6b7280';
-    if (markup < 0) return '#ef4444';
-    if (markup < 1) return '#f97316';
-    return '#059669';
+    if (markup === null || markup === undefined) return 'var(--text-tertiary)';
+    if (markup < 0) return 'var(--error)';
+    if (markup < 1) return 'var(--warning)';
+    return 'var(--success)';
+  };
+
+  // Validación de input numérico
+  const isValidNumericInput = (value) => {
+    if (value === '' || value === null || value === undefined) return true; // Allow empty
+    const num = parseFloat(value);
+    return !isNaN(num) && isFinite(num);
   };
 
   const COLORES_DISPONIBLES = [
-    { id: 'rojo', nombre: 'Urgente', color: '#fee2e2', colorTexto: '#991b1b' },
-    { id: 'naranja', nombre: 'Advertencia', color: '#fed7aa', colorTexto: '#9a3412' },
-    { id: 'amarillo', nombre: 'Atención', color: '#fef3c7', colorTexto: '#92400e' },
-    { id: 'verde', nombre: 'OK', color: '#d1fae5', colorTexto: '#065f46' },
-    { id: 'azul', nombre: 'Info', color: '#dbeafe', colorTexto: '#1e40af' },
-    { id: 'purpura', nombre: 'Revisión', color: '#e9d5ff', colorTexto: '#6b21a8' },
-    { id: 'gris', nombre: 'Inactivo', color: '#e5e7eb', colorTexto: '#374151' },
+    { id: 'rojo', nombre: 'Urgente', color: 'var(--product-urgent-bg)', colorTexto: 'var(--product-urgent-text)' },
+    { id: 'naranja', nombre: 'Advertencia', color: 'var(--product-warning-bg)', colorTexto: 'var(--product-warning-text)' },
+    { id: 'amarillo', nombre: 'Atención', color: 'var(--product-attention-bg)', colorTexto: 'var(--product-attention-text)' },
+    { id: 'verde', nombre: 'OK', color: 'var(--product-ok-bg)', colorTexto: 'var(--product-ok-text)' },
+    { id: 'azul', nombre: 'Info', color: 'var(--product-info-bg)', colorTexto: 'var(--product-info-text)' },
+    { id: 'purpura', nombre: 'Revisión', color: 'var(--product-review-bg)', colorTexto: 'var(--product-review-text)' },
+    { id: 'gris', nombre: 'Inactivo', color: 'var(--product-inactive-bg)', colorTexto: 'var(--product-inactive-text)' },
     { id: null, nombre: 'Sin color', color: null, colorTexto: null },
   ];
 
   const cambiarColorProducto = async (itemId, color) => {
     try {
       const token = localStorage.getItem('token');
-      console.log('Cambiando color desde dropdown:', { itemId, color });
+      
       await axios.patch(
         `${API_URL}/productos/${itemId}/color`,
         { color },  // Enviar en el body, no en params
@@ -1102,9 +983,9 @@ export default function Productos() {
       setColorDropdownAbierto(null);
       cargarProductos();
     } catch (error) {
-      console.error('Error cambiando color:', error);
-      console.error('Detalles:', error.response?.data);
-      alert('Error al cambiar el color');
+      
+      
+      showToast('Error al cambiar el color', 'error');
     }
   };
 
@@ -1116,7 +997,7 @@ export default function Productos() {
       .map(p => p.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ]/g, ''));
 
     if (palabras.length === 0) {
-      alert('No hay palabras suficientes en la descripción del producto');
+      showToast('No hay palabras suficientes en la descripción del producto', 'error');
       return;
     }
 
@@ -1133,7 +1014,7 @@ export default function Productos() {
   const confirmarBan = async () => {
     // Verificar palabra
     if (palabraVerificacion.toLowerCase() !== palabraObjetivo.toLowerCase()) {
-      alert('La palabra de verificación no coincide');
+      showToast('La palabra de verificación no coincide', 'error');
       return;
     }
 
@@ -1161,8 +1042,8 @@ export default function Productos() {
       // Recargar productos para reflejar el cambio
       cargarProductos();
     } catch (error) {
-      console.error('Error al banear producto:', error);
-      alert(`Error: ${error.response?.data?.detail || error.message}`);
+      
+      showToast(`Error: ${error.response?.data?.detail || error.message}`, 'error');
     }
   };
 
@@ -1190,7 +1071,7 @@ export default function Productos() {
       const precioNormalizado = parseFloat(cuotaTemp.toString().replace(',', '.'));
 
       const response = await axios.post(
-        'https://pricing.gaussonline.com.ar/api/precios/set-cuota',
+        `${API_URL}/precios/set-cuota`,
         null,
         {
           headers: { Authorization: `Bearer ${token}` },
@@ -1226,8 +1107,8 @@ export default function Productos() {
       setEditandoCuota(null);
       cargarStats();
     } catch (error) {
-      console.error('Error guardando cuota:', error);
-      alert('Error al guardar precio de cuota: ' + (error.response?.data?.detail || error.message));
+      
+      showToast('Error al guardar precio de cuota: ' + (error.response?.data?.detail || error.message), 'error');
     }
   };
 
@@ -1278,7 +1159,7 @@ export default function Productos() {
       const token = localStorage.getItem('token');
 
       await axios.post(
-        'https://pricing.gaussonline.com.ar/api/productos/actualizar-color-lote',
+        `${API_URL}/productos/actualizar-color-lote`,
         {
           item_ids: Array.from(productosSeleccionados),
           color: color
@@ -1295,8 +1176,8 @@ export default function Productos() {
       limpiarSeleccion();
       cargarStats();
     } catch (error) {
-      console.error(error);
-      alert('Error al actualizar colores en lote');
+      
+      showToast('Error al actualizar colores en lote', 'error');
     }
   };
 
@@ -1324,7 +1205,7 @@ export default function Productos() {
       };
 
       await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/productos/${productoConfig.item_id}/config-cuotas`,
+        `${API_URL}/productos/${productoConfig.item_id}/config-cuotas`,
         data,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -1341,9 +1222,9 @@ export default function Productos() {
       ));
 
       setMostrarModalConfig(false);
-      alert('Configuración actualizada correctamente');
+      showToast('Configuración actualizada correctamente', 'success');
     } catch (error) {
-      alert('Error al guardar configuración: ' + (error.response?.data?.detail || error.message));
+      showToast('Error al guardar configuración: ' + (error.response?.data?.detail || error.message), 'error');
     }
   };
 
@@ -1352,6 +1233,12 @@ export default function Productos() {
       const token = localStorage.getItem('token');
       // Normalizar: reemplazar coma por punto
       const precioNormalizado = parseFloat(precioTemp.toString().replace(',', '.'));
+      
+      // Validar que sea un número válido
+      if (!isValidNumericInput(precioNormalizado) || precioNormalizado <= 0) {
+        showToast('El precio debe ser un número válido mayor a 0', 'error');
+        return;
+      }
 
       // Determinar si recalcular cuotas: primero verificar configuración individual del producto
       const producto = productos.find(p => p.item_id === itemId);
@@ -1362,7 +1249,7 @@ export default function Productos() {
       // Si estamos en modo PVP, usar set-rapido con lista_tipo=pvp
       if (modoVista === 'pvp') {
         const response = await axios.post(
-          'https://pricing.gaussonline.com.ar/api/precios/set-rapido',
+          `${API_URL}/precios/set-rapido`,
           null,
           {
             headers: { Authorization: `Bearer ${token}` },
@@ -1395,7 +1282,7 @@ export default function Productos() {
                 }
               : p
           ));
-          alert('✅ Precios PVP borrados');
+          showToast('Precios PVP borrados', 'success');
         } else {
           // Actualización normal de precios
           setProductos(prods => prods.map(p =>
@@ -1427,7 +1314,7 @@ export default function Productos() {
 
       // Modo web (comportamiento original)
       const response = await axios.post(
-        'https://pricing.gaussonline.com.ar/api/precios/set-rapido',
+        `${API_URL}/precios/set-rapido`,
         null,  // No body needed, all params go in URL
         {
           headers: { Authorization: `Bearer ${token}` },
@@ -1464,7 +1351,7 @@ export default function Productos() {
               }
             : p
         ));
-        alert('✅ Precios Web borrados');
+        showToast('Precios Web borrados', 'success');
       } else {
         // Actualización normal de precios
         setProductos(prods => prods.map(p =>
@@ -1496,7 +1383,7 @@ export default function Productos() {
       setEditandoPrecio(null);
       cargarStats();
     } catch (error) {
-      alert('Error al guardar precio');
+      showToast('Error al guardar precio', 'error');
     }
   };
 
@@ -1506,9 +1393,14 @@ export default function Productos() {
       // Normalizar: reemplazar coma por punto
       const porcentajeNormalizado = parseFloat(rebateTemp.porcentaje.toString().replace(',', '.'));
 
-      console.log('Enviando rebate:', rebateTemp);
+      // Validar que sea un número válido entre 0 y 100
+      if (!isValidNumericInput(porcentajeNormalizado) || porcentajeNormalizado < 0 || porcentajeNormalizado > 100) {
+        showToast('El porcentaje de rebate debe ser un número entre 0 y 100', 'error');
+        return;
+      }
+      
       await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/productos/${itemId}/rebate`,
+        `${API_URL}/productos/${itemId}/rebate`,
         {
           participa_rebate: rebateTemp.participa,
           porcentaje_rebate: porcentajeNormalizado
@@ -1531,8 +1423,8 @@ export default function Productos() {
 
       setEditandoRebate(null);
     } catch (error) {
-      console.error('Error al guardar rebate:', error);
-      alert('Error al guardar rebate');
+      
+      showToast('Error al guardar rebate', 'error');
     }
   };
 
@@ -1553,7 +1445,7 @@ export default function Productos() {
       });
       setUsuarios(response.data.usuarios);
     } catch (error) {
-      console.error('Error cargando usuarios:', error);
+      showToast('Error al cargar usuarios', 'error');
     }
   };
 
@@ -1564,7 +1456,7 @@ export default function Productos() {
       });
       setTiposAccion(response.data.tipos);
     } catch (error) {
-      console.error('Error cargando tipos:', error);
+      showToast('Error al cargar tipos de acción', 'error');
     }
   };
 
@@ -1575,7 +1467,7 @@ export default function Productos() {
       });
       setPms(response.data);
     } catch (error) {
-      console.error('Error cargando PMs:', error);
+      showToast('Error al cargar PMs', 'error');
     }
   };
 
@@ -1899,7 +1791,7 @@ export default function Productos() {
             if (colorIndex < colores.length) {
               const producto = productos[rowIndex];
               const colorSeleccionado = colores[colorIndex];
-              console.log('Cambiando color a:', colorSeleccionado || 'sin color', 'para producto:', producto.item_id);
+              
               cambiarColorRapido(producto.item_id, colorSeleccionado);
             }
           }
@@ -1940,17 +1832,29 @@ export default function Productos() {
   useEffect(() => {
     if (modoNavegacion && celdaActiva) {
       // Buscar la fila activa en el DOM
-      const tabla = document.querySelector('.table-body');
-      if (tabla) {
-        const filas = tabla.querySelectorAll('tr');
+      const container = document.querySelector('.table-container-tesla');
+      const tbody = document.querySelector('.table-tesla-body');
+      if (container && tbody) {
+        const filas = tbody.querySelectorAll('tr');
         const filaActiva = filas[celdaActiva.rowIndex];
         if (filaActiva) {
-          // Hacer scroll para que la fila esté visible y centrada
-          filaActiva.scrollIntoView({
-            behavior: 'smooth',
-            block: 'center',  // Centrar la fila en la pantalla
-            inline: 'nearest'
-          });
+          // Calcular la posición de la fila relativa al contenedor
+          const containerRect = container.getBoundingClientRect();
+          const filaRect = filaActiva.getBoundingClientRect();
+          
+          // Si la fila no está visible, hacer scroll
+          if (filaRect.top < containerRect.top || filaRect.bottom > containerRect.bottom) {
+            // Calcular el scroll necesario para centrar la fila
+            const offsetTop = filaActiva.offsetTop;
+            const containerHeight = container.clientHeight;
+            const filaHeight = filaActiva.clientHeight;
+            const scrollPosition = offsetTop - (containerHeight / 2) + (filaHeight / 2);
+            
+            container.scrollTo({
+              top: scrollPosition,
+              behavior: 'smooth'
+            });
+          }
         }
       }
     }
@@ -1986,17 +1890,17 @@ export default function Productos() {
 
   const cambiarColorRapido = async (itemId, color) => {
     try {
-      console.log('Enviando cambio de color:', { itemId, color, url: `${API_URL}/productos/${itemId}/color` });
+      
       const response = await axios.patch(
         `${API_URL}/productos/${itemId}/color`,
         { color },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
-      console.log('Respuesta del servidor:', response.data);
+      
       cargarProductos();
     } catch (error) {
-      console.error('Error cambiando color:', error);
-      console.error('Detalles del error:', error.response?.data);
+      
+      
     }
   };
 
@@ -2043,7 +1947,7 @@ export default function Productos() {
         cargarProductos();
       }
     } catch (error) {
-      console.error('Error toggling rebate:', error);
+      showToast('Error al cambiar rebate', 'error');
     }
   };
 
@@ -2059,7 +1963,7 @@ export default function Productos() {
       );
       cargarProductos();
     } catch (error) {
-      console.error('Error toggling web transf:', error);
+      showToast('Error al cambiar Web/Transferencia', 'error');
     }
   };
 
@@ -2102,7 +2006,7 @@ export default function Productos() {
 
       cargarProductos();
     } catch (error) {
-      console.error('Error toggling out of cards:', error);
+      showToast('Error al cambiar Out of Cards', 'error');
     }
   };
 
@@ -2475,6 +2379,7 @@ export default function Productos() {
                       <button
                         onClick={() => setBusquedaMarca('')}
                         className="dropdown-search-clear"
+                        aria-label="Limpiar búsqueda"
                       >
                         ✕
                       </button>
@@ -2696,7 +2601,7 @@ export default function Productos() {
                     </label>
                   ))}
                   {pms.length === 0 && (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#6b7280' }}>
+                    <div className="dropdown-empty-message">
                       No hay PMs disponibles
                     </div>
                   )}
@@ -3072,14 +2977,14 @@ export default function Productos() {
             {/* Filtros de Color */}
             <div className="filter-group">
               <div className="filter-group-title">🎨 Marcado por Color</div>
-              <div className="filter-group-content" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              <div className="filter-group-content color-filter-container">
                 {COLORES_DISPONIBLES.map(c => (
                   <label
                     key={c.id || 'sin_color'}
                     className="color-checkbox"
                     style={{
-                      backgroundColor: c.color || '#ffffff',
-                      border: coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) ? '3px solid #000' : '2px solid #ccc',
+                      backgroundColor: c.color || 'var(--bg-primary)',
+                      border: coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) ? '3px solid var(--text-primary)' : '2px solid var(--border-secondary)',
                       cursor: 'pointer',
                       width: '40px',
                       height: '40px',
@@ -3094,6 +2999,7 @@ export default function Productos() {
                     <input
                       type="checkbox"
                       checked={coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id)}
+                      aria-label={`Filtrar por color: ${c.nombre}`}
                       onChange={(e) => {
                         const colorValue = c.id === null ? 'sin_color' : c.id;
                         if (e.target.checked) {
@@ -3103,10 +3009,10 @@ export default function Productos() {
                         }
                         setPage(1);
                       }}
-                      style={{ display: 'none' }}
+                      className="color-checkbox-hidden"
                     />
-                    {coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) && <span style={{ fontSize: '20px', lineHeight: 1, display: 'block' }}>✓</span>}
-                    {c.id === null && !coloresSeleccionados.includes('sin_color') && <span style={{ fontSize: '20px', lineHeight: 1, display: 'block' }}>🚫</span>}
+                    {coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) && <span className="color-checkmark">✓</span>}
+                    {c.id === null && !coloresSeleccionados.includes('sin_color') && <span className="color-checkmark">🚫</span>}
                   </label>
                 ))}
               </div>
@@ -3147,12 +3053,13 @@ export default function Productos() {
             <table className="table-tesla striped">
               <thead className="table-tesla-head">
                 <tr>
-                  <th style={{ width: '40px', textAlign: 'center' }}>
+                  <th className="th-checkbox">
                     <input
                       type="checkbox"
                       checked={productosSeleccionados.size === productos.length && productos.length > 0}
                       onChange={seleccionarTodos}
-                      style={{ cursor: 'pointer' }}
+                      className="checkbox-pointer"
+                      aria-label="Seleccionar todos los productos"
                     />
                   </th>
                   <th onClick={(e) => handleOrdenar('codigo', e)}>
@@ -3234,13 +3141,14 @@ export default function Productos() {
                     key={p.item_id}
                     className={`${colorClass} ${p.color_marcado ? 'row-colored' : ''} ${isRowActive ? 'keyboard-row-active' : ''}`}
                   >
-                    <td style={{ textAlign: 'center' }}>
+                    <td className="td-center">
                       <input
                         type="checkbox"
                         checked={productosSeleccionados.has(p.item_id)}
                         onChange={(e) => toggleSeleccion(p.item_id, e.shiftKey)}
                         onClick={(e) => e.stopPropagation()}
-                        style={{ cursor: 'pointer' }}
+                        className="checkbox-pointer"
+                        aria-label={`Seleccionar producto ${p.codigo}`}
                       />
                     </td>
                     <td>{p.codigo}</td>
@@ -3255,11 +3163,11 @@ export default function Productos() {
                             fontWeight: '600',
                             marginLeft: '6px',
                             backgroundColor:
-                              p.catalog_status === 'winning' ? '#22c55e' :
-                              p.catalog_status === 'sharing_first_place' ? '#3b82f6' :
-                              p.catalog_status === 'competing' ? '#f59e0b' :
-                              '#6b7280',
-                            color: '#fff',
+                              p.catalog_status === 'winning' ? 'var(--success)' :
+                              p.catalog_status === 'sharing_first_place' ? 'var(--info)' :
+                              p.catalog_status === 'competing' ? 'var(--warning)' :
+                              'var(--text-tertiary)',
+                            color: 'var(--text-inverse)',
                             whiteSpace: 'nowrap'
                           }}
                           title={
@@ -3299,18 +3207,26 @@ export default function Productos() {
                             onFocus={(e) => e.target.select()}
                             autoFocus
                           />
-                          <button onClick={() => guardarPrecio(p.item_id)} onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              guardarPrecio(p.item_id);
-                            }
-                          }}>✓</button>
-                          <button onClick={() => setEditandoPrecio(null)} onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              setEditandoPrecio(null);
-                            }
-                          }}>✗</button>
+                          <button 
+                            onClick={() => guardarPrecio(p.item_id)} 
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                guardarPrecio(p.item_id);
+                              }
+                            }}
+                            aria-label="Guardar precio"
+                          >✓</button>
+                          <button 
+                            onClick={() => setEditandoPrecio(null)} 
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                setEditandoPrecio(null);
+                              }
+                            }}
+                            aria-label="Cancelar edición"
+                          >✗</button>
                         </div>
                       ) : (
                         <div onClick={() => puedeEditar && iniciarEdicion(p)}>
@@ -3376,18 +3292,26 @@ export default function Productos() {
                             />
                           )}
                           <div className="inline-edit">
-                            <button onClick={() => guardarRebate(p.item_id)} onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                guardarRebate(p.item_id);
-                              }
-                            }}>✓</button>
-                            <button onClick={() => setEditandoRebate(null)} onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                setEditandoRebate(null);
-                              }
-                            }}>✗</button>
+                            <button 
+                              onClick={() => guardarRebate(p.item_id)} 
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  guardarRebate(p.item_id);
+                                }
+                              }}
+                              aria-label="Guardar rebate"
+                            >✓</button>
+                            <button 
+                              onClick={() => setEditandoRebate(null)} 
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  setEditandoRebate(null);
+                                }
+                              }}
+                              aria-label="Cancelar edición"
+                            >✗</button>
                           </div>
                         </div>
                       ) : (
@@ -3417,8 +3341,8 @@ export default function Productos() {
                                       );
                                       await cargarProductos();
                                     } catch (error) {
-                                      console.error('Error:', error);
-                                      alert(`Error: ${error.response?.data?.detail || error.message}`);
+                                      
+                                      showToast(`Error: ${error.response?.data?.detail || error.message}`, 'error');
                                     }
                                   }}
                                 />
@@ -3473,29 +3397,25 @@ export default function Productos() {
                       <div>
                         {/* Mostrar precios de Tienda Nube si existen */}
                         {(p.tn_price || p.tn_promotional_price) && (
-                          <div className="web-transf-info" style={{ marginBottom: '8px', borderBottom: '1px solid #e5e7eb', paddingBottom: '6px' }}>
+                          <div className="web-transf-info web-transf-info-divider">
                             {p.tn_has_promotion && p.tn_promotional_price ? (
                               <div>
-                                <div style={{ fontSize: '12px', fontWeight: '600', color: '#22c55e', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <div className="web-transf-precio-container">
                                   <span>${p.tn_promotional_price.toLocaleString('es-AR')}</span>
-                                  <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: '500' }}>
+                                  <span className="web-transf-porcentaje-info">
                                     ${(p.tn_promotional_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
                                   </span>
                                 </div>
                                 {p.tn_price && (
-                                  <div style={{
-                                    fontSize: '10px',
-                                    color: '#6b7280',
-                                    textDecoration: 'line-through'
-                                  }}>
+                                  <div className="tn-price-strikethrough">
                                     ${p.tn_price.toLocaleString('es-AR')}
                                   </div>
                                 )}
                               </div>
                             ) : p.tn_price ? (
-                              <div style={{ fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              <div className="web-transf-info-row">
                                 <span>${p.tn_price.toLocaleString('es-AR')}</span>
-                                <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: '500' }}>
+                                <span className="web-transf-porcentaje-info">
                                   ${(p.tn_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
                                 </span>
                               </div>
@@ -3537,7 +3457,7 @@ export default function Productos() {
                             }}
                             onFocus={(e) => e.target.select()}
                             placeholder="%"
-                            style={{ width: '60px', padding: '4px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+                            style={{ width: '60px', padding: '4px', borderRadius: '4px', border: '1px solid var(--border-primary)' }}
                           />
                           <label className="web-transf-checkbox" style={{ fontSize: '11px', marginLeft: '8px' }}>
                             <input
@@ -3549,18 +3469,26 @@ export default function Productos() {
                             🔒
                           </label>
                           <div className="inline-edit">
-                            <button onClick={() => guardarWebTransf(p.item_id)} onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                guardarWebTransf(p.item_id);
-                              }
-                            }}>✓</button>
-                            <button onClick={() => setEditandoWebTransf(null)} onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                setEditandoWebTransf(null);
-                              }
-                            }}>✗</button>
+                            <button 
+                              onClick={() => guardarWebTransf(p.item_id)} 
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  guardarWebTransf(p.item_id);
+                                }
+                              }}
+                              aria-label="Guardar Web/Transferencia"
+                            >✓</button>
+                            <button 
+                              onClick={() => setEditandoWebTransf(null)} 
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  setEditandoWebTransf(null);
+                                }
+                              }}
+                              aria-label="Cancelar edición"
+                            >✗</button>
                           </div>
                         </div>
                       ) : (
@@ -3610,8 +3538,8 @@ export default function Productos() {
                                 onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
-                              <button onClick={() => guardarCuota(p.item_id, '3')}>✓</button>
-                              <button onClick={() => setEditandoCuota(null)}>✗</button>
+                              <button onClick={() => guardarCuota(p.item_id, '3')} aria-label="Guardar cuota">✓</button>
+                              <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
                             <div onClick={() => puedeEditar && iniciarEdicionCuota(p, '3')}>
@@ -3643,8 +3571,8 @@ export default function Productos() {
                                 onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
-                              <button onClick={() => guardarCuota(p.item_id, '6')}>✓</button>
-                              <button onClick={() => setEditandoCuota(null)}>✗</button>
+                              <button onClick={() => guardarCuota(p.item_id, '6')} aria-label="Guardar cuota">✓</button>
+                              <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
                             <div onClick={() => puedeEditar && iniciarEdicionCuota(p, '6')}>
@@ -3676,8 +3604,8 @@ export default function Productos() {
                                 onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
-                              <button onClick={() => guardarCuota(p.item_id, '9')}>✓</button>
-                              <button onClick={() => setEditandoCuota(null)}>✗</button>
+                              <button onClick={() => guardarCuota(p.item_id, '9')} aria-label="Guardar cuota">✓</button>
+                              <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
                             <div onClick={() => puedeEditar && iniciarEdicionCuota(p, '9')}>
@@ -3709,8 +3637,8 @@ export default function Productos() {
                                 onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
-                              <button onClick={() => guardarCuota(p.item_id, '12')}>✓</button>
-                              <button onClick={() => setEditandoCuota(null)}>✗</button>
+                              <button onClick={() => guardarCuota(p.item_id, '12')} aria-label="Guardar cuota">✓</button>
+                              <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
                             <div onClick={() => puedeEditar && iniciarEdicionCuota(p, '12')}>
@@ -3744,8 +3672,8 @@ export default function Productos() {
                                 onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
-                              <button onClick={() => guardarCuota(p.item_id, '3', true)}>✓</button>
-                              <button onClick={() => setEditandoCuota(null)}>✗</button>
+                              <button onClick={() => guardarCuota(p.item_id, '3', true)} aria-label="Guardar cuota">✓</button>
+                              <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
                             <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '3', esPVP: true }) && setCuotaTemp(p.precio_pvp_3_cuotas || '')}>
@@ -3774,8 +3702,8 @@ export default function Productos() {
                                 onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
-                              <button onClick={() => guardarCuota(p.item_id, '6', true)}>✓</button>
-                              <button onClick={() => setEditandoCuota(null)}>✗</button>
+                              <button onClick={() => guardarCuota(p.item_id, '6', true)} aria-label="Guardar cuota">✓</button>
+                              <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
                             <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '6', esPVP: true }) && setCuotaTemp(p.precio_pvp_6_cuotas || '')}>
@@ -3804,8 +3732,8 @@ export default function Productos() {
                                 onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
-                              <button onClick={() => guardarCuota(p.item_id, '9', true)}>✓</button>
-                              <button onClick={() => setEditandoCuota(null)}>✗</button>
+                              <button onClick={() => guardarCuota(p.item_id, '9', true)} aria-label="Guardar cuota">✓</button>
+                              <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
                             <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '9', esPVP: true }) && setCuotaTemp(p.precio_pvp_9_cuotas || '')}>
@@ -3834,8 +3762,8 @@ export default function Productos() {
                                 onFocus={(e) => e.target.select()}
                                 autoFocus
                               />
-                              <button onClick={() => guardarCuota(p.item_id, '12', true)}>✓</button>
-                              <button onClick={() => setEditandoCuota(null)}>✗</button>
+                              <button onClick={() => guardarCuota(p.item_id, '12', true)} aria-label="Guardar cuota">✓</button>
+                              <button onClick={() => setEditandoCuota(null)} aria-label="Cancelar edición">✗</button>
                             </div>
                           ) : (
                             <div onClick={() => puedeEditar && setEditandoCuota({ item_id: p.item_id, tipo: '12', esPVP: true }) && setCuotaTemp(p.precio_pvp_12_cuotas || '')}>
@@ -3870,6 +3798,7 @@ export default function Productos() {
                             onClick={() => setProductoSeleccionado(p)}
                             className="icon-button detail"
                             title="Ver detalle"
+                            aria-label="Ver detalle del producto"
                           >
                             🔍
                           </button>
@@ -3878,6 +3807,7 @@ export default function Productos() {
                           onClick={() => verAuditoria(p.item_id)}
                           className="icon-button audit"
                           title="Ver historial de cambios"
+                          aria-label="Ver historial de cambios"
                         >
                           📋
                         </button>
@@ -3886,6 +3816,7 @@ export default function Productos() {
                             onClick={() => abrirModalConfig(p)}
                             className="icon-button config"
                             title="Configuración de cuotas"
+                            aria-label="Configuración de cuotas"
                           >
                             ⚙️
                           </button>
@@ -3896,6 +3827,7 @@ export default function Productos() {
                             onClick={() => setColorDropdownAbierto(colorDropdownAbierto === p.item_id ? null : p.item_id)}
                             className="icon-button color"
                             title="Marcar con color"
+                            aria-label="Marcar producto con color"
                           >
                             🎨
                           </button>
@@ -3908,10 +3840,11 @@ export default function Productos() {
                                   style={{
                                     backgroundColor: c.color,
                                     color: c.colorTexto,
-                                    border: c.id === p.color_marcado ? '2px solid #000' : '1px solid #ccc'
+                                    border: c.id === p.color_marcado ? '2px solid var(--text-primary)' : '1px solid var(--border-secondary)'
                                   }}
                                   onClick={() => cambiarColorProducto(p.item_id, c.id)}
                                   title={c.nombre}
+                                  aria-label={`Marcar producto como ${c.nombre}`}
                                 >
                                   {c.nombre}
                                 </button>
@@ -3925,7 +3858,7 @@ export default function Productos() {
                             onClick={() => abrirModalBan(p)}
                             className="icon-button ban"
                             title="Agregar a banlist"
-                            style={{ color: '#ef4444' }}
+                            style={{ color: 'var(--error)' }}
                           >
                             🚫
                           </button>
@@ -4187,60 +4120,27 @@ export default function Productos() {
 
       {/* Barra de acciones flotante para selección múltiple */}
       {productosSeleccionados.size > 0 && (
-        <div style={{
-          position: 'fixed',
-          bottom: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          backgroundColor: '#2563eb',
-          color: 'white',
-          padding: '15px 25px',
-          borderRadius: '8px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '15px'
-        }}>
-          <span style={{ fontWeight: 'bold' }}>
+        <div className="selection-bar">
+          <span className="selection-bar-count">
             {productosSeleccionados.size} producto{productosSeleccionados.size !== 1 ? 's' : ''} seleccionado{productosSeleccionados.size !== 1 ? 's' : ''}
           </span>
           {puedeMarcarColorLote && (
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div className="selection-bar-colors">
             {COLORES_DISPONIBLES.map(c => (
               <button
                 key={c.id}
                 onClick={() => pintarLote(c.id)}
-                style={{
-                  width: '30px',
-                  height: '30px',
-                  borderRadius: '4px',
-                  border: '2px solid white',
-                  backgroundColor: c.color || '#f3f4f6',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
+                className="selection-bar-color-btn"
+                style={{ backgroundColor: c.color || 'var(--bg-tertiary)' }}
                 title={c.nombre}
+                aria-label={`Pintar lote como ${c.nombre}`}
               >
                 {!c.id && '✕'}
               </button>
             ))}
           </div>
           )}
-          <button
-            onClick={limpiarSeleccion}
-            style={{
-              backgroundColor: '#dc2626',
-              color: 'white',
-              border: 'none',
-              padding: '8px 15px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontWeight: 'bold'
-            }}
-          >
+          <button onClick={limpiarSeleccion} className="selection-bar-clear-btn">
             Cancelar
           </button>
         </div>
@@ -4254,25 +4154,20 @@ export default function Productos() {
               <h2>⚙️ Configuración de Cuotas</h2>
               <button onClick={() => setMostrarModalConfig(false)} className="close-btn">✕</button>
             </div>
-            <div style={{ padding: '20px' }}>
-              <h3 style={{ marginBottom: '10px' }}>{productoConfig.descripcion}</h3>
-              <p style={{ color: '#666', marginBottom: '20px', fontSize: '14px' }}>
+            <div className="config-modal-content">
+              <h3 className="config-modal-title">{productoConfig.descripcion}</h3>
+              <p className="config-modal-subtitle">
                 Código: {productoConfig.codigo} | Marca: {productoConfig.marca}
               </p>
 
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>
+              <div className="config-modal-field">
+                <label className="config-modal-label">
                   Recalcular cuotas automáticamente:
                 </label>
                 <select
                   value={configTemp.recalcular_cuotas_auto === null ? 'null' : configTemp.recalcular_cuotas_auto.toString()}
                   onChange={(e) => setConfigTemp({ ...configTemp, recalcular_cuotas_auto: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid #d1d5db'
-                  }}
+                  className="config-modal-select"
                 >
                   <option value="null">Usar configuración global ({recalcularCuotasAuto ? 'Sí' : 'No'})</option>
                   <option value="true">Siempre recalcular</option>
@@ -4280,8 +4175,8 @@ export default function Productos() {
                 </select>
               </div>
 
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>
+              <div className="config-modal-field">
+                <label className="config-modal-label">
                   Markup adicional para cuotas (%):
                 </label>
                 <input
@@ -4293,43 +4188,18 @@ export default function Productos() {
                   onChange={(e) => setConfigTemp({ ...configTemp, markup_adicional_cuotas_custom: e.target.value })}
                   onFocus={(e) => e.target.select()}
                   placeholder="Dejar vacío para usar configuración global"
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid #d1d5db'
-                  }}
+                  className="config-modal-input"
                 />
-                <p style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                <p className="config-modal-help">
                   Dejar vacío para usar la configuración global
                 </p>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => setMostrarModalConfig(false)}
-                  style={{
-                    padding: '10px 20px',
-                    borderRadius: '4px',
-                    border: '1px solid #d1d5db',
-                    backgroundColor: 'white',
-                    cursor: 'pointer'
-                  }}
-                >
+              <div className="config-modal-actions">
+                <button onClick={() => setMostrarModalConfig(false)} className="config-modal-btn-secondary">
                   Cancelar
                 </button>
-                <button
-                  onClick={guardarConfigIndividual}
-                  style={{
-                    padding: '10px 20px',
-                    borderRadius: '4px',
-                    border: 'none',
-                    backgroundColor: '#2563eb',
-                    color: 'white',
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
-                  }}
-                >
+                <button onClick={guardarConfigIndividual} className="config-modal-btn-primary">
                   Guardar
                 </button>
               </div>
@@ -4536,7 +4406,7 @@ export default function Productos() {
 
       {/* Toast notification */}
       {toast && (
-        <div className={`${styles.toast} ${toast.type === 'error' ? styles.error : ''}`}>
+        <div className={`toast ${toast.type === 'error' ? 'error' : ''}`}>
           {toast.message}
         </div>
       )}
