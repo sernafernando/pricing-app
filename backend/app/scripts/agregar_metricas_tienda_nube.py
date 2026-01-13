@@ -270,6 +270,34 @@ def process_and_insert(db: Session, rows):
         return 0, 0, 0
 
     print(f"\n  Procesando {len(rows)} registros...")
+    
+    # PASO 1: Deduplicar resultados de la query (la query puede traer duplicados por los JOINs)
+    seen_it_transactions = set()
+    rows_deduplicated = []
+    duplicados_query = 0
+    
+    for row in rows:
+        if row.it_transaction not in seen_it_transactions:
+            seen_it_transactions.add(row.it_transaction)
+            rows_deduplicated.append(row)
+        else:
+            duplicados_query += 1
+    
+    if duplicados_query > 0:
+        print(f"  ⚠️  Detectados {duplicados_query} duplicados en la query (se ignoran)")
+    
+    print(f"  Registros únicos a procesar: {len(rows_deduplicated)}")
+    
+    # PASO 2: Bulk fetch - Traer todos los it_transaction existentes de una vez (evita N+1)
+    incoming_ids = [row.it_transaction for row in rows_deduplicated]
+    
+    existing_records = db.query(VentaTiendaNubeMetrica).filter(
+        VentaTiendaNubeMetrica.it_transaction.in_(incoming_ids)
+    ).all()
+    
+    # Crear mapa it_transaction → registro para lookup O(1)
+    existing_map = {record.it_transaction: record for record in existing_records}
+    print(f"  Encontrados {len(existing_map)} registros existentes en DB")
 
     total_insertados = 0
     total_actualizados = 0
@@ -280,12 +308,10 @@ def process_and_insert(db: Session, rows):
     comision_tn_pct = get_comision_tienda_nube(db, fecha_calculo)
     print(f"  Comision TN: {comision_tn_pct}%")
 
-    for row in rows:
+    for row in rows_deduplicated:
         try:
-            # Verificar si ya existe
-            existente = db.query(VentaTiendaNubeMetrica).filter(
-                VentaTiendaNubeMetrica.it_transaction == row.it_transaction
-            ).first()
+            # Buscar en el mapa (O(1) lookup, no query a DB)
+            existente = existing_map.get(row.it_transaction)
 
             # Calcular valores derivados
             monto_total = float(row.monto_total or 0)
