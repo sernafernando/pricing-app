@@ -34,9 +34,9 @@ def upgrade() -> None:
         unique=False
     )
     
-    # Agregar comentario
+    # Agregar comentario (usar comillas dobles para nombres con mayúsculas)
     op.execute(
-        "COMMENT ON COLUMN tb_item.item_lastUpdate_byProcess IS "
+        'COMMENT ON COLUMN tb_item."item_lastUpdate_byProcess" IS '
         "'Timestamp actualizado por trigger cuando cambia item o sus relaciones (taxes, associations)'"
     )
 
