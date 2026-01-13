@@ -49,7 +49,7 @@ class SubcategoriasListResponse(BaseModel):
 class UsuarioPMResponse(BaseModel):
     id: int
     nombre: str
-    email: str
+    email: Optional[str]
     rol: str
 
     class Config:
@@ -134,11 +134,13 @@ async def sincronizar_marcas(
         ProductoERP.marca.isnot(None)
     ).all()
 
+    # Obtener todas las marcas ya existentes en una sola query (evita N+1)
+    marcas_existentes = {m.marca for m in db.query(MarcaPM).all()}
+
     marcas_nuevas = 0
     for (marca,) in marcas_erp:
-        # Verificar si ya existe
-        existe = db.query(MarcaPM).filter(MarcaPM.marca == marca).first()
-        if not existe:
+        # Verificar si ya existe (comparación en memoria, no DB)
+        if marca not in marcas_existentes:
             nueva_marca = MarcaPM(marca=marca, usuario_id=None)
             db.add(nueva_marca)
             marcas_nuevas += 1
