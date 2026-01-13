@@ -32,7 +32,7 @@ SCRIPT_CONFIG = {
     "scriptAgeing": ["item_id"],
     "scriptMLTitle": ["item_id"],
     "scriptTpLink": ["fromDate", "toDate"],
-    "scriptCommercial": ["fromDate", "toDate", "ctTransaction"],
+    "scriptCommercial": ["fromDate", "toDate", "ctTransaction", "fromCtTransaction", "toCtTransaction"],
     "scriptItemTransaction": ["fromDate", "toDate", "itTransaction"],
     "scriptItemTransactionDetails": ["fromItTransaction", "fromItTransaction"],
     "scriptMLOrdersHeader": ["fromDate", "toDate", "mloId"],
