@@ -947,3 +947,92 @@
 .bannerTiendaOficial strong {
   font-weight: 600;
 }
+
+/* Checkboxes y labels */
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+/* Asterisco de modificado */
+.asteriscoModificado {
+  color: var(--warning);
+  margin-left: 2px;
+}
+
+/* Campos editables en tabla */
+.inputEditableInline {
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  transition: background-color 0.2s;
+}
+
+.inputEditableInline:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.selectEditableInline {
+  background-color: var(--bg-secondary);
+}
+
+/* Valores con color dinámico */
+.valorPositivo {
+  color: var(--success);
+}
+
+.valorNegativo {
+  color: var(--error);
+}
+
+/* Barras de progreso en rankings */
+.barraProgreso {
+  width: 100%;
+}
+
+/* Fila modificada */
+.rowModificada {
+  background-color: rgba(59, 130, 246, 0.08);
+}
+
+/* Campo con override (modificado) */
+.campoOverride {
+  background-color: rgba(245, 158, 11, 0.15);
+}
+
+/* Campo sin costo (error) */
+.campoSinCosto {
+  background-color: rgba(239, 68, 68, 0.15);
+}
+
+/* Botón pequeño para acciones */
+.btnAccionTabla {
+  padding: 0.25rem 0.5rem;
+  fontSize: 0.8rem;
+  cursor: pointer;
+  background: var(--bg-tertiary);
+  border: none;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.btnAccionTabla:hover {
+  background: var(--bg-quaternary);
+}
+
+/* Métodos de pago con colores específicos */
+.metodoPagoTarjeta {
+  background-color: rgba(251, 191, 36, 0.15);
+}
+
+.metodoPagoEfectivo {
+  background-color: rgba(16, 185, 129, 0.15);
+}
+
+/* Campo de costo sin costo */
+.campoSinCostoInput {
+  background-color: rgba(254, 226, 226, 1);
+}

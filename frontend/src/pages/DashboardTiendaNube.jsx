@@ -422,7 +422,7 @@ export default function DashboardTiendaNube() {
                 </select>
               </div>
 
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+              <label className={styles.checkboxLabel}>
                 <input
                   type="checkbox"
                   checked={soloSinCosto}
@@ -515,6 +515,11 @@ export default function DashboardTiendaNube() {
                   const codigoEfectivo = getValorEfectivo(op, 'codigo') || op.codigo_item || '';
                   const descripcionEfectiva = getValorEfectivo(op, 'descripcion') || op.descripcion || '';
                   const tieneOverride = overrides[op.id_operacion];
+                  
+                  // Helper para className de campo con override
+                  const getClaseConOverride = (campo) => {
+                    return tieneOverride?.[campo] ? styles.campoOverride : '';
+                  };
 
                   return (
                     <tr key={op.id_operacion || idx} className={sinCosto ? styles.rowSinCosto : ''}>
@@ -525,11 +530,9 @@ export default function DashboardTiendaNube() {
                           type="text"
                           value={clienteEfectivo}
                           onChange={(e) => guardarOverride(op.id_operacion, 'cliente', e.target.value)}
-                          className={styles.inputEditable}
-                          style={{
-                            backgroundColor: tieneOverride?.cliente ? '#fef3c7' : 'transparent'
-                          }}
+                          className={`${styles.inputEditable} ${getClaseConOverride('cliente')}`}
                           placeholder="Cliente"
+                          aria-label="Cliente"
                         />
                       </td>
                       <td>{op.vendedor || '-'}</td>
@@ -538,12 +541,10 @@ export default function DashboardTiendaNube() {
                           type="text"
                           value={codigoEfectivo}
                           onChange={(e) => guardarOverride(op.id_operacion, 'codigo', e.target.value)}
-                          className={styles.inputEditable}
-                          style={{
-                            backgroundColor: tieneOverride?.codigo ? '#fef3c7' : 'transparent',
-                            width: '80px'
-                          }}
+                          className={`${styles.inputEditable} ${getClaseConOverride('codigo')}`}
+                          style={{ width: '80px' }}
                           placeholder="Código"
+                          aria-label="Código de producto"
                         />
                       </td>
                       <td className={styles.descripcion}>
@@ -551,11 +552,9 @@ export default function DashboardTiendaNube() {
                           type="text"
                           value={descripcionEfectiva}
                           onChange={(e) => guardarOverride(op.id_operacion, 'descripcion', e.target.value)}
-                          className={styles.inputEditable}
-                          style={{
-                            backgroundColor: tieneOverride?.descripcion ? '#fef3c7' : 'transparent'
-                          }}
+                          className={`${styles.inputEditable} ${getClaseConOverride('descripcion')}`}
                           placeholder="Descripción"
+                          aria-label="Descripción de producto"
                         />
                       </td>
                       <td>
@@ -569,10 +568,8 @@ export default function DashboardTiendaNube() {
                               guardarOverride(op.id_operacion, 'subcategoria', '');
                             }
                           }}
-                          className={styles.selectEditable}
-                          style={{
-                            backgroundColor: tieneOverride?.marca ? '#fef3c7' : 'transparent'
-                          }}
+                          className={`${styles.selectEditable} ${getClaseConOverride('marca')}`}
+                          aria-label="Marca del producto"
                         >
                           <option value="">Sin marca</option>
                           {getMarcasDisponibles().map(m => (
@@ -593,11 +590,9 @@ export default function DashboardTiendaNube() {
                               guardarOverride(op.id_operacion, 'subcategoria', '');
                             }
                           }}
-                          className={styles.selectEditable}
-                          style={{
-                            backgroundColor: tieneOverride?.categoria ? '#fef3c7' : 'transparent'
-                          }}
+                          className={`${styles.selectEditable} ${getClaseConOverride('categoria')}`}
                           disabled={!marcaEfectiva}
+                          aria-label="Categoría del producto"
                         >
                           <option value="">{marcaEfectiva ? 'Sin categoría' : 'Seleccione marca primero'}</option>
                           {getCategoriasParaMarca(marcaEfectiva).map(c => (
@@ -612,11 +607,9 @@ export default function DashboardTiendaNube() {
                         <select
                           value={subcategoriaEfectiva}
                           onChange={(e) => guardarOverride(op.id_operacion, 'subcategoria', e.target.value)}
-                          className={styles.selectEditable}
-                          style={{
-                            backgroundColor: tieneOverride?.subcategoria ? '#fef3c7' : 'transparent'
-                          }}
+                          className={`${styles.selectEditable} ${getClaseConOverride('subcategoria')}`}
                           disabled={!categoriaEfectiva}
+                          aria-label="Subcategoría del producto"
                         >
                           <option value="">{categoriaEfectiva ? 'Sin subcategoría' : 'Seleccione categoría primero'}</option>
                           {getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva).map(s => (
@@ -632,13 +625,10 @@ export default function DashboardTiendaNube() {
                           type="number"
                           value={getValorEfectivo(op, 'cantidad') || op.cantidad || ''}
                           onChange={(e) => guardarOverride(op.id_operacion, 'cantidad', e.target.value ? parseFloat(e.target.value) : null)}
-                          className={styles.inputEditable}
-                          style={{
-                            backgroundColor: tieneOverride?.cantidad ? '#fef3c7' : 'transparent',
-                            width: '60px',
-                            textAlign: 'center'
-                          }}
+                          className={`${styles.inputEditable} ${getClaseConOverride('cantidad')}`}
+                          style={{ width: '60px', textAlign: 'center' }}
                           step="0.01"
+                          aria-label="Cantidad"
                         />
                       </td>
                       <td className={styles.monto}>
@@ -646,13 +636,10 @@ export default function DashboardTiendaNube() {
                           type="number"
                           value={getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva || ''}
                           onChange={(e) => guardarOverride(op.id_operacion, 'precio_unitario', e.target.value ? parseFloat(e.target.value) : null)}
-                          className={styles.inputEditable}
-                          style={{
-                            backgroundColor: tieneOverride?.precio_unitario ? '#fef3c7' : 'transparent',
-                            width: '90px',
-                            textAlign: 'right'
-                          }}
+                          className={`${styles.inputEditable} ${getClaseConOverride('precio_unitario')}`}
+                          style={{ width: '90px', textAlign: 'right' }}
                           step="0.01"
+                          aria-label="Precio unitario"
                         />
                       </td>
                       <td className={styles.centrado}>{op.iva_porcentaje}%</td>
@@ -661,16 +648,14 @@ export default function DashboardTiendaNube() {
                         <select
                           value={metodoPagoActual}
                           onChange={(e) => cambiarMetodoPago(op.id_operacion, e.target.value)}
-                          className={styles.selectEditable}
-                          style={{
-                            backgroundColor: metodoPagoActual === 'tarjeta' ? '#fef3c7' : '#d1fae5'
-                          }}
+                          className={`${styles.selectEditable} ${metodoPagoActual === 'tarjeta' ? styles.metodoPagoTarjeta : styles.metodoPagoEfectivo}`}
+                          aria-label="Método de pago"
                         >
                           <option value="efectivo">Efectivo ({comisionEfectivo}%)</option>
                           <option value="tarjeta">Tarjeta ({comisionTarjeta}%)</option>
                         </select>
                       </td>
-                      <td className={styles.monto} style={{ color: '#f59e0b' }}>
+                      <td className={`${styles.monto} ${styles.asteriscoModificado}`}>
                         {formatearMoneda(comisionCalculada)} ({comisionAplicada}%)
                       </td>
                       <td className={styles.monto}>
@@ -678,17 +663,14 @@ export default function DashboardTiendaNube() {
                           type="number"
                           value={getValorEfectivo(op, 'costo_unitario') || op.costo_unitario || ''}
                           onChange={(e) => guardarOverride(op.id_operacion, 'costo_unitario', e.target.value ? parseFloat(e.target.value) : null)}
-                          className={styles.inputEditable}
-                          style={{
-                            backgroundColor: tieneOverride?.costo_unitario ? '#fef3c7' : (sinCosto ? '#fee2e2' : 'transparent'),
-                            width: '90px',
-                            textAlign: 'right'
-                          }}
+                          className={`${styles.inputEditable} ${getClaseConOverride('costo_unitario')} ${sinCosto && !tieneOverride?.costo_unitario ? styles.campoSinCostoInput : ''}`}
+                          style={{ width: '90px', textAlign: 'right' }}
                           step="0.01"
                           placeholder={sinCosto ? 'Sin costo' : ''}
+                          aria-label="Costo unitario"
                         />
                       </td>
-                      <td className={styles.monto} style={{ color: gananciaCalculada >= 0 ? '#22c55e' : '#ef4444' }}>
+                      <td className={`${styles.monto} ${gananciaCalculada >= 0 ? styles.valorPositivo : styles.valorNegativo}`}>
                         {formatearMoneda(gananciaCalculada)}
                       </td>
                       <td className={`${styles.centrado} ${markupCalculado !== null && markupCalculado < 0 ? styles.negativo : ''}`}>

@@ -433,7 +433,7 @@ export default function DashboardVentasFuera() {
                 </select>
               </div>
 
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+              <label className={styles.checkboxLabel}>
                 <input
                   type="checkbox"
                   checked={soloSinCosto}
@@ -442,7 +442,7 @@ export default function DashboardVentasFuera() {
                 Solo sin costo
               </label>
               {tabActivo === 'operaciones' && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <label className={styles.checkboxLabel}>
                   <input
                     type="checkbox"
                     checked={soloModificadas}
@@ -530,28 +530,33 @@ export default function DashboardVentasFuera() {
                   const descripcionEfectiva = getValorEfectivo(op, 'descripcion') || op.descripcion || '';
 
                   // Helper para mostrar asterisco si campo modificado
-                  const asterisco = (campo) => override?.[campo] ? <span style={{ color: '#f59e0b', marginLeft: '2px' }}>*</span> : null;
+                  const asterisco = (campo) => override?.[campo] ? <span className={styles.asteriscoModificado}>*</span> : null;
+                  
+                  // Helper para className de campo editable
+                  const getClaseCampoEditable = (campo, sinCosto = false) => {
+                    const clases = [styles.inputEditableInline];
+                    if (override?.[campo]) clases.push(styles.campoOverride);
+                    if (sinCosto) clases.push(styles.campoSinCosto);
+                    return clases.join(' ');
+                  };
 
                   return (
                     <tr
                       key={op.metrica_id || idx}
-                      className={sinCosto ? styles.rowSinCosto : ''}
-                      style={filaModificada ? { backgroundColor: 'rgba(59, 130, 246, 0.08)' } : {}}
+                      className={`${sinCosto ? styles.rowSinCosto : ''} ${filaModificada ? styles.rowModificada : ''}`}
                     >
                       <td>{formatearFecha(op.fecha)}</td>
                       <td>{op.sucursal || '-'}</td>
                       <td>
                         <span
-                          style={{
-                            cursor: 'pointer',
-                            padding: '2px 4px',
-                            borderRadius: '3px',
-                            backgroundColor: override?.cliente ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
-                          }}
+                          className={getClaseCampoEditable('cliente')}
                           onClick={() => {
                             const nuevoValor = prompt('Cliente:', clienteEfectivo);
                             if (nuevoValor !== null) guardarOverride(op.id_operacion, 'cliente', nuevoValor);
                           }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Editar cliente"
                           title="Click para editar"
                         >
                           {clienteEfectivo || '-'}{asterisco('cliente')}
@@ -560,16 +565,14 @@ export default function DashboardVentasFuera() {
                       <td>{op.vendedor || '-'}</td>
                       <td>
                         <span
-                          style={{
-                            cursor: 'pointer',
-                            padding: '2px 4px',
-                            borderRadius: '3px',
-                            backgroundColor: override?.codigo ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
-                          }}
+                          className={getClaseCampoEditable('codigo')}
                           onClick={() => {
                             const nuevoValor = prompt('Código:', codigoEfectivo);
                             if (nuevoValor !== null) guardarOverride(op.id_operacion, 'codigo', nuevoValor);
                           }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Editar código de producto"
                           title="Click para editar"
                         >
                           {codigoEfectivo || '-'}{asterisco('codigo')}
@@ -577,16 +580,14 @@ export default function DashboardVentasFuera() {
                       </td>
                       <td className={styles.descripcion}>
                         <span
-                          style={{
-                            cursor: 'pointer',
-                            padding: '2px 4px',
-                            borderRadius: '3px',
-                            backgroundColor: override?.descripcion ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
-                          }}
+                          className={getClaseCampoEditable('descripcion')}
                           onClick={() => {
                             const nuevoValor = prompt('Descripción:', descripcionEfectiva);
                             if (nuevoValor !== null) guardarOverride(op.id_operacion, 'descripcion', nuevoValor);
                           }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Editar descripción de producto"
                           title="Click para editar"
                         >
                           {descripcionEfectiva || '-'}{asterisco('descripcion')}
@@ -602,10 +603,8 @@ export default function DashboardVentasFuera() {
                               guardarOverride(op.id_operacion, 'subcategoria', '');
                             }
                           }}
-                          className={styles.selectEditable}
-                          style={{
-                            backgroundColor: override?.marca ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
-                          }}
+                          className={`${styles.selectEditable} ${override?.marca ? styles.campoOverride : ''}`}
+                          aria-label="Marca del producto"
                         >
                           <option value="">-</option>
                           {getMarcasDisponibles().map(m => (
@@ -626,11 +625,9 @@ export default function DashboardVentasFuera() {
                               guardarOverride(op.id_operacion, 'subcategoria', '');
                             }
                           }}
-                          className={styles.selectEditable}
-                          style={{
-                            backgroundColor: override?.categoria ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
-                          }}
+                          className={`${styles.selectEditable} ${override?.categoria ? styles.campoOverride : ''}`}
                           disabled={!marcaEfectiva}
+                          aria-label="Categoría del producto"
                         >
                           <option value="">-</option>
                           {getCategoriasParaMarca(marcaEfectiva).map(c => (
@@ -646,11 +643,9 @@ export default function DashboardVentasFuera() {
                         <select
                           value={subcategoriaEfectiva}
                           onChange={(e) => guardarOverride(op.id_operacion, 'subcategoria', e.target.value)}
-                          className={styles.selectEditable}
-                          style={{
-                            backgroundColor: override?.subcategoria ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
-                          }}
+                          className={`${styles.selectEditable} ${override?.subcategoria ? styles.campoOverride : ''}`}
                           disabled={!categoriaEfectiva}
+                          aria-label="Subcategoría del producto"
                         >
                           <option value="">-</option>
                           {getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva).map(s => (
@@ -664,17 +659,15 @@ export default function DashboardVentasFuera() {
                       </td>
                       <td className={styles.centrado}>
                         <span
-                          style={{
-                            cursor: 'pointer',
-                            padding: '2px 4px',
-                            borderRadius: '3px',
-                            backgroundColor: override?.cantidad ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
-                          }}
+                          className={getClaseCampoEditable('cantidad')}
                           onClick={() => {
                             const valorActual = getValorEfectivo(op, 'cantidad') || op.cantidad || '';
                             const nuevoValor = prompt('Cantidad:', valorActual);
                             if (nuevoValor !== null) guardarOverride(op.id_operacion, 'cantidad', nuevoValor ? parseFloat(nuevoValor) : null);
                           }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Editar cantidad"
                           title="Click para editar"
                         >
                           {getValorEfectivo(op, 'cantidad') || op.cantidad || '-'}{asterisco('cantidad')}
@@ -682,17 +675,15 @@ export default function DashboardVentasFuera() {
                       </td>
                       <td className={styles.monto}>
                         <span
-                          style={{
-                            cursor: 'pointer',
-                            padding: '2px 4px',
-                            borderRadius: '3px',
-                            backgroundColor: override?.precio_unitario ? 'rgba(245, 158, 11, 0.15)' : 'transparent'
-                          }}
+                          className={getClaseCampoEditable('precio_unitario')}
                           onClick={() => {
                             const valorActual = getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva || '';
                             const nuevoValor = prompt('Precio unitario:', valorActual);
                             if (nuevoValor !== null) guardarOverride(op.id_operacion, 'precio_unitario', nuevoValor ? parseFloat(nuevoValor) : null);
                           }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Editar precio unitario"
                           title="Click para editar"
                         >
                           {formatearMoneda(getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva)}{asterisco('precio_unitario')}
@@ -703,17 +694,15 @@ export default function DashboardVentasFuera() {
                       <td className={styles.monto}>{formatearMoneda(op.precio_final_con_iva)}</td>
                       <td className={styles.monto}>
                         <span
-                          style={{
-                            cursor: 'pointer',
-                            padding: '2px 4px',
-                            borderRadius: '3px',
-                            backgroundColor: override?.costo_unitario ? 'rgba(245, 158, 11, 0.15)' : (sinCosto ? 'rgba(239, 68, 68, 0.15)' : 'transparent')
-                          }}
+                          className={getClaseCampoEditable('costo_unitario', sinCosto)}
                           onClick={() => {
                             const valorActual = getValorEfectivo(op, 'costo_unitario') || op.costo_unitario || '';
                             const nuevoValor = prompt('Costo unitario:', valorActual);
                             if (nuevoValor !== null) guardarOverride(op.id_operacion, 'costo_unitario', nuevoValor ? parseFloat(nuevoValor) : null);
                           }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Editar costo unitario"
                           title="Click para editar"
                         >
                           {(getValorEfectivo(op, 'costo_unitario') || op.costo_unitario) ? formatearMoneda(getValorEfectivo(op, 'costo_unitario') || op.costo_unitario) : 'Sin costo'}{asterisco('costo_unitario')}
@@ -726,15 +715,8 @@ export default function DashboardVentasFuera() {
                       <td>
                         <button
                           onClick={() => abrirModalCosto(op)}
-                          className={sinCosto ? styles.alertWarning : ''}
-                          style={{
-                            padding: '0.25rem 0.5rem',
-                            fontSize: '0.8rem',
-                            cursor: 'pointer',
-                            background: sinCosto ? undefined : '#e5e7eb',
-                            border: sinCosto ? undefined : 'none',
-                            borderRadius: '4px'
-                          }}
+                          className={sinCosto ? styles.alertWarning : styles.btnAccionTabla}
+                          aria-label={sinCosto ? 'Agregar costo' : 'Editar costo'}
                           title={sinCosto ? 'Agregar costo' : 'Editar costo'}
                         >
                           {sinCosto ? '+$' : '✏️'}
@@ -820,7 +802,7 @@ export default function DashboardVentasFuera() {
             </div>
             <div className={styles.metricMini}>
               <span className={styles.metricMiniLabel}>Margen Bruto</span>
-              <span className={styles.metricMiniValue} style={{ color: calcularGanancia() > 0 ? '#10b981' : '#ef4444' }}>
+              <span className={`${styles.metricMiniValue} ${calcularGanancia() > 0 ? styles.valorPositivo : styles.valorNegativo}`}>
                 {((calcularGanancia() / stats.monto_total_sin_iva) * 100).toFixed(1)}%
               </span>
             </div>
