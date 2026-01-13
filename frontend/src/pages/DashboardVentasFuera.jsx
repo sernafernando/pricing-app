@@ -27,7 +27,7 @@ export default function DashboardVentasFuera() {
   
   // Usar query params para tab, fechas y filtros
   const { getFilter, updateFilters } = useQueryFilters({
-    tab: 'rentabilidad',
+    tab: 'resumen',
     fecha_desde: getDefaultFechaDesde(),
     fecha_hasta: getDefaultFechaHasta(),
     sucursal: '',
