@@ -5,6 +5,9 @@ import TabRentabilidadTiendaNube from '../components/TabRentabilidadTiendaNube';
 import { useAuthStore } from '../store/authStore';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 
+// API base URL
+const API_URL = 'https://pricing.gaussonline.com.ar/api';
+
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
   const hoy = new Date();
@@ -59,20 +62,7 @@ export default function DashboardTiendaNube() {
   const [overrides, setOverrides] = useState({});
   const [jerarquiaProductos, setJerarquiaProductos] = useState({}); // { marca: { categoria: [subcategorias] } }
 
-  // API base URL
-  const API_URL = 'https://pricing.gaussonline.com.ar/api';
-
-  useEffect(() => {
-    if (fechaDesde && fechaHasta) {
-      if (tabActivo === 'resumen') {
-        cargarDashboard();
-      } else if (tabActivo === 'operaciones') {
-        cargarOperaciones();
-      }
-    }
-  }, [fechaDesde, fechaHasta, sucursalSeleccionada, vendedorSeleccionado, tabActivo, soloSinCosto]);
-
-  const cargarDashboard = async () => {
+  const cargarDashboard = useCallback(async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -100,14 +90,13 @@ export default function DashboardTiendaNube() {
         setVendedoresDisponibles(Object.keys(statsRes.data.por_vendedor || {}));
       }
     } catch (error) {
-      console.error('Error cargando dashboard:', error);
       alert('Error al cargar el dashboard');
     } finally {
       setLoading(false);
     }
-  };
+  }, [fechaDesde, fechaHasta]);
 
-  const cargarOperaciones = async () => {
+  const cargarOperaciones = useCallback(async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -141,12 +130,21 @@ export default function DashboardTiendaNube() {
         setComisionTarjeta(constantesRes.data.comision_tienda_nube_tarjeta || 3.0);
       }
     } catch (error) {
-      console.error('Error cargando operaciones:', error);
       alert('Error al cargar las operaciones');
     } finally {
       setLoading(false);
     }
-  };
+  }, [fechaDesde, fechaHasta, sucursalSeleccionada, vendedorSeleccionado]);
+
+  useEffect(() => {
+    if (fechaDesde && fechaHasta) {
+      if (tabActivo === 'resumen') {
+        cargarDashboard();
+      } else if (tabActivo === 'operaciones') {
+        cargarOperaciones();
+      }
+    }
+  }, [fechaDesde, fechaHasta, tabActivo, cargarDashboard, cargarOperaciones]);
 
   const cambiarMetodoPago = async (itTransaction, nuevoMetodo) => {
     try {
@@ -161,7 +159,6 @@ export default function DashboardTiendaNube() {
       // Actualizar estado local
       setMetodosPago(prev => ({ ...prev, [itTransaction]: nuevoMetodo }));
     } catch (error) {
-      console.error('Error guardando método de pago:', error);
       alert('Error al guardar el método de pago');
     }
   };
@@ -179,7 +176,7 @@ export default function DashboardTiendaNube() {
         [campo]: valor
       }, { headers });
     } catch (error) {
-      console.error('Error guardando override:', error);
+      alert('Error al guardar cambios');
     }
   }, []);
 

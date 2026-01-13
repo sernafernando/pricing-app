@@ -7,6 +7,9 @@ import ModalEditarCosto from '../components/ModalEditarCosto';
 import { useAuthStore } from '../store/authStore';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 
+// API base URL
+const API_URL = 'https://pricing.gaussonline.com.ar/api';
+
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
   const hoy = new Date();
@@ -61,20 +64,7 @@ export default function DashboardVentasFuera() {
   const [overrides, setOverrides] = useState({});
   const [jerarquiaProductos, setJerarquiaProductos] = useState({}); // { marca: { categoria: [subcategorias] } }
 
-  // API base URL
-  const API_URL = 'https://pricing.gaussonline.com.ar/api';
-
-  useEffect(() => {
-    if (fechaDesde && fechaHasta) {
-      if (tabActivo === 'resumen') {
-        cargarDashboard();
-      } else if (tabActivo === 'operaciones') {
-        cargarOperaciones();
-      }
-    }
-  }, [fechaDesde, fechaHasta, sucursalSeleccionada, vendedorSeleccionado, tabActivo, soloSinCosto]);
-
-  const cargarDashboard = async () => {
+  const cargarDashboard = useCallback(async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -102,14 +92,13 @@ export default function DashboardVentasFuera() {
         setVendedoresDisponibles(Object.keys(statsRes.data.por_vendedor || {}));
       }
     } catch (error) {
-      console.error('Error cargando dashboard:', error);
       alert('Error al cargar el dashboard');
     } finally {
       setLoading(false);
     }
-  };
+  }, [fechaDesde, fechaHasta]);
 
-  const cargarOperaciones = async () => {
+  const cargarOperaciones = useCallback(async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -136,12 +125,21 @@ export default function DashboardVentasFuera() {
       setOverrides(overridesRes.data || {});
       setJerarquiaProductos(jerarquiaRes.data || {});
     } catch (error) {
-      console.error('Error cargando operaciones:', error);
       alert('Error al cargar las operaciones');
     } finally {
       setLoading(false);
     }
-  };
+  }, [fechaDesde, fechaHasta, soloSinCosto, sucursalSeleccionada, vendedorSeleccionado]);
+
+  useEffect(() => {
+    if (fechaDesde && fechaHasta) {
+      if (tabActivo === 'resumen') {
+        cargarDashboard();
+      } else if (tabActivo === 'operaciones') {
+        cargarOperaciones();
+      }
+    }
+  }, [fechaDesde, fechaHasta, tabActivo, cargarDashboard, cargarOperaciones]);
 
   const abrirModalCosto = (operacion) => {
     setOperacionEditando(operacion);
@@ -171,7 +169,7 @@ export default function DashboardVentasFuera() {
         [campo]: valor
       }, { headers });
     } catch (error) {
-      console.error('Error guardando override:', error);
+      alert('Error al guardar cambios');
     }
   }, []);
 
