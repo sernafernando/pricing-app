@@ -880,11 +880,13 @@
   color: var(--text-primary);
 }
 
-.table-body tr {
+.table-body tr,
+.table-tesla-body tr {
 	display: table-row;
     vertical-align: inherit;
     unicode-bidi: isolate;
     border-color: inherit;
+    scroll-margin-top: 60px; /* Evita que primera fila se esconda detrás del header sticky */
 }
 
 .table-body tr:hover {

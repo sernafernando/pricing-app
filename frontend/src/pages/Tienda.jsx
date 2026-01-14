@@ -4,6 +4,7 @@ import { productosAPI } from '../services/api';
 import PricingModalTesla from '../components/PricingModalTesla';
 import { useDebounce } from '../hooks/useDebounce';
 import './Tienda.css';
+import '../styles/table-tesla.css';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -1883,7 +1884,7 @@ export default function Tienda() {
   useEffect(() => {
     if (modoNavegacion && celdaActiva) {
       // Buscar la fila activa en el DOM
-      const tabla = document.querySelector('.table-body');
+      const tabla = document.querySelector('.table-tesla-body');
       if (tabla) {
         const filas = tabla.querySelectorAll('tr');
         const filaActiva = filas[celdaActiva.rowIndex];
