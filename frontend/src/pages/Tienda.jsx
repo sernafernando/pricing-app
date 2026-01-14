@@ -1659,7 +1659,7 @@ export default function Tienda() {
 
   // Sistema de navegación por teclado
   useEffect(() => {
-    const handleKeyDown = (e) => {
+    const handleKeyDown = async (e) => {
       // Si hay un modal abierto, NO procesar shortcuts de la página
       const hayModalAbierto = mostrarExportModal || mostrarCalcularWebModal || mostrarModalConfig || mostrarModalInfo || mostrarShortcutsHelp;
 
@@ -1976,11 +1976,27 @@ export default function Tienda() {
           return;
         }
 
-        // R: Toggle rebate (solo si NO estamos editando nada - en Tienda no hay rebate)
-        if (e.key === 'r' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
+        // R: Toggle rebate
+        if (e.key === 'r' && !editandoPrecio && !editandoWebTransf && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
-          toggleRebateRapido(producto);
+          
+          // Si ya estamos editando este producto, desactivar rebate y cerrar edición
+          if (editandoRebate === producto.item_id) {
+            await axios.patch(
+              `${API_URL}/productos/${producto.item_id}/rebate`,
+              {
+                participa_rebate: false,
+                porcentaje_rebate: producto.porcentaje_rebate || 3.8
+              },
+              { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+            );
+            setEditandoRebate(null);
+            cargarProductos();
+          } else {
+            // Si no estamos editando, toggle normal
+            await toggleRebateRapido(producto);
+          }
           return;
         }
 
@@ -1988,15 +2004,28 @@ export default function Tienda() {
         if (e.key === 'w' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditarWebTransf) {
           e.preventDefault();
           const producto = productos[rowIndex];
-          toggleWebTransfRapido(producto);
+          await toggleWebTransfRapido(producto);
           return;
         }
 
-        // O: Toggle out of cards (solo si NO estamos editando nada)
-        if (e.key === 'o' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditar) {
+        // O: Toggle out of cards
+        if (e.key === 'o' && !editandoPrecio && !editandoWebTransf && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
-          toggleOutOfCardsRapido(producto);
+          
+          // Si ya estamos editando Y el producto tiene out_of_cards, desactivarlo
+          if (editandoRebate === producto.item_id && producto.out_of_cards) {
+            await axios.patch(
+              `${API_URL}/productos/${producto.item_id}/out-of-cards`,
+              { out_of_cards: false },
+              { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+            );
+            setEditandoRebate(null);
+            cargarProductos();
+          } else {
+            // Toggle normal
+            await toggleOutOfCardsRapido(producto);
+          }
           return;
         }
       }
@@ -2110,7 +2139,7 @@ export default function Tienda() {
         cargarProductos();
       }
     } catch (error) {
-      console.error('Error toggling rebate:', error);
+      showToast('Error al cambiar rebate', 'error');
     }
   };
 
@@ -2126,13 +2155,31 @@ export default function Tienda() {
       );
       cargarProductos();
     } catch (error) {
-      console.error('Error toggling web transf:', error);
+      showToast('Error al cambiar web transferencia', 'error');
     }
   };
 
   const toggleOutOfCardsRapido = async (producto) => {
     try {
-      // Si el rebate NO está activo, activarlo primero
+      // Si ya tiene out_of_cards, desactivarlo
+      if (producto.out_of_cards) {
+        await axios.patch(
+          `${API_URL}/productos/${producto.item_id}/out-of-cards`,
+          { out_of_cards: false },
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        );
+        
+        // Cerrar modo edición si estaba abierto
+        if (editandoRebate === producto.item_id) {
+          setEditandoRebate(null);
+        }
+        
+        cargarProductos();
+        return;
+      }
+
+      // Si NO tiene out_of_cards, activarlo
+      // Primero, si el rebate NO está activo, activarlo
       if (!producto.participa_rebate) {
         await axios.patch(
           `${API_URL}/productos/${producto.item_id}/rebate`,
@@ -2169,7 +2216,7 @@ export default function Tienda() {
 
       cargarProductos();
     } catch (error) {
-      console.error('Error toggling out of cards:', error);
+      showToast('Error al cambiar out of cards', 'error');
     }
   };
 
