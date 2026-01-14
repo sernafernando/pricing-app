@@ -160,7 +160,7 @@ export default function Tienda() {
     setTimeout(() => setToast(null), 3000); // Desaparece después de 3 segundos
   };
 
-  const API_URL = 'https://pricing.gaussonline.com.ar/api';
+  const API_URL = import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com.ar';
 
   // Función para sincronizar filtros a la URL
   const syncFiltersToURL = () => {
@@ -845,7 +845,7 @@ export default function Tienda() {
       const porcentajeNumerico = parseFloat(webTransfTemp.porcentaje.toString().replace(',', '.')) || 0;
 
       const response = await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/productos/${itemId}/web-transferencia`,
+        `${API_URL}/productos/${itemId}/web-transferencia`,
         null,
         {
           params: {
@@ -962,7 +962,7 @@ export default function Tienda() {
 
       /*const productosConDatos = await Promise.all(
         productosRes.data.productos.map(async (p) => {
-          const ofertasRes = await axios.get(`https://pricing.gaussonline.com.ar/api/productos/${p.item_id}/ofertas-vigentes`).catch(() => null);
+          const ofertasRes = await axios.get(`${API_URL}/productos/${p.item_id}/ofertas-vigentes`).catch(() => null);
 
           const ofertaMinima = ofertasRes?.data.publicaciones
             .filter(pub => pub.tiene_oferta)
@@ -1072,7 +1072,7 @@ export default function Tienda() {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/productos/${productoId}/auditoria`,
+        `${API_URL}/productos/${productoId}/auditoria`,
         { headers: { Authorization: `Bearer ${token}` }}
       );
       setAuditoriaData(response.data);
@@ -1201,7 +1201,7 @@ export default function Tienda() {
       const precioNormalizado = parseFloat(cuotaTemp.toString().replace(',', '.'));
 
       const response = await axios.post(
-        'https://pricing.gaussonline.com.ar/api/precios/set-cuota',
+        `${API_URL}/precios/set-cuota`,
         null,
         {
           headers: { Authorization: `Bearer ${token}` },
@@ -1459,7 +1459,7 @@ export default function Tienda() {
       const token = localStorage.getItem('token');
 
       await axios.post(
-        'https://pricing.gaussonline.com.ar/api/productos/actualizar-color-tienda-lote',
+        `${API_URL}/productos/actualizar-color-tienda-lote`,
         {
           item_ids: Array.from(productosSeleccionados),
           color: color
@@ -1505,7 +1505,7 @@ export default function Tienda() {
       };
 
       await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/productos/${productoConfig.item_id}/config-cuotas`,
+        `${API_URL}/productos/${productoConfig.item_id}/config-cuotas`,
         data,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -1535,7 +1535,7 @@ export default function Tienda() {
       const precioNormalizado = parseFloat(precioTemp.toString().replace(',', '.'));
 
       const response = await axios.post(
-        'https://pricing.gaussonline.com.ar/api/precios/set-rapido',
+        `${API_URL}/precios/set-rapido`,
         null,  // No body needed, all params go in URL
         {
           headers: { Authorization: `Bearer ${token}` },
@@ -1586,7 +1586,7 @@ export default function Tienda() {
 
       console.log('Enviando rebate:', rebateTemp);
       await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/productos/${itemId}/rebate`,
+        `${API_URL}/productos/${itemId}/rebate`,
         {
           participa_rebate: rebateTemp.participa,
           porcentaje_rebate: porcentajeNormalizado
