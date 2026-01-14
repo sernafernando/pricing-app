@@ -148,6 +148,8 @@
 
 .table-tesla-body tr {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Espacio superior para que no quede detrás del header sticky */
+  scroll-margin-top: 60px;
 }
 
 .table-tesla-body tr:hover {
