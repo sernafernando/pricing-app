@@ -1837,10 +1837,11 @@ export default function Productos() {
         const filas = tbody.querySelectorAll('tr');
         const filaActiva = filas[celdaActiva.rowIndex];
         if (filaActiva) {
-          // Usar scrollIntoView con block: 'nearest' para scroll inteligente
-          // Esto mantiene la fila visible sin centrarla forzadamente
+          // Usar behavior: 'auto' (instantáneo) en vez de 'smooth'
+          // Esto evita acumulación de animaciones cuando se mantiene presionada la flecha
+          // y mantiene la fila siempre visible sin tirones
           filaActiva.scrollIntoView({
-            behavior: 'smooth',
+            behavior: 'auto',
             block: 'nearest',
             inline: 'nearest'
           });
