@@ -1830,11 +1830,24 @@ export default function Productos() {
           return;
         }
 
-        // O: Toggle out of cards (solo si NO estamos editando nada)
-        if (e.key === 'o' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeToggleOutOfCards) {
+        // O: Toggle out of cards
+        if (e.key === 'o' && !editandoPrecio && !editandoWebTransf && puedeToggleOutOfCards) {
           e.preventDefault();
           const producto = productos[rowIndex];
-          toggleOutOfCardsRapido(producto);
+          
+          // Si ya estamos editando Y el producto tiene out_of_cards, desactivarlo
+          if (editandoRebate === producto.item_id && producto.out_of_cards) {
+            await axios.patch(
+              `${API_URL}/productos/${producto.item_id}/out-of-cards`,
+              { out_of_cards: false },
+              { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+            );
+            setEditandoRebate(null);
+            cargarProductos();
+          } else {
+            // Toggle normal
+            toggleOutOfCardsRapido(producto);
+          }
           return;
         }
       }
@@ -1981,7 +1994,25 @@ export default function Productos() {
 
   const toggleOutOfCardsRapido = async (producto) => {
     try {
-      // Si el rebate NO está activo, activarlo primero
+      // Si ya tiene out_of_cards, desactivarlo
+      if (producto.out_of_cards) {
+        await axios.patch(
+          `${API_URL}/productos/${producto.item_id}/out-of-cards`,
+          { out_of_cards: false },
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        );
+        
+        // Cerrar modo edición si estaba abierto
+        if (editandoRebate === producto.item_id) {
+          setEditandoRebate(null);
+        }
+        
+        cargarProductos();
+        return;
+      }
+
+      // Si NO tiene out_of_cards, activarlo
+      // Primero, si el rebate NO está activo, activarlo
       if (!producto.participa_rebate) {
         await axios.patch(
           `${API_URL}/productos/${producto.item_id}/rebate`,
