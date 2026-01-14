@@ -1473,7 +1473,7 @@ export default function Productos() {
 
   // Sistema de navegación por teclado
   useEffect(() => {
-    const handleKeyDown = (e) => {
+    const handleKeyDown = async (e) => {
       // Si hay un modal abierto, NO procesar shortcuts de la página
       const hayModalAbierto = mostrarExportModal || mostrarCalcularWebModal || mostrarModalConfig || mostrarModalInfo || mostrarShortcutsHelp;
 
