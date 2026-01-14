@@ -1,3 +1,21 @@
+/* Variables CSS para colores de productos */
+:root {
+  --product-urgent-bg: #fee2e2;
+  --product-urgent-text: #991b1b;
+  --product-warning-bg: #fed7aa;
+  --product-warning-text: #9a3412;
+  --product-attention-bg: #fef3c7;
+  --product-attention-text: #92400e;
+  --product-ok-bg: #d1fae5;
+  --product-ok-text: #065f46;
+  --product-info-bg: #dbeafe;
+  --product-info-text: #1e40af;
+  --product-review-bg: #e9d5ff;
+  --product-review-text: #6b21a8;
+  --product-inactive-bg: #e5e7eb;
+  --product-inactive-text: #374151;
+}
+
 /* Contenedor principal */
 .productos-container {
   padding: 20px;

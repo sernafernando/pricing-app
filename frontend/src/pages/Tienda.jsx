@@ -939,20 +939,20 @@ export default function Tienda() {
   };
 
   const getMarkupColor = (markup) => {
-    if (markup === null || markup === undefined) return '#6b7280';
-    if (markup < 0) return '#ef4444';
-    if (markup < 1) return '#f97316';
-    return '#059669';
+    if (markup === null || markup === undefined) return 'var(--text-secondary)';
+    if (markup < 0) return 'var(--error)';
+    if (markup < 1) return 'var(--warning)';
+    return 'var(--success)';
   };
 
   const COLORES_DISPONIBLES = [
-    { id: 'rojo', nombre: 'Urgente', color: '#fee2e2', colorTexto: '#991b1b' },
-    { id: 'naranja', nombre: 'Advertencia', color: '#fed7aa', colorTexto: '#9a3412' },
-    { id: 'amarillo', nombre: 'Atención', color: '#fef3c7', colorTexto: '#92400e' },
-    { id: 'verde', nombre: 'OK', color: '#d1fae5', colorTexto: '#065f46' },
-    { id: 'azul', nombre: 'Info', color: '#dbeafe', colorTexto: '#1e40af' },
-    { id: 'purpura', nombre: 'Revisión', color: '#e9d5ff', colorTexto: '#6b21a8' },
-    { id: 'gris', nombre: 'Inactivo', color: '#e5e7eb', colorTexto: '#374151' },
+    { id: 'rojo', nombre: 'Urgente', color: 'var(--product-urgent-bg)', colorTexto: 'var(--product-urgent-text)' },
+    { id: 'naranja', nombre: 'Advertencia', color: 'var(--product-warning-bg)', colorTexto: 'var(--product-warning-text)' },
+    { id: 'amarillo', nombre: 'Atención', color: 'var(--product-attention-bg)', colorTexto: 'var(--product-attention-text)' },
+    { id: 'verde', nombre: 'OK', color: 'var(--product-ok-bg)', colorTexto: 'var(--product-ok-text)' },
+    { id: 'azul', nombre: 'Info', color: 'var(--product-info-bg)', colorTexto: 'var(--product-info-text)' },
+    { id: 'purpura', nombre: 'Revisión', color: 'var(--product-review-bg)', colorTexto: 'var(--product-review-text)' },
+    { id: 'gris', nombre: 'Inactivo', color: 'var(--product-inactive-bg)', colorTexto: 'var(--product-inactive-text)' },
     { id: null, nombre: 'Sin color', color: null, colorTexto: null },
   ];
 
@@ -3225,11 +3225,11 @@ export default function Tienda() {
                             fontWeight: '600',
                             marginLeft: '6px',
                             backgroundColor:
-                              p.catalog_status === 'winning' ? '#22c55e' :
-                              p.catalog_status === 'sharing_first_place' ? '#3b82f6' :
-                              p.catalog_status === 'competing' ? '#f59e0b' :
-                              '#6b7280',
-                            color: '#fff',
+                              p.catalog_status === 'winning' ? 'var(--success)' :
+                              p.catalog_status === 'sharing_first_place' ? 'var(--info)' :
+                              p.catalog_status === 'competing' ? 'var(--warning)' :
+                              'var(--text-secondary)',
+                            color: 'var(--text-inverse)',
                             whiteSpace: 'nowrap'
                           }}
                           title={
