@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { productosAPI } from '../services/api';
 import PricingModalTesla from '../components/PricingModalTesla';
 import { useDebounce } from '../hooks/useDebounce';
+import { useTiendaFilters } from '../hooks/useTiendaFilters';
 import './Tienda.css';
 import '../styles/table-tesla.css';
 import '../styles/buttons-tesla.css';
@@ -25,12 +26,57 @@ export default function Tienda() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
-  const [searchInput, setSearchInput] = useState('');
+  
+  // Custom hook para filtros (consolida 25+ estados)
+  const {
+    searchInput,
+    setSearchInput,
+    filtroStock,
+    setFiltroStock,
+    filtroPrecio,
+    setFiltroPrecio,
+    marcasSeleccionadas,
+    setMarcasSeleccionadas,
+    subcategoriasSeleccionadas,
+    setSubcategoriasSeleccionadas,
+    pmsSeleccionados,
+    setPmsSeleccionados,
+    coloresSeleccionados,
+    setColoresSeleccionados,
+    filtroRebate,
+    setFiltroRebate,
+    filtroOferta,
+    setFiltroOferta,
+    filtroWebTransf: filtroWebTransfFiltro,
+    setFiltroWebTransf: setFiltroWebTransfFiltro,
+    filtroTiendaNube,
+    setFiltroTiendaNube,
+    filtroOutOfCards,
+    setFiltroOutOfCards,
+    filtroMLA,
+    setFiltroMLA,
+    filtroEstadoMLA,
+    setFiltroEstadoMLA,
+    filtroNuevos,
+    setFiltroNuevos,
+    filtroMarkupClasica,
+    setFiltroMarkupClasica,
+    filtroMarkupRebate,
+    setFiltroMarkupRebate,
+    filtroMarkupOferta,
+    setFiltroMarkupOferta,
+    filtroMarkupWebTransf,
+    setFiltroMarkupWebTransf,
+    filtrosAuditoria,
+    setFiltrosAuditoria,
+    filtrosInicializados,
+    construirFiltrosParams,
+    limpiarTodosFiltros
+  } = useTiendaFilters();
+
   const [page, setPage] = useState(1);
   const [editandoPrecio, setEditandoPrecio] = useState(null);
   const [precioTemp, setPrecioTemp] = useState('');
-  const [filtroStock, setFiltroStock] = useState("todos");
-  const [filtroPrecio, setFiltroPrecio] = useState("todos");
   const [totalProductos, setTotalProductos] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [auditoriaVisible, setAuditoriaVisible] = useState(false);
@@ -42,40 +88,18 @@ export default function Tienda() {
   const [webTransfTemp, setWebTransfTemp] = useState({ participa: false, porcentaje: 6.0, preservar: false });
   const [mostrarCalcularWebModal, setMostrarCalcularWebModal] = useState(false);
   const [marcas, setMarcas] = useState([]);
-  const [marcasSeleccionadas, setMarcasSeleccionadas] = useState([]);
   const [busquedaMarca, setBusquedaMarca] = useState('');
   const [ordenColumna, setOrdenColumna] = useState(null);
   const [ordenDireccion, setOrdenDireccion] = useState('asc');
   const [ordenColumnas, setOrdenColumnas] = useState([]);
   const [subcategorias, setSubcategorias] = useState([]);
-  const [subcategoriasSeleccionadas, setSubcategoriasSeleccionadas] = useState([]);
   const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
   const [usuarios, setUsuarios] = useState([]);
   const [tiposAccion, setTiposAccion] = useState([]);
-  const [filtrosAuditoria, setFiltrosAuditoria] = useState({
-    usuarios: [],
-    tipos_accion: [],
-    fecha_desde: '',
-    fecha_hasta: ''
-  });
   const [panelFiltroActivo, setPanelFiltroActivo] = useState(null); // 'marcas', 'subcategorias', 'auditoria', null
-  const [filtroRebate, setFiltroRebate] = useState(null);
-  const [filtroOferta, setFiltroOferta] = useState(null);
-  const [filtroWebTransf, setFiltroWebTransf] = useState(null);
-  const [filtroTiendaNube, setFiltroTiendaNube] = useState(null); // con_descuento, sin_descuento, no_publicado
-  const [filtroMarkupClasica, setFiltroMarkupClasica] = useState(null);
-  const [filtroMarkupRebate, setFiltroMarkupRebate] = useState(null);
-  const [filtroMarkupOferta, setFiltroMarkupOferta] = useState(null);
-  const [filtroMarkupWebTransf, setFiltroMarkupWebTransf] = useState(null);
-  const [filtroOutOfCards, setFiltroOutOfCards] = useState(null);
-  const [filtroMLA, setFiltroMLA] = useState(null); // con_mla, sin_mla
-  const [filtroEstadoMLA, setFiltroEstadoMLA] = useState(null); // 'activa', 'pausada'
-  const [filtroNuevos, setFiltroNuevos] = useState(null); // ultimos_7_dias
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
   const [colorDropdownAbierto, setColorDropdownAbierto] = useState(null); // item_id del producto
-  const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
   const [pms, setPms] = useState([]);
-  const [pmsSeleccionados, setPmsSeleccionados] = useState([]);
   const [marcasPorPM, setMarcasPorPM] = useState([]); // Marcas filtradas por PMs seleccionados
   const [subcategoriasPorPM, setSubcategoriasPorPM] = useState([]); // Subcategorías filtradas por PMs seleccionados
 
@@ -119,6 +143,7 @@ export default function Tienda() {
 
   // Toast notification
   const [toast, setToast] = useState(null);
+  const toastTimeoutRef = useRef(null);
 
   // Modal de ban
   const [mostrarModalBan, setMostrarModalBan] = useState(false);
@@ -153,202 +178,37 @@ export default function Tienda() {
   const debouncedSearch = useDebounce(searchInput, 500);
 
   // URL Query Params para persistencia de filtros
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [filtrosInicializados, setFiltrosInicializados] = useState(false);
 
-  // Función para mostrar toast
-  const showToast = (message, type = 'success') => {
+  // Función para mostrar toast (memoizada para evitar re-creaciones)
+  const showToast = useCallback((message, type = 'success') => {
+    // Limpiar timeout anterior si existe
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3000); // Desaparece después de 3 segundos
-  };
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  // Cleanup del toast timeout al desmontar
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const API_URL = import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com.ar';
 
-  // Función para sincronizar filtros a la URL
-  const syncFiltersToURL = () => {
-    const params = new URLSearchParams();
-
-    // Search
-    if (searchInput) params.set('search', searchInput);
-
-    // Stock
-    if (filtroStock && filtroStock !== 'todos') params.set('stock', filtroStock);
-
-    // Precio
-    if (filtroPrecio && filtroPrecio !== 'todos') params.set('precio', filtroPrecio);
-
-    // Marcas (array -> comma separated string)
-    if (marcasSeleccionadas.length > 0) params.set('marcas', marcasSeleccionadas.join(','));
-
-    // Subcategorías
-    if (subcategoriasSeleccionadas.length > 0) params.set('subcats', subcategoriasSeleccionadas.join(','));
-
-    // PMs
-    if (pmsSeleccionados.length > 0) params.set('pms', pmsSeleccionados.join(','));
-
-    // Rebate
-    if (filtroRebate) params.set('rebate', filtroRebate);
-
-    // Oferta
-    if (filtroOferta) params.set('oferta', filtroOferta);
-
-    // Web Transf
-    if (filtroWebTransf) params.set('webtransf', filtroWebTransf);
-
-    // Tienda Nube
-    if (filtroTiendaNube) params.set('tiendanube', filtroTiendaNube);
-
-    // Markup Clásica
-    if (filtroMarkupClasica) params.set('mkclasica', filtroMarkupClasica);
-
-    // Markup Rebate
-    if (filtroMarkupRebate) params.set('mkrebate', filtroMarkupRebate);
-
-    // Markup Oferta
-    if (filtroMarkupOferta) params.set('mkoferta', filtroMarkupOferta);
-
-    // Markup Web Transf
-    if (filtroMarkupWebTransf) params.set('mkwebtransf', filtroMarkupWebTransf);
-
-    // Out of Cards
-    if (filtroOutOfCards) params.set('outofcards', filtroOutOfCards);
-
-    // MLA
-    if (filtroMLA) params.set('mla', filtroMLA);
-
-    // Estado MLA
-    if (filtroEstadoMLA) params.set('estado_mla', filtroEstadoMLA);
-
-    // Nuevos
-    if (filtroNuevos) params.set('nuevos', filtroNuevos);
-
-    // Colores
-    if (coloresSeleccionados.length > 0) params.set('colores', coloresSeleccionados.join(','));
-
-    // Página
-    if (page > 1) params.set('page', page.toString());
-
-    // Page Size
-    if (pageSize !== 50) params.set('pagesize', pageSize.toString());
-
-    // Filtros de Auditoría
-    if (filtrosAuditoria.usuarios.length > 0) params.set('audit_usuarios', filtrosAuditoria.usuarios.join(','));
-    if (filtrosAuditoria.tipos_accion.length > 0) params.set('audit_tipos', filtrosAuditoria.tipos_accion.join(','));
-    if (filtrosAuditoria.fecha_desde) params.set('audit_desde', filtrosAuditoria.fecha_desde);
-    if (filtrosAuditoria.fecha_hasta) params.set('audit_hasta', filtrosAuditoria.fecha_hasta);
-
-    setSearchParams(params, { replace: true });
-  };
-
-  // Función para cargar filtros desde la URL
-  const loadFiltersFromURL = () => {
-    const search = searchParams.get('search');
-    const stock = searchParams.get('stock');
-    const precio = searchParams.get('precio');
-    const marcas = searchParams.get('marcas');
-    const subcats = searchParams.get('subcats');
-    const pms = searchParams.get('pms');
-    const rebate = searchParams.get('rebate');
-    const oferta = searchParams.get('oferta');
-    const webtransf = searchParams.get('webtransf');
-    const tiendanube = searchParams.get('tiendanube');
-    const mkclasica = searchParams.get('mkclasica');
-    const mkrebate = searchParams.get('mkrebate');
-    const mkoferta = searchParams.get('mkoferta');
-    const mkwebtransf = searchParams.get('mkwebtransf');
-    const outofcards = searchParams.get('outofcards');
-    const mla = searchParams.get('mla');
-    const estado_mla = searchParams.get('estado_mla');
-    const nuevos = searchParams.get('nuevos');
-    const colores = searchParams.get('colores');
-    const pageParam = searchParams.get('page');
-    const pagesizeParam = searchParams.get('pagesize');
-    const auditUsuarios = searchParams.get('audit_usuarios');
-    const auditTipos = searchParams.get('audit_tipos');
-    const auditDesde = searchParams.get('audit_desde');
-    const auditHasta = searchParams.get('audit_hasta');
-
-    // Setear estados desde URL
-    if (search) setSearchInput(search);
-    if (stock) setFiltroStock(stock);
-    if (precio) setFiltroPrecio(precio);
-    if (marcas) setMarcasSeleccionadas(marcas.split(',').map(m => m.trim()).filter(Boolean));
-    if (subcats) setSubcategoriasSeleccionadas(subcats.split(',').map(s => s.trim()).filter(Boolean));
-    if (pms) setPmsSeleccionados(pms.split(',').map(p => p.trim()).filter(Boolean));
-    if (rebate) setFiltroRebate(rebate);
-    if (oferta) setFiltroOferta(oferta);
-    if (webtransf) setFiltroWebTransf(webtransf);
-    if (tiendanube) setFiltroTiendaNube(tiendanube);
-    if (mkclasica) setFiltroMarkupClasica(mkclasica);
-    if (mkrebate) setFiltroMarkupRebate(mkrebate);
-    if (mkoferta) setFiltroMarkupOferta(mkoferta);
-    if (mkwebtransf) setFiltroMarkupWebTransf(mkwebtransf);
-    if (outofcards) setFiltroOutOfCards(outofcards);
-    if (mla) setFiltroMLA(mla);
-    if (estado_mla) setFiltroEstadoMLA(estado_mla);
-    if (nuevos) setFiltroNuevos(nuevos);
-    if (colores) setColoresSeleccionados(colores.split(',').map(c => c.trim()).filter(Boolean));
-    if (pageParam) setPage(parseInt(pageParam, 10));
-    if (pagesizeParam) setPageSize(parseInt(pagesizeParam, 10));
-
-    // Filtros de Auditoría
-    if (auditUsuarios || auditTipos || auditDesde || auditHasta) {
-      setFiltrosAuditoria({
-        usuarios: auditUsuarios ? auditUsuarios.split(',').map(u => u.trim()).filter(Boolean) : [],
-        tipos_accion: auditTipos ? auditTipos.split(',').map(t => t.trim()).filter(Boolean) : [],
-        fecha_desde: auditDesde || '',
-        fecha_hasta: auditHasta || ''
-      });
-    }
-  };
-
-  // useEffect inicial: cargar filtros desde URL al montar el componente
-  useEffect(() => {
-    loadFiltersFromURL();
-    // Marcar que los filtros ya fueron inicializados
-    setFiltrosInicializados(true);
-  }, []); // Solo al montar
-
-  // useEffect para sincronizar filtros a URL cuando cambian
-  useEffect(() => {
-    // Solo sincronizar después de que los filtros fueron inicializados desde URL
-    if (filtrosInicializados) {
-      syncFiltersToURL();
-    }
-  }, [
-    filtrosInicializados,
-    searchInput,
-    filtroStock,
-    filtroPrecio,
-    marcasSeleccionadas,
-    subcategoriasSeleccionadas,
-    pmsSeleccionados,
-    filtroRebate,
-    filtroOferta,
-    filtroWebTransf,
-    filtroTiendaNube,
-    filtroMarkupClasica,
-    filtroMarkupRebate,
-    filtroMarkupOferta,
-    filtroMarkupWebTransf,
-    filtroOutOfCards,
-    filtroMLA,
-    filtroEstadoMLA,
-    filtroNuevos,
-    coloresSeleccionados,
-    page,
-    pageSize,
-    filtrosAuditoria
-  ]);
-
   useEffect(() => {
     cargarProductos();
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos]);
+  }, [ page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransfFiltro, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos]);
 
   // Cargar stats dinámicos cada vez que cambian los filtros
   useEffect(() => {
     cargarStats();
-  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos]);
+  }, [ debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransfFiltro, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos]);
 
   // Cargar marcas y subcategorías cuando se seleccionan PMs
   useEffect(() => {
@@ -372,60 +232,20 @@ export default function Tienda() {
       }
     };
     cargarDatosPorPM();
-  }, [pmsSeleccionados]);
+  }, [pmsSeleccionados, showToast]);
 
-  const cargarStats = async () => {
+  const cargarStats = useCallback(async () => {
     try {
-      // Construir parámetros con todos los filtros activos (igual que cargarProductos)
-      const params = {};
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (filtroStock === 'con_stock') params.con_stock = true;
-      if (filtroStock === 'sin_stock') params.con_stock = false;
-      if (filtroPrecio === 'con_precio') params.con_precio = true;
-      if (filtroPrecio === 'sin_precio') params.con_precio = false;
-      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
-      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
-      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-      if (filtroRebate === 'con_rebate') params.con_rebate = true;
-      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-      if (filtroOferta === 'con_oferta') params.con_oferta = true;
-      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-      if (filtroMLA === 'con_mla') params.con_mla = true;
-      if (filtroMLA === 'sin_mla') params.con_mla = false;
-      if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
-      if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
-      if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
-      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-      if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
-
-      // Cargar estadísticas dinámicas según filtros aplicados
+      const params = construirFiltrosParams();
       const statsRes = await productosAPI.statsDinamicos(params);
       setStats(statsRes.data);
     } catch (error) {
       showToast('Error cargando estadísticas', 'error');
     }
-  };
+  }, [construirFiltrosParams, showToast]);
 
   // Cargar configuración de Web Tarjeta
-  const cargarConfigWebTarjeta = async () => {
+  const cargarConfigWebTarjeta = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/markups-tienda/config/markup_web_tarjeta`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
@@ -434,9 +254,9 @@ export default function Tienda() {
     } catch (error) {
       showToast('Error cargando configuración web tarjeta', 'error');
     }
-  };
+  }, [API_URL, showToast]);
 
-  const cargarDolarVenta = async () => {
+  const cargarDolarVenta = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(`${API_URL}/tipo-cambio/actual`, {
@@ -446,25 +266,27 @@ export default function Tienda() {
     } catch (error) {
       showToast('Error cargando cotización dólar', 'error');
     }
-  };
+  }, [API_URL, showToast]);
 
+  // useEffect para cargar datos iniciales al montar el componente
   useEffect(() => {
     cargarUsuariosAuditoria();
     cargarTiposAccion();
     cargarPMs();
     cargarConfigWebTarjeta();
     cargarDolarVenta();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Recargar marcas cuando cambien filtros (excepto marcasSeleccionadas)
   useEffect(() => {
     cargarMarcas();
-  }, [debouncedSearch, filtroStock, filtroPrecio, subcategoriasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
+  }, [ debouncedSearch, filtroStock, filtroPrecio, subcategoriasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransfFiltro, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
 
   // Recargar subcategorías cuando cambien filtros (excepto subcategoriasSeleccionadas)
   useEffect(() => {
     cargarSubcategorias();
-  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
+  }, [ debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransfFiltro, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
 
   // Copiar enlaces al clipboard con Ctrl+F1/F2/F3 o Ctrl+Shift+1/2/3 (alternativa para Linux)
   useEffect(() => {
@@ -646,47 +468,16 @@ export default function Tienda() {
     return matchBusqueda;
   });
 
-  const cargarMarcas = async () => {
+  const cargarMarcas = useCallback(async () => {
     try {
-      // Construir params con filtros activos (excluyendo marcas)
-      const params = {};
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (filtroStock === 'con_stock') params.con_stock = true;
-      if (filtroStock === 'sin_stock') params.con_stock = false;
-      if (filtroPrecio === 'con_precio') params.con_precio = true;
-      if (filtroPrecio === 'sin_precio') params.con_precio = false;
-      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
-      if (filtroRebate === 'con_rebate') params.con_rebate = true;
-      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-      if (filtroOferta === 'con_oferta') params.con_oferta = true;
-      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-
+      // Excluir marcas de los filtros para evitar filtrado circular
+      const params = construirFiltrosParams({ incluirMarcas: false });
       const response = await productosAPI.marcas(params);
       setMarcas(response.data.marcas);
     } catch (error) {
       showToast('Error cargando marcas', 'error');
     }
-  };
+  }, [construirFiltrosParams, showToast]);
 
   const iniciarEdicionWebTransf = (producto) => {
     setEditandoWebTransf(producto.item_id);
@@ -751,90 +542,14 @@ export default function Tienda() {
     return fecha.toLocaleString('es-AR', opciones);
   };
 
-  const cargarProductos = async () => {
+  const cargarProductos = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { page, page_size: pageSize };
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (filtroStock === 'con_stock') params.con_stock = true;
-      if (filtroStock === 'sin_stock') params.con_stock = false;
-      if (filtroPrecio === 'con_precio') params.con_precio = true;
-      if (filtroPrecio === 'sin_precio') params.con_precio = false;
-      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
-      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
-      if (filtrosAuditoria.usuarios.length > 0) {
-        params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      }
-      if (filtrosAuditoria.tipos_accion.length > 0) {
-        params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      }
-      if (filtrosAuditoria.fecha_desde) {
-        params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      }
-      if (filtrosAuditoria.fecha_hasta) {
-        params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-      }
-
-      if (filtroRebate === 'con_rebate') params.con_rebate = true;
-      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-      if (filtroOferta === 'con_oferta') params.con_oferta = true;
-      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-
-      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-
-      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-
-      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-
-      if (filtroMLA === 'con_mla') params.con_mla = true;
-      if (filtroMLA === 'sin_mla') params.con_mla = false;
-
-      if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
-      if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
-
-      if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
-
-      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-
-      if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
-
-      if (ordenColumnas.length > 0) {
-        params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
-        params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
-      }
-
-      /*const productosRes = await productosAPI.listar(params);
-      setTotalProductos(productosRes.data.total || productosRes.data.productos.length);*/
-
-      /*const productosConDatos = await Promise.all(
-        productosRes.data.productos.map(async (p) => {
-          const ofertasRes = await axios.get(`${API_URL}/productos/${p.item_id}/ofertas-vigentes`).catch(() => null);
-
-          const ofertaMinima = ofertasRes?.data.publicaciones
-            .filter(pub => pub.tiene_oferta)
-            .sort((a, b) => a.oferta.precio_final - b.oferta.precio_final)[0];
-
-          return {
-            ...p,
-            // mejor_oferta: ofertaMinima
-            // p.markup ya viene del backend, no hace falta calcularlo
-          };
-        })
-      );
-      setProductos(productosConDatos);*/
-
+      const params = construirFiltrosParams();
+      
+      params.page = page;
+      params.page_size = pageSize;
+      
       if (ordenColumnas.length > 0) {
         params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
         params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
@@ -849,82 +564,18 @@ export default function Tienda() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [construirFiltrosParams, page, pageSize, ordenColumnas, showToast]);
 
-  const cargarSubcategorias = async () => {
+  const cargarSubcategorias = useCallback(async () => {
     try {
-      // Construir params con filtros activos (excluyendo subcategorías)
-      const params = {};
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (filtroStock === 'con_stock') params.con_stock = true;
-      if (filtroStock === 'sin_stock') params.con_stock = false;
-      if (filtroPrecio === 'con_precio') params.con_precio = true;
-      if (filtroPrecio === 'sin_precio') params.con_precio = false;
-      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
-      if (filtroRebate === 'con_rebate') params.con_rebate = true;
-      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-      if (filtroOferta === 'con_oferta') params.con_oferta = true;
-      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-
+      // Excluir subcategorías de los filtros para evitar filtrado circular
+      const params = construirFiltrosParams({ incluirSubcategorias: false });
       const response = await productosAPI.subcategorias(params);
       setSubcategorias(response.data.categorias);
     } catch (error) {
       showToast('Error cargando subcategorías', 'error');
     }
-  };
-
-  const limpiarTodosFiltros = () => {
-    setSearchInput('');
-    setFiltroStock("todos");
-    setFiltroPrecio("todos");
-    setMarcasSeleccionadas([]);
-    setSubcategoriasSeleccionadas([]);
-    setPmsSeleccionados([]);
-    setFiltrosAuditoria({
-      usuarios: [],
-      tipos_accion: [],
-      fecha_desde: '',
-      fecha_hasta: ''
-    });
-    setFiltroRebate(null);
-    setFiltroOferta(null);
-    setFiltroWebTransf(null);
-    setFiltroTiendaNube(null);
-    setFiltroMarkupClasica(null);
-    setFiltroMarkupRebate(null);
-    setFiltroMarkupOferta(null);
-    setFiltroMarkupWebTransf(null);
-    setFiltroOutOfCards(null);
-    setFiltroMLA(null);
-    setFiltroEstadoMLA(null);
-    setFiltroNuevos(null);
-    setColoresSeleccionados([]);
-    setOrdenColumnas([]);
-    setPage(1);
-
-    // Limpiar también la URL
-    setSearchParams({}, { replace: true });
-  };
+  }, [construirFiltrosParams, showToast]);
 
   const verAuditoria = async (productoId) => {
     try {
@@ -1471,7 +1122,7 @@ export default function Tienda() {
     });
   };
 
-  const cargarUsuariosAuditoria = async () => {
+  const cargarUsuariosAuditoria = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/auditoria/usuarios`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
@@ -1480,9 +1131,9 @@ export default function Tienda() {
     } catch (error) {
       showToast('Error cargando usuarios', 'error');
     }
-  };
+  }, [API_URL, showToast]);
 
-  const cargarTiposAccion = async () => {
+  const cargarTiposAccion = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/auditoria/tipos-accion`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
@@ -1491,9 +1142,9 @@ export default function Tienda() {
     } catch (error) {
       showToast('Error cargando tipos de acción', 'error');
     }
-  };
+  }, [API_URL, showToast]);
 
-  const cargarPMs = async () => {
+  const cargarPMs = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/usuarios/pms?solo_con_marcas=true`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
@@ -1502,7 +1153,7 @@ export default function Tienda() {
     } catch (error) {
       showToast('Error cargando PMs', 'error');
     }
-  };
+  }, [API_URL, showToast]);
 
   // Sistema de navegación por teclado
   useEffect(() => {
@@ -2097,8 +1748,8 @@ export default function Tienda() {
     else setFiltroNuevos(filtros.nuevos);
 
     // Limpiar otros filtros avanzados
-    if (filtros.webTransf === undefined) setFiltroWebTransf(null);
-    else setFiltroWebTransf(filtros.webTransf);
+    if (filtros.webTransf === undefined) setFiltroWebTransfFiltro(null);
+    else setFiltroWebTransfFiltro(filtros.webTransf);
 
     setFiltroOutOfCards(null);
 
@@ -2110,7 +1761,7 @@ export default function Tienda() {
     setFiltroPrecio("todos");
     setFiltroRebate(null);
     setFiltroOferta(null);
-    setFiltroWebTransf(null);
+    setFiltroWebTransfFiltro(null);
     setFiltroTiendaNube(null);
     setFiltroMarkupClasica(null);
     setFiltroMarkupRebate(null);
@@ -2864,7 +2515,7 @@ export default function Tienda() {
               onClick={() => {
                 setFiltroRebate(null);
                 setFiltroOferta(null);
-                setFiltroWebTransf(null);
+                setFiltroWebTransfFiltro(null);
                 setFiltroTiendaNube(null);
                 setFiltroMarkupClasica(null);
                 setFiltroMarkupRebate(null);
@@ -2918,7 +2569,7 @@ export default function Tienda() {
                   <label>💳 Web Transferencia</label>
                   <select
                     value={filtroWebTransf || 'todos'}
-                    onChange={(e) => { setFiltroWebTransf(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    onChange={(e) => { setFiltroWebTransfFiltro(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
                     className="filter-select-compact"
                   >
                     <option value="todos">Todos</option>
@@ -3072,7 +2723,7 @@ export default function Tienda() {
                     className="color-checkbox"
                     style={{
                       backgroundColor: c.color || 'var(--bg-primary)',
-                      border: coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) ? '3px solid #000' : '2px solid #ccc',
+                      border: coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) ? '3px solid var(--text-primary)' : '2px solid var(--border-primary)',
                       cursor: 'pointer',
                       width: '40px',
                       height: '40px',
@@ -3469,7 +3120,7 @@ export default function Tienda() {
                       <div>
                         {/* Mostrar precios de Tienda Nube si existen */}
                         {(p.tn_price || p.tn_promotional_price) && (
-                          <div className="web-transf-info" style={{ marginBottom: '8px', borderBottom: '1px solid #e5e7eb', paddingBottom: '6px' }}>
+                          <div className="web-transf-info" style={{ marginBottom: '8px', borderBottom: '1px solid var(--border-primary)', paddingBottom: '6px' }}>
                             {p.tn_has_promotion && p.tn_promotional_price ? (
                               <div>
                                 <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--success)', display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -3533,7 +3184,7 @@ export default function Tienda() {
                             }}
                             onFocus={(e) => e.target.select()}
                             placeholder="%"
-                            style={{ width: '60px', padding: '4px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+                            style={{ width: '60px', padding: '4px', borderRadius: '4px', border: '1px solid var(--border-primary)' }}
                           />
                           <label className="web-transf-checkbox" style={{ fontSize: '11px', marginLeft: '8px' }}>
                             <input
@@ -4087,42 +3738,20 @@ export default function Tienda() {
 
       {/* Barra de acciones flotante para selección múltiple */}
       {productosSeleccionados.size > 0 && (
-        <div style={{
-          position: 'fixed',
-          bottom: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          backgroundColor: 'var(--brand-primary)',
-          color: 'white',
-          padding: '15px 25px',
-          borderRadius: '8px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '15px'
-        }}>
-          <span style={{ fontWeight: 'bold' }}>
+        <div className="selection-bar">
+          <span className="selection-bar-count">
             {productosSeleccionados.size} producto{productosSeleccionados.size !== 1 ? 's' : ''} seleccionado{productosSeleccionados.size !== 1 ? 's' : ''}
           </span>
           {puedeMarcarColorLote && (
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div className="selection-bar-colors">
             {COLORES_DISPONIBLES.map(c => (
               <button
                 key={c.id}
                 onClick={() => pintarLote(c.id)}
-                style={{
-                  width: '30px',
-                  height: '30px',
-                  borderRadius: '4px',
-                  border: '2px solid white',
-                  backgroundColor: c.color || 'var(--bg-secondary)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
+                className="selection-bar-color-btn"
+                style={{ backgroundColor: c.color || 'var(--bg-secondary)' }}
                 title={c.nombre}
+                aria-label={`Pintar lote como ${c.nombre}`}
               >
                 {!c.id && '✕'}
               </button>
@@ -4131,15 +3760,8 @@ export default function Tienda() {
           )}
           <button
             onClick={limpiarSeleccion}
-            style={{
-              backgroundColor: 'var(--error)',
-              color: 'white',
-              border: 'none',
-              padding: '8px 15px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontWeight: 'bold'
-            }}
+            className="selection-bar-btn selection-bar-btn-cancel"
+            aria-label="Cancelar selección"
           >
             Cancelar
           </button>
@@ -4171,7 +3793,7 @@ export default function Tienda() {
                     width: '100%',
                     padding: '8px',
                     borderRadius: '4px',
-                    border: '1px solid #d1d5db'
+                    border: '1px solid var(--border-primary)'
                   }}
                 >
                   <option value="null">Usar configuración global ({recalcularCuotasAuto ? 'Sí' : 'No'})</option>
@@ -4197,7 +3819,7 @@ export default function Tienda() {
                     width: '100%',
                     padding: '8px',
                     borderRadius: '4px',
-                    border: '1px solid #d1d5db'
+                    border: '1px solid var(--border-primary)'
                   }}
                 />
                 <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '5px' }}>
@@ -4211,8 +3833,8 @@ export default function Tienda() {
                   style={{
                     padding: '10px 20px',
                     borderRadius: '4px',
-                    border: '1px solid #d1d5db',
-                    backgroundColor: 'white',
+                    border: '1px solid var(--border-primary)',
+                    backgroundColor: 'var(--bg-primary)',
                     cursor: 'pointer'
                   }}
                 >
@@ -4225,7 +3847,7 @@ export default function Tienda() {
                     borderRadius: '4px',
                     border: 'none',
                     backgroundColor: 'var(--brand-primary)',
-                    color: 'white',
+                    color: 'var(--text-inverse)',
                     cursor: 'pointer',
                     fontWeight: 'bold'
                   }}

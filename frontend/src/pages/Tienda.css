@@ -2072,3 +2072,372 @@
     opacity: 1;
   }
 }
+
+
+/* Floating selection bar */
+.selection-bar {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--brand-primary);
+  color: var(--text-inverse);
+  padding: 15px 25px;
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.selection-bar-count {
+  font-weight: bold;
+}
+
+.selection-bar-colors {
+  display: flex;
+  gap: 8px;
+}
+
+.selection-bar-color-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  border: 2px solid var(--text-inverse);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.selection-bar-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  transition: opacity 0.2s;
+}
+
+.selection-bar-btn:hover {
+  opacity: 0.9;
+}
+
+.selection-bar-btn-cancel {
+  background: var(--error);
+  color: var(--text-inverse);
+}
+
+/* Utility classes for inline styles removal */
+.text-center {
+  text-align: center;
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.flex-row {
+  display: flex;
+  flex-direction: row;
+}
+
+.flex-wrap {
+  flex-wrap: wrap;
+}
+
+.gap-4 {
+  gap: 4px;
+}
+
+.gap-6 {
+  gap: 6px;
+}
+
+.gap-8 {
+  gap: 8px;
+}
+
+.align-center {
+  align-items: center;
+}
+
+.empty-state {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.filter-flex-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.color-checkbox-icon {
+  font-size: 20px;
+  line-height: 1;
+  display: block;
+}
+
+.col-narrow {
+  width: 40px;
+  text-align: center;
+}
+
+.clickable-code {
+  cursor: pointer;
+}
+
+.precio-gremio-header {
+  font-size: 10px;
+  color: var(--info);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.precio-gremio-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.precio-gremio-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.precio-input-sm {
+  width: 95px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.precio-input-xs {
+  width: 80px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.input-separator {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.markup-hint {
+  font-size: 9px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.gremio-markup-label {
+  font-size: 11px;
+  font-weight: 500;
+  min-width: 60px;
+}
+
+.gremio-markup-calculated {
+  font-size: 10px;
+  color: var(--success);
+  margin-top: 2px;
+  padding: 4px;
+  background: var(--success-light);
+  border-radius: 3px;
+}
+
+.web-transf-section {
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-primary);
+  padding-bottom: 6px;
+}
+
+.web-transf-price-row {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--success);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.web-transf-markup-label {
+  font-size: 11px;
+  color: var(--info);
+  font-weight: 500;
+}
+
+.web-transf-participa-row {
+  font-size: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.web-transf-input-sm {
+  width: 60px;
+  padding: 4px;
+  border-radius: 4px;
+  border: 1px solid var(--border-primary);
+}
+
+.web-transf-checkbox-label {
+  font-size: 11px;
+  margin-left: 8px;
+}
+
+.lock-icon {
+  margin-left: 4px;
+  font-size: 10px;
+}
+
+.color-dropdown-relative {
+  position: relative;
+  display: inline-block;
+}
+
+.ban-icon-btn {
+  color: var(--error);
+}
+
+.auditoria-cell {
+  font-size: 0.9em;
+}
+
+.modal-content-config {
+  padding: 20px;
+}
+
+.modal-title-config {
+  margin-bottom: 10px;
+}
+
+.modal-subtitle {
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.config-section {
+  margin-bottom: 20px;
+}
+
+.config-label {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.config-select {
+  width: 100%;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.config-input {
+  width: 100%;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.config-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 5px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.color-checkbox {
+  cursor: pointer;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.shortcuts-modal-config {
+  max-width: 500px;
+}
+
+.config-select-full {
+  width: 100%;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.btn-modal-cancel {
+  padding: 10px 20px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btn-modal-cancel:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.btn-modal-primary {
+  padding: 10px 20px;
+  background-color: var(--brand-primary);
+  color: var(--text-inverse);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btn-modal-primary:hover {
+  opacity: 0.9;
+}
+
+.catalog-badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 6px;
+  color: var(--text-inverse);
+  white-space: nowrap;
+}
+
+.price-strikethrough {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-decoration: line-through;
+}
