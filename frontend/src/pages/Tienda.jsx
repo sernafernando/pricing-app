@@ -2000,12 +2000,12 @@ export default function Tienda() {
 
           <button
             onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
-            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
+            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransfFiltro || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
           >
             Avanzados
-            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) && (
+            {(filtroRebate || filtroOferta || filtroWebTransfFiltro || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) && (
               <span className="filter-badge">
-                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length}
+                {[filtroRebate, filtroOferta, filtroWebTransfFiltro, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length}
               </span>
             )}
           </button>
@@ -2567,7 +2567,7 @@ export default function Tienda() {
                 <div className="filter-item">
                   <label>💳 Web Transferencia</label>
                   <select
-                    value={filtroWebTransf || 'todos'}
+                    value={filtroWebTransfFiltro || 'todos'}
                     onChange={(e) => { setFiltroWebTransfFiltro(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
                     className="filter-select-compact"
                   >
@@ -3619,7 +3619,7 @@ export default function Tienda() {
             pmsSeleccionados,
             filtroRebate,
             filtroOferta,
-            filtroWebTransf,
+            filtroWebTransfFiltro,
             filtroMarkupClasica,
             filtroMarkupRebate,
             filtroMarkupOferta,
@@ -3650,7 +3650,7 @@ export default function Tienda() {
             pmsSeleccionados,
             filtroRebate,
             filtroOferta,
-            filtroWebTransf,
+            filtroWebTransfFiltro,
             filtroTiendaNube,
             filtroMarkupClasica,
             filtroMarkupRebate,
