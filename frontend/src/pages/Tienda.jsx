@@ -1883,11 +1883,20 @@ export default function Tienda() {
   // Scroll automático para seguir la celda activa
   useEffect(() => {
     if (modoNavegacion && celdaActiva) {
+      // DEBUG: Verificar que el useEffect se ejecuta
+      console.log('[SCROLL DEBUG] useEffect ejecutado', { modoNavegacion, celdaActiva });
+      
       // Buscar la fila activa en el DOM
-      const tabla = document.querySelector('.table-tesla-body');
-      if (tabla) {
-        const filas = tabla.querySelectorAll('tr');
+      const tbody = document.querySelector('.table-tesla-body');
+      console.log('[SCROLL DEBUG] tbody encontrado:', tbody);
+      
+      if (tbody) {
+        const filas = tbody.querySelectorAll('tr');
+        console.log('[SCROLL DEBUG] cantidad de filas:', filas.length);
+        
         const filaActiva = filas[celdaActiva.rowIndex];
+        console.log('[SCROLL DEBUG] filaActiva:', filaActiva, 'rowIndex:', celdaActiva.rowIndex);
+        
         if (filaActiva) {
           // Hacer scroll para que la fila esté visible (sin tirones)
           filaActiva.scrollIntoView({
@@ -1895,6 +1904,7 @@ export default function Tienda() {
             block: 'nearest',  // No forzar centrado
             inline: 'nearest'
           });
+          console.log('[SCROLL DEBUG] scrollIntoView ejecutado');
         }
       }
     }
