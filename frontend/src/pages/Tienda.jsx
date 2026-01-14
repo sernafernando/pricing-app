@@ -360,7 +360,7 @@ export default function Tienda() {
           setMarcasPorPM(marcasRes.data.marcas);
           setSubcategoriasPorPM(subcatsRes.data.subcategorias.map(s => s.id));
         } catch (error) {
-          console.error('Error cargando datos por PM:', error);
+          showToast('Error cargando datos por PM', 'error');
           setMarcasPorPM([]);
           setSubcategoriasPorPM([]);
         }
@@ -418,128 +418,7 @@ export default function Tienda() {
       const statsRes = await productosAPI.statsDinamicos(params);
       setStats(statsRes.data);
     } catch (error) {
-      console.error('Error cargando stats:', error);
-    }
-  };
-
-  const cargarStatsOLD = async () => {
-    try {
-      // VERSIÓN ANTERIOR - Traer TODOS los productos filtrados (sin paginación) para calcular stats
-      const params = {};
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (filtroStock === 'con_stock') params.con_stock = true;
-      if (filtroStock === 'sin_stock') params.con_stock = false;
-      if (filtroPrecio === 'con_precio') params.con_precio = true;
-      if (filtroPrecio === 'sin_precio') params.con_precio = false;
-      if (marcasSeleccionadas.length > 0) params.marcas = marcasSeleccionadas.join(',');
-      if (subcategoriasSeleccionadas.length > 0) params.subcategorias = subcategoriasSeleccionadas.join(',');
-      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-      if (filtroRebate === 'con_rebate') params.con_rebate = true;
-      if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-      if (filtroOferta === 'con_oferta') params.con_oferta = true;
-      if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-      if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-      if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-      if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-      if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-      if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-      if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-      if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-      if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-      if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-      if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-      if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-      if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-      if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-      if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-      if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-      if (filtroMLA === 'con_mla') params.con_mla = true;
-      if (filtroMLA === 'sin_mla') params.con_mla = false;
-      if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
-      if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
-      if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
-      if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-      if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
-
-      // Primero traer el total para saber cuántos productos filtrados hay
-      const countRes = await productosAPI.listarTienda({ ...params, page: 1, page_size: 1 });
-      const totalFiltrados = countRes.data.total || 0;
-
-      // Ahora traer TODOS los productos filtrados
-      params.page = 1;
-      params.page_size = totalFiltrados || 9999;
-
-      const todosRes = await productosAPI.listarTienda(params);
-      const todosProductos = todosRes.data.productos;
-
-      // Calcular estadísticas sobre TODOS los productos filtrados
-      const fechaLimiteNuevos = new Date();
-      fechaLimiteNuevos.setDate(fechaLimiteNuevos.getDate() - 7);
-
-      let nuevos = 0;
-      let nuevos_sin_precio = 0;
-      let stock_sin_precio = 0;
-      let sin_mla = 0;
-      let sin_mla_con_stock = 0;
-      let sin_mla_sin_stock = 0;
-      let sin_mla_nuevos = 0;
-      let oferta_sin_rebate = 0;
-      let markup_neg_clasica = 0;
-      let markup_neg_rebate = 0;
-      let markup_neg_oferta = 0;
-      let markup_neg_web = 0;
-      let con_stock = 0;
-      let con_precio = 0;
-
-      todosProductos.forEach(p => {
-        // Con stock
-        if (p.stock > 0) con_stock++;
-
-        // Con precio
-        if (p.precio_lista_ml) con_precio++;
-
-        // Nuevos (últimos 7 días)
-        const esNuevo = p.fecha_sync && new Date(p.fecha_sync) >= fechaLimiteNuevos;
-        if (esNuevo) {
-          nuevos++;
-          if (!p.precio_lista_ml) nuevos_sin_precio++;
-        }
-
-        // Stock sin precio
-        if (p.stock > 0 && !p.precio_lista_ml) stock_sin_precio++;
-
-        // Sin MLA
-        if (!p.tiene_mla) {
-          sin_mla++;
-          if (p.stock > 0) sin_mla_con_stock++;
-          else sin_mla_sin_stock++;
-          if (esNuevo) sin_mla_nuevos++;
-        }
-
-        // Oferta sin rebate
-        if (p.tiene_oferta && !p.participa_rebate) oferta_sin_rebate++;
-
-        // Markup negativo clásica
-        if (p.markup_calculado < 0) markup_neg_clasica++;
-
-        // Markup negativo rebate
-        if (p.participa_rebate && p.precio_lista_ml && p.costo) {
-          const precioRebate = p.precio_lista_ml * (1 - (p.porcentaje_rebate || 0) / 100);
-          if (precioRebate < p.costo) markup_neg_rebate++;
-        }
-
-        // Markup negativo oferta
-        if (p.precio_3_cuotas && p.costo && p.precio_3_cuotas < p.costo) markup_neg_oferta++;
-
-        // Markup negativo web
-        if (p.participa_web_transferencia && p.precio_web_transferencia && p.costo && p.precio_web_transferencia < p.costo) {
-          markup_neg_web++;
-        }
-      });
-
+      showToast('Error cargando estadísticas', 'error');
       setStats({
         total_productos: todosProductos.length,
         nuevos_ultimos_7_dias: nuevos,
@@ -558,7 +437,7 @@ export default function Tienda() {
         con_precio: con_precio
       });
     } catch (error) {
-      console.error('Error cargando stats:', error);
+      showToast('Error cargando estadísticas', 'error');
     }
   };
 
@@ -570,7 +449,7 @@ export default function Tienda() {
       });
       setMarkupWebTarjeta(response.data.valor || 0);
     } catch (error) {
-      console.error('Error cargando config web tarjeta:', error);
+      showToast('Error cargando configuración web tarjeta', 'error');
     }
   };
 
@@ -582,7 +461,7 @@ export default function Tienda() {
       });
       setDolarVenta(response.data.venta);
     } catch (error) {
-      console.error('Error cargando dólar venta:', error);
+      showToast('Error cargando cotización dólar', 'error');
     }
   };
 
@@ -670,7 +549,6 @@ export default function Tienda() {
             showToast(`✅ Código copiado: ${itemCode}`);
           }).catch(err => {
             showToast('❌ Error al copiar al portapapeles', 'error');
-            console.error('Error al copiar:', err);
           });
         }
 
@@ -681,7 +559,6 @@ export default function Tienda() {
             showToast(`✅ Enlace 1 copiado: ${itemCode}`);
           }).catch(err => {
             showToast('❌ Error al copiar al portapapeles', 'error');
-            console.error('Error al copiar:', err);
           });
         }
 
@@ -692,7 +569,6 @@ export default function Tienda() {
             showToast(`✅ Enlace 2 copiado: ${itemCode}`);
           }).catch(err => {
             showToast('❌ Error al copiar al portapapeles', 'error');
-            console.error('Error al copiar:', err);
           });
         }
       }
@@ -825,7 +701,7 @@ export default function Tienda() {
       const response = await productosAPI.marcas(params);
       setMarcas(response.data.marcas);
     } catch (error) {
-      console.error('Error cargando marcas:', error);
+      showToast('Error cargando marcas', 'error');
     }
   };
 
@@ -872,8 +748,7 @@ export default function Tienda() {
 
       setEditandoWebTransf(null);
     } catch (error) {
-      console.error('Error al guardar web transferencia:', error);
-      alert('Error al guardar');
+      showToast('Error al guardar web transferencia', 'error');
     }
   };
 
@@ -987,7 +862,7 @@ export default function Tienda() {
       setProductos(productosRes.data.productos);
 
     } catch (error) {
-      console.error('Error:', error);
+      showToast('Error cargando datos', 'error');
     } finally {
       setLoading(false);
     }
@@ -1031,7 +906,7 @@ export default function Tienda() {
       const response = await productosAPI.subcategorias(params);
       setSubcategorias(response.data.categorias);
     } catch (error) {
-      console.error('Error cargando subcategorías:', error);
+      showToast('Error cargando subcategorías', 'error');
     }
   };
 
@@ -1078,8 +953,7 @@ export default function Tienda() {
       setAuditoriaData(response.data);
       setAuditoriaVisible(true);
     } catch (error) {
-      console.error('Error cargando auditoría:', error);
-      alert('Error al cargar el historial');
+      showToast('Error al cargar el historial', 'error');
     }
   };
 
@@ -1104,7 +978,6 @@ export default function Tienda() {
   const cambiarColorProducto = async (itemId, color) => {
     try {
       const token = localStorage.getItem('token');
-      console.log('Cambiando color desde dropdown:', { itemId, color });
       await axios.patch(
         `${API_URL}/productos/${itemId}/color-tienda`,
         { color },  // Enviar en el body, no en params
@@ -1115,9 +988,7 @@ export default function Tienda() {
       setColorDropdownAbierto(null);
       cargarProductos();
     } catch (error) {
-      console.error('Error cambiando color:', error);
-      console.error('Detalles:', error.response?.data);
-      alert('Error al cambiar el color');
+      showToast('Error al cambiar el color', 'error');
     }
   };
 
@@ -1129,7 +1000,7 @@ export default function Tienda() {
       .map(p => p.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ]/g, ''));
 
     if (palabras.length === 0) {
-      alert('No hay palabras suficientes en la descripción del producto');
+      showToast('No hay palabras suficientes en la descripción del producto', 'error');
       return;
     }
 
@@ -1146,7 +1017,7 @@ export default function Tienda() {
   const confirmarBan = async () => {
     // Verificar palabra
     if (palabraVerificacion.toLowerCase() !== palabraObjetivo.toLowerCase()) {
-      alert('La palabra de verificación no coincide');
+      showToast('La palabra de verificación no coincide', 'error');
       return;
     }
 
@@ -1174,8 +1045,7 @@ export default function Tienda() {
       // Recargar productos para reflejar el cambio
       cargarProductos();
     } catch (error) {
-      console.error('Error al banear producto:', error);
-      alert(`Error: ${error.response?.data?.detail || error.message}`);
+      showToast(`Error: ${error.response?.data?.detail || error.message}`, 'error');
     }
   };
 
@@ -1229,7 +1099,7 @@ export default function Tienda() {
       setEditandoCuota(null);
       cargarStats();
     } catch (error) {
-      alert('Error al guardar precio de cuota');
+      showToast('Error al guardar precio de cuota', 'error');
     }
   };
 
@@ -1365,7 +1235,6 @@ export default function Tienda() {
       showToast(`✅ Precio gremio actualizado ${modoEdicionGremio === 'markup' ? '(desde markup)' : ''}`);
       
     } catch (error) {
-      console.error('Error al guardar precio gremio:', error);
       showToast('❌ Error al guardar precio gremio', 'error');
     }
   };
@@ -1384,7 +1253,6 @@ export default function Tienda() {
       await cargarProductos();
       showToast('✅ Precio manual eliminado, vuelve al cálculo automático');
     } catch (error) {
-      console.error('Error al eliminar precio gremio manual:', error);
       showToast('❌ Error al eliminar precio manual', 'error');
     }
   };
@@ -1407,7 +1275,6 @@ export default function Tienda() {
       await cargarProductos();
       showToast(`✅ ${response.data.message}`);
     } catch (error) {
-      console.error('Error al eliminar todos los precios gremio manuales:', error);
       showToast('❌ Error al eliminar precios manuales', 'error');
     }
   };
@@ -1476,8 +1343,7 @@ export default function Tienda() {
       limpiarSeleccion();
       cargarStats();
     } catch (error) {
-      console.error(error);
-      alert('Error al actualizar colores en lote');
+      showToast('Error al actualizar colores en lote', 'error');
     }
   };
 
@@ -1522,9 +1388,9 @@ export default function Tienda() {
       ));
 
       setMostrarModalConfig(false);
-      alert('Configuración actualizada correctamente');
+      showToast('Configuración actualizada correctamente', 'success');
     } catch (error) {
-      alert('Error al guardar configuración: ' + (error.response?.data?.detail || error.message));
+      showToast('Error al guardar configuración: ' + (error.response?.data?.detail || error.message), 'error');
     }
   };
 
@@ -1574,7 +1440,7 @@ export default function Tienda() {
       setEditandoPrecio(null);
       cargarStats();
     } catch (error) {
-      alert('Error al guardar precio');
+      showToast('Error al guardar precio', 'error');
     }
   };
 
@@ -1584,7 +1450,6 @@ export default function Tienda() {
       // Normalizar: reemplazar coma por punto
       const porcentajeNormalizado = parseFloat(rebateTemp.porcentaje.toString().replace(',', '.'));
 
-      console.log('Enviando rebate:', rebateTemp);
       await axios.patch(
         `${API_URL}/productos/${itemId}/rebate`,
         {
@@ -1609,8 +1474,7 @@ export default function Tienda() {
 
       setEditandoRebate(null);
     } catch (error) {
-      console.error('Error al guardar rebate:', error);
-      alert('Error al guardar rebate');
+      showToast('Error al guardar rebate', 'error');
     }
   };
 
@@ -1631,7 +1495,7 @@ export default function Tienda() {
       });
       setUsuarios(response.data.usuarios);
     } catch (error) {
-      console.error('Error cargando usuarios:', error);
+      showToast('Error cargando usuarios', 'error');
     }
   };
 
@@ -1642,7 +1506,7 @@ export default function Tienda() {
       });
       setTiposAccion(response.data.tipos);
     } catch (error) {
-      console.error('Error cargando tipos:', error);
+      showToast('Error cargando tipos de acción', 'error');
     }
   };
 
@@ -1653,7 +1517,7 @@ export default function Tienda() {
       });
       setPms(response.data);
     } catch (error) {
-      console.error('Error cargando PMs:', error);
+      showToast('Error cargando PMs', 'error');
     }
   };
 
@@ -1969,7 +1833,6 @@ export default function Tienda() {
             if (colorIndex < colores.length) {
               const producto = productos[rowIndex];
               const colorSeleccionado = colores[colorIndex];
-              console.log('Cambiando color a:', colorSeleccionado || 'sin color', 'para producto:', producto.item_id);
               cambiarColorRapido(producto.item_id, colorSeleccionado);
             }
           }
@@ -2082,17 +1945,14 @@ export default function Tienda() {
 
   const cambiarColorRapido = async (itemId, color) => {
     try {
-      console.log('Enviando cambio de color:', { itemId, color, url: `${API_URL}/productos/${itemId}/color` });
-      const response = await axios.patch(
+      await axios.patch(
         `${API_URL}/productos/${itemId}/color`,
         { color },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
-      console.log('Respuesta del servidor:', response.data);
       cargarProductos();
     } catch (error) {
-      console.error('Error cambiando color:', error);
-      console.error('Detalles del error:', error.response?.data);
+      showToast('Error cambiando color', 'error');
     }
   };
 
