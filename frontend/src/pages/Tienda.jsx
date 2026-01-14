@@ -2015,10 +2015,10 @@ export default function Tienda() {
         const filas = tabla.querySelectorAll('tr');
         const filaActiva = filas[celdaActiva.rowIndex];
         if (filaActiva) {
-          // Hacer scroll para que la fila esté visible y centrada
+          // Hacer scroll para que la fila esté visible (sin tirones)
           filaActiva.scrollIntoView({
-            behavior: 'smooth',
-            block: 'center',  // Centrar la fila en la pantalla
+            behavior: 'auto',  // Instantáneo, no smooth (evita tirones al mantener flecha)
+            block: 'nearest',  // No forzar centrado
             inline: 'nearest'
           });
         }
