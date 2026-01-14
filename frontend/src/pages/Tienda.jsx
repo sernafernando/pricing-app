@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { productosAPI } from '../services/api';
 import PricingModalTesla from '../components/PricingModalTesla';
 import { useDebounce } from '../hooks/useDebounce';
