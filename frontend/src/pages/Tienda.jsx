@@ -419,25 +419,6 @@ export default function Tienda() {
       setStats(statsRes.data);
     } catch (error) {
       showToast('Error cargando estadísticas', 'error');
-      setStats({
-        total_productos: todosProductos.length,
-        nuevos_ultimos_7_dias: nuevos,
-        nuevos_sin_precio: nuevos_sin_precio,
-        con_stock_sin_precio: stock_sin_precio,
-        sin_mla_no_banlist: sin_mla,
-        sin_mla_con_stock: sin_mla_con_stock,
-        sin_mla_sin_stock: sin_mla_sin_stock,
-        sin_mla_nuevos: sin_mla_nuevos,
-        mejor_oferta_sin_rebate: oferta_sin_rebate,
-        markup_negativo_clasica: markup_neg_clasica,
-        markup_negativo_rebate: markup_neg_rebate,
-        markup_negativo_oferta: markup_neg_oferta,
-        markup_negativo_web: markup_neg_web,
-        con_stock: con_stock,
-        con_precio: con_precio
-      });
-    } catch (error) {
-      showToast('Error cargando estadísticas', 'error');
     }
   };
 
