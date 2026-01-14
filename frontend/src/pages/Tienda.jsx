@@ -4,8 +4,6 @@ import { productosAPI } from '../services/api';
 import PricingModalTesla from '../components/PricingModalTesla';
 import { useDebounce } from '../hooks/useDebounce';
 import './Tienda.css';
-import styles from './Productos.module.css';
-import dashboardStyles from './DashboardMetricasML.module.css';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -17,7 +15,7 @@ import SetupMarkups from '../components/SetupMarkups';
 import StatCard from '../components/StatCard';
 import './Productos.css';
 
-export default function Productos() {
+export default function Tienda() {
   const { tienePermiso } = usePermisos();
   const puedeGestionarMarkups = tienePermiso('productos.gestionar_markups_tienda');
   const [tabActivo, setTabActivo] = useState('productos'); // 'productos' o 'setup-markups'
