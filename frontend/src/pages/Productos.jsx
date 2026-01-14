@@ -1925,7 +1925,7 @@ export default function Productos() {
 
         cargarProductos();
       } else {
-        // Si está activado, desactivarlo (comportamiento actual)
+        // Si está activado, desactivarlo
         await axios.patch(
           `${API_URL}/productos/${producto.item_id}/rebate`,
           {
@@ -1934,6 +1934,12 @@ export default function Productos() {
           },
           { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
         );
+        
+        // Cerrar modo edición si estaba abierto
+        if (editandoRebate === producto.item_id) {
+          setEditandoRebate(null);
+        }
+        
         cargarProductos();
       }
     } catch (error) {
