@@ -5,6 +5,7 @@ import PricingModalTesla from '../components/PricingModalTesla';
 import { useDebounce } from '../hooks/useDebounce';
 import './Tienda.css';
 import '../styles/table-tesla.css';
+import '../styles/buttons-tesla.css';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -1883,20 +1884,11 @@ export default function Tienda() {
   // Scroll automático para seguir la celda activa
   useEffect(() => {
     if (modoNavegacion && celdaActiva) {
-      // DEBUG: Verificar que el useEffect se ejecuta
-      console.log('[SCROLL DEBUG] useEffect ejecutado', { modoNavegacion, celdaActiva });
-      
       // Buscar la fila activa en el DOM
       const tbody = document.querySelector('.table-tesla-body');
-      console.log('[SCROLL DEBUG] tbody encontrado:', tbody);
-      
       if (tbody) {
         const filas = tbody.querySelectorAll('tr');
-        console.log('[SCROLL DEBUG] cantidad de filas:', filas.length);
-        
         const filaActiva = filas[celdaActiva.rowIndex];
-        console.log('[SCROLL DEBUG] filaActiva:', filaActiva, 'rowIndex:', celdaActiva.rowIndex);
-        
         if (filaActiva) {
           // Hacer scroll para que la fila esté visible (sin tirones)
           filaActiva.scrollIntoView({
@@ -1904,7 +1896,6 @@ export default function Tienda() {
             block: 'nearest',  // No forzar centrado
             inline: 'nearest'
           });
-          console.log('[SCROLL DEBUG] scrollIntoView ejecutado');
         }
       }
     }
@@ -2134,16 +2125,16 @@ export default function Tienda() {
   return (
     <div className="productos-container">
       {/* Tabs de navegación */}
-      <div className={dashboardStyles.tabs}>
+      <div className="tabs-container">
         <button
-          className={`${dashboardStyles.tab} ${tabActivo === 'productos' ? dashboardStyles.tabActivo : ''}`}
+          className={`tab-button ${tabActivo === 'productos' ? 'tab-active' : ''}`}
           onClick={() => setTabActivo('productos')}
         >
           📦 Productos
         </button>
         {puedeGestionarMarkups && (
           <button
-            className={`${dashboardStyles.tab} ${tabActivo === 'setup-markups' ? dashboardStyles.tabActivo : ''}`}
+            className={`tab-button ${tabActivo === 'setup-markups' ? 'tab-active' : ''}`}
             onClick={() => setTabActivo('setup-markups')}
           >
             ⚙️ Setup Markups
@@ -2490,6 +2481,7 @@ export default function Tienda() {
                       <button
                         onClick={() => setBusquedaMarca('')}
                         className="dropdown-search-clear"
+                        aria-label="Limpiar búsqueda de marca"
                       >
                         ✕
                       </button>
@@ -2557,6 +2549,7 @@ export default function Tienda() {
                           setBusquedaSubcategoria('');
                         }}
                         className="dropdown-search-clear"
+                        aria-label="Limpiar búsqueda de subcategoría"
                       >
                         ✕
                       </button>
@@ -2711,7 +2704,7 @@ export default function Tienda() {
                     </label>
                   ))}
                   {pms.length === 0 && (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#6b7280' }}>
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                       No hay PMs disponibles
                     </div>
                   )}
@@ -3078,7 +3071,7 @@ export default function Tienda() {
                     key={c.id || 'sin_color'}
                     className="color-checkbox"
                     style={{
-                      backgroundColor: c.color || '#ffffff',
+                      backgroundColor: c.color || 'var(--bg-primary)',
                       border: coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) ? '3px solid #000' : '2px solid #ccc',
                       cursor: 'pointer',
                       width: '40px',
@@ -3284,7 +3277,7 @@ export default function Tienda() {
                       {editandoPrecioGremio === p.item_id && puedeEditarPrecioGremioManual ? (
                         <div className={`inline-edit ${modoEdicionGremio === 'precio' ? 'gremio-edit-precio' : 'gremio-edit-markup'}`}>
                           {/* Indicador de modo */}
-                          <div style={{ fontSize: '10px', color: '#0066cc', marginBottom: '6px', fontWeight: '600' }}>
+                          <div style={{ fontSize: '10px', color: 'var(--info)', marginBottom: '6px', fontWeight: '600' }}>
                             {modoEdicionGremio === 'precio' ? '💰 Modo Precio' : '📊 Modo Markup'}
                           </div>
                           
@@ -3315,7 +3308,7 @@ export default function Tienda() {
                                   style={{ width: '95px', padding: '4px 6px', fontSize: '12px' }}
                                   autoFocus
                                 />
-                                <span style={{ color: '#666', fontSize: '14px' }}>↔</span>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>↔</span>
                                 <input
                                   type="text"
                                   inputMode="decimal"
@@ -3339,7 +3332,7 @@ export default function Tienda() {
                                   style={{ width: '95px', padding: '4px 6px', fontSize: '12px' }}
                                 />
                               </div>
-                              <small style={{ fontSize: '9px', color: '#666', fontStyle: 'italic' }}>
+                              <small style={{ fontSize: '9px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
                                 Editá uno, el otro se calcula automáticamente
                               </small>
                               
@@ -3347,23 +3340,26 @@ export default function Tienda() {
                               <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
                                 <button 
                                   onClick={() => guardarPrecioGremio(p.item_id)} 
-                                  style={{ padding: '3px 8px', fontSize: '12px', background: '#22c55e', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                  className="btn-tesla success"
                                   title="Guardar (Enter)"
+                                  aria-label="Guardar precio gremio"
                                 >
                                   ✓
                                 </button>
                                 <button 
                                   onClick={() => setEditandoPrecioGremio(null)} 
-                                  style={{ padding: '3px 8px', fontSize: '12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                  className="btn-tesla danger"
                                   title="Cancelar (Esc)"
+                                  aria-label="Cancelar edición"
                                 >
                                   ✗
                                 </button>
                                 {p.tiene_override_gremio && (
                                   <button 
                                     onClick={() => eliminarPrecioGremioManual(p.item_id)} 
-                                    style={{ padding: '3px 8px', fontSize: '12px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                    className="btn-tesla secondary"
                                     title="Volver al cálculo automático"
+                                    aria-label="Volver al cálculo automático"
                                   >
                                     ⟲
                                   </button>
@@ -3394,7 +3390,7 @@ export default function Tienda() {
                               
                               {/* Preview de precio calculado */}
                               {precioGremioTemp.markup !== '' && !isNaN(parseFloat(precioGremioTemp.markup.replace(',', '.'))) && (
-                                <div style={{ fontSize: '10px', color: '#059669', marginTop: '2px', padding: '4px', background: '#f0fdf4', borderRadius: '3px' }}>
+                                <div style={{ fontSize: '10px', color: 'var(--success)', marginTop: '2px', padding: '4px', background: 'var(--success-light)', borderRadius: '3px' }}>
                                   Preview: ${calcularPrecioDesdeMarkup(p, precioGremioTemp.markup).sin_iva.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} s/IVA
                                 </div>
                               )}
@@ -3403,23 +3399,26 @@ export default function Tienda() {
                               <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
                                 <button 
                                   onClick={() => guardarPrecioGremio(p.item_id)} 
-                                  style={{ padding: '3px 8px', fontSize: '12px', background: '#22c55e', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                  className="btn-tesla success"
                                   title="Guardar (Enter)"
+                                  aria-label="Guardar precio gremio"
                                 >
                                   ✓
                                 </button>
                                 <button 
                                   onClick={() => setEditandoPrecioGremio(null)} 
-                                  style={{ padding: '3px 8px', fontSize: '12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                  className="btn-tesla danger"
                                   title="Cancelar (Esc)"
+                                  aria-label="Cancelar edición"
                                 >
                                   ✗
                                 </button>
                                 {p.tiene_override_gremio && (
                                   <button 
                                     onClick={() => eliminarPrecioGremioManual(p.item_id)} 
-                                    style={{ padding: '3px 8px', fontSize: '12px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                    className="btn-tesla secondary"
                                     title="Volver al cálculo automático"
+                                    aria-label="Volver al cálculo automático"
                                   >
                                     ⟲
                                   </button>
@@ -3473,16 +3472,16 @@ export default function Tienda() {
                           <div className="web-transf-info" style={{ marginBottom: '8px', borderBottom: '1px solid #e5e7eb', paddingBottom: '6px' }}>
                             {p.tn_has_promotion && p.tn_promotional_price ? (
                               <div>
-                                <div style={{ fontSize: '12px', fontWeight: '600', color: '#22c55e', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--success)', display: 'flex', gap: '8px', alignItems: 'center' }}>
                                   <span>${p.tn_promotional_price.toLocaleString('es-AR')}</span>
-                                  <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: '500' }}>
+                                  <span style={{ fontSize: '11px', color: 'var(--info)', fontWeight: '500' }}>
                                     ${(p.tn_promotional_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
                                   </span>
                                 </div>
                                 {p.tn_price && (
                                   <div style={{
                                     fontSize: '10px',
-                                    color: '#6b7280',
+                                    color: 'var(--text-secondary)',
                                     textDecoration: 'line-through'
                                   }}>
                                     ${p.tn_price.toLocaleString('es-AR')}
@@ -3492,7 +3491,7 @@ export default function Tienda() {
                             ) : p.tn_price ? (
                               <div style={{ fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <span>${p.tn_price.toLocaleString('es-AR')}</span>
-                                <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: '500' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--info)', fontWeight: '500' }}>
                                   ${(p.tn_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
                                 </span>
                               </div>
@@ -3755,6 +3754,7 @@ export default function Tienda() {
                           }}
                           className="icon-button info"
                           title="Información detallada (Ctrl+I)"
+                          aria-label="Información detallada del producto"
                         >
                           ℹ️
                         </button>
@@ -3763,6 +3763,7 @@ export default function Tienda() {
                             onClick={() => setProductoSeleccionado(p)}
                             className="icon-button detail"
                             title="Ver detalle"
+                            aria-label="Ver detalle del producto"
                           >
                             🔍
                           </button>
@@ -3771,6 +3772,7 @@ export default function Tienda() {
                           onClick={() => verAuditoria(p.item_id)}
                           className="icon-button audit"
                           title="Ver historial de cambios"
+                          aria-label="Ver historial de cambios"
                         >
                           📋
                         </button>
@@ -3779,6 +3781,7 @@ export default function Tienda() {
                             onClick={() => abrirModalConfig(p)}
                             className="icon-button config"
                             title="Configuración de cuotas"
+                            aria-label="Configuración de cuotas"
                           >
                             ⚙️
                           </button>
@@ -3789,6 +3792,7 @@ export default function Tienda() {
                             onClick={() => setColorDropdownAbierto(colorDropdownAbierto === p.item_id ? null : p.item_id)}
                             className="icon-button color"
                             title="Marcar con color"
+                            aria-label="Marcar producto con color"
                           >
                             🎨
                           </button>
@@ -3801,10 +3805,11 @@ export default function Tienda() {
                                   style={{
                                     backgroundColor: c.color,
                                     color: c.colorTexto,
-                                    border: c.id === p.color_marcado_tienda ? '2px solid #000' : '1px solid #ccc'
+                                    border: c.id === p.color_marcado_tienda ? '2px solid var(--text-primary)' : '1px solid var(--border-primary)'
                                   }}
                                   onClick={() => cambiarColorProducto(p.item_id, c.id)}
                                   title={c.nombre}
+                                  aria-label={`Marcar como ${c.nombre}`}
                                 >
                                   {c.nombre}
                                 </button>
@@ -3818,7 +3823,8 @@ export default function Tienda() {
                             onClick={() => abrirModalBan(p)}
                             className="icon-button ban"
                             title="Agregar a banlist"
-                            style={{ color: '#ef4444' }}
+                            aria-label="Agregar producto a banlist"
+                            style={{ color: 'var(--error)' }}
                           >
                             🚫
                           </button>
@@ -4086,7 +4092,7 @@ export default function Tienda() {
           bottom: '20px',
           left: '50%',
           transform: 'translateX(-50%)',
-          backgroundColor: '#2563eb',
+          backgroundColor: 'var(--brand-primary)',
           color: 'white',
           padding: '15px 25px',
           borderRadius: '8px',
@@ -4110,7 +4116,7 @@ export default function Tienda() {
                   height: '30px',
                   borderRadius: '4px',
                   border: '2px solid white',
-                  backgroundColor: c.color || '#f3f4f6',
+                  backgroundColor: c.color || 'var(--bg-secondary)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -4126,7 +4132,7 @@ export default function Tienda() {
           <button
             onClick={limpiarSeleccion}
             style={{
-              backgroundColor: '#dc2626',
+              backgroundColor: 'var(--error)',
               color: 'white',
               border: 'none',
               padding: '8px 15px',
@@ -4150,7 +4156,7 @@ export default function Tienda() {
             </div>
             <div style={{ padding: '20px' }}>
               <h3 style={{ marginBottom: '10px' }}>{productoConfig.descripcion}</h3>
-              <p style={{ color: '#666', marginBottom: '20px', fontSize: '14px' }}>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '14px' }}>
                 Código: {productoConfig.codigo} | Marca: {productoConfig.marca}
               </p>
 
@@ -4194,7 +4200,7 @@ export default function Tienda() {
                     border: '1px solid #d1d5db'
                   }}
                 />
-                <p style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '5px' }}>
                   Dejar vacío para usar la configuración global
                 </p>
               </div>
@@ -4218,7 +4224,7 @@ export default function Tienda() {
                     padding: '10px 20px',
                     borderRadius: '4px',
                     border: 'none',
-                    backgroundColor: '#2563eb',
+                    backgroundColor: 'var(--brand-primary)',
                     color: 'white',
                     cursor: 'pointer',
                     fontWeight: 'bold'
@@ -4426,7 +4432,7 @@ export default function Tienda() {
 
       {/* Toast notification */}
       {toast && (
-        <div className={`${styles.toast} ${toast.type === 'error' ? styles.error : ''}`}>
+        <div className={`toast ${toast.type === 'error' ? 'error' : ''}`}>
           {toast.message}
         </div>
       )}
