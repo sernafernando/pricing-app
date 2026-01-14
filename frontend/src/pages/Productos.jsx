@@ -1798,11 +1798,27 @@ export default function Productos() {
           return;
         }
 
-        // R: Toggle rebate (solo si NO estamos editando nada)
-        if (e.key === 'r' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeToggleRebate) {
+        // R: Toggle rebate
+        if (e.key === 'r' && !editandoPrecio && !editandoWebTransf && puedeToggleRebate) {
           e.preventDefault();
           const producto = productos[rowIndex];
-          toggleRebateRapido(producto);
+          
+          // Si ya estamos editando este producto, desactivar rebate y cerrar edición
+          if (editandoRebate === producto.item_id) {
+            await axios.patch(
+              `${API_URL}/productos/${producto.item_id}/rebate`,
+              {
+                participa_rebate: false,
+                porcentaje_rebate: producto.porcentaje_rebate || 3.8
+              },
+              { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+            );
+            setEditandoRebate(null);
+            cargarProductos();
+          } else {
+            // Si no estamos editando, toggle normal
+            toggleRebateRapido(producto);
+          }
           return;
         }
 
