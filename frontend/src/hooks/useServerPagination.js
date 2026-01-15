@@ -222,18 +222,36 @@ export function useServerPagination({
   }, [invalidateCache, paginationMode, countEndpoint, loadTotalCount, loadPage]);
 
   // Effect: Cargar primera página cuando cambian los filtros o búsqueda
+  // Usamos un ref para evitar el loop infinito
+  const filtersRef = useRef();
+  const searchRef = useRef();
+  
   useEffect(() => {
     if (!enabled) return;
     
-    reset();
-  }, [filters, debouncedSearch, enabled, reset]);
+    // Comparar si realmente cambiaron los filtros
+    const filtersChanged = JSON.stringify(filtersRef.current) !== JSON.stringify(filters);
+    const searchChanged = searchRef.current !== debouncedSearch;
+    
+    if (filtersChanged || searchChanged) {
+      filtersRef.current = filters;
+      searchRef.current = debouncedSearch;
+      
+      // Llamar directamente las funciones sin usar reset para evitar loop
+      invalidateCache();
+      if (paginationMode === 'classic' && countEndpoint) {
+        loadTotalCount();
+      }
+      loadPage(1, false);
+    }
+  }, [filters, debouncedSearch, enabled, invalidateCache, paginationMode, countEndpoint, loadTotalCount, loadPage]);
 
-  // Effect: Cargar total en modo clásico
+  // Effect: Cargar total en modo clásico cuando cambia el modo
   useEffect(() => {
-    if (paginationMode === 'classic' && countEndpoint && enabled) {
+    if (paginationMode === 'classic' && countEndpoint && enabled && totalItems === 0) {
       loadTotalCount();
     }
-  }, [paginationMode, countEndpoint, enabled, loadTotalCount]);
+  }, [paginationMode, countEndpoint, enabled, loadTotalCount, totalItems]);
 
   // Calcular totalPages para paginación clásica
   const totalPages = paginationMode === 'classic' 
