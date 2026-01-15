@@ -1,25 +1,20 @@
-# Pricing App - MercadoLibre Integration
-
-## Metadata
-
-```yaml
+---
 name: pricing-app-ml-integration
 description: MercadoLibre API integration patterns - OAuth, webhooks, item sync, order tracking
-version: 1.0.0
-triggers:
-  - "mercadolibre"
-  - "ml api"
-  - "oauth ml"
-  - "ml webhook"
-  - "sync ml"
-scope: pricing-app
-auto_invoke:
-  - "Working with MercadoLibre API"
-  - "Implementing ML OAuth flow"
-  - "Processing ML webhooks"
-  - "Syncing items to/from MercadoLibre"
-  - "Fetching ML orders or notifications"
-```
+license: MIT
+metadata:
+  author: pricing-app
+  version: "1.0.0"
+  scope: [backend, root]
+  auto_invoke:
+    - "Working with MercadoLibre API"
+    - "Implementing ML OAuth flow"
+    - "Processing ML webhooks"
+    - "Syncing items to/from MercadoLibre"
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash
+---
+
+# Pricing App - MercadoLibre Integration
 
 ---
 
@@ -352,17 +347,16 @@ ML_WEBHOOK_SECRET=your_webhook_secret  # For signature validation
 
 ## REFERENCES
 
+### External
 - MercadoLibre API Docs: https://developers.mercadolibre.com/
 - OAuth Guide: https://developers.mercadolibre.com/es_ar/autenticacion-y-autorizacion
 - Items API: https://developers.mercadolibre.com/es_ar/items-y-busquedas
 - Orders API: https://developers.mercadolibre.com/es_ar/gestiona-ventas
 - Webhooks: https://developers.mercadolibre.com/es_ar/notificaciones-webhooks
 
----
-
-## ASSET EXAMPLES
-
-See `assets/` for complete examples:
-- `ml_api_client.py` - Full OAuth client implementation
-- `ml_webhook_handler.py` - Webhook endpoint + background processing
-- `ml_sync_service.py` - Sync items and orders
+### Internal
+- [ML API Endpoints Reference](references/ml-api-endpoints.md) - Quick reference for common endpoints
+- [ML Sync Process](../../backend/app/scripts/README_ML_SYNC.md) - Catalog sync documentation
+- ML API Client: [ml_api_client.py](../../backend/app/services/ml_api_client.py)
+- ML Sync Service: [ml_sync.py](../../backend/app/services/ml_sync.py)
+- ML Webhook Service: [ml_webhook_service.py](../../backend/app/services/ml_webhook_service.py)

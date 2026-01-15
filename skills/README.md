@@ -50,33 +50,20 @@ Reusable patterns for common technologies:
 |-------|-------------|
 | `typescript` | Const types, flat interfaces, utility types |
 | `react-19` | React 19 patterns, React Compiler |
-| `nextjs-15` | App Router, Server Actions, streaming |
-| `tailwind-4` | cn() utility, Tailwind 4 patterns |
-| `playwright` | Page Object Model, selectors |
 | `pytest` | Fixtures, mocking, markers |
-| `django-drf` | ViewSets, Serializers, Filters |
-| `zod-4` | Zod 4 API patterns |
 | `zustand-5` | Persist, selectors, slices |
-| `ai-sdk-5` | Vercel AI SDK patterns |
 
-### Prowler-Specific Skills
+### Pricing App-Specific Skills
 
-Patterns tailored for Prowler development:
+Patterns tailored for Pricing App development:
 
 | Skill | Description |
 |-------|-------------|
-| `prowler` | Project overview, component navigation |
-| `prowler-api` | Django + RLS + JSON:API patterns |
-| `prowler-ui` | Next.js + shadcn conventions |
-| `prowler-sdk-check` | Create new security checks |
-| `prowler-mcp` | MCP server tools and models |
-| `prowler-test-sdk` | SDK testing (pytest + moto) |
-| `prowler-test-api` | API testing (pytest-django + RLS) |
-| `prowler-test-ui` | E2E testing (Playwright) |
-| `prowler-compliance` | Compliance framework structure |
-| `prowler-provider` | Add new cloud providers |
-| `prowler-pr` | Pull request conventions |
-| `prowler-docs` | Documentation style guide |
+| `pricing-app-backend` | FastAPI + SQLAlchemy + Alembic + auth patterns |
+| `pricing-app-frontend` | React + Zustand + CSS Modules + Tesla Design |
+| `pricing-app-ml-integration` | MercadoLibre API - OAuth, webhooks, item sync |
+| `pricing-app-pricing-logic` | Pricing calculations - markup, fees, tiers, currency |
+| `pricing-app-permissions` | Hybrid permission system - roles + overrides |
 
 ### Meta Skills
 

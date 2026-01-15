@@ -1,27 +1,22 @@
-# Pricing App Frontend - React + Zustand + CSS Modules
-
-## Metadata
-
-```yaml
+---
 name: pricing-app-frontend
 description: React frontend patterns for Pricing App - Zustand, CSS Modules, Tesla Design System, permissions
-version: 1.0.0
-triggers:
-  - "frontend"
-  - "react"
-  - "component"
-  - "zustand"
-  - "css modules"
-  - "tesla design"
-scope: pricing-app/frontend
-auto_invoke:
-  - "Creating/modifying React components"
-  - "Working with Zustand store"
-  - "Styling with CSS Modules or Tesla Design"
-  - "Implementing dark mode"
-  - "Using PermisosContext or ThemeContext"
-  - "Creating custom hooks"
-```
+license: MIT
+metadata:
+  author: pricing-app
+  version: "1.0.0"
+  scope: [frontend, root]
+  auto_invoke:
+    - "Creating/modifying React components"
+    - "Working with Zustand store"
+    - "Styling with CSS Modules or Tesla Design"
+    - "Implementing dark mode"
+    - "Using PermisosContext or ThemeContext"
+    - "Creating custom hooks"
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash
+---
+
+# Pricing App Frontend - React + Zustand + CSS Modules
 
 ---
 
@@ -392,8 +387,15 @@ npm run lint
 
 ## REFERENCES
 
+### External
 - React docs: https://react.dev
 - Zustand docs: https://zustand-demo.pmnd.rs
-- Frontend code review rules: `/AGENTS.md.backup` (original)
-- Design tokens: `/frontend/src/styles/design-tokens.css`
-- Tesla components: `/frontend/src/styles/buttons-tesla.css`, `modals-tesla.css`, `table-tesla.css`
+
+### Internal
+- [Frontend References](references/README.md) - Links to all internal docs
+- Design tokens: [design-tokens.css](../../frontend/src/styles/design-tokens.css)
+- Tesla buttons: [buttons-tesla.css](../../frontend/src/styles/buttons-tesla.css)
+- Tesla modals: [modals-tesla.css](../../frontend/src/styles/modals-tesla.css)
+- Tesla tables: [table-tesla.css](../../frontend/src/styles/table-tesla.css)
+- ThemeContext: [ThemeContext.jsx](../../frontend/src/contexts/ThemeContext.jsx)
+- PermisosContext: [PermisosContext.jsx](../../frontend/src/contexts/PermisosContext.jsx)

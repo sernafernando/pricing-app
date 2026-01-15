@@ -45,11 +45,10 @@ metadata:
 | Scope | Updates |
 |-------|---------|
 | `root` | `AGENTS.md` (repo root) |
-| `ui` | `ui/AGENTS.md` |
-| `api` | `api/AGENTS.md` |
-| `sdk` | `prowler/AGENTS.md` |
+| `backend` | `backend/AGENTS.md` |
+| `frontend` | `frontend/AGENTS.md` |
 
-Skills can have multiple scopes: `scope: [ui, api]`
+Skills can have multiple scopes: `scope: [backend, frontend, root]`
 
 ---
 

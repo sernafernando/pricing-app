@@ -49,11 +49,13 @@ done
 get_agents_path() {
     local scope="$1"
     case "$scope" in
-        root) echo "$REPO_ROOT/AGENTS.md" ;;
-        ui)   echo "$REPO_ROOT/ui/AGENTS.md" ;;
-        api)  echo "$REPO_ROOT/api/AGENTS.md" ;;
-        sdk)  echo "$REPO_ROOT/prowler/AGENTS.md" ;;
-        *)    echo "" ;;
+        root)     echo "$REPO_ROOT/AGENTS.md" ;;
+        backend)  echo "$REPO_ROOT/backend/AGENTS.md" ;;
+        frontend) echo "$REPO_ROOT/frontend/AGENTS.md" ;;
+        # Legacy Prowler scopes (if copying skills from Prowler)
+        ui)       echo "$REPO_ROOT/frontend/AGENTS.md" ;;
+        api)      echo "$REPO_ROOT/backend/AGENTS.md" ;;
+        *)        echo "" ;;
     esac
 }
 
@@ -206,13 +208,22 @@ while IFS= read -r scope; do
     scopes_sorted+=("$scope")
 done < <(printf "%s\n" "${!SCOPE_SKILLS[@]}" | sort)
 
+# Track processed AGENTS.md files to avoid duplicates
+declare -A processed_files
+
 for scope in "${scopes_sorted[@]}"; do
     agents_path=$(get_agents_path "$scope")
-
+    
     if [ -z "$agents_path" ] || [ ! -f "$agents_path" ]; then
         echo -e "${YELLOW}Warning: No AGENTS.md found for scope '$scope'${NC}"
         continue
     fi
+    
+    # Skip if already processed this file
+    if [[ -n "${processed_files["$agents_path"]:-}" ]]; then
+        continue
+    fi
+    processed_files["$agents_path"]=1
 
     echo -e "${BLUE}Processing: $scope -> $(basename "$(dirname "$agents_path")")/AGENTS.md${NC}"
 

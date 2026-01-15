@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import styles from './DashboardMetricasML.module.css';
 import TabRentabilidad from '../components/TabRentabilidad';
+import PaginationControls from '../components/PaginationControls';
 import { useQueryFilters } from '../hooks/useQueryFilters';
+import { useServerPagination } from '../hooks/useServerPagination';
 
 // API base URL
 const API_URL = 'https://pricing.gaussonline.com.ar/api';
@@ -49,9 +51,22 @@ export default function DashboardMetricasML() {
   const [marcasDisponibles, setMarcasDisponibles] = useState([]);
   const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
 
-  // Datos de operaciones detalladas
-  const [operaciones, setOperaciones] = useState([]);
-  const [busqueda, setBusqueda] = useState('');
+  // Hook de paginación server-side (solo para tab de operaciones)
+  const paginationFilters = useMemo(() => ({
+    from_date: fechaDesde,
+    to_date: fechaHasta,
+    ...(marcaSeleccionada && { marca: marcaSeleccionada }),
+    ...(categoriaSeleccionada && { categoria: categoriaSeleccionada }),
+    ...(tiendaOficialSeleccionada && { tienda_oficial: tiendaOficialSeleccionada })
+  }), [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tiendaOficialSeleccionada]);
+
+  const pagination = useServerPagination({
+    endpoint: '/ventas-ml/operaciones-con-metricas',
+    countEndpoint: null, // ML no tiene endpoint count todavía
+    filters: paginationFilters,
+    pageSize: 1000,
+    enabled: tabActivo === 'operaciones'
+  });
 
   const cargarMarcasYCategorias = useCallback(async () => {
     try {
@@ -115,45 +130,16 @@ export default function DashboardMetricasML() {
     }
   }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tiendaOficialSeleccionada]);
 
-  const cargarOperaciones = useCallback(async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const params = {
-        from_date: fechaDesde,
-        to_date: fechaHasta,
-        limit: 1000
-      };
-
-      if (marcaSeleccionada) params.marca = marcaSeleccionada;
-      if (categoriaSeleccionada) params.categoria = categoriaSeleccionada;
-      if (tiendaOficialSeleccionada) params.tienda_oficial = tiendaOficialSeleccionada;
-
-      const response = await axios.get(`${API_URL}/ventas-ml/operaciones-con-metricas`, { params, headers });
-      setOperaciones(response.data || []);
-    } catch (error) {
-      alert('Error al cargar las operaciones');
-    } finally {
-      setLoading(false);
-    }
-  }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tiendaOficialSeleccionada]);
-
   useEffect(() => {
     // Cargar listas de marcas y categorías
     cargarMarcasYCategorias();
   }, [cargarMarcasYCategorias]);
 
   useEffect(() => {
-    if (fechaDesde && fechaHasta) {
-      if (tabActivo === 'resumen') {
-        cargarDashboard();
-      } else if (tabActivo === 'operaciones') {
-        cargarOperaciones();
-      }
+    if (fechaDesde && fechaHasta && tabActivo === 'resumen') {
+      cargarDashboard();
     }
-  }, [fechaDesde, fechaHasta, tabActivo, cargarDashboard, cargarOperaciones]);
+  }, [fechaDesde, fechaHasta, tabActivo, cargarDashboard]);
 
   const formatearMoneda = (monto) => {
     return new Intl.NumberFormat('es-AR', {
@@ -236,17 +222,8 @@ export default function DashboardMetricasML() {
     });
   };
 
-  // Filtrar operaciones por búsqueda
-  const operacionesFiltradas = operaciones.filter(op => {
-    if (!busqueda) return true;
-    const searchLower = busqueda.toLowerCase();
-    return (
-      (op.ml_id && op.ml_id.toLowerCase().includes(searchLower)) ||
-      (op.codigo && op.codigo.toLowerCase().includes(searchLower)) ||
-      (op.descripcion && op.descripcion.toLowerCase().includes(searchLower)) ||
-      (op.marca && op.marca.toLowerCase().includes(searchLower))
-    );
-  });
+  // La búsqueda ahora es server-side via el hook
+  const operacionesFiltradas = pagination.data;
 
   return (
     <div className={styles.container}>
@@ -368,7 +345,11 @@ export default function DashboardMetricasML() {
                 </select>
               </div>
 
-              <button onClick={cargarDashboard} className={styles.btnRecargar}>
+              <button 
+                onClick={tabActivo === 'resumen' ? cargarDashboard : pagination.reset} 
+                className={styles.btnRecargar}
+                disabled={pagination.loading}
+              >
                 🔄 Recargar
               </button>
             </>
@@ -376,17 +357,30 @@ export default function DashboardMetricasML() {
         </div>
       </div>
 
-      {loading ? (
+      {(loading || (tabActivo === 'operaciones' && pagination.loading && pagination.currentPage === 1)) ? (
         <div className={styles.loading}>Cargando...</div>
       ) : tabActivo === 'operaciones' ? (
         /* Tab de Detalle de Operaciones */
         <div className={styles.operacionesContainer}>
+          {/* Controles de paginación */}
+          <PaginationControls
+            mode={pagination.paginationMode}
+            onToggleMode={pagination.togglePaginationMode}
+            currentPage={pagination.currentPage}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.totalItems}
+            hasMore={pagination.hasMore}
+            loading={pagination.loading}
+            onGoToPage={pagination.goToPage}
+            pageSize={pagination.pageSize}
+          />
+
           <div className={styles.buscadorContainer}>
             <input
               type="text"
               placeholder="🔍 Buscar por ML ID, código, producto o marca..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
+              value={pagination.searchTerm}
+              onChange={(e) => pagination.setSearchTerm(e.target.value)}
               className={styles.buscador}
             />
             <div className={styles.resultadosCount}>
@@ -394,7 +388,11 @@ export default function DashboardMetricasML() {
             </div>
           </div>
 
-          <div className={styles.tableWrapper}>
+          <div 
+            className={styles.tableWrapper}
+            onScroll={pagination.handleScroll}
+            ref={pagination.scrollContainerRef}
+          >
             <table className={styles.tableOperaciones}>
               <thead>
                 <tr>
@@ -443,6 +441,20 @@ export default function DashboardMetricasML() {
                 ))}
               </tbody>
             </table>
+
+            {/* Indicador de carga para scroll infinito */}
+            {pagination.paginationMode === 'infinite' && pagination.loading && pagination.currentPage > 1 && (
+              <div className={styles.loadingMore}>
+                Cargando más resultados...
+              </div>
+            )}
+
+            {/* Mensaje de fin de resultados */}
+            {pagination.paginationMode === 'infinite' && !pagination.hasMore && pagination.data.length > 0 && (
+              <div className={styles.endOfResults}>
+                ✓ Todos los resultados cargados
+              </div>
+            )}
           </div>
         </div>
       ) : tabActivo === 'rentabilidad' ? (

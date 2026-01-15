@@ -1,27 +1,21 @@
-# Pricing App Backend - FastAPI + SQLAlchemy
-
-## Metadata
-
-```yaml
+---
 name: pricing-app-backend
 description: FastAPI backend patterns for Pricing App - SQLAlchemy, Alembic, auth, permissions
-version: 1.0.0
-triggers:
-  - "backend"
-  - "fastapi"
-  - "sqlalchemy"
-  - "alembic"
-  - "api endpoint"
-  - "database model"
-  - "migration"
-scope: pricing-app/backend
-auto_invoke:
-  - "Creating/modifying FastAPI endpoints"
-  - "Creating/modifying SQLAlchemy models"
-  - "Creating Alembic migrations"
-  - "Working with auth/permissions in backend"
-  - "Writing backend business logic"
-```
+license: MIT
+metadata:
+  author: pricing-app
+  version: "1.0.0"
+  scope: [backend, root]
+  auto_invoke:
+    - "Creating/modifying FastAPI endpoints"
+    - "Creating/modifying SQLAlchemy models"
+    - "Creating Alembic migrations"
+    - "Working with auth/permissions in backend"
+    - "Writing backend business logic"
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash
+---
+
+# Pricing App Backend - FastAPI + SQLAlchemy
 
 ---
 
@@ -307,7 +301,13 @@ pip freeze > requirements.txt
 
 ## REFERENCES
 
+### External
 - FastAPI docs: https://fastapi.tiangolo.com
 - SQLAlchemy docs: https://docs.sqlalchemy.org
 - Alembic docs: https://alembic.sqlalchemy.org
-- Backend code review rules: `/AGENTS.md.backup` (original)
+
+### Internal
+- [Backend References](references/README.md) - Links to all internal docs
+- [Scripts README](../../backend/scripts/README.md) - Cron jobs and data sync
+- [Turbo Routing](../../backend/TURBO_ROUTING_README.md) - Delivery routing logic
+- [ML Sync Process](../../backend/app/scripts/README_ML_SYNC.md) - MercadoLibre catalog sync

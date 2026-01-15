@@ -1,25 +1,20 @@
-# Pricing App - Permission System
-
-## Metadata
-
-```yaml
+---
 name: pricing-app-permissions
 description: Hybrid permission system - role-based + user overrides, frontend/backend patterns
-version: 1.0.0
-triggers:
-  - "permissions"
-  - "permisos"
-  - "role based access"
-  - "tienePermiso"
-  - "PermisosContext"
-scope: pricing-app
-auto_invoke:
-  - "Implementing permission checks"
-  - "Working with PermisosContext"
-  - "Checking user permissions in backend"
-  - "Creating role-based access controls"
-  - "Managing user permission overrides"
-```
+license: MIT
+metadata:
+  author: pricing-app
+  version: "1.0.0"
+  scope: [backend, frontend, root]
+  auto_invoke:
+    - "Implementing permission checks"
+    - "Using PermisosContext"
+    - "Checking user permissions in backend"
+    - "Managing user permission overrides"
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash
+---
+
+# Pricing App - Permission System
 
 ---
 

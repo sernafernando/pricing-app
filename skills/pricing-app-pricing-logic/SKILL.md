@@ -1,27 +1,20 @@
-# Pricing App - Pricing Logic & Calculations
-
-## Metadata
-
-```yaml
+---
 name: pricing-app-pricing-logic
 description: Pricing calculation engine - markup, ML fees, shipping, tiered commissions, multi-currency
-version: 1.0.0
-triggers:
-  - "pricing calculation"
-  - "markup calculation"
-  - "ml commission"
-  - "shipping cost"
-  - "tipo cambio"
-  - "pricing constants"
-scope: pricing-app
-auto_invoke:
-  - "Calculating product prices"
-  - "Computing ML commissions"
-  - "Working with pricing tiers"
-  - "Currency conversion (USD/ARS)"
-  - "Shipping cost calculations"
-  - "Markup percentage logic"
-```
+license: MIT
+metadata:
+  author: pricing-app
+  version: "1.0.0"
+  scope: [backend, root]
+  auto_invoke:
+    - "Calculating product prices"
+    - "Computing ML commissions"
+    - "Working with pricing tiers"
+    - "Currency conversion (USD/ARS)"
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash
+---
+
+# Pricing App - Pricing Logic & Calculations
 
 ---
 
@@ -363,7 +356,10 @@ def obtener_envio_promedio_grupo(db: Session, grupo_id: int) -> float:
 
 ## REFERENCES
 
-- Pricing calculator service: `backend/app/services/pricing_calculator.py`
-- Pricing constants model: `backend/app/models/pricing_constants.py`
-- Commission models: `backend/app/models/comision_versionada.py`
-- Exchange rate model: `backend/app/models/tipo_cambio.py`
+### Internal
+- [Pricing Formulas Reference](references/pricing-formulas.md) - Mathematical formulas and examples
+- Pricing Calculator: [pricing_calculator.py](../../backend/app/services/pricing_calculator.py)
+- Pricing Constants Model: [pricing_constants.py](../../backend/app/models/pricing_constants.py)
+- Commission Models: [comision_versionada.py](../../backend/app/models/comision_versionada.py)
+- Exchange Rate Model: [tipo_cambio.py](../../backend/app/models/tipo_cambio.py)
+- Tipo Cambio Service: [tipo_cambio_service.py](../../backend/app/services/tipo_cambio_service.py)
