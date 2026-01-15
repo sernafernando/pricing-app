@@ -44,8 +44,8 @@ WITH sales_data AS (
         AND ti.item_id = tmlod.item_id
 
     LEFT JOIN tb_mercadolibre_items_publicados tmlip
-        ON tmlip.comp_id = tmloh.comp_id
-        AND tmlip.ml_id = tmloh.ml_id
+        ON tmlip.comp_id = tmlod.comp_id
+        AND tmlip.mlp_id = tmlod.mlp_id
 
     WHERE tmloh.comp_id = 1
       AND tmloh.ml_id IN ('2000014725630648', '2000014724988736')
