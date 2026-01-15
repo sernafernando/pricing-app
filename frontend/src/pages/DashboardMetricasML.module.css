@@ -1011,7 +1011,7 @@
 /* Botón pequeño para acciones */
 .btnAccionTabla {
   padding: 0.25rem 0.5rem;
-  fontSize: 0.8rem;
+  font-size: 0.8rem;
   cursor: pointer;
   background: var(--bg-tertiary);
   border: none;
