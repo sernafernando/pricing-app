@@ -239,6 +239,10 @@ async def sync_ml_publications_incremental(db: Session = None):
         # 2. Traer detalles y actualizar
         result = await traer_detalles_batch(ids, db)
 
+        print()
+        print(f"Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("=" * 60)
+
         return result
 
     except Exception as e:
@@ -248,10 +252,6 @@ async def sync_ml_publications_incremental(db: Session = None):
         # Solo cerrar la sesión si fue creada internamente
         if not db_was_provided:
             db.close()
-
-    print()
-    print(f"Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 60)
 
 
 if __name__ == "__main__":
