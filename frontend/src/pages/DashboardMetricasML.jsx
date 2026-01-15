@@ -48,8 +48,6 @@ export default function DashboardMetricasML() {
   const [ventasPorLogistica, setVentasPorLogistica] = useState([]);
   const [ventasPorDia, setVentasPorDia] = useState([]);
   const [topProductos, setTopProductos] = useState([]);
-  const [marcasDisponibles, setMarcasDisponibles] = useState([]);
-  const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
 
   // Hook de paginación server-side (solo para tab de operaciones)
   const paginationFilters = useMemo(() => ({
@@ -68,22 +66,33 @@ export default function DashboardMetricasML() {
     enabled: tabActivo === 'operaciones'
   });
 
-  const cargarMarcasYCategorias = useCallback(async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const [marcasRes, categoriasRes] = await Promise.all([
-        axios.get(`${API_URL}/dashboard-ml/marcas-disponibles`, { headers }),
-        axios.get(`${API_URL}/dashboard-ml/categorias-disponibles`, { headers })
-      ]);
-
-      setMarcasDisponibles(marcasRes.data || []);
-      setCategoriasDisponibles(categoriasRes.data || []);
-    } catch (error) {
-      alert('Error al cargar marcas y categorías');
+  // Marcas y categorías disponibles extraídas de los datos reales (después de pagination)
+  const marcasDisponibles = useMemo(() => {
+    if (tabActivo === 'resumen' && ventasPorMarca.length > 0) {
+      return ventasPorMarca.map(v => v.marca).filter(Boolean).sort();
     }
-  }, []);
+    // En tab operaciones, extraer de pagination.data
+    if (tabActivo === 'operaciones' && pagination.data.length > 0) {
+      const marcas = [...new Set(pagination.data.map(op => op.marca).filter(Boolean))];
+      return marcas.sort();
+    }
+    return [];
+  }, [tabActivo, ventasPorMarca, pagination.data]);
+
+  const categoriasDisponibles = useMemo(() => {
+    if (tabActivo === 'resumen' && ventasPorCategoria.length > 0) {
+      return ventasPorCategoria.map(v => v.categoria).filter(Boolean).sort();
+    }
+    // En tab operaciones, extraer de pagination.data
+    if (tabActivo === 'operaciones' && pagination.data.length > 0) {
+      const categorias = [...new Set(pagination.data.map(op => op.categoria).filter(Boolean))];
+      return categorias.sort();
+    }
+    return [];
+  }, [tabActivo, ventasPorCategoria, pagination.data]);
+
+
+
 
   const cargarDashboard = useCallback(async () => {
     setLoading(true);
@@ -129,11 +138,6 @@ export default function DashboardMetricasML() {
       setLoading(false);
     }
   }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tiendaOficialSeleccionada]);
-
-  useEffect(() => {
-    // Cargar listas de marcas y categorías
-    cargarMarcasYCategorias();
-  }, [cargarMarcasYCategorias]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta && tabActivo === 'resumen') {
