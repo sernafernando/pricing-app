@@ -212,8 +212,9 @@
 
 .tableWrapper {
   overflow-x: auto;
-  max-height: 400px;
+  max-height: calc(100vh - 320px); /* Restar altura del header, filtros y controles */
   overflow-y: auto;
+  min-height: 600px; /* Altura mínima para que se vea bien */
 }
 
 .table {
