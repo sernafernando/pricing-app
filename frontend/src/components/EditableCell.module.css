@@ -34,51 +34,73 @@
 
 /* Input mode (editing) */
 .input {
+  /* Reset total de estilos del navegador */
+  all: unset;
+  
+  /* Estilos propios */
+  display: block;
   width: 100%;
-  padding: 4px 0;
-  border: none;
-  border-top: none;
-  border-left: none;
-  border-right: none;
-  border-bottom: 1px solid var(--brand-primary);
-  background: transparent;
+  padding: 4px 0 2px 0;
+  margin: 0;
+  
+  /* Solo border bottom */
+  border: 0 !important;
+  border-bottom: 1px solid var(--brand-primary) !important;
+  border-radius: 0 !important;
+  
+  /* Sin fondo ni sombras */
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  
+  /* Tipografía heredada */
   font-family: inherit;
   font-size: inherit;
   color: var(--text-primary);
-  outline: none;
-  box-shadow: none;
+  line-height: 1.4;
+  
+  /* Cursor y transición */
+  cursor: text;
   transition: border-bottom-color 0.2s cubic-bezier(0.2, 0, 0.38, 0.9);
 }
 
 .input:focus {
-  border-bottom-color: var(--brand-primary);
-  border-bottom-width: 2px;
-  background: transparent;
-  box-shadow: none;
-  outline: none;
+  border: 0 !important;
+  border-bottom: 2px solid var(--brand-primary) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 /* Select specific styles */
 .input[type="select"],
 select.input {
-  cursor: pointer;
-  appearance: none;
-  background-color: transparent;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 4px center;
-  padding-right: 20px;
+  cursor: pointer !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  
+  background-color: transparent !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 4px center !important;
+  padding-right: 20px !important;
 }
 
 /* Number input - remove spinners */
 .input[type="number"] {
-  -moz-appearance: textfield;
+  -moz-appearance: textfield !important;
 }
 
 .input[type="number"]::-webkit-outer-spin-button,
 .input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  margin: 0 !important;
+  display: none !important;
 }
 
 /* Placeholder styling */
