@@ -645,14 +645,20 @@ async def get_operaciones_con_metricas(
             -- subcat_id: SIEMPRE usar pe.subcategoria_id como fuente principal
             COALESCE(tsc.subcat_id, pe.subcategoria_id) as subcat_id,
 
-            -- Price list
-            COALESCE(
-                tsoh.prli_id,
-                CASE
-                    WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop
-                    ELSE tmlip.prli_id
-                END
-            ) as pricelist_id
+            -- Price list: PRIORIZAR ML pricelist para operaciones con cuotas
+            -- Si el pricelist de ML es de cuotas (13,14,17,23), usarlo siempre
+            -- Si no, usar el de Sale Order como fallback
+            CASE
+                WHEN COALESCE(
+                    CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END
+                ) IN (13, 14, 17, 23) THEN 
+                    CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END
+                ELSE
+                    COALESCE(
+                        tsoh.prli_id,
+                        CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END
+                    )
+            END as pricelist_id
 
         FROM tb_mercadolibre_orders_detail tmlod
 
