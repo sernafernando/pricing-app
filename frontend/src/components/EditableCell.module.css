@@ -1,0 +1,101 @@
+/* EditableCell - Estilo Carbon Design (underline input) */
+
+.editableCell {
+  position: relative;
+  width: 100%;
+  min-height: 24px;
+  cursor: text;
+}
+
+.editableCell.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.editableCell.readOnly {
+  cursor: default;
+}
+
+/* Display mode (text mode) */
+.display {
+  padding: 4px 0;
+  min-height: 24px;
+  border-bottom: 1px solid transparent;
+  transition: all 0.2s cubic-bezier(0.2, 0, 0.38, 0.9);
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+/* Hover effect - muestra que es editable */
+.editableCell:not(.disabled):not(.readOnly) .display:hover {
+  border-bottom-color: var(--border-primary);
+  background: rgba(var(--brand-primary-rgb, 0, 112, 243), 0.03);
+}
+
+/* Input mode (editing) */
+.input {
+  width: 100%;
+  padding: 4px 0;
+  border: none;
+  border-bottom: 2px solid var(--brand-primary);
+  background: rgba(var(--brand-primary-rgb, 0, 112, 243), 0.05);
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text-primary);
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.2, 0, 0.38, 0.9);
+}
+
+.input:focus {
+  border-bottom-color: var(--brand-primary);
+  background: rgba(var(--brand-primary-rgb, 0, 112, 243), 0.08);
+}
+
+/* Select specific styles */
+.input[type="select"],
+select.input {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  padding-right: 20px;
+}
+
+/* Number input - remove spinners */
+.input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.input[type="number"]::-webkit-outer-spin-button,
+.input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Placeholder styling */
+.input::placeholder {
+  color: var(--text-placeholder);
+  opacity: 0.6;
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .input[type="select"],
+  select.input {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ccc' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  }
+}
+
+/* Estado cuando el campo tiene override (para tabla de Tienda Nube) */
+.editableCell.hasOverride .display {
+  background: rgba(var(--brand-primary-rgb, 0, 112, 243), 0.1);
+  border-bottom-color: var(--brand-primary);
+}
+
+.editableCell.hasOverride .display::after {
+  content: '*';
+  color: var(--brand-primary);
+  margin-left: 4px;
+  font-weight: 600;
+}

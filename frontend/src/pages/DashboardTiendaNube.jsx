@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
 import TabRentabilidadTiendaNube from '../components/TabRentabilidadTiendaNube';
+import EditableCell from '../components/EditableCell';
 import { useAuthStore } from '../store/authStore';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 
@@ -526,148 +527,130 @@ export default function DashboardTiendaNube() {
                       <td>{formatearFecha(op.fecha)}</td>
                       <td>{op.sucursal || '-'}</td>
                       <td className={styles.descripcion}>
-                        <input
+                        <EditableCell
                           type="text"
                           value={clienteEfectivo}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'cliente', e.target.value)}
-                          className={`${styles.inputEditable} ${getClaseConOverride('cliente')}`}
+                          onChange={(val) => guardarOverride(op.id_operacion, 'cliente', val)}
                           placeholder="Cliente"
-                          aria-label="Cliente"
+                          className={getClaseConOverride('cliente') ? styles.hasOverride : ''}
                         />
                       </td>
                       <td>{op.vendedor || '-'}</td>
                       <td>
-                        <input
+                        <EditableCell
                           type="text"
                           value={codigoEfectivo}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'codigo', e.target.value)}
-                          className={`${styles.inputEditable} ${getClaseConOverride('codigo')}`}
-                          style={{ width: '80px' }}
+                          onChange={(val) => guardarOverride(op.id_operacion, 'codigo', val)}
                           placeholder="Código"
-                          aria-label="Código de producto"
+                          className={getClaseConOverride('codigo') ? styles.hasOverride : ''}
                         />
                       </td>
                       <td className={styles.descripcion}>
-                        <input
+                        <EditableCell
                           type="text"
                           value={descripcionEfectiva}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'descripcion', e.target.value)}
-                          className={`${styles.inputEditable} ${getClaseConOverride('descripcion')}`}
+                          onChange={(val) => guardarOverride(op.id_operacion, 'descripcion', val)}
                           placeholder="Descripción"
-                          aria-label="Descripción de producto"
+                          className={getClaseConOverride('descripcion') ? styles.hasOverride : ''}
                         />
                       </td>
                       <td>
-                        <select
+                        <EditableCell
+                          type="select"
                           value={marcaEfectiva}
-                          onChange={(e) => {
-                            guardarOverride(op.id_operacion, 'marca', e.target.value);
+                          onChange={(val) => {
+                            guardarOverride(op.id_operacion, 'marca', val);
                             // Limpiar categoría y subcategoría si cambia la marca
-                            if (e.target.value !== marcaEfectiva) {
+                            if (val !== marcaEfectiva) {
                               guardarOverride(op.id_operacion, 'categoria', '');
                               guardarOverride(op.id_operacion, 'subcategoria', '');
                             }
                           }}
-                          className={`${styles.selectEditable} ${getClaseConOverride('marca')}`}
-                          aria-label="Marca del producto"
-                        >
-                          <option value="">Sin marca</option>
-                          {getMarcasDisponibles().map(m => (
-                            <option key={m} value={m}>{m}</option>
-                          ))}
-                          {marcaEfectiva && !getMarcasDisponibles().includes(marcaEfectiva) && (
-                            <option value={marcaEfectiva}>{marcaEfectiva}</option>
-                          )}
-                        </select>
+                          options={[
+                            ...getMarcasDisponibles(),
+                            ...(marcaEfectiva && !getMarcasDisponibles().includes(marcaEfectiva) ? [marcaEfectiva] : [])
+                          ]}
+                          placeholder="Sin marca"
+                          className={getClaseConOverride('marca') ? styles.hasOverride : ''}
+                        />
                       </td>
                       <td>
-                        <select
+                        <EditableCell
+                          type="select"
                           value={categoriaEfectiva}
-                          onChange={(e) => {
-                            guardarOverride(op.id_operacion, 'categoria', e.target.value);
+                          onChange={(val) => {
+                            guardarOverride(op.id_operacion, 'categoria', val);
                             // Limpiar subcategoría si cambia la categoría
-                            if (e.target.value !== categoriaEfectiva) {
+                            if (val !== categoriaEfectiva) {
                               guardarOverride(op.id_operacion, 'subcategoria', '');
                             }
                           }}
-                          className={`${styles.selectEditable} ${getClaseConOverride('categoria')}`}
+                          options={[
+                            ...getCategoriasParaMarca(marcaEfectiva),
+                            ...(categoriaEfectiva && !getCategoriasParaMarca(marcaEfectiva).includes(categoriaEfectiva) ? [categoriaEfectiva] : [])
+                          ]}
+                          placeholder={marcaEfectiva ? 'Sin categoría' : 'Seleccione marca primero'}
                           disabled={!marcaEfectiva}
-                          aria-label="Categoría del producto"
-                        >
-                          <option value="">{marcaEfectiva ? 'Sin categoría' : 'Seleccione marca primero'}</option>
-                          {getCategoriasParaMarca(marcaEfectiva).map(c => (
-                            <option key={c} value={c}>{c}</option>
-                          ))}
-                          {categoriaEfectiva && !getCategoriasParaMarca(marcaEfectiva).includes(categoriaEfectiva) && (
-                            <option value={categoriaEfectiva}>{categoriaEfectiva}</option>
-                          )}
-                        </select>
+                          className={getClaseConOverride('categoria') ? styles.hasOverride : ''}
+                        />
                       </td>
                       <td>
-                        <select
+                        <EditableCell
+                          type="select"
                           value={subcategoriaEfectiva}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'subcategoria', e.target.value)}
-                          className={`${styles.selectEditable} ${getClaseConOverride('subcategoria')}`}
+                          onChange={(val) => guardarOverride(op.id_operacion, 'subcategoria', val)}
+                          options={[
+                            ...getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva),
+                            ...(subcategoriaEfectiva && !getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva).includes(subcategoriaEfectiva) ? [subcategoriaEfectiva] : [])
+                          ]}
+                          placeholder={categoriaEfectiva ? 'Sin subcategoría' : 'Seleccione categoría primero'}
                           disabled={!categoriaEfectiva}
-                          aria-label="Subcategoría del producto"
-                        >
-                          <option value="">{categoriaEfectiva ? 'Sin subcategoría' : 'Seleccione categoría primero'}</option>
-                          {getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva).map(s => (
-                            <option key={s} value={s}>{s}</option>
-                          ))}
-                          {subcategoriaEfectiva && !getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva).includes(subcategoriaEfectiva) && (
-                            <option value={subcategoriaEfectiva}>{subcategoriaEfectiva}</option>
-                          )}
-                        </select>
+                          className={getClaseConOverride('subcategoria') ? styles.hasOverride : ''}
+                        />
                       </td>
                       <td className={styles.centrado}>
-                        <input
+                        <EditableCell
                           type="number"
                           value={getValorEfectivo(op, 'cantidad') || op.cantidad || ''}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'cantidad', e.target.value ? parseFloat(e.target.value) : null)}
-                          className={`${styles.inputEditable} ${getClaseConOverride('cantidad')}`}
-                          style={{ width: '60px', textAlign: 'center' }}
-                          step="0.01"
-                          aria-label="Cantidad"
+                          onChange={(val) => guardarOverride(op.id_operacion, 'cantidad', val)}
+                          step={0.01}
+                          className={getClaseConOverride('cantidad') ? styles.hasOverride : ''}
                         />
                       </td>
                       <td className={styles.monto}>
-                        <input
+                        <EditableCell
                           type="number"
                           value={getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva || ''}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'precio_unitario', e.target.value ? parseFloat(e.target.value) : null)}
-                          className={`${styles.inputEditable} ${getClaseConOverride('precio_unitario')}`}
-                          style={{ width: '90px', textAlign: 'right' }}
-                          step="0.01"
-                          aria-label="Precio unitario"
+                          onChange={(val) => guardarOverride(op.id_operacion, 'precio_unitario', val)}
+                          step={0.01}
+                          className={getClaseConOverride('precio_unitario') ? styles.hasOverride : ''}
                         />
                       </td>
                       <td className={styles.centrado}>{op.iva_porcentaje}%</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_final_sin_iva)}</td>
                       <td>
-                        <select
+                        <EditableCell
+                          type="select"
                           value={metodoPagoActual}
-                          onChange={(e) => cambiarMetodoPago(op.id_operacion, e.target.value)}
-                          className={`${styles.selectEditable} ${metodoPagoActual === 'tarjeta' ? styles.metodoPagoTarjeta : styles.metodoPagoEfectivo}`}
-                          aria-label="Método de pago"
-                        >
-                          <option value="efectivo">Efectivo ({comisionEfectivo}%)</option>
-                          <option value="tarjeta">Tarjeta ({comisionTarjeta}%)</option>
-                        </select>
+                          onChange={(val) => cambiarMetodoPago(op.id_operacion, val)}
+                          options={[
+                            { value: 'efectivo', label: `Efectivo (${comisionEfectivo}%)` },
+                            { value: 'tarjeta', label: `Tarjeta (${comisionTarjeta}%)` }
+                          ]}
+                          className={metodoPagoActual === 'tarjeta' ? styles.metodoPagoTarjeta : styles.metodoPagoEfectivo}
+                        />
                       </td>
                       <td className={`${styles.monto} ${styles.asteriscoModificado}`}>
                         {formatearMoneda(comisionCalculada)} ({comisionAplicada}%)
                       </td>
                       <td className={styles.monto}>
-                        <input
+                        <EditableCell
                           type="number"
                           value={getValorEfectivo(op, 'costo_unitario') || op.costo_unitario || ''}
-                          onChange={(e) => guardarOverride(op.id_operacion, 'costo_unitario', e.target.value ? parseFloat(e.target.value) : null)}
-                          className={`${styles.inputEditable} ${getClaseConOverride('costo_unitario')} ${sinCosto && !tieneOverride?.costo_unitario ? styles.campoSinCostoInput : ''}`}
-                          style={{ width: '90px', textAlign: 'right' }}
-                          step="0.01"
+                          onChange={(val) => guardarOverride(op.id_operacion, 'costo_unitario', val)}
+                          step={0.01}
                           placeholder={sinCosto ? 'Sin costo' : ''}
-                          aria-label="Costo unitario"
+                          className={`${getClaseConOverride('costo_unitario') ? styles.hasOverride : ''} ${sinCosto && !tieneOverride?.costo_unitario ? styles.campoSinCostoInput : ''}`}
                         />
                       </td>
                       <td className={`${styles.monto} ${gananciaCalculada >= 0 ? styles.valorPositivo : styles.valorNegativo}`}>

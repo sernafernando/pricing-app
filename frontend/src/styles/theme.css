@@ -21,6 +21,7 @@
 
   /* Brand colors - Azul eléctrico Tesla */
   --brand-primary: #3e6ae1;
+  --brand-primary-rgb: 62, 106, 225;
   --brand-primary-hover: #1e4fc2;
   --brand-primary-light: #e8eef9;
   --primary: #3e6ae1;
@@ -98,6 +99,7 @@
 
   /* Brand colors - Azul eléctrico brillante */
   --brand-primary: #5c8cff;
+  --brand-primary-rgb: 92, 140, 255;
   --brand-primary-hover: #3e6ae1;
   --brand-primary-light: #1a2847;
   --primary: #5c8cff;
