@@ -3,7 +3,6 @@
 .editableCell {
   position: relative;
   width: 100%;
-  min-height: 24px;
   cursor: text;
 }
 
@@ -18,8 +17,7 @@
 
 /* Display mode (text mode) */
 .display {
-  padding: 4px 0;
-  min-height: 24px;
+  padding: 2px 0;
   border-bottom: 1px solid transparent;
   transition: all 0.2s cubic-bezier(0.2, 0, 0.38, 0.9);
   word-break: break-word;
@@ -34,13 +32,13 @@
 
 /* Input mode (editing) */
 .input {
-  /* Reset total de estilos del navegador */
-  all: unset;
-  
-  /* Estilos propios */
+  /* Reset específico (sin all: unset que rompe el layout) */
   display: block;
+  box-sizing: border-box;
   width: 100%;
-  padding: 4px 0 2px 0;
+  min-height: auto;
+  height: auto;
+  padding: 2px 0;
   margin: 0;
   
   /* Solo border bottom */
@@ -51,14 +49,17 @@
   /* Sin fondo ni sombras */
   background: transparent !important;
   background-color: transparent !important;
+  background-image: none !important;
   box-shadow: none !important;
   outline: none !important;
   
   /* Tipografía heredada */
   font-family: inherit;
   font-size: inherit;
+  font-weight: inherit;
   color: var(--text-primary);
   line-height: 1.4;
+  vertical-align: baseline;
   
   /* Cursor y transición */
   cursor: text;
@@ -71,6 +72,7 @@
   border-radius: 0 !important;
   background: transparent !important;
   background-color: transparent !important;
+  background-image: none !important;
   box-shadow: none !important;
   outline: none !important;
 }
