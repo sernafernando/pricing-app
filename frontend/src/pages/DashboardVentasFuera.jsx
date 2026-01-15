@@ -1,11 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
 import TabRentabilidadFuera from '../components/TabRentabilidadFuera';
 import TabAdminVentasFuera from '../components/TabAdminVentasFuera';
 import ModalEditarCosto from '../components/ModalEditarCosto';
+import PaginationControls from '../components/PaginationControls';
 import { useAuthStore } from '../store/authStore';
 import { useQueryFilters } from '../hooks/useQueryFilters';
+import { useServerPagination } from '../hooks/useServerPagination';
 
 // API base URL
 const API_URL = 'https://pricing.gaussonline.com.ar/api';
@@ -50,11 +52,9 @@ export default function DashboardVentasFuera() {
   const [sucursalesDisponibles, setSucursalesDisponibles] = useState([]);
   const [vendedoresDisponibles, setVendedoresDisponibles] = useState([]);
 
-  // Datos de operaciones detalladas
-  const [operaciones, setOperaciones] = useState([]);
-  const [busqueda, setBusqueda] = useState('');
-  const [soloSinCosto, setSoloSinCosto] = useState(false);
+  // Estado para solo modificadas (filtro local)
   const [soloModificadas, setSoloModificadas] = useState(false);
+  const [soloSinCosto, setSoloSinCosto] = useState(false);
 
   // Modal editar costo
   const [modalCostoAbierto, setModalCostoAbierto] = useState(false);
@@ -63,6 +63,46 @@ export default function DashboardVentasFuera() {
   // Overrides de marca/categoría/subcategoría
   const [overrides, setOverrides] = useState({});
   const [jerarquiaProductos, setJerarquiaProductos] = useState({}); // { marca: { categoria: [subcategorias] } }
+
+  // Helper para cargar overrides y jerarquía (definido antes del hook de paginación)
+  const cargarOverridesYJerarquia = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const [overridesRes, jerarquiaRes] = await Promise.all([
+        axios.get(`${API_URL}/ventas-fuera-ml/overrides`, { 
+          params: { from_date: fechaDesde, to_date: fechaHasta }, 
+          headers 
+        }),
+        axios.get(`${API_URL}/ventas-fuera-ml/jerarquia-productos`, { headers })
+          .catch(() => ({ data: {} }))
+      ]);
+
+      setOverrides(overridesRes.data || {});
+      setJerarquiaProductos(jerarquiaRes.data || {});
+    } catch (error) {
+      console.error('Error cargando overrides:', error);
+    }
+  }, [fechaDesde, fechaHasta]);
+
+  // Hook de paginación server-side (solo para tab de operaciones)
+  const paginationFilters = useMemo(() => ({
+    from_date: fechaDesde,
+    to_date: fechaHasta,
+    ...(sucursalSeleccionada && { sucursal: sucursalSeleccionada }),
+    ...(vendedorSeleccionado && { vendedor: vendedorSeleccionado }),
+    solo_sin_costo: soloSinCosto
+  }), [fechaDesde, fechaHasta, sucursalSeleccionada, vendedorSeleccionado, soloSinCosto]);
+
+  const pagination = useServerPagination({
+    endpoint: '/ventas-fuera-ml/operaciones',
+    countEndpoint: '/ventas-fuera-ml/operaciones/count',
+    filters: paginationFilters,
+    pageSize: 1000,
+    enabled: tabActivo === 'operaciones',
+    onDataLoaded: cargarOverridesYJerarquia
+  });
 
   const cargarDashboard = useCallback(async () => {
     setLoading(true);
@@ -98,48 +138,11 @@ export default function DashboardVentasFuera() {
     }
   }, [fechaDesde, fechaHasta]);
 
-  const cargarOperaciones = useCallback(async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const params = {
-        from_date: fechaDesde,
-        to_date: fechaHasta,
-        limit: 1000,
-        solo_sin_costo: soloSinCosto
-      };
-
-      if (sucursalSeleccionada) params.sucursal = sucursalSeleccionada;
-      if (vendedorSeleccionado) params.vendedor = vendedorSeleccionado;
-
-      // Cargar operaciones, overrides y jerarquía en paralelo
-      const [operacionesRes, overridesRes, jerarquiaRes] = await Promise.all([
-        axios.get(`${API_URL}/ventas-fuera-ml/operaciones`, { params, headers }),
-        axios.get(`${API_URL}/ventas-fuera-ml/overrides`, { params: { from_date: fechaDesde, to_date: fechaHasta }, headers }),
-        axios.get(`${API_URL}/ventas-fuera-ml/jerarquia-productos`, { headers }).catch(() => ({ data: {} }))
-      ]);
-
-      setOperaciones(operacionesRes.data || []);
-      setOverrides(overridesRes.data || {});
-      setJerarquiaProductos(jerarquiaRes.data || {});
-    } catch (error) {
-      alert('Error al cargar las operaciones');
-    } finally {
-      setLoading(false);
-    }
-  }, [fechaDesde, fechaHasta, soloSinCosto, sucursalSeleccionada, vendedorSeleccionado]);
-
   useEffect(() => {
-    if (fechaDesde && fechaHasta) {
-      if (tabActivo === 'resumen') {
-        cargarDashboard();
-      } else if (tabActivo === 'operaciones') {
-        cargarOperaciones();
-      }
+    if (fechaDesde && fechaHasta && tabActivo === 'resumen') {
+      cargarDashboard();
     }
-  }, [fechaDesde, fechaHasta, tabActivo, cargarDashboard, cargarOperaciones]);
+  }, [fechaDesde, fechaHasta, tabActivo, cargarDashboard]);
 
   const abrirModalCosto = (operacion) => {
     setOperacionEditando(operacion);
@@ -152,8 +155,8 @@ export default function DashboardVentasFuera() {
   };
 
   const onCostoGuardado = () => {
-    // Recargar operaciones para ver el cambio
-    cargarOperaciones();
+    // Invalidar cache y recargar página actual
+    pagination.invalidateCache();
   };
 
   // Ref para debounce de overrides
@@ -168,10 +171,13 @@ export default function DashboardVentasFuera() {
         it_transaction: itTransaction,
         [campo]: valor
       }, { headers });
+
+      // Invalidar cache para que se recargue con datos frescos
+      pagination.invalidateCache();
     } catch (error) {
       alert('Error al guardar cambios');
     }
-  }, []);
+  }, [pagination]);
 
   const guardarOverride = useCallback((itTransaction, campo, valor) => {
     // Actualizar estado local inmediatamente
@@ -297,22 +303,13 @@ export default function DashboardVentasFuera() {
     return Object.values(override).some(v => v !== null && v !== undefined && v !== '');
   };
 
-  // Filtrar operaciones por búsqueda y modificadas
-  const operacionesFiltradas = operaciones.filter(op => {
-    // Filtro de modificadas
-    if (soloModificadas && !tieneOverride(op.id_operacion)) return false;
-
-    // Filtro de búsqueda
-    if (!busqueda) return true;
-    const searchLower = busqueda.toLowerCase();
-    return (
-      (op.codigo_item && op.codigo_item.toLowerCase().includes(searchLower)) ||
-      (op.descripcion && op.descripcion.toLowerCase().includes(searchLower)) ||
-      (op.marca && op.marca.toLowerCase().includes(searchLower)) ||
-      (op.cliente && op.cliente.toLowerCase().includes(searchLower)) ||
-      (op.vendedor && op.vendedor.toLowerCase().includes(searchLower))
-    );
-  });
+  // Filtrar operaciones solo por "modificadas" (filtro local)
+  // La búsqueda se hace server-side via el hook
+  const operacionesFiltradas = useMemo(() => {
+    if (!soloModificadas) return pagination.data;
+    
+    return pagination.data.filter(op => tieneOverride(op.id_operacion));
+  }, [pagination.data, soloModificadas]);
 
   // Calcular ganancia para el resumen
   const calcularGanancia = () => {
@@ -455,7 +452,11 @@ export default function DashboardVentasFuera() {
           )}
 
           {tabActivo !== 'rentabilidad' && tabActivo !== 'admin' && (
-            <button onClick={tabActivo === 'resumen' ? cargarDashboard : cargarOperaciones} className={styles.btnRecargar}>
+            <button 
+              onClick={tabActivo === 'resumen' ? cargarDashboard : pagination.reset} 
+              className={styles.btnRecargar}
+              disabled={pagination.loading}
+            >
               🔄 Recargar
             </button>
           )}
@@ -473,25 +474,43 @@ export default function DashboardVentasFuera() {
         <TabAdminVentasFuera />
       ) : tabActivo === 'rentabilidad' ? (
         <TabRentabilidadFuera fechaDesde={fechaDesde} fechaHasta={fechaHasta} />
-      ) : loading ? (
+      ) : (loading || (tabActivo === 'operaciones' && pagination.loading && pagination.currentPage === 1)) ? (
         <div className={styles.loading}>Cargando...</div>
       ) : tabActivo === 'operaciones' ? (
         /* Tab de Detalle de Operaciones */
         <div className={styles.operacionesContainer}>
+          {/* Controles de paginación */}
+          <PaginationControls
+            mode={pagination.paginationMode}
+            onToggleMode={pagination.togglePaginationMode}
+            currentPage={pagination.currentPage}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.totalItems}
+            hasMore={pagination.hasMore}
+            loading={pagination.loading}
+            onGoToPage={pagination.goToPage}
+            pageSize={pagination.pageSize}
+          />
+
           <div className={styles.buscadorContainer}>
             <input
               type="text"
-              placeholder="🔍 Buscar por código, producto, marca, cliente o vendedor..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="🔍 Buscar por código, producto, marca o cliente..."
+              value={pagination.searchTerm}
+              onChange={(e) => pagination.setSearchTerm(e.target.value)}
               className={styles.buscador}
             />
             <div className={styles.resultadosCount}>
               {operacionesFiltradas.length} operación{operacionesFiltradas.length !== 1 ? 'es' : ''}
+              {soloModificadas && ' (solo modificadas)'}
             </div>
           </div>
 
-          <div className={styles.tableWrapper}>
+          <div 
+            className={styles.tableWrapper}
+            onScroll={pagination.handleScroll}
+            ref={pagination.scrollContainerRef}
+          >
             <table className={styles.tableOperaciones}>
               <thead>
                 <tr>
@@ -727,6 +746,20 @@ export default function DashboardVentasFuera() {
                 })}
               </tbody>
             </table>
+
+            {/* Indicador de carga para scroll infinito */}
+            {pagination.paginationMode === 'infinite' && pagination.loading && pagination.currentPage > 1 && (
+              <div className={styles.loadingMore}>
+                Cargando más resultados...
+              </div>
+            )}
+
+            {/* Mensaje de fin de resultados */}
+            {pagination.paginationMode === 'infinite' && !pagination.hasMore && pagination.data.length > 0 && (
+              <div className={styles.endOfResults}>
+                ✓ Todos los resultados cargados
+              </div>
+            )}
           </div>
         </div>
       ) : stats ? (

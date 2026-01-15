@@ -132,6 +132,41 @@ class VentaTiendaNubePorMarcaResponse(BaseModel):
     markup_promedio: Optional[Decimal]
 
 
+class OperacionTiendaNubeResponse(BaseModel):
+    """Respuesta de operación desde métricas (para detalle de operaciones con paginación)"""
+    metrica_id: int
+    id_operacion: int
+    sucursal: Optional[str]
+    cliente: Optional[str]
+    vendedor: Optional[str]
+    fecha: Optional[datetime]
+    tipo_comprobante: Optional[str]
+    numero_comprobante: Optional[str]
+    marca: Optional[str]
+    categoria: Optional[str]
+    subcategoria: Optional[str]
+    codigo_item: Optional[str]
+    descripcion: Optional[str]
+    cantidad: float
+    precio_unitario_sin_iva: float
+    iva_porcentaje: float
+    precio_final_sin_iva: float
+    monto_iva: float
+    precio_final_con_iva: float
+    costo_unitario: float
+    costo_pesos_sin_iva: float
+    comision_tn_porcentaje: float
+    comision_tn_pesos: float
+    markup: Optional[float]
+    ganancia: float
+    signo: int
+
+
+class CountResponse(BaseModel):
+    """Response para endpoints de conteo (usado en paginación)"""
+    total: int
+
+
 # ============================================================================
 # Helpers
 # ============================================================================
@@ -597,7 +632,7 @@ async def get_ventas_tienda_nube_stats(
     }
 
 
-@router.get("/ventas-tienda-nube/operaciones")
+@router.get("/ventas-tienda-nube/operaciones", response_model=List[OperacionTiendaNubeResponse])
 async def get_operaciones_tn_desde_metricas(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
@@ -605,17 +640,20 @@ async def get_operaciones_tn_desde_metricas(
     vendedor: Optional[str] = Query(None, description="Filtrar por vendedor"),
     marca: Optional[str] = Query(None, description="Filtrar por marca"),
     solo_sin_costo: bool = Query(False, description="Solo mostrar operaciones sin costo"),
-    limit: int = Query(1000, le=10000, description="Límite de resultados"),
+    search: Optional[str] = Query(None, description="Buscar en código, descripción o cliente"),
+    limit: int = Query(1000, le=50000, description="Límite de resultados"),
+    offset: int = Query(0, description="Offset para paginación"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """
     Obtiene operaciones desde la tabla de métricas pre-calculadas.
     Más rápido que el endpoint original y devuelve metrica_id para edición.
+    Soporta paginación server-side con limit/offset.
     """
     # Construir query con filtros opcionales
     where_clauses = ["m.fecha_venta BETWEEN :from_date AND :to_date"]
-    params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
+    params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit, "offset": offset}
 
     if sucursal:
         where_clauses.append("m.sucursal = :sucursal")
@@ -628,6 +666,14 @@ async def get_operaciones_tn_desde_metricas(
         params["marca"] = marca
     if solo_sin_costo:
         where_clauses.append("(m.costo_total IS NULL OR m.costo_total = 0)")
+    if search:
+        # Buscar en código, descripción o cliente (case-insensitive)
+        where_clauses.append("""(
+            LOWER(COALESCE(o.codigo, m.codigo)) LIKE LOWER(:search) OR
+            LOWER(COALESCE(o.descripcion, m.descripcion)) LIKE LOWER(:search) OR
+            LOWER(COALESCE(o.cliente, tc.cust_name, m.cliente)) LIKE LOWER(:search)
+        )""")
+        params["search"] = f"%{search}%"
 
     where_sql = " AND ".join(where_clauses)
 
@@ -664,7 +710,7 @@ async def get_operaciones_tn_desde_metricas(
     LEFT JOIN ventas_tienda_nube_override o ON o.it_transaction = m.it_transaction
     WHERE {where_sql}
     ORDER BY m.fecha_venta DESC, m.it_transaction
-    LIMIT :limit
+    LIMIT :limit OFFSET :offset
     """
 
     result = db.execute(text(query), params).fetchall()
@@ -700,6 +746,59 @@ async def get_operaciones_tn_desde_metricas(
         }
         for r in result
     ]
+
+
+@router.get("/ventas-tienda-nube/operaciones/count", response_model=CountResponse)
+async def get_operaciones_tn_count(
+    from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
+    to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedor"),
+    marca: Optional[str] = Query(None, description="Filtrar por marca"),
+    solo_sin_costo: bool = Query(False, description="Solo mostrar operaciones sin costo"),
+    search: Optional[str] = Query(None, description="Buscar en código, descripción o cliente"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Cuenta el total de operaciones de Tienda Nube que coinciden con los filtros.
+    Usado para paginación clásica.
+    """
+    # Construir query con filtros opcionales (misma lógica que get_operaciones)
+    where_clauses = ["m.fecha_venta BETWEEN :from_date AND :to_date"]
+    params = {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+
+    if sucursal:
+        where_clauses.append("m.sucursal = :sucursal")
+        params["sucursal"] = sucursal
+    if vendedor:
+        where_clauses.append("m.vendedor = :vendedor")
+        params["vendedor"] = vendedor
+    if marca:
+        where_clauses.append("m.marca = :marca")
+        params["marca"] = marca
+    if solo_sin_costo:
+        where_clauses.append("(m.costo_total IS NULL OR m.costo_total = 0)")
+    if search:
+        where_clauses.append("""(
+            LOWER(COALESCE(o.codigo, m.codigo)) LIKE LOWER(:search) OR
+            LOWER(COALESCE(o.descripcion, m.descripcion)) LIKE LOWER(:search) OR
+            LOWER(COALESCE(o.cliente, tc.cust_name, m.cliente)) LIKE LOWER(:search)
+        )""")
+        params["search"] = f"%{search}%"
+
+    where_sql = " AND ".join(where_clauses)
+
+    query = f"""
+    SELECT COUNT(*) as total
+    FROM ventas_tienda_nube_metricas m
+    LEFT JOIN tb_customer tc ON tc.cust_id = m.cust_id AND tc.comp_id = 1
+    LEFT JOIN ventas_tienda_nube_override o ON o.it_transaction = m.it_transaction
+    WHERE {where_sql}
+    """
+
+    result = db.execute(text(query), params).fetchone()
+    return {"total": result.total if result else 0}
 
 
 @router.get("/ventas-tienda-nube/por-marca", response_model=List[VentaTiendaNubePorMarcaResponse])

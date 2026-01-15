@@ -519,7 +519,8 @@ async def get_operaciones_con_metricas(
     codigo: Optional[str] = Query(None, description="Filtrar por código de producto"),
     marca: Optional[str] = Query(None, description="Filtrar por marca"),
     tienda_oficial: Optional[str] = Query(None, description="Filtrar por tienda oficial (true/false)"),
-    limit: int = Query(1000, le=5000, description="Límite de resultados"),
+    search: Optional[str] = Query(None, description="Buscar en código o descripción"),
+    limit: int = Query(1000, le=50000, description="Límite de resultados"),
     offset: int = Query(0, description="Offset para paginación"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -527,6 +528,7 @@ async def get_operaciones_con_metricas(
     """
     Obtiene operaciones de ML con todas las métricas calculadas (comisión, markup, etc.)
     Si el usuario no es admin/gerente, solo ve sus marcas asignadas.
+    Soporta paginación server-side con limit/offset.
     """
 
     # Obtener marcas del usuario para filtrar
@@ -759,6 +761,12 @@ async def get_operaciones_con_metricas(
             continue
         if marca and marca != row.marca:
             continue
+        if search:
+            # Buscar en código o descripción (case-insensitive)
+            search_lower = search.lower()
+            if not (search_lower in (row.codigo or '').lower() or 
+                    search_lower in (row.descripcion or '').lower()):
+                continue
 
         # Usar el costo de envío del PRODUCTO (productos_erp.envio)
         # Ya viene con IVA, el helper lo multiplica por cantidad y le resta el IVA

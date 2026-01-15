@@ -1,0 +1,205 @@
+# Code Review Rules - Pricing App
+
+## Python / FastAPI (Backend)
+
+### General
+- Use **type hints** everywhere: `def get_user(user_id: int) -> User:`
+- No bare `except:` - always specify exceptions: `except ValueError:`
+- Use **Pydantic models** for request/response validation
+- Follow **PEP 8** naming: snake_case for functions/variables
+
+### FastAPI Specific
+- All endpoints must have **explicit response models**: `@router.get("/users", response_model=List[UserResponse])`
+- Use **dependency injection** for auth/db: `current_user: User = Depends(get_current_user)`
+- Proper HTTP status codes: 200, 201, 400, 401, 403, 404, 422, 500
+- Document endpoints with **docstrings** explaining business logic
+
+### Database (SQLAlchemy + Alembic)
+- Use **explicit column types**: `Column(String(255))` not `Column(String)`
+- Always create **Alembic migrations** - never alter DB manually
+- Name migrations descriptively: `20251226_add_user_email_index.py`
+- Use **relationships** correctly: `relationship("User", back_populates="items")`
+- Add **indexes** for foreign keys and frequently queried columns
+
+### Security
+- Never store passwords in plain text - use **bcrypt**
+- Validate JWT tokens properly with `get_current_user` dependency
+- Check **permissions** before any write operation
+- Sanitize inputs to prevent **SQL injection** (SQLAlchemy ORM does this, but validate manually built queries)
+
+---
+
+## JavaScript / React (Frontend)
+
+### General JavaScript
+- Use **const** by default, **let** only when reassigning
+- Prefer **arrow functions**: `const handleClick = () => {}`
+- Use **destructuring**: `const { name, email } = user`
+- No **console.log** in production code (use only for debugging, then remove)
+
+### React
+- Use **functional components** with hooks - no class components
+- Use **named imports**: `import { useState, useEffect }` (NOT `import * as React`)
+- Extract complex logic into **custom hooks**: `useDebounce`, `usePermisos`
+- Prefer **controlled components** for forms
+- Use **prop destructuring** in component signatures: `function Button({ label, onClick })`
+
+### State Management
+- Use **Zustand** for global state (auth store already implemented)
+- Use **React Context** for theme, permissions (already implemented)
+- Keep component state **local** when possible
+- Don't lift state unnecessarily
+
+### API Calls
+- Use **axios** with proper error handling
+- Always check **token** before API calls: `localStorage.getItem('token')`
+- Handle **loading states**: `const [loading, setLoading] = useState(false)`
+- Show user feedback on errors: `alert()` or notifications
+
+### Accessibility
+- All images must have **alt text**: `<img src="logo.png" alt="Company logo" />`
+- Use semantic HTML: `<button>` not `<div onClick>`
+- Add **aria labels** for icon-only buttons: `<button aria-label="Close modal">`
+
+---
+
+## CSS / Styling
+
+### Design System
+- Use **CSS Modules** for component styles: `import styles from './Component.module.css'`
+- Use **design tokens** from `design-tokens.css`:
+  - Colors: `var(--bg-primary)`, `var(--text-primary)`, `var(--brand-primary)`
+  - Spacing: `var(--spacing-sm)`, `var(--spacing-md)`
+  - Shadows: `var(--shadow-sm)`, `var(--shadow-md)`
+- Use **Tesla-style components** when available:
+  - Buttons: `buttons-tesla.css`
+  - Modals: `modals-tesla.css`
+  - Tables: `table-tesla.css`
+
+### Styling Rules
+- **No inline styles** unless absolutely necessary (dynamic values)
+- **No hardcoded colors** - always use design tokens
+- Use **Tailwind CSS utilities** sparingly (project uses CSS Modules primarily)
+- Support **dark mode**: test components in both themes
+- Responsive design: use media queries for mobile/tablet
+
+### CSS Modules Best Practices
+- Name classes with **camelCase**: `.modalHeader`, `.btnPrimary`
+- Compose from design system: `composes: btn-primary from '../../styles/buttons-tesla.css'`
+- Keep selectors **flat** - avoid deep nesting
+
+---
+
+## Project Architecture
+
+### Backend Structure
+```
+backend/
+├── app/
+│   ├── api/endpoints/     # Route handlers
+│   ├── models/            # SQLAlchemy models
+│   ├── schemas/           # Pydantic schemas (not used much, legacy)
+│   ├── services/          # Business logic
+│   ├── core/              # Config, security, database
+│   └── utils/             # Helper functions
+├── alembic/versions/      # DB migrations
+└── scripts/               # Cron jobs, utilities
+```
+
+### Frontend Structure
+```
+frontend/src/
+├── pages/                 # Full page components
+├── components/            # Reusable components
+├── contexts/              # React contexts (theme, permisos)
+├── hooks/                 # Custom hooks
+├── store/                 # Zustand stores
+├── services/              # API client (axios)
+└── styles/                # Global CSS, design tokens
+```
+
+### Naming Conventions
+- **Backend files**: `snake_case.py` (e.g., `produccion_banlist.py`)
+- **Frontend files**: `PascalCase.jsx` for components, `camelCase.js` for utilities
+- **Database tables**: `snake_case` (e.g., `produccion_prearmado`)
+- **API endpoints**: `kebab-case` (e.g., `/api/produccion-banlist`)
+
+---
+
+## Git Commit Messages
+
+Follow **Conventional Commits**:
+- `feat: add pre-armado manual modal`
+- `fix: corregir colores de markup en calculadora`
+- `refactor: extraer lógica de pricing a service`
+- `chore: actualizar dependencias`
+- `docs: agregar documentación de API`
+
+---
+
+## Testing (Pendiente - Guidelines Futuras)
+
+### Backend
+- Write **pytest** tests for critical business logic
+- Mock external APIs (MercadoLibre, ERP)
+- Test **permissions** and **authentication**
+
+### Frontend
+- Test user flows with **React Testing Library**
+- Test **custom hooks** in isolation
+- Mock API calls with **MSW** (Mock Service Worker)
+
+---
+
+## Performance
+
+### Backend
+- Use **async/await** for I/O operations
+- Add **pagination** to list endpoints: `?page=1&page_size=50`
+- Use **select_related/joinedload** to avoid N+1 queries
+- Cache expensive calculations with **Redis** (si se implementa)
+
+### Frontend
+- Use **React.memo** for expensive components
+- Debounce search inputs: `useDebounce` hook
+- Lazy load routes with **React.lazy** (si se necesita)
+- Optimize images: use WebP, add loading="lazy"
+
+---
+
+## Security Checklist
+
+- [ ] All endpoints check **authentication** (`Depends(get_current_user)`)
+- [ ] Sensitive operations check **permissions** (`tienePermiso()`)
+- [ ] Inputs are **validated** (Pydantic models in backend, form validation in frontend)
+- [ ] SQL queries use **ORM** or **parameterized queries**
+- [ ] Passwords are **hashed** with bcrypt
+- [ ] JWT tokens have **expiration** (check config)
+- [ ] CORS is configured properly (only allow trusted origins)
+- [ ] Sensitive data not logged (passwords, tokens)
+
+---
+
+## Common Pitfalls to Avoid
+
+### Backend
+- ❌ Don't query DB in loops - use `joinedload` or bulk operations
+- ❌ Don't return DB models directly - use Pydantic response models
+- ❌ Don't hardcode config values - use environment variables
+- ❌ Don't skip migrations - always run `alembic upgrade head`
+
+### Frontend
+- ❌ Don't use `useEffect` without dependencies array
+- ❌ Don't mutate state directly - use setState functions
+- ❌ Don't forget to cleanup effects (unsubscribe, clear timers)
+- ❌ Don't store sensitive data in localStorage (only JWT token)
+
+---
+
+## Code Review Focus Areas
+
+1. **Security**: Auth checks, input validation, SQL injection prevention
+2. **Performance**: N+1 queries, unnecessary re-renders, large payloads
+3. **Maintainability**: Clear naming, proper abstractions, documentation
+4. **User Experience**: Loading states, error messages, accessibility
+5. **Consistency**: Follow existing patterns in the codebase

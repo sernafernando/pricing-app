@@ -1036,3 +1036,28 @@
 .campoSinCostoInput {
   background-color: rgba(254, 226, 226, 1);
 }
+
+/* Loading y estados de paginación */
+.loadingMore {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-style: italic;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.endOfResults {
+  text-align: center;
+  padding: 20px;
+  color: var(--success);
+  font-size: 14px;
+  font-weight: 500;
+  border-top: 1px solid var(--border-primary);
+  margin-top: 10px;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
