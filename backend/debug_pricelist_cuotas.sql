@@ -43,7 +43,7 @@ WITH sales_data AS (
         ON ti.comp_id = tmlod.comp_id
         AND ti.item_id = tmlod.item_id
 
-    LEFT JOIN tb_mercadolibre_items_pricelist tmlip
+    LEFT JOIN tb_mercadolibre_items_publicados tmlip
         ON tmlip.comp_id = tmloh.comp_id
         AND tmlip.ml_id = tmloh.ml_id
 
