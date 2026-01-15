@@ -49,8 +49,6 @@ WITH sales_data AS (
 
     WHERE tmloh.comp_id = 1
       AND tmloh.ml_id IN ('2000014725630648', '2000014724988736')
-    
-    ORDER BY tmlod.mlo_id, tmlod.mlo_line DESC
 )
 SELECT 
     ml_id,
