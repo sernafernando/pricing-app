@@ -137,6 +137,7 @@ async def sync_ml_orders_incremental(db: Session):
                     mlo_id=mlo_id,
                     mluser_id=to_int(order_json.get("MLUser_Id")),
                     cust_id=to_int(order_json.get("cust_id")),
+                    prli_id=to_int(order_json.get("prli_id")),  # Price List histórico
                     mlo_firstjson=order_json.get("mlo_firstJSON"),
                     mlo_lastjson=order_json.get("mlo_lastJSON"),
                     ml_id=to_string(order_json.get("ML_id")),

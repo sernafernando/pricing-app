@@ -16,6 +16,7 @@ class MercadoLibreOrderHeader(Base):
     mlo_id = Column(BigInteger, primary_key=True, index=True)
     mluser_id = Column(BigInteger)
     cust_id = Column(Integer, index=True)
+    prli_id = Column(Integer, index=True)  # Price List ID histórico de la venta
 
     # JSONs
     mlo_firstjson = Column(JSON)
