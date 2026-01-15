@@ -14,6 +14,8 @@ from pathlib import Path
 # Cargar variables de entorno desde .env ANTES de importar settings
 if __name__ == "__main__":
     backend_path = Path(__file__).resolve().parent.parent.parent
+    if str(backend_path) not in sys.path:
+        sys.path.insert(0, str(backend_path))
     from dotenv import load_dotenv
     env_path = backend_path / '.env'
     load_dotenv(dotenv_path=env_path)
