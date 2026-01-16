@@ -20,7 +20,6 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
-from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
 async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
     """
@@ -127,27 +126,13 @@ async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
                     orders_actualizadas += 1
                     continue  # Skip si ya existe
 
-                # Buscar prli_id actual en items_publicados (snapshot histórico)
-                ml_id = order_json.get("ML_id")
-                mlo_ismshops = to_bool(order_json.get("mlo_ismshops"))
-                prli_id_historico = None
-                
-                if ml_id:
-                    item_publicado = db.query(MercadoLibreItemPublicado).filter(
-                        MercadoLibreItemPublicado.ml_id == str(ml_id)
-                    ).first()
-                    
-                    if item_publicado:
-                        # Usar prli_id4mercadoshop si es MShops, sino prli_id normal
-                        prli_id_historico = item_publicado.prli_id4mercadoshop if mlo_ismshops else item_publicado.prli_id
-
                 # Crear nueva orden
                 order = MercadoLibreOrderHeader(
                     comp_id=to_int(order_json.get("comp_id")),
                     mlo_id=mlo_id,
                     mluser_id=to_int(order_json.get("MLUser_Id")),
                     cust_id=to_int(order_json.get("cust_id")),
-                    prli_id=prli_id_historico,  # Price List histórico del momento de sync
+                    prli_id=to_int(order_json.get("prli_id")),  # Price List histórico
                     mlo_firstjson=order_json.get("mlo_firstJSON"),
                     mlo_lastjson=order_json.get("mlo_lastJSON"),
                     ml_id=to_string(order_json.get("ML_id")),
