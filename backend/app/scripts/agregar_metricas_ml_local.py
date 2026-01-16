@@ -4,7 +4,17 @@ Consulta directamente las tablas PostgreSQL locales (sin ERP)
 Replica la lógica del query SQL Server del ERP
 
 Ejecutar:
-    python app/scripts/agregar_metricas_ml_local.py --from-date 2025-10-22 --to-date 2025-11-21
+    # Últimas 2 horas
+    python -m app.scripts.agregar_metricas_ml_local --hours 2
+    
+    # Últimos 30 minutos
+    python -m app.scripts.agregar_metricas_ml_local --minutes 30
+    
+    # Últimos 7 días
+    python -m app.scripts.agregar_metricas_ml_local --days 7
+    
+    # Rango específico
+    python -m app.scripts.agregar_metricas_ml_local --from-date 2025-10-22 --to-date 2025-11-21
 """
 import sys
 from pathlib import Path
@@ -635,18 +645,64 @@ def process_and_insert(db: Session, rows):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Agregar métricas ML desde tablas locales')
-    parser.add_argument('--from-date', required=True, help='Fecha desde (YYYY-MM-DD)')
-    parser.add_argument('--to-date', required=True, help='Fecha hasta (YYYY-MM-DD)')
+    parser = argparse.ArgumentParser(
+        description='Agregar métricas ML desde tablas locales',
+        epilog='Ejemplos:\n'
+               '  python -m app.scripts.agregar_metricas_ml_local --minutes 30\n'
+               '  python -m app.scripts.agregar_metricas_ml_local --hours 2\n'
+               '  python -m app.scripts.agregar_metricas_ml_local --days 7\n'
+               '  python -m app.scripts.agregar_metricas_ml_local --from-date 2026-01-01 --to-date 2026-01-15',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    # Grupo mutuamente excluyente: --minutes/--hours/--days O (--from-date + --to-date)
+    date_group = parser.add_mutually_exclusive_group(required=True)
+    date_group.add_argument('--minutes', type=int, help='Últimos N minutos')
+    date_group.add_argument('--hours', type=int, help='Últimas N horas')
+    date_group.add_argument('--days', type=int, help='Últimos N días')
+    date_group.add_argument('--from-date', help='Fecha desde (YYYY-MM-DD)')
+    
+    parser.add_argument('--to-date', help='Fecha hasta (YYYY-MM-DD, requerido con --from-date)')
 
     args = parser.parse_args()
 
-    try:
-        from_date = datetime.strptime(args.from_date, '%Y-%m-%d').date()
-        to_date = datetime.strptime(args.to_date, '%Y-%m-%d').date()
+    # Validar que si usa --from-date también tenga --to-date
+    if args.from_date and not args.to_date:
+        parser.error("--from-date requiere --to-date")
+    if args.to_date and not args.from_date:
+        parser.error("--to-date requiere --from-date")
 
-        # Agregar +1 día al to_date para incluir todas las operaciones del día final
-        to_date = to_date + timedelta(days=1)
+    try:
+        if args.minutes:
+            # Modo --minutes: calcular desde ahora hacia atrás
+            to_datetime = datetime.now()
+            from_datetime = to_datetime - timedelta(minutes=args.minutes)
+            from_date = from_datetime.date()
+            to_date = to_datetime.date() + timedelta(days=1)  # +1 para incluir hoy completo
+            print(f"⏱️  Modo --minutes: Últimos {args.minutes} minutos")
+            print(f"   Desde: {from_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"   Hasta: {to_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+        elif args.hours:
+            # Modo --hours: calcular desde ahora hacia atrás
+            to_datetime = datetime.now()
+            from_datetime = to_datetime - timedelta(hours=args.hours)
+            from_date = from_datetime.date()
+            to_date = to_datetime.date() + timedelta(days=1)  # +1 para incluir hoy completo
+            print(f"⏰ Modo --hours: Últimas {args.hours} horas")
+            print(f"   Desde: {from_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"   Hasta: {to_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+        elif args.days:
+            # Modo --days: calcular desde hoy hacia atrás
+            to_date = datetime.now().date()
+            from_date = to_date - timedelta(days=args.days)
+            to_date = to_date + timedelta(days=1)  # +1 para incluir hoy completo
+            print(f"📅 Modo --days: Últimos {args.days} días")
+        else:
+            # Modo --from-date --to-date
+            from_date = datetime.strptime(args.from_date, '%Y-%m-%d').date()
+            to_date = datetime.strptime(args.to_date, '%Y-%m-%d').date()
+            to_date = to_date + timedelta(days=1)  # +1 para incluir el día final completo
+            print(f"📅 Modo rango: {args.from_date} a {args.to_date}")
     except ValueError as e:
         print(f"❌ Error en formato de fecha: {e}")
         print("   Usar formato: YYYY-MM-DD")
