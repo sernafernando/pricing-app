@@ -711,29 +711,72 @@ async def get_operaciones_con_metricas(
           AND tmloh.mlo_cd BETWEEN %(from_date)s AND %(to_date)s
           AND tmloh.mlo_status <> 'cancelled'
           {tienda_oficial_filter}
+          {ml_id_filter}
+          {codigo_filter}
+          {marca_filter}
+          {search_filter}
     )
     SELECT * FROM sales_data
     ORDER BY fecha_venta DESC, id_operacion
     LIMIT %(limit)s OFFSET %(offset)s
     """
     
-    # Aplicar filtro de tienda oficial si está activo
+    # Construir filtros dinámicos
     tienda_oficial_filter = ""
     if tienda_oficial == 'true':
         tienda_oficial_filter = "AND tmlip.mlp_official_store_id = 2645"
     
-    query_str = query_str.format(tienda_oficial_filter=tienda_oficial_filter)
+    ml_id_filter = ""
+    if ml_id:
+        ml_id_filter = f"AND tmloh.ml_id = %(ml_id)s"
+    
+    codigo_filter = ""
+    if codigo:
+        codigo_filter = "AND (ti.item_code ILIKE %(codigo)s OR pe.codigo ILIKE %(codigo)s)"
+    
+    marca_filter = ""
+    if marca:
+        marca_filter = "AND (tb.brand_desc = %(marca)s OR pe.marca = %(marca)s)"
+    
+    search_filter = ""
+    if search:
+        search_filter = """AND (
+            ti.item_code ILIKE %(search_pattern)s 
+            OR pe.codigo ILIKE %(search_pattern)s
+            OR ti.item_desc ILIKE %(search_pattern)s
+            OR pe.descripcion ILIKE %(search_pattern)s
+        )"""
+    
+    query_str = query_str.format(
+        tienda_oficial_filter=tienda_oficial_filter,
+        ml_id_filter=ml_id_filter,
+        codigo_filter=codigo_filter,
+        marca_filter=marca_filter,
+        search_filter=search_filter
+    )
+
+    # Preparar parámetros
+    params = {
+        'from_date': from_date,
+        'to_date': to_date_full,
+        'limit': limit,
+        'offset': offset
+    }
+    
+    if ml_id:
+        params['ml_id'] = ml_id
+    if codigo:
+        params['codigo'] = f'%{codigo}%'
+    if marca:
+        params['marca'] = marca
+    if search:
+        params['search_pattern'] = f'%{search}%'
 
     # Ejecutar via raw connection (psycopg2) que soporta %(param)s nativo
     # Obtener la conexión raw de psycopg2
     raw_connection = db.connection().connection
     cursor = raw_connection.cursor()
-    cursor.execute(query_str, {
-        'from_date': from_date,
-        'to_date': to_date_full,
-        'limit': limit,
-        'offset': offset
-    })
+    cursor.execute(query_str, params)
 
     # Convertir resultado a formato compatible
     columns = [desc[0] for desc in cursor.description]
@@ -746,24 +789,11 @@ async def get_operaciones_con_metricas(
     operaciones = []
     for row in rows:
         # Filtrar por marcas del PM si no es admin/gerente
+        # (Los demás filtros ya se aplicaron en el SQL)
         if marcas_usuario is not None:
             if len(marcas_usuario) == 0:
                 continue  # Sin marcas asignadas, no ve nada
             if row.marca not in marcas_usuario:
-                continue
-
-        # Aplicar filtros adicionales si se especificaron
-        if ml_id and row.ml_id != ml_id:
-            continue
-        if codigo and codigo not in (row.codigo or ''):
-            continue
-        if marca and marca != row.marca:
-            continue
-        if search:
-            # Buscar en código o descripción (case-insensitive)
-            search_lower = search.lower()
-            if not (search_lower in (row.codigo or '').lower() or 
-                    search_lower in (row.descripcion or '').lower()):
                 continue
 
         # Usar el costo de envío del PRODUCTO (productos_erp.envio)
