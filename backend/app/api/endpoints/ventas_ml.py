@@ -518,6 +518,7 @@ async def get_operaciones_con_metricas(
     ml_id: Optional[str] = Query(None, description="Filtrar por ML ID"),
     codigo: Optional[str] = Query(None, description="Filtrar por código de producto"),
     marca: Optional[str] = Query(None, description="Filtrar por marca"),
+    categoria: Optional[str] = Query(None, description="Filtrar por categoría"),
     tienda_oficial: Optional[str] = Query(None, description="Filtrar por tienda oficial (true/false)"),
     search: Optional[str] = Query(None, description="Buscar en código o descripción"),
     limit: int = Query(1000, le=50000, description="Límite de resultados"),
@@ -714,6 +715,7 @@ async def get_operaciones_con_metricas(
           {ml_id_filter}
           {codigo_filter}
           {marca_filter}
+          {categoria_filter}
           {search_filter}
     )
     SELECT * FROM sales_data
@@ -738,6 +740,10 @@ async def get_operaciones_con_metricas(
     if marca:
         marca_filter = "AND (tb.brand_desc = %(marca)s OR pe.marca = %(marca)s)"
     
+    categoria_filter = ""
+    if categoria:
+        categoria_filter = "AND (tc.cat_desc = %(categoria)s OR pe.categoria = %(categoria)s)"
+    
     search_filter = ""
     if search:
         search_filter = """AND (
@@ -752,6 +758,7 @@ async def get_operaciones_con_metricas(
         ml_id_filter=ml_id_filter,
         codigo_filter=codigo_filter,
         marca_filter=marca_filter,
+        categoria_filter=categoria_filter,
         search_filter=search_filter
     )
 
@@ -769,6 +776,8 @@ async def get_operaciones_con_metricas(
         params['codigo'] = f'%{codigo}%'
     if marca:
         params['marca'] = marca
+    if categoria:
+        params['categoria'] = categoria
     if search:
         params['search_pattern'] = f'%{search}%'
 
