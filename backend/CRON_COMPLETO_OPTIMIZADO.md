@@ -82,6 +82,34 @@
 */30 6-21 * * * /var/www/html/pricing-app/backend/venv/bin/python /var/www/html/pricing-app/backend/app/scripts/agregar_metricas_ml_diario.py >> /var/log/pricing-app/ml_metricas_diario.log 2>&1
 
 # ============================================
+# MÉTRICAS - BACKFILL HISTÓRICO (NUEVOS)
+# ============================================
+
+# BACKFILL MENSUAL - Cada noche a las 5:00 AM
+# Reprocesa métricas del mes actual completo (captura cambios en ventas, devoluciones, ajustes de costos)
+
+# ML Métricas - Mes actual completo (5:00 AM diario)
+0 5 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_ml_local --days 30 >> /var/log/pricing-app/ml_metricas_backfill_30d.log 2>&1
+
+# Tienda Nube Métricas - Mes actual completo (5:15 AM diario)
+15 5 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tienda_nube --days 30 >> /var/log/pricing-app/tn_metricas_backfill_30d.log 2>&1
+
+# Fuera ML Métricas - Mes actual completo (5:30 AM diario)
+30 5 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_fuera_ml --days 30 >> /var/log/pricing-app/fuera_ml_metricas_backfill_30d.log 2>&1
+
+# BACKFILL TRIMESTRAL - Domingos a las 4:00 AM
+# Reprocesa métricas de los últimos 3 meses (histórico largo para reportes anuales)
+
+# ML Métricas - Últimos 90 días (Domingos 4:00 AM)
+0 4 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_ml_local --days 90 >> /var/log/pricing-app/ml_metricas_backfill_90d.log 2>&1
+
+# Tienda Nube Métricas - Últimos 90 días (Domingos 4:20 AM)
+20 4 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tienda_nube --days 90 >> /var/log/pricing-app/tn_metricas_backfill_90d.log 2>&1
+
+# Fuera ML Métricas - Últimos 90 días (Domingos 4:40 AM)
+40 4 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_fuera_ml --days 90 >> /var/log/pricing-app/fuera_ml_metricas_backfill_90d.log 2>&1
+
+# ============================================
 # TIENDA NUBE
 # ============================================
 
@@ -139,9 +167,15 @@
 
 ## 📊 **Resumen de Cambios:**
 
-### ✅ **AGREGADO (2 nuevos):**
+### ✅ **AGREGADO (8 nuevos):**
 1. `sync_master_tables_small.py` - 2x día (7 tablas maestras)
 2. `sync_sale_orders_all.py` - Cada 10 min + backfill 3 AM (4 tablas)
+3. **MÉTRICAS ML - Backfill Mensual** - Diario 5:00 AM (30 días)
+4. **MÉTRICAS TN - Backfill Mensual** - Diario 5:15 AM (30 días)
+5. **MÉTRICAS Fuera ML - Backfill Mensual** - Diario 5:30 AM (30 días)
+6. **MÉTRICAS ML - Backfill Trimestral** - Domingos 4:00 AM (90 días)
+7. **MÉTRICAS TN - Backfill Trimestral** - Domingos 4:20 AM (90 días)
+8. **MÉTRICAS Fuera ML - Backfill Trimestral** - Domingos 4:40 AM (90 días)
 
 ### ❌ **ELIMINADO (3 duplicados):**
 1. `sync_completo.py` - Revisar si es necesario
@@ -226,13 +260,54 @@ sudo chown $(whoami):$(whoami) /var/log/pricing-app
 
 | Métrica | Antes | Después | Mejora |
 |---------|-------|---------|--------|
-| Scripts en cron | 15 | 14 | -1 (eliminadas duplicaciones) |
+| Scripts en cron | 15 | 20 | +5 (backfill histórico) |
 | Tablas sincronizadas | ~20 | 31 | +55% |
 | Duplicaciones | 3 | 0 | ✅ Eliminadas |
 | Sale Orders actualizadas | ❌ | ✅ Cada 10 min | Nuevo |
+| Métricas - Backfill Mensual | ❌ | ✅ Diario (30 días) | **NUEVO** |
+| Métricas - Backfill Trimestral | ❌ | ✅ Semanal (90 días) | **NUEVO** |
 | Cobertura ERP | ~60% | ~95% | +35% |
 
 ---
 
+## 🎯 **Estrategia de Métricas en Capas (Completa):**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  CAPA 1: TIEMPO REAL (cada 5 min, 6-21hs)              │
+│  - ML incremental (últimos 10 min)                     │
+│  - Tienda Nube (últimos 10 min)                        │
+│  - Fuera ML (últimos 10 min, 24/7)                     │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│  CAPA 2: BACKUP DIARIO (cada 30 min, 6-21hs)           │
+│  - ML diario (día actual completo)                     │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│  CAPA 3: BACKFILL MENSUAL (diario 5:00 AM)             │
+│  - ML (30 días) - 5:00 AM                              │
+│  - Tienda Nube (30 días) - 5:15 AM                     │
+│  - Fuera ML (30 días) - 5:30 AM                        │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│  CAPA 4: BACKFILL TRIMESTRAL (Domingos 4:00 AM)        │
+│  - ML (90 días) - 4:00 AM                              │
+│  - Tienda Nube (90 días) - 4:20 AM                     │
+│  - Fuera ML (90 días) - 4:40 AM                        │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Beneficios de esta estrategia:**
+1. ✅ **Tiempo real:** Captura nuevas ventas cada 5 minutos
+2. ✅ **Tolerancia a fallos:** Si incremental falla, el backup diario lo cubre
+3. ✅ **Devoluciones/cancelaciones:** El backfill mensual captura cambios en ventas antiguas
+4. ✅ **Reportes históricos:** El backfill trimestral mantiene actualizados los últimos 3 meses
+5. ✅ **Ajustes de costos:** Si cambian costos en el ERP, se recalculan automáticamente
+
+---
+
 **Última actualización:** 2026-01-21  
-**Versión:** 2.0 - Optimizado y sin duplicaciones
+**Versión:** 3.0 - Con backfill histórico completo (30d + 90d)
