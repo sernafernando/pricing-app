@@ -212,6 +212,7 @@ async def sync_sale_order_detail(db: Session, days: int = 7):
                     )
                 ).first()
                 
+                # Mapear solo columnas que EXISTEN en el modelo
                 datos = {
                     'comp_id': comp_id,
                     'bra_id': bra_id,
@@ -220,13 +221,20 @@ async def sync_sale_order_detail(db: Session, days: int = 7):
                     'item_id': record.get('item_id'),
                     'sod_qty': record.get('sod_qty'),
                     'sod_price': record.get('sod_price'),
-                    'sod_subtotal': record.get('sod_subtotal'),
-                    'sod_discountpercentage': record.get('sod_discountPercentage'),
-                    'sod_total': record.get('sod_total'),
-                    'sod_delivered': record.get('sod_delivered'),
-                    'sod_fordelivery': record.get('sod_forDelivery'),
-                    'um_id': record.get('um_id'),
                     'prli_id': record.get('prli_id'),
+                    'sod_priority': record.get('sod_priority'),
+                    'sod_detail': record.get('sod_detail'),
+                    'curr_id': record.get('curr_id'),
+                    'sod_initqty': record.get('sod_initqty'),
+                    'stor_id': record.get('stor_id'),
+                    'user_id': record.get('user_id'),
+                    'sod_quotation': record.get('sod_quotation'),
+                    'sod_itemdiscount': record.get('sod_itemdiscount'),
+                    'sod_cost': record.get('sod_cost'),
+                    'mlo_id': record.get('mlo_id'),
+                    'sod_itemdesc': record.get('sod_itemdesc'),
+                    'sod_discountbyitem': record.get('sod_discountbyitem'),
+                    'sod_discountbytotal': record.get('sod_discountbytotal'),
                 }
                 
                 if existente:
