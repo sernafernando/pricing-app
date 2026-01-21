@@ -1,6 +1,6 @@
-# 💰 Pricing App - Sistema de Gestión de Precios
+# 💰 Pricing App - Sistema de Gestión de Precios y E-commerce
 
-Sistema integral de gestión de precios para productos ERP con integración a Mercado Libre, control de rebates, web transferencia y auditoría completa.
+Sistema integral de gestión de precios, inventario, ventas y logística para operaciones de e-commerce. Integra múltiples canales de venta (Mercado Libre, Tienda Nube), sincronización con ERP, análisis de rentabilidad y sistema de routing logístico.
 
 ## 📋 Tabla de Contenidos
 
@@ -18,70 +18,152 @@ Sistema integral de gestión de precios para productos ERP con integración a Me
 
 ## ✨ Características
 
-### Gestión de Precios
-- 📊 Visualización de productos con precios Clásica, Rebate, Ofertas y Web Transferencia
-- ✏️ Edición inline de precios con validación
-- 🎨 Sistema de marcado de colores para productos
-- 📈 Cálculo automático de markups (Clásica, Rebate, Oferta, Web Transf.)
-- 🔄 Sincronización con sistema ERP
+### 🎯 Gestión de Precios y Productos
 
-### Rebates y Ofertas
-- 🎯 Gestión de rebates de Mercado Libre con porcentajes personalizables
-- 💎 Tracking de mejores ofertas activas
-- 🚫 Sistema de Out of Cards para control de inventario
-- 📅 Gestión de fechas de vigencia de ofertas
+- 📊 Visualización de productos con múltiples tipos de precio (Clásica, Rebate, Ofertas, Web Transferencia)
+- ✏️ Edición inline de precios con validación en tiempo real
+- 🎨 Sistema de marcado por colores para categorización visual
+- 📈 Cálculo automático de markups por tipo de precio
+- 🔄 Sincronización bidireccional con sistema ERP
+- 💾 Sistema de versionado y auditoría de cambios de precios
+- 🏷️ Gestión de listas de precios personalizadas
 
-### Filtros Avanzados
-- 🔍 Búsqueda inteligente por código, descripción, marca
-- 🏷️ Filtros por marcas, subcategorías y PMs (Product Managers)
-- 🎨 Filtro por colores de marcado
-- 📊 Filtros de markup (positivo/negativo) por tipo de precio
-- 📝 Filtros de auditoría por usuario, acción y fecha
-- 💾 Filtros de stock y estado de precios
+### 📊 Analytics y Métricas
 
-### Exportación y Cálculos
-- 📥 Exportación a Excel de Rebate ML
-- 📥 Exportación de precios Clásica con porcentaje adicional
-- 📥 Exportación de Web Transferencia
-- 🧮 Cálculo masivo de precios Web Transferencia
-- 🚫 Banlist de MLAs para excluir de exportaciones
+#### Dashboard MercadoLibre
+- 📈 Métricas de ventas pre-calculadas con agregación diaria
+- 📊 Análisis de rentabilidad por marca, categoría y subcategoría
+- 💰 Tracking de comisiones y costos de envío ML
+- 📉 Análisis de markup promedio por canal
+- 🎯 Filtrado por PM (Product Manager) asignado
+- 📅 Comparación de períodos (día, semana, mes, año)
+- 🏪 Filtrado por tienda oficial
 
-### Auditoría
-- 📋 Historial completo de cambios de precios
-- 👤 Tracking de usuario que realizó cada modificación
-- 🕐 Timestamps de todas las operaciones
-- 🔎 Filtros avanzados de auditoría
+#### Dashboard Tienda Nube
+- 📊 Métricas de ventas agregadas por marca y categoría
+- 💵 Análisis de rentabilidad y márgenes
+- 🔄 Sincronización automática de órdenes
+- 📈 Tracking de performance por producto
 
-### Product Managers
-- 👥 Asignación de PMs a marcas
-- 🎯 Filtrado automático de productos por PM
-- 📊 Gestión centralizada de asignaciones
+#### Dashboard Ventas Fuera ML
+- 💼 Análisis de ventas en canales propios
+- 📊 Rentabilidad por marca y producto
+- 🎯 Top productos más vendidos
+- 💰 Tracking de costos y márgenes
 
-### Usuarios y Seguridad
+### 🚛 Logística y Fulfillment
+
+#### Turbo Routing (Sistema de Envíos)
+- 📍 Geocodificación automática de direcciones con Mapbox
+- 🗺️ Generación automática de zonas de reparto con K-Means clustering
+- 👤 Gestión de motoqueros y asignaciones
+- 🔄 Asignación automática y manual de envíos
+- 📊 Estadísticas de performance por motoquero
+- 🚫 Banlist de envíos problemáticos
+- 📦 Tracking de envíos en tiempo real
+
+#### Pedidos de Preparación
+- 📋 Listado de pedidos pendientes de preparación
+- 🔍 Filtrado por estado, fecha y vendedor
+- ✅ Gestión de estados de preparación
+- 📦 Exportación de pedidos para logística
+
+### 💵 Análisis de Rentabilidad
+
+#### Offsets de Ganancia
+- 📊 Sistema de ajustes de costos por marca, categoría, subcategoría o producto
+- 🎯 Tipos de offset: monto fijo, por unidad, porcentaje del costo
+- 📈 Cálculo de rentabilidad real con offsets aplicados
+- 🔄 Gestión de grupos y filtros de offsets
+- 📉 Tracking de consumo de offsets
+
+#### Rentabilidad Multi-Canal
+- 📊 Análisis unificado de rentabilidad por canal (ML, TN, Ventas Directas)
+- 💰 Desglose de costos: producto, comisiones, envío, offsets
+- 📈 Markup real vs. markup objetivo
+- 🎯 Cards de rentabilidad por marca/categoría/producto
+
+### 🔄 Integraciones y Sincronización
+
+#### MercadoLibre
+- 🔐 OAuth 2.0 flow completo
+- 📦 Sincronización de productos publicados
+- 🛒 Tracking de órdenes y shipping
+- 📊 Métricas de ventas en tiempo real
+- 🔄 Webhooks para actualizaciones automáticas
+- 🏪 Soporte para múltiples tiendas oficiales
+
+#### Tienda Nube
+- 🛒 Sincronización de órdenes
+- 📦 Actualización de inventario
+- 💵 Tracking de ventas
+
+#### ERP (GBP Parser)
+- 📊 Sincronización de tablas maestras (items, clientes, vendedores)
+- 💰 Actualización de costos y precios
+- 📦 Tracking de stock en tiempo real
+- 🔄 Sincronización incremental optimizada
+- 📋 Importación de transacciones comerciales
+
+### 👥 Gestión de Usuarios y Permisos
+
 - 🔐 Sistema de autenticación con JWT
-- 👥 Roles: Superadmin, Admin, Gerente, Pricing
+- 👥 Roles jerárquicos: Superadmin, Admin, Gerente, Pricing, Viewer
 - 🔒 Permisos granulares por funcionalidad
-- 🔑 Cambio de contraseñas por administradores
+- 🎯 Asignación de PMs a marcas específicas
+- 🔑 Gestión de contraseñas por administradores
+- 📊 Permisos contextuales por módulo
+
+### 🎨 Experiencia de Usuario
+
+- 🌓 Dark mode completo con diseño Tesla
+- ⌨️ Navegación por teclado optimizada para productividad
+- 📱 Diseño responsive
+- 🔔 Sistema de notificaciones en tiempo real
+- 📊 Stats dinámicos en navbar
+- 🎨 Design tokens para consistencia visual
+
+### 🛠️ Herramientas Avanzadas
+
+- 📥 Múltiples formatos de exportación (Excel, CSV)
+- 🧮 Calculadora de precios con markup inteligente
+- 📋 Sistema de banlist para productos y MLAs
+- 🔍 Búsqueda avanzada con múltiples filtros
+- 📊 Auditoría completa de cambios
+- 🚫 Gestión de vendedores excluidos
+- 📦 Sistema de pre-armados manuales
 
 ## 🛠️ Tecnologías
 
 ### Backend
 - **Python 3.11+**
 - **FastAPI** - Framework web moderno y rápido
-- **SQLAlchemy** - ORM para PostgreSQL
-- **PostgreSQL** - Base de datos relacional
-- **Pydantic** - Validación de datos
+- **SQLAlchemy 2.0** - ORM para PostgreSQL con async support
+- **Alembic** - Migraciones de base de datos
+- **PostgreSQL 14+** - Base de datos relacional
+- **Pydantic v2** - Validación de datos y settings
 - **python-jose** - Manejo de JWT
-- **passlib** - Hashing de contraseñas
+- **passlib + bcrypt** - Hashing de contraseñas
+- **httpx** - Cliente HTTP async para APIs externas
 - **openpyxl** - Generación de archivos Excel
+- **scikit-learn** - K-Means clustering para zonas de reparto
+- **redis** - Cache y rate limiting (opcional)
 
 ### Frontend
-- **React 18** - Biblioteca UI
-- **Vite** - Build tool y dev server
+- **React 18** - Biblioteca UI con Concurrent Features
+- **Vite 5** - Build tool ultra rápido
 - **Axios** - Cliente HTTP
-- **Zustand** - State management
-- **React Router** - Routing
-- **CSS Variables** - Theming (Dark/Light mode)
+- **Zustand** - State management ligero
+- **React Router v6** - Routing declarativo
+- **CSS Modules** - Scoped styles
+- **Tesla Design System** - Design tokens y componentes reutilizables
+
+### DevOps & Tools
+- **Systemd** - Gestión de servicios (backend)
+- **Nginx** - Reverse proxy y servidor estático
+- **Let's Encrypt** - Certificados SSL
+- **Git** - Control de versiones
+- **GitHub** - Hosting y CI/CD
 
 ## 📦 Requisitos
 
@@ -89,6 +171,8 @@ Sistema integral de gestión de precios para productos ERP con integración a Me
 - Node.js 18+ y npm
 - PostgreSQL 14+
 - Sistema operativo: Linux (producción) / Windows/Mac (desarrollo)
+- Mapbox API key (para geocoding en Turbo Routing)
+- MercadoLibre App credentials (para integración ML)
 
 ## 🚀 Instalación
 
@@ -113,6 +197,9 @@ pip install -r requirements.txt
 # Configurar variables de entorno
 cp .env.example .env
 # Editar .env con tus credenciales
+
+# Ejecutar migraciones Alembic
+alembic upgrade head
 ```
 
 ### Frontend
@@ -148,10 +235,34 @@ GRANT ALL PRIVILEGES ON DATABASE pricing_db TO pricing_user;
 
 **Backend (.env)**
 ```env
+# Database
 DATABASE_URL=postgresql://pricing_user:password@localhost/pricing_db
-SECRET_KEY=tu_secret_key_super_seguro_y_largo
+
+# JWT
+SECRET_KEY=tu_secret_key_super_seguro_y_largo_min_32_chars
 ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=43200
+ACCESS_TOKEN_EXPIRE_MINUTES=10080
+
+# ERP API
+ERP_BASE_URL=https://tu-erp.com
+ERP_PRODUCTOS_ENDPOINT=/consulta?intExpgr_id=64
+ERP_STOCK_ENDPOINT=/consulta?opName=ItemStock&intStor_id=1&intItem_id=-1
+
+# MercadoLibre
+ML_CLIENT_ID=tu_ml_client_id
+ML_CLIENT_SECRET=tu_ml_client_secret
+ML_USER_ID=tu_ml_user_id
+ML_REFRESH_TOKEN=tu_ml_refresh_token
+
+# Mapbox (para Turbo Routing)
+MAPBOX_ACCESS_TOKEN=pk.ey...
+
+# Google Sheets (opcional)
+GOOGLE_SHEETS_ID=tu_sheet_id
+GOOGLE_SERVICE_ACCOUNT_FILE=app/credentials/service-account.json
+
+# Environment
+ENVIRONMENT=production
 ```
 
 **Frontend (.env)**
@@ -161,11 +272,20 @@ VITE_API_URL=http://localhost:8002/api
 
 ### Migraciones
 
+El proyecto usa **Alembic** para migraciones de base de datos:
+
 ```bash
-# Ejecutar scripts SQL en orden
-psql -U pricing_user -d pricing_db -f backend/sql/create_tables.sql
-psql -U pricing_user -d pricing_db -f backend/create_marcas_pm_table.sql
-psql -U pricing_user -d pricing_db -f backend/create_mla_banlist_table.sql
+# Ver historial de migraciones
+alembic history
+
+# Aplicar todas las migraciones pendientes
+alembic upgrade head
+
+# Crear nueva migración automática
+alembic revision --autogenerate -m "descripción del cambio"
+
+# Revertir última migración
+alembic downgrade -1
 ```
 
 ## 🎯 Uso
@@ -193,12 +313,40 @@ Acceder a: `http://localhost:5173`
 ```bash
 sudo systemctl start pricing-api
 sudo systemctl enable pricing-api
+sudo systemctl status pricing-api
 ```
 
 **Frontend:**
 ```bash
 npm run build
 # Servir archivos estáticos desde /var/www/html/pricing-app/frontend/dist
+```
+
+### Scripts de Sincronización
+
+El proyecto incluye múltiples scripts en `backend/app/scripts/` para sincronización de datos:
+
+```bash
+# Sincronización completa de tablas maestras ERP
+python app/scripts/sync_erp_master_tables_full.py
+
+# Sincronización incremental de tablas maestras
+python app/scripts/sync_erp_master_tables_incremental.py
+
+# Sincronización de órdenes ML
+python app/scripts/sync_ml_orders_incremental.py
+
+# Sincronización de publicaciones ML
+python app/scripts/sync_ml_publications_incremental.py
+
+# Agregar métricas ML (diario, corre vía cron)
+python app/scripts/agregar_metricas_ml_incremental.py
+
+# Agregar métricas ventas fuera ML
+python app/scripts/agregar_metricas_fuera_ml.py
+
+# Agregar métricas Tienda Nube
+python app/scripts/agregar_metricas_tienda_nube.py
 ```
 
 ## ⌨️ Navegación por Teclado (Keyboard Shortcuts)
@@ -279,24 +427,69 @@ pricing-app/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── endpoints/
-│   │   │   │   ├── productos.py      # CRUD de productos y precios
-│   │   │   │   ├── usuarios.py       # Gestión de usuarios
-│   │   │   │   ├── auth.py          # Autenticación JWT
+│   │   │   ├── endpoints/          # Endpoints de la API
+│   │   │   │   ├── auth.py         # Autenticación JWT
+│   │   │   │   ├── productos.py    # CRUD de productos
+│   │   │   │   ├── pricing.py      # Gestión de precios
+│   │   │   │   ├── usuarios.py     # Gestión de usuarios
+│   │   │   │   ├── roles.py        # Gestión de roles
+│   │   │   │   ├── permisos.py     # Gestión de permisos
+│   │   │   │   ├── ventas_ml.py    # Métricas ventas ML
+│   │   │   │   ├── ventas_fuera_ml.py   # Métricas ventas propias
+│   │   │   │   ├── ventas_tienda_nube.py # Métricas Tienda Nube
+│   │   │   │   ├── dashboard_ml.py  # Dashboard ML pre-calculado
+│   │   │   │   ├── rentabilidad.py  # Análisis de rentabilidad
+│   │   │   │   ├── offsets_ganancia.py  # Offsets de costos
+│   │   │   │   ├── turbo_routing.py # Sistema de routing logístico
+│   │   │   │   ├── pedidos_preparacion.py # Pedidos pendientes
+│   │   │   │   ├── clientes.py      # Gestión de clientes
 │   │   │   │   ├── marcas_pm.py     # Asignación de PMs
+│   │   │   │   ├── auditoria.py     # Historial de cambios
 │   │   │   │   ├── mla_banlist.py   # Banlist de MLAs
-│   │   │   │   └── auditoria.py     # Historial de cambios
+│   │   │   │   ├── produccion_banlist.py # Banlist producción
+│   │   │   │   ├── sync_ml.py       # Sincronización ML
+│   │   │   │   ├── erp_sync.py      # Sincronización ERP
+│   │   │   │   ├── gbp_parser.py    # Parser de ERP
+│   │   │   │   ├── notificaciones.py # Sistema de notificaciones
+│   │   │   │   ├── configuracion.py # Configuración global
+│   │   │   │   └── ...
 │   │   │   └── deps.py              # Dependencias compartidas
 │   │   ├── core/
-│   │   │   ├── database.py          # Configuración DB
+│   │   │   ├── config.py            # Configuración (Pydantic Settings)
+│   │   │   ├── database.py          # Conexión DB
 │   │   │   └── security.py          # Hashing y JWT
 │   │   ├── models/                  # Modelos SQLAlchemy
-│   │   │   ├── producto.py
 │   │   │   ├── usuario.py
-│   │   │   ├── auditoria.py
-│   │   │   ├── marca_pm.py
-│   │   │   └── mla_banlist.py
+│   │   │   ├── producto.py
+│   │   │   ├── venta_ml.py
+│   │   │   ├── ml_venta_metrica.py
+│   │   │   ├── motoquero.py
+│   │   │   ├── zona_reparto.py
+│   │   │   ├── asignacion_turbo.py
+│   │   │   ├── offset_ganancia.py
+│   │   │   └── ...
+│   │   ├── services/                # Lógica de negocio
+│   │   │   ├── pricing_service.py
+│   │   │   ├── ml_service.py
+│   │   │   ├── permisos_service.py
+│   │   │   ├── geocoding_service.py
+│   │   │   ├── kmeans_zone_service.py
+│   │   │   ├── auto_assignment_service.py
+│   │   │   └── ...
+│   │   ├── utils/                   # Utilidades
+│   │   │   ├── ml_metrics_calculator.py
+│   │   │   └── ...
+│   │   ├── scripts/                 # Scripts de sincronización
+│   │   │   ├── sync_erp_master_tables_incremental.py
+│   │   │   ├── sync_ml_orders_incremental.py
+│   │   │   ├── agregar_metricas_ml_incremental.py
+│   │   │   ├── agregar_metricas_fuera_ml.py
+│   │   │   ├── sync_sale_orders_all.py
+│   │   │   └── ...
 │   │   └── main.py                  # App FastAPI
+│   ├── alembic/
+│   │   ├── versions/                # Migraciones DB
+│   │   └── env.py
 │   ├── requirements.txt
 │   └── .env
 ├── frontend/
@@ -304,25 +497,58 @@ pricing-app/
 │   │   ├── components/
 │   │   │   ├── Navbar.jsx           # Barra de navegación
 │   │   │   ├── ThemeToggle.jsx      # Toggle tema oscuro
+│   │   │   ├── ModalTesla.jsx       # Modal genérico Tesla Design
+│   │   │   ├── PricingModal.jsx     # Edición de precios
 │   │   │   ├── ExportModal.jsx      # Modal de exportación
 │   │   │   ├── CalcularWebModal.jsx # Cálculo masivo
-│   │   │   └── PricingModal.jsx     # Edición de precios
+│   │   │   └── turbo/               # Componentes Turbo Routing
 │   │   ├── pages/
-│   │   │   ├── Login.jsx            # Página de login
-│   │   │   ├── Productos.jsx        # Tabla principal
+│   │   │   ├── Login.jsx            # Login
+│   │   │   ├── Productos.jsx        # Tabla principal de productos
+│   │   │   ├── DashboardMetricasML.jsx  # Dashboard ML
+│   │   │   ├── DashboardVentasFuera.jsx # Dashboard ventas propias
+│   │   │   ├── DashboardTiendaNube.jsx  # Dashboard TN
+│   │   │   ├── TurboRouting.jsx     # Sistema de routing
+│   │   │   ├── PedidosPreparacion.jsx   # Pedidos pendientes
+│   │   │   ├── Clientes.jsx         # Gestión de clientes
 │   │   │   ├── Admin.jsx            # Panel admin
 │   │   │   ├── GestionPM.jsx        # Gestión de PMs
 │   │   │   ├── MLABanlist.jsx       # Gestión banlist
+│   │   │   ├── Banlist.jsx          # Banlist producción
 │   │   │   ├── PreciosListas.jsx    # Precios por lista
-│   │   │   └── UltimosCambios.jsx   # Auditoría
+│   │   │   ├── UltimosCambios.jsx   # Auditoría
+│   │   │   ├── Notificaciones.jsx   # Centro de notificaciones
+│   │   │   └── ...
+│   │   ├── contexts/
+│   │   │   ├── ThemeContext.jsx     # Dark mode
+│   │   │   └── PermisosContext.jsx  # Permisos usuario
+│   │   ├── hooks/
+│   │   │   ├── useDebounce.js
+│   │   │   ├── usePermisos.js
+│   │   │   └── useServerPagination.js
 │   │   ├── store/
-│   │   │   └── authStore.js         # Zustand store
+│   │   │   └── authStore.js         # Zustand auth store
+│   │   ├── services/
+│   │   │   └── api.js               # Axios instance
 │   │   ├── styles/
-│   │   │   └── theme.css            # Variables CSS tema
+│   │   │   ├── design-tokens.css    # Design tokens
+│   │   │   ├── buttons-tesla.css    # Botones Tesla
+│   │   │   ├── modals-tesla.css     # Modales Tesla
+│   │   │   ├── table-tesla.css      # Tablas Tesla
+│   │   │   └── theme.css            # Variables tema
 │   │   ├── App.jsx
 │   │   └── main.jsx
 │   ├── package.json
-│   └── vite.config.js
+│   ├── vite.config.js
+│   └── .env
+├── skills/                          # Skills para agentes AI
+│   ├── pricing-app-backend/
+│   ├── pricing-app-frontend/
+│   ├── pricing-app-ml-integration/
+│   ├── pricing-app-pricing-logic/
+│   ├── pricing-app-permissions/
+│   └── pricing-app-design/
+├── AGENTS.md                        # Guidelines para agentes AI
 └── README.md
 ```
 
@@ -332,8 +558,8 @@ pricing-app/
 - `POST /api/login` - Iniciar sesión
 - `GET /api/me` - Obtener usuario actual
 
-### Productos
-- `GET /api/productos` - Listar productos (con filtros)
+### Productos y Precios
+- `GET /api/productos` - Listar productos (con filtros y paginación)
 - `GET /api/productos/stats` - Estadísticas generales
 - `PATCH /api/productos/{item_id}` - Actualizar precio
 - `PATCH /api/productos/{item_id}/rebate` - Actualizar rebate
@@ -345,66 +571,157 @@ pricing-app/
 - `GET /api/exportar-clasica` - Exportar precios clásica
 - `GET /api/exportar-web-transferencia` - Exportar web transf
 
-### Usuarios
+### Usuarios y Permisos
 - `GET /api/usuarios` - Listar usuarios
 - `POST /api/usuarios` - Crear usuario
 - `PATCH /api/usuarios/{id}` - Actualizar usuario
 - `PATCH /api/usuarios/{id}/password` - Cambiar contraseña
 - `GET /api/usuarios/pms` - Listar PMs
+- `GET /api/roles` - Listar roles disponibles
+- `GET /api/permisos` - Listar permisos disponibles
+- `GET /api/permisos/usuario/{user_id}` - Permisos de un usuario
+- `POST /api/permisos/usuario/{user_id}` - Actualizar permisos
+
+### Métricas y Analytics
+
+#### Dashboard MercadoLibre
+- `GET /api/dashboard-ml/metricas-diarias` - Métricas agregadas por día
+- `GET /api/dashboard-ml/metricas-por-marca` - Métricas por marca
+- `GET /api/dashboard-ml/metricas-por-categoria` - Métricas por categoría
+- `GET /api/dashboard-ml/metricas-por-subcategoria` - Métricas por subcategoría
+- `GET /api/dashboard-ml/top-productos` - Top productos más vendidos
+- `GET /api/dashboard-ml/comparacion-periodos` - Comparación entre períodos
+
+#### Ventas Fuera ML
+- `GET /api/ventas-fuera-ml` - Métricas de ventas propias
+- `GET /api/ventas-fuera-ml/stats` - Estadísticas generales
+- `GET /api/ventas-fuera-ml/por-marca` - Desglose por marca
+- `GET /api/ventas-fuera-ml/top-productos` - Top productos
+
+#### Ventas Tienda Nube
+- `GET /api/ventas-tienda-nube` - Métricas TN
+- `GET /api/ventas-tienda-nube/stats` - Estadísticas generales
+
+### Rentabilidad
+- `GET /api/rentabilidad/cards` - Cards de rentabilidad
+- `GET /api/rentabilidad/desglose/{card_id}` - Desglose detallado
+- `GET /api/offsets-ganancia` - Listar offsets
+- `POST /api/offsets-ganancia` - Crear offset
+- `PATCH /api/offsets-ganancia/{id}` - Actualizar offset
+- `DELETE /api/offsets-ganancia/{id}` - Eliminar offset
+
+### Turbo Routing
+- `GET /api/turbo/envios/pendientes` - Envíos pendientes de asignación
+- `GET /api/turbo/envios/todos` - Todos los envíos
+- `GET /api/turbo/motoqueros` - Listar motoqueros
+- `POST /api/turbo/motoqueros` - Crear motoquero
+- `PUT /api/turbo/motoqueros/{id}` - Actualizar motoquero
+- `DELETE /api/turbo/motoqueros/{id}` - Eliminar motoquero
+- `GET /api/turbo/zonas` - Listar zonas de reparto
+- `POST /api/turbo/zonas` - Crear zona
+- `POST /api/turbo/zonas/auto-generar` - Auto-generar zonas con K-Means
+- `POST /api/turbo/asignar-automatico` - Asignación automática
+- `POST /api/turbo/asignacion/manual` - Asignación manual
+- `GET /api/turbo/estadisticas` - Estadísticas de routing
+- `POST /api/turbo/geocoding/batch` - Geocodificar lote de envíos
+- `GET /api/turbo/banlist` - Banlist de envíos
+- `POST /api/turbo/banlist` - Agregar a banlist
+
+### Pedidos y Logística
+- `GET /api/pedidos-preparacion` - Pedidos pendientes
+- `PATCH /api/pedidos-preparacion/{id}/estado` - Cambiar estado
+- `GET /api/pedidos-export` - Exportar pedidos para logística
+
+### Clientes
+- `GET /api/clientes` - Listar clientes
+- `GET /api/clientes/{id}` - Detalle de cliente
+- `POST /api/clientes` - Crear cliente
+- `PATCH /api/clientes/{id}` - Actualizar cliente
 
 ### Product Managers
 - `GET /api/marcas-pm` - Listar asignaciones PM-Marca
 - `POST /api/marcas-pm/asignar` - Asignar PM a marca
+- `DELETE /api/marcas-pm/{id}` - Eliminar asignación
 - `GET /api/marcas-pm/marcas` - Listar todas las marcas
 
-### Banlist MLAs
+### Banlist
 - `GET /api/mla-banlist` - Listar MLAs baneados
 - `POST /api/mla-banlist` - Agregar MLA a banlist
 - `DELETE /api/mla-banlist/{id}` - Eliminar MLA de banlist
+- `GET /api/produccion-banlist` - Banlist de producción
+- `POST /api/produccion-banlist` - Agregar a banlist producción
+- `DELETE /api/produccion-banlist/{id}` - Eliminar de banlist
 
 ### Auditoría
 - `GET /api/auditoria` - Historial de cambios
 - `GET /api/auditoria/usuarios` - Usuarios con cambios
 - `GET /api/auditoria/tipos-accion` - Tipos de acciones
 
-### Filtros
-- `GET /api/marcas` - Listar marcas disponibles
-- `GET /api/subcategorias` - Listar subcategorías
+### Sincronización
+- `POST /api/sync/erp` - Sincronizar datos ERP
+- `POST /api/sync-ml/items` - Sincronizar items ML
+- `POST /api/sync-ml/orders` - Sincronizar órdenes ML
+- `GET /api/sync/status` - Estado de sincronizaciones
+
+### Configuración
+- `GET /api/configuracion` - Obtener configuración global
+- `PATCH /api/configuracion` - Actualizar configuración
+
+### Notificaciones
+- `GET /api/notificaciones` - Listar notificaciones del usuario
+- `PATCH /api/notificaciones/{id}/leida` - Marcar como leída
+- `POST /api/notificaciones/leer-todas` - Marcar todas como leídas
 
 ## 👥 Roles y Permisos
 
 ### SUPERADMIN
 - ✅ Acceso total al sistema
-- ✅ Gestión de usuarios
+- ✅ Gestión de usuarios y roles
 - ✅ Cambio de contraseñas
+- ✅ Gestión de permisos granulares
 - ✅ Asignación de PMs
 - ✅ Gestión de banlist
 - ✅ Edición de todos los precios
 - ✅ Exportaciones
 - ✅ Visualización de auditoría
+- ✅ Configuración global
+- ✅ Acceso a todos los dashboards
 
 ### ADMIN
-- ✅ Gestión de usuarios
+- ✅ Gestión de usuarios (excepto superadmins)
 - ✅ Cambio de contraseñas
 - ✅ Asignación de PMs
 - ✅ Gestión de banlist
 - ✅ Edición de todos los precios
 - ✅ Exportaciones
 - ✅ Visualización de auditoría
+- ✅ Acceso a todos los dashboards
+- ❌ Modificar configuración global
 
 ### GERENTE
 - ✅ Edición de precios
 - ✅ Exportaciones
 - ✅ Visualización de auditoría
+- ✅ Acceso a dashboards de ventas
+- ✅ Gestión de pedidos
 - ❌ Gestión de usuarios
 - ❌ Asignación de PMs
 
 ### PRICING
 - ✅ Edición de precios
 - ✅ Exportaciones
+- ✅ Visualización de productos
 - ❌ Visualización de auditoría
 - ❌ Gestión de usuarios
 - ❌ Asignación de PMs
+- ❌ Acceso a dashboards de rentabilidad
+
+### VIEWER (Product Manager)
+- ✅ Visualización de productos de sus marcas asignadas
+- ✅ Dashboards filtrados por sus marcas
+- ❌ Edición de precios
+- ❌ Exportaciones
+- ❌ Gestión de usuarios
 
 ## 🚀 Despliegue
 
@@ -414,7 +731,7 @@ pricing-app/
 # /etc/systemd/system/pricing-api.service
 [Unit]
 Description=Pricing API FastAPI
-After=network.target
+After=network.target postgresql.service
 
 [Service]
 Type=simple
@@ -423,25 +740,45 @@ WorkingDirectory=/var/www/html/pricing-app/backend
 Environment="PATH=/var/www/html/pricing-app/backend/venv/bin"
 ExecStart=/var/www/html/pricing-app/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8002 --workers 4
 Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
+```
+
+```bash
+# Activar y arrancar servicio
+sudo systemctl daemon-reload
+sudo systemctl enable pricing-api
+sudo systemctl start pricing-api
+sudo systemctl status pricing-api
+
+# Ver logs
+sudo journalctl -u pricing-api -f
 ```
 
 ### Nginx (Reverse Proxy)
 
 ```nginx
 server {
-    listen 443 ssl;
-    server_name pricing.gaussonline.com.ar;
+    listen 443 ssl http2;
+    server_name pricing.tudominio.com;
 
-    ssl_certificate /etc/letsencrypt/live/pricing.gaussonline.com.ar/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/pricing.gaussonline.com.ar/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/pricing.tudominio.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pricing.tudominio.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
 
-    # Frontend
+    # Frontend (archivos estáticos)
     location / {
         root /var/www/html/pricing-app/frontend/dist;
         try_files $uri $uri/ /index.html;
+        
+        # Cache de assets
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
     }
 
     # Backend API
@@ -451,41 +788,208 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
     }
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+}
+
+# Redirect HTTP to HTTPS
+server {
+    listen 80;
+    server_name pricing.tudominio.com;
+    return 301 https://$server_name$request_uri;
 }
 ```
 
-### Build Frontend
+### Build y Deploy Frontend
 
 ```bash
 cd frontend
 npm run build
 sudo cp -r dist/* /var/www/html/pricing-app/frontend/dist/
+sudo chown -R www-data:www-data /var/www/html/pricing-app/frontend/dist
+```
+
+### Cron Jobs para Sincronización
+
+```bash
+# Editar crontab
+crontab -e
+
+# Sincronización incremental cada 15 minutos
+*/15 * * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python app/scripts/sync_erp_master_tables_incremental.py >> /var/log/pricing-app/sync.log 2>&1
+
+# Métricas ML diarias (corre a las 2 AM)
+0 2 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python app/scripts/agregar_metricas_ml_incremental.py >> /var/log/pricing-app/metricas.log 2>&1
+
+# Sincronización órdenes ML cada hora
+0 * * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python app/scripts/sync_ml_orders_incremental.py >> /var/log/pricing-app/ml-sync.log 2>&1
 ```
 
 ## 🎨 Temas
 
-El sistema incluye soporte para tema oscuro y claro. El toggle se encuentra en la navbar.
+El sistema incluye soporte completo para tema oscuro y claro basado en **Tesla Design System**. El toggle se encuentra en la navbar.
 
 **Variables CSS disponibles:**
-- `--bg-primary`, `--bg-secondary`, `--bg-tertiary`
-- `--text-primary`, `--text-secondary`, `--text-inverse`
-- `--brand-primary`, `--success`, `--error`, `--warning`, `--info`
-- `--border-primary`, `--border-secondary`
-- `--shadow-sm`, `--shadow-md`, `--shadow-lg`
 
-## 📝 Licencia
+```css
+/* Colores de fondo */
+--bg-primary, --bg-secondary, --bg-tertiary
 
-Proyecto privado - Gauss Online © 2025
+/* Colores de texto */
+--text-primary, --text-secondary, --text-inverse
 
-## 👨‍💻 Desarrolladores
+/* Colores de marca */
+--brand-primary, --success, --error, --warning, --info
 
-Desarrollado con ❤️ por el equipo de Gauss Online con la asistencia de Claude (Anthropic).
+/* Bordes */
+--border-primary, --border-secondary
+
+/* Sombras */
+--shadow-sm, --shadow-md, --shadow-lg
+
+/* Spacing */
+--spacing-xs, --spacing-sm, --spacing-md, --spacing-lg, --spacing-xl
+
+/* Typography */
+--font-family-primary, --font-size-base, --font-weight-normal
+```
+
+## 🔒 Seguridad
+
+### Buenas Prácticas Implementadas
+
+- ✅ Autenticación JWT con tokens de corta duración
+- ✅ Contraseñas hasheadas con bcrypt (12 rounds)
+- ✅ Validación de inputs con Pydantic
+- ✅ Protección CSRF (SameSite cookies)
+- ✅ Rate limiting en endpoints críticos
+- ✅ CORS configurado solo para dominios autorizados
+- ✅ SQL injection prevention (ORM)
+- ✅ XSS prevention (sanitización de inputs)
+- ✅ HTTPS obligatorio en producción
+- ✅ Security headers (Nginx)
+- ✅ Logs de auditoría completos
+
+### Checklist de Seguridad para Nuevos Endpoints
+
+- [ ] Endpoint requiere autenticación (`Depends(get_current_user)`)
+- [ ] Operaciones sensibles verifican permisos (`verificar_permiso()`)
+- [ ] Inputs validados con Pydantic schemas
+- [ ] Queries usan ORM o prepared statements
+- [ ] Errores no exponen información sensible
+- [ ] Rate limiting configurado si es necesario
+- [ ] Logs de auditoría agregados
+
+## 📊 Performance
+
+### Backend Optimizations
+
+- ✅ Async/await para operaciones I/O
+- ✅ Connection pooling de PostgreSQL
+- ✅ Paginación server-side en todos los listados
+- ✅ Indexes en columnas frecuentemente consultadas
+- ✅ Eager loading con `joinedload()` para evitar N+1 queries
+- ✅ Cache en memoria para datos estáticos (marcas, categorías)
+- ✅ Agregaciones pre-calculadas para dashboards
+
+### Frontend Optimizations
+
+- ✅ React.memo para componentes costosos
+- ✅ Debounce en búsquedas (300ms)
+- ✅ Lazy loading de rutas con React.lazy
+- ✅ Virtualización de tablas largas (>100 items)
+- ✅ Images optimizadas (WebP, lazy loading)
+- ✅ Code splitting por ruta
+- ✅ CSS Modules para scoped styles (sin overhead de runtime)
+
+## 🐛 Debugging
+
+### Backend
+
+```bash
+# Logs en desarrollo
+uvicorn app.main:app --reload --log-level debug
+
+# Logs en producción
+sudo journalctl -u pricing-api -f --since "10 minutes ago"
+
+# Ver queries SQL
+# En .env: DATABASE_URL con echo=True
+# o usar logging de SQLAlchemy
+```
+
+### Frontend
+
+```bash
+# Dev server con source maps
+npm run dev
+
+# Build con source maps
+npm run build -- --sourcemap
+
+# Analizar bundle size
+npm run build -- --mode analyze
+```
+
+## 📝 Convenciones de Código
+
+### Backend (Python)
+
+- **Naming:** `snake_case` para archivos, funciones y variables
+- **Models:** PascalCase para clases SQLAlchemy
+- **Type hints:** Obligatorios en funciones públicas
+- **Docstrings:** Google style para funciones complejas
+- **Imports:** Agrupados (stdlib, third-party, local) y ordenados alfabéticamente
+
+### Frontend (JavaScript/React)
+
+- **Componentes:** PascalCase para archivos y nombres (`ProductosList.jsx`)
+- **Hooks/Utils:** camelCase para archivos (`useDebounce.js`)
+- **CSS Modules:** Mismo nombre que componente (`ProductosList.module.css`)
+- **Naming:** camelCase para variables/funciones, PascalCase para componentes
+- **Destructuring:** Preferir destructuring de props
+
+## 🧪 Testing (Próximamente)
+
+```bash
+# Backend
+pytest tests/ -v --cov=app
+
+# Frontend
+npm run test
+npm run test:coverage
+```
+
+## 📚 Recursos Adicionales
+
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
+- [React Documentation](https://react.dev/)
+- [SQLAlchemy 2.0 Documentation](https://docs.sqlalchemy.org/en/20/)
+- [Pydantic v2 Documentation](https://docs.pydantic.dev/2.0/)
+- [Alembic Documentation](https://alembic.sqlalchemy.org/)
 
 ## 📞 Soporte
 
 Para soporte o consultas, contactar al equipo de desarrollo interno.
 
+## 📝 Licencia
+
+Proyecto privado - Gauss Online © 2026
+
+## 👨‍💻 Desarrolladores
+
+Desarrollado con ❤️ por el equipo de Gauss Online con la asistencia de Claude (Anthropic).
+
 ---
 
-**Última actualización:** Noviembre 2025
+**Última actualización:** Enero 2026
