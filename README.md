@@ -1125,17 +1125,6 @@ npm run build -- --mode analyze
 - **Naming:** camelCase para variables/funciones, PascalCase para componentes
 - **Destructuring:** Preferir destructuring de props
 
-## 🧪 Testing (Próximamente)
-
-```bash
-# Backend
-pytest tests/ -v --cov=app
-
-# Frontend
-npm run test
-npm run test:coverage
-```
-
 ## 📚 Recursos Adicionales
 
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
