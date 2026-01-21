@@ -1,4 +1,4 @@
-# 💰 Pricing App - Sistema de Gestión de Precios y E-commerce
+# 💰 Pricing App - Sistema de Gestión de Precios e E-commerce
 
 Sistema integral de gestión de precios, inventario, ventas y logística para operaciones de e-commerce. Integra múltiples canales de venta (Mercado Libre, Tienda Nube), sincronización con ERP, análisis de rentabilidad y sistema de routing logístico.
 
