@@ -12,6 +12,7 @@ Sistema integral de gestión de precios, inventario, ventas y logística para op
 - [Uso](#-uso)
 - [Navegación por Teclado](#-navegación-por-teclado-keyboard-shortcuts)
 - [Estructura del Proyecto](#-estructura-del-proyecto)
+- [Sistema de Agentes AI](#-sistema-de-agentes-ai)
 - [API Endpoints](#-api-endpoints)
 - [Roles y Permisos](#-roles-y-permisos)
 - [Despliegue](#-despliegue)
@@ -551,6 +552,171 @@ pricing-app/
 ├── AGENTS.md                        # Guidelines para agentes AI
 └── README.md
 ```
+
+## 🤖 Sistema de Agentes AI
+
+Este proyecto incluye un sistema completo de **Skills para Agentes AI** que permite a herramientas como Claude Code, Cursor, y otros agentes entender y trabajar con el codebase de forma consistente y eficiente.
+
+### 📚 Arquitectura del Sistema
+
+El sistema se compone de dos elementos principales:
+
+#### 1. AGENTS.md - Guidelines Centrales
+
+El archivo [`AGENTS.md`](AGENTS.md) en la raíz del proyecto contiene:
+
+- **Guidelines cross-project** - Normas generales que aplican a todo el proyecto
+- **Tabla de Skills disponibles** - Lista completa de skills genéricos y específicos del proyecto
+- **Auto-invoke rules** - Tabla de acciones que automáticamente deben invocar skills específicos
+- **Convenciones de código** - Naming, estructura, commit messages
+- **Checklist de seguridad** - Para nuevos endpoints y features
+
+#### 2. Skills Directory - Conocimiento Especializado
+
+La carpeta [`skills/`](skills/) contiene skills modulares en formato markdown:
+
+**Skills Genéricos (reutilizables):**
+- `typescript` - Patrones TypeScript strict
+- `react-19` - React 19 con React Compiler
+- `zustand-5` - State management con Zustand
+- `pytest` - Testing patterns con pytest
+- `nextjs-15`, `tailwind-4`, `playwright`, etc.
+
+**Skills Específicos de Pricing App:**
+- [`pricing-app-backend`](skills/pricing-app-backend/SKILL.md) - FastAPI + SQLAlchemy + Alembic patterns
+- [`pricing-app-frontend`](skills/pricing-app-frontend/SKILL.md) - React + Zustand + CSS Modules + Tesla Design
+- [`pricing-app-ml-integration`](skills/pricing-app-ml-integration/SKILL.md) - MercadoLibre API patterns
+- [`pricing-app-pricing-logic`](skills/pricing-app-pricing-logic/SKILL.md) - Pricing calculations y markup
+- [`pricing-app-permissions`](skills/pricing-app-permissions/SKILL.md) - Sistema híbrido de permisos
+- [`pricing-app-design`](skills/pricing-app-design/SKILL.md) - Tesla Design System patterns
+
+### 🎯 Cómo Funciona
+
+#### Auto-invoke (Invocación Automática)
+
+Cuando un agente AI detecta ciertas acciones, **automáticamente** debe cargar el skill correspondiente:
+
+```markdown
+| Acción                              | Skill                          |
+|-------------------------------------|--------------------------------|
+| Creating/modifying FastAPI endpoints | pricing-app-backend           |
+| Creating/modifying React components  | pricing-app-frontend          |
+| Working with MercadoLibre API        | pricing-app-ml-integration    |
+| Calculating product prices           | pricing-app-pricing-logic     |
+| Implementing permission checks       | pricing-app-permissions       |
+```
+
+Ejemplo: Si estás creando un nuevo endpoint FastAPI, el agente automáticamente carga `pricing-app-backend` para seguir los patrones del proyecto (estructura de endpoints, manejo de errores, permisos, etc.).
+
+#### Skill Sync
+
+El proyecto incluye un mecanismo de sincronización que mantiene las tablas de auto-invoke en `AGENTS.md` actualizadas automáticamente desde los metadatos de cada skill:
+
+```bash
+# Regenerar tablas de auto-invoke en AGENTS.md
+./skills/skill-sync/assets/sync.sh
+
+# Ver qué cambiaría sin aplicar
+./skills/skill-sync/assets/sync.sh --dry-run
+
+# Sincronizar solo skills con scope específico
+./skills/skill-sync/assets/sync.sh --scope pricing-app
+```
+
+### 📖 Estructura de un Skill
+
+Cada skill es un archivo markdown con la siguiente estructura:
+
+```markdown
+# Skill Name
+
+## Trigger
+Cuándo debe invocarse este skill automáticamente.
+
+## Context
+Información de contexto sobre el proyecto/tecnología.
+
+## Rules
+Reglas y patrones específicos a seguir.
+
+## Examples
+Ejemplos de código comentados.
+
+## Anti-patterns
+Qué NO hacer y por qué.
+
+## Metadata (opcional)
+---
+metadata:
+  scope: pricing-app
+  auto_invoke:
+    - "Creating FastAPI endpoints"
+    - "Working with SQLAlchemy models"
+---
+```
+
+### 🚀 Beneficios
+
+1. **Consistencia** - Todos los agentes siguen los mismos patrones
+2. **Onboarding rápido** - Nuevos agentes entienden el proyecto inmediatamente
+3. **Context-aware** - El agente sabe qué skill cargar según la tarea
+4. **Modular** - Skills reutilizables entre proyectos
+5. **Mantenible** - Documentación viva que evoluciona con el código
+6. **Auto-sync** - Las tablas de auto-invoke se regeneran automáticamente
+
+### 📝 Creando un Nuevo Skill
+
+Si necesitás agregar un nuevo skill:
+
+1. **Crear el directorio y archivo:**
+   ```bash
+   mkdir -p skills/mi-nuevo-skill
+   touch skills/mi-nuevo-skill/SKILL.md
+   ```
+
+2. **Definir estructura básica** con trigger, context, rules, examples
+
+3. **Agregar metadata** para auto-invoke (opcional):
+   ```yaml
+   ---
+   metadata:
+     scope: pricing-app
+     auto_invoke:
+       - "Working with my new feature"
+   ---
+   ```
+
+4. **Sincronizar AGENTS.md:**
+   ```bash
+   ./skills/skill-sync/assets/sync.sh
+   ```
+
+O usar el skill `skill-creator` para que un agente lo haga por vos:
+```bash
+# El agente AI puede invocar el skill-creator para crear un nuevo skill
+invoke_skill("skill-creator", "Create a skill for FastAPI testing patterns")
+```
+
+### 🔗 Links Útiles
+
+- [AGENTS.md completo](AGENTS.md) - Guidelines y tablas de auto-invoke
+- [Skill Sync README](skills/skill-sync/SKILL.md) - Documentación del sistema de sincronización
+- [Skill Creator README](skills/skill-creator/SKILL.md) - Cómo crear skills automáticamente
+
+### 💡 Casos de Uso
+
+#### Para Desarrolladores Humanos
+- **Onboarding**: Leer `AGENTS.md` y los skills relevantes antes de contribuir
+- **Consulta**: Usar skills como referencia rápida de patrones del proyecto
+- **Documentación**: Mantener skills actualizados cuando cambien los patrones
+
+#### Para Agentes AI
+- **Context loading**: Cargar skills automáticamente según la tarea
+- **Pattern matching**: Seguir los patrones definidos en los skills
+- **Code generation**: Generar código consistente con el proyecto
+- **Refactoring**: Aplicar cambios masivos siguiendo las reglas del skill
+
+---
 
 ## 🔌 API Endpoints
 
