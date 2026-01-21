@@ -186,6 +186,7 @@ async def sync_sale_order_detail(db: Session, days: int = 7):
         nuevos = 0
         actualizados = 0
         errores = 0
+        errores_por_tipo = {}
         
         for record in data:
             try:
@@ -196,6 +197,10 @@ async def sync_sale_order_detail(db: Session, days: int = 7):
                 
                 if not all([comp_id, bra_id, soh_id, sod_id]):
                     errores += 1
+                    error_key = "campos_null"
+                    errores_por_tipo[error_key] = errores_por_tipo.get(error_key, 0) + 1
+                    if errores <= 3:
+                        print(f"\n  ⚠️  PKs nulas: comp_id={comp_id}, bra_id={bra_id}, soh_id={soh_id}, sod_id={sod_id}")
                     continue
                 
                 existente = db.query(SaleOrderDetail).filter(
@@ -233,14 +238,32 @@ async def sync_sale_order_detail(db: Session, days: int = 7):
                     db.add(nuevo)
                     nuevos += 1
                 
-                if (nuevos + actualizados) % 500 == 0:
-                    db.commit()
+                # Commit cada 100 para detectar errores más rápido
+                if (nuevos + actualizados) % 100 == 0:
+                    try:
+                        db.commit()
+                    except Exception as commit_err:
+                        db.rollback()
+                        errores += 1
+                        error_key = type(commit_err).__name__
+                        errores_por_tipo[error_key] = errores_por_tipo.get(error_key, 0) + 1
+                        if errores <= 3:
+                            print(f"\n  ⚠️  Error en commit: {str(commit_err)[:100]}")
             
             except Exception as e:
                 errores += 1
+                error_key = type(e).__name__
+                errores_por_tipo[error_key] = errores_por_tipo.get(error_key, 0) + 1
+                if errores <= 3:
+                    print(f"\n  ⚠️  Error: {str(e)[:100]}")
                 continue
         
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            if errores_por_tipo:
+                print(f"\n  📊 Errores por tipo: {errores_por_tipo}")
         print(f"✓ ({nuevos} nuevos, {actualizados} actualizados, {errores} errores)")
         return (nuevos, actualizados, errores)
     
