@@ -2,6 +2,8 @@
 
 Sistema integral de gestión de precios, inventario, ventas y logística para operaciones de e-commerce. Integra múltiples canales de venta (Mercado Libre, Tienda Nube), sincronización con ERP, análisis de rentabilidad y sistema de routing logístico.
 
+> **¿Querés contribuir?** Lee la [**Guía de Contribución**](CONTRIBUTING.md) para aprender cómo colaborar con el proyecto.
+
 ## 📋 Tabla de Contenidos
 
 - [Características](#-características)
@@ -10,6 +12,7 @@ Sistema integral de gestión de precios, inventario, ventas y logística para op
 - [Instalación](#-instalación)
 - [Configuración](#-configuración)
 - [Uso](#-uso)
+- [Contribuir](#-contribuir)
 - [Navegación por Teclado](#-navegación-por-teclado-keyboard-shortcuts)
 - [Estructura del Proyecto](#-estructura-del-proyecto)
 - [Sistema de Agentes AI](#-sistema-de-agentes-ai)
@@ -349,6 +352,77 @@ python app/scripts/agregar_metricas_fuera_ml.py
 # Agregar métricas Tienda Nube
 python app/scripts/agregar_metricas_tienda_nube.py
 ```
+
+## 🤝 Contribuir
+
+¿Querés contribuir al proyecto? ¡Genial! Tenemos una guía completa para ayudarte.
+
+### Para Empezar
+
+1. **Lee la [Guía de Contribución](CONTRIBUTING.md)** - Documento completo con setup, workflow y convenciones
+2. **Familiarizate con el proyecto** - Explora el código, lee el [AGENTS.md](AGENTS.md)
+3. **Busca un issue** - O crea uno nuevo para discutir tu idea
+4. **Hace un fork** - Y seguí el workflow de la guía
+
+### Quick Start para Contributors
+
+```bash
+# 1. Fork y clonar
+git clone https://github.com/TU_USUARIO/pricing-app.git
+cd pricing-app
+
+# 2. Agregar upstream
+git remote add upstream https://github.com/TU_ORG/pricing-app.git
+
+# 3. Crear branch
+git checkout -b feature/mi-feature
+
+# 4. Hacer cambios, commitear
+git add .
+git commit -m "feat: descripción del cambio"
+
+# 5. Push y crear PR
+git push origin feature/mi-feature
+```
+
+### Qué Contribuir
+
+- 🐛 **Bug fixes** - Arreglar bugs reportados en Issues
+- ✨ **Features** - Nuevas funcionalidades (discutir primero en un Issue)
+- 📚 **Documentación** - Mejorar docs, READMEs, skills
+- ♻️ **Refactors** - Mejorar código existente
+- 🎨 **UI/UX** - Mejoras visuales y de experiencia
+
+### Convenciones Rápidas
+
+**Commits:**
+```bash
+feat: agregar nueva funcionalidad
+fix: corregir bug
+refactor: refactorizar código
+docs: actualizar documentación
+style: formateo de código
+chore: tareas de mantenimiento
+```
+
+**Código:**
+- Backend: `snake_case` para archivos/funciones, `PascalCase` para clases
+- Frontend: `PascalCase` para componentes, `camelCase` para funciones/variables
+- Siempre testear localmente antes de crear PR
+
+### Recursos
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Guía completa paso a paso
+- [AGENTS.md](AGENTS.md) - Guidelines y sistema de skills
+- [Issues](https://github.com/TU_ORG/pricing-app/issues) - Bugs y features
+
+### Preguntas?
+
+- Abrí un Issue con la etiqueta "question"
+- Comentá en un PR existente
+- Contactá al maintainer
+
+---
 
 ## ⌨️ Navegación por Teclado (Keyboard Shortcuts)
 
