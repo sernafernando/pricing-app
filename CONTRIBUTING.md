@@ -236,6 +236,30 @@ Abrir navegador en http://localhost:5173 y deberías ver la app.
 
 ---
 
+## 🌳 Branch Strategy
+
+Este proyecto usa **Git Flow simplificado** con dos branches principales:
+
+- **`main`** - Producción (solo releases estables)
+- **`develop`** - Desarrollo activo (**DEFAULT para PRs**)
+
+Y branches temporales para trabajo:
+
+- **`feature/*`** - Nuevas funcionalidades
+- **`fix/*`** - Correcciones de bugs
+- **`refactor/*`** - Refactors
+- **`hotfix/*`** - Fixes urgentes en producción
+
+**📖 Documentación completa:** [`BRANCHING.md`](BRANCHING.md)
+
+### ⚠️ IMPORTANTE: PRs van a `develop`, NO a `main`
+
+Todos los Pull Requests deben apuntar a **`develop`**, no a `main`. 
+
+El branch `main` está protegido y solo se actualiza con releases estables desde `develop`.
+
+---
+
 ## 🔄 Flujo de Trabajo para Contribuir
 
 ### Paso 1: Sincronizar con el Repo Original
@@ -243,22 +267,30 @@ Abrir navegador en http://localhost:5173 y deberías ver la app.
 Antes de empezar a trabajar, SIEMPRE sincronizá tu fork con el repo original:
 
 ```bash
-# Ir a la rama main
-git checkout main
+# Ir a la rama develop (NO main)
+git checkout develop
 
 # Traer cambios del repo original
 git fetch upstream
 
-# Mergear cambios en tu main local
-git merge upstream/main
+# Mergear cambios en tu develop local
+git merge upstream/develop
 
 # Subir cambios a tu fork en GitHub
+git push origin develop
+```
+
+**Nota:** También sincronizá `main` ocasionalmente:
+```bash
+git checkout main
+git fetch upstream
+git merge upstream/main
 git push origin main
 ```
 
 ### Paso 2: Crear una Nueva Branch
 
-**NUNCA trabajes directamente en `main`**. Siempre crear una branch nueva:
+**NUNCA trabajes directamente en `develop` o `main`**. Siempre crear una branch nueva **desde `develop`**:
 
 ```bash
 # Nombre descriptivo según el tipo de cambio
@@ -679,11 +711,13 @@ git push origin feature/nombre-descriptivo
 
 1. Ir a tu fork en GitHub: `https://github.com/TU_USUARIO/pricing-app`
 2. GitHub va a mostrar un banner amarillo con "Compare & pull request" - hacer click
-3. Verificar que:
+3. **⚠️ IMPORTANTE:** Verificar que:
    - **Base repository:** TU_ORG/pricing-app (el repo original)
-   - **Base branch:** `main`
+   - **Base branch:** `develop` ⚠️ **NO `main`** ⚠️
    - **Head repository:** TU_USUARIO/pricing-app (tu fork)
    - **Compare branch:** `feature/nombre-descriptivo` (tu branch)
+
+**Si dice `main` como base, CAMBIAR A `develop` antes de crear el PR.**
 
 ### Paso 4: Escribir Descripción del PR
 
