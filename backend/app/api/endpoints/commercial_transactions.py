@@ -7,7 +7,7 @@ import httpx
 from app.core.database import get_db
 from app.models.commercial_transaction import CommercialTransaction
 from app.api.deps import get_current_user
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from decimal import Decimal
 import uuid
 
@@ -24,8 +24,7 @@ class CommercialTransactionResponse(BaseModel):
     ct_subtotal: Optional[Decimal]
     ct_guid: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SyncCommercialTransactionsRequest(BaseModel):

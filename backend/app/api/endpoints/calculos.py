@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from decimal import Decimal
 import io
@@ -52,8 +52,7 @@ class CalculoResponse(BaseModel):
     fecha_creacion: datetime
     fecha_modificacion: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class CantidadUpdate(BaseModel):
     cantidad: int = Field(..., ge=0)

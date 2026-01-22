@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -47,8 +47,7 @@ class MarkupBrandResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BrandWithMarkup(BaseModel):
@@ -83,8 +82,7 @@ class MarkupProductoResponse(BaseModel):
     notas: Optional[str]
     markup_id: Optional[int] = None  # Alias para compatibilidad con el frontend
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # =============================================================================

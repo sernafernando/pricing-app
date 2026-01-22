@@ -83,7 +83,7 @@ async def crear_sector(
         icono=sector_data.icono,
         color=sector_data.color,
         activo=sector_data.activo,
-        configuracion=sector_data.configuracion.dict()
+        configuracion=sector_data.configuracion.model_dump()
     )
     
     db.add(nuevo_sector)

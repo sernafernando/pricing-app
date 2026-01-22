@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import List
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 from app.core.database import get_db
@@ -29,8 +29,7 @@ class BanlistItemResponse(BaseModel):
     usuario_id: int
     fecha_creacion: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PrearmadoItemResponse(BaseModel):
@@ -40,8 +39,7 @@ class PrearmadoItemResponse(BaseModel):
     usuario_id: int
     fecha_creacion: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PrearmadoRequest(BaseModel):

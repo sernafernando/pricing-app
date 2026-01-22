@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import datetime
 from app.api.deps import get_current_user
@@ -24,8 +24,7 @@ class MLABanlistResponse(BaseModel):
     fecha_creacion: datetime
     activo: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 def normalizar_mla(mla_input: str) -> str:
     """Normaliza un MLA a formato MLA123456789"""

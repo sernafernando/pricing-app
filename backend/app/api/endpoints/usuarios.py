@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from typing import List, Optional
 from app.api.deps import get_current_user
 from app.core.database import get_db
@@ -37,8 +37,7 @@ class UsuarioResponse(BaseModel):
     rol: str  # Se llena desde rol_codigo property del modelo
     activo: bool
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
     
     @staticmethod
     def model_validate(obj):

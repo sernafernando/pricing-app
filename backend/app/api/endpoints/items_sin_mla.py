@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -68,8 +68,7 @@ class ItemSinMLAResponse(BaseModel):
     listas_sin_mla: List[str]  # Lista de nombres de listas donde NO tiene MLA
     listas_con_mla: List[str]  # Lista de nombres de listas donde SÍ tiene MLA
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ItemBaneadoResponse(BaseModel):
     id: int
@@ -81,8 +80,7 @@ class ItemBaneadoResponse(BaseModel):
     usuario_nombre: str
     fecha_creacion: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class BanItemRequest(BaseModel):
     item_id: int
@@ -103,8 +101,7 @@ class ComparacionListaResponse(BaseModel):
     precio_ml: Optional[float]
     permalink: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.get("/items-sin-mla", response_model=List[ItemSinMLAResponse])

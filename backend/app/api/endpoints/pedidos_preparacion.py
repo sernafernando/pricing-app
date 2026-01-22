@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import pytz
 
 from app.core.database import get_db
@@ -48,8 +48,7 @@ class ResumenProductoResponse(BaseModel):
     esta_prearmado: bool = False  # Flag si está marcado como pre-armado
     cantidad_prearmada: int = 0  # Cantidad de unidades pre-armando
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EstadisticasResponse(BaseModel):
@@ -76,8 +75,7 @@ class ComponenteProductoResponse(BaseModel):
     item_desc: str
     cantidad: float
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Patrones para vista Producción (hardcodeados)

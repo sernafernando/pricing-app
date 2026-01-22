@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from app.api.deps import get_current_user
@@ -52,8 +52,7 @@ class NotificacionResponse(BaseModel):
     es_critica: Optional[bool] = None
     requiere_atencion: Optional[bool] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class NotificacionStats(BaseModel):
     total: int
@@ -82,8 +81,7 @@ class NotificacionAgrupada(BaseModel):
     # IDs de todas las notificaciones del grupo
     notificaciones_ids: List[int]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.get("/notificaciones", response_model=List[NotificacionResponse])
 async def listar_notificaciones(
@@ -623,8 +621,7 @@ class ReglaIgnoradaResponse(BaseModel):
     fecha_creacion: datetime
     ignorado_por_notificacion_id: Optional[int]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.get("/notificaciones/ignoradas", response_model=List[ReglaIgnoradaResponse])

@@ -15,7 +15,7 @@ from app.models.tb_item_taxes import TBItemTaxes
 from app.models.usuario import Usuario, RolUsuario
 from app.models.marca_pm import MarcaPM
 from app.api.deps import get_current_user
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from decimal import Decimal
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
@@ -56,8 +56,7 @@ class VentaMLResponse(BaseModel):
     ml_id: Optional[int]
     ml_shipment_cost_seller: Optional[Decimal]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MetricasDiariasResponse(BaseModel):
@@ -70,8 +69,7 @@ class MetricasDiariasResponse(BaseModel):
     ventas_flex: int
     ventas_dropoff: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SyncVentasRequest(BaseModel):
@@ -367,8 +365,7 @@ class VentaDetalladaResponse(BaseModel):
     envio: Optional[Decimal]  # Precio para envío gratis
     upv: Optional[Decimal]  # Último precio de venta
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.get("/ventas-ml/detalladas", response_model=List[VentaDetalladaResponse])
@@ -507,8 +504,7 @@ class OperacionConMetricasResponse(BaseModel):
     monto_limpio: Decimal
     markup_porcentaje: Decimal
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.get("/ventas-ml/operaciones-con-metricas", response_model=List[OperacionConMetricasResponse])

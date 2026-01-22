@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, text
 from typing import List, Optional
 from datetime import date
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
@@ -34,8 +34,7 @@ class OffsetGrupoFiltroResponse(BaseModel):
     item_id: Optional[int] = None
     producto_descripcion: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OffsetGrupoCreate(BaseModel):
@@ -50,8 +49,7 @@ class OffsetGrupoResponse(BaseModel):
     descripcion: Optional[str]
     filtros: List[OffsetGrupoFiltroResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OffsetGananciaCreate(BaseModel):
@@ -128,8 +126,7 @@ class OffsetGananciaResponse(BaseModel):
     aplica_fuera: bool = True
     aplica_tienda_nube: bool = True
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.get("/offset-grupos", response_model=List[OffsetGrupoResponse])
@@ -871,8 +868,7 @@ class OffsetGrupoConsumoResponse(BaseModel):
     monto_offset_usd: Optional[float] = None
     cotizacion_dolar: Optional[float] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OffsetGrupoResumenResponse(BaseModel):
@@ -891,8 +887,7 @@ class OffsetGrupoResumenResponse(BaseModel):
     porcentaje_consumido_unidades: Optional[float] = None
     porcentaje_consumido_monto: Optional[float] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.get("/offset-grupos/{grupo_id}/consumo")

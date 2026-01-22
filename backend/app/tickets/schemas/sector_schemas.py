@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, Dict, Any, List
 
 
@@ -84,7 +84,6 @@ class SectorUpdate(BaseModel):
 
 class SectorResponse(SectorBase):
     """Schema de respuesta para Sector"""
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
-    
-    class Config:
-        from_attributes = True

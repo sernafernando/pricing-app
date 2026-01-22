@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import logging
 
 from app.core.database import get_db
@@ -18,14 +18,13 @@ logger = logging.getLogger(__name__)
 
 class UsuarioERPResponse(BaseModel):
     """Response schema para usuarios del ERP"""
+    model_config = ConfigDict(from_attributes=True)
+
     user_id: int
     user_name: Optional[str]
     user_loginname: Optional[str]
     user_email: Optional[str]
     user_isactive: Optional[bool]
-    
-    class Config:
-        from_attributes = True
 
 
 @router.get("/usuarios-erp", response_model=List[UsuarioERPResponse])
