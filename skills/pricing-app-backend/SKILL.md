@@ -35,6 +35,15 @@ allowed-tools: Read, Edit, Write, Glob, Grep, Bash
 - ALWAYS: Proper HTTP status codes (200, 201, 400, 401, 403, 404, 422, 500)
 - ALWAYS: Docstrings explaining business logic
 
+### Pydantic v2 Syntax (CRITICAL)
+- ALWAYS: Use `model_config = ConfigDict(...)` instead of `class Config:`
+- ALWAYS: Use `SettingsConfigDict` for BaseSettings classes
+- ALWAYS: Use `.model_dump()` instead of `.dict()`
+- ALWAYS: Use `.model_dump_json()` instead of `.json()`
+- ALWAYS: Import `ConfigDict` from `pydantic` when needed
+- NEVER: Mix v1 and v2 syntax in the same codebase
+- NEVER: Use deprecated `.dict()`, `.json()`, or `class Config:` patterns
+
 ### Database Models
 - ALWAYS: Explicit column types: `Column(String(255))` not `Column(String)`
 - ALWAYS: Create Alembic migrations for schema changes
@@ -88,6 +97,122 @@ backend/
 
 ## PATTERNS
 
+### Pydantic v2 Models (Response Schemas)
+
+**✅ CORRECT (Pydantic v2):**
+```python
+from pydantic import BaseModel, ConfigDict, Field
+
+class ProductoResponse(BaseModel):
+    id: int
+    codigo: str
+    descripcion: str
+    precio: float = Field(gt=0, description="Precio debe ser mayor a 0")
+    
+    # Pydantic v2 syntax
+    model_config = ConfigDict(from_attributes=True)
+
+class ProductoCreate(BaseModel):
+    codigo: str = Field(min_length=1, max_length=50)
+    descripcion: str
+    precio: float = Field(gt=0)
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "codigo": "PROD001",
+                "descripcion": "Notebook Lenovo",
+                "precio": 150000.0
+            }
+        }
+    )
+```
+
+**❌ WRONG (Pydantic v1 - DEPRECATED):**
+```python
+# DO NOT USE THIS SYNTAX
+class ProductoResponse(BaseModel):
+    id: int
+    codigo: str
+    
+    class Config:  # ❌ DEPRECATED
+        orm_mode = True  # ❌ DEPRECATED
+
+# DO NOT USE THIS
+producto_dict = producto.dict()  # ❌ Use .model_dump() instead
+producto_json = producto.json()  # ❌ Use .model_dump_json() instead
+```
+
+### Pydantic Settings (Configuration)
+
+**✅ CORRECT (Pydantic v2):**
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
+
+class Settings(BaseSettings):
+    DATABASE_URL: str
+    SECRET_KEY: str
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080
+    
+    # Optional configs
+    ML_CLIENT_ID: Optional[str] = None
+    ML_CLIENT_SECRET: Optional[str] = None
+    
+    # Pydantic v2 settings syntax
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore"
+    )
+
+settings = Settings()
+```
+
+**❌ WRONG (Pydantic v1 - DEPRECATED):**
+```python
+# DO NOT USE THIS SYNTAX
+class Settings(BaseSettings):
+    DATABASE_URL: str
+    
+    class Config:  # ❌ DEPRECATED
+        env_file = ".env"
+        case_sensitive = True
+```
+
+### Using Pydantic Models
+
+**✅ CORRECT (Pydantic v2):**
+```python
+from pydantic import BaseModel
+
+class ProductoCreate(BaseModel):
+    codigo: str
+    precio: float
+
+# Convert to dict
+producto = ProductoCreate(codigo="PROD001", precio=150000.0)
+producto_dict = producto.model_dump()  # ✅ Correct
+
+# Convert to JSON string
+producto_json = producto.model_dump_json()  # ✅ Correct
+
+# Exclude fields
+producto_dict = producto.model_dump(exclude={"precio"})  # ✅ Correct
+
+# Include only specific fields
+producto_dict = producto.model_dump(include={"codigo"})  # ✅ Correct
+```
+
+**❌ WRONG (Pydantic v1 - DEPRECATED):**
+```python
+# DO NOT USE THESE
+producto_dict = producto.dict()  # ❌ DEPRECATED - Use .model_dump()
+producto_json = producto.json()  # ❌ DEPRECATED - Use .model_dump_json()
+producto_dict = producto.dict(exclude={"precio"})  # ❌ Use .model_dump()
+```
+
 ### FastAPI Endpoint
 
 ```python
@@ -118,7 +243,7 @@ async def get_productos(
 ```python
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, UTC
 from app.core.database import Base
 
 class Producto(Base):
@@ -129,8 +254,10 @@ class Producto(Base):
     descripcion = Column(String(255), nullable=False)
     costo = Column(Integer, nullable=False)
     marca_id = Column(Integer, ForeignKey("marcas.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # ✅ Use datetime.now(UTC) instead of datetime.utcnow() (deprecated in Python 3.12+)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
     
     # Relationships
     marca = relationship("Marca", back_populates="productos")
@@ -255,6 +382,14 @@ async def create_producto(
 
 ## COMMON PITFALLS
 
+### Pydantic v2 (AVOID MIXING SYNTAXES)
+- ❌ Don't use `class Config:` → Use `model_config = ConfigDict(...)`
+- ❌ Don't use `.dict()` → Use `.model_dump()`
+- ❌ Don't use `.json()` → Use `.model_dump_json()`
+- ❌ Don't use `orm_mode = True` → Use `from_attributes=True` in ConfigDict
+- ❌ Don't use `datetime.utcnow()` → Use `datetime.now(UTC)` (Python 3.12+)
+- ❌ Don't mix v1 and v2 syntax → Pick one and be consistent
+
 ### Backend
 - ❌ Don't query DB in loops → Use `joinedload()` or bulk operations
 - ❌ Don't return DB models directly → Use Pydantic response models
@@ -296,6 +431,8 @@ pip freeze > requirements.txt
 - [ ] No hardcoded config values
 - [ ] No sensitive data in logs
 - [ ] Error messages are user-friendly
+- [ ] **Pydantic v2 syntax used** (no `.dict()`, `class Config:`, or `datetime.utcnow()`)
+- [ ] **No mixed v1/v2 syntax** in new or modified code
 
 ---
 
@@ -305,6 +442,8 @@ pip freeze > requirements.txt
 - FastAPI docs: https://fastapi.tiangolo.com
 - SQLAlchemy docs: https://docs.sqlalchemy.org
 - Alembic docs: https://alembic.sqlalchemy.org
+- **Pydantic v2 docs: https://docs.pydantic.dev/latest/**
+- **Pydantic v2 Migration Guide: https://docs.pydantic.dev/latest/migration/**
 
 ### Internal
 - [Backend References](references/README.md) - Links to all internal docs
