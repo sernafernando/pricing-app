@@ -458,6 +458,40 @@ frontend/src/
 
 Cursor es un IDE con **AI integrado** que te ayuda a programar. Acá te explico cómo usarlo en este proyecto.
 
+### 🎯 Setup Automático con `.cursorrules`
+
+**¡Buenas noticias!** Este proyecto tiene un archivo `.cursorrules` en la raíz que Cursor **lee automáticamente** al iniciar cualquier conversación.
+
+**Qué hace el `.cursorrules`:**
+- ✅ Recuerda a Cursor cargar los skills relevantes según tu tarea
+- ✅ Enforza Pydantic v2 syntax (NUNCA v1)
+- ✅ Enforza `datetime.now(UTC)` en lugar de `utcnow()` deprecated
+- ✅ Recuerda checks de permisos en operaciones de escritura
+- ✅ Provee convenciones de naming y estructura del proyecto
+- ✅ Lista common pitfalls a evitar
+
+**¿Qué significa esto para vos?**
+
+Cursor ya sabe las reglas del proyecto. NO necesitás configurar nada extra.
+
+**Best Practice:**
+
+Aunque Cursor lee `.cursorrules` automáticamente, es mejor ser **explícito** cuando pedís algo:
+
+```
+❌ Menos claro:
+"Crear un endpoint para productos"
+
+✅ Más claro:
+"Crear un endpoint para listar productos con paginación.
+Usa el skill pricing-app-backend."
+```
+
+Ser explícito ayuda a:
+1. Cursor a cargar el contexto completo del skill
+2. Vos a entender qué patrones se están usando
+3. Debugging si algo no funciona como esperabas
+
 ### Cursor AI (Ctrl+K o Ctrl+L)
 
 Cursor tiene dos modos principales:
@@ -560,6 +594,53 @@ Refactorizar esta función para usar async/await y separar la lógica de negocio
 - ❌ No aceptar cambios que rompan convenciones del proyecto
 - ❌ No usar Cursor como "black box" - aprender de lo que genera
 - ❌ No generar código sin testear primero
+
+### 🔧 Troubleshooting Cursor
+
+**Problema: Cursor no sigue las reglas del proyecto**
+
+✅ **Solución:**
+1. Verificá que el archivo `.cursorrules` existe en la raíz del proyecto
+2. Reiniciá Cursor (a veces necesita reload)
+3. Mencioná explícitamente el skill: "Usa el skill pricing-app-backend"
+4. Si sigue sin funcionar, copiá manualmente el contenido del skill en el chat
+
+**Problema: Cursor genera código con sintaxis Pydantic v1**
+
+✅ **Solución:**
+```
+Cursor, estás usando sintaxis Pydantic v1 deprecated.
+Este proyecto usa Pydantic v2.
+
+NUNCA uses:
+- class Config:
+- .dict()
+- .json()
+
+SIEMPRE usa:
+- model_config = ConfigDict(...)
+- .model_dump()
+- .model_dump_json()
+
+Reescribí el código con Pydantic v2.
+```
+
+**Problema: No sé qué skill usar**
+
+✅ **Solución:**
+
+Consultá esta tabla rápida:
+
+| Estoy trabajando en... | Skill a usar |
+|------------------------|--------------|
+| Endpoint FastAPI | `pricing-app-backend` |
+| Componente React | `pricing-app-frontend` |
+| API MercadoLibre | `pricing-app-ml-integration` |
+| Cálculo de precios | `pricing-app-pricing-logic` |
+| Sistema de permisos | `pricing-app-permissions` |
+| Estilos/diseño | `pricing-app-design` |
+
+Ver lista completa en [`AGENTS.md`](AGENTS.md).
 
 ---
 
