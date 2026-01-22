@@ -337,8 +337,8 @@ async def cambiar_estado_ticket(
     
     # Si el nuevo estado es final, marcar closed_at
     if nuevo_estado.es_final:
-        from datetime import datetime
-        ticket.closed_at = datetime.utcnow()
+        from datetime import datetime, UTC
+        ticket.closed_at = datetime.now(UTC)
     
     # Actualizar metadata si se proveyó
     if transicion_data.metadata:
@@ -400,11 +400,11 @@ async def asignar_ticket(
     
     # Finalizar asignación activa si existe
     from app.tickets.models.asignacion_ticket import AsignacionTicket, TipoAsignacion
-    from datetime import datetime
+    from datetime import datetime, UTC
     
     asignacion_actual = ticket.asignacion_actual
     if asignacion_actual:
-        asignacion_actual.fecha_finalizacion = datetime.utcnow()
+        asignacion_actual.fecha_finalizacion = datetime.now(UTC)
     
     # Crear nueva asignación
     nueva_asignacion = AsignacionTicket(
