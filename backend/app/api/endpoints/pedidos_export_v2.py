@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, text
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import httpx
 import logging
 
@@ -28,8 +28,7 @@ class ItemPedido(BaseModel):
     item_code: Optional[str] = None  # EAN
     item_desc: Optional[str] = None  # Descripción
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PedidoResumen(BaseModel):
@@ -59,8 +58,7 @@ class PedidoResumen(BaseModel):
     total_items: int
     items: List[ItemPedido] = []
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EstadisticasPedidos(BaseModel):

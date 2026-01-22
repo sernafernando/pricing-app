@@ -5,7 +5,7 @@ from typing import Optional, List
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime, date
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.api.deps import get_current_user
@@ -88,8 +88,7 @@ class ProductoResponse(BaseModel):
     tn_promotional_price: Optional[float] = None  # Precio promocional
     tn_has_promotion: Optional[bool] = None  # Si tiene promoción activa
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProductoListResponse(BaseModel):
     total: int
@@ -1346,8 +1345,7 @@ class ProductoTiendaResponse(BaseModel):
     tn_promotional_price: Optional[float] = None
     tn_has_promotion: Optional[bool] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProductoTiendaListResponse(BaseModel):
     total: int

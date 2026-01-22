@@ -4,7 +4,7 @@ Endpoints para gestión de permisos
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -25,8 +25,7 @@ class PermisoResponse(BaseModel):
     descripcion: Optional[str]
     es_critico: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OverrideRequest(BaseModel):

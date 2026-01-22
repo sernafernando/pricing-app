@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List, Dict, Any
 
 
@@ -35,8 +35,7 @@ class EstadoTicketResponse(EstadoTicketBase):
     id: int
     workflow_id: int
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TransicionEstadoBase(BaseModel):
@@ -77,8 +76,7 @@ class TransicionEstadoResponse(TransicionEstadoBase):
     estado_origen: Optional[EstadoTicketResponse] = None
     estado_destino: Optional[EstadoTicketResponse] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkflowBase(BaseModel):
@@ -109,5 +107,4 @@ class WorkflowResponse(WorkflowBase):
     estados: List[EstadoTicketResponse] = Field(default_factory=list)
     transiciones: List[TransicionEstadoResponse] = Field(default_factory=list)
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

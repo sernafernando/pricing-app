@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from app.tickets.models.ticket import PrioridadTicket
@@ -10,8 +10,7 @@ class UsuarioSimple(BaseModel):
     nombre: str
     email: Optional[str] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EstadoSimple(BaseModel):
@@ -22,8 +21,7 @@ class EstadoSimple(BaseModel):
     color: Optional[str] = None
     es_final: bool
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SectorSimple(BaseModel):
@@ -33,8 +31,7 @@ class SectorSimple(BaseModel):
     nombre: str
     color: Optional[str] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TipoTicketSimple(BaseModel):
@@ -43,8 +40,7 @@ class TipoTicketSimple(BaseModel):
     codigo: str
     nombre: str
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AsignacionSimple(BaseModel):
@@ -54,8 +50,7 @@ class AsignacionSimple(BaseModel):
     fecha_asignacion: datetime
     esta_activa: bool
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TicketBase(BaseModel):
@@ -94,8 +89,7 @@ class TicketResponse(TicketBase):
     updated_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TicketListResponse(BaseModel):
@@ -111,8 +105,7 @@ class TicketListResponse(BaseModel):
     esta_cerrado: bool
     created_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ComentarioCreate(BaseModel):
@@ -131,8 +124,7 @@ class ComentarioResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class HistorialResponse(BaseModel):
@@ -146,8 +138,7 @@ class HistorialResponse(BaseModel):
     cambios: Dict[str, Any]
     fecha: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TransicionRequest(BaseModel):

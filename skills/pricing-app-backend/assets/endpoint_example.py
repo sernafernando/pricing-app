@@ -4,7 +4,7 @@ Shows: auth, permissions, response models, error handling.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from app.core.deps import get_current_user
 from app.models.user import User
 from app.utils.permisos import tienePermiso
@@ -13,14 +13,13 @@ router = APIRouter(prefix="/api", tags=["productos"])
 
 # Response Model
 class ProductoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     codigo: str
     descripcion: str
     costo: int
     marca_id: int | None
-    
-    class Config:
-        from_attributes = True
 
 # Request Model
 class ProductoCreate(BaseModel):
@@ -79,7 +78,7 @@ async def create_producto(
             )
         
         # Create new producto
-        db_producto = Producto(**producto.dict())
+        db_producto = Producto(**producto.model_dump())
         db.add(db_producto)
         db.commit()
         db.refresh(db_producto)
@@ -123,7 +122,7 @@ async def update_producto(
                 detail=f"Producto {producto_id} no encontrado"
             )
         
-        for key, value in producto.dict().items():
+        for key, value in producto.model_dump().items():
             setattr(db_producto, key, value)
         
         db.commit()

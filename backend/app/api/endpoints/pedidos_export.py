@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, desc, case, text
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date, timedelta
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import httpx
 import logging
 
@@ -31,8 +31,7 @@ class PedidoExportItem(BaseModel):
     cantidad: float
     precio_unitario: Optional[float]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PedidoExportResponse(BaseModel):
@@ -85,8 +84,7 @@ class PedidoExportResponse(BaseModel):
     # Items del pedido
     items: List[PedidoExportItem] = []
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EstadisticasExportResponse(BaseModel):

@@ -7,7 +7,7 @@ from sqlalchemy import text
 from typing import List, Optional
 from datetime import datetime, date, timedelta
 from decimal import Decimal
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from app.core.database import get_db
 from app.api.deps import get_current_user
 
@@ -51,8 +51,7 @@ class VentaFueraMLResponse(BaseModel):
     markup: Optional[Decimal]
     vendedor: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class VentaFueraMLStatsResponse(BaseModel):

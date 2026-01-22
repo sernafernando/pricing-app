@@ -7,7 +7,7 @@ from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.models.auditoria import Auditoria, TipoAccion
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 router = APIRouter()
@@ -23,8 +23,7 @@ class AuditoriaResponse(BaseModel):
     fecha_cambio: datetime
     comentario: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.get("/productos/{producto_id}/auditoria", response_model=List[AuditoriaResponse])
 async def obtener_auditoria_producto(
@@ -124,8 +123,7 @@ class AuditoriaGeneralResponse(BaseModel):
     comentario: Optional[str]
     fecha: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class AuditoriaListResponse(BaseModel):
     total: int

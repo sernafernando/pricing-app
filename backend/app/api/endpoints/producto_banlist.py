@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import datetime
 from app.api.deps import get_current_user
@@ -18,18 +18,17 @@ class ProductoBanlistCreate(BaseModel):
     motivo: Optional[str] = None
 
 class ProductoBanlistResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     item_id: Optional[int]
     ean: Optional[str]
-    codigo: Optional[str]  # Código del producto desde ERP
-    descripcion: Optional[str]  # Descripción del producto desde ERP
+    codigo: Optional[str]
+    descripcion: Optional[str]
     motivo: Optional[str]
     fecha_creacion: datetime
     activo: bool
-    usuario_nombre: Optional[str]  # Nombre del usuario que baneó
-
-    class Config:
-        from_attributes = True
+    usuario_nombre: Optional[str]
 
 @router.get("/producto-banlist", response_model=List[ProductoBanlistResponse])
 async def listar_banlist(

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, text, case
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import logging
 import httpx
 import os
@@ -33,8 +33,7 @@ class ItemPedidoDetalle(BaseModel):
     item_desc: Optional[str] = None
     item_code: Optional[str] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PedidoDetallado(BaseModel):
@@ -98,8 +97,7 @@ class PedidoDetallado(BaseModel):
     total_items: int = 0
     items: List[ItemPedidoDetalle] = []
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EstadisticasPedidos(BaseModel):
@@ -503,8 +501,7 @@ class ShippingOverride(BaseModel):
     destinatario: Optional[str] = None
     notas: Optional[str] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.put("/pedidos-simple/{soh_id}/override-shipping")

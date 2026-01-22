@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from app.api.deps import get_current_user
 from app.core.database import get_db
@@ -19,8 +19,7 @@ class MarcaPMResponse(BaseModel):
     usuario_nombre: Optional[str] = None
     usuario_email: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class MarcaPMUpdate(BaseModel):
     usuario_id: Optional[int] = None
@@ -52,8 +51,7 @@ class UsuarioPMResponse(BaseModel):
     email: Optional[str]
     rol: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.get("/marcas-pm", response_model=List[MarcaPMResponse])
 async def listar_marcas_pm(

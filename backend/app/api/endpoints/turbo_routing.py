@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Any
 import httpx
 import pytz
 from fastapi import APIRouter, Depends, Query, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, and_
 from sqlalchemy.orm import Session
 
@@ -147,8 +147,7 @@ class MotoqueroResponse(MotoqueroBase):
     id: int
     created_at: Optional[datetime]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ZonaRepartoBase(BaseModel):
@@ -168,8 +167,7 @@ class ZonaRepartoResponse(ZonaRepartoBase):
     creado_por: Optional[int]
     created_at: Optional[datetime]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EnvioTurboResponse(BaseModel):
@@ -198,8 +196,7 @@ class EnvioTurboResponse(BaseModel):
     latitud: Optional[float] = None  # Coordenadas desde geocoding_cache
     longitud: Optional[float] = None  # Coordenadas desde geocoding_cache
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AsignacionRequest(BaseModel):
@@ -223,8 +220,7 @@ class AsignacionResponse(BaseModel):
     asignado_por: Optional[str]
     asignado_at: Optional[datetime]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EnvioPorMotoqueroStat(BaseModel):
