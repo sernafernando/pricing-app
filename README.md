@@ -3,6 +3,8 @@
 Sistema integral de gestión de precios, inventario, ventas y logística para operaciones de e-commerce. Integra múltiples canales de venta (Mercado Libre, Tienda Nube), sincronización con ERP, análisis de rentabilidad y sistema de routing logístico.
 
 > **¿Querés contribuir?** Lee la [**Guía de Contribución**](CONTRIBUTING.md) para aprender cómo colaborar con el proyecto.
+> 
+> **Branch Strategy:** Este proyecto usa Git Flow. Ver [**BRANCHING.md**](BRANCHING.md) para detalles.
 
 ## 📋 Tabla de Contenidos
 

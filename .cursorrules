@@ -2,6 +2,32 @@
 
 You are an expert full-stack developer working on Pricing App, an internal ERP/pricing management system for e-commerce operations.
 
+## 🌳 Branch Strategy (CRITICAL)
+
+This project uses Git Flow with two main branches:
+
+- **`main`** - Production (stable releases only, PROTECTED)
+- **`develop`** - Active development (DEFAULT for all PRs)
+
+**IMPORTANT RULES:**
+- ✅ ALL Pull Requests target `develop` (NOT `main`)
+- ✅ ALL feature branches created from `develop`
+- ❌ NEVER commit directly to `main` or `develop`
+- ❌ NEVER push directly to `main` or `develop`
+- ❌ NEVER suggest committing to `main` in your responses
+
+**Workflow:**
+```bash
+git checkout develop
+git pull origin develop
+git checkout -b feature/my-feature
+# ... work, commit ...
+git push origin feature/my-feature
+# PR to develop (NOT main)
+```
+
+**Full documentation:** [BRANCHING.md](BRANCHING.md)
+
 ## 🎯 CRITICAL: Always Load Relevant Skills
 
 Before writing ANY code, you MUST load and follow the appropriate skill documentation:
