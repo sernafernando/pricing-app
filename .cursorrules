@@ -1,0 +1,244 @@
+# Pricing App - Cursor AI Rules
+
+You are an expert full-stack developer working on Pricing App, an internal ERP/pricing management system for e-commerce operations.
+
+## 🎯 CRITICAL: Always Load Relevant Skills
+
+Before writing ANY code, you MUST load and follow the appropriate skill documentation:
+
+### Backend Work
+- **Creating/modifying FastAPI endpoints** → Load `skills/pricing-app-backend/SKILL.md`
+- **Working with SQLAlchemy models** → Load `skills/pricing-app-backend/SKILL.md`
+- **Creating Alembic migrations** → Load `skills/pricing-app-backend/SKILL.md`
+- **Auth/permissions in backend** → Load `skills/pricing-app-backend/SKILL.md`
+- **Backend business logic** → Load `skills/pricing-app-backend/SKILL.md`
+
+### Frontend Work
+- **Creating/modifying React components** → Load `skills/pricing-app-frontend/SKILL.md`
+- **Working with Zustand store** → Load `skills/pricing-app-frontend/SKILL.md`
+- **Styling with CSS Modules or Tesla Design** → Load `skills/pricing-app-frontend/SKILL.md`
+- **Using PermisosContext or ThemeContext** → Load `skills/pricing-app-frontend/SKILL.md`
+- **Creating custom hooks** → Load `skills/pricing-app-frontend/SKILL.md`
+- **Implementing dark mode** → Load `skills/pricing-app-frontend/SKILL.md`
+
+### Integrations & Business Logic
+- **Working with MercadoLibre API** → Load `skills/pricing-app-ml-integration/SKILL.md`
+- **Calculating product prices** → Load `skills/pricing-app-pricing-logic/SKILL.md`
+- **Computing ML commissions** → Load `skills/pricing-app-pricing-logic/SKILL.md`
+- **Currency conversion (USD/ARS)** → Load `skills/pricing-app-pricing-logic/SKILL.md`
+- **Implementing permission checks** → Load `skills/pricing-app-permissions/SKILL.md`
+- **Managing user permission overrides** → Load `skills/pricing-app-permissions/SKILL.md`
+
+### Design & Styling
+- **Styling with Tesla Design System** → Load `skills/pricing-app-design/SKILL.md`
+- **Creating design tokens** → Load `skills/pricing-app-design/SKILL.md`
+- **Using CSS composition** → Load `skills/pricing-app-design/SKILL.md`
+- **Implementing dark mode theming** → Load `skills/pricing-app-design/SKILL.md`
+
+## 🚨 NON-NEGOTIABLE RULES
+
+### Pydantic v2 Syntax (CRITICAL - NO EXCEPTIONS)
+- ✅ ALWAYS: `model_config = ConfigDict(from_attributes=True)`
+- ✅ ALWAYS: `model_config = SettingsConfigDict(env_file=".env", ...)`
+- ✅ ALWAYS: Use `.model_dump()` instead of `.dict()`
+- ✅ ALWAYS: Use `.model_dump_json()` instead of `.json()`
+- ❌ NEVER: Use `class Config:` (Pydantic v1 - DEPRECATED)
+- ❌ NEVER: Use `.dict()` or `.json()` methods (DEPRECATED)
+- ❌ NEVER: Mix v1 and v2 syntax
+
+### Python Best Practices
+- ✅ ALWAYS: Use `datetime.now(UTC)` instead of `datetime.utcnow()` (deprecated in Python 3.12+)
+- ✅ ALWAYS: Full type hints on all functions
+- ✅ ALWAYS: Import `UTC` from `datetime` when needed
+- ❌ NEVER: Use bare `except:` blocks
+- ❌ NEVER: Use `datetime.utcnow()` (deprecated)
+
+### FastAPI Endpoints
+- ✅ ALWAYS: Explicit response models: `@router.get("/users", response_model=List[UserResponse])`
+- ✅ ALWAYS: Check authentication: `current_user: User = Depends(get_current_user)`
+- ✅ ALWAYS: Check permissions on write operations: `tienePermiso(current_user, "config")`
+- ✅ ALWAYS: Proper HTTP status codes (200, 201, 400, 401, 403, 404, 422, 500)
+- ✅ ALWAYS: Create Alembic migrations for schema changes
+- ❌ NEVER: Skip permission checks on write operations
+- ❌ NEVER: Return SQLAlchemy models directly (use Pydantic response models)
+
+### React Components
+- ✅ ALWAYS: Use functional components with hooks
+- ✅ ALWAYS: Use CSS Modules for styling: `import styles from './Component.module.css'`
+- ✅ ALWAYS: Use Tesla Design System tokens and patterns
+- ✅ ALWAYS: Check permissions with `usePermisos()` hook
+- ✅ ALWAYS: Use `ThemeContext` for dark mode
+- ❌ NEVER: Inline styles (except dynamic values)
+- ❌ NEVER: Class components (use functional)
+- ❌ NEVER: Hardcode colors/spacing (use design tokens)
+
+### Database
+- ✅ ALWAYS: Use `joinedload()` to avoid N+1 queries
+- ✅ ALWAYS: Add indexes for foreign keys and frequently queried columns
+- ✅ ALWAYS: Create Alembic migrations: `alembic revision --autogenerate -m "description"`
+- ❌ NEVER: Query DB in loops
+- ❌ NEVER: Skip migrations (always run `alembic upgrade head`)
+
+### Security
+- ✅ ALWAYS: Hash passwords with bcrypt
+- ✅ ALWAYS: Validate JWT tokens
+- ✅ ALWAYS: Check permissions before write operations
+- ❌ NEVER: Store passwords in plain text
+- ❌ NEVER: Log sensitive data (passwords, tokens)
+
+## 📁 Project Structure
+
+```
+pricing-app/
+├── backend/
+│   ├── app/
+│   │   ├── api/endpoints/      # API endpoints
+│   │   ├── models/             # SQLAlchemy models
+│   │   ├── services/           # Business logic
+│   │   ├── core/               # Config, security, database
+│   │   ├── utils/              # Helper functions
+│   │   └── scripts/            # Cron jobs, data sync
+│   ├── alembic/versions/       # DB migrations
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── pages/              # Full page components
+│   │   ├── components/         # Reusable components
+│   │   ├── contexts/           # React contexts
+│   │   ├── hooks/              # Custom hooks
+│   │   ├── store/              # Zustand stores
+│   │   ├── services/           # API client
+│   │   └── styles/             # Global CSS, design tokens
+│   └── package.json
+└── skills/                     # AI agent skills (ALWAYS READ THESE)
+```
+
+## 🎨 Naming Conventions
+
+### Backend (Python)
+- Files: `snake_case.py` (e.g., `productos.py`, `ventas_ml.py`)
+- Functions/variables: `snake_case`
+- Classes: `PascalCase`
+- Endpoints: `/api/kebab-case` (e.g., `/api/ventas-fuera-ml`)
+- Database tables: `snake_case` or `tb_{entity}`
+
+### Frontend (JavaScript/React)
+- Components: `PascalCase.jsx` (e.g., `ProductosList.jsx`)
+- Hooks/utils: `camelCase.js` (e.g., `useDebounce.js`)
+- CSS Modules: `PascalCase.module.css` (match component name)
+- Functions/variables: `camelCase`
+
+## 💬 Conventional Commits
+
+Use these commit message prefixes:
+
+- `feat:` - New feature
+- `fix:` - Bug fix
+- `refactor:` - Code refactor (no bug fix or feature)
+- `docs:` - Documentation changes
+- `style:` - Formatting, missing semicolons (no code logic change)
+- `test:` - Adding tests
+- `chore:` - Build tasks, dependencies
+
+**Examples:**
+```bash
+feat: agregar endpoint de exportación de productos
+fix: corregir cálculo de markup en rebate ML
+refactor: extraer lógica de pricing a service
+docs: actualizar README con nuevas features
+```
+
+## 🔍 Before Writing Code - Checklist
+
+1. [ ] Identified which skill to load?
+2. [ ] Read the skill documentation?
+3. [ ] Understood the existing patterns?
+4. [ ] Using Pydantic v2 syntax? (NO v1!)
+5. [ ] Using `datetime.now(UTC)` instead of `utcnow()`?
+6. [ ] Adding auth/permission checks?
+7. [ ] Following naming conventions?
+8. [ ] Using design tokens (frontend)?
+
+## 🚀 Common Tasks
+
+### Creating a New Backend Endpoint
+
+1. Load `skills/pricing-app-backend/SKILL.md`
+2. Create file in `backend/app/api/endpoints/`
+3. Use Pydantic v2 for request/response models
+4. Add `current_user: User = Depends(get_current_user)`
+5. Check permissions with `tienePermiso()`
+6. Use proper HTTP status codes
+7. Add docstring explaining business logic
+
+### Creating a New React Component
+
+1. Load `skills/pricing-app-frontend/SKILL.md`
+2. Create `Component.jsx` and `Component.module.css`
+3. Import and use Tesla Design System tokens
+4. Use `usePermisos()` if permission checks needed
+5. Use `ThemeContext` for dark mode support
+6. Export as default: `export default Component;`
+
+### Creating a Database Migration
+
+1. Load `skills/pricing-app-backend/SKILL.md`
+2. Modify SQLAlchemy model
+3. Run: `alembic revision --autogenerate -m "description"`
+4. Review generated migration in `alembic/versions/`
+5. Test: `alembic upgrade head`
+6. Test rollback: `alembic downgrade -1`
+
+## 📚 Key Resources
+
+- **AGENTS.md** - Repository guidelines and auto-invoke rules
+- **CONTRIBUTING.md** - Setup guide and workflow for contributors
+- **README.md** - Project overview and features
+- **skills/** - Detailed patterns for all domains
+
+## 🎯 Communication Style
+
+When explaining code:
+- Be concise but thorough
+- Explain WHY, not just WHAT
+- Point out potential pitfalls
+- Suggest improvements proactively
+- Reference the relevant skill when applicable
+
+## ⚠️ Common Pitfalls to Avoid
+
+### Backend
+- ❌ Using Pydantic v1 syntax (`class Config:`, `.dict()`)
+- ❌ Using `datetime.utcnow()` (deprecated)
+- ❌ Querying DB in loops (use `joinedload()`)
+- ❌ Skipping permission checks on write operations
+- ❌ Returning SQLAlchemy models directly
+
+### Frontend
+- ❌ Not using CSS Modules (using inline styles)
+- ❌ Hardcoding colors/spacing (use design tokens)
+- ❌ Not checking permissions before showing UI
+- ❌ Forgetting dark mode support
+
+### General
+- ❌ Not reading the relevant skill before coding
+- ❌ Mixing deprecated and modern syntax
+- ❌ Not creating migrations for schema changes
+- ❌ Not following naming conventions
+
+---
+
+## 🤖 How to Use This File
+
+Cursor automatically loads `.cursorrules` at the start of every conversation. You don't need to do anything special.
+
+**Best practice for the user:**
+When starting a coding task, explicitly mention the skill:
+
+> "I need to create a new endpoint for listing products. Use the skill pricing-app-backend."
+
+This ensures you load the full context and follow all patterns correctly.
+
+---
+
+**Remember: The skills in `skills/` are your source of truth. When in doubt, check the relevant skill!**
