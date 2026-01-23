@@ -2063,23 +2063,7 @@
   margin-top: 20px;
 }
 
-.config-modal-btn-primary {
-  padding: 10px 20px;
-  border-radius: 4px;
-  border: none;
-  background-color: var(--brand-primary);
-  color: white;
-  cursor: pointer;
-  font-weight: bold;
-}
 
-.config-modal-btn-secondary {
-  padding: 10px 20px;
-  border-radius: 4px;
-  border: 1px solid var(--border-primary);
-  background-color: var(--bg-primary);
-  cursor: pointer;
-}
 
 /* Modal de configuración - estilo PVP */
 .config-modal {

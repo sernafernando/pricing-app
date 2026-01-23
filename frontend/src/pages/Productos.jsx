@@ -4342,10 +4342,10 @@ export default function Productos() {
               </div>
 
               <div className="config-modal-actions">
-                <button onClick={() => setMostrarModalConfig(false)} className="config-modal-btn-secondary">
+                <button onClick={() => setMostrarModalConfig(false)} className="btn-tesla secondary">
                   Cancelar
                 </button>
-                <button onClick={guardarConfigIndividual} className="config-modal-btn-primary">
+                <button onClick={guardarConfigIndividual} className="btn-tesla primary">
                   Guardar
                 </button>
               </div>
