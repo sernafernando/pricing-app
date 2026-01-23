@@ -10,7 +10,7 @@
  * - Eliminados estilos inline
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import ModalTesla, { ModalSection, ModalAlert, ModalFooterButtons } from './ModalTesla';
 import './PricingModalTesla.css';
@@ -30,7 +30,29 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
   const [ofertas, setOfertas] = useState(null);
   const [loadingOfertas, setLoadingOfertas] = useState(true);
 
-  // Early return si no hay producto
+  const cargarOfertas = useCallback(async () => {
+    if (!producto) return;
+    
+    setLoadingOfertas(true);
+    try {
+      const response = await axios.get(
+        `https://pricing.gaussonline.com.ar/api/productos/${producto.item_id}/ofertas-vigentes`
+      );
+      setOfertas(response.data);
+    } catch (error) {
+      console.error('Error cargando ofertas:', error);
+    } finally {
+      setLoadingOfertas(false);
+    }
+  }, [producto]);
+
+  useEffect(() => {
+    if (isOpen) {
+      cargarOfertas();
+    }
+  }, [isOpen, cargarOfertas]);
+
+  // Early return DESPUÉS de los hooks
   if (!producto) {
     return null;
   }
@@ -140,26 +162,6 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
       setError(err.response?.data?.detail || 'Error al guardar precio');
     } finally {
       setGuardando(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen) {
-      cargarOfertas();
-    }
-  }, [isOpen]);
-
-  const cargarOfertas = async () => {
-    setLoadingOfertas(true);
-    try {
-      const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/productos/${producto.item_id}/ofertas-vigentes`
-      );
-      setOfertas(response.data);
-    } catch (error) {
-      console.error('Error cargando ofertas:', error);
-    } finally {
-      setLoadingOfertas(false);
     }
   };
 
