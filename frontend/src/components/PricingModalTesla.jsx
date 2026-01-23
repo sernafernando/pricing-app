@@ -310,7 +310,7 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
               </div>
               <div className="resultado-item">
                 <span>Markup:</span>
-                <strong>{resultado.clasica?.markup?.toFixed(2)}%</strong>
+                <strong>{resultado.clasica?.markup_real?.toFixed(2)}%</strong>
               </div>
             </div>
           </ModalSection>
@@ -326,7 +326,7 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
                     <div key={key} className="cuota-card">
                       <div className="cuota-title">{key.replace('_', ' ')}</div>
                       <div className="cuota-precio">${cuota.precio?.toLocaleString('es-AR')}</div>
-                      <div className="cuota-markup">{cuota.markup?.toFixed(2)}%</div>
+                      <div className="cuota-markup">{cuota.markup_real?.toFixed(2)}%</div>
                     </div>
                   );
                 })}
