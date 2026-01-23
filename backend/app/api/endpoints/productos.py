@@ -3804,8 +3804,8 @@ async def calcular_pvp_masivo(
                 producto_pricing.precio_pvp = resultado_clasica["precio"]
                 producto_pricing.markup_pvp = resultado_clasica["markup_real"]
 
-            # Calcular PVP CUOTAS (markup objetivo + adicional)
-            markup_total_cuotas = request.markup_pvp_clasica + request.adicional_cuotas
+            # Calcular PVP CUOTAS (usa markup de clásica + adicional separado)
+            # Igual que en /precios/set-rapido
 
             # 3 cuotas (pricelist_id=18)
             resultado_3 = calcular_precio_producto(
@@ -3816,9 +3816,9 @@ async def calcular_pvp_masivo(
                 envio=producto_erp.envio or 0,
                 subcategoria_id=producto_erp.subcategoria_id,
                 pricelist_id=18,  # 55-Lista ML PVP 3C
-                markup_objetivo=markup_total_cuotas,
+                markup_objetivo=request.markup_pvp_clasica,  # Mismo que clásica
                 tipo_cambio=tipo_cambio,
-                adicional_markup=0
+                adicional_markup=request.adicional_cuotas  # El adicional va acá
             )
 
             if "error" not in resultado_3:
@@ -3834,9 +3834,9 @@ async def calcular_pvp_masivo(
                 envio=producto_erp.envio or 0,
                 subcategoria_id=producto_erp.subcategoria_id,
                 pricelist_id=19,  # 56-Lista ML PVP 6C
-                markup_objetivo=markup_total_cuotas,
+                markup_objetivo=request.markup_pvp_clasica,
                 tipo_cambio=tipo_cambio,
-                adicional_markup=0
+                adicional_markup=request.adicional_cuotas
             )
 
             if "error" not in resultado_6:
@@ -3852,9 +3852,9 @@ async def calcular_pvp_masivo(
                 envio=producto_erp.envio or 0,
                 subcategoria_id=producto_erp.subcategoria_id,
                 pricelist_id=20,  # 57-Lista ML PVP 9C
-                markup_objetivo=markup_total_cuotas,
+                markup_objetivo=request.markup_pvp_clasica,
                 tipo_cambio=tipo_cambio,
-                adicional_markup=0
+                adicional_markup=request.adicional_cuotas
             )
 
             if "error" not in resultado_9:
@@ -3870,9 +3870,9 @@ async def calcular_pvp_masivo(
                 envio=producto_erp.envio or 0,
                 subcategoria_id=producto_erp.subcategoria_id,
                 pricelist_id=21,  # 58-Lista ML PVP 12C
-                markup_objetivo=markup_total_cuotas,
+                markup_objetivo=request.markup_pvp_clasica,
                 tipo_cambio=tipo_cambio,
-                adicional_markup=0
+                adicional_markup=request.adicional_cuotas
             )
 
             if "error" not in resultado_12:
