@@ -2101,3 +2101,8 @@
 .config-header-pvp .close-btn {
   color: var(--text-inverse) !important;
 }
+
+.config-header-pvp .close-btn:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+  color: var(--text-inverse) !important;
+}
