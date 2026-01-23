@@ -1092,6 +1092,32 @@
   background: #fce7f3;
 }
 
+/* Botón Cuotas PVP - Verde */
+.icon-button.cuotas-pvp {
+  color: #059669;
+  border-color: #d1fae5;
+  background: #ecfdf5;
+}
+
+.icon-button.cuotas-pvp:hover {
+  border-color: #059669;
+  background: #d1fae5;
+}
+
+.icon-button.cuotas-pvp:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.icon-button.cuotas-pvp:disabled:hover {
+  border-color: #d1fae5;
+  background: #ecfdf5;
+  transform: none;
+  box-shadow: none;
+}
+
 /* Dropdown de colores */
 .color-dropdown {
   position: absolute;
