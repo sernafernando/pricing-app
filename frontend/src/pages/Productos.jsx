@@ -109,6 +109,7 @@ export default function Productos() {
   });
   const [editandoCuota, setEditandoCuota] = useState(null); // {item_id, tipo: '3'|'6'|'9'|'12'}
   const [cuotaTemp, setCuotaTemp] = useState('');
+  const [recalculandoCuotasPvpId, setRecalculandoCuotasPvpId] = useState(null);
 
   // Selección múltiple
   const [productosSeleccionados, setProductosSeleccionados] = useState(new Set());
@@ -1109,6 +1110,53 @@ export default function Productos() {
     } catch (error) {
       
       showToast('Error al guardar precio de cuota: ' + (error.response?.data?.detail || error.message), 'error');
+    }
+  };
+
+  const recalcularCuotasPvpDesdeClasica = async (producto) => {
+    if (!producto?.precio_pvp || Number(producto.precio_pvp) <= 0) {
+      showToast('Este producto no tiene Precio PVP para recalcular cuotas', 'error');
+      return;
+    }
+
+    try {
+      setRecalculandoCuotasPvpId(producto.item_id);
+      const token = localStorage.getItem('token');
+
+      const response = await axios.post(
+        `${API_URL}/precios/recalcular-cuotas`,
+        null,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          params: {
+            item_id: producto.item_id,
+            lista_tipo: 'pvp'
+          }
+        }
+      );
+
+      setProductos((prods) => prods.map((p) =>
+        p.item_id === producto.item_id
+          ? {
+              ...p,
+              precio_pvp_3_cuotas: response.data.precio_pvp_3_cuotas,
+              precio_pvp_6_cuotas: response.data.precio_pvp_6_cuotas,
+              precio_pvp_9_cuotas: response.data.precio_pvp_9_cuotas,
+              precio_pvp_12_cuotas: response.data.precio_pvp_12_cuotas,
+              markup_pvp_3_cuotas: response.data.markup_pvp_3_cuotas,
+              markup_pvp_6_cuotas: response.data.markup_pvp_6_cuotas,
+              markup_pvp_9_cuotas: response.data.markup_pvp_9_cuotas,
+              markup_pvp_12_cuotas: response.data.markup_pvp_12_cuotas
+            }
+          : p
+      ));
+
+      showToast('Cuotas PVP recalculadas', 'success');
+      cargarStats();
+    } catch (error) {
+      showToast('Error al recalcular cuotas PVP: ' + (error.response?.data?.detail || error.message), 'error');
+    } finally {
+      setRecalculandoCuotasPvpId(null);
     }
   };
 
@@ -3882,6 +3930,18 @@ export default function Productos() {
                             aria-label="Configuración de cuotas"
                           >
                             ⚙️
+                          </button>
+                        )}
+
+                        {modoVista === 'pvp' && puedeEditarCuotas && (
+                          <button
+                            onClick={() => recalcularCuotasPvpDesdeClasica(p)}
+                            className="icon-button cuotas-pvp"
+                            title="Recalcular cuotas PVP desde Precio PVP"
+                            aria-label="Recalcular cuotas PVP"
+                            disabled={recalculandoCuotasPvpId === p.item_id}
+                          >
+                            {recalculandoCuotasPvpId === p.item_id ? '⏳' : '🧮'}
                           </button>
                         )}
                         {puedeMarcarColor && (

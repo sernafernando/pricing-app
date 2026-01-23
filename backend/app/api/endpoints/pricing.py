@@ -967,6 +967,172 @@ async def setear_precio_rapido(
 
     return response
 
+
+@router.post("/precios/recalcular-cuotas")
+async def recalcular_cuotas_desde_clasica(
+    item_id: int,
+    lista_tipo: str = Query("web", regex="^(web|pvp)$", description="Tipo de lista: web o pvp"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Recalcula precios de cuotas usando el precio clásica ya guardado.
+
+    A diferencia de /precios/set-rapido, NO cambia el precio base: solo recalcula y guarda
+    los precios de cuotas (web o pvp). Esto evita generar auditorías de precio cuando
+    el usuario solo necesita actualizar las cuotas.
+    """
+
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+    if not producto:
+        raise HTTPException(404, "Producto no encontrado")
+
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+    if not pricing:
+        raise HTTPException(404, "No hay precios configurados para este producto")
+
+    if lista_tipo == "pvp":
+        if pricing.precio_pvp is None:
+            raise HTTPException(400, "El producto no tiene Precio PVP para recalcular cuotas")
+        precio_base = float(pricing.precio_pvp)
+    else:
+        if pricing.precio_lista_ml is None:
+            raise HTTPException(400, "El producto no tiene Precio Web para recalcular cuotas")
+        precio_base = float(pricing.precio_lista_ml)
+
+    if precio_base <= 0:
+        raise HTTPException(400, "El precio clásica debe ser mayor a 0")
+
+    # Obtener TC si es USD
+    tipo_cambio = None
+    if producto.moneda_costo == "USD":
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+
+    costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+    grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+
+    # Calcular markup del precio base
+    pricelist_clasica = 12 if lista_tipo == "pvp" else 4
+    comision_base = obtener_comision_base(db, pricelist_clasica, grupo_id)
+    if not comision_base:
+        raise HTTPException(400, "No hay comisión configurada")
+
+    comisiones = calcular_comision_ml_total(precio_base, comision_base, producto.iva, db=db)
+    limpio = calcular_limpio(precio_base, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
+    markup = calcular_markup(limpio, costo_ars)
+    markup_porcentaje = round(markup * 100, 2)
+
+    # Configuración de cuotas según lista_tipo
+    if lista_tipo == "pvp":
+        cuotas_config = {
+            'precio_pvp_3_cuotas': 18,
+            'precio_pvp_6_cuotas': 19,
+            'precio_pvp_9_cuotas': 20,
+            'precio_pvp_12_cuotas': 21
+        }
+    else:
+        cuotas_config = {
+            'precio_3_cuotas': 17,
+            'precio_6_cuotas': 14,
+            'precio_9_cuotas': 13,
+            'precio_12_cuotas': 23
+        }
+
+    # Obtener markup adicional: primero del producto, si no de configuración global
+    if pricing.markup_adicional_cuotas_custom is not None:
+        markup_adicional = float(pricing.markup_adicional_cuotas_custom)
+    else:
+        markup_adicional = obtener_markup_adicional_cuotas(db)
+
+    precios_cuotas = {k: None for k in cuotas_config.keys()}
+
+    for nombre_campo, pricelist_id in cuotas_config.items():
+        try:
+            resultado = calcular_precio_producto(
+                db=db,
+                costo=producto.costo,
+                moneda_costo=producto.moneda_costo,
+                iva=producto.iva,
+                envio=producto.envio or 0,
+                subcategoria_id=producto.subcategoria_id,
+                pricelist_id=pricelist_id,
+                markup_objetivo=markup_porcentaje,
+                tipo_cambio=tipo_cambio,
+                adicional_markup=markup_adicional
+            )
+
+            if "error" not in resultado:
+                precio_calculado = round(resultado["precio"], 2)
+                if precio_calculado > 0:
+                    precios_cuotas[nombre_campo] = precio_calculado
+        except Exception:
+            pass
+
+    # Persistir cuotas recalculadas (sin tocar precio base)
+    for nombre_campo, precio_cuota in precios_cuotas.items():
+        setattr(pricing, nombre_campo, precio_cuota)
+
+    pricing.usuario_id = current_user.id
+    pricing.fecha_modificacion = datetime.now()
+
+    db.commit()
+
+    response = {
+        "item_id": item_id,
+        "lista_tipo": lista_tipo,
+        "markup_adicional": markup_adicional,
+    }
+
+    if lista_tipo == "pvp":
+        response["precio_pvp"] = float(pricing.precio_pvp) if pricing.precio_pvp else None
+        response["markup_pvp"] = markup_porcentaje
+    else:
+        response["precio"] = float(pricing.precio_lista_ml) if pricing.precio_lista_ml else None
+        response["markup"] = markup_porcentaje
+
+    response.update(precios_cuotas)
+
+    # Calcular markups de cuotas para la respuesta (no depende de storage)
+    if lista_tipo == "pvp":
+        cuotas_pricelists = [
+            (precios_cuotas['precio_pvp_3_cuotas'], 18, 'markup_pvp_3_cuotas'),
+            (precios_cuotas['precio_pvp_6_cuotas'], 19, 'markup_pvp_6_cuotas'),
+            (precios_cuotas['precio_pvp_9_cuotas'], 20, 'markup_pvp_9_cuotas'),
+            (precios_cuotas['precio_pvp_12_cuotas'], 21, 'markup_pvp_12_cuotas')
+        ]
+    else:
+        cuotas_pricelists = [
+            (precios_cuotas['precio_3_cuotas'], 17, 'markup_3_cuotas'),
+            (precios_cuotas['precio_6_cuotas'], 14, 'markup_6_cuotas'),
+            (precios_cuotas['precio_9_cuotas'], 13, 'markup_9_cuotas'),
+            (precios_cuotas['precio_12_cuotas'], 23, 'markup_12_cuotas')
+        ]
+
+    for precio_cuota, pricelist_id, nombre_markup in cuotas_pricelists:
+        if precio_cuota and float(precio_cuota) > 0:
+            try:
+                comision_base_cuota = obtener_comision_base(db, pricelist_id, grupo_id)
+                if comision_base_cuota:
+                    comisiones_cuota = calcular_comision_ml_total(
+                        float(precio_cuota),
+                        comision_base_cuota,
+                        producto.iva,
+                        db=db
+                    )
+                    limpio_cuota = calcular_limpio(
+                        float(precio_cuota),
+                        producto.iva,
+                        producto.envio or 0,
+                        comisiones_cuota["comision_total"],
+                        db=db,
+                        grupo_id=grupo_id
+                    )
+                    markup_calculado = calcular_markup(limpio_cuota, costo_ars) * 100
+                    response[nombre_markup] = round(markup_calculado, 2)
+            except Exception:
+                response[nombre_markup] = None
+
+    return response
+
 @router.post("/precios/set-cuota")
 async def setear_precio_cuota(
     item_id: int,
