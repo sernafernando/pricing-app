@@ -5003,14 +5003,18 @@ async def exportar_clasica(
     out_of_cards: Optional[bool] = None,
     colores: Optional[str] = None,
     pms: Optional[str] = None,
-    audit_usuarios: Optional[str] = None,
-    audit_tipos_accion: Optional[str] = None,
-    audit_fecha_desde: Optional[str] = None,
-    audit_fecha_hasta: Optional[str] = None,
-    estado_mla: Optional[str] = None,
+    current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Exporta precios de Clásica. Si tiene rebate activo, aplica % sobre precio rebate."""
+    from app.services.permisos_service import verificar_permiso
+    
+    # Verificar permiso
+    if not verificar_permiso(db, current_user, 'productos.exportar_clasica'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para exportar lista de precios clásica"
+        )
     from io import BytesIO
     from openpyxl import Workbook
     from app.models.tipo_cambio import TipoCambio
