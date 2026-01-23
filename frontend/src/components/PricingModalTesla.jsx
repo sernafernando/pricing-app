@@ -52,6 +52,19 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
     }
   }, [isOpen, cargarOfertas]);
 
+  // Resetear estado cuando cambia el producto o se abre el modal
+  useEffect(() => {
+    if (isOpen && producto) {
+      setResultado(null);
+      setError('');
+      setMarkupObjetivo('42.98');
+      setPrecioManual('');
+      setModo('markup');
+      setParticipaRebate(false);
+      setPorcentajeRebate(3.8);
+    }
+  }, [isOpen, producto?.item_id]);
+
   // Early return DESPUÉS de los hooks
   if (!producto) {
     return null;
