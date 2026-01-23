@@ -3388,7 +3388,12 @@ async def actualizar_web_transferencia(
 class CalculoWebMasivoRequest(BaseModel):
         porcentaje_con_precio: float
         porcentaje_sin_precio: float
-        filtros: dict = None  # ← AGREGAR
+        filtros: dict = None
+
+class CalculoPVPMasivoRequest(BaseModel):
+        markup_pvp_clasica: float
+        adicional_cuotas: float
+        filtros: dict = None
     
 @router.post("/productos/calcular-web-masivo")
 async def calcular_web_masivo(
@@ -3669,6 +3674,243 @@ async def calcular_web_masivo(
         "procesados": procesados,
         "porcentaje_con_precio": request.porcentaje_con_precio,
         "porcentaje_sin_precio": request.porcentaje_sin_precio
+    }
+
+
+@router.post("/productos/calcular-pvp-masivo")
+async def calcular_pvp_masivo(
+    request: CalculoPVPMasivoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Calcula precios PVP masivamente (clásica + cuotas con markup convergente)"""
+    from app.services.pricing_calculator import (
+        calcular_precio_producto,
+        obtener_tipo_cambio_actual,
+        convertir_a_pesos
+    )
+
+    # Obtener productos base
+    query = db.query(ProductoERP, ProductoPricing).outerjoin(
+        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
+    )
+    
+    # Aplicar filtros si existen (misma lógica que web masivo)
+    if request.filtros:
+        if request.filtros.get('search'):
+            search_term = f"%{request.filtros['search']}%"
+            query = query.filter(
+                (ProductoERP.descripcion.ilike(search_term)) |
+                (ProductoERP.codigo.ilike(search_term))
+            )
+
+        if request.filtros.get('con_stock'):
+            query = query.filter(ProductoERP.stock > 0)
+
+        if request.filtros.get('con_precio'):
+            query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+
+        if request.filtros.get('marcas'):
+            marcas_list = request.filtros['marcas'].split(',')
+            query = query.filter(ProductoERP.marca.in_(marcas_list))
+
+        if request.filtros.get('subcategorias'):
+            subcats_list = [int(s) for s in request.filtros['subcategorias'].split(',')]
+            query = query.filter(ProductoERP.subcategoria_id.in_(subcats_list))
+
+        # Filtros avanzados (reutilizar lógica de web masivo)
+        if request.filtros.get('con_rebate') is not None:
+            if request.filtros['con_rebate']:
+                query = query.filter(ProductoPricing.participa_rebate == True)
+            else:
+                query = query.filter((ProductoPricing.participa_rebate == False) | (ProductoPricing.participa_rebate.is_(None)))
+
+        if request.filtros.get('con_oferta') is not None:
+            if request.filtros['con_oferta']:
+                query = query.filter(ProductoPricing.participa_oferta == True)
+            else:
+                query = query.filter((ProductoPricing.participa_oferta == False) | (ProductoPricing.participa_oferta.is_(None)))
+
+        if request.filtros.get('con_web_transf') is not None:
+            if request.filtros['con_web_transf']:
+                query = query.filter(ProductoPricing.participa_web_transferencia == True)
+            else:
+                query = query.filter((ProductoPricing.participa_web_transferencia == False) | (ProductoPricing.participa_web_transferencia.is_(None)))
+
+        if request.filtros.get('out_of_cards') is not None:
+            if request.filtros['out_of_cards']:
+                query = query.filter(ProductoPricing.out_of_cards == True)
+            else:
+                query = query.filter((ProductoPricing.out_of_cards == False) | (ProductoPricing.out_of_cards.is_(None)))
+
+        if request.filtros.get('colores'):
+            colores_list = request.filtros['colores'].split(',')
+            query = query.filter(ProductoPricing.color.in_(colores_list))
+
+        if request.filtros.get('pms'):
+            from app.models.marca_pm import MarcaPM
+            pm_ids = [int(pm.strip()) for pm in request.filtros['pms'].split(',')]
+            marcas_pm = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
+            marcas_asignadas = [m[0] for m in marcas_pm]
+            if marcas_asignadas:
+                query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
+
+        # Filtros de markup
+        if request.filtros.get('markup_clasica_positivo') is not None:
+            if request.filtros['markup_clasica_positivo']:
+                query = query.filter(ProductoPricing.markup_calculado > 0)
+            else:
+                query = query.filter((ProductoPricing.markup_calculado <= 0) | (ProductoPricing.markup_calculado.is_(None)))
+
+    productos = query.all()
+
+    procesados = 0
+    tipo_cambio_cache = {}
+
+    for producto_erp, producto_pricing in productos:
+        try:
+            # Obtener tipo de cambio si es necesario
+            tipo_cambio = None
+            if producto_erp.moneda_costo == "USD":
+                if "USD" not in tipo_cambio_cache:
+                    tipo_cambio_cache["USD"] = obtener_tipo_cambio_actual(db, "USD")
+                tipo_cambio = tipo_cambio_cache["USD"]
+                if not tipo_cambio:
+                    continue  # Saltar este producto si no hay tipo de cambio
+
+            # Crear pricing si no existe
+            if not producto_pricing:
+                producto_pricing = ProductoPricing(
+                    item_id=producto_erp.item_id,
+                    usuario_id=current_user.id
+                )
+                db.add(producto_pricing)
+
+            # Calcular PVP CLÁSICA (pricelist_id=13)
+            resultado_clasica = calcular_precio_producto(
+                db=db,
+                costo=producto_erp.costo,
+                moneda_costo=producto_erp.moneda_costo,
+                iva=producto_erp.iva,
+                envio=producto_erp.envio or 0,
+                subcategoria_id=producto_erp.subcategoria_id,
+                pricelist_id=13,  # PVP Clásica
+                markup_objetivo=request.markup_pvp_clasica,
+                tipo_cambio=tipo_cambio,
+                adicional_markup=0  # Sin adicional para clásica
+            )
+
+            if "error" not in resultado_clasica:
+                producto_pricing.precio_pvp = resultado_clasica["precio"]
+                producto_pricing.markup_pvp = resultado_clasica["markup_real"]
+
+            # Calcular PVP CUOTAS (markup objetivo + adicional)
+            markup_total_cuotas = request.markup_pvp_clasica + request.adicional_cuotas
+
+            # 3 cuotas (pricelist_id=14)
+            resultado_3 = calcular_precio_producto(
+                db=db,
+                costo=producto_erp.costo,
+                moneda_costo=producto_erp.moneda_costo,
+                iva=producto_erp.iva,
+                envio=producto_erp.envio or 0,
+                subcategoria_id=producto_erp.subcategoria_id,
+                pricelist_id=14,
+                markup_objetivo=markup_total_cuotas,
+                tipo_cambio=tipo_cambio,
+                adicional_markup=0
+            )
+
+            if "error" not in resultado_3:
+                producto_pricing.precio_pvp_3_cuotas = resultado_3["precio"]
+                producto_pricing.markup_pvp_3_cuotas = resultado_3["markup_real"]
+
+            # 6 cuotas (pricelist_id=15)
+            resultado_6 = calcular_precio_producto(
+                db=db,
+                costo=producto_erp.costo,
+                moneda_costo=producto_erp.moneda_costo,
+                iva=producto_erp.iva,
+                envio=producto_erp.envio or 0,
+                subcategoria_id=producto_erp.subcategoria_id,
+                pricelist_id=15,
+                markup_objetivo=markup_total_cuotas,
+                tipo_cambio=tipo_cambio,
+                adicional_markup=0
+            )
+
+            if "error" not in resultado_6:
+                producto_pricing.precio_pvp_6_cuotas = resultado_6["precio"]
+                producto_pricing.markup_pvp_6_cuotas = resultado_6["markup_real"]
+
+            # 9 cuotas (pricelist_id=16)
+            resultado_9 = calcular_precio_producto(
+                db=db,
+                costo=producto_erp.costo,
+                moneda_costo=producto_erp.moneda_costo,
+                iva=producto_erp.iva,
+                envio=producto_erp.envio or 0,
+                subcategoria_id=producto_erp.subcategoria_id,
+                pricelist_id=16,
+                markup_objetivo=markup_total_cuotas,
+                tipo_cambio=tipo_cambio,
+                adicional_markup=0
+            )
+
+            if "error" not in resultado_9:
+                producto_pricing.precio_pvp_9_cuotas = resultado_9["precio"]
+                producto_pricing.markup_pvp_9_cuotas = resultado_9["markup_real"]
+
+            # 12 cuotas (pricelist_id=17)
+            resultado_12 = calcular_precio_producto(
+                db=db,
+                costo=producto_erp.costo,
+                moneda_costo=producto_erp.moneda_costo,
+                iva=producto_erp.iva,
+                envio=producto_erp.envio or 0,
+                subcategoria_id=producto_erp.subcategoria_id,
+                pricelist_id=17,
+                markup_objetivo=markup_total_cuotas,
+                tipo_cambio=tipo_cambio,
+                adicional_markup=0
+            )
+
+            if "error" not in resultado_12:
+                producto_pricing.precio_pvp_12_cuotas = resultado_12["precio"]
+                producto_pricing.markup_pvp_12_cuotas = resultado_12["markup_real"]
+
+            producto_pricing.fecha_modificacion = datetime.now()
+            procesados += 1
+
+        except Exception as e:
+            print(f"Error procesando producto {producto_erp.item_id}: {str(e)}")
+            continue
+
+    db.commit()
+    
+    # Registrar auditoría masiva
+    from app.services.auditoria_service import registrar_auditoria
+    from app.models.auditoria import TipoAccion
+    
+    registrar_auditoria(
+        db=db,
+        usuario_id=current_user.id,
+        tipo_accion=TipoAccion.MODIFICACION_MASIVA,
+        es_masivo=True,
+        productos_afectados=procesados,
+        valores_nuevos={
+            "accion": "calcular_pvp_masivo",
+            "markup_pvp_clasica": request.markup_pvp_clasica,
+            "adicional_cuotas": request.adicional_cuotas,
+            "filtros": request.filtros
+        },
+        comentario="Cálculo masivo de precios PVP"
+    )
+
+    return {
+        "procesados": procesados,
+        "markup_pvp_clasica": request.markup_pvp_clasica,
+        "adicional_cuotas": request.adicional_cuotas
     }
 
 

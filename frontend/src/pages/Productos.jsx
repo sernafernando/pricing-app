@@ -9,6 +9,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import ExportModal from '../components/ExportModal';
 import xlsIcon from '../assets/xls.svg';
 import CalcularWebModal from '../components/CalcularWebModal';
+import CalcularPVPModal from '../components/CalcularPVPModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import StatCard from '../components/StatCard';
 import './Productos.css';
@@ -56,6 +57,7 @@ export default function Productos() {
   const [editandoWebTransf, setEditandoWebTransf] = useState(null);
   const [webTransfTemp, setWebTransfTemp] = useState({ participa: false, porcentaje: 6.0, preservar: false });
   const [mostrarCalcularWebModal, setMostrarCalcularWebModal] = useState(false);
+  const [mostrarCalcularPVPModal, setMostrarCalcularPVPModal] = useState(false);
   const [marcas, setMarcas] = useState([]);
   const [marcasSeleccionadas, setMarcasSeleccionadas] = useState([]);
   const [busquedaMarca, setBusquedaMarca] = useState('');
@@ -150,6 +152,7 @@ export default function Productos() {
   const puedeMarcarColor = tienePermiso('productos.marcar_color');
   const puedeMarcarColorLote = tienePermiso('productos.marcar_color_lote');
   const puedeCalcularWebMasivo = tienePermiso('productos.calcular_web_masivo');
+  const puedeCalcularPVPMasivo = tienePermiso('productos.calcular_pvp_masivo');
   const puedeToggleOutOfCards = tienePermiso('productos.toggle_out_of_cards');
 
   // Legacy: puedeEditar es true si tiene al menos un permiso de edición
@@ -1552,7 +1555,7 @@ export default function Productos() {
   useEffect(() => {
     const handleKeyDown = async (e) => {
       // Si hay un modal abierto, NO procesar shortcuts de la página
-      const hayModalAbierto = mostrarExportModal || mostrarCalcularWebModal || mostrarModalConfig || mostrarModalInfo || mostrarShortcutsHelp;
+      const hayModalAbierto = mostrarExportModal || mostrarCalcularWebModal || mostrarCalcularPVPModal || mostrarModalConfig || mostrarModalInfo || mostrarShortcutsHelp;
 
       if (hayModalAbierto) {
         // NO hacer preventDefault - dejar que el modal maneje sus eventos
@@ -1735,6 +1738,13 @@ export default function Productos() {
       if (e.ctrlKey && e.key === 'k' && puedeCalcularWebMasivo) {
         e.preventDefault();
         setMostrarCalcularWebModal(true);
+        return;
+      }
+
+      // Ctrl+Shift+P: Abrir modal de calcular PVP (requiere permiso)
+      if (e.ctrlKey && e.shiftKey && e.key === 'P' && puedeCalcularPVPMasivo) {
+        e.preventDefault();
+        setMostrarCalcularPVPModal(true);
         return;
       }
 
@@ -1932,7 +1942,7 @@ export default function Productos() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, puedeMarcarColor, puedeToggleRebate, puedeToggleWebTransf, puedeToggleOutOfCards, puedeCalcularWebMasivo, mostrarFiltrosAvanzados, modoVista, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarModalConfig, mostrarModalInfo]);
+  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, puedeMarcarColor, puedeToggleRebate, puedeToggleWebTransf, puedeToggleOutOfCards, puedeCalcularWebMasivo, puedeCalcularPVPMasivo, mostrarFiltrosAvanzados, modoVista, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarCalcularPVPModal, mostrarModalConfig, mostrarModalInfo]);
 
   // Scroll automático para seguir la celda activa
   useEffect(() => {
@@ -2460,6 +2470,16 @@ export default function Productos() {
             className="btn-action calculate"
           >
             🧮 Calcular Web Transf.
+          </button>
+          )}
+
+          {puedeCalcularPVPMasivo && (
+          <button
+            onClick={() => setMostrarCalcularPVPModal(true)}
+            className="btn-action calculate"
+            title="Calcular precios PVP masivamente (Ctrl+Shift+P)"
+          >
+            🔮 Calcular PVP
           </button>
           )}
         </div>
@@ -4162,6 +4182,39 @@ export default function Productos() {
         />
       )}
 
+      {mostrarCalcularPVPModal && (
+        <CalcularPVPModal
+          onClose={() => setMostrarCalcularPVPModal(false)}
+          onSuccess={() => {
+            cargarProductos();
+            cargarStats();
+          }}
+          filtrosActivos={{
+            search: debouncedSearch,
+            con_stock: filtroStock === 'con_stock' ? true : filtroStock === 'sin_stock' ? false : null,
+            con_precio: filtroPrecio === 'con_precio' ? true : filtroPrecio === 'sin_precio' ? false : null,
+            marcas: marcasSeleccionadas,
+            subcategorias: subcategoriasSeleccionadas,
+            pmsSeleccionados,
+            filtroRebate,
+            filtroOferta,
+            filtroWebTransf,
+            filtroTiendaNube,
+            filtroMarkupClasica,
+            filtroMarkupRebate,
+            filtroMarkupOferta,
+            filtroMarkupWebTransf,
+            filtroOutOfCards,
+            coloresSeleccionados,
+            audit_usuarios: filtrosAuditoria.usuarios,
+            audit_tipos_accion: filtrosAuditoria.tipos_accion,
+            audit_fecha_desde: filtrosAuditoria.fecha_desde,
+            audit_fecha_hasta: filtrosAuditoria.fecha_hasta
+          }}
+          showToast={showToast}
+        />
+      )}
+
       {mostrarExportModal && (
         <ExportModal
           onClose={() => setMostrarExportModal(false)}
@@ -4520,6 +4573,10 @@ export default function Productos() {
                 <div className="shortcut-item">
                   <kbd>Ctrl</kbd> + <kbd>K</kbd>
                   <span>Calcular Web Transferencia masivo</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd>
+                  <span>Calcular PVP masivo (clásica + cuotas)</span>
                 </div>
                 <div className="shortcut-item">
                   <kbd>Alt</kbd> + <kbd>V</kbd>
