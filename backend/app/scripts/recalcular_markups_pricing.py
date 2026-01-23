@@ -66,9 +66,11 @@ def main():
         actualizados_web = 0
         actualizados_pvp = 0
         actualizados_cuotas_pvp = 0
+        productos_modificados = 0
         errores = 0
 
         for pricing, producto_erp in productos:
+            producto_tuvo_cambios = False
             try:
                 if not producto_erp.costo or producto_erp.costo <= 0:
                     continue
@@ -116,6 +118,7 @@ def main():
                         pricing.markup_calculado = markup_porcentaje
                         if old_markup is None or abs(old_markup - markup_porcentaje) > 0.01:
                             actualizados_web += 1
+                            producto_tuvo_cambios = True
 
                 # ========== RECALCULAR MARKUP PVP CLÁSICO ==========
                 if pricing.precio_pvp and pricing.precio_pvp > 0:
@@ -146,6 +149,7 @@ def main():
                         pricing.markup_pvp = markup_pvp_porcentaje
                         if old_markup_pvp is None or abs(old_markup_pvp - markup_pvp_porcentaje) > 0.01:
                             actualizados_pvp += 1
+                            producto_tuvo_cambios = True
 
                 # ========== RECALCULAR MARKUPS CUOTAS PVP ==========
                 if pricing.precio_pvp and pricing.precio_pvp > 0:
@@ -186,6 +190,7 @@ def main():
                                     
                                     if old_markup_cuota is None or abs(old_markup_cuota - markup_cuota_porcentaje) > 0.01:
                                         actualizados_cuotas_pvp += 1
+                                        producto_tuvo_cambios = True
                             except Exception:
                                 # Si falla una cuota, continuar con las demás
                                 pass
@@ -194,12 +199,17 @@ def main():
                 errores += 1
                 if errores <= 10:  # Mostrar solo los primeros 10 errores
                     print(f"  Error en item_id {producto_erp.item_id}: {e}")
+            
+            # Contar producto si tuvo algún cambio
+            if producto_tuvo_cambios:
+                productos_modificados += 1
 
         db.commit()
 
         print(f"\n" + "=" * 60)
         print(f"COMPLETADO")
         print(f"=" * 60)
+        print(f"Productos modificados: {productos_modificados}")
         print(f"Markups Web actualizados: {actualizados_web}")
         print(f"Markups PVP clásico actualizados: {actualizados_pvp}")
         print(f"Markups Cuotas PVP actualizados: {actualizados_cuotas_pvp}")
