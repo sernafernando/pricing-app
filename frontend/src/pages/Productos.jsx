@@ -4290,16 +4290,10 @@ export default function Productos() {
       {mostrarModalConfig && productoConfig && (
         <div className="shortcuts-modal-overlay" onClick={() => setMostrarModalConfig(false)}>
           <div 
-            className="shortcuts-modal" 
-            onClick={(e) => e.stopPropagation()} 
-            style={{ 
-              maxWidth: '500px',
-              background: modoVista === 'pvp' ? 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)' : undefined
-            }}
+            className={`shortcuts-modal config-modal ${modoVista === 'pvp' ? 'config-modal-pvp' : ''}`}
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="shortcuts-header" style={{ 
-              background: modoVista === 'pvp' ? 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)' : undefined
-            }}>
+            <div className={`shortcuts-header ${modoVista === 'pvp' ? 'config-header-pvp' : ''}`}>
               <h2>⚙️ Configuración de Cuotas {modoVista === 'pvp' ? 'PVP' : 'Web'}</h2>
               <button onClick={() => setMostrarModalConfig(false)} className="close-btn">✕</button>
             </div>

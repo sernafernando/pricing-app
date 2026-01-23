@@ -2080,3 +2080,24 @@
   background-color: var(--bg-primary);
   cursor: pointer;
 }
+
+/* Modal de configuración - estilo PVP */
+.config-modal {
+  max-width: 500px;
+}
+
+.config-modal-pvp {
+  background: var(--gradient-purple);
+}
+
+.config-header-pvp {
+  background: var(--gradient-purple) !important;
+}
+
+.config-header-pvp h2 {
+  color: var(--text-inverse) !important;
+}
+
+.config-header-pvp .close-btn {
+  color: var(--text-inverse) !important;
+}

@@ -61,6 +61,13 @@
   --info-text: #1e4fc2;
   --info-bg: #e8eef9;
 
+  /* Purple/PVP */
+  --purple-primary: #7c3aed;
+  --purple-hover: #6d28d9;
+  --purple-light: #f5f3ff;
+  --purple-bg: #ede9fe;
+  --purple-text: #5b21b6;
+
   /* Shadows - Sutiles */
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
   --shadow-md: 0 2px 8px 0 rgba(0, 0, 0, 0.12);
@@ -73,6 +80,7 @@
   --gradient-warning: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
   --gradient-error: linear-gradient(135deg, #e31937 0%, #c41230 100%);
   --gradient-info: linear-gradient(135deg, #3e6ae1 0%, #1e4fc2 100%);
+  --gradient-purple: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%);
   --gradient-navbar: linear-gradient(135deg, #171a20 0%, #0a0c10 100%);
 }
 
@@ -139,6 +147,13 @@
   --info-text: #5c8cff;
   --info-bg: #1a2847;
 
+  /* Purple/PVP - Morado eléctrico */
+  --purple-primary: #a78bfa;
+  --purple-hover: #8b5cf6;
+  --purple-light: #1e1633;
+  --purple-bg: #2d1f47;
+  --purple-text: #c4b5fd;
+
   /* Shadows - Profundas en negro */
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.6);
   --shadow-md: 0 2px 8px 0 rgba(0, 0, 0, 0.7);
@@ -151,6 +166,7 @@
   --gradient-warning: linear-gradient(135deg, #ffb800 0%, #ff9800 100%);
   --gradient-error: linear-gradient(135deg, #ff3b5c 0%, #e31937 100%);
   --gradient-info: linear-gradient(135deg, #5c8cff 0%, #3e6ae1 100%);
+  --gradient-purple: linear-gradient(135deg, #a78bfa 0%, #c4b5fd 100%);
   --gradient-navbar: linear-gradient(135deg, #000000 0%, #0a0a0a 100%);
 }
 
