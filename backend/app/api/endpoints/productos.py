@@ -76,6 +76,7 @@ class ProductoResponse(BaseModel):
     # Configuración individual
     recalcular_cuotas_auto: Optional[bool] = None
     markup_adicional_cuotas_custom: Optional[float] = None
+    markup_adicional_cuotas_pvp_custom: Optional[float] = None
 
     # Estado de catálogo ML
     catalog_status: Optional[str] = None
@@ -965,6 +966,7 @@ async def listar_productos(
             markup_12_cuotas=markup_12_cuotas,
             recalcular_cuotas_auto=producto_pricing.recalcular_cuotas_auto if producto_pricing else None,
             markup_adicional_cuotas_custom=float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing and producto_pricing.markup_adicional_cuotas_custom else None,
+            markup_adicional_cuotas_pvp_custom=float(producto_pricing.markup_adicional_cuotas_pvp_custom) if producto_pricing and producto_pricing.markup_adicional_cuotas_pvp_custom else None,
             # Campos PVP
             precio_pvp=float(producto_pricing.precio_pvp) if producto_pricing and producto_pricing.precio_pvp else None,
             precio_pvp_3_cuotas=float(producto_pricing.precio_pvp_3_cuotas) if producto_pricing and producto_pricing.precio_pvp_3_cuotas else None,
@@ -1337,6 +1339,7 @@ class ProductoTiendaResponse(BaseModel):
     markup_12_cuotas: Optional[float] = None
     recalcular_cuotas_auto: Optional[bool] = None
     markup_adicional_cuotas_custom: Optional[float] = None
+    markup_adicional_cuotas_pvp_custom: Optional[float] = None
     catalog_status: Optional[str] = None
     has_catalog: Optional[bool] = None
     catalog_price_to_win: Optional[float] = None
@@ -1630,6 +1633,7 @@ async def listar_productos_tienda(
             markup_3_cuotas=markup_3_cuotas, markup_6_cuotas=markup_6_cuotas, markup_9_cuotas=markup_9_cuotas, markup_12_cuotas=markup_12_cuotas,
             recalcular_cuotas_auto=producto_pricing.recalcular_cuotas_auto if producto_pricing else None,
             markup_adicional_cuotas_custom=float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing and producto_pricing.markup_adicional_cuotas_custom else None,
+            markup_adicional_cuotas_pvp_custom=float(producto_pricing.markup_adicional_cuotas_pvp_custom) if producto_pricing and producto_pricing.markup_adicional_cuotas_pvp_custom else None,
             catalog_status=None, has_catalog=None
         ))
 
@@ -1821,6 +1825,7 @@ async def obtener_producto(item_id: int, db: Session = Depends(get_db)):
         markup_12_cuotas=None,
         recalcular_cuotas_auto=producto_pricing.recalcular_cuotas_auto if producto_pricing else None,
         markup_adicional_cuotas_custom=float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing and producto_pricing.markup_adicional_cuotas_custom else None,
+        markup_adicional_cuotas_pvp_custom=float(producto_pricing.markup_adicional_cuotas_pvp_custom) if producto_pricing and producto_pricing.markup_adicional_cuotas_pvp_custom else None,
         # Campos PVP
         precio_pvp=float(producto_pricing.precio_pvp) if producto_pricing and producto_pricing.precio_pvp else None,
         precio_pvp_3_cuotas=float(producto_pricing.precio_pvp_3_cuotas) if producto_pricing and producto_pricing.precio_pvp_3_cuotas else None,
@@ -3808,6 +3813,7 @@ async def actualizar_color_producto_tienda(
 class ConfigCuotasRequest(BaseModel):
     recalcular_cuotas_auto: Optional[bool] = None
     markup_adicional_cuotas_custom: Optional[float] = None
+    markup_adicional_cuotas_pvp_custom: Optional[float] = None
 
 @router.patch("/productos/{item_id}/config-cuotas")
 async def actualizar_config_cuotas_producto(
@@ -3820,13 +3826,22 @@ async def actualizar_config_cuotas_producto(
 
     recalcular_cuotas_auto = body.recalcular_cuotas_auto
     markup_adicional_cuotas_custom = body.markup_adicional_cuotas_custom
+    markup_adicional_cuotas_pvp_custom = body.markup_adicional_cuotas_pvp_custom
 
-    # Validar markup si se proporciona
+    # Validar markups si se proporcionan
     if markup_adicional_cuotas_custom is not None:
         try:
             markup_valor = float(markup_adicional_cuotas_custom)
             if markup_valor < 0 or markup_valor > 100:
-                raise ValueError("Markup debe estar entre 0 y 100")
+                raise ValueError("Markup web debe estar entre 0 y 100")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    if markup_adicional_cuotas_pvp_custom is not None:
+        try:
+            markup_valor = float(markup_adicional_cuotas_pvp_custom)
+            if markup_valor < 0 or markup_valor > 100:
+                raise ValueError("Markup PVP debe estar entre 0 y 100")
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -3846,6 +3861,7 @@ async def actualizar_config_cuotas_producto(
     # Actualizar configuración
     producto_pricing.recalcular_cuotas_auto = recalcular_cuotas_auto
     producto_pricing.markup_adicional_cuotas_custom = markup_adicional_cuotas_custom
+    producto_pricing.markup_adicional_cuotas_pvp_custom = markup_adicional_cuotas_pvp_custom
     producto_pricing.usuario_id = current_user.id
     producto_pricing.fecha_modificacion = datetime.now()
 
@@ -3855,7 +3871,8 @@ async def actualizar_config_cuotas_producto(
     return {
         "mensaje": "Configuración actualizada",
         "recalcular_cuotas_auto": producto_pricing.recalcular_cuotas_auto,
-        "markup_adicional_cuotas_custom": float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing.markup_adicional_cuotas_custom else None
+        "markup_adicional_cuotas_custom": float(producto_pricing.markup_adicional_cuotas_custom) if producto_pricing.markup_adicional_cuotas_custom else None,
+        "markup_adicional_cuotas_pvp_custom": float(producto_pricing.markup_adicional_cuotas_pvp_custom) if producto_pricing.markup_adicional_cuotas_pvp_custom else None
     }
 
 class ColorLoteRequest(BaseModel):

@@ -1038,10 +1038,16 @@ async def recalcular_cuotas_desde_clasica(
         }
 
     # Obtener markup adicional: primero del producto, si no de configuración global
-    if pricing.markup_adicional_cuotas_custom is not None:
-        markup_adicional = float(pricing.markup_adicional_cuotas_custom)
+    if lista_tipo == "pvp":
+        if pricing.markup_adicional_cuotas_pvp_custom is not None:
+            markup_adicional = float(pricing.markup_adicional_cuotas_pvp_custom)
+        else:
+            markup_adicional = obtener_markup_adicional_cuotas(db)
     else:
-        markup_adicional = obtener_markup_adicional_cuotas(db)
+        if pricing.markup_adicional_cuotas_custom is not None:
+            markup_adicional = float(pricing.markup_adicional_cuotas_custom)
+        else:
+            markup_adicional = obtener_markup_adicional_cuotas(db)
 
     precios_cuotas = {k: None for k in cuotas_config.keys()}
 
@@ -1071,43 +1077,24 @@ async def recalcular_cuotas_desde_clasica(
     for nombre_campo, precio_cuota in precios_cuotas.items():
         setattr(pricing, nombre_campo, precio_cuota)
 
-    pricing.usuario_id = current_user.id
-    pricing.fecha_modificacion = datetime.now()
-
-    db.commit()
-
-    response = {
-        "item_id": item_id,
-        "lista_tipo": lista_tipo,
-        "markup_adicional": markup_adicional,
-    }
-
+    # Calcular y guardar markups de cuotas
+    markups_cuotas = {}
     if lista_tipo == "pvp":
-        response["precio_pvp"] = float(pricing.precio_pvp) if pricing.precio_pvp else None
-        response["markup_pvp"] = markup_porcentaje
-    else:
-        response["precio"] = float(pricing.precio_lista_ml) if pricing.precio_lista_ml else None
-        response["markup"] = markup_porcentaje
-
-    response.update(precios_cuotas)
-
-    # Calcular markups de cuotas para la respuesta (no depende de storage)
-    if lista_tipo == "pvp":
-        cuotas_pricelists = [
-            (precios_cuotas['precio_pvp_3_cuotas'], 18, 'markup_pvp_3_cuotas'),
-            (precios_cuotas['precio_pvp_6_cuotas'], 19, 'markup_pvp_6_cuotas'),
-            (precios_cuotas['precio_pvp_9_cuotas'], 20, 'markup_pvp_9_cuotas'),
-            (precios_cuotas['precio_pvp_12_cuotas'], 21, 'markup_pvp_12_cuotas')
+        cuotas_pricelists_save = [
+            (precios_cuotas.get('precio_pvp_3_cuotas'), 18, 'markup_pvp_3_cuotas'),
+            (precios_cuotas.get('precio_pvp_6_cuotas'), 19, 'markup_pvp_6_cuotas'),
+            (precios_cuotas.get('precio_pvp_9_cuotas'), 20, 'markup_pvp_9_cuotas'),
+            (precios_cuotas.get('precio_pvp_12_cuotas'), 21, 'markup_pvp_12_cuotas')
         ]
     else:
-        cuotas_pricelists = [
-            (precios_cuotas['precio_3_cuotas'], 17, 'markup_3_cuotas'),
-            (precios_cuotas['precio_6_cuotas'], 14, 'markup_6_cuotas'),
-            (precios_cuotas['precio_9_cuotas'], 13, 'markup_9_cuotas'),
-            (precios_cuotas['precio_12_cuotas'], 23, 'markup_12_cuotas')
+        cuotas_pricelists_save = [
+            (precios_cuotas.get('precio_3_cuotas'), 17, 'markup_3_cuotas'),
+            (precios_cuotas.get('precio_6_cuotas'), 14, 'markup_6_cuotas'),
+            (precios_cuotas.get('precio_9_cuotas'), 13, 'markup_9_cuotas'),
+            (precios_cuotas.get('precio_12_cuotas'), 23, 'markup_12_cuotas')
         ]
 
-    for precio_cuota, pricelist_id, nombre_markup in cuotas_pricelists:
+    for precio_cuota, pricelist_id, nombre_markup in cuotas_pricelists_save:
         if precio_cuota and float(precio_cuota) > 0:
             try:
                 comision_base_cuota = obtener_comision_base(db, pricelist_id, grupo_id)
@@ -1127,9 +1114,33 @@ async def recalcular_cuotas_desde_clasica(
                         grupo_id=grupo_id
                     )
                     markup_calculado = calcular_markup(limpio_cuota, costo_ars) * 100
-                    response[nombre_markup] = round(markup_calculado, 2)
+                    markup_redondeado = round(markup_calculado, 2)
+                    setattr(pricing, nombre_markup, markup_redondeado)
+                    markups_cuotas[nombre_markup] = markup_redondeado
             except Exception:
-                response[nombre_markup] = None
+                setattr(pricing, nombre_markup, None)
+                markups_cuotas[nombre_markup] = None
+
+    pricing.usuario_id = current_user.id
+    pricing.fecha_modificacion = datetime.now()
+
+    db.commit()
+
+    response = {
+        "item_id": item_id,
+        "lista_tipo": lista_tipo,
+        "markup_adicional": markup_adicional,
+    }
+
+    if lista_tipo == "pvp":
+        response["precio_pvp"] = float(pricing.precio_pvp) if pricing.precio_pvp else None
+        response["markup_pvp"] = markup_porcentaje
+    else:
+        response["precio"] = float(pricing.precio_lista_ml) if pricing.precio_lista_ml else None
+        response["markup"] = markup_porcentaje
+
+    response.update(precios_cuotas)
+    response.update(markups_cuotas)
 
     return response
 

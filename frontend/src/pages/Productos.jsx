@@ -109,7 +109,6 @@ export default function Productos() {
   });
   const [editandoCuota, setEditandoCuota] = useState(null); // {item_id, tipo: '3'|'6'|'9'|'12'}
   const [cuotaTemp, setCuotaTemp] = useState('');
-  const [recalculandoCuotasPvpId, setRecalculandoCuotasPvpId] = useState(null);
 
   // Selección múltiple
   const [productosSeleccionados, setProductosSeleccionados] = useState(new Set());
@@ -120,7 +119,8 @@ export default function Productos() {
   const [productoConfig, setProductoConfig] = useState(null);
   const [configTemp, setConfigTemp] = useState({
     recalcular_cuotas_auto: null,
-    markup_adicional_cuotas_custom: null
+    markup_adicional_cuotas_custom: null,
+    markup_adicional_cuotas_pvp_custom: null
   });
   // Modal de información
   const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
@@ -1113,14 +1113,15 @@ export default function Productos() {
     }
   };
 
-  const recalcularCuotasPvpDesdeClasica = async (producto) => {
-    if (!producto?.precio_pvp || Number(producto.precio_pvp) <= 0) {
-      showToast('Este producto no tiene Precio PVP para recalcular cuotas', 'error');
+  const recalcularCuotasDesdeClasica = async (producto, listaTipo) => {
+    const precioBase = listaTipo === 'pvp' ? producto.precio_pvp : producto.precio_lista_ml;
+    
+    if (!precioBase || Number(precioBase) <= 0) {
+      showToast(`Este producto no tiene Precio ${listaTipo === 'pvp' ? 'PVP' : 'Web'} para recalcular cuotas`, 'error');
       return;
     }
 
     try {
-      setRecalculandoCuotasPvpId(producto.item_id);
       const token = localStorage.getItem('token');
 
       const response = await axios.post(
@@ -1130,33 +1131,50 @@ export default function Productos() {
           headers: { Authorization: `Bearer ${token}` },
           params: {
             item_id: producto.item_id,
-            lista_tipo: 'pvp'
+            lista_tipo: listaTipo
           }
         }
       );
 
-      setProductos((prods) => prods.map((p) =>
-        p.item_id === producto.item_id
-          ? {
-              ...p,
-              precio_pvp_3_cuotas: response.data.precio_pvp_3_cuotas,
-              precio_pvp_6_cuotas: response.data.precio_pvp_6_cuotas,
-              precio_pvp_9_cuotas: response.data.precio_pvp_9_cuotas,
-              precio_pvp_12_cuotas: response.data.precio_pvp_12_cuotas,
-              markup_pvp_3_cuotas: response.data.markup_pvp_3_cuotas,
-              markup_pvp_6_cuotas: response.data.markup_pvp_6_cuotas,
-              markup_pvp_9_cuotas: response.data.markup_pvp_9_cuotas,
-              markup_pvp_12_cuotas: response.data.markup_pvp_12_cuotas
-            }
-          : p
-      ));
+      // Actualizar precios y markups en el estado
+      if (listaTipo === 'pvp') {
+        setProductos((prods) => prods.map((p) =>
+          p.item_id === producto.item_id
+            ? {
+                ...p,
+                precio_pvp_3_cuotas: response.data.precio_pvp_3_cuotas,
+                precio_pvp_6_cuotas: response.data.precio_pvp_6_cuotas,
+                precio_pvp_9_cuotas: response.data.precio_pvp_9_cuotas,
+                precio_pvp_12_cuotas: response.data.precio_pvp_12_cuotas,
+                markup_pvp_3_cuotas: response.data.markup_pvp_3_cuotas,
+                markup_pvp_6_cuotas: response.data.markup_pvp_6_cuotas,
+                markup_pvp_9_cuotas: response.data.markup_pvp_9_cuotas,
+                markup_pvp_12_cuotas: response.data.markup_pvp_12_cuotas
+              }
+            : p
+        ));
+      } else {
+        setProductos((prods) => prods.map((p) =>
+          p.item_id === producto.item_id
+            ? {
+                ...p,
+                precio_3_cuotas: response.data.precio_3_cuotas,
+                precio_6_cuotas: response.data.precio_6_cuotas,
+                precio_9_cuotas: response.data.precio_9_cuotas,
+                precio_12_cuotas: response.data.precio_12_cuotas,
+                markup_3_cuotas: response.data.markup_3_cuotas,
+                markup_6_cuotas: response.data.markup_6_cuotas,
+                markup_9_cuotas: response.data.markup_9_cuotas,
+                markup_12_cuotas: response.data.markup_12_cuotas
+              }
+            : p
+        ));
+      }
 
-      showToast('Cuotas PVP recalculadas', 'success');
+      showToast(`Cuotas ${listaTipo === 'pvp' ? 'PVP' : 'Web'} recalculadas`, 'success');
       cargarStats();
     } catch (error) {
-      showToast('Error al recalcular cuotas PVP: ' + (error.response?.data?.detail || error.message), 'error');
-    } finally {
-      setRecalculandoCuotasPvpId(null);
+      showToast(`Error al recalcular cuotas: ${error.response?.data?.detail || error.message}`, 'error');
     }
   };
 
@@ -1234,7 +1252,8 @@ export default function Productos() {
     setProductoConfig(producto);
     setConfigTemp({
       recalcular_cuotas_auto: producto.recalcular_cuotas_auto,
-      markup_adicional_cuotas_custom: producto.markup_adicional_cuotas_custom || ''
+      markup_adicional_cuotas_custom: producto.markup_adicional_cuotas_custom || '',
+      markup_adicional_cuotas_pvp_custom: producto.markup_adicional_cuotas_pvp_custom || ''
     });
     setMostrarModalConfig(true);
   };
@@ -1249,10 +1268,12 @@ export default function Productos() {
                                 configTemp.recalcular_cuotas_auto === 'true' ? true :
                                 configTemp.recalcular_cuotas_auto === 'false' ? false : null,
         markup_adicional_cuotas_custom: configTemp.markup_adicional_cuotas_custom === '' ? null :
-                                        parseFloat(configTemp.markup_adicional_cuotas_custom)
+                                        parseFloat(configTemp.markup_adicional_cuotas_custom),
+        markup_adicional_cuotas_pvp_custom: configTemp.markup_adicional_cuotas_pvp_custom === '' ? null :
+                                            parseFloat(configTemp.markup_adicional_cuotas_pvp_custom)
       };
 
-      await axios.patch(
+      const response = await axios.patch(
         `${API_URL}/productos/${productoConfig.item_id}/config-cuotas`,
         data,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -1263,14 +1284,22 @@ export default function Productos() {
         p.item_id === productoConfig.item_id
           ? {
               ...p,
-              recalcular_cuotas_auto: data.recalcular_cuotas_auto,
-              markup_adicional_cuotas_custom: data.markup_adicional_cuotas_custom
+              recalcular_cuotas_auto: response.data.recalcular_cuotas_auto,
+              markup_adicional_cuotas_custom: response.data.markup_adicional_cuotas_custom,
+              markup_adicional_cuotas_pvp_custom: response.data.markup_adicional_cuotas_pvp_custom
             }
           : p
       ));
 
       setMostrarModalConfig(false);
       showToast('Configuración actualizada correctamente', 'success');
+      
+      // Opcional: recalcular cuotas automáticamente después de guardar
+      if (modoVista === 'pvp' && productoConfig.precio_pvp) {
+        await recalcularCuotasDesdeClasica(productoConfig, 'pvp');
+      } else if (modoVista === 'cuotas' && productoConfig.precio_lista_ml) {
+        await recalcularCuotasDesdeClasica(productoConfig, 'web');
+      }
     } catch (error) {
       showToast('Error al guardar configuración: ' + (error.response?.data?.detail || error.message), 'error');
     }
@@ -3932,18 +3961,6 @@ export default function Productos() {
                             ⚙️
                           </button>
                         )}
-
-                        {modoVista === 'pvp' && puedeEditarCuotas && (
-                          <button
-                            onClick={() => recalcularCuotasPvpDesdeClasica(p)}
-                            className="icon-button cuotas-pvp"
-                            title="Recalcular cuotas PVP desde Precio PVP"
-                            aria-label="Recalcular cuotas PVP"
-                            disabled={recalculandoCuotasPvpId === p.item_id}
-                          >
-                            {recalculandoCuotasPvpId === p.item_id ? '⏳' : '🧮'}
-                          </button>
-                        )}
                         {puedeMarcarColor && (
                         <div style={{ position: 'relative', display: 'inline-block' }}>
                           <button
@@ -4272,9 +4289,18 @@ export default function Productos() {
       {/* Modal de configuración individual */}
       {mostrarModalConfig && productoConfig && (
         <div className="shortcuts-modal-overlay" onClick={() => setMostrarModalConfig(false)}>
-          <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-            <div className="shortcuts-header">
-              <h2>⚙️ Configuración de Cuotas</h2>
+          <div 
+            className="shortcuts-modal" 
+            onClick={(e) => e.stopPropagation()} 
+            style={{ 
+              maxWidth: '500px',
+              background: modoVista === 'pvp' ? 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)' : undefined
+            }}
+          >
+            <div className="shortcuts-header" style={{ 
+              background: modoVista === 'pvp' ? 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)' : undefined
+            }}>
+              <h2>⚙️ Configuración de Cuotas {modoVista === 'pvp' ? 'PVP' : 'Web'}</h2>
               <button onClick={() => setMostrarModalConfig(false)} className="close-btn">✕</button>
             </div>
             <div className="config-modal-content">
@@ -4300,15 +4326,18 @@ export default function Productos() {
 
               <div className="config-modal-field">
                 <label className="config-modal-label">
-                  Markup adicional para cuotas (%):
+                  Markup adicional para cuotas {modoVista === 'pvp' ? 'PVP' : 'Web'} (%):
                 </label>
                 <input
                   type="number"
                   min="0"
                   max="100"
                   step="0.1"
-                  value={configTemp.markup_adicional_cuotas_custom}
-                  onChange={(e) => setConfigTemp({ ...configTemp, markup_adicional_cuotas_custom: e.target.value })}
+                  value={modoVista === 'pvp' ? configTemp.markup_adicional_cuotas_pvp_custom : configTemp.markup_adicional_cuotas_custom}
+                  onChange={(e) => setConfigTemp({ 
+                    ...configTemp, 
+                    [modoVista === 'pvp' ? 'markup_adicional_cuotas_pvp_custom' : 'markup_adicional_cuotas_custom']: e.target.value 
+                  })}
                   onFocus={(e) => e.target.select()}
                   placeholder="Dejar vacío para usar configuración global"
                   className="config-modal-input"

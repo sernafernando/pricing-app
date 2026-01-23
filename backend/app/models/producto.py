@@ -89,7 +89,8 @@ class ProductoPricing(Base):
 
     # Configuración individual de recálculo de cuotas y markup adicional
     recalcular_cuotas_auto = Column(Boolean, default=None)  # NULL = usar global, TRUE/FALSE = override
-    markup_adicional_cuotas_custom = Column(Numeric(5, 2), default=None)  # NULL = usar global, número = override
+    markup_adicional_cuotas_custom = Column(Numeric(5, 2), default=None)  # NULL = usar global, número = override (para cuotas web)
+    markup_adicional_cuotas_pvp_custom = Column(Numeric(5, 2), default=None)  # NULL = usar global, número = override (para cuotas PVP)
 
     producto = relationship("ProductoERP", back_populates="pricing")
     usuario = relationship("Usuario", back_populates="precios_modificados")
