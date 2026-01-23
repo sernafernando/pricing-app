@@ -30,24 +30,30 @@ def upgrade():
         ON CONFLICT (codigo) DO NOTHING
     """)
 
-    # Asignar permiso a rol ADMIN
+    # Asignar permiso a rol ADMIN (solo si no existe)
     op.execute("""
         INSERT INTO roles_permisos_base (rol_id, permiso_id)
         SELECT r.id, p.id
         FROM roles r, permisos p
         WHERE r.codigo = 'ADMIN'
         AND p.codigo = 'productos.calcular_pvp_masivo'
-        ON CONFLICT (rol_id, permiso_id) DO NOTHING
+        AND NOT EXISTS (
+            SELECT 1 FROM roles_permisos_base rpb
+            WHERE rpb.rol_id = r.id AND rpb.permiso_id = p.id
+        )
     """)
 
-    # Asignar permiso a rol VENTAS
+    # Asignar permiso a rol VENTAS (solo si no existe)
     op.execute("""
         INSERT INTO roles_permisos_base (rol_id, permiso_id)
         SELECT r.id, p.id
         FROM roles r, permisos p
         WHERE r.codigo = 'VENTAS'
         AND p.codigo = 'productos.calcular_pvp_masivo'
-        ON CONFLICT (rol_id, permiso_id) DO NOTHING
+        AND NOT EXISTS (
+            SELECT 1 FROM roles_permisos_base rpb
+            WHERE rpb.rol_id = r.id AND rpb.permiso_id = p.id
+        )
     """)
 
 
