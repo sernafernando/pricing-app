@@ -3786,7 +3786,7 @@ async def calcular_pvp_masivo(
                 )
                 db.add(producto_pricing)
 
-            # Calcular PVP CLÁSICA (pricelist_id=13)
+            # Calcular PVP CLÁSICA (pricelist_id=12)
             resultado_clasica = calcular_precio_producto(
                 db=db,
                 costo=producto_erp.costo,
@@ -3794,7 +3794,7 @@ async def calcular_pvp_masivo(
                 iva=producto_erp.iva,
                 envio=producto_erp.envio or 0,
                 subcategoria_id=producto_erp.subcategoria_id,
-                pricelist_id=13,  # PVP Clásica
+                pricelist_id=12,  # 54-Lista ML PVP
                 markup_objetivo=request.markup_pvp_clasica,
                 tipo_cambio=tipo_cambio,
                 adicional_markup=0  # Sin adicional para clásica
@@ -3807,7 +3807,7 @@ async def calcular_pvp_masivo(
             # Calcular PVP CUOTAS (markup objetivo + adicional)
             markup_total_cuotas = request.markup_pvp_clasica + request.adicional_cuotas
 
-            # 3 cuotas (pricelist_id=14)
+            # 3 cuotas (pricelist_id=18)
             resultado_3 = calcular_precio_producto(
                 db=db,
                 costo=producto_erp.costo,
@@ -3815,7 +3815,7 @@ async def calcular_pvp_masivo(
                 iva=producto_erp.iva,
                 envio=producto_erp.envio or 0,
                 subcategoria_id=producto_erp.subcategoria_id,
-                pricelist_id=14,
+                pricelist_id=18,  # 55-Lista ML PVP 3C
                 markup_objetivo=markup_total_cuotas,
                 tipo_cambio=tipo_cambio,
                 adicional_markup=0
@@ -3825,7 +3825,7 @@ async def calcular_pvp_masivo(
                 producto_pricing.precio_pvp_3_cuotas = resultado_3["precio"]
                 producto_pricing.markup_pvp_3_cuotas = resultado_3["markup_real"]
 
-            # 6 cuotas (pricelist_id=15)
+            # 6 cuotas (pricelist_id=19)
             resultado_6 = calcular_precio_producto(
                 db=db,
                 costo=producto_erp.costo,
@@ -3833,7 +3833,7 @@ async def calcular_pvp_masivo(
                 iva=producto_erp.iva,
                 envio=producto_erp.envio or 0,
                 subcategoria_id=producto_erp.subcategoria_id,
-                pricelist_id=15,
+                pricelist_id=19,  # 56-Lista ML PVP 6C
                 markup_objetivo=markup_total_cuotas,
                 tipo_cambio=tipo_cambio,
                 adicional_markup=0
@@ -3843,7 +3843,7 @@ async def calcular_pvp_masivo(
                 producto_pricing.precio_pvp_6_cuotas = resultado_6["precio"]
                 producto_pricing.markup_pvp_6_cuotas = resultado_6["markup_real"]
 
-            # 9 cuotas (pricelist_id=16)
+            # 9 cuotas (pricelist_id=20)
             resultado_9 = calcular_precio_producto(
                 db=db,
                 costo=producto_erp.costo,
@@ -3851,7 +3851,7 @@ async def calcular_pvp_masivo(
                 iva=producto_erp.iva,
                 envio=producto_erp.envio or 0,
                 subcategoria_id=producto_erp.subcategoria_id,
-                pricelist_id=16,
+                pricelist_id=20,  # 57-Lista ML PVP 9C
                 markup_objetivo=markup_total_cuotas,
                 tipo_cambio=tipo_cambio,
                 adicional_markup=0
@@ -3861,7 +3861,7 @@ async def calcular_pvp_masivo(
                 producto_pricing.precio_pvp_9_cuotas = resultado_9["precio"]
                 producto_pricing.markup_pvp_9_cuotas = resultado_9["markup_real"]
 
-            # 12 cuotas (pricelist_id=17)
+            # 12 cuotas (pricelist_id=21)
             resultado_12 = calcular_precio_producto(
                 db=db,
                 costo=producto_erp.costo,
@@ -3869,7 +3869,7 @@ async def calcular_pvp_masivo(
                 iva=producto_erp.iva,
                 envio=producto_erp.envio or 0,
                 subcategoria_id=producto_erp.subcategoria_id,
-                pricelist_id=17,
+                pricelist_id=21,  # 58-Lista ML PVP 12C
                 markup_objetivo=markup_total_cuotas,
                 tipo_cambio=tipo_cambio,
                 adicional_markup=0
