@@ -2106,3 +2106,24 @@
   background: rgba(255, 255, 255, 0.2) !important;
   color: var(--text-inverse) !important;
 }
+
+/* Botones en modal PVP - mejorar contraste */
+.config-modal-pvp .config-modal-btn-secondary {
+  background-color: white;
+  border-color: var(--purple-primary);
+  color: var(--purple-primary);
+}
+
+.config-modal-pvp .config-modal-btn-secondary:hover {
+  background-color: var(--purple-light);
+}
+
+.config-modal-pvp .config-modal-btn-primary {
+  background-color: var(--purple-primary);
+  color: white;
+  border: none;
+}
+
+.config-modal-pvp .config-modal-btn-primary:hover {
+  background-color: var(--purple-hover);
+}
