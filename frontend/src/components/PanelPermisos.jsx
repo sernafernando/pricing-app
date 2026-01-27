@@ -773,6 +773,7 @@ export default function PanelPermisos() {
                     </button>
                   </div>
                 )}
+              </div>
 
               {/* Lista de permisos */}
               {!permisosUsuario ? (
