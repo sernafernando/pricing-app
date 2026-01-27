@@ -62,8 +62,8 @@ async def sync_sale_order_header(db: Session, days: int = 7):
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.get(GBP_PARSER_URL, params={
                 "strScriptLabel": "scriptSaleOrderHeader",
-                "fromDate": from_date,
-                "toDate": to_date
+                "updateFromDate": from_date,
+                "updateToDate": to_date
             })
             response.raise_for_status()
             data = response.json()
