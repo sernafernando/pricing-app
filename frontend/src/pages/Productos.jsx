@@ -984,8 +984,18 @@ export default function Productos() {
           headers: { Authorization: `Bearer ${token}` }
         }
       );
+      
+      // Actualizar estado local en lugar de recargar
+      setProductos(prods => prods.map(p =>
+        p.item_id === itemId
+          ? { ...p, color }
+          : p
+      ));
+      
       setColorDropdownAbierto(null);
-      cargarProductos();
+      
+      // Recargar stats para reflejar cambios en contadores
+      cargarStats();
     } catch (error) {
       
       
@@ -1900,8 +1910,23 @@ export default function Productos() {
               },
               { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
             );
+            
+            // Actualizar estado local en lugar de recargar
+            setProductos(prods => prods.map(p =>
+              p.item_id === producto.item_id
+                ? {
+                    ...p,
+                    participa_rebate: false,
+                    precio_rebate: null,
+                    markup_rebate: null
+                  }
+                : p
+            ));
+            
             setEditandoRebate(null);
-            cargarProductos();
+            
+            // Recargar stats para reflejar cambios en contadores
+            cargarStats();
           } else {
             // Si no estamos editando, toggle normal
             toggleRebateRapido(producto);
@@ -1929,8 +1954,18 @@ export default function Productos() {
               { out_of_cards: false },
               { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
             );
+            
+            // Actualizar estado local en lugar de recargar
+            setProductos(prods => prods.map(p =>
+              p.item_id === producto.item_id
+                ? { ...p, out_of_cards: false }
+                : p
+            ));
+            
             setEditandoRebate(null);
-            cargarProductos();
+            
+            // Recargar stats para reflejar cambios en contadores
+            cargarStats();
           } else {
             // Toggle normal
             toggleOutOfCardsRapido(producto);
@@ -1997,13 +2032,21 @@ export default function Productos() {
   const cambiarColorRapido = async (itemId, color) => {
     try {
       
-      const response = await axios.patch(
+      await axios.patch(
         `${API_URL}/productos/${itemId}/color`,
         { color },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
       
-      cargarProductos();
+      // Actualizar estado local en lugar de recargar
+      setProductos(prods => prods.map(p =>
+        p.item_id === itemId
+          ? { ...p, color }
+          : p
+      ));
+      
+      // Recargar stats para reflejar cambios en contadores
+      cargarStats();
     } catch (error) {
       
       
@@ -2014,7 +2057,7 @@ export default function Productos() {
     try {
       // Si el rebate está desactivado, activarlo y abrir modo edición
       if (!producto.participa_rebate) {
-        await axios.patch(
+        const response = await axios.patch(
           `${API_URL}/productos/${producto.item_id}/rebate`,
           {
             participa_rebate: true,
@@ -2022,6 +2065,19 @@ export default function Productos() {
           },
           { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
         );
+
+        // Actualizar estado local en lugar de recargar
+        setProductos(prods => prods.map(p =>
+          p.item_id === producto.item_id
+            ? {
+                ...p,
+                participa_rebate: true,
+                porcentaje_rebate: producto.porcentaje_rebate || 3.8,
+                precio_rebate: response.data.precio_rebate,
+                markup_rebate: response.data.markup_rebate
+              }
+            : p
+        ));
 
         // Abrir modo edición
         setEditandoRebate(producto.item_id);
@@ -2039,10 +2095,11 @@ export default function Productos() {
           }
         }, 100);
 
-        cargarProductos();
+        // Recargar stats para reflejar cambios en contadores
+        cargarStats();
       } else {
         // Si está activado, desactivarlo
-        await axios.patch(
+        const response = await axios.patch(
           `${API_URL}/productos/${producto.item_id}/rebate`,
           {
             participa_rebate: false,
@@ -2051,12 +2108,25 @@ export default function Productos() {
           { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
         );
         
+        // Actualizar estado local en lugar de recargar
+        setProductos(prods => prods.map(p =>
+          p.item_id === producto.item_id
+            ? {
+                ...p,
+                participa_rebate: false,
+                precio_rebate: null,
+                markup_rebate: null
+              }
+            : p
+        ));
+        
         // Cerrar modo edición si estaba abierto
         if (editandoRebate === producto.item_id) {
           setEditandoRebate(null);
         }
         
-        cargarProductos();
+        // Recargar stats para reflejar cambios en contadores
+        cargarStats();
       }
     } catch (error) {
       showToast('Error al cambiar rebate', 'error');
@@ -2065,7 +2135,7 @@ export default function Productos() {
 
   const toggleWebTransfRapido = async (producto) => {
     try {
-      await axios.patch(
+      const response = await axios.patch(
         `${API_URL}/productos/${producto.item_id}/web-transferencia`,
         {
           participa: !producto.participa_web_transferencia,
@@ -2073,7 +2143,21 @@ export default function Productos() {
         },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
-      cargarProductos();
+      
+      // Actualizar estado local en lugar de recargar
+      setProductos(prods => prods.map(p =>
+        p.item_id === producto.item_id
+          ? {
+              ...p,
+              participa_web_transferencia: !producto.participa_web_transferencia,
+              precio_web_transferencia: response.data.precio_web_transferencia,
+              markup_web_real: response.data.markup_web_real
+            }
+          : p
+      ));
+      
+      // Recargar stats para reflejar cambios en contadores
+      cargarStats();
     } catch (error) {
       showToast('Error al cambiar Web/Transferencia', 'error');
     }
@@ -2089,19 +2173,28 @@ export default function Productos() {
           { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
         );
         
+        // Actualizar estado local en lugar de recargar
+        setProductos(prods => prods.map(p =>
+          p.item_id === producto.item_id
+            ? { ...p, out_of_cards: false }
+            : p
+        ));
+        
         // Cerrar modo edición si estaba abierto
         if (editandoRebate === producto.item_id) {
           setEditandoRebate(null);
         }
         
-        cargarProductos();
+        // Recargar stats para reflejar cambios en contadores
+        cargarStats();
         return;
       }
 
       // Si NO tiene out_of_cards, activarlo
       // Primero, si el rebate NO está activo, activarlo
+      let rebateResponse = null;
       if (!producto.participa_rebate) {
-        await axios.patch(
+        rebateResponse = await axios.patch(
           `${API_URL}/productos/${producto.item_id}/rebate`,
           {
             participa_rebate: true,
@@ -2117,6 +2210,22 @@ export default function Productos() {
         { out_of_cards: true },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
+
+      // Actualizar estado local en lugar de recargar
+      setProductos(prods => prods.map(p =>
+        p.item_id === producto.item_id
+          ? {
+              ...p,
+              participa_rebate: true,
+              porcentaje_rebate: producto.porcentaje_rebate || 3.8,
+              out_of_cards: true,
+              ...(rebateResponse && {
+                precio_rebate: rebateResponse.data.precio_rebate,
+                markup_rebate: rebateResponse.data.markup_rebate
+              })
+            }
+          : p
+      ));
 
       // Abrir modo edición
       setEditandoRebate(producto.item_id);
@@ -2134,7 +2243,8 @@ export default function Productos() {
         }
       }, 100);
 
-      cargarProductos();
+      // Recargar stats para reflejar cambios en contadores
+      cargarStats();
     } catch (error) {
       showToast('Error al cambiar Out of Cards', 'error');
     }
@@ -3473,13 +3583,23 @@ export default function Productos() {
                                   checked={p.out_of_cards || false}
                                   onChange={async (e) => {
                                     e.stopPropagation();
+                                    const nuevoValor = e.target.checked;
                                     try {
                                       await axios.patch(
                                         `${API_URL}/productos/${p.item_id}/out-of-cards`,
-                                        { out_of_cards: e.target.checked },
+                                        { out_of_cards: nuevoValor },
                                         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
                                       );
-                                      await cargarProductos();
+                                      
+                                      // Actualizar estado local en lugar de recargar
+                                      setProductos(prods => prods.map(prod =>
+                                        prod.item_id === p.item_id
+                                          ? { ...prod, out_of_cards: nuevoValor }
+                                          : prod
+                                      ));
+                                      
+                                      // Recargar stats para reflejar cambios en contadores
+                                      cargarStats();
                                     } catch (error) {
                                       
                                       showToast(`Error: ${error.response?.data?.detail || error.message}`, 'error');
