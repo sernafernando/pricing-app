@@ -173,16 +173,11 @@ async def sync_sale_order_detail(db: Session, days: int = 7):
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.get(GBP_PARSER_URL, params={
                 "strScriptLabel": "scriptSaleOrderDetail",
-                "fromDate": from_date,
-                "toDate": to_date
+                "updateFromDate": from_date,
+                "updateToDate": to_date
             })
             response.raise_for_status()
             data = response.json()
-        
-        # NOTA: scriptSaleOrderDetail filtra por sod_insertDate, no por soh_lastUpdate
-        # Por lo tanto, si un header se modifica pero sus details son viejos, NO se traerán
-        # Para sincronizar details de headers modificados, se requiere una segunda query
-        # usando sohID2 para cada header actualizado (implementación futura si es necesario)
         
         if not isinstance(data, list) or len(data) == 0:
             print("✓ (sin datos)")
@@ -303,8 +298,8 @@ async def sync_sale_order_header_history(db: Session, days: int = 7):
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.get(GBP_PARSER_URL, params={
                 "strScriptLabel": "scriptSaleOrderHeaderHistory",
-                "fromDate": from_date,
-                "toDate": to_date
+                "updateFromDate": from_date,
+                "updateToDate": to_date
             })
             response.raise_for_status()
             data = response.json()
