@@ -103,9 +103,9 @@ def check_sale_orders(db):
     stats_header = db.execute(text("""
         SELECT 
             COUNT(*) as total,
-            MIN(so_date) as primera_orden,
-            MAX(so_date) as ultima_orden,
-            COUNT(DISTINCT DATE(so_date)) as dias_con_datos
+            MIN(soh_cd) as primera_orden,
+            MAX(soh_cd) as ultima_orden,
+            COUNT(DISTINCT DATE(soh_cd)) as dias_con_datos
         FROM tb_sale_order_header
     """)).fetchone()
     
@@ -118,7 +118,7 @@ def check_sale_orders(db):
     stats_detail = db.execute(text("""
         SELECT 
             COUNT(*) as total_lines,
-            COUNT(DISTINCT so_id) as ordenes_con_detalle
+            COUNT(DISTINCT soh_id) as ordenes_con_detalle
         FROM tb_sale_order_detail
     """)).fetchone()
     
@@ -129,8 +129,8 @@ def check_sale_orders(db):
     huerfanas = db.execute(text("""
         SELECT COUNT(*)
         FROM tb_sale_order_header soh
-        LEFT JOIN tb_sale_order_detail sod ON soh.so_id = sod.so_id
-        WHERE sod.so_id IS NULL
+        LEFT JOIN tb_sale_order_detail sod ON soh.soh_id = sod.soh_id AND soh.comp_id = sod.comp_id AND soh.bra_id = sod.bra_id
+        WHERE sod.soh_id IS NULL
     """)).scalar()
     
     if huerfanas > 0:
@@ -142,12 +142,12 @@ def check_sale_orders(db):
     print_subheader("📈 Órdenes últimos 30 días:")
     ultimos_30 = db.execute(text("""
         SELECT 
-            DATE(so_date) as fecha,
+            DATE(soh_cd) as fecha,
             COUNT(*) as cantidad_ordenes,
             COUNT(DISTINCT cust_id) as clientes_unicos
         FROM tb_sale_order_header
-        WHERE so_date >= CURRENT_DATE - INTERVAL '30 days'
-        GROUP BY DATE(so_date)
+        WHERE soh_cd >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY DATE(soh_cd)
         ORDER BY fecha DESC
         LIMIT 10
     """)).fetchall()
@@ -169,8 +169,8 @@ def check_sale_orders(db):
         )
         SELECT fs.fecha
         FROM fecha_serie fs
-        LEFT JOIN tb_sale_order_header soh ON DATE(soh.so_date) = fs.fecha
-        WHERE soh.so_id IS NULL
+        LEFT JOIN tb_sale_order_header soh ON DATE(soh.soh_cd) = fs.fecha
+        WHERE soh.soh_id IS NULL
         ORDER BY fs.fecha DESC
     """)).fetchall()
     
@@ -205,11 +205,11 @@ def check_customers(db):
     top_clientes = db.execute(text("""
         SELECT 
             c.cust_name,
-            COUNT(DISTINCT soh.so_id) as cantidad_ordenes,
-            COUNT(DISTINCT DATE(soh.so_date)) as dias_activo
+            COUNT(DISTINCT soh.soh_id) as cantidad_ordenes,
+            COUNT(DISTINCT DATE(soh.soh_cd)) as dias_activo
         FROM tb_customer c
         INNER JOIN tb_sale_order_header soh ON c.cust_id = soh.cust_id AND c.comp_id = soh.comp_id
-        WHERE soh.so_date >= CURRENT_DATE - INTERVAL '30 days'
+        WHERE soh.soh_cd >= CURRENT_DATE - INTERVAL '30 days'
         GROUP BY c.cust_name
         ORDER BY cantidad_ordenes DESC
         LIMIT 10
@@ -530,7 +530,7 @@ def check_sync_health(db):
     
     tables = [
         ('Commercial Transactions', 'SELECT MAX(ct_date) FROM tb_commercial_transactions'),
-        ('Sale Orders', 'SELECT MAX(so_date) FROM tb_sale_order_header'),
+        ('Sale Orders', 'SELECT MAX(soh_cd) FROM tb_sale_order_header'),
         ('ML Orders', 'SELECT MAX(mlo_cd) FROM tb_mercadolibre_orders_header'),
         ('ML Métricas', 'SELECT MAX(fecha_calculo) FROM ml_ventas_metricas'),
         ('Fuera ML Métricas', 'SELECT MAX(fecha_calculo) FROM ventas_fuera_ml_metricas'),
