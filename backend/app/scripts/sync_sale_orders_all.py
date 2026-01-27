@@ -51,7 +51,7 @@ async def sync_sale_order_header(db: Session, days: int = 7):
         days: Días hacia atrás para sincronizar (default: 7 para ejecuciones frecuentes)
     
     Returns:
-        tuple: (nuevos, actualizados, errores)
+        tuple: (nuevos, actualizados, errores, set_soh_ids)
     """
     print(f"  📋 Sale Order Header (últimos {days} días)...", end=" ", flush=True)
     
@@ -173,8 +173,8 @@ async def sync_sale_order_detail(db: Session, days: int = 7):
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.get(GBP_PARSER_URL, params={
                 "strScriptLabel": "scriptSaleOrderDetail",
-                "fromDate": from_date,
-                "toDate": to_date
+                "updateFromDate": from_date,
+                "updateToDate": to_date
             })
             response.raise_for_status()
             data = response.json()
@@ -298,8 +298,8 @@ async def sync_sale_order_header_history(db: Session, days: int = 7):
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.get(GBP_PARSER_URL, params={
                 "strScriptLabel": "scriptSaleOrderHeaderHistory",
-                "fromDate": from_date,
-                "toDate": to_date
+                "updateFromDate": from_date,
+                "updateToDate": to_date
             })
             response.raise_for_status()
             data = response.json()

@@ -37,8 +37,8 @@ def fetch_sale_order_header_history_from_erp(from_date: date = None, to_date: da
 
     params = {
         'strScriptLabel': 'scriptSaleOrderHeaderHistory',
-        'fromDate': from_date.isoformat(),
-        'toDate': to_date.isoformat()
+        'updateFromDate': from_date.isoformat(),
+        'updateToDate': to_date.isoformat()
     }
 
     print(f"📥 Descargando historial de órdenes desde {from_date} hasta {to_date}...")
