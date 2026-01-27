@@ -1,0 +1,123 @@
+# ============================================================================
+# PRICING APP - CRONTAB COMPLETO
+# ============================================================================
+
+# ============================================================================
+# SINCRONIZACIÓN COMPLETA Y TIPO DE CAMBIO
+# ============================================================================
+
+# Sincronización completa - cada 10 minutos
+*/10 6-21 * * * /var/www/html/pricing-app/backend/venv/bin/python /var/www/html/pricing-app/backend/app/scripts/sync_completo.py >> /var/log/pricing-sync.log 2>&1
+
+# Tipo de cambio - cada 5 minutos
+*/5 6-21 * * * curl -X POST http://127.0.0.1:8002/api/sync-tipo-cambio > /dev/null 2>&1
+
+# Sincronización incremental - cada 5 minutos
+*/5 6-21 * * * /var/www/html/pricing-app/backend/venv/bin/python /var/www/html/pricing-app/backend/app/scripts/sync_all_incremental.py >> /var/log/pricing-app/sync_all.log 2>&1
+
+# ============================================================================
+# SINCRONIZACIÓN CATÁLOGO Y CANALES
+# ============================================================================
+
+# Catálogo status - cada hora
+0 6-21 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python scripts/sync_catalog_status.py >> /var/log/catalog-sync.log 2>&1
+
+# Tienda Nube - cada 15 minutos
+*/15 6-21 * * * cd /var/www/html/pricing-app && /var/www/html/pricing-app/backend/venv/bin/python backend/scripts/sync_tienda_nube.py >> /var/log/sync_tienda_nube.log 2>&1
+
+# ML Publications - cada hora
+0 6-21 * * * /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_ml_publications_incremental >> /var/log/pricing-app/ml_publications.log 2>&1
+
+# ============================================================================
+# MÉTRICAS ML - Incremental + Backup + Rebuilds
+# ============================================================================
+
+# Incremental - cada 5 min (últimos 10 min)
+*/5 6-21 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_ml_incremental >> /var/log/pricing-app/ml_metricas_incremental.log 2>&1
+
+# Diario backup - cada 30 min (día completo)
+*/30 6-21 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_ml_diario >> /var/log/pricing-app/ml_metricas_diario.log 2>&1
+
+# Rebuild 7 días - diario a las 4 AM (NUEVO)
+0 4 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_ml_local --days 7 >> /var/log/pricing-app/ml_metricas_7d.log 2>&1
+
+# Rebuild 30 días - semanal (domingos a las 3:30 AM) (NUEVO)
+30 3 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_ml_local --days 30 >> /var/log/pricing-app/ml_metricas_30d.log 2>&1
+
+# ============================================================================
+# MÉTRICAS POR FUERA ML - Incremental + Rebuilds
+# ============================================================================
+
+# Incremental - cada 5 min (últimos 10 min)
+*/5 * * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python app/scripts/agregar_metricas_fuera_ml.py --minutes 10 >> /var/log/pricing-app/fuera_ml_incremental.log 2>&1
+
+# Rebuild 7 días - diario a las 4:10 AM (NUEVO)
+10 4 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python app/scripts/agregar_metricas_fuera_ml.py --days 7 >> /var/log/pricing-app/fuera_ml_7d.log 2>&1
+
+# Rebuild 30 días - semanal (domingos a las 3:40 AM) (NUEVO)
+40 3 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python app/scripts/agregar_metricas_fuera_ml.py --days 30 >> /var/log/pricing-app/fuera_ml_30d.log 2>&1
+
+# ============================================================================
+# MÉTRICAS TIENDA NUBE - Incremental + Rebuilds
+# ============================================================================
+
+# Incremental - cada 5 min (últimos 10 min)
+*/5 6-21 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tienda_nube --minutes 10 >> /var/log/pricing-app/tn_metricas_incremental.log 2>&1
+
+# Rebuild 7 días - diario a las 4:20 AM (NUEVO)
+20 4 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tienda_nube --days 7 >> /var/log/pricing-app/tn_metricas_7d.log 2>&1
+
+# Rebuild 30 días - semanal (domingos a las 3:50 AM) (NUEVO)
+50 3 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tienda_nube --days 30 >> /var/log/pricing-app/tn_metricas_30d.log 2>&1
+
+# ============================================================================
+# SINCRONIZACIÓN ERP - Orders, Transactions, Customers
+# ============================================================================
+
+# Pedidos Export - cada 5 minutos
+*/5 * * * * cd /var/www/html/pricing-app/backend && venv/bin/python scripts/sync_pedidos_export.py >> /var/log/pricing-sync-pedidos.log 2>&1
+
+# Estados Turbo - cada hora
+0 6-21 * * * cd /var/www/html/pricing-app/backend && /usr/bin/python3 scripts/actualizar_estados_turbo.py >> /var/log/turbo_estados.log 2>&1
+
+# Commercial Transactions - cada 10 minutos (últimos 7 días)
+*/10 6-21 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_commercial_transactions_guid --days 7 >> /var/log/pricing-app/commercial_transactions.log 2>&1
+
+# Customers Hybrid - cada 15 minutos (últimos 30 minutos)
+*/15 6-21 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_customers_hybrid --minutes 30 >> /var/log/pricing-app/customers_hybrid.log 2>&1
+
+# Master Tables Small - 2 veces al día (8 AM y 4 PM)
+0 8,16 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_master_tables_small >> /var/log/pricing-app/master_tables_small.log 2>&1
+
+# Sale Orders - cada 5 minutos (últimos 3 días)
+*/5 6-21 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_sale_orders_all --days 3 >> /var/log/pricing-app/sale_orders.log 2>&1
+
+# ============================================================================
+# BACKFILLS HISTÓRICOS (Nocturnos)
+# ============================================================================
+
+# Sale Orders - Backfill 30 días - diario a las 3 AM
+0 3 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_sale_orders_all --days 30 >> /var/log/pricing-app/sale_orders_backfill.log 2>&1
+
+# Commercial Transactions - Backfill 30 días - diario a las 3:05 AM
+5 3 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_commercial_transactions_guid --days 30 >> /var/log/pricing-app/commercial_transactions_30d.log 2>&1
+
+# Item Serials - cada hora (si usás números de serie)
+# DESCOMENTAR si necesitás sincronizar seriales de productos
+# 0 6-21 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_item_serials >> /var/log/pricing-app/item_serials.log 2>&1
+
+# ============================================================================
+# BACKFILLS HISTÓRICOS 90 DÍAS (Semanales - Domingos)
+# ============================================================================
+
+# Sale Orders 90d - domingos a las 2 AM
+0 2 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_sale_orders_all --days 90 >> /var/log/pricing-app/sale_orders_backfill_90d.log 2>&1
+
+# Commercial Transactions 90d - domingos a las 2:10 AM
+10 2 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_commercial_transactions_guid --days 90 >> /var/log/pricing-app/commercial_transactions_90d.log 2>&1
+
+# Customers Full - domingos a las 2:20 AM
+20 2 * * 0 cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_customers_hybrid >> /var/log/pricing-app/customers_hybrid_full.log 2>&1
+
+# ML Items Full - diario a las 3:10 AM
+10 3 * * * cd /var/www/html/pricing-app/backend && /home/gauss/pricing-env/bin/python -m app.scripts.sync_ml_items_publicados_full 2>&1 >> /var/log/ml_items_pub_full_sync.log
