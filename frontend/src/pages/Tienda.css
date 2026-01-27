@@ -59,10 +59,81 @@
 /* Grid de estadísticas */
 .stats-grid {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 16px;
   margin-bottom: 24px;
-  flex-wrap: wrap;
+  
+  /* Habilitar scroll horizontal */
+  overflow-x: auto;
+  overflow-y: hidden;
+  
+  /* Padding para que las cards no queden pegadas al borde */
+  padding: 4px 0;
+  
+  /* NO wrap - las cards se quedan en una línea */
+  flex-wrap: nowrap;
+  
+  /* Scroll suave */
+  scroll-behavior: smooth;
+  
+  /* Scrollbar personalizado para mejor experiencia */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-secondary) transparent;
+}
+
+/* Scrollbar webkit (Chrome, Safari, Edge) */
+.stats-grid::-webkit-scrollbar {
+  height: 8px;
+}
+
+.stats-grid::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.stats-grid::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.stats-grid::-webkit-scrollbar-thumb:hover {
+  background: var(--border-primary);
+}
+
+/* Dark mode scrollbar */
+:root[data-theme="dark"] .stats-grid::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme="dark"] .stats-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Responsive - Mobile y tablet */
+@media (max-width: 1024px) {
+  .stats-grid {
+    /* En mobile/tablet, el scroll es más importante */
+    justify-content: flex-start;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  
+  /* Hacer las cards un poco más pequeñas en mobile */
+  .stat-card-tesla {
+    flex: 0 0 auto;
+    min-width: 200px;
+  }
+}
+
+@media (max-width: 480px) {
+  .stats-grid {
+    gap: 12px;
+  }
+  
+  .stat-card-tesla {
+    min-width: 180px;
+  }
 }
 
 .stat-card {
