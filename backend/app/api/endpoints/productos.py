@@ -5007,6 +5007,10 @@ async def exportar_clasica(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    con_mla: Optional[bool] = None,
+    estado_mla: Optional[str] = None,
+    nuevos_ultimos_7_dias: Optional[bool] = None,
+    tienda_oficial: Optional[str] = None,
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
