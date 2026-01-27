@@ -51,7 +51,7 @@ async def sync_sale_order_header(db: Session, days: int = 7):
         days: Días hacia atrás para sincronizar (default: 7 para ejecuciones frecuentes)
     
     Returns:
-        tuple: (nuevos, actualizados, errores)
+        tuple: (nuevos, actualizados, errores, set_soh_ids)
     """
     print(f"  📋 Sale Order Header (últimos {days} días)...", end=" ", flush=True)
     
@@ -178,6 +178,11 @@ async def sync_sale_order_detail(db: Session, days: int = 7):
             })
             response.raise_for_status()
             data = response.json()
+        
+        # NOTA: scriptSaleOrderDetail filtra por sod_insertDate, no por soh_lastUpdate
+        # Por lo tanto, si un header se modifica pero sus details son viejos, NO se traerán
+        # Para sincronizar details de headers modificados, se requiere una segunda query
+        # usando sohID2 para cada header actualizado (implementación futura si es necesario)
         
         if not isinstance(data, list) or len(data) == 0:
             print("✓ (sin datos)")
