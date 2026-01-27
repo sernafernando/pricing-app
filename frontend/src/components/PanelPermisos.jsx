@@ -933,7 +933,7 @@ export default function PanelPermisos() {
                         </span>
                       </div>
                       {expandida && (
-                      <div style={{ padding: '8px 16px', background: 'var(--bg-primary)', maxHeight: '300px', overflowY: 'auto' }}>
+                      <div style={{ padding: '8px 16px', background: 'var(--bg-primary)' }}>
                         {permisosFiltrados.map(permiso => {
                           const tieneOverride = permiso.override !== null;
                           const esOverridePositivo = permiso.override === true;
