@@ -8,6 +8,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      /* Fix crítico para ícono de calendario en dark mode */
+      [data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator {
+        filter: invert(1) !important;
+        opacity: 0.8 !important;
+      }
+      [data-theme="dark"] input[type="date"]:hover::-webkit-calendar-picker-indicator {
+        opacity: 1 !important;
+      }
+      [data-theme="dark"] input[type="date"] {
+        color-scheme: dark !important;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
