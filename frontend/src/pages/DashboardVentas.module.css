@@ -52,7 +52,6 @@
   cursor: pointer;
   transition: border-color 0.2s;
   position: relative;
-  color-scheme: light;
 }
 
 .dateInput:hover {
