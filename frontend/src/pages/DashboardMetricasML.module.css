@@ -212,9 +212,50 @@
 
 .tableWrapper {
   overflow-x: auto;
-  max-height: calc(100vh - 320px); /* Restar altura del header, filtros y controles */
   overflow-y: auto;
+  max-height: calc(100vh - 320px); /* Restar altura del header, filtros y controles */
   min-height: 600px; /* Altura mínima para que se vea bien */
+  
+  /* Scroll suave */
+  scroll-behavior: smooth;
+  
+  /* Scrollbar personalizado */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-secondary) transparent;
+}
+
+/* Scrollbar webkit (Chrome, Safari, Edge) */
+.tableWrapper::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.tableWrapper::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.tableWrapper::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.tableWrapper::-webkit-scrollbar-thumb:hover {
+  background: var(--border-primary);
+}
+
+/* Dark mode scrollbar */
+:global([data-theme="dark"]) .tableWrapper::-webkit-scrollbar-track {
+  background: rgba(20, 20, 20, 0.5);
+}
+
+:global([data-theme="dark"]) .tableWrapper::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+:global([data-theme="dark"]) .tableWrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .table {
@@ -360,6 +401,7 @@
 
 .tableOperaciones {
   width: 100%;
+  min-width: 1800px; /* Ancho mínimo para forzar scroll horizontal */
   border-collapse: collapse;
   font-size: 12px;
 }
@@ -432,15 +474,28 @@
 
 /* Fila sin costo - estilo sutil */
 .rowSinCosto {
-  background-color: #fef2f2 !important;
+  background-color: var(--error-light) !important;
 }
 
 .rowSinCosto td {
-  color: #1f2937 !important;
+  color: var(--error-text) !important;
 }
 
 .rowSinCosto:hover {
-  background-color: #fee2e2 !important;
+  background-color: var(--error-bg) !important;
+}
+
+/* Dark mode - Filas sin costo */
+:global([data-theme="dark"]) .rowSinCosto {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+}
+
+:global([data-theme="dark"]) .rowSinCosto td {
+  color: var(--error) !important;
+}
+
+:global([data-theme="dark"]) .rowSinCosto:hover {
+  background-color: rgba(239, 68, 68, 0.25) !important;
 }
 
 /* KPIs Principales */
@@ -999,9 +1054,21 @@
   background-color: rgba(59, 130, 246, 0.08);
 }
 
+/* Dark mode - Fila modificada */
+:global([data-theme="dark"]) .rowModificada {
+  background-color: rgba(59, 130, 246, 0.15);
+}
+
 /* Campo con override (modificado) */
 .campoOverride {
-  background-color: rgba(245, 158, 11, 0.15);
+  background-color: var(--warning-bg);
+  border: 1px solid var(--warning);
+}
+
+/* Dark mode - Campo con override */
+:global([data-theme="dark"]) .campoOverride {
+  background-color: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.4);
 }
 
 /* EditableCell con override */
@@ -1011,7 +1078,16 @@
 
 /* Campo sin costo (error) */
 .campoSinCosto {
-  background-color: rgba(239, 68, 68, 0.15);
+  background-color: var(--error-bg);
+  border: 1px solid var(--error);
+  color: var(--error-text);
+}
+
+/* Dark mode - Campo sin costo */
+:global([data-theme="dark"]) .campoSinCosto {
+  background-color: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--error);
 }
 
 /* Botón pequeño para acciones */
@@ -1040,7 +1116,16 @@
 
 /* Campo de costo sin costo */
 .campoSinCostoInput {
-  background-color: rgba(254, 226, 226, 1);
+  background-color: var(--error-bg);
+  border-color: var(--error);
+  color: var(--error-text);
+}
+
+/* Dark mode - Campo sin costo input */
+:global([data-theme="dark"]) .campoSinCostoInput {
+  background-color: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--error);
 }
 
 /* Loading y estados de paginación */
