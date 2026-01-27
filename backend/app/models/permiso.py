@@ -413,11 +413,32 @@ PERMISOS_SISTEMA = [
         "orden": 58
     },
     {
+        "codigo": "admin.ver_items_sin_mla",
+        "nombre": "Ver items sin MLA",
+        "descripcion": "Ver listado de items que no tienen MLA asociado",
+        "categoria": CategoriaPermiso.ADMINISTRACION,
+        "orden": 59
+    },
+    {
+        "codigo": "admin.gestionar_items_sin_mla_banlist",
+        "nombre": "Gestionar banlist de items sin MLA",
+        "descripcion": "Agregar y quitar items de la banlist de items sin MLA",
+        "categoria": CategoriaPermiso.ADMINISTRACION,
+        "orden": 60
+    },
+    {
+        "codigo": "admin.ver_comparacion_listas_ml",
+        "nombre": "Ver comparación listas vs ML",
+        "descripcion": "Ver comparación entre listas de precios y publicaciones ML",
+        "categoria": CategoriaPermiso.ADMINISTRACION,
+        "orden": 61
+    },
+    {
         "codigo": "produccion.marcar_prearmado",
         "nombre": "Marcar productos pre-armados",
         "descripcion": "Marcar/desmarcar productos que están siendo pre-armados en producción",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 59
+        "orden": 62
     },
 
     # =========================================================================
@@ -428,14 +449,14 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver comisiones",
         "descripcion": "Ver configuración de comisiones ML",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 62
+        "orden": 70
     },
     {
         "codigo": "config.editar_comisiones",
         "nombre": "Editar comisiones",
         "descripcion": "Crear nuevas versiones de comisiones",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 63,
+        "orden": 71,
         "es_critico": True
     },
     {
@@ -443,14 +464,14 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver constantes de pricing",
         "descripcion": "Ver configuración de constantes (tiers, varios, etc.)",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 64
+        "orden": 72
     },
     {
         "codigo": "config.editar_constantes",
         "nombre": "Editar constantes de pricing",
         "descripcion": "Crear nuevas versiones de constantes",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 65,
+        "orden": 73,
         "es_critico": True
     },
     {
@@ -458,7 +479,7 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver tipo de cambio",
         "descripcion": "Ver cotización actual del dólar",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 64
+        "orden": 74
     },
 
     # =========================================================================
@@ -469,14 +490,14 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver clientes",
         "descripcion": "Acceso a la lista de clientes y sus detalles",
         "categoria": CategoriaPermiso.CLIENTES,
-        "orden": 70
+        "orden": 80
     },
     {
         "codigo": "clientes.exportar",
         "nombre": "Exportar clientes",
         "descripcion": "Exportar datos de clientes a CSV",
         "categoria": CategoriaPermiso.CLIENTES,
-        "orden": 71
+        "orden": 81
     },
 ]
 
@@ -507,6 +528,9 @@ PERMISOS_POR_ROL = {
         "admin.gestionar_banlist",
         "admin.gestionar_mla_banlist",
         "admin.gestionar_produccion_banlist",
+        "admin.ver_items_sin_mla",
+        "admin.gestionar_items_sin_mla_banlist",
+        "admin.ver_comparacion_listas_ml",
         "produccion.marcar_prearmado",
         "config.*",
     ],
@@ -531,6 +555,8 @@ PERMISOS_POR_ROL = {
         "reportes.ver_notificaciones",
         "reportes.ver_calculadora",
         "reportes.exportar",
+        "admin.ver_items_sin_mla",
+        "admin.ver_comparacion_listas_ml",
         "config.ver_comisiones",
         "config.ver_constantes",
         "config.ver_tipo_cambio",
