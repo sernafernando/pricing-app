@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import styles from '../pages/Admin.module.css';
+import adminStyles from '../pages/Admin.module.css';
+import styles from './PanelPermisos.module.css';
 
 const CATEGORIAS_NOMBRE = {
   productos: 'Productos',
@@ -334,7 +335,7 @@ export default function PanelPermisos() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '20px' }}>
         {/* Panel izquierdo: Lista de usuarios */}
-        <div className={styles.section}>
+        <div className={adminStyles.section}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>Usuarios</h3>
             <button
@@ -545,7 +546,7 @@ export default function PanelPermisos() {
         </div>
 
         {/* Panel derecho: Detalles y permisos */}
-        <div className={styles.section} style={{ display: 'flex', flexDirection: 'column', maxHeight: '75vh' }}>
+        <div className={`${adminStyles.section} ${styles.permisosSection}`}>
           {usuarioSeleccionado ? (
             <>
               {/* Header sticky con info del usuario */}
@@ -797,67 +798,37 @@ export default function PanelPermisos() {
 
                 {/* Controles de permisos */}
                 {permisosUsuario && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <span style={{ width: '12px', height: '12px', background: 'var(--success)', borderRadius: '3px' }}></span>
+                  <div className={styles.permisosControls}>
+                    <div className={styles.controlsLeft}>
+                      <span className={styles.legendItem}>
+                        <span className={styles.legendColor} style={{ background: 'var(--success)' }}></span>
                         Activo
                       </span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <span style={{ width: '12px', height: '12px', background: 'var(--error)', borderRadius: '3px' }}></span>
+                      <span className={styles.legendItem}>
+                        <span className={styles.legendColor} style={{ background: 'var(--error)' }}></span>
                         Sin permiso
                       </span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <span style={{ width: '12px', height: '12px', background: 'var(--primary)', borderRadius: '3px' }}></span>
+                      <span className={styles.legendItem}>
+                        <span className={styles.legendColor} style={{ background: 'var(--brand-primary)' }}></span>
                         Override +
                       </span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <span style={{ width: '12px', height: '12px', background: 'var(--warning)', borderRadius: '3px' }}></span>
+                      <span className={styles.legendItem}>
+                        <span className={styles.legendColor} style={{ background: 'var(--warning)' }}></span>
                         Override -
                       </span>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <div className={styles.controlsRight}>
                       <input
                         type="text"
                         placeholder="🔍 Buscar permiso..."
                         value={busquedaPermiso}
                         onChange={(e) => setBusquedaPermiso(e.target.value)}
-                        style={{
-                          padding: '6px 10px',
-                          fontSize: '12px',
-                          background: 'var(--bg-primary)',
-                          color: 'var(--text-primary)',
-                          border: '1px solid var(--border-primary)',
-                          borderRadius: '4px',
-                          width: '200px'
-                        }}
+                        className={styles.searchInput}
                       />
-                      <button
-                        onClick={expandirTodas}
-                        style={{
-                          padding: '4px 8px',
-                          fontSize: '11px',
-                          background: 'var(--bg-tertiary)',
-                          color: 'var(--text-secondary)',
-                          border: '1px solid var(--border-primary)',
-                          borderRadius: '4px',
-                          cursor: 'pointer'
-                        }}
-                      >
+                      <button onClick={expandirTodas} className={styles.btnSmall}>
                         Expandir
                       </button>
-                      <button
-                        onClick={colapsarTodas}
-                        style={{
-                          padding: '4px 8px',
-                          fontSize: '11px',
-                          background: 'var(--bg-tertiary)',
-                          color: 'var(--text-secondary)',
-                          border: '1px solid var(--border-primary)',
-                          borderRadius: '4px',
-                          cursor: 'pointer'
-                        }}
-                      >
+                      <button onClick={colapsarTodas} className={styles.btnSmall}>
                         Colapsar
                       </button>
                     </div>
@@ -867,11 +838,11 @@ export default function PanelPermisos() {
 
               {/* Lista de permisos */}
               {!permisosUsuario ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+                <div className={styles.emptyState}>
                   Cargando permisos...
                 </div>
               ) : (
-                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div className={styles.permisosList}>
                   {Object.entries(permisosUsuario.permisos_detallados).map(([categoria, permisos]) => {
                     // Filtrar permisos según búsqueda
                     const permisosFiltrados = busquedaPermiso.trim()
@@ -889,181 +860,84 @@ export default function PanelPermisos() {
                     const permisosActivos = permisosFiltrados.filter(p => p.efectivo).length;
 
                     return (
-                    <div key={categoria} style={{
-                      border: '1px solid var(--border-primary)',
-                      borderRadius: '8px',
-                      overflow: 'hidden'
-                    }}>
-                      <div
-                        onClick={() => toggleCategoria(categoria)}
-                        style={{
-                          padding: '10px 16px',
-                          background: 'var(--bg-secondary)',
-                          fontWeight: '600',
-                          borderBottom: expandida ? '1px solid var(--border-primary)' : 'none',
-                          color: 'var(--text-primary)',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          userSelect: 'none'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{
-                            display: 'inline-block',
-                            transition: 'transform 0.2s',
-                            transform: expandida ? 'rotate(90deg)' : 'rotate(0deg)'
-                          }}>
-                            ▶
-                          </span>
+                    <div key={categoria} className={styles.categoria}>
+                      <div className={styles.categoriaHeader} onClick={() => toggleCategoria(categoria)}>
+                        <div className={styles.categoriaTitle}>
+                          <span className={`${styles.categoriaArrow} ${expandida ? styles.expanded : ''}`}>▶</span>
                           {CATEGORIAS_NOMBRE[categoria] || categoria}
                         </div>
-                        <span style={{
-                          fontSize: '12px',
-                          color: 'var(--text-secondary)',
-                          fontWeight: 'normal'
-                        }}>
+                        <span className={styles.categoriaCount}>
                           {permisosActivos}/{permisosFiltrados.length}
                           {busquedaPermiso.trim() && permisosFiltrados.length !== permisos.length && (
-                            <span style={{ marginLeft: '4px', fontSize: '11px', opacity: 0.7 }}>
+                            <span style={{ marginLeft: '4px', fontSize: '10px', opacity: 0.7 }}>
                               (de {permisos.length})
                             </span>
                           )}
                         </span>
                       </div>
                       {expandida && (
-                      <div style={{ padding: '8px 16px', background: 'var(--bg-primary)' }}>
-                        {permisosFiltrados.map(permiso => {
-                          const tieneOverride = permiso.override !== null;
-                          const esOverridePositivo = permiso.override === true;
-                          const esOverrideNegativo = permiso.override === false;
-                          const esSuperadmin = permisosUsuario.rol === 'SUPERADMIN';
+                      <table className={styles.permisosTable}>
+                        <tbody>
+                          {permisosFiltrados.map(permiso => {
+                            const tieneOverride = permiso.override !== null;
+                            const esOverridePositivo = permiso.override === true;
+                            const esSuperadmin = permisosUsuario.rol === 'SUPERADMIN';
 
-                          return (
-                            <div
-                              key={permiso.codigo}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '10px 0',
-                                borderBottom: '1px solid var(--bg-tertiary)',
-                                opacity: guardando ? 0.6 : 1
-                              }}
-                            >
-                              <div style={{ flex: 1 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>
-                                    {permiso.nombre}
-                                  </span>
-                                  {permiso.es_critico && (
-                                    <span style={{
-                                      fontSize: '10px',
-                                      padding: '2px 6px',
-                                      background: 'var(--error-bg)',
-                                      color: 'var(--error-text)',
-                                      borderRadius: '4px'
-                                    }}>
-                                      CRITICO
-                                    </span>
-                                  )}
-                                  {tieneOverride && (
-                                    <span style={{
-                                      fontSize: '10px',
-                                      padding: '2px 6px',
-                                      background: esOverridePositivo ? 'var(--info-bg)' : 'var(--warning-bg)',
-                                      color: esOverridePositivo ? 'var(--info-text)' : 'var(--warning-text)',
-                                      borderRadius: '4px'
-                                    }}>
-                                      {esOverridePositivo ? 'AGREGADO' : 'QUITADO'}
-                                    </span>
-                                  )}
-                                </div>
-                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                            return (
+                              <tr key={permiso.codigo} style={{ opacity: guardando ? 0.6 : 1 }}>
+                                <td className={styles.colNombre}>
+                                  {permiso.nombre}
+                                  {permiso.es_critico && <span className={styles.iconCritico} title="Crítico">⚠</span>}
+                                  {tieneOverride && <span className={`${styles.iconOverride} ${esOverridePositivo ? styles.positivo : styles.negativo}`} title={esOverridePositivo ? 'Override +' : 'Override -'}>{esOverridePositivo ? '↑' : '↓'}</span>}
+                                </td>
+                                <td className={styles.colCodigo} title={permiso.codigo}>
                                   {permiso.codigo}
-                                  {permiso.descripcion && ` - ${permiso.descripcion}`}
-                                </div>
-                              </div>
-
-                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginRight: '8px' }}>
-                                  Rol: {permiso.tiene_por_rol ? '✓' : '✗'}
-                                </span>
-
-                                {!esSuperadmin && (
-                                  <>
-                                    {tieneOverride ? (
+                                </td>
+                                <td className={styles.colRol}>
+                                  {permiso.tiene_por_rol ? '✓' : '—'}
+                                </td>
+                                <td className={styles.colAccion}>
+                                  {!esSuperadmin && (
+                                    tieneOverride ? (
                                       <button
                                         onClick={() => resetearOverride(permiso.codigo)}
                                         disabled={guardando}
-                                        style={{
-                                          padding: '5px 10px',
-                                          fontSize: '12px',
-                                          background: 'var(--bg-tertiary)',
-                                          color: 'var(--text-primary)',
-                                          border: '1px solid var(--border-primary)',
-                                          borderRadius: '4px',
-                                          cursor: guardando ? 'not-allowed' : 'pointer'
-                                        }}
+                                        title="Resetear al permiso del rol"
+                                        className={`${styles.actionBtn} ${styles.reset}`}
                                       >
-                                        Resetear
+                                        ↺
                                       </button>
                                     ) : permiso.tiene_por_rol ? (
                                       <button
                                         onClick={() => forzarPermiso(permiso.codigo, false)}
                                         disabled={guardando}
-                                        style={{
-                                          padding: '5px 10px',
-                                          fontSize: '12px',
-                                          background: 'var(--warning-bg)',
-                                          color: 'var(--warning-text)',
-                                          border: 'none',
-                                          borderRadius: '4px',
-                                          cursor: guardando ? 'not-allowed' : 'pointer'
-                                        }}
+                                        title="Quitar permiso"
+                                        className={`${styles.actionBtn} ${styles.remove}`}
                                       >
-                                        Quitar
+                                        −
                                       </button>
                                     ) : (
                                       <button
                                         onClick={() => forzarPermiso(permiso.codigo, true)}
                                         disabled={guardando}
-                                        style={{
-                                          padding: '5px 10px',
-                                          fontSize: '12px',
-                                          background: 'var(--info-bg)',
-                                          color: 'var(--info-text)',
-                                          border: 'none',
-                                          borderRadius: '4px',
-                                          cursor: guardando ? 'not-allowed' : 'pointer'
-                                        }}
+                                        title="Agregar permiso"
+                                        className={`${styles.actionBtn} ${styles.add}`}
                                       >
-                                        Agregar
+                                        +
                                       </button>
-                                    )}
-                                  </>
-                                )}
-
-                                <div style={{
-                                  width: '24px',
-                                  height: '24px',
-                                  borderRadius: '4px',
-                                  background: permiso.efectivo ? 'var(--success)' : 'var(--error)',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  color: 'var(--text-inverse)',
-                                  fontSize: '14px',
-                                  fontWeight: 'bold'
-                                }}>
-                                  {permiso.efectivo ? '✓' : '✗'}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                                    )
+                                  )}
+                                </td>
+                                <td className={styles.colEstado}>
+                                  <div className={`${styles.estadoBox} ${permiso.efectivo ? styles.activo : styles.inactivo}`}>
+                                    {permiso.efectivo ? '✓' : '✗'}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                       )}
                     </div>
                   );
