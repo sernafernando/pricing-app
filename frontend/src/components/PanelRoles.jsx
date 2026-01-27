@@ -41,8 +41,6 @@ export default function PanelRoles() {
     descripcion: ''
   });
 
-  // Estado para categorías colapsables
-  const [categoriasExpandidas, setCategoriasExpandidas] = useState({});
   const [busquedaPermiso, setBusquedaPermiso] = useState('');
 
   const API_URL = 'https://pricing.gaussonline.com.ar/api';
@@ -244,25 +242,6 @@ export default function PanelRoles() {
       orden: rol.orden
     });
     setMostrarFormRol(true);
-  };
-
-  const toggleCategoria = (categoria) => {
-    setCategoriasExpandidas(prev => ({
-      ...prev,
-      [categoria]: !prev[categoria]
-    }));
-  };
-
-  const expandirTodas = () => {
-    const todas = {};
-    Object.keys(catalogo).forEach(cat => {
-      todas[cat] = true;
-    });
-    setCategoriasExpandidas(todas);
-  };
-
-  const colapsarTodas = () => {
-    setCategoriasExpandidas({});
   };
 
   if (loading) {
@@ -496,20 +475,7 @@ export default function PanelRoles() {
                       </p>
                     )}
                   </div>
-                  <div className={styles.controlsRight}>
-                    <input
-                      type="text"
-                      placeholder="🔍 Buscar permiso..."
-                      value={busquedaPermiso}
-                      onChange={(e) => setBusquedaPermiso(e.target.value)}
-                      className={styles.searchInput}
-                    />
-                    <button onClick={expandirTodas} className={styles.btnSmall}>
-                      Expandir
-                    </button>
-                    <button onClick={colapsarTodas} className={styles.btnSmall}>
-                      Colapsar
-                    </button>
+                  <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'center' }}>
                     {rolSeleccionado.codigo !== 'SUPERADMIN' && (
                       <>
                         <button
@@ -631,84 +597,110 @@ export default function PanelRoles() {
               )}
 
               {/* Lista de permisos por categoria */}
-              <div className={styles.permisosList}>
-                {Object.entries(catalogo).map(([categoria, permisos]) => {
-                  // Filtrar permisos según búsqueda
-                  const permisosFiltrados = busquedaPermiso.trim()
-                    ? permisos.filter(p => 
-                        p.nombre.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
-                        p.descripcion?.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
-                        p.codigo.toLowerCase().includes(busquedaPermiso.toLowerCase())
-                      )
-                    : permisos;
-                  
-                  // Si no hay permisos que coincidan, no mostrar la categoría
-                  if (permisosFiltrados.length === 0) return null;
-                  
-                  const expandida = categoriasExpandidas[categoria] || busquedaPermiso.trim() !== '';
-                  const permisosActivos = permisosFiltrados.filter(p => permisosRol.includes(p.codigo)).length;
-
-                  return (
-                  <div key={categoria} className={styles.categoria}>
-                    <div className={styles.categoriaHeader} onClick={() => toggleCategoria(categoria)}>
-                      <div className={styles.categoriaTitle}>
-                        <span className={`${styles.categoriaArrow} ${expandida ? styles.expanded : ''}`}>▶</span>
-                        {CATEGORIAS_NOMBRE[categoria] || categoria}
-                      </div>
-                      <span className={styles.categoriaCount}>
-                        {permisosActivos}/{permisosFiltrados.length}
-                        {busquedaPermiso.trim() && permisosFiltrados.length !== permisos.length && (
-                          <span style={{ marginLeft: '4px', fontSize: '10px', opacity: 0.7 }}>
-                            (de {permisos.length})
-                          </span>
-                        )}
-                      </span>
+              <div className={styles.permisosWrapper}>
+                {/* Header con buscador */}
+                <div className={styles.permisosHeader}>
+                  <div className={styles.headerRow}>
+                    <div className={styles.searchBox}>
+                      <input
+                        type="text"
+                        placeholder="🔍 Buscar permiso por nombre, código o descripción..."
+                        value={busquedaPermiso}
+                        onChange={(e) => setBusquedaPermiso(e.target.value)}
+                        className={styles.searchInput}
+                      />
                     </div>
-                    {expandida && (
-                    <table className={styles.permisosTable}>
-                      <tbody>
-                        {permisosFiltrados.map(permiso => {
-                          const tienePermiso = permisosRol.includes(permiso.codigo);
-                          const esSuperadmin = rolSeleccionado.codigo === 'SUPERADMIN';
-
-                          return (
-                            <tr key={permiso.codigo}>
-                              <td className={styles.colNombre}>
-                                {permiso.nombre}
-                                {permiso.es_critico && <span className={styles.iconCritico} title="Crítico">⚠</span>}
-                              </td>
-                              <td className={styles.colCodigo} title={permiso.codigo}>
-                                {permiso.codigo}
-                              </td>
-                              <td className={styles.colEstado}>
-                                <label style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: esSuperadmin ? 'not-allowed' : 'pointer'
-                                }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={tienePermiso}
-                                    onChange={() => togglePermisoRol(permiso.codigo)}
-                                    disabled={esSuperadmin}
-                                    style={{
-                                      width: '18px',
-                                      height: '18px',
-                                      cursor: esSuperadmin ? 'not-allowed' : 'pointer'
-                                    }}
-                                  />
-                                </label>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                    )}
                   </div>
-                  );
-                })}
+                </div>
+
+                {/* Scroll de permisos */}
+                <div className={styles.permisosScroll}>
+                  {Object.entries(catalogo).map(([categoria, permisos]) => {
+                    // Filtrar permisos según búsqueda
+                    const permisosFiltrados = busquedaPermiso.trim()
+                      ? permisos.filter(p => 
+                          p.nombre.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
+                          p.descripcion?.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
+                          p.codigo.toLowerCase().includes(busquedaPermiso.toLowerCase())
+                        )
+                      : permisos;
+                    
+                    // Si no hay permisos que coincidan, no mostrar la categoría
+                    if (permisosFiltrados.length === 0) return null;
+                    
+                    const permisosActivos = permisosFiltrados.filter(p => permisosRol.includes(p.codigo)).length;
+                    const esSuperadmin = rolSeleccionado.codigo === 'SUPERADMIN';
+
+                    return (
+                      <div key={categoria} className={styles.categoria}>
+                        <div className={styles.categoriaHeader}>
+                          <h3 className={styles.categoriaTitulo}>
+                            {CATEGORIAS_NOMBRE[categoria] || categoria}
+                          </h3>
+                          <div className={styles.categoriaStats}>
+                            {permisosActivos} de {permisosFiltrados.length} activos
+                          </div>
+                        </div>
+
+                        <div className={styles.permisosList}>
+                          {permisosFiltrados.map(permiso => {
+                            const tienePermiso = permisosRol.includes(permiso.codigo);
+
+                            return (
+                              <div 
+                                key={permiso.codigo} 
+                                className={styles.permisoItem}
+                              >
+                                {/* Lado izquierdo: Info */}
+                                <div className={styles.permisoInfo}>
+                                  <div className={styles.permisoNombre}>
+                                    {permiso.nombre}
+                                    {permiso.es_critico && (
+                                      <span className={`${styles.badge} ${styles.badgeCritico}`}>
+                                        Crítico
+                                      </span>
+                                    )}
+                                  </div>
+                                  <code className={styles.permisoCodigo}>{permiso.codigo}</code>
+                                  {permiso.descripcion && (
+                                    <div className={styles.permisoDescripcion}>
+                                      {permiso.descripcion}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Lado derecho: Checkbox */}
+                                <div className={styles.permisoControls}>
+                                  <label style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 'var(--spacing-sm)',
+                                    cursor: esSuperadmin ? 'not-allowed' : 'pointer',
+                                    fontSize: 'var(--font-sm)',
+                                    color: 'var(--text-secondary)'
+                                  }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={tienePermiso}
+                                      onChange={() => togglePermisoRol(permiso.codigo)}
+                                      disabled={esSuperadmin}
+                                      style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        cursor: esSuperadmin ? 'not-allowed' : 'pointer'
+                                      }}
+                                    />
+                                    {tienePermiso ? 'Activo' : 'Inactivo'}
+                                  </label>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </>
           ) : (
