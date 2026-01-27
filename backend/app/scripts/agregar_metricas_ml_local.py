@@ -563,6 +563,26 @@ def process_and_insert(db: Session, rows):
             count_per_pack = pack_counts.get(row.pack_id, 1)
             metricas = calcular_metricas_adicionales(row, count_per_pack, db)
 
+            # Mapear pricelist_id a nombre de lista
+            tipo_lista_nombre = None
+            if row.pricelist_id:
+                pricelist_names = {
+                    4: "Clásica",
+                    12: "Clásica",
+                    17: "3 Cuotas",
+                    18: "3 Cuotas",
+                    14: "6 Cuotas",
+                    19: "6 Cuotas",
+                    13: "9 Cuotas",
+                    20: "9 Cuotas",
+                    23: "12 Cuotas",
+                    21: "12 Cuotas"
+                }
+                tipo_lista_nombre = pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}")
+
+            # Obtener comisión porcentaje (ya viene calculada históricamente de la query)
+            comision_porcentaje = float(row.comision_base_porcentaje) if row.comision_base_porcentaje is not None else None
+
             # Preparar datos
             data = {
                 'id_operacion': row.id_operacion,
@@ -587,7 +607,10 @@ def process_and_insert(db: Session, rows):
                 'monto_limpio': Decimal(str(metricas['monto_limpio'])),
                 'ganancia': Decimal(str(metricas['ganancia'])),
                 'markup_porcentaje': Decimal(str(metricas['markup_porcentaje'])),
-                'mla_id': str(row.mlp_id) if hasattr(row, 'mlp_id') and row.mlp_id else None
+                'mla_id': str(row.mlp_id) if hasattr(row, 'mlp_id') and row.mlp_id else None,
+                'tipo_lista': tipo_lista_nombre,  # Agregar nombre de lista
+                'porcentaje_comision_ml': Decimal(str(comision_porcentaje)) if comision_porcentaje is not None else None,  # Agregar comisión %
+                'prli_id': row.pricelist_id  # Agregar prli_id para referencia
             }
 
             if existente:
