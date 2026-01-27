@@ -5003,6 +5003,10 @@ async def exportar_clasica(
     out_of_cards: Optional[bool] = None,
     colores: Optional[str] = None,
     pms: Optional[str] = None,
+    audit_usuarios: Optional[str] = None,
+    audit_tipos_accion: Optional[str] = None,
+    audit_fecha_desde: Optional[str] = None,
+    audit_fecha_hasta: Optional[str] = None,
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
