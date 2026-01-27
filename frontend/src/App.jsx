@@ -140,7 +140,7 @@ function App() {
                   </ProtectedRoute>
                 } />
                 <Route path="/items-sin-mla" element={
-                  <ProtectedRoute permiso="admin.gestionar_mla_banlist">
+                  <ProtectedRoute permiso="admin.ver_items_sin_mla">
                     <ItemsSinMLA />
                   </ProtectedRoute>
                 } />

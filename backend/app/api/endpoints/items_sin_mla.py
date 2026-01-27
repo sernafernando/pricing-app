@@ -118,6 +118,10 @@ async def get_items_sin_mla(
     Obtiene todos los productos que NO tienen MLA en las listas relevantes (Clásica, Web 3, 6, 9, 12),
     excluyendo los que están en la banlist.
     """
+    from app.services.permisos_service import verificar_permiso
+    
+    if not verificar_permiso(db, current_user, "admin.ver_items_sin_mla"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para ver items sin MLA")
 
     # IDs de las listas relevantes
     listas_relevantes = list(LISTAS_PRECIOS.keys())
@@ -226,6 +230,10 @@ async def get_items_baneados(
     """
     Obtiene todos los items en la banlist (que no deben aparecer en el reporte de sin MLA)
     """
+    from app.services.permisos_service import verificar_permiso
+    
+    if not verificar_permiso(db, current_user, "admin.gestionar_items_sin_mla_banlist"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de items sin MLA")
 
     baneados = db.query(
         ItemSinMLABanlist,
@@ -262,6 +270,10 @@ async def banear_item(
     """
     Agrega un item a la banlist para que no aparezca en el reporte de items sin MLA
     """
+    from app.services.permisos_service import verificar_permiso
+    
+    if not verificar_permiso(db, current_user, "admin.gestionar_items_sin_mla_banlist"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de items sin MLA")
 
     # Verificar que el item existe
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == request.item_id).first()
@@ -303,6 +315,10 @@ async def desbanear_item(
     """
     Quita un item de la banlist
     """
+    from app.services.permisos_service import verificar_permiso
+    
+    if not verificar_permiso(db, current_user, "admin.gestionar_items_sin_mla_banlist"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de items sin MLA")
 
     # Buscar la entrada en banlist
     ban_entry = db.query(ItemSinMLABanlist).filter(
@@ -407,6 +423,11 @@ async def get_comparacion_listas(
     Compara las listas/campañas del sistema con las campañas de MercadoLibre
     Devuelve solo los items donde HAY DIFERENCIAS (no coinciden)
     """
+    from app.services.permisos_service import verificar_permiso
+    
+    if not verificar_permiso(db, current_user, "admin.ver_comparacion_listas_ml"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para ver la comparación de listas")
+    
     # Subquery para obtener el snapshot más reciente de cada publicación (sin filtrar por fecha)
     latest_snapshots = db.query(
         MLPublicationSnapshot.mla_id,
