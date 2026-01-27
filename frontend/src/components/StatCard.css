@@ -128,11 +128,11 @@
 }
 
 .stat-color-orange {
-  color: #ff9800;
+  color: var(--warning);
 }
 
 .stat-color-purple {
-  color: #9c27b0;
+  color: var(--purple);
 }
 
 /* Sub-items container */
@@ -141,6 +141,32 @@
   flex-direction: column;
   gap: var(--spacing-xs);
   margin-top: var(--spacing-xs);
+  
+  /* Permitir scroll horizontal si los sub-items son muy anchos */
+  overflow-x: auto;
+  overflow-y: visible;
+  
+  /* Scrollbar delgado */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-secondary) transparent;
+}
+
+/* Scrollbar webkit para sub-items */
+.stat-card-subitems::-webkit-scrollbar {
+  height: 6px;
+}
+
+.stat-card-subitems::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.stat-card-subitems::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: 3px;
+}
+
+.stat-card-subitems::-webkit-scrollbar-thumb:hover {
+  background: var(--border-primary);
 }
 
 /* Sub-item individual */
@@ -151,6 +177,12 @@
   
   /* Espaciado interno */
   padding: var(--spacing-sm) var(--spacing-md);
+  
+  /* Ancho mínimo para evitar que se compriman */
+  min-width: 180px;
+  
+  /* Gap entre label y value */
+  gap: var(--spacing-md);
   
   /* Visual */
   background: var(--bg-secondary);
@@ -229,12 +261,28 @@
   border-color: rgba(255, 255, 255, 0.1);
 }
 
+/* Dark mode - Mejorar contraste en sub-items */
 :root[data-theme="dark"] .stat-subitem {
-  background: rgba(20, 20, 20, 0.6);
-  border-color: rgba(255, 255, 255, 0.02);
+  background: rgba(30, 30, 30, 0.8);
+  border-color: rgba(255, 255, 255, 0.05);
 }
 
 :root[data-theme="dark"] .stat-subitem-clickable:hover {
-  background: rgba(30, 30, 30, 0.8);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(40, 40, 40, 0.9);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Dark mode - Mejorar legibilidad del label */
+:root[data-theme="dark"] .stat-subitem-label {
+  color: var(--text-secondary);
+  opacity: 0.9;
+}
+
+/* Dark mode - Scrollbar para sub-items */
+:root[data-theme="dark"] .stat-card-subitems::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+:root[data-theme="dark"] .stat-card-subitems::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
