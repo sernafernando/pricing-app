@@ -75,6 +75,7 @@ class MLVentaMetrica(Base):
     # Información adicional
     prli_id = Column(Integer)  # ID de lista de precios del ERP
     mla_id = Column(String(50))  # MLA ID de la publicación
+    mlp_official_store_id = Column(Integer, index=True)  # ID de tienda oficial ML (57997=Gauss, 2645=TP-Link, etc.)
 
     # Auditoría
     created_at = Column(DateTime(timezone=True), server_default=func.now())

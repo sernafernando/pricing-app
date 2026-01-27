@@ -40,6 +40,9 @@ class OffsetGrupoConsumo(Base):
 
     # Cotización usada
     cotizacion_dolar = Column(Numeric(10, 4), nullable=True)
+    
+    # Tienda oficial (para calcular offsets por tienda)
+    tienda_oficial = Column(String(20), index=True, nullable=True)  # ID de tienda oficial ML
 
     # Auditoría
     created_at = Column(DateTime(timezone=True), server_default=func.now())
