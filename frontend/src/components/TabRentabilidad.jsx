@@ -17,7 +17,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
+export default function TabRentabilidad({ fechaDesde, fechaHasta, tiendaOficial }) {
   const [loading, setLoading] = useState(false);
   const [rentabilidad, setRentabilidad] = useState(null);
   const [filtrosDisponibles, setFiltrosDisponibles] = useState({
@@ -74,7 +74,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
       cargarFiltros();
       cargarRentabilidad();
     }
-  }, [fechaDesde, fechaHasta]);
+  }, [fechaDesde, fechaHasta, tiendaOficial]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
@@ -98,6 +98,9 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
       }
       if (subcategoriasSeleccionadas.length > 0) {
         params.subcategorias = subcategoriasSeleccionadas.join('|');
+      }
+      if (tiendaOficial) {
+        params.tienda_oficial = tiendaOficial;
       }
 
       const response = await api.get('/api/rentabilidad/filtros', { params });
@@ -127,6 +130,9 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
       if (productosSeleccionados.length > 0) {
         params.productos = productosSeleccionados.join('|');
       }
+      if (tiendaOficial) {
+        params.tienda_oficial = tiendaOficial;
+      }
 
       const response = await api.get('/api/rentabilidad', { params });
       setRentabilidad(response.data);
@@ -141,13 +147,16 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta }) {
     if (busquedaProducto.length < 2) return;
     setBuscandoProductos(true);
     try {
-      const response = await api.get('/api/rentabilidad/buscar-productos', {
-        params: {
-          q: busquedaProducto,
-          fecha_desde: fechaDesde,
-          fecha_hasta: fechaHasta
-        }
-      });
+      const params = {
+        q: busquedaProducto,
+        fecha_desde: fechaDesde,
+        fecha_hasta: fechaHasta
+      };
+      if (tiendaOficial) {
+        params.tienda_oficial = tiendaOficial;
+      }
+      
+      const response = await api.get('/api/rentabilidad/buscar-productos', { params });
       setProductosEncontrados(response.data);
     } catch (error) {
       console.error('Error buscando productos:', error);
