@@ -17,6 +17,34 @@ from app.api.deps import get_current_user
 router = APIRouter()
 
 
+def aplicar_filtro_tienda_oficial(query, tienda_oficial: Optional[str], db: Session):
+    """
+    Aplica filtro de tienda oficial por mlp_official_store_id.
+    
+    Tiendas disponibles:
+    - 57997: Gauss
+    - 2645: TP-Link
+    - 144: Forza/Verbatim
+    - 191942: Multi-marca (Epson, Logitech, MGN, Razer)
+    """
+    if tienda_oficial and tienda_oficial.isdigit():
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+        from sqlalchemy import cast, String
+        
+        store_id = int(tienda_oficial)
+        
+        # Subquery para obtener mlp_ids de tienda oficial
+        # ml_ventas_metricas.mla_id contiene el mlp_id (numérico) como string
+        mlas_tienda_oficial = db.query(
+            cast(MercadoLibreItemPublicado.mlp_id, String)
+        ).filter(
+            MercadoLibreItemPublicado.mlp_official_store_id == store_id
+        ).distinct()
+        
+        query = query.filter(MLVentaMetrica.mla_id.in_(mlas_tienda_oficial))
+    return query
+
+
 class DesgloseMarca(BaseModel):
     """Desglose por marca dentro de una card"""
     marca: str
@@ -74,6 +102,7 @@ async def obtener_rentabilidad(
     categorias: Optional[str] = Query(None, description="Categorías separadas por coma"),
     subcategorias: Optional[str] = Query(None, description="Subcategorías separadas por coma"),
     productos: Optional[str] = Query(None, description="Item IDs separados por coma"),
+    tienda_oficial: Optional[str] = Query(None, description="ID de tienda oficial"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -128,6 +157,7 @@ async def obtener_rentabilidad(
             query = query.filter(MLVentaMetrica.categoria.in_(lista_categorias))
         if lista_subcategorias:
             query = query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
+        query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
         return query
 
     # Query según nivel de agrupación
@@ -1326,6 +1356,7 @@ async def obtener_rentabilidad(
             "categorias": lista_categorias,
             "subcategorias": lista_subcategorias,
             "productos": lista_productos,
+            "tienda_oficial": tienda_oficial,
             "nivel_agrupacion": nivel
         }
     )
@@ -1345,6 +1376,7 @@ async def buscar_productos(
     q: str = Query(..., min_length=2, description="Término de búsqueda"),
     fecha_desde: date = Query(...),
     fecha_hasta: date = Query(...),
+    tienda_oficial: Optional[str] = Query(None, description="ID de tienda oficial"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -1369,7 +1401,10 @@ async def buscar_productos(
             MLVentaMetrica.codigo.ilike(f"%{q}%"),
             MLVentaMetrica.descripcion.ilike(f"%{q}%")
         )
-    ).distinct().limit(50)
+    )
+    
+    query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
+    query = query.distinct().limit(50)
 
     resultados = query.all()
 
@@ -1392,6 +1427,7 @@ async def obtener_filtros_disponibles(
     marcas: Optional[str] = Query(None),
     categorias: Optional[str] = Query(None),
     subcategorias: Optional[str] = Query(None),
+    tienda_oficial: Optional[str] = Query(None, description="ID de tienda oficial"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -1418,6 +1454,7 @@ async def obtener_filtros_disponibles(
         marcas_query = marcas_query.filter(MLVentaMetrica.categoria.in_(lista_categorias))
     if lista_subcategorias:
         marcas_query = marcas_query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
+    marcas_query = aplicar_filtro_tienda_oficial(marcas_query, tienda_oficial, db)
     marcas_disponibles = marcas_query.distinct().order_by(MLVentaMetrica.marca).all()
 
     # Categorías disponibles (filtradas por marcas y subcategorías seleccionadas)
@@ -1430,6 +1467,7 @@ async def obtener_filtros_disponibles(
         cat_query = cat_query.filter(MLVentaMetrica.marca.in_(lista_marcas))
     if lista_subcategorias:
         cat_query = cat_query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
+    cat_query = aplicar_filtro_tienda_oficial(cat_query, tienda_oficial, db)
     categorias_disponibles = cat_query.distinct().order_by(MLVentaMetrica.categoria).all()
 
     # Subcategorías disponibles (filtradas por marcas y categorías seleccionadas)
@@ -1442,6 +1480,7 @@ async def obtener_filtros_disponibles(
         subcat_query = subcat_query.filter(MLVentaMetrica.marca.in_(lista_marcas))
     if lista_categorias:
         subcat_query = subcat_query.filter(MLVentaMetrica.categoria.in_(lista_categorias))
+    subcat_query = aplicar_filtro_tienda_oficial(subcat_query, tienda_oficial, db)
     subcategorias_disponibles = subcat_query.distinct().order_by(MLVentaMetrica.subcategoria).all()
 
     return {
