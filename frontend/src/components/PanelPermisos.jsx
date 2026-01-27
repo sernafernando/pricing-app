@@ -25,7 +25,6 @@ export default function PanelPermisos() {
   const [mensaje, setMensaje] = useState(null);
   const [filtroUsuario, setFiltroUsuario] = useState('');
   const [busquedaPermiso, setBusquedaPermiso] = useState('');
-  const [categoriasExpandidas, setCategoriasExpandidas] = useState({});
   const [usuarioActual, setUsuarioActual] = useState(null);
 
   // Estados para crear/editar usuario
@@ -286,27 +285,6 @@ export default function PanelPermisos() {
     u.email?.toLowerCase().includes(filtroUsuario.toLowerCase()) ||
     u.rol.toLowerCase().includes(filtroUsuario.toLowerCase())
   );
-
-  const toggleCategoria = (categoria) => {
-    setCategoriasExpandidas(prev => ({
-      ...prev,
-      [categoria]: !prev[categoria]
-    }));
-  };
-
-  const expandirTodas = () => {
-    if (permisosUsuario) {
-      const todas = {};
-      Object.keys(permisosUsuario.permisos_detallados).forEach(cat => {
-        todas[cat] = true;
-      });
-      setCategoriasExpandidas(todas);
-    }
-  };
-
-  const colapsarTodas = () => {
-    setCategoriasExpandidas({});
-  };
 
   if (loading) {
     return (
@@ -796,152 +774,153 @@ export default function PanelPermisos() {
                   </div>
                 )}
 
-                {/* Controles de permisos */}
-                {permisosUsuario && (
-                  <div className={styles.permisosControls}>
-                    <div className={styles.controlsLeft}>
-                      <span className={styles.legendItem}>
-                        <span className={styles.legendColor} style={{ background: 'var(--success)' }}></span>
-                        Activo
-                      </span>
-                      <span className={styles.legendItem}>
-                        <span className={styles.legendColor} style={{ background: 'var(--error)' }}></span>
-                        Sin permiso
-                      </span>
-                      <span className={styles.legendItem}>
-                        <span className={styles.legendColor} style={{ background: 'var(--brand-primary)' }}></span>
-                        Override +
-                      </span>
-                      <span className={styles.legendItem}>
-                        <span className={styles.legendColor} style={{ background: 'var(--warning)' }}></span>
-                        Override -
-                      </span>
-                    </div>
-                    <div className={styles.controlsRight}>
-                      <input
-                        type="text"
-                        placeholder="🔍 Buscar permiso..."
-                        value={busquedaPermiso}
-                        onChange={(e) => setBusquedaPermiso(e.target.value)}
-                        className={styles.searchInput}
-                      />
-                      <button onClick={expandirTodas} className={styles.btnSmall}>
-                        Expandir
-                      </button>
-                      <button onClick={colapsarTodas} className={styles.btnSmall}>
-                        Colapsar
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
               {/* Lista de permisos */}
               {!permisosUsuario ? (
                 <div className={styles.emptyState}>
-                  Cargando permisos...
+                  <div className={styles.emptyIcon}>🔐</div>
+                  <div className={styles.emptyMessage}>Cargando permisos...</div>
                 </div>
               ) : (
-                <div className={styles.permisosList}>
-                  {Object.entries(permisosUsuario.permisos_detallados).map(([categoria, permisos]) => {
-                    // Filtrar permisos según búsqueda
-                    const permisosFiltrados = busquedaPermiso.trim()
-                      ? permisos.filter(p => 
-                          p.nombre.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
-                          p.descripcion?.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
-                          p.codigo.toLowerCase().includes(busquedaPermiso.toLowerCase())
-                        )
-                      : permisos;
-                    
-                    // Si no hay permisos que coincidan, no mostrar la categoría
-                    if (permisosFiltrados.length === 0) return null;
-                    
-                    const expandida = categoriasExpandidas[categoria] || busquedaPermiso.trim() !== '';
-                    const permisosActivos = permisosFiltrados.filter(p => p.efectivo).length;
-
-                    return (
-                    <div key={categoria} className={styles.categoria}>
-                      <div className={styles.categoriaHeader} onClick={() => toggleCategoria(categoria)}>
-                        <div className={styles.categoriaTitle}>
-                          <span className={`${styles.categoriaArrow} ${expandida ? styles.expanded : ''}`}>▶</span>
-                          {CATEGORIAS_NOMBRE[categoria] || categoria}
-                        </div>
-                        <span className={styles.categoriaCount}>
-                          {permisosActivos}/{permisosFiltrados.length}
-                          {busquedaPermiso.trim() && permisosFiltrados.length !== permisos.length && (
-                            <span style={{ marginLeft: '4px', fontSize: '10px', opacity: 0.7 }}>
-                              (de {permisos.length})
-                            </span>
-                          )}
+                <div className={styles.permisosWrapper}>
+                  {/* Header con buscador */}
+                  <div className={styles.permisosHeader}>
+                    <div className={styles.headerRow}>
+                      <div className={styles.searchBox}>
+                        <input
+                          type="text"
+                          placeholder="🔍 Buscar permiso por nombre, código o descripción..."
+                          value={busquedaPermiso}
+                          onChange={(e) => setBusquedaPermiso(e.target.value)}
+                          className={styles.searchInput}
+                        />
+                      </div>
+                      <div className={styles.legend}>
+                        <span className={styles.legendItem}>
+                          <span className={styles.legendDot} style={{ background: 'var(--success)' }}></span>
+                          Activo
+                        </span>
+                        <span className={styles.legendItem}>
+                          <span className={styles.legendDot} style={{ background: 'var(--error)' }}></span>
+                          Inactivo
                         </span>
                       </div>
-                      {expandida && (
-                      <table className={styles.permisosTable}>
-                        <tbody>
-                          {permisosFiltrados.map(permiso => {
-                            const tieneOverride = permiso.override !== null;
-                            const esOverridePositivo = permiso.override === true;
-                            const esSuperadmin = permisosUsuario.rol === 'SUPERADMIN';
-
-                            return (
-                              <tr key={permiso.codigo} style={{ opacity: guardando ? 0.6 : 1 }}>
-                                <td className={styles.colNombre}>
-                                  {permiso.nombre}
-                                  {permiso.es_critico && <span className={styles.iconCritico} title="Crítico">⚠</span>}
-                                  {tieneOverride && <span className={`${styles.iconOverride} ${esOverridePositivo ? styles.positivo : styles.negativo}`} title={esOverridePositivo ? 'Override +' : 'Override -'}>{esOverridePositivo ? '↑' : '↓'}</span>}
-                                </td>
-                                <td className={styles.colCodigo} title={permiso.codigo}>
-                                  {permiso.codigo}
-                                </td>
-                                <td className={styles.colRol}>
-                                  {permiso.tiene_por_rol ? '✓' : '—'}
-                                </td>
-                                <td className={styles.colAccion}>
-                                  {!esSuperadmin && (
-                                    tieneOverride ? (
-                                      <button
-                                        onClick={() => resetearOverride(permiso.codigo)}
-                                        disabled={guardando}
-                                        title="Resetear al permiso del rol"
-                                        className={`${styles.actionBtn} ${styles.reset}`}
-                                      >
-                                        ↺
-                                      </button>
-                                    ) : permiso.tiene_por_rol ? (
-                                      <button
-                                        onClick={() => forzarPermiso(permiso.codigo, false)}
-                                        disabled={guardando}
-                                        title="Quitar permiso"
-                                        className={`${styles.actionBtn} ${styles.remove}`}
-                                      >
-                                        −
-                                      </button>
-                                    ) : (
-                                      <button
-                                        onClick={() => forzarPermiso(permiso.codigo, true)}
-                                        disabled={guardando}
-                                        title="Agregar permiso"
-                                        className={`${styles.actionBtn} ${styles.add}`}
-                                      >
-                                        +
-                                      </button>
-                                    )
-                                  )}
-                                </td>
-                                <td className={styles.colEstado}>
-                                  <div className={`${styles.estadoBox} ${permiso.efectivo ? styles.activo : styles.inactivo}`}>
-                                    {permiso.efectivo ? '✓' : '✗'}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                      )}
                     </div>
-                  );
-                  })}
+                  </div>
+
+                  {/* Scroll de permisos */}
+                  <div className={styles.permisosScroll}>
+                    {Object.entries(permisosUsuario.permisos_detallados).map(([categoria, permisos]) => {
+                      // Filtrar permisos según búsqueda
+                      const permisosFiltrados = busquedaPermiso.trim()
+                        ? permisos.filter(p => 
+                            p.nombre.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
+                            p.descripcion?.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
+                            p.codigo.toLowerCase().includes(busquedaPermiso.toLowerCase())
+                          )
+                        : permisos;
+                      
+                      // Si no hay permisos que coincidan, no mostrar la categoría
+                      if (permisosFiltrados.length === 0) return null;
+                      
+                      const permisosActivos = permisosFiltrados.filter(p => p.efectivo).length;
+                      const esSuperadmin = permisosUsuario.rol === 'SUPERADMIN';
+
+                      return (
+                        <div key={categoria} className={styles.categoria}>
+                          <div className={styles.categoriaHeader}>
+                            <h3 className={styles.categoriaTitulo}>
+                              {CATEGORIAS_NOMBRE[categoria] || categoria}
+                            </h3>
+                            <div className={styles.categoriaStats}>
+                              {permisosActivos} de {permisosFiltrados.length} activos
+                            </div>
+                          </div>
+
+                          <div className={styles.permisosList}>
+                            {permisosFiltrados.map(permiso => {
+                              const tieneOverride = permiso.override !== null;
+                              const esOverridePositivo = permiso.override === true;
+
+                              return (
+                                <div 
+                                  key={permiso.codigo} 
+                                  className={styles.permisoItem}
+                                  style={{ opacity: guardando ? 0.6 : 1 }}
+                                >
+                                  {/* Lado izquierdo: Info */}
+                                  <div className={styles.permisoInfo}>
+                                    <div className={styles.permisoNombre}>
+                                      {permiso.nombre}
+                                      {permiso.es_critico && (
+                                        <span className={`${styles.badge} ${styles.badgeCritico}`}>
+                                          Crítico
+                                        </span>
+                                      )}
+                                      {tieneOverride && (
+                                        <span className={`${styles.badge} ${esOverridePositivo ? styles.badgeOverride : styles.badgeOverrideNegativo}`}>
+                                          Override {esOverridePositivo ? '↑' : '↓'}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <code className={styles.permisoCodigo}>{permiso.codigo}</code>
+                                    {permiso.descripcion && (
+                                      <div className={styles.permisoDescripcion}>
+                                        {permiso.descripcion}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Lado derecho: Controles */}
+                                  <div className={styles.permisoControls}>
+                                    <div className={styles.estadoActual}>
+                                      <div className={`${styles.estadoIcon} ${permiso.efectivo ? styles.activo : styles.inactivo}`}>
+                                        {permiso.efectivo ? '✓' : '✗'}
+                                      </div>
+                                      <span>{permiso.efectivo ? 'Activo' : 'Inactivo'}</span>
+                                    </div>
+                                    
+                                    <div className={styles.infoRol}>
+                                      {permiso.tiene_por_rol ? 'Del rol' : 'No en rol'}
+                                    </div>
+
+                                    {!esSuperadmin && (
+                                      <div className={styles.accionesGroup}>
+                                        {tieneOverride ? (
+                                          <button
+                                            onClick={() => resetearOverride(permiso.codigo)}
+                                            disabled={guardando}
+                                            className={`${styles.btnAccion} ${styles.btnResetear}`}
+                                          >
+                                            ↺ Resetear
+                                          </button>
+                                        ) : permiso.tiene_por_rol ? (
+                                          <button
+                                            onClick={() => forzarPermiso(permiso.codigo, false)}
+                                            disabled={guardando}
+                                            className={`${styles.btnAccion} ${styles.btnQuitar}`}
+                                          >
+                                            − Quitar
+                                          </button>
+                                        ) : (
+                                          <button
+                                            onClick={() => forzarPermiso(permiso.codigo, true)}
+                                            disabled={guardando}
+                                            className={`${styles.btnAccion} ${styles.btnAgregar}`}
+                                          >
+                                            + Agregar
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </>
