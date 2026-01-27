@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import styles from '../pages/Admin.module.css';
+import adminStyles from '../pages/Admin.module.css';
+import styles from './PanelPermisos.module.css';
 
 const CATEGORIAS_NOMBRE = {
   productos: 'Productos',
@@ -266,7 +267,7 @@ export default function PanelRoles() {
 
   if (loading) {
     return (
-      <div className={styles.section}>
+      <div className={adminStyles.section}>
         <div style={{ textAlign: 'center', padding: '40px' }}>
           Cargando roles y permisos...
         </div>
@@ -291,7 +292,7 @@ export default function PanelRoles() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '20px' }}>
         {/* Panel izquierdo: Lista de roles */}
-        <div className={styles.section}>
+        <div className={adminStyles.section}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3 style={{ margin: 0 }}>Roles</h3>
             <button
@@ -474,7 +475,7 @@ export default function PanelRoles() {
         </div>
 
         {/* Panel derecho: Permisos del rol seleccionado */}
-        <div className={styles.section} style={{ display: 'flex', flexDirection: 'column', maxHeight: '75vh' }}>
+        <div className={`${adminStyles.section} ${styles.permisosSection}`}>
           {rolSeleccionado ? (
             <>
               <div style={{
@@ -495,53 +496,20 @@ export default function PanelRoles() {
                       </p>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <div className={styles.controlsRight}>
                     <input
                       type="text"
                       placeholder="🔍 Buscar permiso..."
                       value={busquedaPermiso}
                       onChange={(e) => setBusquedaPermiso(e.target.value)}
-                      style={{
-                        padding: '6px 10px',
-                        fontSize: '12px',
-                        background: 'var(--bg-primary)',
-                        color: 'var(--text-primary)',
-                        border: '1px solid var(--border-primary)',
-                        borderRadius: '4px',
-                        width: '200px',
-                        marginRight: '8px'
-                      }}
+                      className={styles.searchInput}
                     />
-                    <div style={{ display: 'flex', gap: '4px', marginRight: '8px' }}>
-                      <button
-                        onClick={expandirTodas}
-                        style={{
-                          padding: '4px 8px',
-                          fontSize: '11px',
-                          background: 'var(--bg-tertiary)',
-                          color: 'var(--text-secondary)',
-                          border: '1px solid var(--border-primary)',
-                          borderRadius: '4px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Expandir
-                      </button>
-                      <button
-                        onClick={colapsarTodas}
-                        style={{
-                          padding: '4px 8px',
-                          fontSize: '11px',
-                          background: 'var(--bg-tertiary)',
-                          color: 'var(--text-secondary)',
-                          border: '1px solid var(--border-primary)',
-                          borderRadius: '4px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Colapsar
-                      </button>
-                    </div>
+                    <button onClick={expandirTodas} className={styles.btnSmall}>
+                      Expandir
+                    </button>
+                    <button onClick={colapsarTodas} className={styles.btnSmall}>
+                      Colapsar
+                    </button>
                     {rolSeleccionado.codigo !== 'SUPERADMIN' && (
                       <>
                         <button
@@ -663,7 +631,7 @@ export default function PanelRoles() {
               )}
 
               {/* Lista de permisos por categoria */}
-              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div className={styles.permisosList}>
                 {Object.entries(catalogo).map(([categoria, permisos]) => {
                   // Filtrar permisos según búsqueda
                   const permisosFiltrados = busquedaPermiso.trim()
@@ -681,107 +649,62 @@ export default function PanelRoles() {
                   const permisosActivos = permisosFiltrados.filter(p => permisosRol.includes(p.codigo)).length;
 
                   return (
-                  <div key={categoria} style={{
-                    border: '1px solid var(--border-primary)',
-                    borderRadius: '8px',
-                    overflow: 'hidden'
-                  }}>
-                    <div
-                      onClick={() => toggleCategoria(categoria)}
-                      style={{
-                        padding: '10px 16px',
-                        background: 'var(--bg-secondary)',
-                        fontWeight: '600',
-                        borderBottom: expandida ? '1px solid var(--border-primary)' : 'none',
-                        color: 'var(--text-primary)',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        userSelect: 'none'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{
-                          display: 'inline-block',
-                          transition: 'transform 0.2s',
-                          transform: expandida ? 'rotate(90deg)' : 'rotate(0deg)'
-                        }}>
-                          ▶
-                        </span>
+                  <div key={categoria} className={styles.categoria}>
+                    <div className={styles.categoriaHeader} onClick={() => toggleCategoria(categoria)}>
+                      <div className={styles.categoriaTitle}>
+                        <span className={`${styles.categoriaArrow} ${expandida ? styles.expanded : ''}`}>▶</span>
                         {CATEGORIAS_NOMBRE[categoria] || categoria}
                       </div>
-                      <span style={{
-                        fontSize: '12px',
-                        color: 'var(--text-secondary)',
-                        fontWeight: 'normal'
-                      }}>
+                      <span className={styles.categoriaCount}>
                         {permisosActivos}/{permisosFiltrados.length}
                         {busquedaPermiso.trim() && permisosFiltrados.length !== permisos.length && (
-                          <span style={{ marginLeft: '4px', fontSize: '11px', opacity: 0.7 }}>
+                          <span style={{ marginLeft: '4px', fontSize: '10px', opacity: 0.7 }}>
                             (de {permisos.length})
                           </span>
                         )}
                       </span>
                     </div>
                     {expandida && (
-                    <div style={{ padding: '8px 16px', background: 'var(--bg-primary)', maxHeight: '300px', overflowY: 'auto' }}>
-                      {permisosFiltrados.map(permiso => {
-                        const tienePermiso = permisosRol.includes(permiso.codigo);
-                        const esSuperadmin = rolSeleccionado.codigo === 'SUPERADMIN';
+                    <table className={styles.permisosTable}>
+                      <tbody>
+                        {permisosFiltrados.map(permiso => {
+                          const tienePermiso = permisosRol.includes(permiso.codigo);
+                          const esSuperadmin = rolSeleccionado.codigo === 'SUPERADMIN';
 
-                        return (
-                          <div
-                            key={permiso.codigo}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              padding: '8px 0',
-                              borderBottom: '1px solid var(--bg-tertiary)'
-                            }}
-                          >
-                            <div style={{ flex: 1 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>{permiso.nombre}</span>
-                                {permiso.es_critico && (
-                                  <span style={{
-                                    fontSize: '10px',
-                                    padding: '2px 6px',
-                                    background: 'var(--error-bg)',
-                                    color: 'var(--error-text)',
-                                    borderRadius: '4px'
-                                  }}>
-                                    CRITICO
-                                  </span>
-                                )}
-                              </div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          return (
+                            <tr key={permiso.codigo}>
+                              <td className={styles.colNombre}>
+                                {permiso.nombre}
+                                {permiso.es_critico && <span className={styles.iconCritico} title="Crítico">⚠</span>}
+                              </td>
+                              <td className={styles.colCodigo} title={permiso.codigo}>
                                 {permiso.codigo}
-                                {permiso.descripcion && ` - ${permiso.descripcion}`}
-                              </div>
-                            </div>
-                            <label style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              cursor: esSuperadmin ? 'not-allowed' : 'pointer'
-                            }}>
-                              <input
-                                type="checkbox"
-                                checked={tienePermiso}
-                                onChange={() => togglePermisoRol(permiso.codigo)}
-                                disabled={esSuperadmin}
-                                style={{
-                                  width: '18px',
-                                  height: '18px',
+                              </td>
+                              <td className={styles.colEstado}>
+                                <label style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
                                   cursor: esSuperadmin ? 'not-allowed' : 'pointer'
-                                }}
-                              />
-                            </label>
-                          </div>
-                        );
-                      })}
-                    </div>
+                                }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={tienePermiso}
+                                    onChange={() => togglePermisoRol(permiso.codigo)}
+                                    disabled={esSuperadmin}
+                                    style={{
+                                      width: '18px',
+                                      height: '18px',
+                                      cursor: esSuperadmin ? 'not-allowed' : 'pointer'
+                                    }}
+                                  />
+                                </label>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                     )}
                   </div>
                   );
