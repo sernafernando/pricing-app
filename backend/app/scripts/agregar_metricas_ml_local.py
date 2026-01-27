@@ -307,19 +307,10 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
     if row.envio_producto:
         costo_envio_producto = float(row.envio_producto)
 
-    # Obtener comisión usando el sistema versionado (igual que pricing)
-    from app.services.pricing_calculator import obtener_comision_versionada, obtener_grupo_subcategoria
-
-    comision_porcentaje = None
-    if db_session and row.subcat_id and row.pricelist_id:
-        grupo_id = obtener_grupo_subcategoria(db_session, row.subcat_id)
-        if grupo_id:
-            fecha_venta = row.fecha_venta.date() if hasattr(row.fecha_venta, 'date') else row.fecha_venta
-            comision_porcentaje = obtener_comision_versionada(db_session, grupo_id, row.pricelist_id, fecha_venta)
-
-    # Fallback al valor de la query si no se pudo obtener del sistema versionado
-    if comision_porcentaje is None:
-        comision_porcentaje = float(row.comision_base_porcentaje or 12.0)
+    # USAR LA COMISIÓN QUE VIENE DE LA QUERY (ya calculada históricamente)
+    # La query SQL (líneas 179-208) ya busca la comisión vigente en la fecha de venta
+    # NO recalcular con datos actuales porque daría comisiones incorrectas para ventas viejas
+    comision_porcentaje = float(row.comision_base_porcentaje or 12.0)
 
     # Llamar al helper centralizado - ahora calcula la comisión dinámicamente
     metricas = calcular_metricas_ml(
@@ -443,17 +434,9 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                     except:
                         pass
 
-                    # Obtener porcentaje de comisión usando el sistema versionado (base + adicional cuotas)
-                    from app.services.pricing_calculator import obtener_comision_versionada, obtener_grupo_subcategoria
-                    comision_porcentaje = None
-                    if row.subcat_id and row.pricelist_id:
-                        grupo_id = obtener_grupo_subcategoria(db, row.subcat_id)
-                        if grupo_id:
-                            fecha_venta = row.fecha_venta.date() if hasattr(row.fecha_venta, 'date') else row.fecha_venta
-                            comision_porcentaje = obtener_comision_versionada(db, grupo_id, row.pricelist_id, fecha_venta)
-                    # Fallback si no se pudo obtener
-                    if comision_porcentaje is None and row.comision_base_porcentaje is not None:
-                        comision_porcentaje = float(row.comision_base_porcentaje)
+                    # USAR LA COMISIÓN QUE VIENE DE LA QUERY (ya calculada históricamente)
+                    # La query SQL ya busca la comisión vigente en la fecha de venta
+                    comision_porcentaje = float(row.comision_base_porcentaje) if row.comision_base_porcentaje is not None else None
 
                     # Obtener nombre de pricelist para tipo_publicacion
                     tipo_publicacion = None
