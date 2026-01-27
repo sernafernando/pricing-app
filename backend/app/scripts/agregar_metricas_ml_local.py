@@ -200,7 +200,6 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                     JOIN comisiones_versiones cv ON cv.id = cb.version_id
                     WHERE sg.subcat_id = COALESCE(tsc.subcat_id, pe.subcategoria_id)
                       AND tmloh.mlo_cd::date BETWEEN cv.fecha_desde AND COALESCE(cv.fecha_hasta, '9999-12-31'::date)
-                      AND cv.activo = TRUE
                     LIMIT 1
                 ),
                 -- Fallback final: 12% (comisión mínima de ML)
