@@ -214,7 +214,6 @@
   overflow-x: auto;
   overflow-y: auto;
   max-height: calc(100vh - 320px); /* Restar altura del header, filtros y controles */
-  min-height: 600px; /* Altura mínima para que se vea bien */
   
   /* Scroll suave */
   scroll-behavior: smooth;
@@ -222,6 +221,9 @@
   /* Scrollbar personalizado */
   scrollbar-width: thin;
   scrollbar-color: var(--border-secondary) transparent;
+  
+  /* Posicionar scrollbar horizontal pegado a la tabla */
+  position: relative;
 }
 
 /* Scrollbar webkit (Chrome, Safari, Edge) */
