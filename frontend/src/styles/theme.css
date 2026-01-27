@@ -288,16 +288,18 @@ input[type="date"]:hover::-webkit-calendar-picker-indicator {
   opacity: 0.7;
 }
 
-/* Dark mode - Forzar ícono blanco con filter porque color-scheme: dark en Chrome usa gris */
+/* Dark mode - Fondo claro en el ícono para que se vea sobre fondo oscuro */
 [data-theme="dark"] input[type="date"] {
   color-scheme: dark;
 }
 
 [data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(1) brightness(1.2);
-  opacity: 0.9;
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 4px;
+  opacity: 1;
 }
 
 [data-theme="dark"] input[type="date"]:hover::-webkit-calendar-picker-indicator {
-  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.3);
 }

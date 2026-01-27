@@ -1177,10 +1177,12 @@
 }
 
 :global([data-theme="dark"]) .dateInput::-webkit-calendar-picker-indicator {
-  filter: invert(1) !important;
-  opacity: 0.8 !important;
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  border-radius: 4px !important;
+  padding: 4px !important;
+  opacity: 1 !important;
 }
 
 :global([data-theme="dark"]) .dateInput:hover::-webkit-calendar-picker-indicator {
-  opacity: 1 !important;
+  background-color: rgba(255, 255, 255, 0.3) !important;
 }
