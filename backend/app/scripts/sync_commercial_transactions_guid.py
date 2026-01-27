@@ -94,7 +94,12 @@ def parse_uuid(value: Any) -> UUID | None:
         return None
 
 
-async def sync_commercial_transactions_guid(db: Session, days: int = 30) -> dict[str, int | str]:
+async def sync_commercial_transactions_guid(
+    db: Session, 
+    days: int = 30,
+    fecha_desde: datetime = None,
+    fecha_hasta: datetime = None
+) -> dict[str, int | str]:
     """
     Sincroniza commercial transactions usando enfoque GUID.
     
@@ -111,17 +116,20 @@ async def sync_commercial_transactions_guid(db: Session, days: int = 30) -> dict
     Returns:
         dict: {"nuevos": int, "actualizados": int, "error": str (optional)}
     """
-    logger.info(f"🏢 Commercial Transactions (últimos {days} días - GUID)...")
-    
     try:
         # 1. Calcular rango de fechas
-        fecha_hasta = datetime.now()
-        fecha_desde = fecha_hasta - timedelta(days=days)
+        if fecha_desde and fecha_hasta:
+            # Usar rango específico
+            pass
+        else:
+            # Usar days
+            fecha_hasta = datetime.now()
+            fecha_desde = fecha_hasta - timedelta(days=days)
         
         fecha_desde_str = fecha_desde.strftime("%Y-%m-%d %H:%M:%S")
         fecha_hasta_str = fecha_hasta.strftime("%Y-%m-%d %H:%M:%S")
         
-        logger.info(f"Consultando desde {fecha_desde_str} hasta {fecha_hasta_str}")
+        logger.info(f"🏢 Commercial Transactions: {fecha_desde_str} hasta {fecha_hasta_str}")
         
         # 2. Consultar ERP
         async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min timeout
@@ -292,20 +300,109 @@ async def sync_commercial_transactions_guid(db: Session, days: int = 30) -> dict
 if __name__ == "__main__":
     import argparse
     import asyncio
+    from datetime import datetime
     
     parser = argparse.ArgumentParser(description='Sync GUID de commercial transactions')
     parser.add_argument(
         '--days',
         type=int,
-        default=30,
+        default=None,
         help='Días hacia atrás para traer (default 30)'
+    )
+    parser.add_argument(
+        '--from-date',
+        type=str,
+        default=None,
+        help='Fecha desde (YYYY-MM-DD)'
+    )
+    parser.add_argument(
+        '--to-date',
+        type=str,
+        default=None,
+        help='Fecha hasta (YYYY-MM-DD)'
+    )
+    parser.add_argument(
+        '--chunk-days',
+        type=int,
+        default=None,
+        help='Dividir en chunks de N días para no saturar memoria'
     )
     
     args = parser.parse_args()
     
-    db = SessionLocal()
-    try:
-        result = asyncio.run(sync_commercial_transactions_guid(db, args.days))
-        logger.info(f"Resultado final: {result}")
-    finally:
-        db.close()
+    # Validar parámetros
+    if args.from_date and args.to_date:
+        # Modo rango específico
+        fecha_desde = datetime.strptime(args.from_date, '%Y-%m-%d')
+        fecha_hasta = datetime.strptime(args.to_date, '%Y-%m-%d')
+        days = (fecha_hasta - fecha_desde).days
+        
+        if args.chunk_days and days > args.chunk_days:
+            # Dividir en chunks
+            logger.info(f"Dividiendo {days} días en chunks de {args.chunk_days} días")
+            
+            db = SessionLocal()
+            try:
+                total_nuevos = 0
+                total_actualizados = 0
+                total_errores = 0
+                
+                current_date = fecha_desde
+                chunk_num = 1
+                while current_date < fecha_hasta:
+                    chunk_end = min(current_date + timedelta(days=args.chunk_days), fecha_hasta)
+                    
+                    logger.info(f"\n{'='*60}")
+                    logger.info(f"CHUNK {chunk_num}: {current_date.date()} a {chunk_end.date()}")
+                    logger.info(f"{'='*60}")
+                    
+                    chunk_days_count = (chunk_end - current_date).days
+                    result = asyncio.run(sync_commercial_transactions_guid(
+                        db, 
+                        chunk_days_count,
+                        fecha_desde=current_date,
+                        fecha_hasta=chunk_end
+                    ))
+                    
+                    total_nuevos += result.get('nuevos', 0)
+                    total_actualizados += result.get('actualizados', 0)
+                    total_errores += result.get('errores', 0)
+                    
+                    current_date = chunk_end
+                    chunk_num += 1
+                
+                logger.info(f"\n{'='*60}")
+                logger.info(f"TOTAL: {total_nuevos} nuevos, {total_actualizados} actualizados, {total_errores} errores")
+                logger.info(f"{'='*60}")
+            finally:
+                db.close()
+        else:
+            # Sin chunks
+            db = SessionLocal()
+            try:
+                result = asyncio.run(sync_commercial_transactions_guid(
+                    db, 
+                    days,
+                    fecha_desde=fecha_desde,
+                    fecha_hasta=fecha_hasta
+                ))
+                logger.info(f"Resultado final: {result}")
+            finally:
+                db.close()
+    elif args.days:
+        # Modo --days (legacy)
+        db = SessionLocal()
+        try:
+            result = asyncio.run(sync_commercial_transactions_guid(db, args.days))
+            logger.info(f"Resultado final: {result}")
+        finally:
+            db.close()
+    else:
+        # Default: 30 días
+        logger.info("Usando default: últimos 30 días")
+        db = SessionLocal()
+        try:
+            result = asyncio.run(sync_commercial_transactions_guid(db, 30))
+            logger.info(f"Resultado final: {result}")
+        finally:
+            db.close()
