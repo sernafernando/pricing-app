@@ -15,10 +15,12 @@ export default defineConfig({
     }
   },
   build: {
-    minify: 'esbuild',
-    // Remove console.* statements in production
-    esbuild: {
-      drop: ['console', 'debugger'],
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      }
     }
   }
 })
