@@ -955,7 +955,7 @@ export default function TabPedidosExport() {
                   </thead>
                   <tbody>
                     {pedidoSeleccionado.items && pedidoSeleccionado.items.map((item, idx) => (
-                      <tr key={idx}>
+                      <tr key={`${pedidoSeleccionado.soh_id}-${item.item_id}-${idx}`}>
                         <td>{item.item_id}</td>
                         <td>{item.item_code || '—'}</td>
                         <td>{item.item_desc || 'Sin descripción'}</td>
