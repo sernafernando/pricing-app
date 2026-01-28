@@ -35,7 +35,7 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
     setGuardando(true);
     try {
       const response = await axios.patch(
-        `${API_URL}/api/clientes/${cliente.cust_id}?comp_id=${cliente.comp_id}`,
+        `${API_URL}/clientes/${cliente.cust_id}?comp_id=${cliente.comp_id}`,
         datosEdit
       );
       

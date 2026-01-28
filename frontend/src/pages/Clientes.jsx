@@ -88,10 +88,10 @@ export default function Clientes() {
   const cargarFiltros = async () => {
     try {
       const [provRes, fiscalRes, sucRes, vendRes] = await Promise.all([
-        axios.get(`${API_URL}/api/clientes/filtros/provincias`),
-        axios.get(`${API_URL}/api/clientes/filtros/condiciones-fiscales`),
-        axios.get(`${API_URL}/api/clientes/filtros/sucursales`),
-        axios.get(`${API_URL}/api/clientes/filtros/vendedores`)
+        axios.get(`${API_URL}/clientes/filtros/provincias`),
+        axios.get(`${API_URL}/clientes/filtros/condiciones-fiscales`),
+        axios.get(`${API_URL}/clientes/filtros/sucursales`),
+        axios.get(`${API_URL}/clientes/filtros/vendedores`)
       ]);
 
       setProvincias(provRes.data);
@@ -105,7 +105,7 @@ export default function Clientes() {
 
   const cargarCamposDisponibles = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/clientes/campos-disponibles`);
+      const response = await axios.get(`${API_URL}/clientes/campos-disponibles`);
       setCamposDisponibles(response.data.campos);
       // Seleccionar algunos campos por defecto
       const camposDefault = response.data.campos
@@ -139,7 +139,7 @@ export default function Clientes() {
       if (filtroCustIdDesde) params.append('cust_id_desde', filtroCustIdDesde);
       if (filtroCustIdHasta) params.append('cust_id_hasta', filtroCustIdHasta);
 
-      const response = await axios.get(`${API_URL}/api/clientes?${params}`);
+      const response = await axios.get(`${API_URL}/clientes?${params}`);
       setClientes(response.data.clientes);
       setTotalClientes(response.data.total);
       setTotalPages(response.data.total_pages);
@@ -176,7 +176,7 @@ export default function Clientes() {
       };
 
       const response = await axios.post(
-        `${API_URL}/api/clientes/exportar`,
+        `${API_URL}/clientes/exportar`,
         payload,
         {
           responseType: 'blob'
@@ -276,7 +276,7 @@ export default function Clientes() {
   const handleVerDetalle = async (cliente) => {
     try {
       const response = await axios.get(
-        `${API_URL}/api/clientes/${cliente.cust_id}?comp_id=${cliente.comp_id}`
+        `${API_URL}/clientes/${cliente.cust_id}?comp_id=${cliente.comp_id}`
       );
       setClienteSeleccionado(response.data);
       setMostrarModalDetalle(true);
