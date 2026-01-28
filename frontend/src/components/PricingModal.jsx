@@ -34,7 +34,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
 
       if (modo === 'markup') {
         const response = await axios.post(
-          `${API_URL}/precios/calcular-completo',
+          `${API_URL}/precios/calcular-completo`,
           {
             item_id: producto.item_id,
             markup_objetivo: parseFloat(markupObjetivo),
@@ -45,7 +45,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
         setResultado(response.data);
       } else {
         const responsePrecio = await axios.post(
-          `${API_URL}/precios/calcular-por-precio',
+          `${API_URL}/precios/calcular-por-precio`,
           {
             item_id: producto.item_id,
             pricelist_id: 4,
@@ -56,7 +56,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
 
         const markupResultante = responsePrecio.data.markup_resultante;
         const responseCuotas = await axios.post(
-          `${API_URL}/precios/calcular-completo',
+          `${API_URL}/precios/calcular-completo`,
           {
             item_id: producto.item_id,
             markup_objetivo: markupResultante,
@@ -101,7 +101,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
       const cuotas = resultado.cuotas || {};
 
       await axios.post(
-        `${API_URL}/precios/set',
+        `${API_URL}/precios/set`,
         {
           item_id: producto.item_id,
           precio_lista_ml: precio,

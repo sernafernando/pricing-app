@@ -178,7 +178,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
       }
 
       const response = await axios.post(
-        `${API_URL}/productos/calcular-web-masivo',
+        `${API_URL}/productos/calcular-web-masivo`,
         body,
         { headers: { Authorization: `Bearer ${token}` } }
       );
