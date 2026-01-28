@@ -45,7 +45,7 @@ export default function SetupMarkups() {
   // ========== FUNCIONES CONFIGURACIÓN ==========
   const cargarConfig = async () => {
     try {
-      const response = await api.get('/api/markups-tienda/config/markup_web_tarjeta');
+      const response = await api.get('/markups-tienda/config/markup_web_tarjeta');
       setMarkupWebTarjeta(response.data.valor?.toString() || '0');
     } catch (error) {
       console.error('Error cargando config:', error);
@@ -61,7 +61,7 @@ export default function SetupMarkups() {
 
     setGuardandoWebTarjeta(true);
     try {
-      await api.put('/api/markups-tienda/config/markup_web_tarjeta', { valor });
+      await api.put('/markups-tienda/config/markup_web_tarjeta', { valor });
       mostrarToast('Configuración guardada', 'success');
       setEditandoWebTarjeta(false);
     } catch (error) {
@@ -80,7 +80,7 @@ export default function SetupMarkups() {
       if (busquedaMarca) params.append('busqueda', busquedaMarca);
       if (soloConMarkup) params.append('solo_con_markup', 'true');
 
-      const response = await api.get(`/api/markups-tienda/brands?${params}`);
+      const response = await api.get(`/markups-tienda/brands?${params}`);
       setBrands(response.data);
     } catch (error) {
       console.error('Error cargando brands:', error);
@@ -92,7 +92,7 @@ export default function SetupMarkups() {
 
   const cargarStats = async () => {
     try {
-      const response = await api.get('/api/markups-tienda/stats');
+      const response = await api.get('/markups-tienda/stats');
       setStats(response.data);
     } catch (error) {
       console.error('Error cargando stats:', error);
@@ -107,7 +107,7 @@ export default function SetupMarkups() {
 
     try {
       await api.post(
-        `/api/markups-tienda/brands/${brand.comp_id}/${brand.brand_id}/markup`,
+        `/markups-tienda/brands/${brand.comp_id}/${brand.brand_id}/markup`,
         {
           comp_id: brand.comp_id,
           brand_id: brand.brand_id,
@@ -132,7 +132,7 @@ export default function SetupMarkups() {
     if (!confirm(`¿Eliminar markup de ${brand.brand_desc}?`)) return;
 
     try {
-      await api.delete(`/api/markups-tienda/brands/${brand.comp_id}/${brand.brand_id}/markup`);
+      await api.delete(`/markups-tienda/brands/${brand.comp_id}/${brand.brand_id}/markup`);
       mostrarToast('Markup eliminado', 'success');
       cargarBrands();
       cargarStats();
@@ -157,7 +157,7 @@ export default function SetupMarkups() {
     if (busquedaProducto.length < 2) return;
     setBuscandoProductos(true);
     try {
-      const response = await api.get('/api/buscar-productos-erp', {
+      const response = await api.get('/buscar-productos-erp', {
         params: { q: busquedaProducto }
       });
       setProductosEncontrados(response.data);
@@ -171,7 +171,7 @@ export default function SetupMarkups() {
   const cargarProductosConMarkup = async () => {
     setLoadingProductos(true);
     try {
-      const response = await api.get('/api/markups-tienda/productos');
+      const response = await api.get('/markups-tienda/productos');
       setProductosConMarkup(response.data);
     } catch (error) {
       console.error('Error cargando productos con markup:', error);
@@ -187,7 +187,7 @@ export default function SetupMarkups() {
     }
 
     try {
-      await api.post(`/api/markups-tienda/productos/${producto.item_id}/markup`, {
+      await api.post(`/markups-tienda/productos/${producto.item_id}/markup`, {
         item_id: producto.item_id,
         codigo: producto.codigo,
         descripcion: producto.descripcion,
@@ -212,7 +212,7 @@ export default function SetupMarkups() {
     if (!confirm(`¿Eliminar markup de ${producto.codigo}?`)) return;
 
     try {
-      await api.delete(`/api/markups-tienda/productos/${producto.item_id}/markup`);
+      await api.delete(`/markups-tienda/productos/${producto.item_id}/markup`);
       mostrarToast('Markup eliminado', 'success');
       cargarProductosConMarkup();
       cargarStats();

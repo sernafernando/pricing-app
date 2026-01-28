@@ -23,7 +23,7 @@ export default function ModalOffset({
   filtrosDisponibles,
   fechaDesde,
   fechaHasta,
-  apiBasePath = '/api/rentabilidad' // Para buscar productos
+  apiBasePath = '/rentabilidad' // Para buscar productos
 }) {
   const [offsets, setOffsets] = useState([]);
   const [grupos, setGrupos] = useState([]);
@@ -87,7 +87,7 @@ export default function ModalOffset({
 
   const cargarOpcionesFiltro = async () => {
     try {
-      const response = await api.get('/api/offset-filtros-opciones');
+      const response = await api.get('/offset-filtros-opciones');
       setOpcionesFiltro(response.data);
     } catch (error) {
       console.error('Error cargando opciones de filtro:', error);
@@ -97,8 +97,8 @@ export default function ModalOffset({
   const cargarOffsets = async () => {
     try {
       const [offsetsRes, tcRes] = await Promise.all([
-        api.get('/api/offsets-ganancia'),
-        api.get('/api/tipo-cambio/actual')
+        api.get('/offsets-ganancia'),
+        api.get('/tipo-cambio/actual')
       ]);
       setOffsets(offsetsRes.data);
       if (tcRes.data.venta) {
@@ -112,7 +112,7 @@ export default function ModalOffset({
 
   const cargarGrupos = async () => {
     try {
-      const response = await api.get('/api/offset-grupos');
+      const response = await api.get('/offset-grupos');
       setGrupos(response.data);
     } catch (error) {
       console.error('Error cargando grupos:', error);
@@ -122,7 +122,7 @@ export default function ModalOffset({
   const crearGrupo = async () => {
     if (!nuevoGrupoNombre.trim()) return;
     try {
-      await api.post('/api/offset-grupos', { nombre: nuevoGrupoNombre.trim() });
+      await api.post('/offset-grupos', { nombre: nuevoGrupoNombre.trim() });
       setNuevoGrupoNombre('');
       setMostrarFormGrupo(false);
       await cargarGrupos();
@@ -135,7 +135,7 @@ export default function ModalOffset({
   const eliminarGrupo = async (grupoId) => {
     if (!confirm('¿Eliminar este grupo?')) return;
     try {
-      await api.delete(`/api/offset-grupos/${grupoId}`);
+      await api.delete(`/offset-grupos/${grupoId}`);
       // Limpiar selección si era el grupo seleccionado
       if (nuevoOffset.grupo_id === grupoId.toString()) {
         setNuevoOffset({ ...nuevoOffset, grupo_id: '' });
@@ -155,7 +155,7 @@ export default function ModalOffset({
       return;
     }
     try {
-      const response = await api.get(`/api/offset-grupos/${grupoId}/filtros`);
+      const response = await api.get(`/offset-grupos/${grupoId}/filtros`);
       setFiltrosGrupo(response.data);
     } catch (error) {
       console.error('Error cargando filtros:', error);
@@ -180,7 +180,7 @@ export default function ModalOffset({
     }
 
     try {
-      await api.post(`/api/offset-grupos/${nuevoOffset.grupo_id}/filtros`, filtro);
+      await api.post(`/offset-grupos/${nuevoOffset.grupo_id}/filtros`, filtro);
       setNuevoFiltro({ marca: '', categoria: '', subcategoria_id: '', item_id: '' });
       setBusquedaFiltroProducto('');
       setProductosFiltroEncontrados([]);
@@ -194,7 +194,7 @@ export default function ModalOffset({
 
   const eliminarFiltroGrupo = async (filtroId) => {
     try {
-      await api.delete(`/api/offset-grupos/${nuevoOffset.grupo_id}/filtros/${filtroId}`);
+      await api.delete(`/offset-grupos/${nuevoOffset.grupo_id}/filtros/${filtroId}`);
       await cargarFiltrosGrupo(nuevoOffset.grupo_id);
       await cargarGrupos();
     } catch (error) {
@@ -206,7 +206,7 @@ export default function ModalOffset({
     if (busquedaFiltroProducto.length < 2) return;
     setBuscandoFiltroProducto(true);
     try {
-      const response = await api.get('/api/buscar-productos-erp', {
+      const response = await api.get('/buscar-productos-erp', {
         params: { q: busquedaFiltroProducto }
       });
       setProductosFiltroEncontrados(response.data);
@@ -228,7 +228,7 @@ export default function ModalOffset({
     setBuscandoProductosOffset(true);
     try {
       // Usar endpoint genérico que busca en todos los productos del ERP
-      const response = await api.get('/api/buscar-productos-erp', {
+      const response = await api.get('/buscar-productos-erp', {
         params: { q: busquedaOffsetProducto }
       });
       setProductosOffsetEncontrados(response.data);
@@ -351,9 +351,9 @@ export default function ModalOffset({
       }
 
       if (editandoOffset) {
-        await api.put(`/api/offsets-ganancia/${editandoOffset}`, payload);
+        await api.put(`/offsets-ganancia/${editandoOffset}`, payload);
       } else {
-        await api.post('/api/offsets-ganancia', payload);
+        await api.post('/offsets-ganancia', payload);
       }
 
       resetearFormOffset();
@@ -402,7 +402,7 @@ export default function ModalOffset({
   const eliminarOffset = async (id) => {
     if (!confirm('¿Eliminar este offset?')) return;
     try {
-      await api.delete(`/api/offsets-ganancia/${id}`);
+      await api.delete(`/offsets-ganancia/${id}`);
       cargarOffsets();
       if (onSave) onSave();
     } catch (error) {
