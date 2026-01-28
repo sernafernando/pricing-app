@@ -5,8 +5,10 @@ import styles from './TabRentabilidad.module.css';
 import ModalOffset from './ModalOffset';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const api = axios.create({
-  baseURL: 'https://pricing.gaussonline.com.ar',
+  baseURL: `${API_URL}`,
 });
 
 api.interceptors.request.use((config) => {

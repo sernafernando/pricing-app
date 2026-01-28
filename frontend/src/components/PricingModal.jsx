@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './PricingModal.module.css';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function PricingModal({ producto, onClose, onSave }) {
   const [modo, setModo] = useState('markup');
   const [markupObjetivo, setMarkupObjetivo] = useState('42.98');
@@ -32,7 +34,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
 
       if (modo === 'markup') {
         const response = await axios.post(
-          'https://pricing.gaussonline.com.ar/api/precios/calcular-completo',
+          `${API_URL}/precios/calcular-completo',
           {
             item_id: producto.item_id,
             markup_objetivo: parseFloat(markupObjetivo),
@@ -43,7 +45,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
         setResultado(response.data);
       } else {
         const responsePrecio = await axios.post(
-          'https://pricing.gaussonline.com.ar/api/precios/calcular-por-precio',
+          `${API_URL}/precios/calcular-por-precio',
           {
             item_id: producto.item_id,
             pricelist_id: 4,
@@ -54,7 +56,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
 
         const markupResultante = responsePrecio.data.markup_resultante;
         const responseCuotas = await axios.post(
-          'https://pricing.gaussonline.com.ar/api/precios/calcular-completo',
+          `${API_URL}/precios/calcular-completo',
           {
             item_id: producto.item_id,
             markup_objetivo: markupResultante,
@@ -99,7 +101,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
       const cuotas = resultado.cuotas || {};
 
       await axios.post(
-        'https://pricing.gaussonline.com.ar/api/precios/set',
+        `${API_URL}/precios/set',
         {
           item_id: producto.item_id,
           precio_lista_ml: precio,
@@ -133,7 +135,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
     setLoadingOfertas(true);
     try {
       const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/productos/${producto.item_id}/ofertas-vigentes`
+        `${API_URL}/productos/${producto.item_id}/ofertas-vigentes`
       );
       setOfertas(response.data);
     } catch (error) {

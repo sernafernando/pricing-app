@@ -7,7 +7,7 @@ import GestionZonas from '../components/turbo/GestionZonas';
 import TabBanlist from '../components/turbo/TabBanlist';
 import TabAsignaciones from '../components/turbo/TabAsignaciones';
 
-const API_URL = 'https://pricing.gaussonline.com.ar/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 export default function TurboRouting() {
   const { tienePermiso } = usePermisos();

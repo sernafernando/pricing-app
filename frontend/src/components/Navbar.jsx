@@ -9,7 +9,7 @@ import ThemeToggle from './ThemeToggle';
 import NotificationBell from './NotificationBell';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com.ar',
+  baseURL: import.meta.env.VITE_API_URL,
 });
 
 api.interceptors.request.use((config) => {
@@ -51,7 +51,7 @@ export default function Navbar() {
   useEffect(() => {
     if (user) {
       const hoy = new Date().toISOString().split('T')[0];
-      api.get(`/api/dashboard-ml/metricas-generales?fecha_desde=${hoy}&fecha_hasta=${hoy}`)
+      api.get(`/dashboard-ml/metricas-generales?fecha_desde=${hoy}&fecha_hasta=${hoy}`)
         .then(res => {
           setFacturadoHoy(res.data.total_ventas_ml);
         })

@@ -6,6 +6,8 @@ import PanelConstantesPricing from '../components/PanelConstantesPricing';
 import PanelPermisos from '../components/PanelPermisos';
 import PanelRoles from '../components/PanelRoles';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function Admin() {
   const [tabActiva, setTabActiva] = useState('general');
   const [sincronizando, setSincronizando] = useState(false);
@@ -28,7 +30,7 @@ export default function Admin() {
       const token = localStorage.getItem('token');
 
       // Cargar tipo de cambio actual
-      const tcRes = await axios.get('https://pricing.gaussonline.com.ar/api/tipo-cambio/actual',
+      const tcRes = await axios.get(`${API_URL}/tipo-cambio/actual',
         { headers: { Authorization: `Bearer ${token}` }});
       setTipoCambio(tcRes.data);
     } catch (error) {
@@ -50,12 +52,12 @@ export default function Admin() {
       const token = localStorage.getItem('token');
       
       agregarLog('Sincronizando tipo de cambio...');
-      await axios.post('https://pricing.gaussonline.com.ar/api/sync-tipo-cambio', {}, 
+      await axios.post(`${API_URL}/sync-tipo-cambio', {}, 
         { headers: { Authorization: `Bearer ${token}` }});
       agregarLog('✓ Tipo de cambio sincronizado');
       
       agregarLog('Sincronizando productos ERP...');
-      const erpRes = await axios.post('https://pricing.gaussonline.com.ar/api/sync', {}, 
+      const erpRes = await axios.post(`${API_URL}/sync', {}, 
         { headers: { Authorization: `Bearer ${token}` }});
       // Mostrar resultados ERP
       if (erpRes.data.erp) {
@@ -74,17 +76,17 @@ export default function Admin() {
       }
       
       agregarLog('Sincronizando publicaciones ML...');
-      const mlRes = await axios.post('https://pricing.gaussonline.com.ar/api/sync-ml', {},
+      const mlRes = await axios.post(`${API_URL}/sync-ml', {},
         { headers: { Authorization: `Bearer ${token}` }});
       agregarLog(`✓ ML: ${mlRes.data.total_publicaciones || 0} publicaciones`);
       
       agregarLog('Sincronizando ofertas...');
-      const sheetsRes = await axios.post('https://pricing.gaussonline.com.ar/api/sync-sheets', {}, 
+      const sheetsRes = await axios.post(`${API_URL}/sync-sheets', {}, 
         { headers: { Authorization: `Bearer ${token}` }});
       agregarLog(`✓ Ofertas: ${sheetsRes.data.total} sincronizadas`);
       
       agregarLog('Recalculando markups...');
-      const markupRes = await axios.post('https://pricing.gaussonline.com.ar/api/recalcular-markups', {}, 
+      const markupRes = await axios.post(`${API_URL}/recalcular-markups', {}, 
         { headers: { Authorization: `Bearer ${token}` }});
       agregarLog(`✓ Markups: ${markupRes.data.actualizados} actualizados`);
       
@@ -101,7 +103,7 @@ export default function Admin() {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(
-        'https://pricing.gaussonline.com.ar/api/sync-ml/precios',
+        `${API_URL}/sync-ml/precios',
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -137,8 +139,8 @@ export default function Admin() {
     try {
       const token = localStorage.getItem('token');
       const endpoint = tipoLimpieza === 'rebate'
-        ? 'https://pricing.gaussonline.com.ar/api/productos/limpiar-rebate'
-        : 'https://pricing.gaussonline.com.ar/api/productos/limpiar-web-transferencia';
+        ? `${API_URL}/productos/limpiar-rebate'
+        : `${API_URL}/productos/limpiar-web-transferencia';
 
       const response = await axios.post(
         endpoint,

@@ -13,7 +13,7 @@ export default function TabAdminVentasFuera() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
 
-  const API_URL = 'https://pricing.gaussonline.com.ar/api';
+  const API_URL = import.meta.env.VITE_API_URL;
 
   useEffect(() => {
     cargarVendedoresExcluidos();

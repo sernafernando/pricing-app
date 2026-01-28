@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './Admin.module.css';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function GestionPM() {
   const [marcas, setMarcas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
@@ -18,12 +20,12 @@ export default function GestionPM() {
       const token = localStorage.getItem('token');
 
       // Cargar marcas con PMs asignados
-      const marcasRes = await axios.get('https://pricing.gaussonline.com.ar/api/marcas-pm',
+      const marcasRes = await axios.get(`${API_URL}/marcas-pm',
         { headers: { Authorization: `Bearer ${token}` }});
       setMarcas(marcasRes.data);
 
       // Cargar usuarios disponibles
-      const usuariosRes = await axios.get('https://pricing.gaussonline.com.ar/api/usuarios/pms',
+      const usuariosRes = await axios.get(`${API_URL}/usuarios/pms',
         { headers: { Authorization: `Bearer ${token}` }});
       setUsuarios(usuariosRes.data);
 
@@ -39,7 +41,7 @@ export default function GestionPM() {
     try {
       const token = localStorage.getItem('token');
       await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/marcas-pm/${marcaId}`,
+        `${API_URL}/marcas-pm/${marcaId}`,
         { usuario_id: usuarioId === '' ? null : parseInt(usuarioId) },
         { headers: { Authorization: `Bearer ${token}` }}
       );
@@ -55,7 +57,7 @@ export default function GestionPM() {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(
-        'https://pricing.gaussonline.com.ar/api/marcas-pm/sync',
+        `${API_URL}/marcas-pm/sync',
         {},
         { headers: { Authorization: `Bearer ${token}` }}
       );

@@ -65,7 +65,7 @@ const ItemsSinMLA = () => {
   const [busquedaComparacion, setBusquedaComparacion] = useState('');
   const [marcaComparacion, setMarcaComparacion] = useState('');
 
-  const API_URL = 'https://pricing.gaussonline.com.ar/api';
+  const API_URL = import.meta.env.VITE_API_URL;
   const token = localStorage.getItem('token');
 
   useEffect(() => {

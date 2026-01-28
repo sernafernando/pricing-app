@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import styles from './Notificaciones.module.css';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const api = axios.create({
-  baseURL: 'https://pricing.gaussonline.com.ar',
+  baseURL: `${API_URL}`,
 });
 
 api.interceptors.request.use((config) => {

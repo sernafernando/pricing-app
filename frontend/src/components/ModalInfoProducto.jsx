@@ -4,6 +4,8 @@ import '../styles/ModalInfoProducto.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 import { usePermisos } from '../contexts/PermisosContext';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const { overlayRef, handleOverlayMouseDown, handleOverlayClick } = useModalClickOutside(onClose);
   const { tienePermiso } = usePermisos();
@@ -52,7 +54,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/productos/${itemId}/detalle`,
+        `${API_URL}/productos/${itemId}/detalle`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setDetalle(response.data);
@@ -69,7 +71,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/productos/${itemId}/mercadolibre`,
+        `${API_URL}/productos/${itemId}/mercadolibre`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setDatosMl(response.data);

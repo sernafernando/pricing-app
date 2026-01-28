@@ -4,7 +4,7 @@ import styles from './TabAsignaciones.module.css';
 import '../../styles/buttons-tesla.css';
 import '../../styles/modals-tesla.css';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com.ar/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 const limpiarNombreZona = (zona) => {
   if (!zona) return '-';

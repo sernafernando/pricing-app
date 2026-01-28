@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
-const API_URL = 'https://pricing.gaussonline.com.ar/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 /**
  * Hook para gestionar permisos del usuario actual

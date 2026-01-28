@@ -4,7 +4,7 @@ import styles from './PedidosPreparacion.module.css';
 import TabPedidosExport from '../components/TabPedidosExport';
 import { usePermisos } from '../contexts/PermisosContext';
 
-const API_URL = 'https://pricing.gaussonline.com.ar/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 // Componente Card para mostrar producto con sus componentes
 function ProductoCard({ producto, componentes, onLoadComponentes, getBadgeClass }) {

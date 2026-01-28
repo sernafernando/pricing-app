@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const PermisosContext = createContext();
 
-const API_URL = 'https://pricing.gaussonline.com.ar/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 export const usePermisos = () => {
   const context = useContext(PermisosContext);
