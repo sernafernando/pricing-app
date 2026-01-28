@@ -141,7 +141,7 @@ export default function Productos() {
   const user = useAuthStore((state) => state.user);
   const { tienePermiso } = usePermisos();
 
-  const API_URL = import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com.ar';
+  const API_URL = import.meta.env.VITE_API_URL;
   const toastTimeoutRef = useRef(null);
 
   // Permisos granulares de edición

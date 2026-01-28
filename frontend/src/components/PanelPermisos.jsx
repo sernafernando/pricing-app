@@ -42,7 +42,7 @@ export default function PanelPermisos() {
   const [cambiandoPassword, setCambiandoPassword] = useState(false);
   const [nuevaPassword, setNuevaPassword] = useState('');
 
-  const API_URL = 'https://pricing.gaussonline.com.ar/api';
+  const API_URL = import.meta.env.VITE_API_URL;
 
   useEffect(() => {
     cargarDatos();

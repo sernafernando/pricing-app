@@ -43,7 +43,7 @@ export default function PanelRoles() {
 
   const [busquedaPermiso, setBusquedaPermiso] = useState('');
 
-  const API_URL = 'https://pricing.gaussonline.com.ar/api';
+  const API_URL = import.meta.env.VITE_API_URL;
 
   useEffect(() => {
     cargarDatos();

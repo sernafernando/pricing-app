@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from '../../pages/TurboRouting.module.css';
 
-const API_URL = 'https://pricing.gaussonline.com.ar/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 export default function TabBanlist() {
   const [banlist, setBanlist] = useState([]);

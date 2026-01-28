@@ -14,7 +14,7 @@ export default function MLABanlist() {
   const user = useAuthStore((state) => state.user);
   const esAdmin = ['SUPERADMIN', 'ADMIN'].includes(user?.rol);
 
-  const API_URL = 'https://pricing.gaussonline.com.ar/api';
+  const API_URL = import.meta.env.VITE_API_URL;
 
   useEffect(() => {
     cargarBanlist();
