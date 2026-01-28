@@ -5,7 +5,8 @@ Revises: 20250126_last_migration
 Create Date: 2025-01-27 00:00:00
 
 Agrega mlp_official_store_id a ml_ventas_metricas para poder filtrar rentabilidad por tienda oficial.
-Agrega tienda_oficial a offset_grupo_consumo y offset_individual_consumo para calcular offsets correctamente por tienda.
+Agrega tienda_oficial a offset_grupo_consumo y offset_individual_consumo para filtrar visualización por tienda.
+IMPORTANTE: Los límites de offsets son GLOBALES (todas las tiendas). El filtro solo afecta qué operaciones se muestran.
 """
 from alembic import op
 import sqlalchemy as sa
@@ -68,12 +69,12 @@ def upgrade() -> None:
     
     op.execute(
         "COMMENT ON COLUMN offset_grupo_consumo.tienda_oficial IS "
-        "'ID de tienda oficial para calcular offsets por tienda (null = todas las tiendas)'"
+        "'ID de tienda oficial para filtrar visualización por tienda. IMPORTANTE: Los límites de offsets son GLOBALES (todas las tiendas), este campo solo sirve para mostrar operaciones de una tienda específica'"
     )
     
     op.execute(
         "COMMENT ON COLUMN offset_individual_consumo.tienda_oficial IS "
-        "'ID de tienda oficial para calcular offsets por tienda (null = todas las tiendas)'"
+        "'ID de tienda oficial para filtrar visualización por tienda. IMPORTANTE: Los límites de offsets son GLOBALES (todas las tiendas), este campo solo sirve para mostrar operaciones de una tienda específica'"
     )
 
 
