@@ -16,7 +16,7 @@ class SaleOrderStatus(Base):
     ssos_id = Column(Integer, primary_key=True)
     ssos_name = Column(String(100), nullable=False)
     ssos_description = Column(String(255))
-    ssos_isActive = Column(Boolean, default=True)
+    ssos_is_active = Column(Boolean, default=True)
     
     # Campos para categorización (definidos localmente)
     ssos_category = Column(String(50))  # 'pendiente', 'en_proceso', 'completado', 'cancelado'
