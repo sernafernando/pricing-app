@@ -36,67 +36,96 @@ def sync_archived_orders():
     try:
         logger.info("🔄 Buscando pedidos archivados en history...")
         
-        # 1. Contar cuántos pedidos están en history pero siguen activos (ssos_id=20)
+        # 1. Contar cuántos pedidos tienen diferente estado en header vs último history
         result = db.execute(text("""
-            SELECT COUNT(DISTINCT h.soh_id)
-            FROM tb_sale_order_header_history h
-            INNER JOIN tb_sale_order_header soh 
-                ON h.soh_id = soh.soh_id 
-                AND h.bra_id = soh.bra_id
-                AND h.comp_id = soh.comp_id
-            WHERE soh.ssos_id = 20
+            WITH ultimo_history AS (
+                SELECT DISTINCT ON (h.soh_id, h.bra_id, h.comp_id)
+                    h.soh_id,
+                    h.bra_id,
+                    h.comp_id,
+                    h.ssos_id as ultimo_ssos_id
+                FROM tb_sale_order_header_history h
+                ORDER BY h.soh_id, h.bra_id, h.comp_id, h.sohh_cd DESC
+            )
+            SELECT COUNT(*)
+            FROM tb_sale_order_header soh
+            INNER JOIN ultimo_history uh 
+                ON soh.soh_id = uh.soh_id 
+                AND soh.bra_id = uh.bra_id
+                AND soh.comp_id = uh.comp_id
+            WHERE soh.ssos_id != uh.ultimo_ssos_id
         """))
         
-        total_a_archivar = result.scalar()
-        logger.info(f"📊 Pedidos a archivar: {total_a_archivar}")
+        total_a_actualizar = result.scalar()
+        logger.info(f"📊 Pedidos desincronizados: {total_a_actualizar}")
         
-        if total_a_archivar == 0:
-            logger.info("✅ No hay pedidos para archivar")
-            return {"archivados": 0}
+        if total_a_actualizar == 0:
+            logger.info("✅ Todos los pedidos están sincronizados con history")
+            return {"actualizados": 0}
         
         # 2. Mostrar algunos ejemplos
         result = db.execute(text("""
+            WITH ultimo_history AS (
+                SELECT DISTINCT ON (h.soh_id, h.bra_id, h.comp_id)
+                    h.soh_id,
+                    h.bra_id,
+                    h.comp_id,
+                    h.ssos_id as ultimo_ssos_id,
+                    h.sohh_cd as fecha_historia
+                FROM tb_sale_order_header_history h
+                ORDER BY h.soh_id, h.bra_id, h.comp_id, h.sohh_cd DESC
+            )
             SELECT 
                 soh.soh_id,
                 soh.soh_cd as fecha_creacion,
-                soh.ssos_id as estado_actual,
-                MAX(h.sohh_cd) as ultima_historia
-            FROM tb_sale_order_header_history h
-            INNER JOIN tb_sale_order_header soh 
-                ON h.soh_id = soh.soh_id 
-                AND h.bra_id = soh.bra_id
-                AND h.comp_id = soh.comp_id
-            WHERE soh.ssos_id = 20
-            GROUP BY soh.soh_id, soh.soh_cd, soh.ssos_id
+                soh.ssos_id as estado_header,
+                uh.ultimo_ssos_id as estado_history,
+                uh.fecha_historia
+            FROM tb_sale_order_header soh
+            INNER JOIN ultimo_history uh 
+                ON soh.soh_id = uh.soh_id 
+                AND soh.bra_id = uh.bra_id
+                AND soh.comp_id = uh.comp_id
+            WHERE soh.ssos_id != uh.ultimo_ssos_id
             ORDER BY soh.soh_cd ASC
             LIMIT 10
         """))
         
-        logger.info("\n📋 Ejemplos de pedidos a archivar:")
-        logger.info(f"{'SOH_ID':<10} {'FECHA CREACIÓN':<20} {'ESTADO':<10} {'ÚLTIMA HISTORIA':<20}")
+        logger.info("\n📋 Ejemplos de pedidos desincronizados:")
+        logger.info(f"{'SOH_ID':<10} {'FECHA':<12} {'HEADER':<8} {'HISTORY':<8} {'ÚLTIMA HISTORIA':<20}")
         logger.info("-" * 70)
         for row in result:
-            logger.info(f"{row[0]:<10} {str(row[1]):<20} {row[2]:<10} {str(row[3]):<20}")
+            logger.info(f"{row[0]:<10} {str(row[1])[:10]:<12} {row[2]:<8} {row[3]:<8} {str(row[4]):<20}")
         
-        # 3. Actualizar: marcar como ssos_id=50 (Ok Para Emisión / Completado)
-        logger.info("\n🔧 Actualizando estados...")
+        # 3. Actualizar: usar el ÚLTIMO estado del history (más reciente)
+        logger.info("\n🔧 Sincronizando estados desde último registro de history...")
         
         result = db.execute(text("""
+            WITH ultimo_history AS (
+                SELECT DISTINCT ON (h.soh_id, h.bra_id, h.comp_id)
+                    h.soh_id,
+                    h.bra_id,
+                    h.comp_id,
+                    h.ssos_id as ultimo_ssos_id,
+                    h.sohh_cd as fecha_historia
+                FROM tb_sale_order_header_history h
+                ORDER BY h.soh_id, h.bra_id, h.comp_id, h.sohh_cd DESC
+            )
             UPDATE tb_sale_order_header soh
-            SET ssos_id = 50
-            FROM tb_sale_order_header_history h
-            WHERE soh.soh_id = h.soh_id 
-              AND soh.bra_id = h.bra_id
-              AND soh.comp_id = h.comp_id
-              AND soh.ssos_id = 20
+            SET ssos_id = uh.ultimo_ssos_id
+            FROM ultimo_history uh
+            WHERE soh.soh_id = uh.soh_id 
+              AND soh.bra_id = uh.bra_id
+              AND soh.comp_id = uh.comp_id
+              AND soh.ssos_id != uh.ultimo_ssos_id
         """))
         
-        archivados = result.rowcount
+        actualizados = result.rowcount
         db.commit()
         
-        logger.info(f"✅ Archivados: {archivados} pedidos (ssos_id: 20 → 50)")
+        logger.info(f"✅ Actualizados: {actualizados} pedidos con último estado de history")
         
-        return {"archivados": archivados}
+        return {"actualizados": actualizados}
         
     except Exception as e:
         logger.error(f"❌ Error: {e}", exc_info=True)
