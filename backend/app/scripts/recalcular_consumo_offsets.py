@@ -123,7 +123,8 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 m.item_id,
                 m.cantidad,
                 m.costo_total_sin_iva,
-                m.cotizacion_dolar
+                m.cotizacion_dolar,
+                m.mlp_official_store_id
             FROM ml_ventas_metricas m
             WHERE m.item_id = ANY(:item_ids)
             AND m.fecha_venta >= :fecha_inicio
@@ -257,7 +258,8 @@ def recalcular_offset_individual(db, offset: OffsetGanancia, cotizacion: float, 
                 m.item_id,
                 m.cantidad,
                 m.costo_total_sin_iva,
-                m.cotizacion_dolar
+                m.cotizacion_dolar,
+                m.mlp_official_store_id
             FROM ml_ventas_metricas m
             WHERE m.item_id = :item_id
             AND m.fecha_venta >= :fecha_inicio
@@ -274,7 +276,8 @@ def recalcular_offset_individual(db, offset: OffsetGanancia, cotizacion: float, 
                 m.item_id,
                 m.cantidad,
                 m.costo_total_sin_iva,
-                m.cotizacion_dolar
+                m.cotizacion_dolar,
+                m.mlp_official_store_id
             FROM ml_ventas_metricas m
             WHERE m.marca = :marca
             AND m.fecha_venta >= :fecha_inicio
@@ -291,7 +294,8 @@ def recalcular_offset_individual(db, offset: OffsetGanancia, cotizacion: float, 
                 m.item_id,
                 m.cantidad,
                 m.costo_total_sin_iva,
-                m.cotizacion_dolar
+                m.cotizacion_dolar,
+                m.mlp_official_store_id
             FROM ml_ventas_metricas m
             WHERE m.categoria = :categoria
             AND m.fecha_venta >= :fecha_inicio
@@ -308,7 +312,8 @@ def recalcular_offset_individual(db, offset: OffsetGanancia, cotizacion: float, 
                 m.item_id,
                 m.cantidad,
                 m.costo_total_sin_iva,
-                m.cotizacion_dolar
+                m.cotizacion_dolar,
+                m.mlp_official_store_id
             FROM ml_ventas_metricas m
             WHERE m.subcategoria = (SELECT subcat_desc FROM tb_subcategory WHERE subcat_id = :subcat_id LIMIT 1)
             AND m.fecha_venta >= :fecha_inicio
