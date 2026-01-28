@@ -3,6 +3,7 @@ Endpoints para estados de pedidos (tb_sale_order_status)
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import List
 from pydantic import BaseModel
 
@@ -47,7 +48,13 @@ async def obtener_estados_pedido(
     query = db.query(SaleOrderStatus)
     
     if only_active:
-        query = query.filter(SaleOrderStatus.ssos_isActive == True)
+        # Considerar NULL como activo (default en la migración)
+        query = query.filter(
+            or_(
+                SaleOrderStatus.ssos_isActive == True,
+                SaleOrderStatus.ssos_isActive.is_(None)
+            )
+        )
     
     query = query.order_by(SaleOrderStatus.ssos_order)
     
