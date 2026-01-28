@@ -40,14 +40,14 @@ export default function PanelConstantesPricing() {
 
       // Cargar constantes actuales
       const actual = await axios.get(
-        `${API_URL}/pricing-constants/actual',
+        `${API_URL}/pricing-constants/actual`,
         { headers }
       );
       setConstanteActual(actual.data);
 
       // Cargar todas las versiones
       const todasVersiones = await axios.get(
-        `${API_URL}/pricing-constants',
+        `${API_URL}/pricing-constants`,
         { headers }
       );
       setVersiones(todasVersiones.data);
@@ -80,7 +80,7 @@ export default function PanelConstantesPricing() {
       const token = localStorage.getItem('token');
 
       await axios.post(
-        `${API_URL}/pricing-constants',
+        `${API_URL}/pricing-constants`,
         nuevaVersion,
         { headers: { Authorization: `Bearer ${token}` } }
       );

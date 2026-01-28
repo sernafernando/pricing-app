@@ -26,7 +26,7 @@ const Calculos = () => {
   const cargarGruposComision = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/comisiones/calculadas', {
+      const response = await axios.get(`${API_URL}/comisiones/calculadas`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGruposComision(response.data);
@@ -38,7 +38,7 @@ const Calculos = () => {
   const cargarTipoCambio = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/tipo-cambio', {
+      const response = await axios.get(`${API_URL}/tipo-cambio`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setTipoCambio(response.data.tipo_cambio);
@@ -50,7 +50,7 @@ const Calculos = () => {
   const cargarConstantes = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/pricing-constants/actual', {
+      const response = await axios.get(`${API_URL}/pricing-constants/actual`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setConstantes(response.data);
@@ -72,7 +72,7 @@ const Calculos = () => {
   const cargarCalculos = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/calculos', {
+      const response = await axios.get(`${API_URL}/calculos`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setCalculos(response.data);
@@ -265,7 +265,7 @@ const Calculos = () => {
       const token = localStorage.getItem('token');
       
       const response = await axios.post(
-        `${API_URL}/calculos/calcular-cuotas',
+        `${API_URL}/calculos/calcular-cuotas`,
         {
           costo: formData.costo,
           moneda_costo: formData.moneda_costo,
@@ -354,7 +354,7 @@ const Calculos = () => {
     try {
       const token = localStorage.getItem('token');
       await axios.post(
-        `${API_URL}/calculos/acciones/eliminar-masivo',
+        `${API_URL}/calculos/acciones/eliminar-masivo`,
         { calculo_ids: idsAEliminar },
         { headers: { Authorization: `Bearer ${token}` } }
       );

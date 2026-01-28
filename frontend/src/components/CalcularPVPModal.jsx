@@ -166,7 +166,7 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
       }
 
       const response = await axios.post(
-        `${API_URL}/productos/calcular-pvp-masivo',
+        `${API_URL}/productos/calcular-pvp-masivo`,
         body,
         { headers: { Authorization: `Bearer ${token}` } }
       );

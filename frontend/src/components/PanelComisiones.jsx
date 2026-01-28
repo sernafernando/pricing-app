@@ -45,21 +45,21 @@ export default function PanelComisiones() {
 
       // Cargar versión vigente
       const vigente = await axios.get(
-        `${API_URL}/comisiones/vigente',
+        `${API_URL}/comisiones/vigente`,
         { headers }
       );
       setVersionActual(vigente.data);
 
       // Cargar comisiones calculadas
       const calculadas = await axios.get(
-        `${API_URL}/comisiones/calculadas',
+        `${API_URL}/comisiones/calculadas`,
         { headers }
       );
       setComisionesCalculadas(calculadas.data);
 
       // Cargar todas las versiones
       const todasVersiones = await axios.get(
-        `${API_URL}/comisiones/versiones',
+        `${API_URL}/comisiones/versiones`,
         { headers }
       );
       setVersiones(todasVersiones.data);
@@ -221,7 +221,7 @@ export default function PanelComisiones() {
       } else {
         // Crear nueva versión
         await axios.post(
-          `${API_URL}/comisiones/nueva-version',
+          `${API_URL}/comisiones/nueva-version`,
           nuevaVersion,
           { headers: { Authorization: `Bearer ${token}` } }
         );

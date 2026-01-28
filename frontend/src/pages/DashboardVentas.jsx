@@ -35,7 +35,7 @@ export default function DashboardVentas() {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(
-        `${API_URL}/ventas-ml',
+        `${API_URL}/ventas-ml`,
         {
           params: {
             from_date: fromDate,

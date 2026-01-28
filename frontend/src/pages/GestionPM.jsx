@@ -20,12 +20,12 @@ export default function GestionPM() {
       const token = localStorage.getItem('token');
 
       // Cargar marcas con PMs asignados
-      const marcasRes = await axios.get(`${API_URL}/marcas-pm',
+      const marcasRes = await axios.get(`${API_URL}/marcas-pm`,
         { headers: { Authorization: `Bearer ${token}` }});
       setMarcas(marcasRes.data);
 
       // Cargar usuarios disponibles
-      const usuariosRes = await axios.get(`${API_URL}/usuarios/pms',
+      const usuariosRes = await axios.get(`${API_URL}/usuarios/pms`,
         { headers: { Authorization: `Bearer ${token}` }});
       setUsuarios(usuariosRes.data);
 
@@ -57,7 +57,7 @@ export default function GestionPM() {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(
-        `${API_URL}/marcas-pm/sync',
+        `${API_URL}/marcas-pm/sync`,
         {},
         { headers: { Authorization: `Bearer ${token}` }}
       );

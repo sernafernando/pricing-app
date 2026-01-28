@@ -44,7 +44,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
   const cargarTipoCambio = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/tipo-cambio/actual', {
+      const response = await axios.get(`${API_URL}/tipo-cambio/actual`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setFormData(prev => ({ ...prev, tipoCambio: response.data.venta.toString() }));
@@ -56,7 +56,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
   const cargarConstantes = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/pricing-constants/actual', {
+      const response = await axios.get(`${API_URL}/pricing-constants/actual`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setConstantes(response.data);
@@ -75,7 +75,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
   const cargarGruposComision = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/comisiones/calculadas', {
+      const response = await axios.get(`${API_URL}/comisiones/calculadas`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGruposComision(response.data); // Array de {grupo_id, lista_4, lista_3_cuotas, ...}
@@ -193,7 +193,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
       console.log('📤 Enviando request calcular cuotas:', requestData);
       
       const response = await axios.post(
-        `${API_URL}/calculos/calcular-cuotas',
+        `${API_URL}/calculos/calcular-cuotas`,
         requestData,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -242,7 +242,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
       const comisionML = grupoData ? grupoData.lista_4 : 0;
 
       await axios.post(
-        `${API_URL}/calculos',
+        `${API_URL}/calculos`,
         {
           descripcion: descripcion || 'Sin descripción',
           ean: ean || null,

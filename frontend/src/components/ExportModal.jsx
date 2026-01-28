@@ -216,7 +216,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     const cargarDolarVenta = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await axios.get(`${API_URL}/tipo-cambio/actual', {
+        const response = await axios.get(`${API_URL}/tipo-cambio/actual`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setDolarVenta(response.data.venta);
@@ -329,7 +329,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       const response = await axios.post(
-        `${API_URL}/productos/exportar-rebate',
+        `${API_URL}/productos/exportar-rebate`,
         body,
         {
           headers: { Authorization: `Bearer ${token}` },
