@@ -161,7 +161,8 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 offset_id=offset_aplicable.id,
                 monto_offset_aplicado=monto_offset_ars,
                 monto_offset_usd=monto_offset_usd,
-                cotizacion_dolar=cot
+                cotizacion_dolar=cot,
+                tienda_oficial=str(venta.mlp_official_store_id) if venta.mlp_official_store_id else None
             )
             db.add(consumo)
             consumos_creados += 1
@@ -338,7 +339,8 @@ def recalcular_offset_individual(db, offset: OffsetGanancia, cotizacion: float, 
             cantidad=venta.cantidad,
             monto_offset_aplicado=monto_offset_ars,
             monto_offset_usd=monto_offset_usd,
-            cotizacion_dolar=cot
+            cotizacion_dolar=cot,
+            tienda_oficial=str(venta.mlp_official_store_id) if venta.mlp_official_store_id else None
         )
         db.add(consumo)
         consumos_creados += 1
