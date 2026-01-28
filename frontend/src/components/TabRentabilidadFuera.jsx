@@ -100,7 +100,7 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
         params.subcategorias = subcategoriasSeleccionadas.join('|');
       }
 
-      const response = await api.get('/api/rentabilidad-fuera/filtros', { params });
+      const response = await api.get('/rentabilidad-fuera/filtros', { params });
       setFiltrosDisponibles(response.data);
     } catch (error) {
       console.error('Error cargando filtros:', error);
@@ -127,7 +127,7 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
         params.productos = productosSeleccionados.join('|');
       }
 
-      const response = await api.get('/api/rentabilidad-fuera', { params });
+      const response = await api.get('/rentabilidad-fuera', { params });
       setRentabilidad(response.data);
     } catch (error) {
       console.error('Error cargando rentabilidad:', error);
@@ -140,7 +140,7 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
     if (busquedaProducto.length < 2) return;
     setBuscandoProductos(true);
     try {
-      const response = await api.get('/api/rentabilidad-fuera/buscar-productos', {
+      const response = await api.get('/rentabilidad-fuera/buscar-productos', {
         params: {
           q: busquedaProducto,
           fecha_desde: fechaDesde,
@@ -706,7 +706,7 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
         filtrosDisponibles={filtrosDisponibles}
         fechaDesde={fechaDesde}
         fechaHasta={fechaHasta}
-        apiBasePath="/api/rentabilidad-fuera"
+        apiBasePath="/rentabilidad-fuera"
       />
     </div>
   );

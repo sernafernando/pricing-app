@@ -105,7 +105,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta, tiendaOficial 
         params.tienda_oficial = tiendaOficial;
       }
 
-      const response = await api.get('/api/rentabilidad/filtros', { params });
+      const response = await api.get('/rentabilidad/filtros', { params });
       setFiltrosDisponibles(response.data);
     } catch (error) {
       console.error('Error cargando filtros:', error);
@@ -136,7 +136,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta, tiendaOficial 
         params.tienda_oficial = tiendaOficial;
       }
 
-      const response = await api.get('/api/rentabilidad', { params });
+      const response = await api.get('/rentabilidad', { params });
       setRentabilidad(response.data);
     } catch (error) {
       console.error('Error cargando rentabilidad:', error);
@@ -158,7 +158,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta, tiendaOficial 
         params.tienda_oficial = tiendaOficial;
       }
       
-      const response = await api.get('/api/rentabilidad/buscar-productos', { params });
+      const response = await api.get('/rentabilidad/buscar-productos', { params });
       setProductosEncontrados(response.data);
     } catch (error) {
       console.error('Error buscando productos:', error);
@@ -774,7 +774,7 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta, tiendaOficial 
         filtrosDisponibles={filtrosDisponibles}
         fechaDesde={fechaDesde}
         fechaHasta={fechaHasta}
-        apiBasePath="/api/rentabilidad"
+        apiBasePath="/rentabilidad"
       />
     </div>
   );

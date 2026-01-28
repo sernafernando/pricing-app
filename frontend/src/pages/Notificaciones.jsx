@@ -39,14 +39,14 @@ export default function Notificaciones() {
   const fetchNotificaciones = async () => {
     try {
       setLoading(true);
-      const endpoint = vistaAgrupada ? '/api/notificaciones/agrupadas' : '/api/notificaciones';
+      const endpoint = vistaAgrupada ? '/notificaciones/agrupadas' : '/notificaciones';
       const params = vistaAgrupada
         ? { solo_no_leidas: soloNoLeidas, tipo: filtroTipo }
         : { limit: 100, offset: 0, solo_no_leidas: soloNoLeidas, tipo: filtroTipo };
 
       const [notifResponse, statsResponse] = await Promise.all([
         api.get(endpoint, { params }),
-        api.get('/api/notificaciones/stats')
+        api.get('/notificaciones/stats')
       ]);
 
       setNotificaciones(notifResponse.data);
@@ -69,7 +69,7 @@ export default function Notificaciones() {
 
   const marcarComoLeida = async (notifId) => {
     try {
-      await api.patch(`/api/notificaciones/${notifId}/marcar-leida`);
+      await api.patch(`/notificaciones/${notifId}/marcar-leida`);
 
       // Actualizar estado local en lugar de recargar todo
       setNotificaciones(notificaciones.map(n =>
@@ -88,7 +88,7 @@ export default function Notificaciones() {
 
   const marcarTodasLeidas = async () => {
     try {
-      await api.post('/api/notificaciones/marcar-todas-leidas', null, {
+      await api.post('/notificaciones/marcar-todas-leidas', null, {
         params: { tipo: filtroTipo }
       });
       await fetchNotificaciones();
@@ -99,7 +99,7 @@ export default function Notificaciones() {
 
   const marcarTodasNoLeidas = async () => {
     try {
-      await api.post('/api/notificaciones/marcar-todas-no-leidas', null, {
+      await api.post('/notificaciones/marcar-todas-no-leidas', null, {
         params: { tipo: filtroTipo }
       });
       await fetchNotificaciones();
@@ -110,7 +110,7 @@ export default function Notificaciones() {
 
   const marcarComoNoLeida = async (notifId) => {
     try {
-      await api.patch(`/api/notificaciones/${notifId}/marcar-no-leida`);
+      await api.patch(`/notificaciones/${notifId}/marcar-no-leida`);
       await fetchNotificaciones();
     } catch (error) {
       console.error('Error al marcar como no leída:', error);
@@ -120,7 +120,7 @@ export default function Notificaciones() {
   const eliminarNotificacion = async (notifId) => {
     try {
       const notif = notificaciones.find(n => n.id === notifId);
-      await api.delete(`/api/notificaciones/${notifId}`);
+      await api.delete(`/notificaciones/${notifId}`);
 
       // Actualizar estado local
       setNotificaciones(notificaciones.filter(n => n.id !== notifId));
@@ -144,7 +144,7 @@ export default function Notificaciones() {
   const limpiarLeidas = async () => {
     if (!confirm('¿Eliminar todas las notificaciones leídas?')) return;
     try {
-      await api.delete('/api/notificaciones/limpiar');
+      await api.delete('/notificaciones/limpiar');
       await fetchNotificaciones();
     } catch (error) {
       console.error('Error al limpiar:', error);
@@ -155,7 +155,7 @@ export default function Notificaciones() {
   
   const descartarNotificacion = async (notifId) => {
     try {
-      const response = await api.patch(`/api/notificaciones/${notifId}/descartar`);
+      const response = await api.patch(`/notificaciones/${notifId}/descartar`);
       
       // Mostrar mensaje informativo al usuario
       alert('✓ Notificación descartada.\n\n' +
@@ -194,7 +194,7 @@ export default function Notificaciones() {
 
   const revisarNotificacion = async (notifId) => {
     try {
-      await api.patch(`/api/notificaciones/${notifId}/revisar`);
+      await api.patch(`/notificaciones/${notifId}/revisar`);
       // Actualizar localmente en vista agrupada
       if (vistaAgrupada) {
         setNotificaciones(notificaciones.map(grupo => {
@@ -223,7 +223,7 @@ export default function Notificaciones() {
 
   const resolverNotificacion = async (notifId) => {
     try {
-      await api.patch(`/api/notificaciones/${notifId}/resolver`);
+      await api.patch(`/notificaciones/${notifId}/resolver`);
       // Actualizar localmente en vista agrupada
       if (vistaAgrupada) {
         setNotificaciones(notificaciones.map(grupo => {
@@ -291,7 +291,7 @@ export default function Notificaciones() {
     if (!notif.item_id || preciosSeteados[notif.id]) return;
 
     try {
-      const response = await api.get(`/api/productos/${notif.item_id}/pricing-stored`);
+      const response = await api.get(`/productos/${notif.item_id}/pricing-stored`);
       if (response.data && response.data.precio_lista_ml) {
         setPreciosSeteados(prev => ({ ...prev, [notif.id]: response.data.precio_lista_ml }));
       }
@@ -556,7 +556,7 @@ export default function Notificaciones() {
                     // Marcar todas las del grupo como leídas si no lo están
                     if (!grupo.notificacion_reciente.leida) {
                       await Promise.all(grupo.notificaciones_ids.map(id =>
-                        api.patch(`/api/notificaciones/${id}/marcar-leida`)
+                        api.patch(`/notificaciones/${id}/marcar-leida`)
                       ));
                       await fetchNotificaciones();
                     }
