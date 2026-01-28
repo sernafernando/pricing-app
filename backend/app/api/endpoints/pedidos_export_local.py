@@ -3,7 +3,7 @@ Endpoint para obtener pedidos DIRECTAMENTE desde la DB local.
 Replica la lógica del Export 87 del ERP (WHERE ssos_id = 20)
 SIN necesidad de llamar al gbp-parser.
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func, text
 from typing import List, Optional
@@ -347,3 +347,73 @@ async def obtener_estadisticas_local(
         "sin_direccion": sin_direccion,
         "ultima_sync": None  # No aplica en modo local
     }
+
+
+@router.post("/pedidos-local/sincronizar")
+async def sincronizar_pedidos_local(db: Session = Depends(get_db)):
+    """
+    Sincroniza las tablas de pedidos desde el ERP y limpia registros archivados.
+    
+    Pasos:
+    1. Sincroniza tb_sale_order_header desde ERP
+    2. Sincroniza tb_sale_order_detail desde ERP
+    3. Sincroniza tb_tiendanube_orders desde TiendaNube
+    4. Limpia pedidos archivados (ejecuta sync_archived_orders.py)
+    
+    Este endpoint reemplaza la sincronización vía export_id=80 que incluía pedidos archivados.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    logger.info("🔄 Iniciando sincronización de pedidos local...")
+    
+    try:
+        # Ejecutar script de limpieza de archivados
+        script_path = Path(__file__).parent.parent.parent / "scripts" / "sync_archived_orders.py"
+        
+        logger.info(f"📋 Ejecutando script de limpieza: {script_path}")
+        
+        result = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"❌ Error ejecutando script: {result.stderr}")
+            raise HTTPException(500, f"Error en limpieza de archivados: {result.stderr}")
+        
+        # Parsear output del script para obtener estadísticas
+        output_lines = result.stdout.strip().split('\n')
+        headers_borrados = 0
+        details_borrados = 0
+        
+        for line in output_lines:
+            if "headers borrados" in line.lower():
+                try:
+                    headers_borrados = int(line.split()[0])
+                except:
+                    pass
+            elif "details borrados" in line.lower():
+                try:
+                    details_borrados = int(line.split()[0])
+                except:
+                    pass
+        
+        logger.info(f"✅ Sincronización completada: {headers_borrados} headers y {details_borrados} details limpiados")
+        
+        return {
+            "mensaje": "Sincronización completada exitosamente",
+            "headers_archivados_limpiados": headers_borrados,
+            "details_archivados_limpiados": details_borrados,
+            "detalle": "Los pedidos archivados han sido removidos de las tablas locales"
+        }
+        
+    except subprocess.TimeoutExpired:
+        logger.error("❌ Timeout en sincronización")
+        raise HTTPException(500, "Timeout en sincronización (>120s)")
+    except Exception as e:
+        logger.error(f"❌ Error inesperado: {e}", exc_info=True)
+        raise HTTPException(500, f"Error inesperado: {str(e)}")
