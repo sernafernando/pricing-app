@@ -13,5 +13,12 @@ export default defineConfig({
         changeOrigin: true,
       }
     }
+  },
+  build: {
+    minify: 'esbuild',
+    // Remove console.* statements in production
+    esbuild: {
+      drop: ['console', 'debugger'],
+    }
   }
 })
