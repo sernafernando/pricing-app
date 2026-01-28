@@ -228,7 +228,10 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             ) as pricelist_id,
 
             -- mlp_id para filtro de tienda oficial
-            tmlod.mlp_id as mlp_id
+            tmlod.mlp_id as mlp_id,
+            
+            -- ID de tienda oficial de MercadoLibre
+            tmlip.mlp_official_store_id as mlp_official_store_id
 
         FROM tb_mercadolibre_orders_detail tmlod
 
@@ -641,7 +644,8 @@ def registrar_consumo_grupo_offset(db: Session, row, es_nuevo: bool):
             offset_id=offset.id,
             monto_offset_aplicado=monto_offset_ars,
             monto_offset_usd=monto_offset_usd,
-            cotizacion_dolar=cotizacion
+            cotizacion_dolar=cotizacion,
+            tienda_oficial=str(row.mlp_official_store_id) if hasattr(row, 'mlp_official_store_id') and row.mlp_official_store_id else None
         )
         db.add(consumo)
 
@@ -847,7 +851,8 @@ def registrar_consumo_offset_individual(db: Session, row, es_nuevo: bool):
                 cantidad=row.cantidad,
                 monto_offset_aplicado=monto_offset_ars,
                 monto_offset_usd=monto_offset_usd,
-                cotizacion_dolar=cotizacion
+                cotizacion_dolar=cotizacion,
+                tienda_oficial=str(row.mlp_official_store_id) if hasattr(row, 'mlp_official_store_id') and row.mlp_official_store_id else None
             )
             db.add(consumo)
 
@@ -974,7 +979,8 @@ def process_and_insert(db: Session, rows):
                 'monto_limpio': Decimal(str(metricas['monto_limpio'])),
                 'ganancia': Decimal(str(metricas['ganancia'])),
                 'markup_porcentaje': Decimal(str(metricas['markup_porcentaje'])),
-                'mla_id': str(row.mlp_id) if hasattr(row, 'mlp_id') and row.mlp_id else None
+                'mla_id': str(row.mlp_id) if hasattr(row, 'mlp_id') and row.mlp_id else None,
+                'mlp_official_store_id': row.mlp_official_store_id if hasattr(row, 'mlp_official_store_id') else None
             }
 
             if existente:
