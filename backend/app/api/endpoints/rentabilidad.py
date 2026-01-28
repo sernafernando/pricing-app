@@ -740,6 +740,9 @@ async def obtener_rentabilidad(
             query = query.filter(MLVentaMetrica.categoria.in_(lista_categorias))
         if lista_subcategorias:
             query = query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
+        
+        # Aplicar filtro de tienda oficial
+        query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
 
         # Aplicar filtro específico del offset (marca, categoría, item, etc.)
         if filtro_valor is True:
