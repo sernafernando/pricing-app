@@ -139,8 +139,8 @@ export default function Admin() {
     try {
       const token = localStorage.getItem('token');
       const endpoint = tipoLimpieza === 'rebate'
-        ? `${API_URL}/productos/limpiar-rebate'
-        : `${API_URL}/productos/limpiar-web-transferencia';
+        ? `${API_URL}/productos/limpiar-rebate`
+        : `${API_URL}/productos/limpiar-web-transferencia`;
 
       const response = await axios.post(
         endpoint,
