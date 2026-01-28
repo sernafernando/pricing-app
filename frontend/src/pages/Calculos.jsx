@@ -2,10 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import '../styles/Calculos.css';
 
-// Detectar si estamos en desarrollo o producción
-const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:8000/api'
-  : 'https://pricing.gaussonline.com.ar/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 const Calculos = () => {
   const [calculos, setCalculos] = useState([]);
@@ -29,7 +26,7 @@ const Calculos = () => {
   const cargarGruposComision = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get('https://pricing.gaussonline.com.ar/api/comisiones/calculadas', {
+      const response = await axios.get(`${API_URL}/comisiones/calculadas', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGruposComision(response.data);
@@ -41,7 +38,7 @@ const Calculos = () => {
   const cargarTipoCambio = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get('https://pricing.gaussonline.com.ar/api/tipo-cambio', {
+      const response = await axios.get(`${API_URL}/tipo-cambio', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setTipoCambio(response.data.tipo_cambio);
@@ -53,7 +50,7 @@ const Calculos = () => {
   const cargarConstantes = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get('https://pricing.gaussonline.com.ar/api/pricing-constants/actual', {
+      const response = await axios.get(`${API_URL}/pricing-constants/actual', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setConstantes(response.data);
@@ -75,7 +72,7 @@ const Calculos = () => {
   const cargarCalculos = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get('https://pricing.gaussonline.com.ar/api/calculos', {
+      const response = await axios.get(`${API_URL}/calculos', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setCalculos(response.data);
@@ -212,7 +209,7 @@ const Calculos = () => {
 
       // Guardar datos básicos
       await axios.put(
-        `https://pricing.gaussonline.com.ar/api/calculos/${calculoEditando}`,
+        `${API_URL}/calculos/${calculoEditando}`,
         {
           descripcion: formData.descripcion,
           ean: formData.ean,
@@ -243,7 +240,7 @@ const Calculos = () => {
     try {
       const token = localStorage.getItem('token');
       await axios.patch(
-        `https://pricing.gaussonline.com.ar/api/calculos/${id}/cantidad`,
+        `${API_URL}/calculos/${id}/cantidad`,
         { cantidad: parseInt(cantidad) || 0 },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -268,7 +265,7 @@ const Calculos = () => {
       const token = localStorage.getItem('token');
       
       const response = await axios.post(
-        'https://pricing.gaussonline.com.ar/api/calculos/calcular-cuotas',
+        `${API_URL}/calculos/calcular-cuotas',
         {
           costo: formData.costo,
           moneda_costo: formData.moneda_costo,
@@ -319,7 +316,7 @@ const Calculos = () => {
 
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`https://pricing.gaussonline.com.ar/api/calculos/${id}`, {
+      await axios.delete(`${API_URL}/calculos/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -357,7 +354,7 @@ const Calculos = () => {
     try {
       const token = localStorage.getItem('token');
       await axios.post(
-        'https://pricing.gaussonline.com.ar/api/calculos/acciones/eliminar-masivo',
+        `${API_URL}/calculos/acciones/eliminar-masivo',
         { calculo_ids: idsAEliminar },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -384,7 +381,7 @@ const Calculos = () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(
-        `${API_BASE_URL}/calculos/exportar/excel?${queryParams}`,
+        `${API_URL}/calculos/exportar/excel?${queryParams}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'

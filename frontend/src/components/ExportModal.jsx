@@ -3,6 +3,8 @@ import axios from 'axios';
 import styles from './ExportModal.module.css';
 import { usePermisos } from '../contexts/PermisosContext';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function ExportModal({ onClose, filtrosActivos, showToast, esTienda = false }) {
   const { tienePermiso } = usePermisos();
 
@@ -214,7 +216,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     const cargarDolarVenta = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await axios.get('https://pricing.gaussonline.com.ar/api/tipo-cambio/actual', {
+        const response = await axios.get(`${API_URL}/tipo-cambio/actual', {
           headers: { Authorization: `Bearer ${token}` }
         });
         setDolarVenta(response.data.venta);
@@ -278,7 +280,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         if (filtrosActivos.filtroTiendaOficial) params += `&tienda_oficial=${filtrosActivos.filtroTiendaOficial}`;
       }
 
-      const url = `https://pricing.gaussonline.com.ar/api/exportar-vista-actual?${params}`;
+      const url = `${API_URL}/exportar-vista-actual?${params}`;
       const response = await axios.get(url, {
         responseType: 'blob',
         headers: { Authorization: `Bearer ${token}` }
@@ -327,7 +329,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       const response = await axios.post(
-        'https://pricing.gaussonline.com.ar/api/productos/exportar-rebate',
+        `${API_URL}/productos/exportar-rebate',
         body,
         {
           headers: { Authorization: `Bearer ${token}` },
@@ -408,7 +410,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/exportar-clasica?${params}`,
+        `${API_URL}/exportar-clasica?${params}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'
@@ -466,7 +468,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/exportar-lista-gremio?${params}`,
+        `${API_URL}/exportar-lista-gremio?${params}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'
@@ -547,7 +549,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/exportar-web-transferencia?${params}`,
+        `${API_URL}/exportar-web-transferencia?${params}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'
@@ -627,7 +629,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       const response = await axios.get(
-        `https://pricing.gaussonline.com.ar/api/exportar-clasica?${params}`,
+        `${API_URL}/exportar-clasica?${params}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'

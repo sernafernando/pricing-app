@@ -3,6 +3,8 @@ import axios from 'axios';
 import { useDebounce } from '../hooks/useDebounce';
 import styles from './Productos.module.css';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const LISTAS = {
   4: "Clásica",
   17: "3 Cuotas",
@@ -36,8 +38,8 @@ export default function PreciosListas() {
       if (filtroStock === 'sin_stock') params.con_stock = false;
 
       const response = await axios.get(
-        'https://pricing.gaussonline.com.ar/api/productos/precios-listas',
-        { 
+        `${API_URL}/productos/precios-listas`,
+        {
           params,
           headers: { Authorization: `Bearer ${token}` }
         }

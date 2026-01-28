@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './CalcularWebModal.module.css'; // Reutilizar el mismo CSS
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, showToast }) {
   const [markupPVPClasica, setMarkupPVPClasica] = useState('15.0');
   const [adicionalCuotas, setAdicionalCuotas] = useState('4.0');
@@ -164,7 +166,7 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
       }
 
       const response = await axios.post(
-        'https://pricing.gaussonline.com.ar/api/productos/calcular-pvp-masivo',
+        `${API_URL}/productos/calcular-pvp-masivo',
         body,
         { headers: { Authorization: `Bearer ${token}` } }
       );

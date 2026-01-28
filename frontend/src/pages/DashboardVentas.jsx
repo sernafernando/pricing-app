@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './DashboardVentas.module.css';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function DashboardVentas() {
   const [ventas, setVentas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,7 +35,7 @@ export default function DashboardVentas() {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(
-        'https://pricing.gaussonline.com.ar/api/ventas-ml',
+        `${API_URL}/ventas-ml',
         {
           params: {
             from_date: fromDate,

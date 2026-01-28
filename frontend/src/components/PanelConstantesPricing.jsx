@@ -3,6 +3,8 @@ import axios from 'axios';
 import './PanelConstantesPricing.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function PanelConstantesPricing() {
   const modalNuevaVersion = useModalClickOutside(() => setMostrarFormNuevaVersion(false));
   const [constanteActual, setConstanteActual] = useState(null);
@@ -38,14 +40,14 @@ export default function PanelConstantesPricing() {
 
       // Cargar constantes actuales
       const actual = await axios.get(
-        'https://pricing.gaussonline.com.ar/api/pricing-constants/actual',
+        `${API_URL}/pricing-constants/actual',
         { headers }
       );
       setConstanteActual(actual.data);
 
       // Cargar todas las versiones
       const todasVersiones = await axios.get(
-        'https://pricing.gaussonline.com.ar/api/pricing-constants',
+        `${API_URL}/pricing-constants',
         { headers }
       );
       setVersiones(todasVersiones.data);
@@ -78,7 +80,7 @@ export default function PanelConstantesPricing() {
       const token = localStorage.getItem('token');
 
       await axios.post(
-        'https://pricing.gaussonline.com.ar/api/pricing-constants',
+        `${API_URL}/pricing-constants',
         nuevaVersion,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -102,7 +104,7 @@ export default function PanelConstantesPricing() {
       const token = localStorage.getItem('token');
 
       await axios.delete(
-        `https://pricing.gaussonline.com.ar/api/pricing-constants/${id}`,
+        `${API_URL}/pricing-constants/${id}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
 

@@ -3,6 +3,8 @@ import axios from 'axios';
 import './PanelComisiones.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function PanelComisiones() {
   const modalNuevaVersion = useModalClickOutside(() => setMostrarFormNuevaVersion(false));
   const modalDetalleVersion = useModalClickOutside(() => setMostrarDetalleVersion(false));
@@ -43,21 +45,21 @@ export default function PanelComisiones() {
 
       // Cargar versión vigente
       const vigente = await axios.get(
-        'https://pricing.gaussonline.com.ar/api/comisiones/vigente',
+        `${API_URL}/comisiones/vigente',
         { headers }
       );
       setVersionActual(vigente.data);
 
       // Cargar comisiones calculadas
       const calculadas = await axios.get(
-        'https://pricing.gaussonline.com.ar/api/comisiones/calculadas',
+        `${API_URL}/comisiones/calculadas',
         { headers }
       );
       setComisionesCalculadas(calculadas.data);
 
       // Cargar todas las versiones
       const todasVersiones = await axios.get(
-        'https://pricing.gaussonline.com.ar/api/comisiones/versiones',
+        `${API_URL}/comisiones/versiones',
         { headers }
       );
       setVersiones(todasVersiones.data);
@@ -170,7 +172,7 @@ export default function PanelComisiones() {
     try {
       const token = localStorage.getItem('token');
       await axios.delete(
-        `https://pricing.gaussonline.com.ar/api/comisiones/version/${version.id}`,
+        `${API_URL}/comisiones/version/${version.id}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           data: { motivo: motivo.trim() }
@@ -211,7 +213,7 @@ export default function PanelComisiones() {
       if (esEdicion) {
         // Actualizar versión existente
         await axios.patch(
-          `https://pricing.gaussonline.com.ar/api/comisiones/version/${versionSeleccionada.id}`,
+          `${API_URL}/comisiones/version/${versionSeleccionada.id}`,
           nuevaVersion,
           { headers: { Authorization: `Bearer ${token}` } }
         );
@@ -219,7 +221,7 @@ export default function PanelComisiones() {
       } else {
         // Crear nueva versión
         await axios.post(
-          'https://pricing.gaussonline.com.ar/api/comisiones/nueva-version',
+          `${API_URL}/comisiones/nueva-version',
           nuevaVersion,
           { headers: { Authorization: `Bearer ${token}` } }
         );

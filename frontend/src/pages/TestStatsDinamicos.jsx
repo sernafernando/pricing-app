@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './Productos.css';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const TestStatsDinamicos = () => {
   const [statsGlobales, setStatsGlobales] = useState(null);
   const [statsDinamicos, setStatsDinamicos] = useState(null);
@@ -9,7 +11,7 @@ const TestStatsDinamicos = () => {
   const [loading, setLoading] = useState(false);
 
   const api = axios.create({
-    baseURL: 'https://pricing.gaussonline.com.ar/api',
+    baseURL: API_URL,
   });
 
   api.interceptors.request.use((config) => {

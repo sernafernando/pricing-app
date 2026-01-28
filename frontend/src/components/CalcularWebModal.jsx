@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import styles from './CalcularWebModal.module.css';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, showToast }) {
   const [porcentajeConPrecio, setPorcentajeConPrecio] = useState('6.0');
   const [porcentajeSinPrecio, setPorcentajeSinPrecio] = useState('10.0');
@@ -176,7 +178,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
       }
 
       const response = await axios.post(
-        'https://pricing.gaussonline.com.ar/api/productos/calcular-web-masivo',
+        `${API_URL}/productos/calcular-web-masivo',
         body,
         { headers: { Authorization: `Bearer ${token}` } }
       );
