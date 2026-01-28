@@ -362,45 +362,28 @@ async def sincronizar_pedidos_local(db: Session = Depends(get_db)):
     
     Este endpoint reemplaza la sincronización vía export_id=80 que incluía pedidos archivados.
     """
-    import subprocess
-    import sys
-    from pathlib import Path
+    from app.scripts.sync_archived_orders import sync_archived_headers, sync_archived_details
     
     logger.info("🔄 Iniciando sincronización de pedidos local...")
     
     try:
-        # Ejecutar script de limpieza de archivados
-        script_path = Path(__file__).parent.parent.parent / "scripts" / "sync_archived_orders.py"
+        # Limpiar headers archivados
+        logger.info("📋 Limpiando headers archivados...")
+        result_headers = sync_archived_headers()
+        headers_borrados = result_headers.get('headers_borrados', 0)
         
-        logger.info(f"📋 Ejecutando script de limpieza: {script_path}")
+        if 'error' in result_headers:
+            logger.error(f"❌ Error en headers: {result_headers['error']}")
+            raise HTTPException(500, f"Error limpiando headers: {result_headers['error']}")
         
-        result = subprocess.run(
-            [sys.executable, str(script_path)],
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
+        # Limpiar details archivados
+        logger.info("📋 Limpiando details archivados...")
+        result_details = sync_archived_details()
+        details_borrados = result_details.get('details_borrados', 0)
         
-        if result.returncode != 0:
-            logger.error(f"❌ Error ejecutando script: {result.stderr}")
-            raise HTTPException(500, f"Error en limpieza de archivados: {result.stderr}")
-        
-        # Parsear output del script para obtener estadísticas
-        output_lines = result.stdout.strip().split('\n')
-        headers_borrados = 0
-        details_borrados = 0
-        
-        for line in output_lines:
-            if "headers borrados" in line.lower():
-                try:
-                    headers_borrados = int(line.split()[0])
-                except:
-                    pass
-            elif "details borrados" in line.lower():
-                try:
-                    details_borrados = int(line.split()[0])
-                except:
-                    pass
+        if 'error' in result_details:
+            logger.error(f"❌ Error en details: {result_details['error']}")
+            raise HTTPException(500, f"Error limpiando details: {result_details['error']}")
         
         logger.info(f"✅ Sincronización completada: {headers_borrados} headers y {details_borrados} details limpiados")
         
@@ -411,9 +394,8 @@ async def sincronizar_pedidos_local(db: Session = Depends(get_db)):
             "detalle": "Los pedidos archivados han sido removidos de las tablas locales"
         }
         
-    except subprocess.TimeoutExpired:
-        logger.error("❌ Timeout en sincronización")
-        raise HTTPException(500, "Timeout en sincronización (>120s)")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ Error inesperado: {e}", exc_info=True)
         raise HTTPException(500, f"Error inesperado: {str(e)}")
