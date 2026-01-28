@@ -123,14 +123,14 @@ export default function TabPedidosExport() {
   }, [soloActivos, soloTN, soloML, soloOtros, soloSinDireccion, userIdFiltro, provinciaFiltro, search]);
 
   const sincronizarPedidos = async () => {
-    if (!confirm('¿Sincronizar pedidos desde el ERP? Puede tardar 1-2 minutos.')) {
+    if (!confirm('¿Sincronizar pedidos desde el ERP y limpiar archivados? Puede tardar 1-2 minutos.')) {
       return;
     }
 
     setSyncing(true);
     try {
       const response = await axios.post(
-        `${API_URL}/pedidos-simple/sincronizar`,
+        `${API_URL}/pedidos-local/sincronizar`,
         {},
         { 
           headers: { Authorization: `Bearer ${getToken()}` },
@@ -138,7 +138,10 @@ export default function TabPedidosExport() {
         }
       );
       
-      alert(`✅ Sincronización OK:\n- Registros obtenidos: ${response.data.registros_obtenidos || 0}`);
+      const headers = response.data.headers_archivados_limpiados || 0;
+      const details = response.data.details_archivados_limpiados || 0;
+      
+      alert(`✅ Sincronización OK:\n- Pedidos archivados limpiados: ${headers}\n- Detalles archivados limpiados: ${details}`);
       
       await cargarPedidos();
       await cargarEstadisticas();
