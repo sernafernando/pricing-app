@@ -1,12 +1,18 @@
 """
-Script para archivar pedidos que ya pasaron a tb_sale_order_header_history.
+Script para limpiar pedidos que pasaron a history.
 
-Cuando un pedido pasa a history en el ERP, significa que ya fue completado/facturado/despachado,
-pero la fila en tb_sale_order_header sigue existiendo con el estado viejo (ej: ssos_id=20).
+EN EL ERP:
+- Cuando un header se archiva → se BORRA de tb_sale_order_header y se MUEVE a tb_sale_order_header_history
+- Cuando un detail se archiva → se BORRA de tb_sale_order_detail y se MUEVE a tb_sale_order_detail_history
+- Un registro NUNCA está en ambas tablas (normal + history) a la vez
 
-Este script:
-1. Busca pedidos que existen en tb_sale_order_header_history
-2. Actualiza su ssos_id en tb_sale_order_header a un estado "archivado"
+EN NUESTRA DB LOCAL:
+- Sincronizamos ambas tablas independientemente
+- Resultado: registros quedan DUPLICADOS
+
+SOLUCIÓN:
+1. Si soh_id está en tb_sale_order_header_history → BORRAR de tb_sale_order_header
+2. Si sod_id está en tb_sale_order_detail_history → BORRAR de tb_sale_order_detail
 
 Ejecutar: python -m app.scripts.sync_archived_orders
 """
@@ -27,121 +33,146 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def sync_archived_orders():
+def sync_archived_headers():
     """
-    Marca como archivados los pedidos que están en tb_sale_order_header_history.
+    Borra headers que están en tb_sale_order_header_history.
     """
     db = SessionLocal()
     
     try:
-        logger.info("🔄 Buscando pedidos archivados en history...")
+        logger.info("🔄 Limpiando headers archivados...")
         
-        # 1. Contar cuántos pedidos tienen diferente estado en header vs último history
+        # Contar cuántos headers duplicados hay
         result = db.execute(text("""
-            WITH ultimo_history AS (
-                SELECT DISTINCT ON (h.soh_id, h.bra_id, h.comp_id)
-                    h.soh_id,
-                    h.bra_id,
-                    h.comp_id,
-                    h.ssos_id as ultimo_ssos_id
-                FROM tb_sale_order_header_history h
-                ORDER BY h.soh_id, h.bra_id, h.comp_id, h.sohh_cd DESC
-            )
-            SELECT COUNT(*)
+            SELECT COUNT(DISTINCT soh.soh_id)
             FROM tb_sale_order_header soh
-            INNER JOIN ultimo_history uh 
-                ON soh.soh_id = uh.soh_id 
-                AND soh.bra_id = uh.bra_id
-                AND soh.comp_id = uh.comp_id
-            WHERE soh.ssos_id != uh.ultimo_ssos_id
+            INNER JOIN tb_sale_order_header_history h
+                ON soh.soh_id = h.soh_id
+                AND soh.bra_id = h.bra_id
+                AND soh.comp_id = h.comp_id
         """))
         
-        total_a_actualizar = result.scalar()
-        logger.info(f"📊 Pedidos desincronizados: {total_a_actualizar}")
+        total_duplicados = result.scalar()
+        logger.info(f"📊 Headers duplicados (están en header Y history): {total_duplicados}")
         
-        if total_a_actualizar == 0:
-            logger.info("✅ Todos los pedidos están sincronizados con history")
-            return {"actualizados": 0}
+        if total_duplicados == 0:
+            logger.info("✅ No hay headers duplicados")
+            return {"headers_borrados": 0}
         
-        # 2. Mostrar algunos ejemplos
+        # Mostrar ejemplos
         result = db.execute(text("""
-            WITH ultimo_history AS (
-                SELECT DISTINCT ON (h.soh_id, h.bra_id, h.comp_id)
-                    h.soh_id,
-                    h.bra_id,
-                    h.comp_id,
-                    h.ssos_id as ultimo_ssos_id,
-                    h.sohh_cd as fecha_historia
-                FROM tb_sale_order_header_history h
-                ORDER BY h.soh_id, h.bra_id, h.comp_id, h.sohh_cd DESC
-            )
             SELECT 
                 soh.soh_id,
-                soh.soh_cd as fecha_creacion,
-                soh.ssos_id as estado_header,
-                uh.ultimo_ssos_id as estado_history,
-                uh.fecha_historia
+                soh.soh_cd,
+                soh.ssos_id,
+                COUNT(DISTINCT h.sohh_id) as registros_history
             FROM tb_sale_order_header soh
-            INNER JOIN ultimo_history uh 
-                ON soh.soh_id = uh.soh_id 
-                AND soh.bra_id = uh.bra_id
-                AND soh.comp_id = uh.comp_id
-            WHERE soh.ssos_id != uh.ultimo_ssos_id
+            INNER JOIN tb_sale_order_header_history h
+                ON soh.soh_id = h.soh_id
+                AND soh.bra_id = h.bra_id
+                AND soh.comp_id = h.comp_id
+            GROUP BY soh.soh_id, soh.soh_cd, soh.ssos_id
             ORDER BY soh.soh_cd ASC
             LIMIT 10
         """))
         
-        logger.info("\n📋 Ejemplos de pedidos desincronizados:")
-        logger.info(f"{'SOH_ID':<10} {'FECHA':<12} {'HEADER':<8} {'HISTORY':<8} {'ÚLTIMA HISTORIA':<20}")
-        logger.info("-" * 70)
+        logger.info("\n📋 Ejemplos de headers a borrar:")
+        logger.info(f"{'SOH_ID':<10} {'FECHA':<12} {'ESTADO':<8} {'REGISTROS_HISTORY':<20}")
+        logger.info("-" * 60)
         for row in result:
-            logger.info(f"{row[0]:<10} {str(row[1])[:10]:<12} {row[2]:<8} {row[3]:<8} {str(row[4]):<20}")
+            logger.info(f"{row[0]:<10} {str(row[1])[:10]:<12} {row[2]:<8} {row[3]:<20}")
         
-        # 3. Actualizar: usar el ÚLTIMO estado del history (más reciente)
-        logger.info("\n🔧 Sincronizando estados desde último registro de history...")
-        
+        # BORRAR headers que están en history
+        logger.info("\n🗑️  Borrando headers duplicados...")
         result = db.execute(text("""
-            WITH ultimo_history AS (
-                SELECT DISTINCT ON (h.soh_id, h.bra_id, h.comp_id)
-                    h.soh_id,
-                    h.bra_id,
-                    h.comp_id,
-                    h.ssos_id as ultimo_ssos_id,
-                    h.sohh_cd as fecha_historia
-                FROM tb_sale_order_header_history h
-                ORDER BY h.soh_id, h.bra_id, h.comp_id, h.sohh_cd DESC
-            )
-            UPDATE tb_sale_order_header soh
-            SET ssos_id = uh.ultimo_ssos_id
-            FROM ultimo_history uh
-            WHERE soh.soh_id = uh.soh_id 
-              AND soh.bra_id = uh.bra_id
-              AND soh.comp_id = uh.comp_id
-              AND soh.ssos_id != uh.ultimo_ssos_id
+            DELETE FROM tb_sale_order_header soh
+            USING tb_sale_order_header_history h
+            WHERE soh.soh_id = h.soh_id
+              AND soh.bra_id = h.bra_id
+              AND soh.comp_id = h.comp_id
         """))
         
-        actualizados = result.rowcount
+        headers_borrados = result.rowcount
         db.commit()
         
-        logger.info(f"✅ Actualizados: {actualizados} pedidos con último estado de history")
+        logger.info(f"✅ Headers borrados: {headers_borrados}")
         
-        return {"actualizados": actualizados}
+        return {"headers_borrados": headers_borrados}
         
     except Exception as e:
         logger.error(f"❌ Error: {e}", exc_info=True)
         db.rollback()
-        return {"archivados": 0, "error": str(e)}
+        return {"headers_borrados": 0, "error": str(e)}
+    finally:
+        db.close()
+
+
+def sync_archived_details():
+    """
+    Borra details que están en tb_sale_order_detail_history.
+    """
+    db = SessionLocal()
+    
+    try:
+        logger.info("\n🔄 Limpiando details archivados...")
+        
+        # Contar cuántos details duplicados hay
+        result = db.execute(text("""
+            SELECT COUNT(*)
+            FROM tb_sale_order_detail sod
+            INNER JOIN tb_sale_order_detail_history h
+                ON sod.sod_id = h.sod_id
+                AND sod.soh_id = h.soh_id
+                AND sod.bra_id = h.bra_id
+                AND sod.comp_id = h.comp_id
+        """))
+        
+        total_duplicados = result.scalar()
+        logger.info(f"📊 Details duplicados (están en detail Y history): {total_duplicados}")
+        
+        if total_duplicados == 0:
+            logger.info("✅ No hay details duplicados")
+            return {"details_borrados": 0}
+        
+        # BORRAR details que están en history
+        logger.info("🗑️  Borrando details duplicados...")
+        result = db.execute(text("""
+            DELETE FROM tb_sale_order_detail sod
+            USING tb_sale_order_detail_history h
+            WHERE sod.sod_id = h.sod_id
+              AND sod.soh_id = h.soh_id
+              AND sod.bra_id = h.bra_id
+              AND sod.comp_id = h.comp_id
+        """))
+        
+        details_borrados = result.rowcount
+        db.commit()
+        
+        logger.info(f"✅ Details borrados: {details_borrados}")
+        
+        return {"details_borrados": details_borrados}
+        
+    except Exception as e:
+        logger.error(f"❌ Error: {e}", exc_info=True)
+        db.rollback()
+        return {"details_borrados": 0, "error": str(e)}
     finally:
         db.close()
 
 
 if __name__ == "__main__":
     logger.info("\n" + "="*70)
-    logger.info("SINCRONIZAR PEDIDOS ARCHIVADOS")
+    logger.info("LIMPIAR REGISTROS ARCHIVADOS (HISTORY)")
     logger.info("="*70 + "\n")
     
-    result = sync_archived_orders()
+    # 1. Limpiar headers
+    result_headers = sync_archived_headers()
+    
+    # 2. Limpiar details
+    result_details = sync_archived_details()
     
     logger.info("\n" + "="*70)
-    logger.info(f"RESULTADO: {result}")
+    logger.info(f"RESULTADO FINAL:")
+    logger.info(f"  - Headers borrados: {result_headers.get('headers_borrados', 0)}")
+    logger.info(f"  - Details borrados: {result_details.get('details_borrados', 0)}")
     logger.info("="*70 + "\n")
