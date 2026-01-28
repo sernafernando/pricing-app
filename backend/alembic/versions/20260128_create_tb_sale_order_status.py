@@ -38,12 +38,18 @@ def upgrade():
     # Crear índice para búsquedas rápidas por categoría
     op.create_index('ix_tb_sale_order_status_category', 'tb_sale_order_status', ['ssos_category'])
     
-    # Insertar datos conocidos (los que nos pasaste)
+    # Insertar datos conocidos
+    # Categorías:
+    # - pendiente_verificacion: Ventas (verificar)
+    # - pendiente_comercial: Ventas (confirmar/aprobar)
+    # - pendiente_deposito: Depósito (armar)
+    # - completado: Facturación
+    # - rma: RMA (sector aparte)
     op.execute("""
         INSERT INTO tb_sale_order_status (ssos_id, ssos_name, ssos_category, ssos_color, ssos_order) VALUES
-        (2, 'Pendiente Web', 'pendiente', '#FFA500', 1),
-        (10, 'En Area Comercial', 'en_proceso', '#808080', 2),
-        (20, 'ForPreparation', 'pendiente', '#FF6B6B', 3),
+        (2, 'Pendiente Web', 'pendiente_comercial', '#FFA500', 1),
+        (10, 'En Area Comercial', 'pendiente_comercial', '#FFC107', 2),
+        (20, 'En Preparación', 'pendiente_deposito', '#FF6B6B', 3),
         (50, 'Ok Para Emisión', 'completado', '#4CAF50', 4),
         (200, 'RMA en Preparación', 'rma', '#9C27B0', 5),
         (201, 'RMA preparado', 'rma', '#7B1FA2', 6)
