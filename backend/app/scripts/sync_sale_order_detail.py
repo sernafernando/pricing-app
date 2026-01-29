@@ -33,7 +33,8 @@ def fetch_sale_order_detail_from_erp(from_date: date = None, to_date: date = Non
     if not from_date:
         from_date = date.today() - timedelta(days=180)
     if not to_date:
-        to_date = date.today()
+        # Sumar 1 día para incluir registros de HOY
+        to_date = date.today() + timedelta(days=1)
 
     params = {
         'strScriptLabel': 'scriptSaleOrderDetail',
