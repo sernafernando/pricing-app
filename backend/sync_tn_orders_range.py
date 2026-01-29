@@ -108,47 +108,47 @@ def sync_tiendanube_orders(from_date_str: str, to_date_str: str):
                         UPDATE tb_tiendanube_orders SET
                             tno_cd = :tno_cd,
                             tn_id = :tn_id,
-                            tno_orderID = :tno_orderID,
-                            "tno_JSon" = :tno_json,
+                            tno_orderid = :tno_orderid,
+                            tno_json = :tno_json,
                             bra_id = :bra_id,
                             soh_id = :soh_id,
                             cust_id = :cust_id,
-                            tno_isCancelled = :tno_isCancelled
+                            tno_iscancelled = :tno_iscancelled
                         WHERE comp_id = :comp_id AND tno_id = :tno_id
                     """), {
                         "comp_id": comp_id,
                         "tno_id": tno_id,
                         "tno_cd": record.get('tno_cd'),
                         "tn_id": record.get('tn_id'),
-                        "tno_orderID": record.get('tno_orderID'),
+                        "tno_orderid": record.get('tno_orderID'),
                         "tno_json": record.get('tno_JSon'),
                         "bra_id": record.get('bra_id'),
                         "soh_id": record.get('soh_id'),
                         "cust_id": record.get('cust_id'),
-                        "tno_isCancelled": record.get('tno_isCancelled', False)
+                        "tno_iscancelled": record.get('tno_isCancelled', False)
                     })
                     actualizados += 1
                 else:
                     # Insertar nuevo
                     db.execute(text("""
                         INSERT INTO tb_tiendanube_orders (
-                            comp_id, tno_id, tno_cd, tn_id, tno_orderID, 
-                            "tno_JSon", bra_id, soh_id, cust_id, tno_isCancelled
+                            comp_id, tno_id, tno_cd, tn_id, tno_orderid, 
+                            tno_json, bra_id, soh_id, cust_id, tno_iscancelled
                         ) VALUES (
-                            :comp_id, :tno_id, :tno_cd, :tn_id, :tno_orderID,
-                            :tno_json, :bra_id, :soh_id, :cust_id, :tno_isCancelled
+                            :comp_id, :tno_id, :tno_cd, :tn_id, :tno_orderid,
+                            :tno_json, :bra_id, :soh_id, :cust_id, :tno_iscancelled
                         )
                     """), {
                         "comp_id": comp_id,
                         "tno_id": tno_id,
                         "tno_cd": record.get('tno_cd'),
                         "tn_id": record.get('tn_id'),
-                        "tno_orderID": record.get('tno_orderID'),
+                        "tno_orderid": record.get('tno_orderID'),
                         "tno_json": record.get('tno_JSon'),
                         "bra_id": record.get('bra_id'),
                         "soh_id": record.get('soh_id'),
                         "cust_id": record.get('cust_id'),
-                        "tno_isCancelled": record.get('tno_isCancelled', False)
+                        "tno_iscancelled": record.get('tno_isCancelled', False)
                     })
                     nuevos += 1
                 
@@ -177,7 +177,7 @@ def sync_tiendanube_orders(from_date_str: str, to_date_str: str):
                 COUNT(*) as total,
                 MIN(tno_cd)::date as mas_viejo,
                 MAX(tno_cd)::date as mas_nuevo,
-                COUNT(*) FILTER (WHERE tno_isCancelled = true) as cancelados
+                COUNT(*) FILTER (WHERE tno_iscancelled = true) as cancelados
             FROM tb_tiendanube_orders
         """))
         row = result.fetchone()
