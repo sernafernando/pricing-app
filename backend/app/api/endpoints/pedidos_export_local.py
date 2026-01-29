@@ -12,6 +12,7 @@ from datetime import datetime
 from app.core.database import get_db
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_detail import SaleOrderDetail
+from app.models.sale_order_times import SaleOrderTimes
 from app.models.tb_customer import TBCustomer
 from app.models.tb_item import TBItem
 from app.models.tb_user import TBUser
@@ -77,6 +78,16 @@ async def obtener_pedidos_local(
     ).outerjoin(
         TBUser,
         SaleOrderHeader.user_id == TBUser.user_id
+    )
+    
+    # EXCLUIR pedidos cerrados (ssot_id = 40 en tb_sale_order_times)
+    # Subquery para obtener soh_ids con ssot_id = 40
+    subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(
+        SaleOrderTimes.ssot_id == 40
+    ).distinct()
+    
+    query = query.filter(
+        ~SaleOrderHeader.soh_id.in_(subquery_cerrados)
     )
     
     # Filtro por estado ERP (opcional)
@@ -270,9 +281,17 @@ async def obtener_estadisticas_local(
     """
     Estadísticas de pedidos en la DB local.
     Si se proporciona ssos_id, filtra por ese estado (ej: 20 para pendientes).
+    EXCLUYE pedidos cerrados (ssot_id = 40 en tb_sale_order_times).
     """
+    # Subquery para excluir pedidos cerrados
+    subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(
+        SaleOrderTimes.ssot_id == 40
+    ).distinct()
+    
     # Base query
-    base_filter = []
+    base_filter = [
+        ~SaleOrderHeader.soh_id.in_(subquery_cerrados)
+    ]
     if ssos_id is not None:
         base_filter.append(SaleOrderHeader.ssos_id == ssos_id)
     
