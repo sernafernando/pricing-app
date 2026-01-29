@@ -50,7 +50,8 @@ def fetch_sale_order_times_from_erp(from_date: date = None, to_date: date = None
     if not from_date:
         from_date = date.today() - timedelta(days=365)
     if not to_date:
-        to_date = date.today()
+        # Sumar 1 día para incluir transacciones creadas HOY
+        to_date = date.today() + timedelta(days=1)
 
     params = {
         'strScriptLabel': 'scriptSaleOrderTimes',
