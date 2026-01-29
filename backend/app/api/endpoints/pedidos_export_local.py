@@ -19,6 +19,7 @@ from app.models.tb_item import TBItem
 from app.models.tb_user import TBUser
 from app.models.tienda_nube_order import TiendaNubeOrder
 from app.api.endpoints.pedidos_export_simple import PedidoDetallado, ItemPedidoDetalle
+from app.services.tienda_nube_order_client import TiendaNubeOrderClient
 
 import logging
 
@@ -213,34 +214,57 @@ async def obtener_pedidos_local(
         
         # Parsear datos de TiendaNube desde JSON si existe
         tn_data = {}
+        tn_json_has_shipping = False
+        
         if tn_json:
             try:
                 tn_parsed = json.loads(tn_json)
                 shipping_addr = tn_parsed.get('shipping_address', {})
-                tn_data = {
-                    'ws_internalid': str(tn_orderid) if tn_orderid else pedido.ws_internalid,
-                    'tiendanube_number': str(tn_parsed.get('number', '')) if tn_parsed.get('number') else pedido.tiendanube_number,
-                    'tiendanube_shipping_address': shipping_addr.get('address', '') if shipping_addr else pedido.tiendanube_shipping_address,
-                    'tiendanube_shipping_city': shipping_addr.get('city', '') if shipping_addr else pedido.tiendanube_shipping_city,
-                    'tiendanube_shipping_province': shipping_addr.get('province', '') if shipping_addr else pedido.tiendanube_shipping_province,
-                    'tiendanube_shipping_zipcode': shipping_addr.get('zipcode', '') if shipping_addr else pedido.tiendanube_shipping_zipcode,
-                    'tiendanube_shipping_phone': shipping_addr.get('phone', '') if shipping_addr else pedido.tiendanube_shipping_phone,
-                    'tiendanube_recipient_name': shipping_addr.get('name', '') if shipping_addr else pedido.tiendanube_recipient_name,
-                }
+                
+                # Verificar si el JSON tiene datos de shipping
+                if shipping_addr and shipping_addr.get('address'):
+                    tn_json_has_shipping = True
+                    tn_data = {
+                        'ws_internalid': str(tn_orderid) if tn_orderid else pedido.ws_internalid,
+                        'tiendanube_number': str(tn_parsed.get('number', '')) if tn_parsed.get('number') else pedido.tiendanube_number,
+                        'tiendanube_shipping_address': shipping_addr.get('address', ''),
+                        'tiendanube_shipping_city': shipping_addr.get('city', ''),
+                        'tiendanube_shipping_province': shipping_addr.get('province', ''),
+                        'tiendanube_shipping_zipcode': shipping_addr.get('zipcode', ''),
+                        'tiendanube_shipping_phone': shipping_addr.get('phone', ''),
+                        'tiendanube_recipient_name': shipping_addr.get('name', ''),
+                    }
             except (json.JSONDecodeError, KeyError, AttributeError) as e:
                 logger.warning(f"Error parsing TN JSON for soh_id {pedido.soh_id}: {e}")
-                tn_data = {
-                    'ws_internalid': str(tn_orderid) if tn_orderid else pedido.ws_internalid,
-                    'tiendanube_number': pedido.tiendanube_number,
-                    'tiendanube_shipping_address': pedido.tiendanube_shipping_address,
-                    'tiendanube_shipping_city': pedido.tiendanube_shipping_city,
-                    'tiendanube_shipping_province': pedido.tiendanube_shipping_province,
-                    'tiendanube_shipping_zipcode': pedido.tiendanube_shipping_zipcode,
-                    'tiendanube_shipping_phone': pedido.tiendanube_shipping_phone,
-                    'tiendanube_recipient_name': pedido.tiendanube_recipient_name,
-                }
-        else:
-            # Si no hay JSON, usar los datos de tb_sale_order_header
+        
+        # Si no hay datos de shipping en el JSON, intentar fallback a API de TN
+        if not tn_json_has_shipping and tn_orderid:
+            logger.info(f"JSON vacío para pedido {pedido.soh_id}, intentando fallback a API TN para order {tn_orderid}")
+            try:
+                tn_client = TiendaNubeOrderClient()
+                tn_api_data = await tn_client.get_order_details(tn_orderid)
+                
+                if tn_api_data:
+                    shipping_addr = tn_api_data.get('shipping_address', {})
+                    if shipping_addr and shipping_addr.get('address'):
+                        logger.info(f"✅ Datos obtenidos desde API TN para order {tn_orderid}")
+                        tn_data = {
+                            'ws_internalid': str(tn_orderid),
+                            'tiendanube_number': str(tn_api_data.get('number', '')),
+                            'tiendanube_shipping_address': shipping_addr.get('address', ''),
+                            'tiendanube_shipping_city': shipping_addr.get('city', ''),
+                            'tiendanube_shipping_province': shipping_addr.get('province', ''),
+                            'tiendanube_shipping_zipcode': shipping_addr.get('zipcode', ''),
+                            'tiendanube_shipping_phone': shipping_addr.get('phone', ''),
+                            'tiendanube_recipient_name': shipping_addr.get('name', ''),
+                        }
+                    else:
+                        logger.warning(f"API TN devolvió datos pero sin shipping address para order {tn_orderid}")
+            except Exception as e:
+                logger.error(f"Error en fallback a API TN para order {tn_orderid}: {e}")
+        
+        # Si aún no hay datos, usar fallback a tb_sale_order_header
+        if not tn_data:
             tn_data = {
                 'ws_internalid': str(tn_orderid) if tn_orderid else pedido.ws_internalid,
                 'tiendanube_number': pedido.tiendanube_number,
