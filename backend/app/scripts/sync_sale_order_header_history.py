@@ -75,6 +75,11 @@ def sync_sale_order_header_history(db: Session, data: list):
             bra_id = record.get('bra_id')
             soh_id = record.get('soh_id')
             sohh_id = record.get('sohh_id')
+            
+            # SKIP registros con sohh_id NULL (datos inválidos del ERP)
+            if sohh_id is None:
+                errores += 1
+                continue
 
             # Buscar registro existente por clave compuesta
             existente = db.query(SaleOrderHeaderHistory).filter(
