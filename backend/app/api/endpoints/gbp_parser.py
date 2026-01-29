@@ -64,7 +64,8 @@ SCRIPT_CONFIG = {
     "scriptState": ["countryID", "stateID"],
     "scriptItemAssociation": ["itemAID", "itemAID4update", "itemID", "item1ID"],
     "scriptTiendaNubeOrders": ["fromDate", "toDate", "tnoID", "tnoIDfrom", "tnoIDto"],
-    "scriptEnvios": ["fromDate", "toDate"]
+    "scriptEnvios": ["fromDate", "toDate"],
+    "scriptSaleOrderTimes": ["fromDate", "toDate", "sohID", "braID", "sotID"]
 }
 
 # Configuración de operaciones
