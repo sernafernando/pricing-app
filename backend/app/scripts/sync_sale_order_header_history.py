@@ -33,7 +33,8 @@ def fetch_sale_order_header_history_from_erp(from_date: date = None, to_date: da
     if not from_date:
         from_date = date.today() - timedelta(days=180)
     if not to_date:
-        to_date = date.today()
+        # Sumar 1 día para incluir registros de HOY
+        to_date = date.today() + timedelta(days=1)
 
     params = {
         'strScriptLabel': 'scriptSaleOrderHeaderHistory',
@@ -75,6 +76,11 @@ def sync_sale_order_header_history(db: Session, data: list):
             bra_id = record.get('bra_id')
             soh_id = record.get('soh_id')
             sohh_id = record.get('sohh_id')
+            
+            # SKIP registros con sohh_id NULL (datos inválidos del ERP)
+            if sohh_id is None:
+                errores += 1
+                continue
 
             # Buscar registro existente por clave compuesta
             existente = db.query(SaleOrderHeaderHistory).filter(

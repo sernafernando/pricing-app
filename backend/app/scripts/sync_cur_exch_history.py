@@ -32,7 +32,8 @@ def fetch_exch_history_from_erp(from_date: date = None, to_date: date = None):
     if not from_date:
         from_date = date.today() - timedelta(days=730)
     if not to_date:
-        to_date = date.today()
+        # Sumar 1 día para incluir registros de HOY
+        to_date = date.today() + timedelta(days=1)
 
     params = {
         'strScriptLabel': 'scriptCurExchHistory',
