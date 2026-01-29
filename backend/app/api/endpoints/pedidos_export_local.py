@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func, text
 from typing import List, Optional
 from datetime import datetime
+import json
 
 from app.core.database import get_db
 from app.models.sale_order_header import SaleOrderHeader
@@ -68,7 +69,9 @@ async def obtener_pedidos_local(
     query = db.query(
         SaleOrderHeader,
         TBCustomer.cust_name.label('nombre_cliente'),
-        TBUser.user_name.label('user_name')
+        TBUser.user_name.label('user_name'),
+        TiendaNubeOrder.tno_orderid.label('tn_orderid'),
+        TiendaNubeOrder.tno_json.label('tn_json')
     ).outerjoin(
         TBCustomer,
         and_(
@@ -78,6 +81,12 @@ async def obtener_pedidos_local(
     ).outerjoin(
         TBUser,
         SaleOrderHeader.user_id == TBUser.user_id
+    ).outerjoin(
+        TiendaNubeOrder,
+        and_(
+            SaleOrderHeader.soh_id == TiendaNubeOrder.soh_id,
+            SaleOrderHeader.bra_id == TiendaNubeOrder.bra_id
+        )
     )
     
     # EXCLUIR pedidos cerrados (ssot_id = 40 en tb_sale_order_times)
@@ -96,12 +105,8 @@ async def obtener_pedidos_local(
     
     # Filtros adicionales
     if solo_tn:
-        query = query.filter(
-            and_(
-                SaleOrderHeader.ws_internalid.isnot(None),
-                SaleOrderHeader.ws_internalid != ''
-            )
-        )
+        # Filtrar por pedidos que tengan registro en tb_tiendanube_orders
+        query = query.filter(TiendaNubeOrder.tno_orderid.isnot(None))
     
     if solo_ml:
         query = query.filter(
@@ -174,7 +179,7 @@ async def obtener_pedidos_local(
     
     # Construir respuesta
     pedidos = []
-    for pedido, nombre_cliente, user_name in resultados:
+    for pedido, nombre_cliente, user_name, tn_orderid, tn_json in resultados:
         # Obtener items del pedido (excluyendo 2953 y 2954)
         items_query = db.query(
             SaleOrderDetail.item_id,
@@ -206,6 +211,47 @@ async def obtener_pedidos_local(
             ))
             total_items += int(cantidad) if cantidad else 0
         
+        # Parsear datos de TiendaNube desde JSON si existe
+        tn_data = {}
+        if tn_json:
+            try:
+                tn_parsed = json.loads(tn_json)
+                shipping_addr = tn_parsed.get('shipping_address', {})
+                tn_data = {
+                    'ws_internalid': str(tn_orderid) if tn_orderid else pedido.ws_internalid,
+                    'tiendanube_number': str(tn_parsed.get('number', '')) if tn_parsed.get('number') else pedido.tiendanube_number,
+                    'tiendanube_shipping_address': shipping_addr.get('address', '') if shipping_addr else pedido.tiendanube_shipping_address,
+                    'tiendanube_shipping_city': shipping_addr.get('city', '') if shipping_addr else pedido.tiendanube_shipping_city,
+                    'tiendanube_shipping_province': shipping_addr.get('province', '') if shipping_addr else pedido.tiendanube_shipping_province,
+                    'tiendanube_shipping_zipcode': shipping_addr.get('zipcode', '') if shipping_addr else pedido.tiendanube_shipping_zipcode,
+                    'tiendanube_shipping_phone': shipping_addr.get('phone', '') if shipping_addr else pedido.tiendanube_shipping_phone,
+                    'tiendanube_recipient_name': shipping_addr.get('name', '') if shipping_addr else pedido.tiendanube_recipient_name,
+                }
+            except (json.JSONDecodeError, KeyError, AttributeError) as e:
+                logger.warning(f"Error parsing TN JSON for soh_id {pedido.soh_id}: {e}")
+                tn_data = {
+                    'ws_internalid': str(tn_orderid) if tn_orderid else pedido.ws_internalid,
+                    'tiendanube_number': pedido.tiendanube_number,
+                    'tiendanube_shipping_address': pedido.tiendanube_shipping_address,
+                    'tiendanube_shipping_city': pedido.tiendanube_shipping_city,
+                    'tiendanube_shipping_province': pedido.tiendanube_shipping_province,
+                    'tiendanube_shipping_zipcode': pedido.tiendanube_shipping_zipcode,
+                    'tiendanube_shipping_phone': pedido.tiendanube_shipping_phone,
+                    'tiendanube_recipient_name': pedido.tiendanube_recipient_name,
+                }
+        else:
+            # Si no hay JSON, usar los datos de tb_sale_order_header
+            tn_data = {
+                'ws_internalid': str(tn_orderid) if tn_orderid else pedido.ws_internalid,
+                'tiendanube_number': pedido.tiendanube_number,
+                'tiendanube_shipping_address': pedido.tiendanube_shipping_address,
+                'tiendanube_shipping_city': pedido.tiendanube_shipping_city,
+                'tiendanube_shipping_province': pedido.tiendanube_shipping_province,
+                'tiendanube_shipping_zipcode': pedido.tiendanube_shipping_zipcode,
+                'tiendanube_shipping_phone': pedido.tiendanube_shipping_phone,
+                'tiendanube_recipient_name': pedido.tiendanube_recipient_name,
+            }
+        
         # Construir pedido detallado
         pedido_dict = {
             # IDs
@@ -233,15 +279,15 @@ async def obtener_pedidos_local(
             'soh_observation1': pedido.soh_observation1,
             'soh_internalannotation': pedido.soh_internalannotation,
             
-            # TiendaNube
-            'ws_internalid': pedido.ws_internalid,
-            'tiendanube_number': pedido.tiendanube_number,
-            'tiendanube_shipping_phone': pedido.tiendanube_shipping_phone,
-            'tiendanube_shipping_address': pedido.tiendanube_shipping_address,
-            'tiendanube_shipping_city': pedido.tiendanube_shipping_city,
-            'tiendanube_shipping_province': pedido.tiendanube_shipping_province,
-            'tiendanube_shipping_zipcode': pedido.tiendanube_shipping_zipcode,
-            'tiendanube_recipient_name': pedido.tiendanube_recipient_name,
+            # TiendaNube (usar datos parseados del JSON)
+            'ws_internalid': tn_data.get('ws_internalid'),
+            'tiendanube_number': tn_data.get('tiendanube_number'),
+            'tiendanube_shipping_phone': tn_data.get('tiendanube_shipping_phone'),
+            'tiendanube_shipping_address': tn_data.get('tiendanube_shipping_address'),
+            'tiendanube_shipping_city': tn_data.get('tiendanube_shipping_city'),
+            'tiendanube_shipping_province': tn_data.get('tiendanube_shipping_province'),
+            'tiendanube_shipping_zipcode': tn_data.get('tiendanube_shipping_zipcode'),
+            'tiendanube_recipient_name': tn_data.get('tiendanube_recipient_name'),
             
             # MercadoLibre
             'soh_mlid': pedido.soh_mlid,
