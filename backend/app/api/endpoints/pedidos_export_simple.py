@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # Schemas
 class ItemPedidoDetalle(BaseModel):
     """Item con descripción"""
-    item_id: int
+    item_id: Optional[int] = None
     cantidad: float
     item_desc: Optional[str] = None
     item_code: Optional[str] = None
