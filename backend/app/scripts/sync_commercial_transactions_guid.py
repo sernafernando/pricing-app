@@ -254,6 +254,12 @@ async def sync_commercial_transactions_guid(
                     'sm_id': parse_int(record.get('sm_id')),
                     'country_id': parse_int(record.get('country_id')),
                     'state_id': parse_int(record.get('state_id')),
+                    
+                    # FIX: Agregar df_id y sd_id que estaban faltando
+                    'df_id': parse_int(record.get('df_id')),
+                    'sd_id': parse_int(record.get('sd_id')),
+                    'dl_id': parse_int(record.get('dl_id')),
+                    'st_id': parse_int(record.get('st_id')),
                 }
                 
                 if existente:
