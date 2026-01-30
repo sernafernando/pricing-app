@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
 import SidebarSection from './SidebarSection';
+import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
 export default function Sidebar() {
@@ -13,6 +14,9 @@ export default function Sidebar() {
   
   // Estado temporal para hover peek
   const [isHovering, setIsHovering] = useState(false);
+  
+  // Estado para expandir/colapsar todos los menús
+  const [expandAll, setExpandAll] = useState(false);
   
   const { tienePermiso, tieneAlgunPermiso } = usePermisos();
   const location = useLocation();
@@ -47,7 +51,7 @@ export default function Sidebar() {
     {
       id: 'productos',
       title: 'Productos',
-      icon: '📦',
+      icon: Package,
       defaultOpen: true,
       items: [
         { label: 'Productos', path: '/productos', permiso: 'productos.ver' },
@@ -60,18 +64,18 @@ export default function Sidebar() {
     {
       id: 'operaciones',
       title: 'Operaciones',
-      icon: '📋',
+      icon: ClipboardList,
       defaultOpen: false,
       items: [
         { label: 'Preparación', path: '/pedidos-preparacion', permiso: 'ordenes.ver_preparacion' },
-        { label: '🏍️ Turbo', path: '/turbo-routing', permiso: 'ordenes.gestionar_turbo_routing' },
+        { label: 'Turbo', path: '/turbo-routing', permiso: 'ordenes.gestionar_turbo_routing' },
         { label: 'Clientes', path: '/clientes', permiso: 'clientes.ver' },
       ],
     },
     {
       id: 'reportes',
       title: 'Reportes',
-      icon: '📊',
+      icon: BarChart3,
       defaultOpen: false,
       items: [
         { label: 'Dashboard Ventas', path: '/dashboard-ventas', permiso: 'ventas_ml.ver_dashboard,ventas_fuera.ver_dashboard,ventas_tn.ver_dashboard', multiple: true },
@@ -85,7 +89,7 @@ export default function Sidebar() {
     {
       id: 'gestion',
       title: 'Gestión',
-      icon: '⚙️',
+      icon: Settings,
       defaultOpen: false,
       items: [
         { label: 'Gestión PMs', path: '/gestion-pm', permiso: 'admin.gestionar_pms' },
@@ -102,15 +106,17 @@ export default function Sidebar() {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* Toggle Pin Button */}
-      <button
-        onClick={togglePin}
-        className={styles.toggleBtn}
-        aria-label={isPinned ? 'Colapsar sidebar' : 'Fijar sidebar expandido'}
-        title={isPinned ? 'Colapsar sidebar' : 'Fijar sidebar expandido'}
-      >
-        {isPinned ? '←' : '📌'}
-      </button>
+      {/* Expand/Collapse All - Arriba */}
+      {isExpanded && (
+        <button
+          onClick={() => setExpandAll(!expandAll)}
+          className={styles.expandAllBtn}
+          aria-label={expandAll ? 'Colapsar todos' : 'Expandir todos'}
+          title={expandAll ? 'Colapsar todos' : 'Expandir todos'}
+        >
+          {expandAll ? <ChevronsUp size={16} /> : <ChevronsDown size={16} />}
+        </button>
+      )}
 
       {/* Navigation */}
       <nav className={styles.nav}>
@@ -137,10 +143,23 @@ export default function Sidebar() {
               defaultOpen={section.defaultOpen}
               isExpanded={isExpanded}
               currentPath={location.pathname}
+              forceOpen={expandAll}
             />
           );
         })}
       </nav>
+
+      {/* Toggle Sidebar - Abajo */}
+      <button
+        onClick={togglePin}
+        className={styles.toggleBtn}
+        aria-label={isPinned ? 'Colapsar sidebar' : 'Expandir sidebar'}
+        title={isPinned ? 'Colapsar sidebar' : 'Expandir sidebar'}
+      >
+        <span style={{ transform: isPinned ? 'none' : 'scaleX(-1)', display: 'flex' }}>
+          <PanelLeftClose size={20} />
+        </span>
+      </button>
     </aside>
   );
 }

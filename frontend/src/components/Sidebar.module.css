@@ -41,18 +41,16 @@
   box-shadow: var(--cf-shadow-sidebar-peek);
 }
 
-/* Toggle Button */
-.toggleBtn {
+/* Expand/Collapse All Button - Arriba */
+.expandAllBtn {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 32px;
-  height: 32px;
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  color: var(--cf-text-secondary);
-  font-size: 14px;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--cf-text-tertiary);
   cursor: pointer;
   transition: all var(--duration-150) var(--ease-in-out);
   display: flex;
@@ -61,22 +59,51 @@
   z-index: 10;
 }
 
+.expandAllBtn:hover {
+  color: var(--cf-text-primary);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.expandAllBtn:active {
+  transform: scale(0.95);
+}
+
+/* Toggle Sidebar Button - Abajo a la izquierda */
+.toggleBtn {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--cf-border-subtle);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-in-out);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 12px;
+  z-index: 10;
+}
+
 .toggleBtn:hover {
-  background: var(--cf-bg-hover);
-  border-color: var(--cf-accent-blue);
+  background: rgba(255, 255, 255, 0.05);
   color: var(--cf-text-primary);
 }
 
 .toggleBtn:active {
-  transform: scale(0.95);
+  transform: scale(0.98);
 }
 
 /* Navigation */
 .nav {
-  padding: 64px 12px 12px; /* Top padding para dejar espacio al toggleBtn */
+  padding: 48px 8px 56px; /* Top padding para expandAll, bottom para toggleBtn */
   display: flex;
   flex-direction: column;
-  gap: var(--cf-sidebar-section-gap);
+  gap: 4px;
 }
 
 /* Responsive - Mobile */

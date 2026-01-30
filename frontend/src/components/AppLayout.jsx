@@ -53,7 +53,7 @@ export default function AppLayout() {
         <TopBar sidebarExpanded={sidebarExpanded} />
         
         {/* Alert Banners - Configurables según necesidad */}
-        <AlertBannerContainer>
+        <AlertBannerContainer sidebarExpanded={sidebarExpanded}>
           {/* Ejemplo de banner informativo para admins */}
           {showAdminBanner && (
             <AlertBanner

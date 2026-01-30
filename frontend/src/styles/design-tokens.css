@@ -153,9 +153,83 @@
   --max-width-full: 100%;
 
   /* ============================================
-     CLOUDFLARE SIDEBAR TOKENS
+     CLOUDFLARE TOKENS - Layout dimensions (theme-independent)
      ============================================ */
   
+  /* Layout dimensions */
+  --cf-sidebar-width-expanded: 240px;
+  --cf-sidebar-width-collapsed: 64px;
+  --cf-topbar-height: 56px;
+  
+  /* Sidebar specific */
+  --cf-sidebar-item-height: 36px;
+  --cf-sidebar-section-gap: 8px;
+  --cf-sidebar-padding: 12px;
+  
+  /* Card spacing - COMPACT */
+  --cf-card-padding-compact: 16px;      /* Mucho más chico que Tesla */
+  --cf-card-padding-default: 20px;      /* Medio */
+  --cf-card-padding-comfortable: 24px;  /* Más espaciado pero sin exagerar */
+  
+  --cf-card-gap: 16px;                  /* Gap entre cards */
+  --cf-card-radius: 8px;                /* Border radius sutil */
+  
+  /* Card header/content separation */
+  --cf-card-header-padding: 16px;
+  --cf-card-content-padding: 16px;
+  
+  /* Compact metrics cards */
+  --cf-metric-card-padding: 16px 20px;
+  --cf-metric-value-size: 28px;         /* Números grandes pero no grotescos */
+  --cf-metric-label-size: 12px;
+  --cf-metric-card-min-height: 100px;   /* Más bajitas */
+  
+  /* Accent - Cloudflare blue (same in both themes) */
+  --cf-accent-blue: #3b82f6;
+  --cf-accent-blue-hover: #60a5fa;
+}
+
+/* ============================================
+   CLOUDFLARE THEME - LIGHT MODE
+   ============================================ */
+:root[data-theme="light"] {
+  /* Backgrounds - White/Light grays */
+  --cf-bg-app: #f9fafb;
+  --cf-bg-sidebar: #ffffff;
+  --cf-bg-card: #ffffff;
+  --cf-bg-hover: #f3f4f6;
+  --cf-bg-topbar: #ffffff;
+  
+  /* Borders */
+  --cf-border-subtle: #e5e7eb;
+  --cf-border-default: #d1d5db;
+  --cf-border-strong: #9ca3af;
+  
+  /* Text - Mayor contraste en light mode */
+  --cf-text-primary: #111827;
+  --cf-text-secondary: #4b5563;
+  --cf-text-tertiary: #6b7280;
+  --cf-text-muted: #9ca3af;
+  
+  /* Accent variations */
+  --cf-accent-blue-light: rgba(59, 130, 246, 0.1);
+  
+  /* Card colors */
+  --cf-card-bg: #ffffff;
+  --cf-card-border: #e5e7eb;
+  --cf-card-hover-bg: #f9fafb;
+  --cf-card-divider: 1px solid #e5e7eb;
+  
+  /* Shadows - sutiles para light mode */
+  --cf-shadow-sidebar-peek: 4px 0 12px rgba(0, 0, 0, 0.1);
+  --cf-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --cf-card-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* ============================================
+   CLOUDFLARE THEME - DARK MODE
+   ============================================ */
+:root[data-theme="dark"] {
   /* Backgrounds - Pure dark Cloudflare style */
   --cf-bg-app: #000000;
   --cf-bg-sidebar: #0a0a0a;
@@ -174,53 +248,17 @@
   --cf-text-tertiary: rgba(255, 255, 255, 0.5);
   --cf-text-muted: rgba(255, 255, 255, 0.4);
   
-  /* Accent - Cloudflare blue */
-  --cf-accent-blue: #3b82f6;
-  --cf-accent-blue-hover: #60a5fa;
+  /* Accent variations */
   --cf-accent-blue-light: rgba(59, 130, 246, 0.1);
   
-  /* Layout dimensions */
-  --cf-sidebar-width-expanded: 240px;
-  --cf-sidebar-width-collapsed: 64px;
-  --cf-topbar-height: 56px;
-  
-  /* Sidebar specific */
-  --cf-sidebar-item-height: 36px;
-  --cf-sidebar-section-gap: 8px;
-  --cf-sidebar-padding: 12px;
-  
-  /* Shadows for overlay mode */
-  --cf-shadow-sidebar-peek: 4px 0 12px rgba(0, 0, 0, 0.5);
-  
-  /* ============================================
-     CLOUDFLARE CARDS - Compact style
-     ============================================ */
-  
-  /* Card backgrounds */
+  /* Card colors */
   --cf-card-bg: #181818;
   --cf-card-border: #2a2a2a;
   --cf-card-hover-bg: #1f1f1f;
+  --cf-card-divider: 1px solid #1a1a1a;
   
-  /* Card spacing - COMPACT */
-  --cf-card-padding-compact: 16px;      /* Mucho más chico que Tesla */
-  --cf-card-padding-default: 20px;      /* Medio */
-  --cf-card-padding-comfortable: 24px;  /* Más espaciado pero sin exagerar */
-  
-  --cf-card-gap: 16px;                  /* Gap entre cards */
-  --cf-card-radius: 8px;                /* Border radius sutil */
-  
-  /* Card header/content separation */
-  --cf-card-header-padding: 16px;
-  --cf-card-content-padding: 16px;
-  --cf-card-divider: 1px solid var(--cf-border-subtle);
-  
-  /* Compact metrics cards */
-  --cf-metric-card-padding: 16px 20px;
-  --cf-metric-value-size: 28px;         /* Números grandes pero no grotescos */
-  --cf-metric-label-size: 12px;
-  --cf-metric-card-min-height: 100px;   /* Más bajitas */
-  
-  /* Shadows - muy sutiles */
+  /* Shadows - profundas para dark mode */
+  --cf-shadow-sidebar-peek: 4px 0 12px rgba(0, 0, 0, 0.5);
   --cf-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   --cf-card-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.4);
 }

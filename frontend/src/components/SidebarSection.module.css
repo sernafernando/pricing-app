@@ -1,18 +1,18 @@
 .section {
-  margin-bottom: var(--cf-sidebar-section-gap);
+  margin-bottom: 4px;
 }
 
 /* Section Header */
 .sectionHeader {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  color: var(--cf-text-tertiary);
-  font-size: var(--font-xs);
+  gap: 8px;
+  padding: 6px 12px;
+  color: var(--cf-text-muted);
+  font-size: 11px;
   font-weight: var(--font-semibold);
   text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
+  letter-spacing: 0.05em;
   cursor: pointer;
   border-radius: var(--radius-md);
   transition: all var(--duration-150) var(--ease-in-out);
@@ -20,15 +20,17 @@
 }
 
 .sectionHeader:hover {
-  background: var(--cf-bg-hover);
+  background: rgba(255, 255, 255, 0.05);
   color: var(--cf-text-secondary);
 }
 
 .icon {
-  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  width: 20px;
-  text-align: center;
+  width: 16px;
+  opacity: 0.6;
 }
 
 .title {
@@ -39,9 +41,12 @@
 }
 
 .arrow {
-  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: transform var(--duration-200) var(--ease-in-out);
   flex-shrink: 0;
+  opacity: 0.5;
 }
 
 .arrowOpen {
@@ -52,36 +57,36 @@
 .sectionItems {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding-left: 44px; /* Indentación para alinear con el título */
-  margin-top: 4px;
+  gap: 1px;
+  padding-left: 28px; /* Indentación más chica */
+  margin-top: 2px;
 }
 
 .item {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 6px 12px;
   color: var(--cf-text-secondary);
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
+  font-size: 13px;
+  font-weight: var(--font-normal);
   text-decoration: none;
-  border-radius: var(--radius-md);
+  border-radius: 6px;
   transition: all var(--duration-150) var(--ease-in-out);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  min-height: var(--cf-sidebar-item-height);
+  min-height: 28px;
 }
 
 .item:hover {
-  background: var(--cf-bg-hover);
+  background: rgba(255, 255, 255, 0.05);
   color: var(--cf-text-primary);
 }
 
 .item.active {
-  background: var(--cf-accent-blue);
-  color: #fff;
-  font-weight: var(--font-semibold);
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--cf-accent-blue);
+  font-weight: var(--font-medium);
 }
 
 .itemLabel {

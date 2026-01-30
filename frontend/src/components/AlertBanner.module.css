@@ -8,14 +8,19 @@
   transition: left var(--duration-200) var(--ease-out);
 }
 
+.container[data-sidebar-expanded="false"] {
+  left: var(--cf-sidebar-width-collapsed);
+}
+
 /* Banner base */
 .banner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 24px;
-  border-bottom: 1px solid transparent;
+  justify-content: center;
+  padding: 10px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   animation: slideDown var(--duration-200) var(--ease-out);
+  font-size: 13px;
 }
 
 @keyframes slideDown {
@@ -38,27 +43,28 @@
 }
 
 .message {
-  color: var(--cf-text-primary);
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 13px;
+  font-weight: var(--font-normal);
 }
 
 /* Action Button */
 .actionBtn {
-  padding: 6px 16px;
-  background: transparent;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-md);
-  color: inherit;
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
+  padding: 4px 12px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: var(--font-medium);
   cursor: pointer;
   transition: all var(--duration-150) var(--ease-in-out);
   white-space: nowrap;
 }
 
 .actionBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 /* Close Button */
@@ -66,20 +72,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   background: transparent;
   border: none;
-  color: currentColor;
-  font-size: 16px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
   transition: all var(--duration-150) var(--ease-in-out);
-  opacity: 0.7;
+  margin-left: 16px;
 }
 
 .closeBtn:hover {
-  opacity: 1;
+  color: rgba(255, 255, 255, 1);
   background: rgba(255, 255, 255, 0.1);
 }
 
@@ -87,11 +93,12 @@
    VARIANTES
    ============================================ */
 
-/* Info - Azul (default) */
+/* Info - Azul (default) - Casi invisible */
 .info {
-  background: linear-gradient(90deg, #1e40af 0%, #1e3a8a 100%);
-  border-bottom-color: #3b82f6;
-  color: #fff;
+  background: rgba(30, 58, 138, 0.15);
+  backdrop-filter: blur(8px);
+  border-bottom-color: rgba(59, 130, 246, 0.1);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 /* Warning - Naranja/Amarillo */
@@ -113,6 +120,44 @@
   background: linear-gradient(90deg, #b91c1c 0%, #991b1b 100%);
   border-bottom-color: #ef4444;
   color: #fff;
+}
+
+/* ============================================
+   LIGHT MODE OVERRIDES
+   ============================================ */
+
+:global([data-theme="light"]) .message {
+  color: rgba(17, 24, 39, 0.95);
+}
+
+:global([data-theme="light"]) .closeBtn {
+  color: rgba(17, 24, 39, 0.6);
+}
+
+:global([data-theme="light"]) .closeBtn:hover {
+  color: rgba(17, 24, 39, 1);
+  background: rgba(17, 24, 39, 0.1);
+}
+
+:global([data-theme="light"]) .actionBtn {
+  background: rgba(17, 24, 39, 0.15);
+  border-color: rgba(17, 24, 39, 0.3);
+  color: #111827;
+}
+
+:global([data-theme="light"]) .actionBtn:hover {
+  background: rgba(17, 24, 39, 0.25);
+  border-color: rgba(17, 24, 39, 0.5);
+}
+
+:global([data-theme="light"]) .banner {
+  border-bottom-color: rgba(17, 24, 39, 0.1);
+}
+
+:global([data-theme="light"]) .info {
+  background: rgba(219, 234, 254, 0.7);
+  backdrop-filter: blur(8px);
+  border-bottom-color: rgba(59, 130, 246, 0.2);
 }
 
 /* ============================================
