@@ -67,19 +67,10 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmlod.mlo_unit_price as monto_unitario,
             tmlod.mlo_unit_price * tmlod.mlo_quantity as monto_total,
 
-            -- Costo: Primero verificar si fecha_venta >= coslis_cd de tb_item_cost_list
-            -- Si es así, usar ese costo. Si no, buscar en histórico.
+            -- Costo: Igual lógica que endpoint /operaciones-con-metricas (CORRECTO)
+            -- PRIMERO histórico, FALLBACK costo actual sin validar fecha
             COALESCE(
-                -- Opción 1: Si fecha_venta >= coslis_cd, usar costo actual
-                (
-                    SELECT ticl.curr_id
-                    FROM tb_item_cost_list ticl
-                    WHERE ticl.item_id = tmlod.item_id
-                      AND ticl.coslis_id = 1
-                      AND ticl.coslis_cd IS NOT NULL
-                      AND tmloh.mlo_cd >= ticl.coslis_cd
-                ),
-                -- Opción 2: Buscar en histórico
+                -- Opción 1: Buscar en histórico el último costo antes/igual a la fecha de venta
                 (
                     SELECT iclh.curr_id
                     FROM tb_item_cost_list_history iclh
@@ -89,7 +80,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                     ORDER BY iclh.iclh_id DESC
                     LIMIT 1
                 ),
-                -- Fallback: costo actual sin verificar fecha
+                -- Fallback: Si no hay histórico, usar costo actual (sin validar fecha)
                 (
                     SELECT ticl.curr_id
                     FROM tb_item_cost_list ticl
@@ -98,29 +89,11 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                 )
             ) as moneda_costo,
 
-            -- Costo sin IVA en PESOS (convierte USD a ARS usando tipo de cambio)
-            -- Lógica: Si fecha_venta >= coslis_cd -> usar tb_item_cost_list
-            --         Si no -> buscar en tb_item_cost_list_history
+            -- Costo sin IVA en PESOS - Igual lógica que endpoint /operaciones-con-metricas
+            -- PRIMERO histórico (iclh_cd <= fecha_venta), FALLBACK costo actual
             -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
             COALESCE(
-                -- Opción 1: Si fecha_venta >= coslis_cd, usar costo actual
-                (
-                    SELECT CASE
-                        WHEN ticl.curr_id = 2 THEN  -- USD
-                            ticl.coslis_price * COALESCE(
-                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                            )
-                        ELSE  -- ARS
-                            ticl.coslis_price
-                    END
-                    FROM tb_item_cost_list ticl
-                    WHERE ticl.item_id = tmlod.item_id
-                      AND ticl.coslis_id = 1
-                      AND ticl.coslis_cd IS NOT NULL
-                      AND tmloh.mlo_cd >= ticl.coslis_cd
-                ),
-                -- Opción 2: Buscar en histórico el último costo antes de la venta
+                -- Opción 1: Buscar en histórico el último costo antes/igual a la fecha de venta
                 (
                     SELECT CASE
                         WHEN iclh.curr_id = 2 THEN  -- USD
@@ -139,7 +112,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                     ORDER BY iclh.iclh_id DESC
                     LIMIT 1
                 ),
-                -- Fallback: costo actual sin verificar fecha
+                -- Fallback: Si no hay histórico, usar costo actual (sin validar fecha)
                 (
                     SELECT CASE
                         WHEN ticl.curr_id = 2 THEN  -- USD
