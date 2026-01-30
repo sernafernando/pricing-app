@@ -139,10 +139,10 @@ export default function DashboardVentasFuera() {
   }, [fechaDesde, fechaHasta]);
 
   useEffect(() => {
-    if (fechaDesde && fechaHasta && tabActivo === 'resumen') {
+    if (fechaDesde && fechaHasta) {
       cargarDashboard();
     }
-  }, [fechaDesde, fechaHasta, tabActivo, cargarDashboard]);
+  }, [fechaDesde, fechaHasta, cargarDashboard]);
 
   const abrirModalCosto = (operacion) => {
     setOperacionEditando(operacion);

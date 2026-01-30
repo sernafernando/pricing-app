@@ -140,10 +140,10 @@ export default function DashboardMetricasML() {
   }, [fechaDesde, fechaHasta, marcaSeleccionada, categoriaSeleccionada, tiendaOficialSeleccionada]);
 
   useEffect(() => {
-    if (fechaDesde && fechaHasta && tabActivo === 'resumen') {
+    if (fechaDesde && fechaHasta) {
       cargarDashboard();
     }
-  }, [fechaDesde, fechaHasta, tabActivo, cargarDashboard]);
+  }, [fechaDesde, fechaHasta, cargarDashboard]);
 
   const formatearMoneda = (monto) => {
     return new Intl.NumberFormat('es-AR', {
