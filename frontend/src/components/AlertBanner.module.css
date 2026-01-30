@@ -1,0 +1,199 @@
+/* Container para múltiples banners */
+.container {
+  position: fixed;
+  top: var(--cf-topbar-height);
+  left: var(--cf-sidebar-width-expanded);
+  right: 0;
+  z-index: calc(var(--z-fixed) - 2);
+  transition: left var(--duration-200) var(--ease-out);
+}
+
+.container[data-sidebar-expanded="false"] {
+  left: var(--cf-sidebar-width-collapsed);
+}
+
+/* Banner base */
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  animation: slideDown var(--duration-200) var(--ease-out);
+  font-size: 13px;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Content */
+.content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
+.message {
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 13px;
+  font-weight: var(--font-normal);
+}
+
+/* Action Button */
+.actionBtn {
+  padding: 4px 12px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-in-out);
+  white-space: nowrap;
+}
+
+.actionBtn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Close Button */
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all var(--duration-150) var(--ease-in-out);
+  margin-left: 16px;
+}
+
+.closeBtn:hover {
+  color: rgba(255, 255, 255, 1);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ============================================
+   VARIANTES
+   ============================================ */
+
+/* Info - Azul (default) - Casi invisible */
+.info {
+  background: rgba(30, 58, 138, 0.15);
+  backdrop-filter: blur(8px);
+  border-bottom-color: rgba(59, 130, 246, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Warning - Naranja/Amarillo */
+.warning {
+  background: linear-gradient(90deg, #c2410c 0%, #b45309 100%);
+  border-bottom-color: #f59e0b;
+  color: #fff;
+}
+
+/* Success - Verde */
+.success {
+  background: linear-gradient(90deg, #15803d 0%, #166534 100%);
+  border-bottom-color: #22c55e;
+  color: #fff;
+}
+
+/* Error - Rojo */
+.error {
+  background: linear-gradient(90deg, #b91c1c 0%, #991b1b 100%);
+  border-bottom-color: #ef4444;
+  color: #fff;
+}
+
+/* ============================================
+   LIGHT MODE OVERRIDES
+   ============================================ */
+
+:global([data-theme="light"]) .message {
+  color: rgba(17, 24, 39, 0.95);
+}
+
+:global([data-theme="light"]) .closeBtn {
+  color: rgba(17, 24, 39, 0.6);
+}
+
+:global([data-theme="light"]) .closeBtn:hover {
+  color: rgba(17, 24, 39, 1);
+  background: rgba(17, 24, 39, 0.1);
+}
+
+:global([data-theme="light"]) .actionBtn {
+  background: rgba(17, 24, 39, 0.15);
+  border-color: rgba(17, 24, 39, 0.3);
+  color: #111827;
+}
+
+:global([data-theme="light"]) .actionBtn:hover {
+  background: rgba(17, 24, 39, 0.25);
+  border-color: rgba(17, 24, 39, 0.5);
+}
+
+:global([data-theme="light"]) .banner {
+  border-bottom-color: rgba(17, 24, 39, 0.1);
+}
+
+:global([data-theme="light"]) .info {
+  background: rgba(219, 234, 254, 0.7);
+  backdrop-filter: blur(8px);
+  border-bottom-color: rgba(59, 130, 246, 0.2);
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+
+@media (max-width: 768px) {
+  .container {
+    left: 0;
+  }
+
+  .banner {
+    padding: 10px 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .message {
+    font-size: var(--font-xs);
+  }
+
+  .actionBtn {
+    width: 100%;
+  }
+
+  .closeBtn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+  }
+}

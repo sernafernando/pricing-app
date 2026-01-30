@@ -1,0 +1,126 @@
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--cf-sidebar-width-collapsed);
+  background: var(--cf-bg-sidebar);
+  border-right: 1px solid var(--cf-border-subtle);
+  transition: width var(--duration-200) var(--ease-out);
+  z-index: var(--z-fixed);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Scrollbar styling para dark mode */
+.sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--cf-border-default);
+  border-radius: 3px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: var(--cf-border-strong);
+}
+
+/* Estado expandido (pinned o hovering) */
+.sidebar[data-expanded="true"] {
+  width: var(--cf-sidebar-width-expanded);
+}
+
+/* Overlay mode cuando está colapsado y en hover */
+.sidebar[data-pinned="false"][data-expanded="true"] {
+  z-index: calc(var(--z-fixed) + 10);
+  box-shadow: var(--cf-shadow-sidebar-peek);
+}
+
+/* Expand/Collapse All Button - Arriba */
+.expandAllBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-in-out);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.expandAllBtn:hover {
+  color: var(--cf-text-primary);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.expandAllBtn:active {
+  transform: scale(0.95);
+}
+
+/* Toggle Sidebar Button - Abajo a la izquierda */
+.toggleBtn {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--cf-border-subtle);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-in-out);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 12px;
+  z-index: 10;
+}
+
+.toggleBtn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--cf-text-primary);
+}
+
+.toggleBtn:active {
+  transform: scale(0.98);
+}
+
+/* Navigation */
+.nav {
+  padding: 48px 8px 56px; /* Top padding para expandAll, bottom para toggleBtn */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Responsive - Mobile */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 0;
+    border-right: none;
+  }
+
+  .sidebar[data-expanded="true"] {
+    width: var(--cf-sidebar-width-expanded);
+    border-right: 1px solid var(--cf-border-subtle);
+    box-shadow: var(--cf-shadow-sidebar-peek);
+  }
+
+  .toggleBtn {
+    /* En mobile, el botón lo manejará el TopBar */
+    display: none;
+  }
+}

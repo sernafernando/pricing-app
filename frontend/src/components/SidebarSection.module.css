@@ -1,0 +1,107 @@
+.section {
+  margin-bottom: 4px;
+}
+
+/* Section Header */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  color: var(--cf-text-muted);
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--duration-150) var(--ease-in-out);
+  user-select: none;
+}
+
+.sectionHeader:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--cf-text-secondary);
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  opacity: 0.6;
+}
+
+.title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--duration-200) var(--ease-in-out);
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.arrowOpen {
+  transform: rotate(90deg);
+}
+
+/* Section Items */
+.sectionItems {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 28px; /* Indentación más chica */
+  margin-top: 2px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  color: var(--cf-text-secondary);
+  font-size: 13px;
+  font-weight: var(--font-normal);
+  text-decoration: none;
+  border-radius: 6px;
+  transition: all var(--duration-150) var(--ease-in-out);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 28px;
+}
+
+.item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--cf-text-primary);
+}
+
+.item.active {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--cf-accent-blue);
+  font-weight: var(--font-medium);
+}
+
+.itemLabel {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Cuando el sidebar está colapsado */
+.sidebar[data-expanded="false"] .sectionItems {
+  padding-left: 0;
+  align-items: center;
+}
+
+.sidebar[data-expanded="false"] .item {
+  justify-content: center;
+  padding: 8px;
+}

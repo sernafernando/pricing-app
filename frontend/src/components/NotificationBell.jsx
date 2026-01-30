@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Bell } from 'lucide-react';
 import styles from './NotificationBell.module.css';
 import axios from 'axios';
 
@@ -119,7 +120,7 @@ export default function NotificationBell() {
         onClick={() => setDropdownOpen(!dropdownOpen)}
         aria-label="Notificaciones"
       >
-        🔔
+        <Bell size={20} strokeWidth={2} />
         {noLeidas > 0 && (
           <span className={styles.badge}>{noLeidas > 99 ? '99+' : noLeidas}</span>
         )}

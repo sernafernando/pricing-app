@@ -1,0 +1,34 @@
+.appLayout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--cf-bg-app);
+}
+
+.mainWrapper {
+  flex: 1;
+  margin-left: var(--cf-sidebar-width-expanded);
+  transition: margin-left var(--duration-200) var(--ease-out);
+  min-width: 0; /* Prevent flex item overflow */
+}
+
+.mainWrapper[data-sidebar-expanded="false"] {
+  margin-left: var(--cf-sidebar-width-collapsed);
+}
+
+.mainContent {
+  margin-top: var(--cf-topbar-height);
+  padding: 24px;
+  min-height: calc(100vh - var(--cf-topbar-height));
+  background: var(--cf-bg-app);
+}
+
+/* Responsive - Mobile */
+@media (max-width: 768px) {
+  .mainWrapper {
+    margin-left: 0;
+  }
+  
+  .mainContent {
+    padding: 16px;
+  }
+}
