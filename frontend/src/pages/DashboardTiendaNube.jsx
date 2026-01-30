@@ -139,13 +139,15 @@ export default function DashboardTiendaNube() {
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
-      if (tabActivo === 'resumen') {
-        cargarDashboard();
-      } else if (tabActivo === 'operaciones') {
-        cargarOperaciones();
-      }
+      cargarDashboard();
     }
-  }, [fechaDesde, fechaHasta, tabActivo, cargarDashboard, cargarOperaciones]);
+  }, [fechaDesde, fechaHasta, cargarDashboard]);
+
+  useEffect(() => {
+    if (fechaDesde && fechaHasta) {
+      cargarOperaciones();
+    }
+  }, [fechaDesde, fechaHasta, cargarOperaciones]);
 
   const cambiarMetodoPago = async (itTransaction, nuevoMetodo) => {
     try {
