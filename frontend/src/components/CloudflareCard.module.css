@@ -1,0 +1,149 @@
+/* Base Card */
+.card {
+  background: var(--cf-card-bg);
+  border: 1px solid var(--cf-card-border);
+  border-radius: var(--cf-card-radius);
+  box-shadow: var(--cf-card-shadow);
+  transition: all var(--duration-150) var(--ease-in-out);
+}
+
+.card.hoverable {
+  cursor: pointer;
+}
+
+.card.hoverable:hover {
+  background: var(--cf-card-hover-bg);
+  border-color: var(--cf-accent-blue);
+  box-shadow: var(--cf-card-shadow-hover);
+}
+
+/* Variant: Default */
+.default {
+  padding: var(--cf-card-padding-default);
+}
+
+/* Variant: Compact */
+.compact {
+  padding: var(--cf-card-padding-compact);
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: var(--cf-card-divider);
+}
+
+.title {
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+.action {
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+}
+
+/* Content */
+.content {
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+}
+
+/* ============================================
+   METRIC CARD - Para dashboards con números
+   ============================================ */
+
+.metric {
+  padding: var(--cf-metric-card-padding);
+  min-height: var(--cf-metric-card-min-height);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metricHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.metricLabel {
+  font-size: var(--cf-metric-label-size);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metricInfo {
+  cursor: help;
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+.metricValue {
+  font-size: var(--cf-metric-value-size);
+  font-weight: var(--font-bold);
+  color: var(--cf-text-primary);
+  line-height: 1.2;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.metricTrend {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.trendUp {
+  color: #22c55e;
+}
+
+.trendDown {
+  color: #ef4444;
+}
+
+.trendNeutral {
+  color: var(--cf-text-tertiary);
+}
+
+.metricChart {
+  margin-top: auto;
+  height: 40px;
+  display: flex;
+  align-items: flex-end;
+}
+
+/* Sparkline básico (si usás SVG o canvas) */
+.metricChart svg,
+.metricChart canvas {
+  width: 100%;
+  height: 100%;
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+
+@media (max-width: 768px) {
+  .metric {
+    min-height: 80px;
+  }
+
+  .metricValue {
+    font-size: 24px;
+  }
+}

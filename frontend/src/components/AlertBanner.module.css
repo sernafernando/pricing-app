@@ -1,0 +1,154 @@
+/* Container para múltiples banners */
+.container {
+  position: fixed;
+  top: var(--cf-topbar-height);
+  left: var(--cf-sidebar-width-expanded);
+  right: 0;
+  z-index: calc(var(--z-fixed) - 2);
+  transition: left var(--duration-200) var(--ease-out);
+}
+
+/* Banner base */
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  border-bottom: 1px solid transparent;
+  animation: slideDown var(--duration-200) var(--ease-out);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Content */
+.content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
+.message {
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+}
+
+/* Action Button */
+.actionBtn {
+  padding: 6px 16px;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-md);
+  color: inherit;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-in-out);
+  white-space: nowrap;
+}
+
+.actionBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Close Button */
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: currentColor;
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--duration-150) var(--ease-in-out);
+  opacity: 0.7;
+}
+
+.closeBtn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ============================================
+   VARIANTES
+   ============================================ */
+
+/* Info - Azul (default) */
+.info {
+  background: linear-gradient(90deg, #1e40af 0%, #1e3a8a 100%);
+  border-bottom-color: #3b82f6;
+  color: #fff;
+}
+
+/* Warning - Naranja/Amarillo */
+.warning {
+  background: linear-gradient(90deg, #c2410c 0%, #b45309 100%);
+  border-bottom-color: #f59e0b;
+  color: #fff;
+}
+
+/* Success - Verde */
+.success {
+  background: linear-gradient(90deg, #15803d 0%, #166534 100%);
+  border-bottom-color: #22c55e;
+  color: #fff;
+}
+
+/* Error - Rojo */
+.error {
+  background: linear-gradient(90deg, #b91c1c 0%, #991b1b 100%);
+  border-bottom-color: #ef4444;
+  color: #fff;
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+
+@media (max-width: 768px) {
+  .container {
+    left: 0;
+  }
+
+  .banner {
+    padding: 10px 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .message {
+    font-size: var(--font-xs);
+  }
+
+  .actionBtn {
+    width: 100%;
+  }
+
+  .closeBtn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+  }
+}

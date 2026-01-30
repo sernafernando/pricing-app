@@ -1,0 +1,102 @@
+.section {
+  margin-bottom: var(--cf-sidebar-section-gap);
+}
+
+/* Section Header */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--duration-150) var(--ease-in-out);
+  user-select: none;
+}
+
+.sectionHeader:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+}
+
+.icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.arrow {
+  font-size: 10px;
+  transition: transform var(--duration-200) var(--ease-in-out);
+  flex-shrink: 0;
+}
+
+.arrowOpen {
+  transform: rotate(90deg);
+}
+
+/* Section Items */
+.sectionItems {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 44px; /* Indentación para alinear con el título */
+  margin-top: 4px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  transition: all var(--duration-150) var(--ease-in-out);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: var(--cf-sidebar-item-height);
+}
+
+.item:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.item.active {
+  background: var(--cf-accent-blue);
+  color: #fff;
+  font-weight: var(--font-semibold);
+}
+
+.itemLabel {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Cuando el sidebar está colapsado */
+.sidebar[data-expanded="false"] .sectionItems {
+  padding-left: 0;
+  align-items: center;
+}
+
+.sidebar[data-expanded="false"] .item {
+  justify-content: center;
+  padding: 8px;
+}

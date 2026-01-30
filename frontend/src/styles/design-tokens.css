@@ -151,6 +151,78 @@
   --max-width-6xl: 72rem;  /* 1152px */
   --max-width-7xl: 80rem;  /* 1280px */
   --max-width-full: 100%;
+
+  /* ============================================
+     CLOUDFLARE SIDEBAR TOKENS
+     ============================================ */
+  
+  /* Backgrounds - Pure dark Cloudflare style */
+  --cf-bg-app: #000000;
+  --cf-bg-sidebar: #0a0a0a;
+  --cf-bg-card: #181818;
+  --cf-bg-hover: #1f1f1f;
+  --cf-bg-topbar: #0a0a0a;
+  
+  /* Borders */
+  --cf-border-subtle: #1a1a1a;
+  --cf-border-default: #2a2a2a;
+  --cf-border-strong: #3a3a3a;
+  
+  /* Text */
+  --cf-text-primary: #ffffff;
+  --cf-text-secondary: rgba(255, 255, 255, 0.7);
+  --cf-text-tertiary: rgba(255, 255, 255, 0.5);
+  --cf-text-muted: rgba(255, 255, 255, 0.4);
+  
+  /* Accent - Cloudflare blue */
+  --cf-accent-blue: #3b82f6;
+  --cf-accent-blue-hover: #60a5fa;
+  --cf-accent-blue-light: rgba(59, 130, 246, 0.1);
+  
+  /* Layout dimensions */
+  --cf-sidebar-width-expanded: 240px;
+  --cf-sidebar-width-collapsed: 64px;
+  --cf-topbar-height: 56px;
+  
+  /* Sidebar specific */
+  --cf-sidebar-item-height: 36px;
+  --cf-sidebar-section-gap: 8px;
+  --cf-sidebar-padding: 12px;
+  
+  /* Shadows for overlay mode */
+  --cf-shadow-sidebar-peek: 4px 0 12px rgba(0, 0, 0, 0.5);
+  
+  /* ============================================
+     CLOUDFLARE CARDS - Compact style
+     ============================================ */
+  
+  /* Card backgrounds */
+  --cf-card-bg: #181818;
+  --cf-card-border: #2a2a2a;
+  --cf-card-hover-bg: #1f1f1f;
+  
+  /* Card spacing - COMPACT */
+  --cf-card-padding-compact: 16px;      /* Mucho más chico que Tesla */
+  --cf-card-padding-default: 20px;      /* Medio */
+  --cf-card-padding-comfortable: 24px;  /* Más espaciado pero sin exagerar */
+  
+  --cf-card-gap: 16px;                  /* Gap entre cards */
+  --cf-card-radius: 8px;                /* Border radius sutil */
+  
+  /* Card header/content separation */
+  --cf-card-header-padding: 16px;
+  --cf-card-content-padding: 16px;
+  --cf-card-divider: 1px solid var(--cf-border-subtle);
+  
+  /* Compact metrics cards */
+  --cf-metric-card-padding: 16px 20px;
+  --cf-metric-value-size: 28px;         /* Números grandes pero no grotescos */
+  --cf-metric-label-size: 12px;
+  --cf-metric-card-min-height: 100px;   /* Más bajitas */
+  
+  /* Shadows - muy sutiles */
+  --cf-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --cf-card-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
 /* ============================================

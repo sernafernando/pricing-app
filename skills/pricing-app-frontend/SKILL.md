@@ -370,6 +370,161 @@ npm run lint
 
 ---
 
+---
+
+## CLOUDFLARE DESIGN SYSTEM
+
+### Sidebar Navigation (Collapsible)
+
+**Components:**
+- `Sidebar.jsx`: Main sidebar with 3 states (expanded/collapsed/hover-peek)
+- `SidebarSection.jsx`: Collapsible section with menu items
+- `TopBar.jsx`: Minimal top header
+- `AppLayout.jsx`: Layout wrapper
+
+**States:**
+1. **Expanded (pinned)**: 240px width, shows icons + text
+2. **Collapsed (pinned)**: 64px width, shows only icons
+3. **Hover-peek (temporary)**: Expands to 240px on hover when collapsed
+
+**Pattern:**
+```jsx
+import Sidebar from '@/components/Sidebar';
+import TopBar from '@/components/TopBar';
+import AppLayout from '@/components/AppLayout';
+
+// En App.jsx o router
+<AppLayout>
+  <Outlet />
+</AppLayout>
+```
+
+**Adding menu items:**
+Edit `Sidebar.jsx` and add to `menuSections` array:
+```jsx
+{
+  id: 'productos',
+  title: 'Productos',
+  icon: '📦',
+  defaultOpen: true,
+  items: [
+    { label: 'Productos', path: '/productos', permiso: 'productos.ver' },
+    // ...
+  ],
+}
+```
+
+---
+
+### CloudflareCard Component
+
+**Variants:**
+- `default`: Standard padding (20px)
+- `compact`: Small padding (16px)
+- `metric`: For dashboard metrics
+
+**Pattern:**
+```jsx
+import CloudflareCard, { MetricCard } from '@/components/CloudflareCard';
+
+// Standard card
+<CloudflareCard 
+  title="Dominios"
+  action={<button>+ Agregar</button>}
+>
+  <p>Content here</p>
+</CloudflareCard>
+
+// Metric card for dashboards
+<MetricCard
+  label="Solicitudes HTTP"
+  value="138,3k"
+  trend="+3.65%"
+  trendDirection="up"
+  chart={<Sparkline data={[...]} />}
+  info="Información adicional"
+/>
+```
+
+**Styling:**
+- Use `var(--cf-card-bg)`, `var(--cf-card-border)`
+- Compact by default (no grotesco padding)
+- Subtle shadows: `var(--cf-card-shadow)`
+
+---
+
+### AlertBanner Component
+
+**Variants:**
+- `info`: Blue background (default)
+- `warning`: Orange background
+- `success`: Green background
+- `error`: Red background
+
+**Pattern:**
+```jsx
+import AlertBanner, { AlertBannerContainer } from '@/components/AlertBanner';
+
+<AlertBannerContainer>
+  <AlertBanner
+    id="unique-banner-id"
+    variant="info"
+    message="Mensaje informativo aquí"
+    action={{
+      label: 'Ver más',
+      onClick: () => navigate('/page')
+    }}
+    dismissible={true}
+  />
+</AlertBannerContainer>
+```
+
+**Features:**
+- Persists dismiss state in localStorage
+- Optional action button
+- Can be non-dismissible with `dismissible={false}`
+- Use `persistent={true}` to ignore localStorage
+
+**NOTE:** AlertBanners will be managed from backend admin panel (dynamic system TBD).
+
+---
+
+### Design Tokens - Cloudflare
+
+**Available tokens:**
+```css
+/* Backgrounds */
+--cf-bg-app: #000000
+--cf-bg-sidebar: #0a0a0a
+--cf-bg-card: #181818
+--cf-bg-hover: #1f1f1f
+
+/* Borders */
+--cf-border-subtle: #1a1a1a
+--cf-border-default: #2a2a2a
+
+/* Text */
+--cf-text-primary: #ffffff
+--cf-text-secondary: rgba(255, 255, 255, 0.7)
+--cf-text-tertiary: rgba(255, 255, 255, 0.5)
+
+/* Accent */
+--cf-accent-blue: #3b82f6
+--cf-accent-blue-hover: #60a5fa
+
+/* Layout */
+--cf-sidebar-width-expanded: 240px
+--cf-sidebar-width-collapsed: 64px
+--cf-topbar-height: 56px
+
+/* Cards */
+--cf-card-padding-compact: 16px
+--cf-card-padding-default: 20px
+--cf-card-radius: 8px
+```
+
+---
+
 ## QA CHECKLIST
 
 - [ ] Components use functional syntax with hooks
@@ -382,6 +537,7 @@ npm run lint
 - [ ] Permissions checked where needed
 - [ ] Alt text on images
 - [ ] Semantic HTML used
+- [ ] Cloudflare components use correct tokens (--cf-*)
 
 ---
 
@@ -394,6 +550,9 @@ npm run lint
 ### Internal
 - [Frontend References](references/README.md) - Links to all internal docs
 - Design tokens: [design-tokens.css](../../frontend/src/styles/design-tokens.css)
+- Cloudflare Sidebar: [Sidebar.jsx](../../frontend/src/components/Sidebar.jsx)
+- Cloudflare Cards: [CloudflareCard.jsx](../../frontend/src/components/CloudflareCard.jsx)
+- Alert Banners: [AlertBanner.jsx](../../frontend/src/components/AlertBanner.jsx)
 - Tesla buttons: [buttons-tesla.css](../../frontend/src/styles/buttons-tesla.css)
 - Tesla modals: [modals-tesla.css](../../frontend/src/styles/modals-tesla.css)
 - Tesla tables: [table-tesla.css](../../frontend/src/styles/table-tesla.css)
