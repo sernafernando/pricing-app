@@ -4289,10 +4289,6 @@ async def obtener_datos_ml_producto(
     from app.models.publicacion_ml import PublicacionML
     from app.models.venta_ml import VentaML
     from app.services.ml_webhook_client import ml_webhook_client
-    from app.models.commercial_transaction import CommercialTransaction
-    from app.models.item_transaction import ItemTransaction
-    from app.models.sale_order_header import SaleOrderHeader
-    from app.models.sale_order_detail import SaleOrderDetail
     from sqlalchemy import text
     from datetime import timedelta, datetime
 
@@ -4387,62 +4383,30 @@ async def obtener_datos_ml_producto(
                     publicaciones_dict[mla]["publication_status"] = None
 
     # Calcular ventas de los últimos 7, 15 y 30 días
-    # Usamos las tablas del ERP: ItemTransaction para facturas, SaleOrderDetail para pedidos pendientes
-    fecha_actual = datetime.now()
+    # Usamos MLVentaMetrica (misma fuente que el dashboard)
+    from app.models.ml_venta_metrica import MLVentaMetrica
+    
+    fecha_actual = datetime.now().date()
     ventas_stats = {}
 
     for dias in [7, 15, 30]:
         fecha_desde = fecha_actual - timedelta(days=dias)
 
-        # Ventas FACTURADAS (ItemTransaction con puco_id IS NULL o != 10, y cust_id IS NOT NULL)
-        ventas_facturadas = db.query(
-            func.coalesce(func.sum(ItemTransaction.it_qty), 0).label('cantidad'),
-            func.coalesce(func.sum(ItemTransaction.it_qty * ItemTransaction.it_price), 0).label('monto')
-        ).join(
-            CommercialTransaction,
-            and_(
-                CommercialTransaction.comp_id == ItemTransaction.comp_id,
-                CommercialTransaction.ct_transaction == ItemTransaction.ct_transaction
-            )
+        # Query usando MLVentaMetrica (misma fuente que dashboard)
+        ventas_ml = db.query(
+            func.count(MLVentaMetrica.id).label('numero_ventas'),
+            func.coalesce(func.sum(MLVentaMetrica.cantidad), 0).label('cantidad_vendida'),
+            func.coalesce(func.sum(MLVentaMetrica.monto_total), 0).label('monto_total')
         ).filter(
-            ItemTransaction.item_id == item_id,
-            or_(
-                ItemTransaction.puco_id.is_(None),  # NULL = ventas
-                ItemTransaction.puco_id != 10  # 10 = compras (excluir)
-            ),
-            CommercialTransaction.cust_id.isnot(None),  # Es venta a cliente (no compra a proveedor)
-            CommercialTransaction.supp_id.is_(None),  # No es compra a proveedor
-            ItemTransaction.it_cd >= fecha_desde,
-            ItemTransaction.it_cd <= fecha_actual
+            MLVentaMetrica.item_id == item_id,
+            MLVentaMetrica.fecha_venta >= fecha_desde,
+            MLVentaMetrica.fecha_venta <= fecha_actual
         ).first()
-
-        # Pedidos CONFIRMADOS pendientes de facturar (SaleOrderDetail con estados de venta confirmada)
-        pedidos_pendientes = db.query(
-            func.coalesce(func.sum(SaleOrderDetail.sod_qty), 0).label('cantidad'),
-            func.coalesce(func.sum(SaleOrderDetail.sod_qty * SaleOrderDetail.sod_price), 0).label('monto')
-        ).join(
-            SaleOrderHeader,
-            and_(
-                SaleOrderHeader.comp_id == SaleOrderDetail.comp_id,
-                SaleOrderHeader.bra_id == SaleOrderDetail.bra_id,
-                SaleOrderHeader.soh_id == SaleOrderDetail.soh_id
-            )
-        ).filter(
-            SaleOrderDetail.item_id == item_id,
-            SaleOrderHeader.cust_id.isnot(None),  # Es venta (no compra)
-            SaleOrderHeader.ssos_id.in_([20, 50]),  # 20: en preparación (confirmado), 50: ok para emisión (listo para facturar)
-            SaleOrderHeader.soh_cd >= fecha_desde,
-            SaleOrderHeader.soh_cd <= fecha_actual
-        ).first()
-
-        # Sumar ambas fuentes
-        cantidad_total = int((ventas_facturadas.cantidad or 0) + (pedidos_pendientes.cantidad or 0))
-        monto_total = float((ventas_facturadas.monto or 0) + (pedidos_pendientes.monto or 0))
 
         ventas_stats[f"ultimos_{dias}_dias"] = {
-            "cantidad_vendida": cantidad_total,
-            "monto_total": monto_total,
-            "numero_ventas": cantidad_total  # Aproximación
+            "cantidad_vendida": int(ventas_ml.cantidad_vendida or 0),
+            "monto_total": float(ventas_ml.monto_total or 0),
+            "numero_ventas": int(ventas_ml.numero_ventas or 0)
         }
 
     return {

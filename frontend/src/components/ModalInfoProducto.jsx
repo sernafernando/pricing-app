@@ -159,7 +159,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                 className={`tab-button ${tabActiva === 'ventas' ? 'active' : ''}`}
                 onClick={() => setTabActiva('ventas')}
               >
-                📊 Ventas
+                📊 Ventas ML
               </button>
             )}
             {puedeVerInfoCompras && detalle.ultimas_compras && detalle.ultimas_compras.length > 0 && (
