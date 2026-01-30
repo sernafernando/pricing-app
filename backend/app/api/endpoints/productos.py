@@ -4385,22 +4385,25 @@ async def obtener_datos_ml_producto(
     # Calcular ventas de los últimos 7, 15 y 30 días
     # Usamos MLVentaMetrica (misma fuente que el dashboard)
     from app.models.ml_venta_metrica import MLVentaMetrica
+    from sqlalchemy import cast, Date
     
     fecha_actual = datetime.now().date()
     ventas_stats = {}
 
     for dias in [7, 15, 30]:
         fecha_desde = fecha_actual - timedelta(days=dias)
+        fecha_hasta_ajustada = fecha_actual + timedelta(days=1)
 
         # Query usando MLVentaMetrica (misma fuente que dashboard)
+        # Usar cast(fecha_venta as Date) para comparar solo fechas (fecha_venta es DateTime)
         ventas_ml = db.query(
             func.count(MLVentaMetrica.id).label('numero_ventas'),
             func.coalesce(func.sum(MLVentaMetrica.cantidad), 0).label('cantidad_vendida'),
             func.coalesce(func.sum(MLVentaMetrica.monto_total), 0).label('monto_total')
         ).filter(
             MLVentaMetrica.item_id == item_id,
-            MLVentaMetrica.fecha_venta >= fecha_desde,
-            MLVentaMetrica.fecha_venta <= fecha_actual
+            cast(MLVentaMetrica.fecha_venta, Date) >= fecha_desde,
+            cast(MLVentaMetrica.fecha_venta, Date) < fecha_hasta_ajustada
         ).first()
 
         ventas_stats[f"ultimos_{dias}_dias"] = {
