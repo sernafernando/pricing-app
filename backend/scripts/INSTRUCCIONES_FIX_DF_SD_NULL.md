@@ -23,24 +23,19 @@ Se ejecutó `/home/mns/scripts/fix_df_id_sd_id_null.sql` que corrigió todas las
 
 ### 2. Fix automático diario (NUEVO - AGREGAR A CRON)
 
-**Script:** `backend/scripts/fix_df_sd_null_daily.sql`
+**Script:** `backend/scripts/fix_df_sd_null_daily.py`
 
 Este script:
 - Se ejecuta **diariamente a las 3:20 AM** (antes de los rebuilds de métricas)
 - Corrige solo los últimos 7 días (eficiente)
 - Aplica el mismo mapeo de `ct_kindof + ct_pointofsale → df_id`
+- Usa Python + SQLAlchemy (consistente con el resto del proyecto)
 
 **Agregar esta línea al crontab:**
 
 ```bash
 # Fix df_id/sd_id NULL - diario a las 3:20 AM (ANTES de rebuilds de métricas)
-20 3 * * * PGPASSWORD='tu_password' psql -h localhost -U gauss -d pricing_db -f /var/www/html/pricing-app/backend/scripts/fix_df_sd_null_daily.sql >> /var/log/pricing-app/fix_df_sd_null.log 2>&1
-```
-
-**O si usás autenticación peer/trust:**
-
-```bash
-20 3 * * * psql -d pricing_db -f /var/www/html/pricing-app/backend/scripts/fix_df_sd_null_daily.sql >> /var/log/pricing-app/fix_df_sd_null.log 2>&1
+20 3 * * * cd /var/www/html/pricing-app/backend && venv/bin/python scripts/fix_df_sd_null_daily.py >> /var/log/pricing-app/fix_df_sd_null.log 2>&1
 ```
 
 ### 3. Orden de ejecución en cron
@@ -89,13 +84,16 @@ Después de agregar el cron, verificar que funciona:
 
 ```bash
 # Ejecutar manualmente el fix
-psql -d pricing_db -f /var/www/html/pricing-app/backend/scripts/fix_df_sd_null_daily.sql
+cd /var/www/html/pricing-app/backend
+venv/bin/python scripts/fix_df_sd_null_daily.py
 
 # Ver log
 tail -f /var/log/pricing-app/fix_df_sd_null.log
 
-# Verificar que no quedan NULL recientes
-psql -d pricing_db -c "
+# Verificar que no quedan NULL recientes (desde Python o SQL)
+# Opción 1: El script ya muestra estadísticas al ejecutarse
+# Opción 2: SQL directo
+sudo -u postgres psql -d pricing_db -c "
 SELECT COUNT(*) FROM tb_commercial_transactions 
 WHERE df_id IS NULL AND ct_date >= CURRENT_DATE - INTERVAL '7 days'
 "
@@ -120,8 +118,14 @@ Para evitar que se sigan creando registros con NULL, investigar:
 
 ## Archivos
 
-- `backend/scripts/fix_df_sd_null_daily.sql` → Fix automático diario (AGREGAR A CRON)
+- `backend/scripts/fix_df_sd_null_daily.py` → Script Python automático (AGREGAR A CRON)
+- `backend/scripts/fix_df_sd_null_daily.sql` → Script SQL (alternativa, NO usar en cron)
 - `backend/scripts/INSTRUCCIONES_FIX_DF_SD_NULL.md` → Este archivo
+
+**Nota:** Se recomienda usar el script Python (`.py`) en lugar del SQL (`.sql`) porque:
+- Es consistente con el resto de los crons del proyecto
+- No requiere configurar credenciales de PostgreSQL
+- Usa las mismas conexiones que el resto de la app
 
 **Archivos temporales usados durante el debug (ya eliminados):**
 - Fix masivo histórico (YA EJECUTADO directamente en el servidor)
