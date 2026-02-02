@@ -285,7 +285,6 @@
 }
 
 .filter-select-compact {
-  padding: 6px 12px;
   border-radius: 6px;
   border: 1px solid var(--border-primary);
   background: var(--bg-secondary);
@@ -294,6 +293,7 @@
   font-size: 13px;
   font-weight: 500;
   height: 32px;
+  box-sizing: border-box;
   transition: all 0.15s;
   min-width: 110px;
 }
@@ -323,9 +323,10 @@
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  padding: 6px 12px;
+  padding: 5px 12px;
   border-radius: 6px;
   height: 32px;
+  box-sizing: border-box;
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   transition: all 0.15s;
@@ -1574,26 +1575,7 @@
   color: var(--text-secondary);
 }
 
-.filter-select-compact {
-  padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  transition: all 0.2s;
-}
 
-.filter-select-compact:hover {
-  border-color: var(--brand-primary);
-}
-
-.filter-select-compact:focus {
-  outline: none;
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
 
 /* Opciones de select */
 .filter-select-modern option,

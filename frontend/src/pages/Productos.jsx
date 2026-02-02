@@ -2552,15 +2552,13 @@ export default function Productos() {
           </button>
 
           {/* Auto-recalcular */}
-          <label className="filter-checkbox-label">
-            <input
-              type="checkbox"
-              checked={recalcularCuotasAuto}
-              onChange={(e) => setRecalcularCuotasAuto(e.target.checked)}
-              className="filter-checkbox"
-            />
-            <span className="filter-checkbox-text">Auto-recalcular</span>
-          </label>
+          <button
+            onClick={() => setRecalcularCuotasAuto(!recalcularCuotasAuto)}
+            className={`btn-tesla outline-subtle-primary sm ${recalcularCuotasAuto ? 'toggle-active' : ''}`}
+            title="Alt+R para toggle"
+          >
+            {recalcularCuotasAuto ? '✓ ' : ''}Auto-recalcular
+          </button>
 
           {/* Separador visual */}
           <div className="filter-separator"></div>
