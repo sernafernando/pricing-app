@@ -713,7 +713,7 @@ export default function Notificaciones() {
                         {grupo.notificacion_reciente.ml_id && (
                           <button
                             onClick={() => abrirEnML(grupo.notificacion_reciente)}
-                            className="btn-tesla primary sm"
+                            className="btn-tesla outline-subtle-primary sm"
                           >
                             🔗 Ver última en ML
                           </button>

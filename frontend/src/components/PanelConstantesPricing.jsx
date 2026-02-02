@@ -138,7 +138,7 @@ export default function PanelConstantesPricing() {
             ✏️ Editar Valores Actuales
           </button>
           <button
-            className="btn-primary"
+            className="btn-tesla outline-subtle-primary"
             onClick={() => {
               copiarDatosActuales();
               setMostrarFormNuevaVersion(true);
@@ -347,7 +347,7 @@ export default function PanelConstantesPricing() {
                 Cancelar
               </button>
               <button
-                className="btn-primary"
+                className="btn-tesla outline-subtle-primary"
                 onClick={handleGuardarNuevaVersion}
                 disabled={cargando}
               >
@@ -387,7 +387,7 @@ export default function PanelConstantesPricing() {
                 <td>
                   {versiones.length > 1 && (
                     <button
-                      className="btn-danger-small"
+                      className="btn-tesla outline-subtle-danger sm"
                       onClick={() => handleEliminarVersion(version.id)}
                       disabled={cargando}
                     >

@@ -264,16 +264,14 @@ export default function Admin() {
 	  	  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
 	  	    <button
 	  	      onClick={() => abrirModalLimpieza('rebate')}
-	  	      className={styles.secondaryButton}
-	  	      style={{ background: '#ef4444', color: 'white', cursor: 'pointer' }}
+	  	      className="btn-tesla outline-subtle-danger sm"
 	  	    >
 	  	      🧹 Limpiar Rebate
 	  	    </button>
 
 	  	    <button
 	  	      onClick={() => abrirModalLimpieza('web-transferencia')}
-	  	      className={styles.secondaryButton}
-	  	      style={{ background: '#f59e0b', color: 'white', cursor: 'pointer' }}
+	  	      className="btn-tesla outline-subtle-warning sm"
 	  	    >
 	  	      🧹 Limpiar Web Transferencia
 	  	    </button>

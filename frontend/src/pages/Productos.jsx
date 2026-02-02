@@ -512,7 +512,7 @@ export default function Productos() {
         const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
 
         if (!enModoEdicion && !hayProductoSeleccionado) {
-          showToast('⚠️ Debes posicionarte sobre un producto para usar este atajo (Enter para activar navegación)', 'error');
+          showToast('Debes posicionarte sobre un producto para usar este atajo (Enter para activar navegación)', 'error');
           return;
         }
 
@@ -536,12 +536,12 @@ export default function Productos() {
         }
 
         if (!producto) {
-          showToast('⚠️ Producto no encontrado', 'error');
+          showToast('Producto no encontrado', 'error');
           return;
         }
 
         if (!producto.codigo) {
-          showToast('⚠️ El producto no tiene código asignado', 'error');
+          showToast('El producto no tiene código asignado', 'error');
           return;
         }
 
@@ -2360,7 +2360,7 @@ export default function Productos() {
         />
 
         <StatCard
-          label="🔍 Sin MLA"
+          label="Sin MLA"
           subItems={[
             {
               label: 'Total:',
@@ -2521,7 +2521,7 @@ export default function Productos() {
 
           <button
             onClick={limpiarTodosFiltros}
-            className="filter-button clear-all"
+            className="btn-tesla outline-subtle-danger sm"
             title="Limpiar todos los filtros"
           >
             Limpiar
@@ -2546,7 +2546,7 @@ export default function Productos() {
             }}
             title="Alt+V para ciclar vistas | Alt+P para ir directo a PVP"
           >
-            {modoVista === 'normal' && '📋 Normal'}
+            {modoVista === 'normal' && 'Normal'}
             {modoVista === 'cuotas' && '📊 Cuotas'}
             {modoVista === 'pvp' && '💰 PVP'}
           </button>
@@ -2559,7 +2559,7 @@ export default function Productos() {
               onChange={(e) => setRecalcularCuotasAuto(e.target.checked)}
               className="filter-checkbox"
             />
-            <span className="filter-checkbox-text">♻️ Auto-recalcular</span>
+            <span className="filter-checkbox-text">Auto-recalcular</span>
           </label>
 
           {/* Separador visual */}
@@ -2568,28 +2568,28 @@ export default function Productos() {
           {/* Botones de Exportar y Calcular */}
           <button
             onClick={() => setMostrarExportModal(true)}
-            className="btn-action export"
+            className="btn-tesla outline-subtle-success sm"
           >
-            <img src={xlsIcon} alt="Excel" />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/></svg>
             Exportar
           </button>
 
           {puedeCalcularWebMasivo && (
           <button
             onClick={() => setMostrarCalcularWebModal(true)}
-            className="btn-action calculate"
+            className="btn-tesla outline-subtle-primary sm"
           >
-            🧮 Calcular Web Transf.
+            Calcular Web Transf.
           </button>
           )}
 
           {puedeCalcularPVPMasivo && (
           <button
             onClick={() => setMostrarCalcularPVPModal(true)}
-            className="btn-action calculate"
+            className="btn-tesla outline-subtle-primary sm"
             title="Calcular precios PVP masivamente (Ctrl+Shift+P)"
           >
-            🔮 Calcular PVP
+            Calcular PVP
           </button>
           )}
         </div>
@@ -2609,7 +2609,7 @@ export default function Productos() {
                         setMarcasSeleccionadas([]);
                         setPage(1);
                       }}
-                      className="btn-clear-all"
+                      className="btn-tesla outline-subtle-danger sm"
                     >
                       Limpiar filtros ({marcasSeleccionadas.length})
                     </button>
@@ -2673,7 +2673,7 @@ export default function Productos() {
                         e.stopPropagation();
                         setSubcategoriasSeleccionadas([]);
                       }}
-                      className="btn-clear-all"
+                      className="btn-tesla outline-subtle-danger sm"
                     >
                       Limpiar
                     </button>
@@ -2822,7 +2822,7 @@ export default function Productos() {
                         setPmsSeleccionados([]);
                         setPage(1);
                       }}
-                      className="btn-clear-all"
+                      className="btn-tesla outline-subtle-danger sm"
                     >
                       Limpiar filtros ({pmsSeleccionados.length})
                     </button>
@@ -2875,7 +2875,7 @@ export default function Productos() {
                       });
                       setPage(1);
                     }}
-                    className="btn-clear-all"
+                    className="btn-tesla outline-subtle-danger sm"
                   >
                     Limpiar Todo
                   </button>
@@ -3024,7 +3024,7 @@ export default function Productos() {
                 setColoresSeleccionados([]);
                 setPage(1);
               }}
-              className="btn-clear-all"
+              className="btn-tesla outline-subtle-danger sm"
             >
               Limpiar Todos
             </button>
@@ -3049,7 +3049,7 @@ export default function Productos() {
                 </div>
 
                 <div className="filter-item">
-                  <label>🏷️ Mejor Oferta</label>
+                  <label>Mejor Oferta</label>
                   <select
                     value={filtroOferta || 'todos'}
                     onChange={(e) => { setFiltroOferta(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
@@ -3082,14 +3082,14 @@ export default function Productos() {
                     className="filter-select-compact"
                   >
                     <option value="todos">Todos</option>
-                    <option value="con_descuento">🏷️ Con Descuento</option>
+                    <option value="con_descuento">Con Descuento</option>
                     <option value="sin_descuento">💵 Sin Descuento</option>
                     <option value="no_publicado">📦 No Publicado</option>
                   </select>
                 </div>
 
                 <div className="filter-item">
-                  <label>🚫 Out of Cards</label>
+                  <label>Out of Cards</label>
                   <select
                     value={filtroOutOfCards || 'todos'}
                     onChange={(e) => { setFiltroOutOfCards(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
@@ -3163,10 +3163,10 @@ export default function Productos() {
 
             {/* Filtros de Estado */}
             <div className="filter-group">
-              <div className="filter-group-title">📋 Filtros de Estado</div>
+              <div className="filter-group-title">Filtros de Estado</div>
               <div className="filter-group-content">
                 <div className="filter-item">
-                  <label>🔍 MercadoLibre</label>
+                  <label>MercadoLibre</label>
                   <select
                     value={filtroMLA || 'todos'}
                     onChange={(e) => { setFiltroMLA(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
@@ -3226,7 +3226,7 @@ export default function Productos() {
 
             {/* Filtros de Color */}
             <div className="filter-group">
-              <div className="filter-group-title">🎨 Marcado por Color</div>
+              <div className="filter-group-title">Marcado por Color</div>
               <div className="filter-group-content color-filter-container">
                 {COLORES_DISPONIBLES.map(c => (
                   <label
@@ -3262,7 +3262,7 @@ export default function Productos() {
                       className="color-checkbox-hidden"
                     />
                     {coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) && <span className="color-checkmark">✓</span>}
-                    {c.id === null && !coloresSeleccionados.includes('sin_color') && <span className="color-checkmark">🚫</span>}
+                    {c.id === null && !coloresSeleccionados.includes('sin_color') && <span className="color-checkmark">✕</span>}
                   </label>
                 ))}
               </div>
@@ -3432,7 +3432,7 @@ export default function Productos() {
                         >
                           {p.catalog_status === 'winning' ? '🏆' :
                            p.catalog_status === 'sharing_first_place' ? '🤝' :
-                           p.catalog_status === 'competing' ? '⚠️' :
+                           p.catalog_status === 'competing' ? '!' :
                            ''}
                         </span>
                       )}
@@ -4062,54 +4062,54 @@ export default function Productos() {
                     )}
 
                     <td className="table-actions">
-                      <div className="table-actions-group">
+                       <div className="table-actions-group">
                         <button
                           onClick={() => {
                             setProductoInfo(p.item_id);
                             setMostrarModalInfo(true);
                           }}
-                          className="icon-button info"
+                          className="btn-tesla outline-subtle-primary icon-only sm"
                           title="Información detallada (Ctrl+I)"
                         >
-                          ℹ️
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
                         </button>
                         {puedeEditar && (
                           <button
                             onClick={() => setProductoSeleccionado(p)}
-                            className="icon-button detail"
+                            className="btn-tesla outline-subtle-primary icon-only sm"
                             title="Ver detalle"
                             aria-label="Ver detalle del producto"
                           >
-                            🔍
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
                           </button>
                         )}
                         <button
                           onClick={() => verAuditoria(p.item_id)}
-                          className="icon-button audit"
+                          className="btn-tesla outline-subtle-primary icon-only sm"
                           title="Ver historial de cambios"
                           aria-label="Ver historial de cambios"
                         >
-                          📋
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
                         </button>
                         {puedeEditar && (
                           <button
                             onClick={() => abrirModalConfig(p)}
-                            className="icon-button config"
+                            className="btn-tesla outline-subtle-primary icon-only sm"
                             title="Configuración de cuotas"
                             aria-label="Configuración de cuotas"
                           >
-                            ⚙️
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94L14.4 2.81c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
                           </button>
                         )}
                         {puedeMarcarColor && (
                         <div style={{ position: 'relative', display: 'inline-block' }}>
                           <button
                             onClick={() => setColorDropdownAbierto(colorDropdownAbierto === p.item_id ? null : p.item_id)}
-                            className="icon-button color"
+                            className="btn-tesla outline-subtle-primary icon-only sm"
                             title="Marcar con color"
                             aria-label="Marcar producto con color"
                           >
-                            🎨
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
                           </button>
                           {colorDropdownAbierto === p.item_id && (
                             <div className="color-dropdown">
@@ -4136,11 +4136,10 @@ export default function Productos() {
                         {['SUPERADMIN', 'ADMIN'].includes(user?.rol) && (
                           <button
                             onClick={() => abrirModalBan(p)}
-                            className="icon-button ban"
+                            className="btn-tesla outline-subtle-danger icon-only sm"
                             title="Agregar a banlist"
-                            style={{ color: 'var(--error)' }}
                           >
-                            🚫
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
                           </button>
                         )}
                       </div>
@@ -4155,7 +4154,7 @@ export default function Productos() {
               <div className="modal-overlay">
                 <div className="modal-content modal-auditoria">
                   <div className="modal-header">
-                    <h2>📋 Historial de Cambios</h2>
+                    <h2>Historial de Cambios</h2>
                     <button onClick={() => setAuditoriaVisible(false)} className="modal-close">
                       Cerrar
                     </button>
@@ -4183,7 +4182,7 @@ export default function Productos() {
                               'activar_rebate': '✅ Activar Rebate',
                               'desactivar_rebate': '❌ Desactivar Rebate',
                               'modificar_porcentaje_rebate': '📊 % Rebate',
-                              'marcar_out_of_cards': '🚫 Out of Cards ON',
+                              'marcar_out_of_cards': 'Out of Cards ON',
                               'desmarcar_out_of_cards': '✅ Out of Cards OFF',
                               'activar_web_transferencia': '✅ Web Transf. ON',
                               'desactivar_web_transferencia': '❌ Web Transf. OFF',
@@ -4371,7 +4370,7 @@ export default function Productos() {
       {mostrarModalBan && productoBan && (
         <div className="modal-ban-overlay">
           <div className="modal-ban-content">
-            <h2 className="modal-ban-title">⚠️ Confirmar Ban</h2>
+            <h2 className="modal-ban-title">Confirmar Ban</h2>
 
             <div className="modal-ban-info">
               <p><strong>Producto:</strong> {productoBan.codigo}</p>
@@ -4467,7 +4466,7 @@ export default function Productos() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className={`shortcuts-header ${modoVista === 'pvp' ? 'config-header-pvp' : ''}`}>
-              <h2>⚙️ Configuración de Cuotas {modoVista === 'pvp' ? 'PVP' : 'Web'}</h2>
+              <h2>Configuración de Cuotas {modoVista === 'pvp' ? 'PVP' : 'Web'}</h2>
               <button onClick={() => setMostrarModalConfig(false)} className="close-btn">✕</button>
             </div>
             <div className="config-modal-content">
@@ -4518,7 +4517,7 @@ export default function Productos() {
                 <button onClick={() => setMostrarModalConfig(false)} className="btn-tesla secondary">
                   Cancelar
                 </button>
-                <button onClick={guardarConfigIndividual} className="btn-tesla primary">
+                <button onClick={guardarConfigIndividual} className="btn-tesla outline-subtle-primary">
                   Guardar
                 </button>
               </div>
@@ -4532,7 +4531,7 @@ export default function Productos() {
         <div className="shortcuts-modal-overlay" onClick={() => setMostrarShortcutsHelp(false)}>
           <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
             <div className="shortcuts-header">
-              <h2>⌨️ Atajos de Teclado</h2>
+              <h2>Atajos de Teclado</h2>
               <button onClick={() => setMostrarShortcutsHelp(false)} className="close-btn">✕</button>
             </div>
             <div className="shortcuts-content">
@@ -4653,7 +4652,7 @@ export default function Productos() {
               </div>
 
               <div className="shortcuts-section">
-                <h3>🔍 Operadores de Búsqueda</h3>
+                <h3>Operadores de Búsqueda</h3>
                 <div className="shortcut-item">
                   <kbd>ean:123456</kbd>
                   <span>Búsqueda exacta por EAN</span>
@@ -4723,7 +4722,7 @@ export default function Productos() {
       {/* Indicador de modo navegación */}
       {modoNavegacion && (
         <div className="navigation-indicator">
-          ⌨️ Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
+          Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
         </div>
       )}
 
