@@ -5399,11 +5399,9 @@ async def exportar_clasica(
         ).filter(
             MercadoLibreItemPublicado.item_id.in_(item_ids),
             MercadoLibreItemPublicado.prli_id.in_(prli_ids_seleccionados),
-            # Publicadas (2) o None (por falta de sync del optval_statusId)
-            or_(
-                MercadoLibreItemPublicado.optval_statusId == 2,
-                MercadoLibreItemPublicado.optval_statusId.is_(None)
-            )
+            # Incluir todas las publicaciones que tienen mlp_id (publicadas, pausadas, etc)
+            # Excluir solo las finalizadas (5) y des-enlazadas (10)
+            MercadoLibreItemPublicado.mlp_id.isnot(None)
         ).all()
 
         # Agrupar MLAs por item_id
