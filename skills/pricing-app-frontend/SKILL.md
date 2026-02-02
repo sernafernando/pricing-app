@@ -491,13 +491,16 @@ import AlertBanner, { AlertBannerContainer } from '@/components/AlertBanner';
 
 ### Design Tokens - Cloudflare
 
-**Available tokens:**
+**Theme-aware tokens (adapt to light/dark mode):**
+
+**Dark Mode** (default):
 ```css
 /* Backgrounds */
 --cf-bg-app: #000000
 --cf-bg-sidebar: #0a0a0a
 --cf-bg-card: #181818
 --cf-bg-hover: #1f1f1f
+--cf-bg-topbar: #0a0a0a
 
 /* Borders */
 --cf-border-subtle: #1a1a1a
@@ -507,8 +510,32 @@ import AlertBanner, { AlertBannerContainer } from '@/components/AlertBanner';
 --cf-text-primary: #ffffff
 --cf-text-secondary: rgba(255, 255, 255, 0.7)
 --cf-text-tertiary: rgba(255, 255, 255, 0.5)
+--cf-text-muted: rgba(255, 255, 255, 0.4)
+```
 
-/* Accent */
+**Light Mode**:
+```css
+/* Backgrounds */
+--cf-bg-app: #f9fafb
+--cf-bg-sidebar: #ffffff
+--cf-bg-card: #ffffff
+--cf-bg-hover: #f3f4f6
+--cf-bg-topbar: #ffffff
+
+/* Borders */
+--cf-border-subtle: #e5e7eb
+--cf-border-default: #d1d5db
+
+/* Text */
+--cf-text-primary: #111827
+--cf-text-secondary: #4b5563
+--cf-text-tertiary: #6b7280
+--cf-text-muted: #9ca3af
+```
+
+**Theme-independent tokens:**
+```css
+/* Accent - Same in both themes */
 --cf-accent-blue: #3b82f6
 --cf-accent-blue-hover: #60a5fa
 
@@ -517,27 +544,97 @@ import AlertBanner, { AlertBannerContainer } from '@/components/AlertBanner';
 --cf-sidebar-width-collapsed: 64px
 --cf-topbar-height: 56px
 
+/* Typography */
+--font-extralight: 200
+--font-light: 300
+--font-normal: 400
+--font-medium: 500
+--font-semibold: 600
+--font-bold: 700
+
 /* Cards */
 --cf-card-padding-compact: 16px
 --cf-card-padding-default: 20px
 --cf-card-radius: 8px
 ```
 
+**Typography Guidelines:**
+- **Section headers (Sidebar)**: font-size 12px, font-weight semibold (600), letter-spacing 0.08em, uppercase
+- **Menu items (Sidebar)**: font-size 13px, font-weight extralight (200), color secondary
+- **Active menu item**: font-weight normal (400), color accent-blue
+- **TopBar elements**: font-weight normal (400), color secondary
+
+---
+
+### Light Mode Support
+
+**Theme Toggle:**
+- ThemeContext provides `theme` and `toggleTheme()`
+- Persisted in localStorage as `data-theme` on `<html>` element
+- All `--cf-*` tokens adapt automatically
+
+**Component Overrides:**
+When tokens alone aren't enough, use `:global([data-theme="light"])` in CSS Modules:
+
+```css
+/* Dark mode (default) */
+.logoIcon {
+  opacity: 1;
+}
+
+/* Light mode override */
+:global([data-theme="light"]) .logoIcon {
+  filter: invert(1) brightness(0); /* White logo → Black logo */
+}
+```
+
+**Common light mode patterns:**
+- **Logo inversion**: `filter: invert(1) brightness(0)` for white→black
+- **Avatar backgrounds**: Use solid colors instead of rgba(255,255,255,0.x)
+- **Alert banners**: Override text/button colors with solid dark colors
+- **Hover states**: Use `rgba(17, 24, 39, 0.1)` instead of `rgba(255, 255, 255, 0.05)`
+
+**Testing checklist:**
+- [ ] Toggle between light/dark multiple times
+- [ ] Check text contrast (WCAG AA minimum)
+- [ ] Verify logo visibility
+- [ ] Test hover states on buttons/links
+- [ ] Check alert banners readability
+
 ---
 
 ## QA CHECKLIST
 
+**Code Quality:**
 - [ ] Components use functional syntax with hooks
 - [ ] No `import React` statements
 - [ ] Proper error handling on API calls
 - [ ] Loading states shown to user
 - [ ] CSS Modules used (no inline styles)
 - [ ] Design tokens used (no hardcoded colors)
-- [ ] Dark mode works (test ThemeContext)
-- [ ] Permissions checked where needed
+- [ ] Cloudflare components use correct tokens (--cf-*)
+
+**Accessibility:**
 - [ ] Alt text on images
 - [ ] Semantic HTML used
-- [ ] Cloudflare components use correct tokens (--cf-*)
+- [ ] ARIA labels on icon-only buttons
+
+**Permissions:**
+- [ ] Permissions checked where needed
+- [ ] ProtectedRoute wraps sensitive pages
+
+**Theme Support:**
+- [ ] Light AND dark mode tested
+- [ ] Text contrast meets WCAG AA
+- [ ] Logo visible in both themes
+- [ ] No hardcoded rgba() colors (use tokens)
+- [ ] Alert banners readable in both themes
+
+**Layout:**
+- [ ] Sidebar collapses/expands correctly
+- [ ] TopBar adjusts to sidebar state
+- [ ] AlertBanner repositions with sidebar
+- [ ] Mobile responsive (test at 768px breakpoint)
 
 ---
 

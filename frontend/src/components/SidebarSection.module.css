@@ -7,12 +7,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 8px 12px;
   color: var(--cf-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: var(--font-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   cursor: pointer;
   border-radius: var(--radius-md);
   transition: all var(--duration-150) var(--ease-in-out);
@@ -68,7 +68,7 @@
   padding: 6px 12px;
   color: var(--cf-text-secondary);
   font-size: 13px;
-  font-weight: var(--font-normal);
+  font-weight: var(--font-extralight);
   text-decoration: none;
   border-radius: 6px;
   transition: all var(--duration-150) var(--ease-in-out);
@@ -86,7 +86,7 @@
 .item.active {
   background: rgba(59, 130, 246, 0.15);
   color: var(--cf-accent-blue);
-  font-weight: var(--font-medium);
+  font-weight: var(--font-normal);
 }
 
 .itemLabel {

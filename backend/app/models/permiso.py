@@ -20,6 +20,7 @@ class CategoriaPermiso(str, enum.Enum):
     ADMINISTRACION = "administracion"
     REPORTES = "reportes"
     CONFIGURACION = "configuracion"
+    ALERTAS = "alertas"
 
 
 class Permiso(Base):
@@ -499,6 +500,26 @@ PERMISOS_SISTEMA = [
         "categoria": CategoriaPermiso.CLIENTES,
         "orden": 81
     },
+
+    # =========================================================================
+    # ALERTAS
+    # =========================================================================
+    {
+        "codigo": "alertas.gestionar",
+        "nombre": "Gestionar alertas",
+        "descripcion": "Crear, editar, activar/desactivar y eliminar alertas del sistema",
+        "categoria": CategoriaPermiso.ALERTAS,
+        "orden": 90,
+        "es_critico": True
+    },
+    {
+        "codigo": "alertas.configurar",
+        "nombre": "Configurar sistema de alertas",
+        "descripcion": "Modificar configuración global de alertas (máximo visibles, etc.)",
+        "categoria": CategoriaPermiso.ALERTAS,
+        "orden": 91,
+        "es_critico": True
+    },
 ]
 
 
@@ -533,6 +554,7 @@ PERMISOS_POR_ROL = {
         "admin.ver_comparacion_listas_ml",
         "produccion.marcar_prearmado",
         "config.*",
+        "alertas.*",
     ],
     "GERENTE": [
         "productos.ver",

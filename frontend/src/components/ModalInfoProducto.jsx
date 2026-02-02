@@ -713,7 +713,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
         </div>
 
         <div className="modal-footer">
-          <button onClick={onClose} className="btn-primary">Cerrar</button>
+          <button onClick={onClose} className="btn-tesla outline-subtle-primary">Cerrar</button>
         </div>
       </div>
     </div>

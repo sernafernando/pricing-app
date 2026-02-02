@@ -276,7 +276,7 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
         )}
 
         <button
-          className={`btn-tesla primary full ${calculando ? 'loading' : ''}`}
+          className={`btn-tesla outline-subtle-primary full ${calculando ? 'loading' : ''}`}
           onClick={calcular}
           disabled={calculando}
           style={{ marginTop: 'var(--spacing-md)' }}

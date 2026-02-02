@@ -13,6 +13,7 @@ import Admin from './pages/Admin';
 import UltimosCambios from './pages/UltimosCambios';
 import PreciosListas from './pages/PreciosListas';
 import GestionPM from './pages/GestionPM';
+import GestionAlertas from './pages/GestionAlertas';
 import Banlist from './pages/Banlist';
 import ItemsSinMLA from './pages/ItemsSinMLA';
 import DashboardVentas from './pages/DashboardVentas';
@@ -110,6 +111,11 @@ function App() {
                 <Route path="/gestion-pm" element={
                   <ProtectedRoute permiso="admin.gestionar_pms">
                     <GestionPM />
+                  </ProtectedRoute>
+                } />
+                <Route path="/gestion/alertas" element={
+                  <ProtectedRoute permiso="alertas.gestionar">
+                    <GestionAlertas />
                   </ProtectedRoute>
                 } />
                 <Route path="/mla-banlist" element={

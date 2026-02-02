@@ -50,6 +50,8 @@
   --font-5xl: 3rem;      /* 48px */
 
   /* Font weights */
+  --font-extralight: 200;
+  --font-light: 300;
   --font-normal: 400;
   --font-medium: 500;
   --font-semibold: 600;

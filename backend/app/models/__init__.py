@@ -38,6 +38,7 @@ from app.models.motoquero import Motoquero
 from app.models.zona_reparto import ZonaReparto
 from app.models.asignacion_turbo import AsignacionTurbo
 from app.models.geocoding_cache import GeocodingCache
+from app.models.alerta import Alerta, AlertaUsuarioDestinatario, AlertaUsuarioEstado, ConfiguracionAlerta
 
 __all__ = [
     "ProductoERP",
@@ -88,5 +89,9 @@ __all__ = [
     "Motoquero",
     "ZonaReparto",
     "AsignacionTurbo",
-    "GeocodingCache"
+    "GeocodingCache",
+    "Alerta",
+    "AlertaUsuarioDestinatario",
+    "AlertaUsuarioEstado",
+    "ConfiguracionAlerta"
 ]

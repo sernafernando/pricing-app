@@ -1,10 +1,23 @@
 import { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
+import axios from 'axios';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import AlertBanner, { AlertBannerContainer } from './AlertBanner';
 import { useAuthStore } from '../store/authStore';
 import styles from './AppLayout.module.css';
+
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL,
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export default function AppLayout() {
   // Sincronizar estado del sidebar para ajustar el layout
@@ -14,6 +27,35 @@ export default function AppLayout() {
   });
 
   const user = useAuthStore((state) => state.user);
+  const [alertasActivas, setAlertasActivas] = useState([]);
+
+  // Cargar alertas activas para el usuario
+  useEffect(() => {
+    if (user) {
+      cargarAlertasActivas();
+      // Refrescar cada 5 minutos
+      const interval = setInterval(cargarAlertasActivas, 300000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
+
+  const cargarAlertasActivas = async () => {
+    try {
+      const response = await api.get('/alertas/activas');
+      setAlertasActivas(response.data);
+    } catch (error) {
+      console.error('Error al cargar alertas activas:', error);
+    }
+  };
+
+  const handleCerrarAlerta = async (alertaId) => {
+    try {
+      await api.post(`/alertas/${alertaId}/cerrar`);
+      setAlertasActivas(prev => prev.filter(a => a.id !== alertaId));
+    } catch (error) {
+      console.error('Error al cerrar alerta:', error);
+    }
+  };
 
   // Escuchar cambios en localStorage para sincronizar
   useEffect(() => {
@@ -39,9 +81,6 @@ export default function AppLayout() {
     };
   }, [sidebarExpanded]);
 
-  // Ejemplo de banners condicionales por rol
-  const showAdminBanner = user?.rol === 'SUPERADMIN' || user?.rol === 'ADMIN';
-
   return (
     <div className={styles.appLayout}>
       <Sidebar />
@@ -52,39 +91,23 @@ export default function AppLayout() {
       >
         <TopBar sidebarExpanded={sidebarExpanded} />
         
-        {/* Alert Banners - Configurables según necesidad */}
+        {/* Alert Banners - Dinámicos desde el backend */}
         <AlertBannerContainer sidebarExpanded={sidebarExpanded}>
-          {/* Ejemplo de banner informativo para admins */}
-          {showAdminBanner && (
+          {alertasActivas.map((alerta) => (
             <AlertBanner
-              id="admin-welcome-2026"
-              variant="info"
-              message="Nueva funcionalidad disponible: Dashboard de métricas mejorado con gráficos en tiempo real."
-              action={{
-                label: 'Ver ahora',
-                onClick: () => window.location.href = '/dashboard-metricas-ml'
-              }}
-              dismissible={true}
+              key={alerta.id}
+              id={`alerta-${alerta.id}`}
+              variant={alerta.variant}
+              message={alerta.mensaje}
+              action={alerta.action_label && alerta.action_url ? {
+                label: alerta.action_label,
+                onClick: () => window.location.href = alerta.action_url
+              } : null}
+              dismissible={alerta.dismissible}
+              persistent={alerta.persistent}
+              onDismiss={() => handleCerrarAlerta(alerta.id)}
             />
-          )}
-          
-          {/* Agregar más banners según necesidad:
-          
-          <AlertBanner
-            id="maintenance-warning"
-            variant="warning"
-            message="Mantenimiento programado para el 15/02 de 2:00 a 4:00 AM."
-            dismissible={true}
-          />
-          
-          <AlertBanner
-            id="critical-error"
-            variant="error"
-            message="Error al sincronizar con MercadoLibre. Contacta a soporte."
-            dismissible={false}
-            persistent={true}
-          />
-          */}
+          ))}
         </AlertBannerContainer>
         
         <main className={styles.mainContent}>
