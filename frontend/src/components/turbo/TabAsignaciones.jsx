@@ -422,7 +422,7 @@ export default function TabAsignaciones() {
                 Cancelar
               </button>
               <button 
-                className="btn-tesla primary"
+                className="btn-tesla outline-subtle-primary"
                 onClick={reasignarEnvio}
                 disabled={reasignando || !nuevoMotoqueroId}
               >

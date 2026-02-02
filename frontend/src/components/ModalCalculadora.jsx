@@ -562,7 +562,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
               <button onClick={onClose} className="btn-secondary">
                 Cerrar
               </button>
-              <button onClick={() => setGuardando(true)} className="btn-primary">
+              <button onClick={() => setGuardando(true)} className="btn-tesla outline-subtle-primary">
                 Guardar
               </button>
             </>
@@ -571,7 +571,7 @@ const ModalCalculadora = ({ isOpen, onClose }) => {
               <button onClick={() => setGuardando(false)} className="btn-secondary">
                 Cancelar
               </button>
-              <button onClick={handleGuardar} className="btn-primary">
+              <button onClick={handleGuardar} className="btn-tesla outline-subtle-primary">
                 Confirmar
               </button>
             </>

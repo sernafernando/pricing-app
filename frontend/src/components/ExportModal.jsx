@@ -298,11 +298,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       document.body.appendChild(link);
       link.click();
       link.remove();
-      showToast('✅ Exportación completada');
+      showToast('Exportación completada');
       onClose();
     } catch (error) {
       console.error('Error exportando:', error);
-      showToast('❌ Error al exportar Vista Actual', 'error');
+      showToast('Error al exportar Vista Actual', 'error');
     } finally {
       setExportando(false);
     }
@@ -346,11 +346,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       document.body.appendChild(link);
       link.click();
       link.remove();
-      showToast('✅ Exportación completada');
+      showToast('Exportación completada');
       onClose();
     } catch (error) {
       console.error('Error exportando:', error);
-      showToast('❌ Error al exportar', 'error');
+      showToast('Error al exportar', 'error');
     } finally {
       setExportando(false);
     }
@@ -434,11 +434,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       document.body.appendChild(link);
       link.click();
       link.remove();
-      showToast('✅ Exportación completada');
+      showToast('Exportación completada');
       onClose();
     } catch (error) {
       console.error('Error exportando:', error);
-      showToast('❌ Error al exportar Clásica', 'error');
+      showToast('Error al exportar Clásica', 'error');
     } finally {
       setExportando(false);
     }
@@ -485,11 +485,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       document.body.appendChild(link);
       link.click();
       link.remove();
-      showToast('✅ Exportación completada');
+      showToast('Exportación completada');
       onClose();
     } catch (error) {
       console.error('Error exportando:', error);
-      showToast('❌ Error al exportar Lista Gremio', 'error');
+      showToast('Error al exportar Lista Gremio', 'error');
     } finally {
       setExportando(false);
     }
@@ -565,11 +565,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       document.body.appendChild(link);
       link.click();
       link.remove();
-      showToast('✅ Exportación completada');
+      showToast('Exportación completada');
       onClose();
     } catch (error) {
       console.error('Error exportando:', error);
-      showToast('❌ Error al exportar Web Transferencia', 'error');
+      showToast('Error al exportar Web Transferencia', 'error');
     } finally {
       setExportando(false);
     }
@@ -653,11 +653,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       document.body.appendChild(link);
       link.click();
       link.remove();
-      showToast('✅ Exportación completada');
+      showToast('Exportación completada');
       onClose();
     } catch (error) {
       console.error('Error exportando:', error);
-      showToast('❌ Error al exportar PVP', 'error');
+      showToast('Error al exportar PVP', 'error');
     } finally {
       setExportando(false);
     }
@@ -667,7 +667,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     <div className={styles.overlay}>
       <div className={styles.modal}>
         <div className={styles.header}>
-          <h2 className={styles.title}>📊 Exportar Precios</h2>
+          <h2 className={styles.title}>Exportar Precios</h2>
           <button onClick={onClose} className={styles.closeButton}>×</button>
         </div>
 
@@ -753,11 +753,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
               </p>
 
               <div className={styles.buttonGroup}>
-                <button onClick={onClose} disabled={exportando} className={`${styles.button} ${styles.buttonSecondary}`}>
+                <button onClick={onClose} disabled={exportando} className="btn-tesla ghost">
                   Cancelar
                 </button>
-                <button onClick={exportarVistaActual} disabled={exportando} className={`${styles.button} ${styles.buttonPrimary}`}>
-                  {exportando ? '⏳ Exportando...' : '📥 Exportar Vista Actual'}
+                <button onClick={exportarVistaActual} disabled={exportando} className="btn-tesla outline-subtle-success">
+                  {exportando ? 'Exportando...' : 'Exportar Vista Actual'}
                 </button>
               </div>
             </div>
@@ -828,11 +828,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
               )}
 
               <div className={styles.buttonGroup}>
-                <button onClick={onClose} disabled={exportando} className={`${styles.button} ${styles.buttonSecondary}`}>
+                <button onClick={onClose} disabled={exportando} className="btn-tesla ghost">
                   Cancelar
                 </button>
-                <button onClick={exportarListaGremio} disabled={exportando} className={`${styles.button} ${styles.buttonPrimary}`}>
-                  {exportando ? '⏳ Exportando...' : '📥 Exportar Lista Gremio'}
+                <button onClick={exportarListaGremio} disabled={exportando} className="btn-tesla outline-subtle-success">
+                  {exportando ? 'Exportando...' : 'Exportar Lista Gremio'}
                 </button>
               </div>
             </div>
@@ -880,11 +880,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
               </div>
 
               <div className={styles.buttonGroup}>
-                <button onClick={onClose} disabled={exportando} className={`${styles.button} ${styles.buttonSecondary}`}>
+                <button onClick={onClose} disabled={exportando} className="btn-tesla ghost">
                   Cancelar
                 </button>
-                <button onClick={exportarRebate} disabled={exportando} className={`${styles.button} ${styles.buttonPrimary}`}>
-                  {exportando ? '⏳ Exportando...' : '📥 Exportar Rebate'}
+                <button onClick={exportarRebate} disabled={exportando} className="btn-tesla outline-subtle-success">
+                  {exportando ? 'Exportando...' : 'Exportar Rebate'}
                 </button>
               </div>
             </div>
@@ -984,11 +984,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
               </div>
 
               <div className={styles.buttonGroup}>
-                <button onClick={onClose} disabled={exportando} className={`${styles.button} ${styles.buttonSecondary}`}>
+                <button onClick={onClose} disabled={exportando} className="btn-tesla ghost">
                   Cancelar
                 </button>
-                <button onClick={exportarWebTransf} disabled={exportando} className={`${styles.button} ${styles.buttonPrimary}`}>
-                  {exportando ? '⏳ Exportando...' : '📥 Exportar Excel'}
+                <button onClick={exportarWebTransf} disabled={exportando} className="btn-tesla outline-subtle-success">
+                  {exportando ? 'Exportando...' : 'Exportar Excel'}
                 </button>
               </div>
             </div>
@@ -1101,11 +1101,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
               </div>
 
               <div className={styles.buttonGroup}>
-                <button onClick={onClose} disabled={exportando} className={`${styles.button} ${styles.buttonSecondary}`}>
+                <button onClick={onClose} disabled={exportando} className="btn-tesla ghost">
                   Cancelar
                 </button>
-                <button onClick={exportarClasica} disabled={exportando} className={`${styles.button} ${styles.buttonPrimary}`}>
-                  {exportando ? '⏳ Exportando...' : '📥 Exportar Excel'}
+                <button onClick={exportarClasica} disabled={exportando} className="btn-tesla outline-subtle-success">
+                  {exportando ? 'Exportando...' : 'Exportar Excel'}
                 </button>
               </div>
             </div>
@@ -1216,11 +1216,11 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
               </div>
 
               <div className={styles.buttonGroup}>
-                <button onClick={onClose} disabled={exportando} className={`${styles.button} ${styles.buttonSecondary}`}>
+                <button onClick={onClose} disabled={exportando} className="btn-tesla ghost">
                   Cancelar
                 </button>
-                <button onClick={exportarPVP} disabled={exportando} className={`${styles.button} ${styles.buttonPrimary}`}>
-                  {exportando ? '⏳ Exportando...' : '📥 Exportar PVP'}
+                <button onClick={exportarPVP} disabled={exportando} className="btn-tesla outline-subtle-success">
+                  {exportando ? 'Exportando...' : 'Exportar PVP'}
                 </button>
               </div>
             </div>

@@ -321,15 +321,7 @@ export default function PanelPermisos() {
                 setMostrarFormUsuario(!mostrarFormUsuario);
                 setFormUsuario({ email: '', nombre: '', password: '', rol_id: roles.find(r => r.codigo === 'VENTAS')?.id });
               }}
-              style={{
-                padding: '6px 12px',
-                background: 'var(--primary)',
-                color: 'var(--text-inverse)',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '13px'
-              }}
+              className="btn-tesla outline-subtle-primary sm"
             >
               + Nuevo Usuario
             </button>
@@ -419,15 +411,8 @@ export default function PanelPermisos() {
                   <button
                     onClick={crearUsuario}
                     disabled={guardando}
-                    style={{
-                      flex: 1,
-                      padding: '8px',
-                      background: 'var(--success)',
-                      color: 'var(--text-inverse)',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer'
-                    }}
+                    className="btn-tesla outline-subtle-success"
+                    style={{ flex: 1 }}
                   >
                     {guardando ? 'Creando...' : 'Crear Usuario'}
                   </button>
@@ -436,14 +421,7 @@ export default function PanelPermisos() {
                       setMostrarFormUsuario(false);
                       setFormUsuario({ email: '', nombre: '', password: '', rol_id: null });
                     }}
-                    style={{
-                      padding: '8px 16px',
-                      background: 'var(--danger)',
-                      color: 'var(--text-inverse)',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer'
-                    }}
+                    className="btn-tesla outline-subtle-danger"
                   >
                     Cancelar
                   </button>
@@ -604,29 +582,13 @@ export default function PanelPermisos() {
                           <button
                             onClick={actualizarUsuario}
                             disabled={guardando}
-                            style={{
-                              padding: '6px 12px',
-                              background: 'var(--success)',
-                              color: 'var(--text-inverse)',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '13px'
-                            }}
+                            className="btn-tesla outline-subtle-success sm"
                           >
                             Guardar
                           </button>
                           <button
                             onClick={() => setEditandoUsuario(null)}
-                            style={{
-                              padding: '6px 12px',
-                              background: 'var(--bg-tertiary)',
-                              color: 'var(--text-primary)',
-                              border: '1px solid var(--border-primary)',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '13px'
-                            }}
+                            className="btn-tesla ghost sm"
                           >
                             Cancelar
                           </button>
@@ -685,30 +647,14 @@ export default function PanelPermisos() {
                       </button>
                       <button
                         onClick={() => setCambiandoPassword(!cambiandoPassword)}
-                        style={{
-                          padding: '6px 12px',
-                          background: 'var(--purple)',
-                          color: 'var(--text-inverse)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '12px'
-                        }}
+                        className="btn-tesla outline-subtle-primary sm"
                       >
                         Password
                       </button>
                       <button
                         onClick={toggleUsuarioActivo}
                         disabled={guardando}
-                        style={{
-                          padding: '6px 12px',
-                          background: usuarioSeleccionado.activo ? 'var(--error-bg)' : 'var(--success-bg)',
-                          color: usuarioSeleccionado.activo ? 'var(--error-text)' : 'var(--success-text)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '12px'
-                        }}
+                        className={`btn-tesla sm ${usuarioSeleccionado.activo ? 'outline-subtle-danger' : 'outline-subtle-success'}`}
                       >
                         {usuarioSeleccionado.activo ? 'Desactivar' : 'Activar'}
                       </button>
@@ -744,14 +690,7 @@ export default function PanelPermisos() {
                     <button
                       onClick={cambiarPassword}
                       disabled={guardando || !nuevaPassword}
-                      style={{
-                        padding: '8px 16px',
-                        background: 'var(--success)',
-                        color: 'var(--text-inverse)',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer'
-                      }}
+                      className="btn-tesla outline-subtle-success"
                     >
                       Cambiar
                     </button>
@@ -760,14 +699,7 @@ export default function PanelPermisos() {
                         setCambiandoPassword(false);
                         setNuevaPassword('');
                       }}
-                      style={{
-                        padding: '8px 12px',
-                        background: 'var(--bg-tertiary)',
-                        color: 'var(--text-primary)',
-                        border: '1px solid var(--border-primary)',
-                        borderRadius: '4px',
-                        cursor: 'pointer'
-                      }}
+                      className="btn-tesla ghost"
                     >
                       Cancelar
                     </button>

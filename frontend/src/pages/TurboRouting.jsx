@@ -663,7 +663,7 @@ function TabEnvios({
           </button>
           
           <button 
-            className="btn-tesla primary"
+            className="btn-tesla outline-subtle-primary"
             onClick={onAsignarAutomatico}
             disabled={asignandoAutomatico}
             title="Asignar automáticamente envíos a motoqueros según zona (point-in-polygon)"
@@ -677,7 +677,7 @@ function TabEnvios({
                 {enviosSeleccionados.size} seleccionados
               </span>
               <button 
-                className="btn-tesla primary"
+                className="btn-tesla outline-subtle-primary"
                 onClick={onAsignar}
               >
                 ➡️ Asignar a Motoquero
@@ -764,7 +764,7 @@ function TabMotoqueros({ motoqueros, search, onSearchChange, onCrear, onEditar, 
         />
         
         <button 
-          className="btn-tesla primary"
+          className="btn-tesla outline-subtle-primary"
           onClick={onCrear}
         >
           ➕ Nuevo Motoquero
@@ -814,7 +814,7 @@ function TabMotoqueros({ motoqueros, search, onSearchChange, onCrear, onEditar, 
                       </button>
                       {moto.activo && (
                         <button 
-                          className="btn-tesla danger"
+                          className="btn-tesla outline-subtle-danger"
                           onClick={() => onDesactivar(moto.id)}
                           title="Desactivar"
                         >
@@ -946,7 +946,7 @@ function ModalAsignacion({
             Cancelar
           </button>
           <button 
-            className="btn-tesla primary"
+            className="btn-tesla outline-subtle-primary"
             onClick={onConfirmar}
             disabled={procesando || !motoqueroSeleccionado}
           >
@@ -1023,7 +1023,7 @@ function ModalMotoquero({ mode, data, onChange, onGuardar, onCancelar, procesand
             Cancelar
           </button>
           <button 
-            className="btn-tesla primary"
+            className="btn-tesla outline-subtle-primary"
             onClick={onGuardar}
             disabled={procesando}
           >

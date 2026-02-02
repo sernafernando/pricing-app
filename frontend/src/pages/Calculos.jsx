@@ -477,10 +477,10 @@ const Calculos = () => {
             </div>
 
             <div className="acciones-right">
-              <button onClick={exportarExcel} className="btn-exportar">
+              <button onClick={exportarExcel} className="btn-tesla outline-subtle-primary">
                 📥 Exportar Excel
               </button>
-              <button onClick={eliminarMasivo} className="btn-eliminar-masivo">
+              <button onClick={eliminarMasivo} className="btn-tesla outline-subtle-danger">
                 🗑 Eliminar
               </button>
             </div>
@@ -724,7 +724,7 @@ const Calculos = () => {
                                 <button
                                   onClick={recalcularCuotasEnEdicion}
                                   disabled={formData.cuotas_loading}
-                                  className="btn-primary"
+                                  className="btn-tesla outline-subtle-primary"
                                   style={{ padding: '4px 12px', fontSize: '13px' }}
                                 >
                                   {formData.cuotas_loading ? '⏳ Calculando...' : '🔄 Recalcular Cuotas'}

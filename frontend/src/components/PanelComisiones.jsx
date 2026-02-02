@@ -252,7 +252,7 @@ export default function PanelComisiones() {
             copiarDatosActuales();
             setMostrarFormNuevaVersion(true);
           }}
-          className="btn-primary"
+          className="btn-tesla outline-subtle-primary"
           disabled={cargando}
         >
           ➕ Nueva Versión
@@ -402,7 +402,7 @@ export default function PanelComisiones() {
               <button onClick={() => setMostrarFormNuevaVersion(false)} className="btn-secondary">
                 Cancelar
               </button>
-              <button onClick={guardarNuevaVersion} className="btn-primary" disabled={cargando}>
+              <button onClick={guardarNuevaVersion} className="btn-tesla outline-subtle-primary" disabled={cargando}>
                 {cargando ? 'Guardando...' : '✓ Guardar Nueva Versión'}
               </button>
             </div>
@@ -497,14 +497,14 @@ export default function PanelComisiones() {
                 <>
                   <button
                     onClick={() => editarVersion(versionSeleccionada)}
-                    className="btn-primary"
+                    className="btn-tesla outline-subtle-primary"
                     disabled={cargando}
                   >
                     ✏️ Editar
                   </button>
                   <button
                     onClick={() => eliminarVersion(versionSeleccionada)}
-                    className="btn-danger"
+                    className="btn-tesla outline-subtle-danger"
                     disabled={cargando}
                   >
                     🗑️ Eliminar

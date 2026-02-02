@@ -45,6 +45,9 @@ env/
 .DS_Store
 Thumbs.db
 
+# Version managers (asdf, mise, rtx)
+.tool-versions
+
 # Environment variables
 .env
 .env.local

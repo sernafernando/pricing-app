@@ -276,19 +276,11 @@ export default function PanelRoles() {
             <h3 style={{ margin: 0 }}>Roles</h3>
             <button
               onClick={() => {
-                setMostrarFormRol(!mostrarFormRol);
+                setMostrarFormRol(true);
                 setEditandoRol(null);
                 setFormRol({ codigo: '', nombre: '', descripcion: '', orden: roles.length });
               }}
-              style={{
-                padding: '6px 12px',
-                background: 'var(--primary)',
-                color: 'var(--text-inverse)',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '13px'
-              }}
+              className="btn-tesla outline-subtle-primary sm"
             >
               + Nuevo Rol
             </button>
@@ -339,15 +331,8 @@ export default function PanelRoles() {
                   <button
                     onClick={editandoRol ? actualizarRol : crearRol}
                     disabled={guardando}
-                    style={{
-                      flex: 1,
-                      padding: '8px',
-                      background: 'var(--success)',
-                      color: 'var(--text-inverse)',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer'
-                    }}
+                    className="btn-tesla outline-subtle-success"
+                    style={{ flex: 1 }}
                   >
                     {guardando ? 'Guardando...' : (editandoRol ? 'Actualizar' : 'Crear')}
                   </button>
@@ -357,14 +342,7 @@ export default function PanelRoles() {
                       setEditandoRol(null);
                       setFormRol({ codigo: '', nombre: '', descripcion: '', orden: 0 });
                     }}
-                    style={{
-                      padding: '8px 16px',
-                      background: 'var(--danger)',
-                      color: 'var(--text-inverse)',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer'
-                    }}
+                    className="btn-tesla outline-subtle-danger"
                   >
                     Cancelar
                   </button>
@@ -480,30 +458,14 @@ export default function PanelRoles() {
                       <>
                         <button
                           onClick={() => setMostrarClonar(true)}
-                          style={{
-                            padding: '8px 16px',
-                            background: 'var(--purple)',
-                            color: 'var(--text-inverse)',
-                            border: 'none',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            fontSize: '13px'
-                          }}
+                          className="btn-tesla outline-subtle-primary"
                         >
                           Clonar Rol
                         </button>
                         <button
                           onClick={guardarPermisosRol}
                           disabled={guardando}
-                          style={{
-                            padding: '8px 16px',
-                            background: 'var(--success)',
-                            color: 'var(--text-inverse)',
-                            border: 'none',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            fontSize: '13px'
-                          }}
+                          className="btn-tesla outline-subtle-success"
                         >
                           {guardando ? 'Guardando...' : 'Guardar Permisos'}
                         </button>
@@ -562,15 +524,8 @@ export default function PanelRoles() {
                         <button
                           onClick={clonarRol}
                           disabled={guardando}
-                          style={{
-                            flex: 1,
-                            padding: '10px',
-                            background: 'var(--purple)',
-                            color: 'var(--text-inverse)',
-                            border: 'none',
-                            borderRadius: '6px',
-                            cursor: 'pointer'
-                          }}
+                          className="btn-tesla outline-subtle-primary"
+                          style={{ flex: 1 }}
                         >
                           {guardando ? 'Clonando...' : 'Clonar'}
                         </button>
@@ -579,14 +534,7 @@ export default function PanelRoles() {
                             setMostrarClonar(false);
                             setClonarData({ nuevo_codigo: '', nuevo_nombre: '', descripcion: '' });
                           }}
-                          style={{
-                            padding: '10px 20px',
-                            background: 'var(--text-secondary)',
-                            color: 'var(--text-inverse)',
-                            border: 'none',
-                            borderRadius: '6px',
-                            cursor: 'pointer'
-                          }}
+                          className="btn-tesla ghost"
                         >
                           Cancelar
                         </button>

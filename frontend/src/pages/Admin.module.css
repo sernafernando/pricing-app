@@ -35,9 +35,9 @@
 
 .syncButton {
   padding: 12px 24px;
-  background: var(--gradient-primary);
-  color: var(--text-inverse);
-  border: none;
+  background: rgba(59, 130, 246, 0.1);
+  color: rgba(96, 165, 250, 0.9);
+  border: 2px solid rgba(59, 130, 246, 0.3);
   border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
@@ -45,15 +45,29 @@
 }
 
 .syncButton:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+  transform: translateY(-1px);
 }
 
 .syncButton:disabled {
   background: var(--bg-tertiary);
   color: var(--text-secondary);
+  border-color: var(--border-primary);
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+/* Light mode */
+:global([data-theme="light"]) .syncButton {
+  background: rgba(219, 234, 254, 0.5);
+  color: rgba(29, 78, 216, 1);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+:global([data-theme="light"]) .syncButton:hover:not(:disabled) {
+  background: rgba(219, 234, 254, 0.8);
+  border-color: rgba(59, 130, 246, 0.6);
 }
 
 .logContainer {
@@ -148,8 +162,13 @@
 }
 
 .tabActive {
-  color: #667eea;
-  border-bottom-color: #667eea;
+  color: rgba(96, 165, 250, 0.9);
+  border-bottom-color: rgba(59, 130, 246, 0.5);
+}
+
+:global([data-theme="light"]) .tabActive {
+  color: rgba(29, 78, 216, 1);
+  border-bottom-color: rgba(59, 130, 246, 0.6);
 }
 
 /* Modal de confirmación de limpieza */
@@ -259,15 +278,30 @@
 
 .modalBtnConfirm {
   padding: 10px 20px;
-  border: none;
+  border: 2px solid rgba(239, 68, 68, 0.3);
   border-radius: 4px;
-  background-color: #ef4444;
-  color: white;
+  background-color: rgba(239, 68, 68, 0.1);
+  color: rgba(248, 113, 113, 0.9);
   cursor: pointer;
   font-size: 14px;
   font-weight: bold;
+  transition: all 0.2s;
 }
 
 .modalBtnConfirm:hover {
-  background-color: #dc2626;
+  background-color: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
 }
+
+:global([data-theme="light"]) .modalBtnConfirm {
+  background: rgba(254, 226, 226, 0.5);
+  color: rgba(185, 28, 28, 1);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+:global([data-theme="light"]) .modalBtnConfirm:hover {
+  background: rgba(254, 226, 226, 0.8);
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+
