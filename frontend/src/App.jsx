@@ -75,6 +75,10 @@ function App() {
             v7_relativeSplatPath: true
           }}
         >
+          <ModalCalculadora
+            isOpen={mostrarCalculadora}
+            onClose={() => setMostrarCalculadora(false)}
+          />
           <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<ProtectedRoute><SmartRedirect /></ProtectedRoute>} />
