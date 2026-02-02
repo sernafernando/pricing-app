@@ -5094,16 +5094,64 @@ async def exportar_clasica(
                 headers={"Content-Disposition": f"attachment; filename=exportacion_clasica_vacia.xlsx"}
             )
 
-    # Aplicar filtros básicos
+    # Aplicar filtros básicos (con soporte para operadores *, +, :)
     if search:
-        search_normalized = search.replace('-', '').replace(' ', '').upper()
-        query = query.filter(
-            or_(
+        search_filter = None
+        
+        # Detectar búsquedas literales: campo:valor
+        if ':' in search and not search.startswith('*') and not search.endswith('*'):
+            parts = search.split(':', 1)
+            if len(parts) == 2:
+                field, value = parts[0].strip().lower(), parts[1].strip()
+                
+                if field == 'ean' or field == 'codigo':
+                    search_filter = and_(
+                        ProductoERP.codigo.isnot(None),
+                        ProductoERP.codigo != '',
+                        func.upper(ProductoERP.codigo) == value.upper()
+                    )
+                elif field == 'marca':
+                    search_filter = and_(
+                        ProductoERP.marca.isnot(None),
+                        ProductoERP.marca != '',
+                        func.upper(ProductoERP.marca) == value.upper()
+                    )
+                elif field == 'desc' or field == 'descripcion':
+                    value_normalized = value.replace('-', '').replace(' ', '').upper()
+                    search_filter = and_(
+                        ProductoERP.descripcion.isnot(None),
+                        func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{value_normalized}%")
+                    )
+        
+        # Detectar wildcards: *valor (termina en) o valor* (comienza con)
+        elif search.startswith('*') and not search.endswith('*'):
+            # Termina en
+            value = search[1:].upper()
+            search_filter = or_(
+                and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"%{value}")),
+                and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"%{value}")),
+                and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"%{value}"))
+            )
+        elif search.endswith('*') and not search.startswith('*'):
+            # Comienza con
+            value = search[:-1].upper()
+            search_filter = or_(
+                and_(ProductoERP.descripcion.isnot(None), func.upper(ProductoERP.descripcion).like(f"{value}%")),
+                and_(ProductoERP.marca.isnot(None), func.upper(ProductoERP.marca).like(f"{value}%")),
+                and_(ProductoERP.codigo.isnot(None), func.upper(ProductoERP.codigo).like(f"{value}%"))
+            )
+        else:
+            # Búsqueda normal (contiene)
+            search_normalized = search.replace('-', '').replace(' ', '').upper()
+            search_filter = or_(
                 func.replace(func.replace(func.upper(ProductoERP.descripcion), '-', ''), ' ', '').like(f"%{search_normalized}%"),
                 func.replace(func.replace(func.upper(ProductoERP.marca), '-', ''), ' ', '').like(f"%{search_normalized}%"),
                 func.replace(func.upper(ProductoERP.codigo), '-', '').like(f"%{search_normalized}%")
             )
-        )
+        
+        # Aplicar filtro de búsqueda
+        if search_filter is not None:
+            query = query.filter(search_filter)
 
     if con_stock:
         query = query.filter(ProductoERP.stock > 0)
@@ -5399,9 +5447,15 @@ async def exportar_clasica(
         ).filter(
             MercadoLibreItemPublicado.item_id.in_(item_ids),
             MercadoLibreItemPublicado.prli_id.in_(prli_ids_seleccionados),
-            # Incluir todas las publicaciones que tienen mlp_id (publicadas, pausadas, etc)
-            # Excluir solo las finalizadas (5) y des-enlazadas (10)
-            MercadoLibreItemPublicado.mlp_id.isnot(None)
+            MercadoLibreItemPublicado.mlp_id.isnot(None),
+            # Incluir publicadas (2), pausadas (3), pausadas forzadas (6)
+            # Excluir finalizadas (5) y des-enlazadas (10)
+            or_(
+                MercadoLibreItemPublicado.optval_statusId == 2,
+                MercadoLibreItemPublicado.optval_statusId == 3,
+                MercadoLibreItemPublicado.optval_statusId == 6,
+                MercadoLibreItemPublicado.optval_statusId.is_(None)
+            )
         ).all()
 
         # Agrupar MLAs por item_id
