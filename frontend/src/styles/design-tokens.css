@@ -266,6 +266,55 @@
 }
 
 /* ============================================
+   SELECT STYLING - Estilos globales para <select>
+   ============================================ */
+
+/**
+ * PROBLEMA: Los navegadores muestran la flecha del select muy a la derecha
+ * y con estilos inconsistentes entre Chrome/Firefox/Safari.
+ * 
+ * SOLUCIÓN: Removemos la flecha nativa y agregamos una custom con SVG inline.
+ * Usamos el mismo estilo de chevron que Lucide (nuestro icon pack).
+ * 
+ * APLICACIÓN: Automático para todos los <select> de la app.
+ * EXCEPCIÓN: Los <select multiple> NO tienen flecha (son listas, no dropdowns).
+ * IMPORTANTE: Usamos !important para asegurar que funcione incluso si hay
+ * estilos locales con background-color en otros CSS.
+ */
+
+/* Solo selects dropdown (NO múltiples) */
+select:not([multiple]) {
+  /* Remover apariencia nativa */
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  
+  /* Padding derecho para que el texto no tape la flecha */
+  padding-right: 36px !important;
+}
+
+/* Dark mode - flecha blanca */
+:root[data-theme="dark"] select:not([multiple]) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 10px center !important;
+  background-size: 16px !important;
+}
+
+/* Light mode - flecha oscura */
+:root[data-theme="light"] select:not([multiple]) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23374151' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 10px center !important;
+  background-size: 16px !important;
+}
+
+/* Firefox/IE - remover flecha nativa completamente */
+select::-ms-expand {
+  display: none;
+}
+
+/* ============================================
    UTILITY CLASSES - Clases helper
    ============================================ */
 
