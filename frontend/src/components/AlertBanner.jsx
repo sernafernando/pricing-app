@@ -27,7 +27,8 @@ export default function AlertBanner({
   message, 
   action,
   dismissible = true,
-  persistent = false
+  persistent = false,
+  onDismiss
 }) {
   const storageKey = `alertBanner_${id}_dismissed`;
   
@@ -41,6 +42,10 @@ export default function AlertBanner({
     setIsDismissed(true);
     if (id && !persistent) {
       localStorage.setItem(storageKey, 'true');
+    }
+    // Llamar callback si existe (para alertas dinámicas del backend)
+    if (onDismiss) {
+      onDismiss();
     }
   };
 

@@ -94,6 +94,7 @@ export default function Sidebar() {
       items: [
         { label: 'Gestión PMs', path: '/gestion-pm', permiso: 'admin.gestionar_pms' },
         { label: 'Admin', path: '/admin', permiso: 'admin.ver_panel' },
+        { label: 'Alertas', path: '/gestion/alertas', permiso: 'alertas.gestionar' },
       ],
     },
   ];

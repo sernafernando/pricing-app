@@ -101,25 +101,28 @@
   color: rgba(255, 255, 255, 0.9);
 }
 
-/* Warning - Naranja/Amarillo */
+/* Warning - Naranja/Amarillo - Sutil */
 .warning {
-  background: linear-gradient(90deg, #c2410c 0%, #b45309 100%);
-  border-bottom-color: #f59e0b;
-  color: #fff;
+  background: rgba(180, 83, 9, 0.15);
+  backdrop-filter: blur(8px);
+  border-bottom-color: rgba(245, 158, 11, 0.2);
+  color: rgba(255, 255, 255, 0.9);
 }
 
-/* Success - Verde */
+/* Success - Verde - Sutil */
 .success {
-  background: linear-gradient(90deg, #15803d 0%, #166534 100%);
-  border-bottom-color: #22c55e;
-  color: #fff;
+  background: rgba(22, 101, 52, 0.15);
+  backdrop-filter: blur(8px);
+  border-bottom-color: rgba(34, 197, 94, 0.2);
+  color: rgba(255, 255, 255, 0.9);
 }
 
-/* Error - Rojo */
+/* Error - Rojo - Sutil */
 .error {
-  background: linear-gradient(90deg, #b91c1c 0%, #991b1b 100%);
-  border-bottom-color: #ef4444;
-  color: #fff;
+  background: rgba(153, 27, 27, 0.15);
+  backdrop-filter: blur(8px);
+  border-bottom-color: rgba(239, 68, 68, 0.2);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 /* ============================================
@@ -158,6 +161,24 @@
   background: rgba(219, 234, 254, 0.7);
   backdrop-filter: blur(8px);
   border-bottom-color: rgba(59, 130, 246, 0.2);
+}
+
+:global([data-theme="light"]) .warning {
+  background: rgba(254, 243, 199, 0.7);
+  backdrop-filter: blur(8px);
+  border-bottom-color: rgba(245, 158, 11, 0.3);
+}
+
+:global([data-theme="light"]) .success {
+  background: rgba(220, 252, 231, 0.7);
+  backdrop-filter: blur(8px);
+  border-bottom-color: rgba(34, 197, 94, 0.3);
+}
+
+:global([data-theme="light"]) .error {
+  background: rgba(254, 226, 226, 0.7);
+  backdrop-filter: blur(8px);
+  border-bottom-color: rgba(239, 68, 68, 0.3);
 }
 
 /* ============================================
