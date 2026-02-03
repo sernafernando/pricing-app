@@ -127,6 +127,9 @@ async def sync_sale_order_header(db: Session, days: int = 7):
                     'ssos_id': record.get('ssos_id'),
                     'df_id': record.get('df_id'),
                     'user_id': record.get('user_id'),
+                    # Campos de TiendaNube
+                    'ws_internalid': record.get('ws_internalID'),
+                    'tiendanube_number': record.get('tiendaNube_number'),
                 }
                 
                 if existente:
