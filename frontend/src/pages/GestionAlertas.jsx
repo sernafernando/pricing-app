@@ -1,20 +1,8 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './GestionAlertas.module.css';
 import ModalAlertaForm from '../components/ModalAlertaForm';
 import { usePermisos } from '../contexts/PermisosContext';
-
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 export default function GestionAlertas() {
   const { tienePermiso } = usePermisos();
@@ -23,14 +11,20 @@ export default function GestionAlertas() {
   const [modalOpen, setModalOpen] = useState(false);
   const [alertaEditar, setAlertaEditar] = useState(null);
   const [filtroActivo, setFiltroActivo] = useState(null); // null = todas, true = activas, false = inactivas
+  const [maxAlertasVisibles, setMaxAlertasVisibles] = useState(1);
+  const [guardandoConfig, setGuardandoConfig] = useState(false);
 
   const puedeGestionar = tienePermiso('alertas.gestionar');
+  const puedeConfigurar = tienePermiso('alertas.configurar');
 
   useEffect(() => {
     if (puedeGestionar) {
       cargarAlertas();
     }
-  }, [puedeGestionar, filtroActivo]);
+    if (puedeConfigurar) {
+      cargarConfiguracion();
+    }
+  }, [puedeGestionar, puedeConfigurar, filtroActivo]);
 
   const cargarAlertas = async () => {
     try {
@@ -46,6 +40,30 @@ export default function GestionAlertas() {
     }
   };
 
+  const cargarConfiguracion = async () => {
+    try {
+      const response = await api.get('/alertas/configuracion/global');
+      setMaxAlertasVisibles(response.data.max_alertas_visibles);
+    } catch (error) {
+      console.error('Error al cargar configuración:', error);
+    }
+  };
+
+  const guardarConfiguracion = async () => {
+    try {
+      setGuardandoConfig(true);
+      await api.put('/alertas/configuracion/global', {
+        max_alertas_visibles: maxAlertasVisibles
+      });
+      alert('✅ Configuración guardada');
+    } catch (error) {
+      console.error('Error al guardar configuración:', error);
+      alert('❌ Error al guardar configuración');
+    } finally {
+      setGuardandoConfig(false);
+    }
+  };
+
   const handleCrear = () => {
     setAlertaEditar(null);
     setModalOpen(true);
@@ -57,17 +75,17 @@ export default function GestionAlertas() {
   };
 
   const handleEliminar = async (alertaId) => {
-    if (!confirm('¿Estás seguro de eliminar esta alerta? (Se desactivará)')) {
+    if (!confirm('¿Estás seguro de desactivar esta alerta?')) {
       return;
     }
 
     try {
-      await api.delete(`/alertas/${alertaId}`);
-      alert('✅ Alerta eliminada');
+      await api.patch(`/alertas/${alertaId}/desactivar`);
+      alert('✅ Alerta desactivada');
       cargarAlertas();
     } catch (error) {
-      console.error('Error al eliminar alerta:', error);
-      alert('Error al eliminar alerta');
+      console.error('Error al desactivar alerta:', error);
+      alert('Error al desactivar alerta');
     }
   };
 
@@ -130,6 +148,39 @@ export default function GestionAlertas() {
         </button>
       </div>
 
+      {/* Configuración Global */}
+      {puedeConfigurar && (
+        <div className={styles.configPanel}>
+          <h3>⚙️ Configuración Global</h3>
+          <div className={styles.configRow}>
+            <label htmlFor="maxAlertas">Máximo de alertas visibles simultáneamente:</label>
+            <select
+              id="maxAlertas"
+              value={maxAlertasVisibles}
+              onChange={(e) => setMaxAlertasVisibles(parseInt(e.target.value))}
+              className={styles.configInput}
+            >
+              <option value={1}>1 alerta</option>
+              <option value={2}>2 alertas</option>
+              <option value={3}>3 alertas</option>
+              <option value={4}>4 alertas</option>
+              <option value={5}>5 alertas</option>
+              <option value={10}>10 alertas</option>
+            </select>
+            <button
+              className="btn-tesla outline-subtle-success sm"
+              onClick={guardarConfiguracion}
+              disabled={guardandoConfig}
+            >
+              {guardandoConfig ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+          <small className={styles.hint}>
+            Las alertas con duración 0 (sticky) siempre se muestran. Las demás rotan según este límite.
+          </small>
+        </div>
+      )}
+
       <div className={styles.filtros}>
         <button
           className={`btn-tesla ${filtroActivo === null ? 'outline-subtle-primary' : 'secondary'} sm`}
@@ -164,10 +215,10 @@ export default function GestionAlertas() {
               <tr>
                 <th>Estado</th>
                 <th>Título</th>
-                <th>Mensaje</th>
                 <th>Variant</th>
                 <th>Vigencia</th>
                 <th>Prioridad</th>
+                <th>Comportamiento</th>
                 <th>Destinatarios</th>
                 <th>Acciones</th>
               </tr>
@@ -185,7 +236,6 @@ export default function GestionAlertas() {
                     </button>
                   </td>
                   <td className={styles.titulo}>{alerta.titulo}</td>
-                  <td className={styles.mensaje}>{alerta.mensaje}</td>
                   <td>
                     <span className={`${styles.variantBadge} ${getVariantBadge(alerta.variant)}`}>
                       {alerta.variant}
@@ -198,6 +248,21 @@ export default function GestionAlertas() {
                     </div>
                   </td>
                   <td className={styles.prioridad}>{alerta.prioridad}</td>
+                  <td className={styles.comportamiento}>
+                    <div className={styles.badges}>
+                      {alerta.duracion_segundos === 0 ? (
+                        <span className={styles.badgeSticky}>Sticky</span>
+                      ) : (
+                        <span className={styles.badgeDuracion}>{alerta.duracion_segundos}s</span>
+                      )}
+                      {alerta.persistent && (
+                        <span className={styles.badgePersistent}>Persistent</span>
+                      )}
+                      {!alerta.dismissible && (
+                        <span className={styles.badgeNoDismiss}>No cerrable</span>
+                      )}
+                    </div>
+                  </td>
                   <td className={styles.destinatarios}>
                     {alerta.roles_destinatarios.includes('*') ? (
                       <span className={styles.todos}>Todos</span>

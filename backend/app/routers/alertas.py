@@ -44,21 +44,39 @@ def require_permission(permission: str):
 
 @router.get("/activas", response_model=List[AlertaActivaResponse])
 def obtener_alertas_activas(
+    page: int = 1,
+    page_size: int = 50,
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Obtiene las alertas activas para el usuario actual.
+    Obtiene las alertas activas para el usuario actual con paginación.
+    El frontend se encarga de la rotación según max_alertas_visibles y duracion_segundos.
     Filtra por roles, usuarios específicos, vigencia y estado de cierre.
+    Ordenadas por prioridad DESC (mayor prioridad primero).
     """
     service = AlertasService(db)
-    alertas = service.obtener_alertas_activas_para_usuario(current_user)
-    
-    # Aplicar límite de alertas visibles
-    config = service.obtener_configuracion()
-    alertas = alertas[:config.max_alertas_visibles]
-    
+    offset = (page - 1) * page_size
+    alertas = service.obtener_alertas_activas_para_usuario(
+        current_user, 
+        limit=page_size, 
+        offset=offset
+    )
     return alertas
+
+
+@router.get("/configuracion", response_model=ConfiguracionAlertaResponse)
+def obtener_configuracion_publica(
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene la configuración global de alertas (solo lectura).
+    Endpoint público para que el frontend conozca max_alertas_visibles.
+    """
+    service = AlertasService(db)
+    config = service.obtener_configuracion()
+    return config
 
 
 @router.post("/{alerta_id}/cerrar", status_code=status.HTTP_204_NO_CONTENT)
@@ -82,6 +100,43 @@ def cerrar_alerta(
     
     service.marcar_alerta_cerrada(alerta_id, current_user.id)
     return None
+
+
+# =============================================================================
+# ENDPOINTS DE CONFIGURACIÓN (requieren permiso alertas.configurar)
+# =============================================================================
+# IMPORTANTE: Estas rutas DEBEN estar ANTES de /{alerta_id} para evitar colisiones
+
+@router.get("/configuracion/global", response_model=ConfiguracionAlertaResponse)
+def obtener_configuracion_admin(
+    current_user: Usuario = Depends(require_permission("alertas.configurar")),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene la configuración global de alertas (admin).
+    Requiere permiso: alertas.configurar
+    """
+    service = AlertasService(db)
+    config = service.obtener_configuracion()
+    return config
+
+
+@router.put("/configuracion/global", response_model=ConfiguracionAlertaResponse)
+def actualizar_configuracion(
+    config_data: ConfiguracionAlertaUpdate,
+    current_user: Usuario = Depends(require_permission("alertas.configurar")),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza la configuración global de alertas.
+    Requiere permiso: alertas.configurar
+    """
+    service = AlertasService(db)
+    config = service.actualizar_configuracion(
+        max_alertas_visibles=config_data.max_alertas_visibles,
+        updated_by_id=current_user.id
+    )
+    return config
 
 
 # =============================================================================
@@ -165,6 +220,7 @@ def crear_alerta(
         fecha_desde=alerta_data.fecha_desde,
         fecha_hasta=alerta_data.fecha_hasta,
         prioridad=alerta_data.prioridad,
+        duracion_segundos=alerta_data.duracion_segundos,
         created_by_id=current_user.id
     )
     
@@ -204,7 +260,8 @@ def actualizar_alerta(
         activo=alerta_data.activo,
         fecha_desde=alerta_data.fecha_desde,
         fecha_hasta=alerta_data.fecha_hasta,
-        prioridad=alerta_data.prioridad
+        prioridad=alerta_data.prioridad,
+        duracion_segundos=alerta_data.duracion_segundos
     )
     
     if not alerta:
@@ -221,15 +278,18 @@ def actualizar_alerta(
     return alerta
 
 
-@router.delete("/{alerta_id}", status_code=status.HTTP_204_NO_CONTENT)
-def eliminar_alerta(
+@router.patch("/{alerta_id}/desactivar", status_code=status.HTTP_204_NO_CONTENT)
+def desactivar_alerta(
     alerta_id: int,
     current_user: Usuario = Depends(require_permission("alertas.gestionar")),
     db: Session = Depends(get_db)
 ):
     """
-    Elimina (soft delete) una alerta.
+    Desactiva una alerta (soft delete: marca activo=False).
     Requiere permiso: alertas.gestionar
+    
+    Nota: Usamos PATCH en lugar de DELETE porque no eliminamos físicamente,
+    solo cambiamos el estado activo. DELETE implica eliminación permanente.
     """
     service = AlertasService(db)
     
@@ -242,39 +302,3 @@ def eliminar_alerta(
         )
     
     return None
-
-
-# =============================================================================
-# ENDPOINTS DE CONFIGURACIÓN (requieren permiso alertas.configurar)
-# =============================================================================
-
-@router.get("/configuracion/global", response_model=ConfiguracionAlertaResponse)
-def obtener_configuracion(
-    current_user: Usuario = Depends(require_permission("alertas.configurar")),
-    db: Session = Depends(get_db)
-):
-    """
-    Obtiene la configuración global de alertas.
-    Requiere permiso: alertas.configurar
-    """
-    service = AlertasService(db)
-    config = service.obtener_configuracion()
-    return config
-
-
-@router.put("/configuracion/global", response_model=ConfiguracionAlertaResponse)
-def actualizar_configuracion(
-    config_data: ConfiguracionAlertaUpdate,
-    current_user: Usuario = Depends(require_permission("alertas.configurar")),
-    db: Session = Depends(get_db)
-):
-    """
-    Actualiza la configuración global de alertas.
-    Requiere permiso: alertas.configurar
-    """
-    service = AlertasService(db)
-    config = service.actualizar_configuracion(
-        max_alertas_visibles=config_data.max_alertas_visibles,
-        updated_by_id=current_user.id
-    )
-    return config

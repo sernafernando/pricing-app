@@ -16,9 +16,14 @@ class AlertasService:
     def __init__(self, db: Session):
         self.db = db
     
-    def obtener_alertas_activas_para_usuario(self, usuario: Usuario) -> List[Alerta]:
+    def obtener_alertas_activas_para_usuario(
+        self, 
+        usuario: Usuario, 
+        limit: int = 50, 
+        offset: int = 0
+    ) -> List[Alerta]:
         """
-        Obtiene las alertas activas que debe ver un usuario.
+        Obtiene las alertas activas que debe ver un usuario con paginación.
         
         Filtros aplicados:
         1. Alerta está activa
@@ -31,10 +36,11 @@ class AlertasService:
         now = datetime.now(timezone.utc)
         
         # Subquery: IDs de alertas que el usuario cerró
-        alertas_cerradas_ids = self.db.query(AlertaUsuarioEstado.alerta_id).filter(
+        from sqlalchemy import select
+        alertas_cerradas_ids = select(AlertaUsuarioEstado.alerta_id).where(
             AlertaUsuarioEstado.usuario_id == usuario.id,
             AlertaUsuarioEstado.cerrada == True
-        ).subquery()
+        ).scalar_subquery()
         
         # Query principal
         query = self.db.query(Alerta).filter(
@@ -79,8 +85,8 @@ class AlertasService:
             )
         )
         
-        # Ordenar por prioridad DESC
-        alertas = query.order_by(Alerta.prioridad.desc(), Alerta.created_at.desc()).all()
+        # Ordenar por prioridad DESC y aplicar paginación
+        alertas = query.order_by(Alerta.prioridad.desc(), Alerta.created_at.desc()).limit(limit).offset(offset).all()
         
         return alertas
     
@@ -101,7 +107,7 @@ class AlertasService:
             # Ya existe, actualizar
             estado.cerrada = True
             estado.fecha_cerrada = datetime.now(timezone.utc)
-            estado.updated_at = datetime.now(timezone.utc)
+            # updated_at se maneja automáticamente con onupdate
         else:
             # Crear nuevo
             estado = AlertaUsuarioEstado(
@@ -144,7 +150,7 @@ class AlertasService:
         config = self.obtener_configuracion()
         config.max_alertas_visibles = max_alertas_visibles
         config.updated_by_id = updated_by_id
-        config.updated_at = datetime.now(timezone.utc)
+        # updated_at se maneja automáticamente con onupdate
         
         self.db.commit()
         self.db.refresh(config)
@@ -166,6 +172,7 @@ class AlertasService:
         fecha_desde: datetime = None,
         fecha_hasta: Optional[datetime] = None,
         prioridad: int = 0,
+        duracion_segundos: int = 5,
         created_by_id: Optional[int] = None
     ) -> Alerta:
         """Crea una nueva alerta"""
@@ -185,6 +192,7 @@ class AlertasService:
             fecha_desde=fecha_desde,
             fecha_hasta=fecha_hasta,
             prioridad=prioridad,
+            duracion_segundos=duracion_segundos,
             created_by_id=created_by_id
         )
         
@@ -220,7 +228,8 @@ class AlertasService:
         activo: Optional[bool] = None,
         fecha_desde: Optional[datetime] = None,
         fecha_hasta: Optional[datetime] = None,
-        prioridad: Optional[int] = None
+        prioridad: Optional[int] = None,
+        duracion_segundos: Optional[int] = None
     ) -> Optional[Alerta]:
         """Actualiza una alerta existente"""
         alerta = self.db.query(Alerta).filter(Alerta.id == alerta_id).first()
@@ -252,6 +261,8 @@ class AlertasService:
             alerta.fecha_hasta = fecha_hasta
         if prioridad is not None:
             alerta.prioridad = prioridad
+        if duracion_segundos is not None:
+            alerta.duracion_segundos = duracion_segundos
         
         # Actualizar usuarios destinatarios si se especificaron
         if usuarios_destinatarios_ids is not None:
@@ -268,7 +279,7 @@ class AlertasService:
                 )
                 self.db.add(dest)
         
-        alerta.updated_at = datetime.now(timezone.utc)
+        # updated_at se maneja automáticamente con onupdate
         
         self.db.commit()
         self.db.refresh(alerta)

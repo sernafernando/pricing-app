@@ -5,7 +5,7 @@ Sistema de Alertas Globales
 - Track de quién cerró cada alerta
 - Configurables con variantes de color, vigencia, persistencia
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -55,6 +55,9 @@ class Alerta(Base):
     # Prioridad (orden de visualización: mayor = arriba)
     prioridad = Column(Integer, default=0, nullable=False)
     
+    # Duración de visualización (para sistema de rotación)
+    duracion_segundos = Column(Integer, default=5, nullable=False)  # Tiempo que se muestra antes de rotar
+    
     # Auditoría
     created_by_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -66,7 +69,7 @@ class Alerta(Base):
     usuarios_estados = relationship("AlertaUsuarioEstado", back_populates="alerta", cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<Alerta(id={self.id}, titulo='{self.titulo}', variant={self.variant.value}, activo={self.activo})>"
+        return f"<Alerta(id={self.id}, titulo='{self.titulo}', variant={self.variant}, activo={self.activo})>"
 
 
 class AlertaUsuarioDestinatario(Base):
@@ -86,8 +89,9 @@ class AlertaUsuarioDestinatario(Base):
     alerta = relationship("Alerta", back_populates="usuarios_destinatarios")
     usuario = relationship("Usuario")
     
-    class Meta:
-        unique_together = ('alerta_id', 'usuario_id')
+    __table_args__ = (
+        UniqueConstraint('alerta_id', 'usuario_id', name='uq_alerta_usuario_dest'),
+    )
     
     def __repr__(self):
         return f"<AlertaUsuarioDestinatario(alerta_id={self.alerta_id}, usuario_id={self.usuario_id})>"
@@ -114,8 +118,9 @@ class AlertaUsuarioEstado(Base):
     alerta = relationship("Alerta", back_populates="usuarios_estados")
     usuario = relationship("Usuario")
     
-    class Meta:
-        unique_together = ('alerta_id', 'usuario_id')
+    __table_args__ = (
+        UniqueConstraint('alerta_id', 'usuario_id', name='uq_alerta_usuario_estado'),
+    )
     
     def __repr__(self):
         return f"<AlertaUsuarioEstado(alerta_id={self.alerta_id}, usuario_id={self.usuario_id}, cerrada={self.cerrada})>"

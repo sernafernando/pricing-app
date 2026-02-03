@@ -20,6 +20,7 @@ class AlertaBase(BaseModel):
     fecha_desde: datetime
     fecha_hasta: Optional[datetime] = None
     prioridad: int = 0
+    duracion_segundos: int = Field(default=5, ge=0, le=60)
 
 
 class AlertaCreate(AlertaBase):
@@ -42,6 +43,7 @@ class AlertaUpdate(BaseModel):
     fecha_desde: Optional[datetime] = None
     fecha_hasta: Optional[datetime] = None
     prioridad: Optional[int] = None
+    duracion_segundos: Optional[int] = Field(None, ge=0, le=60)
 
 
 class AlertaUsuarioDestinatarioResponse(BaseModel):
@@ -55,7 +57,7 @@ class AlertaUsuarioDestinatarioResponse(BaseModel):
 
 
 class AlertaResponse(AlertaBase):
-    """Schema para respuesta de Alerta"""
+    """Schema para respuesta de Alerta (incluye todos los campos de AlertaBase + metadata)"""
     id: int
     created_by_id: Optional[int] = None
     created_at: datetime
@@ -75,6 +77,8 @@ class AlertaActivaResponse(BaseModel):
     action_url: Optional[str] = None
     dismissible: bool
     persistent: bool
+    prioridad: int
+    duracion_segundos: int
     
     class Config:
         from_attributes = True
