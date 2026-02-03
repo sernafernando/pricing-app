@@ -22,6 +22,9 @@
   animation: slideDown var(--duration-200) var(--ease-out);
   font-size: 14px;
   min-height: 48px;
+  max-width: 1600px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 @keyframes slideDown {
