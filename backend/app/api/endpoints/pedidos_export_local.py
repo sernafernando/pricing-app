@@ -156,26 +156,31 @@ async def obtener_pedidos_local(
     
     if buscar:
         search_pattern = f'%{buscar}%'
-        query = query.filter(
-            or_(
-                SaleOrderHeader.soh_id.cast(db.bind.dialect.type_descriptor(text('VARCHAR'))).ilike(search_pattern),
-                SaleOrderHeader.ws_internalid.ilike(search_pattern),
-                SaleOrderHeader.tiendanube_number.ilike(search_pattern),
-                SaleOrderHeader.soh_mlid.ilike(search_pattern),
-                TBCustomer.cust_name.ilike(search_pattern),
-                SaleOrderHeader.override_shipping_address.ilike(search_pattern),
-                SaleOrderHeader.tiendanube_shipping_address.ilike(search_pattern),
-                SaleOrderHeader.soh_deliveryaddress.ilike(search_pattern),
-                SaleOrderHeader.override_shipping_province.ilike(search_pattern),
-                SaleOrderHeader.tiendanube_shipping_province.ilike(search_pattern),
-                SaleOrderHeader.override_shipping_city.ilike(search_pattern),
-                SaleOrderHeader.tiendanube_shipping_city.ilike(search_pattern),
-                SaleOrderHeader.override_shipping_recipient.ilike(search_pattern),
-                SaleOrderHeader.tiendanube_recipient_name.ilike(search_pattern),
-                SaleOrderHeader.soh_observation1.ilike(search_pattern),
-                SaleOrderHeader.soh_internalannotation.ilike(search_pattern)
-            )
-        )
+        
+        # Construir lista de filtros
+        search_filters = [
+            SaleOrderHeader.ws_internalid.ilike(search_pattern),
+            SaleOrderHeader.tiendanube_number.ilike(search_pattern),
+            SaleOrderHeader.soh_mlid.ilike(search_pattern),
+            TBCustomer.cust_name.ilike(search_pattern),
+            SaleOrderHeader.override_shipping_address.ilike(search_pattern),
+            SaleOrderHeader.tiendanube_shipping_address.ilike(search_pattern),
+            SaleOrderHeader.soh_deliveryaddress.ilike(search_pattern),
+            SaleOrderHeader.override_shipping_province.ilike(search_pattern),
+            SaleOrderHeader.tiendanube_shipping_province.ilike(search_pattern),
+            SaleOrderHeader.override_shipping_city.ilike(search_pattern),
+            SaleOrderHeader.tiendanube_shipping_city.ilike(search_pattern),
+            SaleOrderHeader.override_shipping_recipient.ilike(search_pattern),
+            SaleOrderHeader.tiendanube_recipient_name.ilike(search_pattern),
+            SaleOrderHeader.soh_observation1.ilike(search_pattern),
+            SaleOrderHeader.soh_internalannotation.ilike(search_pattern)
+        ]
+        
+        # Si es un número, buscar por soh_id
+        if buscar.strip().isdigit():
+            search_filters.append(SaleOrderHeader.soh_id == int(buscar.strip()))
+        
+        query = query.filter(or_(*search_filters))
     
     # Ordenar por fecha de creación descendente
     query = query.order_by(SaleOrderHeader.soh_cd.desc())
