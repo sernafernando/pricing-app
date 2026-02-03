@@ -88,18 +88,18 @@ def sync_tiendanube_orders(from_date: date = None, to_date: date = None):
                     )
                 ).first()
                 
-                # Preparar datos
+                # Preparar datos (nombres de campos en minúscula según el modelo)
                 orden_data = {
                     'comp_id': comp_id,
                     'tno_id': tno_id,
                     'tno_cd': record.get('tno_cd'),
                     'tn_id': record.get('tn_id'),
-                    'tno_orderID': record.get('tno_orderID'),
-                    'tno_JSon': record.get('tno_JSon'),
+                    'tno_orderid': record.get('tno_orderID'),  # Minúscula: tno_orderid
+                    'tno_json': record.get('tno_JSon'),        # Minúscula: tno_json
                     'bra_id': record.get('bra_id'),
                     'soh_id': record.get('soh_id'),
                     'cust_id': record.get('cust_id'),
-                    'tno_isCancelled': record.get('tno_isCancelled')
+                    'tno_iscancelled': record.get('tno_isCancelled')  # Minúscula: tno_iscancelled
                 }
                 
                 if orden:
