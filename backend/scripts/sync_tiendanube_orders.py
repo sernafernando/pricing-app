@@ -115,6 +115,32 @@ def sync_tiendanube_orders(from_date: date = None, to_date: date = None):
                     db.add(orden)
                     nuevos += 1
                 
+                # IMPORTANTE: Actualizar tb_sale_order_header con datos de TiendaNube
+                if orden_data.get('soh_id') and orden_data.get('bra_id'):
+                    from app.models.sale_order_header import SaleOrderHeader
+                    header = db.query(SaleOrderHeader).filter(
+                        and_(
+                            SaleOrderHeader.soh_id == orden_data['soh_id'],
+                            SaleOrderHeader.bra_id == orden_data['bra_id']
+                        )
+                    ).first()
+                    
+                    if header:
+                        # Extraer número de orden desde el JSON
+                        tn_number = None
+                        if orden_data.get('tno_json'):
+                            try:
+                                import json
+                                tn_data = json.loads(orden_data['tno_json'])
+                                tn_number = str(tn_data.get('number', ''))
+                            except:
+                                pass
+                        
+                        # Actualizar campos de TiendaNube en el header
+                        header.ws_internalid = str(orden_data.get('tno_orderid', ''))
+                        if tn_number:
+                            header.tiendanube_number = tn_number
+                
                 # Commit cada 100 registros
                 if (nuevos + actualizados) % 100 == 0:
                     db.commit()
