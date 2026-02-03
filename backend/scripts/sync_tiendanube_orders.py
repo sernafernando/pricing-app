@@ -33,7 +33,8 @@ def sync_tiendanube_orders(from_date: date = None, to_date: date = None):
     if not from_date:
         from_date = date.today() - timedelta(days=30)
     if not to_date:
-        to_date = date.today()
+        # Agregar 1 día para incluir TODO el día de hoy (hasta las 23:59:59)
+        to_date = date.today() + timedelta(days=1)
     
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sincronizando órdenes TiendaNube desde {from_date} hasta {to_date}...")
     
