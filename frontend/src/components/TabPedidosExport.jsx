@@ -389,185 +389,164 @@ export default function TabPedidosExport() {
 
   return (
     <div className={styles.container}>
-      {/* Header con estadísticas */}
-      <div className={styles.statsGrid}>
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>Total Pedidos</div>
-          <div className={styles.statValue}>{estadisticas?.total_pedidos || 0}</div>
+      {/* Header con estadísticas - diseño compacto */}
+      <div className={styles.statsBar}>
+        <div className={styles.statItem}>
+          <span className={styles.statLabel}>TOTAL PEDIDOS</span>
+          <span className={styles.statValue}>{estadisticas?.total_pedidos || 0}</span>
         </div>
         
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>Total Items</div>
-          <div className={styles.statValue}>{estadisticas?.total_items || 0}</div>
+        <div className={styles.statItem}>
+          <span className={styles.statLabel}>TOTAL ITEMS</span>
+          <span className={styles.statValue}>{estadisticas?.total_items || 0}</span>
         </div>
         
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>TiendaNube</div>
-          <div className={styles.statValue}>{estadisticas?.con_tiendanube || 0}</div>
+        <div className={styles.statItem}>
+          <span className={styles.statLabel}>TIENDANUBE</span>
+          <span className={styles.statValue}>{estadisticas?.con_tiendanube || 0}</span>
         </div>
         
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>Sin Dirección</div>
-          <div className={styles.statValue}>{estadisticas?.sin_direccion || 0}</div>
+        <div className={styles.statItem}>
+          <span className={styles.statLabel}>SIN DIRECCIÓN</span>
+          <span className={styles.statValue}>{estadisticas?.sin_direccion || 0}</span>
         </div>
         
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>Filtro Temporal</div>
-          <div className={styles.statTime}>
-            Últimos {estadisticas?.dias_filtro || 60} días
-          </div>
-          {estadisticas?.fecha_desde && (
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-              Desde: {new Date(estadisticas.fecha_desde).toLocaleDateString('es-AR')}
-            </div>
-          )}
+        <div className={styles.statItem}>
+          <span className={styles.statLabel}>ÚLTIMOS {estadisticas?.dias_filtro || 60} DÍAS</span>
+          <span className={styles.statValue}>
+            {estadisticas?.fecha_desde ? new Date(estadisticas.fecha_desde).toLocaleDateString('es-AR') : '-'}
+          </span>
         </div>
       </div>
 
-      {/* Controles */}
-      <div className={styles.controls}>
-        <button 
-          onClick={sincronizarPedidos} 
-          disabled={syncing}
-          className={styles.btnSync}
+      {/* Barra de búsqueda full-width */}
+      <div className={styles.searchBar}>
+        <input
+          type="text"
+          placeholder="Buscar en todo (cliente, dirección, orden TN, ID pedido, provincia, ciudad...)"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className={styles.searchInput}
+        />
+      </div>
+
+      {/* Filtros en una sola línea compacta */}
+      <div className={styles.filtersUnified}>
+        {/* Selects compactos */}
+        <select
+          value={userIdFiltro}
+          onChange={(e) => {
+            setUserIdFiltro(e.target.value);
+            if (e.target.value) {
+              setSoloTN(false);
+              setSoloML(false);
+              setSoloOtros(false);
+            }
+          }}
+          className={styles.selectCompactFilter}
         >
-          {syncing ? '⏳ Sincronizando...' : '🔄 Sincronizar desde ERP'}
+          <option value="">Canal</option>
+          {usuariosDisponibles.map(u => (
+            <option key={u.user_id} value={u.user_id}>
+              {u.user_name}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={provinciaFiltro}
+          onChange={(e) => setProvinciaFiltro(e.target.value)}
+          className={styles.selectCompactFilter}
+        >
+          <option value="">Provincia</option>
+          {provinciasDisponibles.map(p => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+
+        {/* Toggles tipo btn-tesla con check */}
+        <button
+          onClick={() => setSoloActivos(!soloActivos)}
+          className={`btn-tesla outline-subtle-primary sm ${soloActivos ? 'toggle-active' : ''}`}
+        >
+          {soloActivos ? '✓ ' : ''}Activos
         </button>
 
-        <div className={styles.filtersWrapper}>
-          {/* Fila 1: Checkboxes */}
-          <div className={styles.filtersRow}>
-            <label className={styles.checkbox}>
-              <input 
-                type="checkbox" 
-                checked={soloActivos} 
-                onChange={(e) => setSoloActivos(e.target.checked)} 
-              />
-              <span>Solo Activos</span>
-            </label>
+        <button
+          onClick={() => {
+            setSoloTN(!soloTN);
+            if (!soloTN) { setSoloML(false); setSoloOtros(false); }
+          }}
+          className={`btn-tesla outline-subtle-primary sm ${soloTN ? 'toggle-active' : ''}`}
+        >
+          {soloTN ? '✓ ' : ''}TiendaNube
+        </button>
 
-            <label className={styles.checkbox}>
-              <input 
-                type="checkbox" 
-                checked={soloTN} 
-                onChange={(e) => {
-                  setSoloTN(e.target.checked);
-                  if (e.target.checked) {
-                    setSoloML(false);
-                    setSoloOtros(false);
-                  }
-                }} 
-              />
-              <span>🛒 Solo TiendaNube</span>
-            </label>
+        <button
+          onClick={() => {
+            setSoloML(!soloML);
+            if (!soloML) { setSoloTN(false); setSoloOtros(false); }
+          }}
+          className={`btn-tesla outline-subtle-primary sm ${soloML ? 'toggle-active' : ''}`}
+        >
+          {soloML ? '✓ ' : ''}MercadoLibre
+        </button>
 
-            <label className={styles.checkbox}>
-              <input 
-                type="checkbox" 
-                checked={soloML} 
-                onChange={(e) => {
-                  setSoloML(e.target.checked);
-                  if (e.target.checked) {
-                    setSoloTN(false);
-                    setSoloOtros(false);
-                  }
-                }} 
-              />
-              <span>📦 Solo MercadoLibre</span>
-            </label>
+        <button
+          onClick={() => {
+            setSoloOtros(!soloOtros);
+            if (!soloOtros) { setSoloTN(false); setSoloML(false); setUserIdFiltro(''); }
+          }}
+          className={`btn-tesla outline-subtle-primary sm ${soloOtros ? 'toggle-active' : ''}`}
+        >
+          {soloOtros ? '✓ ' : ''}Otros
+        </button>
 
-            <label className={styles.checkbox}>
-              <input 
-                type="checkbox" 
-                checked={soloOtros} 
-                onChange={(e) => {
-                  setSoloOtros(e.target.checked);
-                  if (e.target.checked) {
-                    setSoloTN(false);
-                    setSoloML(false);
-                    setUserIdFiltro('');
-                  }
-                }} 
-              />
-              <span>🏢 Solo Otros Usuarios</span>
-            </label>
+        <button
+          onClick={() => setSoloSinDireccion(!soloSinDireccion)}
+          className={`btn-tesla outline-subtle-primary sm ${soloSinDireccion ? 'toggle-active' : ''}`}
+        >
+          {soloSinDireccion ? '✓ ' : ''}Sin Dirección
+        </button>
 
-            <label className={styles.checkbox}>
-              <input 
-                type="checkbox" 
-                checked={soloSinDireccion} 
-                onChange={(e) => setSoloSinDireccion(e.target.checked)} 
-              />
-              <span>📍 Solo Sin Dirección</span>
-            </label>
-          </div>
+        {/* Separador */}
+        <div className={styles.filterSeparator} />
 
-          {/* Fila 2: Selects + Búsquedas */}
-          <div className={styles.filtersRow}>
-            <select
-              value={userIdFiltro}
-              onChange={(e) => {
-                setUserIdFiltro(e.target.value);
-                if (e.target.value) {
-                  setSoloTN(false);
-                  setSoloML(false);
-                  setSoloOtros(false);
-                }
-              }}
-              className={styles.selectFilter}
-            >
-              <option value="">Todos los canales</option>
-              {usuariosDisponibles.map(u => (
-                <option key={u.user_id} value={u.user_id}>
-                  {u.user_name}
-                </option>
-              ))}
-            </select>
+        {/* Acciones */}
+        <button onClick={cargarPedidos} className="btn-tesla outline-subtle-primary sm">
+          Filtrar
+        </button>
 
-            <select
-              value={provinciaFiltro}
-              onChange={(e) => setProvinciaFiltro(e.target.value)}
-              className={styles.selectFilter}
-            >
-              <option value="">Todas las provincias</option>
-              {provinciasDisponibles.map(p => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-
-            <input
-              type="text"
-              placeholder="🔍 Buscar en todo (cliente, dirección, orden TN, ID pedido, provincia, ciudad...)"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className={styles.searchInputWide}
-            />
-
-            <button onClick={cargarPedidos} className={styles.btnFilter}>
-              🔍 Filtrar
-            </button>
-          </div>
-        </div>
+        <button
+          onClick={sincronizarPedidos}
+          disabled={syncing}
+          className="btn-tesla outline-subtle-success sm"
+        >
+          {syncing ? '⏳ Sincronizando...' : '🔄 Sync ERP'}
+        </button>
       </div>
 
       {/* Bulk Actions */}
       {pedidosSeleccionados.length > 0 && (
         <div className={styles.bulkActions}>
-          <button 
+          <button
             onClick={generarEtiquetasBulk}
             disabled={generandoEtiqueta}
-            className={styles.btnBulkPrint}
+            className="btn-tesla outline-subtle-primary sm"
           >
             {generandoEtiqueta ? '⏳ Generando...' : `🖨️ Imprimir Etiquetas (${pedidosSeleccionados.length})`}
           </button>
-          <button 
+          <button
             onClick={() => setPedidosSeleccionados([])}
-            className={styles.btnClearSelection}
+            className="btn-tesla outline-subtle-danger sm"
           >
             ✖️ Limpiar Selección
           </button>
+          <span className={styles.bulkCount}>
+            {pedidosSeleccionados.length} seleccionados
+          </span>
         </div>
       )}
 
@@ -577,9 +556,9 @@ export default function TabPedidosExport() {
       ) : pedidos.length === 0 ? (
         <div className={styles.empty}>No hay pedidos con los filtros seleccionados</div>
       ) : (
-        <div className={styles.tableWrapper}>
-          <table className={styles.table}>
-            <thead>
+        <div className={`table-container-tesla ${styles.tableShell}`}>
+          <table className="table-tesla">
+            <thead className="table-tesla-head">
               <tr>
                 <th>
                   <input 
@@ -601,7 +580,7 @@ export default function TabPedidosExport() {
                 <th>ACCIONES</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="table-tesla-body">
               {pedidos.map((pedido) => (
                 <tr 
                   key={pedido.soh_id}
@@ -725,14 +704,6 @@ export default function TabPedidosExport() {
                     })()}
                   </td>
                   
-                  <td onClick={() => setPedidoSeleccionado(pedido)}>
-                    {pedido.soh_observation1 ? (
-                      <div className={styles.observaciones}>{pedido.soh_observation1}</div>
-                    ) : (
-                      <span className={styles.textMuted}>—</span>
-                    )}
-                  </td>
-                  
                   <td className={styles.textCenter} onClick={() => setPedidoSeleccionado(pedido)}>
                     {pedido.soh_deliverydate ? (
                       new Date(pedido.soh_deliverydate).toLocaleDateString('es-AR')
@@ -742,9 +713,9 @@ export default function TabPedidosExport() {
                   </td>
 
                   <td className={styles.textCenter} onClick={(e) => e.stopPropagation()}>
-                    <button 
+                    <button
                       onClick={() => setPedidoSeleccionado(pedido)}
-                      className={styles.btnDetalle}
+                      className={`btn-tesla outline-subtle-primary sm ${styles.btnDetalle}`}
                     >
                       Ver Detalle
                     </button>
@@ -763,7 +734,7 @@ export default function TabPedidosExport() {
             <div className={styles.modalHeader}>
               <h2>Pedido GBP: {pedidoSeleccionado.soh_id}</h2>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <button 
+                <button
                   onClick={() => {
                     // Usar los valores del pedido (override si existe, sino defaults)
                     setNumBultos(pedidoSeleccionado.override_num_bultos || 1);
@@ -771,14 +742,14 @@ export default function TabPedidosExport() {
                     setTipoEnvio('');
                     setMostrarModalEtiqueta(true);
                   }}
-                  className={styles.btnPrintLabel}
+                  className={`btn-tesla primary sm ${styles.btnPrintLabel}`}
                   title="Imprimir etiqueta de envío"
                 >
                   🖨️ Imprimir Etiqueta
                 </button>
                 <button 
                   onClick={() => setPedidoSeleccionado(null)}
-                  className={styles.btnClose}
+                  className={`btn-tesla ghost sm ${styles.btnClose}`}
                 >
                   ✕
                 </button>
@@ -880,9 +851,9 @@ export default function TabPedidosExport() {
                 <div className={styles.infoSection}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h3>Dirección de Envío</h3>
-                    <button 
+                    <button
                       onClick={() => abrirEditarDireccion(pedidoSeleccionado)}
-                      className={styles.btnEditDireccion}
+                      className={`btn-tesla outline sm ${styles.btnEditDireccion}`}
                       title="Editar dirección de envío"
                     >
                       ✏️ Editar
@@ -991,7 +962,7 @@ export default function TabPedidosExport() {
               <h2>✏️ Editar Dirección de Envío</h2>
               <button 
                 onClick={() => setEditandoDireccion(false)}
-                className={styles.btnClose}
+                className={`btn-tesla ghost sm ${styles.btnClose}`}
               >
                 ✕
               </button>
@@ -1080,26 +1051,26 @@ export default function TabPedidosExport() {
               </div>
 
               <div className={styles.modalActions}>
-                <button 
+                <button
                   onClick={guardarDireccion}
-                  className={styles.btnGuardar}
+                  className={`btn-tesla success ${styles.btnGuardar}`}
                   disabled={!direccionForm.direccion}
                 >
                   💾 Guardar
                 </button>
                 
                 {getDireccionDisplay(pedidoSeleccionado).hasOverride && (
-                  <button 
+                  <button
                     onClick={eliminarOverride}
-                    className={styles.btnEliminar}
+                    className={`btn-tesla danger ${styles.btnEliminar}`}
                   >
                     🗑️ Eliminar Override
                   </button>
                 )}
 
-                <button 
+                <button
                   onClick={() => setEditandoDireccion(false)}
-                  className={styles.btnCancelar}
+                  className={`btn-tesla secondary ${styles.btnCancelar}`}
                 >
                   Cancelar
                 </button>
@@ -1117,7 +1088,7 @@ export default function TabPedidosExport() {
               <h2>🖨️ Generar Etiqueta</h2>
               <button 
                 onClick={() => setMostrarModalEtiqueta(false)}
-                className={styles.btnClose}
+                className={`btn-tesla ghost sm ${styles.btnClose}`}
               >
                 ✕
               </button>
@@ -1181,17 +1152,17 @@ export default function TabPedidosExport() {
               </div>
 
               <div className={styles.modalActions}>
-                <button 
+                <button
                   onClick={generarEtiqueta}
-                  className={styles.btnGuardar}
+                  className={`btn-tesla success ${styles.btnGuardar}`}
                   disabled={generandoEtiqueta || numBultos < 1 || numBultos > 10}
                 >
                   {generandoEtiqueta ? '⏳ Generando...' : '🖨️ Generar y Descargar'}
                 </button>
 
-                <button 
+                <button
                   onClick={() => setMostrarModalEtiqueta(false)}
-                  className={styles.btnCancelar}
+                  className={`btn-tesla secondary ${styles.btnCancelar}`}
                 >
                   Cancelar
                 </button>
