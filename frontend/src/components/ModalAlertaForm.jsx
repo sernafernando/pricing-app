@@ -53,6 +53,18 @@ export default function ModalAlertaForm({ alerta, onClose }) {
     }
   }, [alerta, isEdit]);
 
+  // Cerrar modal con ESC
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        onClose(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [onClose]);
+
   const cargarRoles = async () => {
     try {
       const response = await api.get('/roles');
@@ -139,7 +151,7 @@ export default function ModalAlertaForm({ alerta, onClose }) {
   };
 
   return (
-    <div className="modal-overlay-tesla" onClick={(e) => e.target === e.currentTarget && onClose(false)}>
+    <div className="modal-overlay-tesla">
       <div className="modal-tesla lg">
         <div className="modal-header-tesla">
           <h2 className="modal-title-tesla">{isEdit ? 'Editar Alerta' : 'Nueva Alerta'}</h2>
