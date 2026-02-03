@@ -225,6 +225,10 @@ async def obtener_pedidos_local(
             ))
             total_items += int(cantidad) if cantidad else 0
         
+        # Excluir pedidos sin items (después de filtrar 2953/2954)
+        if total_items == 0:
+            continue
+        
         # Parsear datos de TiendaNube desde JSON si existe
         tn_data = {}
         tn_json_has_shipping = False
