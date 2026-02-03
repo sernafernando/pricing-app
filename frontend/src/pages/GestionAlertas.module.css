@@ -18,6 +18,98 @@
   color: var(--cf-text-primary);
 }
 
+.configPanel {
+  background: var(--cf-card-bg);
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  margin-bottom: var(--spacing-2xl);
+}
+
+.configPanel h3 {
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.configRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.configRow label {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  font-weight: var(--font-medium);
+}
+
+.configInput {
+  min-width: 120px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.hint {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  margin-top: var(--spacing-xs);
+}
+
+.comportamiento {
+  min-width: 120px;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  align-items: center;
+}
+
+.badgeSticky,
+.badgeDuracion,
+.badgePersistent,
+.badgeNoDismiss {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+}
+
+.badgeSticky {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.badgeDuracion {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  border: 1px solid var(--cf-border-default);
+}
+
+.badgePersistent {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badgeNoDismiss {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
 .filtros {
   display: flex;
   gap: var(--spacing-sm);

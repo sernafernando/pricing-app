@@ -1,19 +1,7 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './ModalAlertaForm.module.css';
 import AlertBanner from './AlertBanner';
-
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 export default function ModalAlertaForm({ alerta, onClose }) {
   const isEdit = !!alerta;
@@ -32,7 +20,8 @@ export default function ModalAlertaForm({ alerta, onClose }) {
     activo: false,
     fecha_desde: new Date().toISOString().slice(0, 16),
     fecha_hasta: '',
-    prioridad: 0
+    prioridad: 0,
+    duracion_segundos: 5
   });
 
   const [roles, setRoles] = useState([]);
@@ -58,7 +47,8 @@ export default function ModalAlertaForm({ alerta, onClose }) {
         activo: alerta.activo !== undefined ? alerta.activo : false,
         fecha_desde: alerta.fecha_desde ? new Date(alerta.fecha_desde).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16),
         fecha_hasta: alerta.fecha_hasta ? new Date(alerta.fecha_hasta).toISOString().slice(0, 16) : '',
-        prioridad: alerta.prioridad || 0
+        prioridad: alerta.prioridad ?? 0,
+        duracion_segundos: alerta.duracion_segundos ?? 5
       });
     }
   }, [alerta, isEdit]);
@@ -335,19 +325,41 @@ export default function ModalAlertaForm({ alerta, onClose }) {
             </div>
           </div>
 
-          {/* Prioridad */}
-          <div className={styles.formGroup}>
-            <label htmlFor="prioridad">Prioridad (mayor = más arriba)</label>
-            <input
-              type="number"
-              id="prioridad"
-              name="prioridad"
-              value={formData.prioridad}
-              onChange={handleChange}
-              className={styles.input}
-              min={0}
-              max={100}
-            />
+          {/* Prioridad y Duración */}
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label htmlFor="prioridad">Prioridad (mayor = más arriba)</label>
+              <input
+                type="number"
+                id="prioridad"
+                name="prioridad"
+                value={formData.prioridad}
+                onChange={handleChange}
+                className={styles.input}
+                min={0}
+                max={100}
+              />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label htmlFor="duracion_segundos">Duración de Rotación</label>
+              <select
+                id="duracion_segundos"
+                name="duracion_segundos"
+                value={formData.duracion_segundos}
+                onChange={handleChange}
+                className={styles.select}
+              >
+                <option value={0}>Sticky (no rota)</option>
+                <option value={3}>3 segundos</option>
+                <option value={5}>5 segundos (default)</option>
+                <option value={10}>10 segundos</option>
+                <option value={15}>15 segundos</option>
+                <option value={30}>30 segundos</option>
+                <option value={60}>60 segundos</option>
+              </select>
+              <small className={styles.hint}>0 = siempre visible (sticky)</small>
+            </div>
           </div>
 
           {/* Preview */}

@@ -23,7 +23,13 @@ export default function Sidebar() {
 
   // Persiste el estado de pin
   useEffect(() => {
-    localStorage.setItem('sidebarPinned', isPinned);
+    const value = isPinned.toString();
+    localStorage.setItem('sidebarPinned', value);
+    
+    // Disparar custom event para sincronizar AppLayout en la misma tab
+    window.dispatchEvent(new CustomEvent('sidebarChange', {
+      detail: { key: 'sidebarPinned', value }
+    }));
   }, [isPinned]);
 
   const togglePin = () => {
