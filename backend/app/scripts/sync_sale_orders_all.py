@@ -398,12 +398,23 @@ async def sync_sale_order_detail_history(db: Session, days: int = 7):
         
         for record in data:
             try:
-                sodhID = record.get('sodhID') or record.get('sodh_id')
-                if not sodhID:
+                comp_id = record.get('comp_id')
+                bra_id = record.get('bra_id')
+                soh_id = record.get('soh_id')
+                sohh_id = record.get('sohh_id')
+                sod_id = record.get('sod_id')
+                
+                if not all([comp_id, bra_id, soh_id, sohh_id, sod_id]):
                     continue
                 
                 existente = db.query(SaleOrderDetailHistory).filter(
-                    SaleOrderDetailHistory.sodh_id == sodhID
+                    and_(
+                        SaleOrderDetailHistory.comp_id == comp_id,
+                        SaleOrderDetailHistory.bra_id == bra_id,
+                        SaleOrderDetailHistory.soh_id == soh_id,
+                        SaleOrderDetailHistory.sohh_id == sohh_id,
+                        SaleOrderDetailHistory.sod_id == sod_id
+                    )
                 ).first()
                 
                 def parse_dt(val):
@@ -414,17 +425,39 @@ async def sync_sale_order_detail_history(db: Session, days: int = 7):
                     except:
                         return None
                 
+                # Mapear TODAS las columnas del JSON al modelo
                 datos = {
-                    'sodh_id': sodhID,
-                    'comp_id': record.get('comp_id'),
-                    'bra_id': record.get('bra_id'),
-                    'soh_id': record.get('soh_id'),
-                    'sod_id': record.get('sod_id'),
-                    'sodh_cd': parse_dt(record.get('sodh_cd')),
-                    'sodh_action': record.get('sodh_action'),
+                    'comp_id': comp_id,
+                    'bra_id': bra_id,
+                    'soh_id': soh_id,
+                    'sohh_id': sohh_id,
+                    'sod_id': sod_id,
+                    'sod_priority': record.get('sod_priority'),
+                    'item_id': record.get('item_id'),
+                    'sod_itemdesc': record.get('sod_itemDesc'),
+                    'sod_detail': record.get('sod_detail'),
+                    'curr_id': record.get('curr_id'),
+                    'sod_initqty': record.get('sod_initQty'),
+                    'sod_qty': record.get('sod_qty'),
+                    'prli_id': record.get('prli_id'),
+                    'sod_price': record.get('sod_price'),
+                    'stor_id': record.get('stor_id'),
+                    'sod_lastupdate': parse_dt(record.get('sod_lastUpdate')),
+                    'sod_isediting': record.get('sod_isEditing'),
+                    'sod_insertdate': parse_dt(record.get('sod_insertDate')),
                     'user_id': record.get('user_id'),
-                    'sodh_previousvalue': record.get('sodh_previousValue'),
-                    'sodh_newvalue': record.get('sodh_newValue'),
+                    'sod_cost': record.get('sod_cost'),
+                    'sod_note2': record.get('sod_note2'),
+                    'sod_itemdiscount': record.get('sod_itemDiscount'),
+                    'sod_isparentassociate': record.get('sod_isParentAssociate'),
+                    'sod_ismade': record.get('sod_isMade'),
+                    'sod_expirationdate': parse_dt(record.get('sod_expirationDate')),
+                    'sod_mlcost': record.get('sod_MLCost'),
+                    'mlo_id': record.get('mlo_id'),
+                    'sod_mecost': record.get('sod_MECost'),
+                    'sod_mpcost': record.get('sod_MPCost'),
+                    'sod_isdivided': record.get('sod_isDivided'),
+                    'sod_isdivided_costcoeficient': record.get('sod_isDivided_costCoeficient'),
                 }
                 
                 if existente:
@@ -439,7 +472,9 @@ async def sync_sale_order_detail_history(db: Session, days: int = 7):
                 if (nuevos + actualizados) % 500 == 0:
                     db.commit()
             
-            except Exception:
+            except Exception as e:
+                if (nuevos + actualizados) < 5:
+                    print(f"\n  ⚠️  Error en registro: {str(e)[:100]}")
                 continue
         
         db.commit()
