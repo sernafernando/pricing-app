@@ -104,8 +104,8 @@ async def obtener_pedidos_local(
         ~SaleOrderHeader.soh_id.in_(subquery_cerrados)
     )
     
-    # FILTRO POR FECHA: Solo pedidos de los últimos N días
-    fecha_limite = datetime.now() - timedelta(days=dias_atras)
+    # FILTRO POR FECHA: Solo pedidos de los últimos N días (desde las 00:00:00 del día inicial)
+    fecha_limite = datetime.combine(datetime.now().date() - timedelta(days=dias_atras), datetime.min.time())
     query = query.filter(SaleOrderHeader.soh_cd >= fecha_limite)
     
     # Filtro por estado ERP (opcional)
@@ -369,8 +369,8 @@ async def obtener_estadisticas_local(
         SaleOrderTimes.ssot_id == 40
     ).distinct()
     
-    # Filtro de fecha: Solo pedidos de los últimos N días
-    fecha_limite = datetime.now() - timedelta(days=dias_atras)
+    # Filtro de fecha: Solo pedidos de los últimos N días (desde las 00:00:00 del día inicial)
+    fecha_limite = datetime.combine(datetime.now().date() - timedelta(days=dias_atras), datetime.min.time())
     
     # Base query
     base_filter = [

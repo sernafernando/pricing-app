@@ -56,8 +56,10 @@ async def sync_sale_order_header(db: Session, days: int = 7):
     print(f"  📋 Sale Order Header (últimos {days} días)...", end=" ", flush=True)
     
     try:
+        # Fecha desde: día inicial a las 00:00:00
         from_date = (date.today() - timedelta(days=days)).isoformat()
-        to_date = date.today().isoformat()
+        # Fecha hasta: día SIGUIENTE a las 00:00:00 (incluye todo el día de hoy)
+        to_date = (date.today() + timedelta(days=1)).isoformat()
         
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.get(GBP_PARSER_URL, params={
@@ -167,8 +169,10 @@ async def sync_sale_order_detail(db: Session, days: int = 7):
     print(f"  📋 Sale Order Detail (últimos {days} días)...", end=" ", flush=True)
     
     try:
+        # Fecha desde: día inicial a las 00:00:00
         from_date = (date.today() - timedelta(days=days)).isoformat()
-        to_date = date.today().isoformat()
+        # Fecha hasta: día SIGUIENTE a las 00:00:00 (incluye todo el día de hoy)
+        to_date = (date.today() + timedelta(days=1)).isoformat()
         
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.get(GBP_PARSER_URL, params={
@@ -292,8 +296,10 @@ async def sync_sale_order_header_history(db: Session, days: int = 7):
     print(f"  📜 Sale Order Header History (últimos {days} días)...", end=" ", flush=True)
     
     try:
+        # Fecha desde: día inicial a las 00:00:00
         from_date = (date.today() - timedelta(days=days)).isoformat()
-        to_date = date.today().isoformat()
+        # Fecha hasta: día SIGUIENTE a las 00:00:00 (incluye todo el día de hoy)
+        to_date = (date.today() + timedelta(days=1)).isoformat()
         
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.get(GBP_PARSER_URL, params={
@@ -433,8 +439,10 @@ async def sync_sale_order_detail_history(db: Session, days: int = 7):
     print(f"  📜 Sale Order Detail History (últimos {days} días)...", end=" ", flush=True)
     
     try:
+        # Fecha desde: día inicial a las 00:00:00
         from_date = (date.today() - timedelta(days=days)).isoformat()
-        to_date = date.today().isoformat()
+        # Fecha hasta: día SIGUIENTE a las 00:00:00 (incluye todo el día de hoy)
+        to_date = (date.today() + timedelta(days=1)).isoformat()
         
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.get(GBP_PARSER_URL, params={
