@@ -310,6 +310,7 @@ async def sync_sale_order_header_history(db: Session, days: int = 7):
         
         nuevos = 0
         actualizados = 0
+        errores = 0
         
         for record in data:
             try:
@@ -405,8 +406,10 @@ async def sync_sale_order_header_history(db: Session, days: int = 7):
                     db.commit()
             
             except Exception as e:
-                if (nuevos + actualizados) < 5:
-                    print(f"\n  ⚠️  Error en registro: {str(e)[:100]}")
+                errores += 1
+                # Loggear primeros 10 errores Y cualquier error del pedido 10280
+                if errores <= 10 or soh_id == 10280:
+                    print(f"\n  ⚠️  Error en soh_id={soh_id}: {str(e)[:200]}")
                 continue
         
         db.commit()
