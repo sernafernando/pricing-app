@@ -50,8 +50,9 @@ export default function TabPedidosExport() {
   const cargarEstadisticas = useCallback(async () => {
     try {
       // Usar estadísticas del endpoint local con ssos_id=20 (En Preparación)
+      // dias_atras=60 por defecto (últimos 60 días)
       const response = await axios.get(
-        `${API_URL}/pedidos-local/estadisticas?ssos_id=20`,
+        `${API_URL}/pedidos-local/estadisticas?ssos_id=20&dias_atras=60`,
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
       setEstadisticas(response.data);
@@ -92,6 +93,8 @@ export default function TabPedidosExport() {
       if (soloActivos) {
         params.append('ssos_id', '20');
       }
+      // Filtrar por últimos 60 días por defecto
+      params.append('dias_atras', '60');
       if (soloTN) params.append('solo_tn', 'true');
       if (soloML) params.append('solo_ml', 'true');
       if (soloSinDireccion) params.append('solo_sin_direccion', 'true');
@@ -409,12 +412,15 @@ export default function TabPedidosExport() {
         </div>
         
         <div className={styles.statCard}>
-          <div className={styles.statLabel}>Última Sync</div>
+          <div className={styles.statLabel}>Filtro Temporal</div>
           <div className={styles.statTime}>
-            {estadisticas?.ultima_sync 
-              ? new Date(estadisticas.ultima_sync).toLocaleString('es-AR')
-              : 'N/A'}
+            Últimos {estadisticas?.dias_filtro || 60} días
           </div>
+          {estadisticas?.fecha_desde && (
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+              Desde: {new Date(estadisticas.fecha_desde).toLocaleDateString('es-AR')}
+            </div>
+          )}
         </div>
       </div>
 

@@ -7,10 +7,12 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func, text
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 
 from app.core.database import get_db
+from app.api.deps import get_current_user
+from app.models.usuario import Usuario
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_detail import SaleOrderDetail
 from app.models.sale_order_times import SaleOrderTimes
@@ -30,6 +32,7 @@ logger = logging.getLogger(__name__)
 @router.get("/pedidos-local", response_model=List[PedidoDetallado])
 async def obtener_pedidos_local(
     db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
     ssos_id: Optional[int] = Query(None, description="Filtrar por estado ERP (20=Pendiente, 30=En Proceso, 40=Completado, etc)"),
     solo_tn: bool = Query(False),
     solo_ml: bool = Query(False),
@@ -37,6 +40,7 @@ async def obtener_pedidos_local(
     user_id: Optional[int] = Query(None),
     provincia: Optional[str] = Query(None),
     buscar: Optional[str] = Query(None),
+    dias_atras: int = Query(60, ge=1, le=365, description="Mostrar solo pedidos de los últimos N días (default: 60)"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0)
 ):
@@ -99,6 +103,10 @@ async def obtener_pedidos_local(
     query = query.filter(
         ~SaleOrderHeader.soh_id.in_(subquery_cerrados)
     )
+    
+    # FILTRO POR FECHA: Solo pedidos de los últimos N días
+    fecha_limite = datetime.now() - timedelta(days=dias_atras)
+    query = query.filter(SaleOrderHeader.soh_cd >= fecha_limite)
     
     # Filtro por estado ERP (opcional)
     if ssos_id is not None:
@@ -346,21 +354,28 @@ async def obtener_pedidos_local(
 @router.get("/pedidos-local/estadisticas")
 async def obtener_estadisticas_local(
     db: Session = Depends(get_db),
-    ssos_id: Optional[int] = Query(None, description="Filtrar estadísticas por estado ERP (20=Pendiente)")
+    current_user: Usuario = Depends(get_current_user),
+    ssos_id: Optional[int] = Query(None, description="Filtrar estadísticas por estado ERP (20=Pendiente)"),
+    dias_atras: int = Query(60, ge=1, le=365, description="Mostrar solo pedidos de los últimos N días (default: 60)")
 ):
     """
     Estadísticas de pedidos en la DB local.
     Si se proporciona ssos_id, filtra por ese estado (ej: 20 para pendientes).
     EXCLUYE pedidos cerrados (ssot_id = 40 en tb_sale_order_times).
+    EXCLUYE pedidos con más de dias_atras días de antigüedad.
     """
     # Subquery para excluir pedidos cerrados
     subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(
         SaleOrderTimes.ssot_id == 40
     ).distinct()
     
+    # Filtro de fecha: Solo pedidos de los últimos N días
+    fecha_limite = datetime.now() - timedelta(days=dias_atras)
+    
     # Base query
     base_filter = [
-        ~SaleOrderHeader.soh_id.in_(subquery_cerrados)
+        ~SaleOrderHeader.soh_id.in_(subquery_cerrados),
+        SaleOrderHeader.soh_cd >= fecha_limite
     ]
     if ssos_id is not None:
         base_filter.append(SaleOrderHeader.ssos_id == ssos_id)
@@ -434,12 +449,17 @@ async def obtener_estadisticas_local(
         "con_tiendanube": con_tiendanube,
         "con_mercadolibre": con_mercadolibre,
         "sin_direccion": sin_direccion,
-        "ultima_sync": None  # No aplica en modo local
+        "ultima_sync": None,  # No aplica en modo local
+        "dias_filtro": dias_atras,
+        "fecha_desde": fecha_limite.strftime("%Y-%m-%d")
     }
 
 
 @router.post("/pedidos-local/sincronizar")
-async def sincronizar_pedidos_local(db: Session = Depends(get_db)):
+async def sincronizar_pedidos_local(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
     """
     Sincroniza las tablas de pedidos desde el ERP y limpia registros archivados.
     
