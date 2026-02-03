@@ -1420,6 +1420,58 @@ async def listar_productos_tienda(
     if filtros_ban:
         query = query.filter(~or_(*filtros_ban))
 
+    # FILTRADO POR AUDITORÍA
+    if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
+        from app.models.auditoria import Auditoria
+        from datetime import datetime, timedelta, date as date_type
+
+        filtros_audit = [Auditoria.item_id.isnot(None)]
+
+        if audit_usuarios:
+            usuarios_ids = [int(u) for u in audit_usuarios.split(',')]
+            filtros_audit.append(Auditoria.usuario_id.in_(usuarios_ids))
+
+        if audit_tipos_accion:
+            tipos_list = audit_tipos_accion.split(',')
+            filtros_audit.append(Auditoria.tipo_accion.in_(tipos_list))
+
+        if audit_fecha_desde:
+            try:
+                fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                try:
+                    fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d %H:%M')
+                except ValueError:
+                    try:
+                        fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d')
+                    except ValueError:
+                        fecha_desde_dt = datetime.combine(date_type.today(), datetime.min.time())
+            fecha_desde_dt = fecha_desde_dt + timedelta(hours=3)
+            filtros_audit.append(Auditoria.fecha >= fecha_desde_dt)
+
+        if audit_fecha_hasta:
+            try:
+                fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                try:
+                    fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d %H:%M')
+                except ValueError:
+                    try:
+                        fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d')
+                        fecha_hasta_dt = fecha_hasta_dt.replace(hour=23, minute=59, second=59)
+                    except ValueError:
+                        fecha_hasta_dt = datetime.combine(date_type.today(), datetime.max.time())
+            fecha_hasta_dt = fecha_hasta_dt + timedelta(hours=3)
+            filtros_audit.append(Auditoria.fecha <= fecha_hasta_dt)
+
+        audit_query = db.query(Auditoria.item_id).filter(and_(*filtros_audit))
+        item_ids = [item_id for (item_id,) in audit_query.distinct().all()]
+
+        if item_ids:
+            query = query.filter(ProductoERP.item_id.in_(item_ids))
+        else:
+            return ProductoTiendaListResponse(total=0, page=page, page_size=page_size, productos=[])
+
     # Aplicar filtros
     if search:
         search_normalized = search.replace('-', '').replace(' ', '').upper()
@@ -1434,6 +1486,19 @@ async def listar_productos_tienda(
         query = query.filter(ProductoERP.marca.in_([m.strip() for m in marcas.split(',')]))
     if subcategorias:
         query = query.filter(ProductoERP.subcategoria_id.in_([int(s.strip()) for s in subcategorias.split(',')]))
+
+    # Filtro por PMs (Product Managers)
+    if pms:
+        from app.models.marca_pm import MarcaPM
+        pm_ids = [int(pm.strip()) for pm in pms.split(',')]
+        marcas_pm = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
+        marcas_asignadas = [m[0] for m in marcas_pm]
+
+        if marcas_asignadas:
+            query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
+        else:
+            return ProductoTiendaListResponse(total=0, page=page, page_size=page_size, productos=[])
+
     if con_stock is True:
         query = query.filter(ProductoERP.stock > 0)
     elif con_stock is False:
@@ -1442,22 +1507,208 @@ async def listar_productos_tienda(
         query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
     elif con_precio is False:
         query = query.filter(or_(ProductoPricing.precio_lista_ml.is_(None), ProductoPricing.item_id.is_(None)))
-    if con_rebate is True:
-        query = query.filter(ProductoPricing.participa_rebate == True)
-    elif con_rebate is False:
-        query = query.filter(or_(ProductoPricing.participa_rebate == False, ProductoPricing.participa_rebate.is_(None)))
-    if con_web_transf is True:
-        query = query.filter(ProductoPricing.participa_web_transferencia == True)
-    if out_of_cards is True:
-        query = query.filter(ProductoPricing.out_of_cards == True)
+
+    # Filtro rebate
+    if con_rebate is not None:
+        if con_rebate:
+            query = query.filter(ProductoPricing.participa_rebate == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.participa_rebate == False,
+                    ProductoPricing.participa_rebate.is_(None)
+                )
+            )
+
+    # Filtro web transferencia
+    if con_web_transf is not None:
+        if con_web_transf:
+            query = query.filter(ProductoPricing.participa_web_transferencia == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.participa_web_transferencia == False,
+                    ProductoPricing.participa_web_transferencia.is_(None)
+                )
+            )
+
+    # Filtros de Tienda Nube
+    if tn_con_descuento or tn_sin_descuento or tn_no_publicado:
+        from app.models.tienda_nube_producto import TiendaNubeProducto
+
+        if tn_con_descuento:
+            query = query.join(
+                TiendaNubeProducto,
+                and_(
+                    ProductoERP.item_id == TiendaNubeProducto.item_id,
+                    TiendaNubeProducto.activo == True,
+                    TiendaNubeProducto.promotional_price.isnot(None),
+                    TiendaNubeProducto.promotional_price > 0
+                )
+            )
+        elif tn_sin_descuento:
+            query = query.join(
+                TiendaNubeProducto,
+                and_(
+                    ProductoERP.item_id == TiendaNubeProducto.item_id,
+                    TiendaNubeProducto.activo == True,
+                    or_(
+                        TiendaNubeProducto.promotional_price.is_(None),
+                        TiendaNubeProducto.promotional_price == 0
+                    )
+                )
+            )
+        elif tn_no_publicado:
+            from sqlalchemy.sql import exists
+            subquery = exists().where(
+                and_(
+                    TiendaNubeProducto.item_id == ProductoERP.item_id,
+                    TiendaNubeProducto.activo == True
+                )
+            )
+            query = query.filter(
+                and_(
+                    ProductoERP.stock > 0,
+                    ~subquery
+                )
+            )
+
+    # Filtros de markup (soportan True=positivo, False=negativo)
+    if markup_clasica_positivo is not None:
+        if markup_clasica_positivo:
+            query = query.filter(ProductoPricing.markup_calculado > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_calculado < 0)
+
+    if markup_rebate_positivo is not None:
+        if markup_rebate_positivo:
+            query = query.filter(ProductoPricing.markup_rebate > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_rebate < 0)
+
+    if markup_oferta_positivo is not None:
+        if markup_oferta_positivo:
+            query = query.filter(ProductoPricing.markup_oferta > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_oferta < 0)
+
+    if markup_web_transf_positivo is not None:
+        if markup_web_transf_positivo:
+            query = query.filter(ProductoPricing.markup_web_real > 0)
+        else:
+            query = query.filter(ProductoPricing.markup_web_real < 0)
+
+    # Filtro out of cards
+    if out_of_cards is not None:
+        if out_of_cards:
+            query = query.filter(ProductoPricing.out_of_cards == True)
+        else:
+            query = query.filter(
+                or_(
+                    ProductoPricing.out_of_cards == False,
+                    ProductoPricing.out_of_cards.is_(None)
+                )
+            )
+
+    # Filtro de oferta (ofertas vigentes en MercadoLibre)
+    if con_oferta is not None:
+        from app.models.oferta_ml import OfertaML
+        from app.models.publicacion_ml import PublicacionML
+
+        hoy_date = date.today()
+
+        items_con_oferta_vigente_subquery = db.query(PublicacionML.item_id).join(
+            OfertaML, PublicacionML.mla == OfertaML.mla
+        ).filter(
+            OfertaML.fecha_desde <= hoy_date,
+            OfertaML.fecha_hasta >= hoy_date,
+            OfertaML.pvp_seller.isnot(None)
+        ).distinct().subquery()
+
+        if con_oferta:
+            query = query.filter(ProductoERP.item_id.in_(items_con_oferta_vigente_subquery))
+        else:
+            query = query.filter(~ProductoERP.item_id.in_(items_con_oferta_vigente_subquery))
+
+    # Filtro de colores (tienda usa color_marcado_tienda)
     if colores:
-        query = query.filter(ProductoPricing.color_marcado_tienda.in_([c.strip() for c in colores.split(',')]))
-    if markup_clasica_positivo is True:
-        query = query.filter(ProductoPricing.markup_calculado >= 0)
-    if markup_rebate_positivo is True:
-        query = query.filter(ProductoPricing.markup_rebate >= 0)
-    if markup_web_transf_positivo is True:
-        query = query.filter(ProductoPricing.markup_web_real >= 0)
+        colores_list = colores.split(',')
+
+        if 'sin_color' in colores_list:
+            colores_con_valor = [c for c in colores_list if c != 'sin_color']
+
+            if colores_con_valor:
+                query = query.filter(
+                    or_(
+                        ProductoPricing.color_marcado_tienda.in_(colores_con_valor),
+                        ProductoPricing.color_marcado_tienda.is_(None)
+                    )
+                )
+            else:
+                query = query.filter(ProductoPricing.color_marcado_tienda.is_(None))
+        else:
+            query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
+
+    # Filtro de MLA (con/sin publicación)
+    if con_mla is not None:
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+        from app.models.item_sin_mla_banlist import ItemSinMLABanlist
+
+        if con_mla:
+            items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
+            ).distinct().subquery()
+
+            query = query.filter(ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)))
+        else:
+            items_con_mla_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
+            ).distinct().subquery()
+
+            items_en_banlist_subquery = db.query(ItemSinMLABanlist.item_id).subquery()
+
+            query = query.filter(
+                ~ProductoERP.item_id.in_(select(items_con_mla_subquery.c.item_id)),
+                ~ProductoERP.item_id.in_(select(items_en_banlist_subquery.c.item_id))
+            )
+
+    # Filtro de estado de publicaciones MLA
+    if estado_mla:
+        from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+
+        if estado_mla == "activa":
+            items_activos_subquery = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            query = query.filter(ProductoERP.item_id.in_(select(items_activos_subquery.c.item_id)))
+
+        elif estado_mla == "pausada":
+            items_con_publis = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None)
+            ).distinct().subquery()
+
+            items_activos = db.query(MercadoLibreItemPublicado.item_id).filter(
+                MercadoLibreItemPublicado.mlp_id.isnot(None),
+                or_(
+                    MercadoLibreItemPublicado.optval_statusId == 2,
+                    MercadoLibreItemPublicado.optval_statusId.is_(None)
+                )
+            ).distinct().subquery()
+
+            query = query.filter(
+                ProductoERP.item_id.in_(select(items_con_publis.c.item_id)),
+                ~ProductoERP.item_id.in_(select(items_activos.c.item_id))
+            )
+
+    # Filtro de productos nuevos (últimos 7 días)
+    if nuevos_ultimos_7_dias:
+        fecha_limite = datetime.now() - timedelta(days=7)
+        query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
     total = query.count()
     offset = (page - 1) * page_size
@@ -2261,6 +2512,10 @@ async def obtener_stats_dinamicos(
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     tienda_oficial: Optional[str] = None,
+    audit_usuarios: Optional[str] = None,
+    audit_tipos_accion: Optional[str] = None,
+    audit_fecha_desde: Optional[str] = None,
+    audit_fecha_hasta: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -2278,6 +2533,66 @@ async def obtener_stats_dinamicos(
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
+
+    # FILTRADO POR AUDITORÍA
+    if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
+        from app.models.auditoria import Auditoria
+
+        filtros_audit = [Auditoria.item_id.isnot(None)]
+
+        if audit_usuarios:
+            usuarios_ids = [int(u) for u in audit_usuarios.split(',')]
+            filtros_audit.append(Auditoria.usuario_id.in_(usuarios_ids))
+
+        if audit_tipos_accion:
+            tipos_list = audit_tipos_accion.split(',')
+            filtros_audit.append(Auditoria.tipo_accion.in_(tipos_list))
+
+        if audit_fecha_desde:
+            try:
+                fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                try:
+                    fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d %H:%M')
+                except ValueError:
+                    try:
+                        fecha_desde_dt = datetime.strptime(audit_fecha_desde, '%Y-%m-%d')
+                    except ValueError:
+                        fecha_desde_dt = datetime.combine(date.today(), datetime.min.time())
+            fecha_desde_dt = fecha_desde_dt + timedelta(hours=3)
+            filtros_audit.append(Auditoria.fecha >= fecha_desde_dt)
+
+        if audit_fecha_hasta:
+            try:
+                fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                try:
+                    fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d %H:%M')
+                except ValueError:
+                    try:
+                        fecha_hasta_dt = datetime.strptime(audit_fecha_hasta, '%Y-%m-%d')
+                        fecha_hasta_dt = fecha_hasta_dt.replace(hour=23, minute=59, second=59)
+                    except ValueError:
+                        fecha_hasta_dt = datetime.combine(date.today(), datetime.max.time())
+            fecha_hasta_dt = fecha_hasta_dt + timedelta(hours=3)
+            filtros_audit.append(Auditoria.fecha <= fecha_hasta_dt)
+
+        audit_query = db.query(Auditoria.item_id).filter(and_(*filtros_audit))
+        item_ids = [item_id for (item_id,) in audit_query.distinct().all()]
+
+        if item_ids:
+            query = query.filter(ProductoERP.item_id.in_(item_ids))
+        else:
+            # Sin resultados de auditoría, retornar stats vacíos
+            return {
+                "total_productos": 0, "con_stock": 0, "con_precio": 0,
+                "con_stock_sin_precio": 0, "markup_negativo_clasica": 0,
+                "markup_negativo_rebate": 0, "markup_negativo_oferta": 0,
+                "markup_negativo_web": 0, "mejor_oferta_sin_rebate": 0,
+                "nuevos_ultimos_7_dias": 0, "nuevos_sin_precio": 0,
+                "sin_mla_no_banlist": 0, "sin_mla_con_stock": 0,
+                "sin_mla_sin_stock": 0, "sin_mla_nuevos": 0
+            }
 
     # APLICAR TODOS LOS FILTROS (copiado del endpoint /productos)
 
@@ -2441,10 +2756,24 @@ async def obtener_stats_dinamicos(
         else:
             query = query.filter(~ProductoERP.item_id.in_(items_con_oferta_subquery))
 
-    # Filtro de colores
+    # Filtro de colores (usa color_marcado_tienda para la vista Tienda)
     if colores:
         colores_list = colores.split(',')
-        query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+
+        if 'sin_color' in colores_list:
+            colores_con_valor = [c for c in colores_list if c != 'sin_color']
+
+            if colores_con_valor:
+                query = query.filter(
+                    or_(
+                        ProductoPricing.color_marcado_tienda.in_(colores_con_valor),
+                        ProductoPricing.color_marcado_tienda.is_(None)
+                    )
+                )
+            else:
+                query = query.filter(ProductoPricing.color_marcado_tienda.is_(None))
+        else:
+            query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
 
     # Filtro de PMs
     if pms:
