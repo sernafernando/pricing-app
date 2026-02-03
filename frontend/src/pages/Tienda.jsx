@@ -293,13 +293,25 @@ export default function Tienda() {
       // Detectar qué acción ejecutar (1=código, 2=enlace1, 3=enlace2)
       let accion = null;
 
-      // Ctrl+F1/F2/F3
-      if (e.ctrlKey && !e.shiftKey && (e.key === 'F1' || e.key === 'F2' || e.key === 'F3')) {
+      // Ctrl+F1/F2/F3 (con o sin Shift)
+      if (e.ctrlKey && (e.key === 'F1' || e.key === 'F2' || e.key === 'F3')) {
         accion = e.key === 'F1' ? 1 : e.key === 'F2' ? 2 : 3;
       }
       // Ctrl+Shift+1/2/3 (alternativa para sistemas que capturan F1/F2)
-      if (e.ctrlKey && e.shiftKey && (e.key === '!' || e.key === '@' || e.key === '#' || e.key === '1' || e.key === '2' || e.key === '3')) {
-        accion = (e.key === '1' || e.key === '!') ? 1 : (e.key === '2' || e.key === '@') ? 2 : 3;
+      // Soporta layouts: en_US, es_AR, es_ES
+      // - en_US: Shift+1=!, Shift+2=@, Shift+3=#
+      // - es_AR/es_ES: Shift+1=!, Shift+2=", Shift+3=·
+      // - e.code es independiente del layout (Digit1/2/3)
+      if (e.ctrlKey && e.shiftKey) {
+        if (e.key === '!' || e.code === 'Digit1') {
+          accion = 1;
+        }
+        if (e.key === '"' || e.key === '@' || e.code === 'Digit2') {
+          accion = 2;
+        }
+        if (e.key === '·' || e.key === '#' || e.code === 'Digit3') {
+          accion = 3;
+        }
       }
 
       if (accion) {
@@ -312,7 +324,7 @@ export default function Tienda() {
         const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
 
         if (!enModoEdicion && !hayProductoSeleccionado) {
-          showToast('⚠️ Debes posicionarte sobre un producto para usar este atajo', 'error');
+          showToast('Debes posicionarte sobre un producto para usar este atajo (Enter para activar navegación)', 'error');
           return;
         }
 
@@ -336,12 +348,12 @@ export default function Tienda() {
         }
 
         if (!producto) {
-          showToast('⚠️ Producto no encontrado', 'error');
+          showToast('Producto no encontrado', 'error');
           return;
         }
 
         if (!producto.codigo) {
-          showToast('⚠️ El producto no tiene código asignado', 'error');
+          showToast('El producto no tiene código asignado', 'error');
           return;
         }
 
@@ -353,6 +365,7 @@ export default function Tienda() {
             showToast(`✅ Código copiado: ${itemCode}`);
           }).catch(err => {
             showToast('❌ Error al copiar al portapapeles', 'error');
+            
           });
         }
 
@@ -363,6 +376,7 @@ export default function Tienda() {
             showToast(`✅ Enlace 1 copiado: ${itemCode}`);
           }).catch(err => {
             showToast('❌ Error al copiar al portapapeles', 'error');
+            
           });
         }
 
@@ -373,6 +387,7 @@ export default function Tienda() {
             showToast(`✅ Enlace 2 copiado: ${itemCode}`);
           }).catch(err => {
             showToast('❌ Error al copiar al portapapeles', 'error');
+            
           });
         }
       }
@@ -618,8 +633,18 @@ export default function Tienda() {
           headers: { Authorization: `Bearer ${token}` }
         }
       );
+      
+      // Actualizar estado local en lugar de recargar
+      setProductos(prods => prods.map(p =>
+        p.item_id === itemId
+          ? { ...p, color_marcado_tienda: color }
+          : p
+      ));
+      
       setColorDropdownAbierto(null);
-      cargarProductos();
+      
+      // Recargar stats para reflejar cambios en contadores
+      cargarStats();
     } catch (error) {
       showToast('Error al cambiar el color', 'error');
     }
@@ -1487,8 +1512,20 @@ export default function Tienda() {
               },
               { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
             );
+            
+            // Actualizar estado local en lugar de recargar
+            setProductos(prods => prods.map(p =>
+              p.item_id === producto.item_id
+                ? {
+                    ...p,
+                    participa_rebate: false,
+                    precio_rebate: null
+                  }
+                : p
+            ));
+            
             setEditandoRebate(null);
-            cargarProductos();
+            cargarStats();
           } else {
             // Si no estamos editando, toggle normal
             await toggleRebateRapido(producto);
@@ -1516,8 +1553,16 @@ export default function Tienda() {
               { out_of_cards: false },
               { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
             );
+            
+            // Actualizar estado local en lugar de recargar
+            setProductos(prods => prods.map(p =>
+              p.item_id === producto.item_id
+                ? { ...p, out_of_cards: false }
+                : p
+            ));
+            
             setEditandoRebate(null);
-            cargarProductos();
+            cargarStats();
           } else {
             // Toggle normal
             await toggleOutOfCardsRapido(producto);
@@ -1579,11 +1624,20 @@ export default function Tienda() {
   const cambiarColorRapido = async (itemId, color) => {
     try {
       await axios.patch(
-        `${API_URL}/productos/${itemId}/color`,
+        `${API_URL}/productos/${itemId}/color-tienda`,
         { color },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
-      cargarProductos();
+      
+      // Actualizar estado local en lugar de recargar
+      setProductos(prods => prods.map(p =>
+        p.item_id === itemId
+          ? { ...p, color_marcado_tienda: color }
+          : p
+      ));
+      
+      // Recargar stats para reflejar cambios en contadores
+      cargarStats();
     } catch (error) {
       showToast('Error cambiando color', 'error');
     }
@@ -1593,7 +1647,7 @@ export default function Tienda() {
     try {
       // Si el rebate está desactivado, activarlo y abrir modo edición
       if (!producto.participa_rebate) {
-        await axios.patch(
+        const response = await axios.patch(
           `${API_URL}/productos/${producto.item_id}/rebate`,
           {
             participa_rebate: true,
@@ -1601,6 +1655,17 @@ export default function Tienda() {
           },
           { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
         );
+
+        // Actualizar estado local
+        setProductos(prods => prods.map(p =>
+          p.item_id === producto.item_id
+            ? {
+                ...p,
+                participa_rebate: true,
+                porcentaje_rebate: producto.porcentaje_rebate || 3.8
+              }
+            : p
+        ));
 
         // Abrir modo edición
         setEditandoRebate(producto.item_id);
@@ -1618,7 +1683,7 @@ export default function Tienda() {
           }
         }, 100);
 
-        cargarProductos();
+        cargarStats();
       } else {
         // Si está activado, desactivarlo (comportamiento actual)
         await axios.patch(
@@ -1629,7 +1694,19 @@ export default function Tienda() {
           },
           { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
         );
-        cargarProductos();
+        
+        // Actualizar estado local
+        setProductos(prods => prods.map(p =>
+          p.item_id === producto.item_id
+            ? {
+                ...p,
+                participa_rebate: false,
+                precio_rebate: null
+              }
+            : p
+        ));
+        
+        cargarStats();
       }
     } catch (error) {
       showToast('Error al cambiar rebate', 'error');
@@ -1638,7 +1715,7 @@ export default function Tienda() {
 
   const toggleWebTransfRapido = async (producto) => {
     try {
-      await axios.patch(
+      const response = await axios.patch(
         `${API_URL}/productos/${producto.item_id}/web-transferencia`,
         {
           participa: !producto.participa_web_transferencia,
@@ -1646,7 +1723,20 @@ export default function Tienda() {
         },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
-      cargarProductos();
+      
+      // Actualizar estado local en lugar de recargar
+      setProductos(prods => prods.map(p =>
+        p.item_id === producto.item_id
+          ? {
+              ...p,
+              participa_web_transferencia: !producto.participa_web_transferencia,
+              precio_web_transferencia: response.data.precio_web_transferencia,
+              markup_web_real: response.data.markup_web_real
+            }
+          : p
+      ));
+      
+      cargarStats();
     } catch (error) {
       showToast('Error al cambiar web transferencia', 'error');
     }
@@ -1662,19 +1752,28 @@ export default function Tienda() {
           { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
         );
         
+        // Actualizar estado local en lugar de recargar
+        setProductos(prods => prods.map(p =>
+          p.item_id === producto.item_id
+            ? { ...p, out_of_cards: false }
+            : p
+        ));
+        
         // Cerrar modo edición si estaba abierto
         if (editandoRebate === producto.item_id) {
           setEditandoRebate(null);
         }
         
-        cargarProductos();
+        // Recargar stats para reflejar cambios en contadores
+        cargarStats();
         return;
       }
 
       // Si NO tiene out_of_cards, activarlo
       // Primero, si el rebate NO está activo, activarlo
+      let rebateResponse = null;
       if (!producto.participa_rebate) {
-        await axios.patch(
+        rebateResponse = await axios.patch(
           `${API_URL}/productos/${producto.item_id}/rebate`,
           {
             participa_rebate: true,
@@ -1690,6 +1789,19 @@ export default function Tienda() {
         { out_of_cards: true },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
+
+      // Actualizar estado local en lugar de recargar
+      setProductos(prods => prods.map(p =>
+        p.item_id === producto.item_id
+          ? {
+              ...p,
+              out_of_cards: true,
+              participa_rebate: true,
+              precio_rebate: rebateResponse?.data?.precio_rebate || p.precio_rebate,
+              porcentaje_rebate: rebateResponse?.data?.porcentaje_rebate || p.porcentaje_rebate
+            }
+          : p
+      ));
 
       // Abrir modo edición
       setEditandoRebate(producto.item_id);
@@ -1707,7 +1819,7 @@ export default function Tienda() {
         }
       }, 100);
 
-      cargarProductos();
+      cargarStats();
     } catch (error) {
       showToast('Error al cambiar out of cards', 'error');
     }
@@ -1798,15 +1910,13 @@ export default function Tienda() {
         <>
       <div className="stats-grid">
         <StatCard
-          title="Total Productos"
+          label="📦 Total Productos"
           value={stats?.total_productos?.toLocaleString('es-AR') || 0}
-          onClick={limpiarFiltros}
-          tooltip="Click para limpiar todos los filtros"
+          onClick={limpiarTodosFiltros}
         />
 
         <StatCard
-          title="Stock & Precio"
-          tooltip="Desglose de stock y precios"
+          label="📊 Stock & Precio"
           subItems={[
             {
               label: 'Con Stock:',
@@ -1830,8 +1940,7 @@ export default function Tienda() {
         />
 
         <StatCard
-          title="Nuevos (7 días)"
-          tooltip="Productos cargados en los últimos 7 días"
+          label="✨ Nuevos (7 días)"
           subItems={[
             {
               label: 'Total:',
@@ -1849,8 +1958,7 @@ export default function Tienda() {
         />
 
         <StatCard
-          title="Sin MLA"
-          tooltip="Productos sin publicación en MercadoLibre (excluye banlist)"
+          label="Sin MLA"
           subItems={[
             {
               label: 'Total:',
@@ -1867,6 +1975,7 @@ export default function Tienda() {
             {
               label: 'Sin Stock:',
               value: stats?.sin_mla_sin_stock?.toLocaleString('es-AR') || 0,
+              color: 'blue',
               onClick: () => aplicarFiltroStat({ mla: 'sin_mla', stock: 'sin_stock' })
             },
             {
@@ -1879,16 +1988,14 @@ export default function Tienda() {
         />
 
         <StatCard
-          title="Oferta sin Rebate"
+          label="💎 Oferta sin Rebate"
           value={stats?.mejor_oferta_sin_rebate?.toLocaleString('es-AR') || 0}
-          valueColor="purple"
+          color="purple"
           onClick={() => aplicarFiltroStat({ oferta: 'con_oferta', rebate: 'sin_rebate' })}
-          tooltip="Click para filtrar productos con oferta sin rebate"
         />
 
         <StatCard
-          title="Markup Negativo"
-          tooltip="Productos con markup negativo en diferentes modalidades"
+          label="📉 Markup Negativo"
           subItems={[
             {
               label: 'Clásica:',
@@ -2012,7 +2119,7 @@ export default function Tienda() {
 
           <button
             onClick={limpiarTodosFiltros}
-            className="filter-button clear-all"
+            className="btn-tesla outline-subtle-danger sm"
             title="Limpiar todos los filtros"
           >
             Limpiar
@@ -2021,48 +2128,38 @@ export default function Tienda() {
           {/* Separador visual */}
           <div className="filter-separator"></div>
 
-          {/* Vista Normal/Cuotas */}
-          <label className="filter-checkbox-label">
-            <input
-              type="checkbox"
-              checked={vistaModoCuotas}
-              onChange={(e) => {
-                setVistaModoCuotas(e.target.checked);
-                // Resetear columna activa para evitar ir a columnas ocultas
-                if (celdaActiva) {
-                  setCeldaActiva({ ...celdaActiva, colIndex: 0 });
-                }
-              }}
-              className="filter-checkbox"
-            />
-            <span className="filter-checkbox-text">
-              {vistaModoCuotas ? '📊 Cuotas' : '📋 Normal'}
-            </span>
-          </label>
+          {/* Toggle Vista Cuotas */}
+          <button
+            className="filter-button"
+            onClick={() => {
+              setVistaModoCuotas(!vistaModoCuotas);
+              // Resetear columna activa para evitar ir a columnas ocultas
+              if (celdaActiva) {
+                setCeldaActiva({ ...celdaActiva, colIndex: 0 });
+              }
+            }}
+            title="Alt+V para cambiar vista"
+          >
+            {vistaModoCuotas ? '📊 Cuotas' : 'Normal'}
+          </button>
 
           {/* Toggle Precio Gremio ARS/USD */}
-          <label className="filter-checkbox-label" title="Alt+D para cambiar">
-            <input
-              type="checkbox"
-              checked={vistaModoPrecioGremioUSD}
-              onChange={(e) => setVistaModoPrecioGremioUSD(e.target.checked)}
-              className="filter-checkbox"
-            />
-            <span className="filter-checkbox-text">
-              {vistaModoPrecioGremioUSD ? '💵 Gremio USD' : '💰 Gremio ARS'}
-            </span>
-          </label>
+          <button
+            className="filter-button"
+            onClick={() => setVistaModoPrecioGremioUSD(!vistaModoPrecioGremioUSD)}
+            title="Alt+D para cambiar"
+          >
+            {vistaModoPrecioGremioUSD ? '💵 Gremio USD' : '💰 Gremio ARS'}
+          </button>
 
           {/* Auto-recalcular */}
-          <label className="filter-checkbox-label">
-            <input
-              type="checkbox"
-              checked={recalcularCuotasAuto}
-              onChange={(e) => setRecalcularCuotasAuto(e.target.checked)}
-              className="filter-checkbox"
-            />
-            <span className="filter-checkbox-text">♻️ Auto-recalcular</span>
-          </label>
+          <button
+            onClick={() => setRecalcularCuotasAuto(!recalcularCuotasAuto)}
+            className={`btn-tesla outline-subtle-primary sm ${recalcularCuotasAuto ? 'toggle-active' : ''}`}
+            title="Alt+R para toggle"
+          >
+            {recalcularCuotasAuto ? '✓ ' : ''}Auto-recalcular
+          </button>
 
           {/* Separador visual */}
           <div className="filter-separator"></div>
@@ -2070,28 +2167,28 @@ export default function Tienda() {
           {/* Botones de Exportar y Calcular */}
           <button
             onClick={() => setMostrarExportModal(true)}
-            className="btn-action export"
+            className="btn-tesla outline-subtle-success sm"
           >
-            <img src={xlsIcon} alt="Excel" />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/></svg>
             Exportar
           </button>
 
           {puedeCalcularWebMasivo && (
           <button
             onClick={() => setMostrarCalcularWebModal(true)}
-            className="btn-action calculate"
+            className="btn-tesla outline-subtle-primary sm"
           >
-            🧮 Calcular Web Transf.
+            Calcular Web Transf.
           </button>
           )}
 
           {tienePermiso('tienda.editar_precio_gremio_manual') && (
           <button
             onClick={eliminarTodosPreciosGremioManuales}
-            className="btn-action reset-gremio"
+            className="btn-tesla outline-subtle-warning sm"
             title="Eliminar todos los precios gremio manuales y volver al cálculo automático"
           >
-            ⟲ Resetear Precios Gremio
+            Resetear Precios Gremio
           </button>
           )}
         </div>
@@ -2111,7 +2208,7 @@ export default function Tienda() {
                         setMarcasSeleccionadas([]);
                         setPage(1);
                       }}
-                      className="btn-clear-all"
+                      className="btn-tesla outline-subtle-danger sm"
                     >
                       Limpiar filtros ({marcasSeleccionadas.length})
                     </button>
@@ -2175,7 +2272,7 @@ export default function Tienda() {
                         e.stopPropagation();
                         setSubcategoriasSeleccionadas([]);
                       }}
-                      className="btn-clear-all"
+                      className="btn-tesla outline-subtle-danger sm"
                     >
                       Limpiar
                     </button>
@@ -2325,7 +2422,7 @@ export default function Tienda() {
                         setPmsSeleccionados([]);
                         setPage(1);
                       }}
-                      className="btn-clear-all"
+                      className="btn-tesla outline-subtle-danger sm"
                     >
                       Limpiar filtros ({pmsSeleccionados.length})
                     </button>
@@ -2378,7 +2475,7 @@ export default function Tienda() {
                       });
                       setPage(1);
                     }}
-                    className="btn-clear-all"
+                    className="btn-tesla outline-subtle-danger sm"
                   >
                     Limpiar Todo
                   </button>
@@ -2527,7 +2624,7 @@ export default function Tienda() {
                 setColoresSeleccionados([]);
                 setPage(1);
               }}
-              className="btn-clear-all"
+              className="btn-tesla outline-subtle-danger sm"
             >
               Limpiar Todos
             </button>
@@ -3402,49 +3499,49 @@ export default function Tienda() {
                             setProductoInfo(p.item_id);
                             setMostrarModalInfo(true);
                           }}
-                          className="icon-button info"
-                          title="Información detallada (Ctrl+I)"
-                          aria-label="Información detallada del producto"
+                          className="btn-tesla outline-subtle-primary icon-only sm"
+                          title="Información del producto"
+                          aria-label="Información del producto"
                         >
-                          ℹ️
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
                         </button>
                         {puedeEditar && (
                           <button
                             onClick={() => setProductoSeleccionado(p)}
-                            className="icon-button detail"
+                            className="btn-tesla outline-subtle-primary icon-only sm"
                             title="Ver detalle"
                             aria-label="Ver detalle del producto"
                           >
-                            🔍
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
                           </button>
                         )}
                         <button
                           onClick={() => verAuditoria(p.item_id)}
-                          className="icon-button audit"
+                          className="btn-tesla outline-subtle-primary icon-only sm"
                           title="Ver historial de cambios"
                           aria-label="Ver historial de cambios"
                         >
-                          📋
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
                         </button>
                         {puedeEditar && (
                           <button
                             onClick={() => abrirModalConfig(p)}
-                            className="icon-button config"
+                            className="btn-tesla outline-subtle-primary icon-only sm"
                             title="Configuración de cuotas"
                             aria-label="Configuración de cuotas"
                           >
-                            ⚙️
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94L14.4 2.81c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
                           </button>
                         )}
                         {puedeMarcarColor && (
                         <div style={{ position: 'relative', display: 'inline-block' }}>
                           <button
                             onClick={() => setColorDropdownAbierto(colorDropdownAbierto === p.item_id ? null : p.item_id)}
-                            className="icon-button color"
+                            className="btn-tesla outline-subtle-primary icon-only sm"
                             title="Marcar con color"
                             aria-label="Marcar producto con color"
                           >
-                            🎨
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
                           </button>
                           {colorDropdownAbierto === p.item_id && (
                             <div className="color-dropdown">
@@ -3455,11 +3552,11 @@ export default function Tienda() {
                                   style={{
                                     backgroundColor: c.color,
                                     color: c.colorTexto,
-                                    border: c.id === p.color_marcado_tienda ? '2px solid var(--text-primary)' : '1px solid var(--border-primary)'
+                                    border: c.id === p.color_marcado_tienda ? '2px solid var(--text-primary)' : '1px solid var(--border-secondary)'
                                   }}
                                   onClick={() => cambiarColorProducto(p.item_id, c.id)}
                                   title={c.nombre}
-                                  aria-label={`Marcar como ${c.nombre}`}
+                                  aria-label={`Marcar producto como ${c.nombre}`}
                                 >
                                   {c.nombre}
                                 </button>
@@ -3471,12 +3568,10 @@ export default function Tienda() {
                         {['SUPERADMIN', 'ADMIN'].includes(user?.rol) && (
                           <button
                             onClick={() => abrirModalBan(p)}
-                            className="icon-button ban"
+                            className="btn-tesla outline-subtle-danger icon-only sm"
                             title="Agregar a banlist"
-                            aria-label="Agregar producto a banlist"
-                            style={{ color: 'var(--error)' }}
                           >
-                            🚫
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
                           </button>
                         )}
                       </div>
@@ -3564,17 +3659,23 @@ export default function Tienda() {
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="pagination-btn"
+                className="btn-tesla outline-subtle-primary"
               >
-                ← Anterior
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: '4px' }}>
+                  <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+                </svg>
+                Anterior
               </button>
-              <span>Página {page} {totalProductos > 0 && `(${((page-1)*pageSize + 1)} - ${Math.min(page*pageSize, totalProductos)})`}</span>
+              <span className="pagination-info">Página {page} {totalProductos > 0 && `(1 - ${pageSize} de ${totalProductos.toLocaleString('es-AR')})`}</span>
               <button
                 onClick={() => setPage(p => p + 1)}
                 disabled={productos.length < pageSize}
-                className="pagination-btn"
+                className="btn-tesla outline-subtle-primary"
               >
-                Siguiente →
+                Siguiente
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft: '4px' }}>
+                  <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+                </svg>
               </button>
             </div>
           </>
