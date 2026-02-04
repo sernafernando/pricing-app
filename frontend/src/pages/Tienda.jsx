@@ -1401,23 +1401,15 @@ export default function Tienda() {
               <div className="filter-group-title">🎨 Marcado por Color</div>
               <div className="filter-group-content color-filter-grid">
                 {COLORES_DISPONIBLES.map(c => (
-                  <label
-                    key={c.id || 'sin_color'}
-                    className="color-checkbox"
-                    style={{
-                      backgroundColor: c.color || 'var(--bg-primary)',
-                      border: coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) ? '3px solid var(--text-primary)' : '2px solid var(--border-primary)',
-                      cursor: 'pointer',
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '6px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s'
-                    }}
-                    title={c.nombre}
-                  >
+                <label
+                  key={c.id || 'sin_color'}
+                  className="color-checkbox color-checkbox-base"
+                  style={{
+                    backgroundColor: c.color || 'var(--bg-primary)',
+                    border: coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id) ? '3px solid var(--text-primary)' : '2px solid var(--border-primary)'
+                  }}
+                  title={c.nombre}
+                >
                     <input
                       type="checkbox"
                       checked={coloresSeleccionados.includes(c.id === null ? 'sin_color' : c.id)}
@@ -1556,19 +1548,13 @@ export default function Tienda() {
                       {p.descripcion}
                       {p.has_catalog && p.catalog_status && (
                         <span
+                          className="catalog-badge"
                           style={{
-                            padding: '2px 6px',
-                            borderRadius: '3px',
-                            fontSize: '10px',
-                            fontWeight: '600',
-                            marginLeft: '6px',
                             backgroundColor:
                               p.catalog_status === 'winning' ? 'var(--success)' :
                               p.catalog_status === 'sharing_first_place' ? 'var(--info)' :
                               p.catalog_status === 'competing' ? 'var(--warning)' :
-                              'var(--text-secondary)',
-                            color: 'var(--text-inverse)',
-                            whiteSpace: 'nowrap'
+                              'var(--text-secondary)'
                           }}
                           title={
                             p.catalog_status === 'winning' && p.catalog_winner_price ?
@@ -1813,11 +1799,7 @@ export default function Tienda() {
                                   </span>
                                 </div>
                                 {p.tn_price && (
-                                  <div style={{
-                                    fontSize: '10px',
-                                    color: 'var(--text-secondary)',
-                                    textDecoration: 'line-through'
-                                  }}>
+                                  <div className="strikethrough-price">
                                     ${p.tn_price.toLocaleString('es-AR')}
                                   </div>
                                 )}
@@ -2476,12 +2458,7 @@ export default function Tienda() {
                 <select
                   value={configTemp.recalcular_cuotas_auto === null ? 'null' : configTemp.recalcular_cuotas_auto.toString()}
                   onChange={(e) => setConfigTemp({ ...configTemp, recalcular_cuotas_auto: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-primary)'
-                  }}
+                  className="form-select"
                 >
                   <option value="null">Usar configuración global ({recalcularCuotasAuto ? 'Sí' : 'No'})</option>
                   <option value="true">Siempre recalcular</option>
@@ -2502,12 +2479,7 @@ export default function Tienda() {
                   onChange={(e) => setConfigTemp({ ...configTemp, markup_adicional_cuotas_custom: e.target.value })}
                   onFocus={(e) => e.target.select()}
                   placeholder="Dejar vacío para usar configuración global"
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-primary)'
-                  }}
+                  className="form-input"
                 />
                 <p className="text-12 text-secondary mt-5">
                   Dejar vacío para usar la configuración global
@@ -2517,27 +2489,13 @@ export default function Tienda() {
               <div className="flex gap-10 justify-end">
                 <button
                   onClick={() => setMostrarModalConfig(false)}
-                  style={{
-                    padding: '10px 20px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-primary)',
-                    backgroundColor: 'var(--bg-primary)',
-                    cursor: 'pointer'
-                  }}
+                  className="btn-neutral"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={guardarConfigIndividual}
-                  style={{
-                    padding: '10px 20px',
-                    borderRadius: '4px',
-                    border: 'none',
-                    backgroundColor: 'var(--brand-primary)',
-                    color: 'var(--text-inverse)',
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
-                  }}
+                  className="btn-primary-solid font-bold"
                 >
                   Guardar
                 </button>

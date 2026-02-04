@@ -177,6 +177,17 @@
   gap: 8px;
 }
 
+.color-checkbox-base {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
 .small-input-60 {
   width: 60px;
   padding: 4px;
@@ -226,4 +237,20 @@
 
 .badge-padding {
   padding: 2px 6px;
+}
+
+.catalog-badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 6px;
+  color: var(--text-inverse);
+  white-space: nowrap;
+}
+
+.strikethrough-price {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-decoration: line-through;
 }
