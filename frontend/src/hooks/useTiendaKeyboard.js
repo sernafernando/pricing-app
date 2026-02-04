@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 /**
  * Custom hook para manejar TODA la navegación por teclado y atajos en la vista Tienda.
@@ -122,8 +122,7 @@ export function useTiendaKeyboard({
   }, [pricing.editandoPrecio, pricing.editandoRebate, pricing.editandoWebTransf, pricing.editandoCuota, data.productos, celdaActiva, showToast]);
 
   // === MAIN KEYBOARD NAVIGATION ===
-  useEffect(() => {
-    const handleKeyDown = async (e) => {
+  const handleKeyDown = useCallback(async (e) => {
       const {
         editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota,
         setEditandoPrecio, setEditandoRebate, setEditandoWebTransf,
@@ -131,7 +130,7 @@ export function useTiendaKeyboard({
         toggleRebateRapido, toggleWebTransfRapido, toggleOutOfCardsRapido,
       } = pricing;
 
-      const { productos, setProductos, cargarStats } = data;
+      const { productos } = data;
       const { toggleSeleccion } = selection;
       const { puedeEditar, puedeMarcarColor, puedeEditarWebTransf, puedeCalcularWebMasivo } = permissions;
 
@@ -460,11 +459,38 @@ export function useTiendaKeyboard({
           return;
         }
       }
-    };
+    }, [
+      // Estado de edición
+      pricing.editandoPrecio, pricing.editandoRebate, pricing.editandoWebTransf, pricing.editandoCuota,
+      // Funciones de pricing (estables)
+      pricing.setEditandoPrecio, pricing.setEditandoRebate, pricing.setEditandoWebTransf,
+      pricing.iniciarEdicionDesdeTeclado, pricing.cambiarColorRapido,
+      pricing.toggleRebateRapido, pricing.toggleWebTransfRapido, pricing.toggleOutOfCardsRapido,
+      // Data
+      data.productos,
+      // Funciones de selection (estables)
+      selection.toggleSeleccion,
+      // Estado de UI que se lee en los shortcuts
+      ui.mostrarExportModal, ui.mostrarCalcularWebModal, ui.mostrarModalConfig, ui.mostrarModalInfo,
+      ui.panelFiltroActivo, ui.mostrarFiltrosAvanzados, ui.vistaModoCuotas,
+      ui.recalcularCuotasAuto, ui.vistaModoPrecioGremioUSD,
+      // Funciones de UI (estables)
+      ui.setPanelFiltroActivo, ui.setColorDropdownAbierto, ui.setProductoInfo, ui.setMostrarModalInfo,
+      ui.setMostrarFiltrosAvanzados, ui.setVistaModoCuotas, ui.setRecalcularCuotasAuto,
+      ui.setVistaModoPrecioGremioUSD, ui.setMostrarExportModal, ui.setMostrarCalcularWebModal,
+      // Permisos
+      permissions.puedeEditar, permissions.puedeMarcarColor,
+      permissions.puedeEditarWebTransf, permissions.puedeCalcularWebMasivo,
+      // Estado local
+      modoNavegacion, celdaActiva, mostrarShortcutsHelp,
+      // Setter local
+      setModoNavegacion, setCeldaActiva, setMostrarShortcutsHelp
+    ]);
 
+  useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pricing, data, selection, ui, permissions, modoNavegacion, celdaActiva, mostrarShortcutsHelp, showToast]);
+  }, [handleKeyDown]);
 
   // === AUTO-SCROLL para seguir la celda activa ===
   useEffect(() => {
