@@ -241,11 +241,27 @@ async def obtener_pedidos_local(
                 # Verificar si el JSON tiene datos de shipping
                 if shipping_addr and shipping_addr.get('address'):
                     tn_json_has_shipping = True
+                    
+                    # Construir dirección completa concatenando campos
+                    address_parts = [shipping_addr.get('address', '')]
+                    if shipping_addr.get('number'):
+                        address_parts.append(shipping_addr.get('number'))
+                    if shipping_addr.get('floor'):
+                        address_parts.append(shipping_addr.get('floor'))
+                    
+                    # Agregar localidad si es diferente de city
+                    locality = shipping_addr.get('locality', '')
+                    city = shipping_addr.get('city', '')
+                    if locality and locality != city:
+                        address_parts.append(locality)
+                    
+                    full_address = ' '.join(filter(None, address_parts))
+                    
                     tn_data = {
                         'ws_internalid': str(tn_orderid) if tn_orderid else pedido.ws_internalid,
                         'tiendanube_number': str(tn_parsed.get('number', '')) if tn_parsed.get('number') else pedido.tiendanube_number,
-                        'tiendanube_shipping_address': shipping_addr.get('address', ''),
-                        'tiendanube_shipping_city': shipping_addr.get('city', ''),
+                        'tiendanube_shipping_address': full_address,
+                        'tiendanube_shipping_city': city,
                         'tiendanube_shipping_province': shipping_addr.get('province', ''),
                         'tiendanube_shipping_zipcode': shipping_addr.get('zipcode', ''),
                         'tiendanube_shipping_phone': shipping_addr.get('phone', ''),
@@ -265,11 +281,26 @@ async def obtener_pedidos_local(
                     shipping_addr = tn_api_data.get('shipping_address', {})
                     if shipping_addr and shipping_addr.get('address'):
                         logger.info(f"✅ Datos obtenidos desde API TN para order {tn_orderid}")
+                        
+                        # Construir dirección completa concatenando campos
+                        address_parts = [shipping_addr.get('address', '')]
+                        if shipping_addr.get('number'):
+                            address_parts.append(shipping_addr.get('number'))
+                        if shipping_addr.get('floor'):
+                            address_parts.append(shipping_addr.get('floor'))
+                        
+                        locality = shipping_addr.get('locality', '')
+                        city = shipping_addr.get('city', '')
+                        if locality and locality != city:
+                            address_parts.append(locality)
+                        
+                        full_address = ' '.join(filter(None, address_parts))
+                        
                         tn_data = {
                             'ws_internalid': str(tn_orderid),
                             'tiendanube_number': str(tn_api_data.get('number', '')),
-                            'tiendanube_shipping_address': shipping_addr.get('address', ''),
-                            'tiendanube_shipping_city': shipping_addr.get('city', ''),
+                            'tiendanube_shipping_address': full_address,
+                            'tiendanube_shipping_city': city,
                             'tiendanube_shipping_province': shipping_addr.get('province', ''),
                             'tiendanube_shipping_zipcode': shipping_addr.get('zipcode', ''),
                             'tiendanube_shipping_phone': shipping_addr.get('phone', ''),

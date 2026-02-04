@@ -1,16 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { productosAPI } from '../services/api';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import PricingModalTesla from '../components/PricingModalTesla';
 import { useDebounce } from '../hooks/useDebounce';
+import { useTiendaFilters } from '../hooks/useTiendaFilters';
+import { useTiendaData } from '../hooks/useTiendaData';
+import { useTiendaPricing } from '../hooks/useTiendaPricing';
+import { useTiendaSelection } from '../hooks/useTiendaSelection';
+import { useTiendaKeyboard } from '../hooks/useTiendaKeyboard';
 import './Tienda.css';
 import '../styles/table-tesla.css';
 import '../styles/buttons-tesla.css';
-import axios from 'axios';
+import '../styles/utilities.css';
+import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
 import ExportModal from '../components/ExportModal';
-import xlsIcon from '../assets/xls.svg';
 import CalcularWebModal from '../components/CalcularWebModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import SetupMarkups from '../components/SetupMarkups';
@@ -21,581 +24,188 @@ export default function Tienda() {
   const { tienePermiso } = usePermisos();
   const puedeGestionarMarkups = tienePermiso('productos.gestionar_markups_tienda');
   const [tabActivo, setTabActivo] = useState('productos'); // 'productos' o 'setup-markups'
-  const [productos, setProductos] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState(null);
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
-  const [searchInput, setSearchInput] = useState('');
+  
+  // Custom hook para filtros (consolida 25+ estados)
+  const filters = useTiendaFilters();
+  const {
+    searchInput, setSearchInput,
+    filtroStock, setFiltroStock,
+    filtroPrecio, setFiltroPrecio,
+    marcasSeleccionadas, setMarcasSeleccionadas,
+    subcategoriasSeleccionadas, setSubcategoriasSeleccionadas,
+    pmsSeleccionados, setPmsSeleccionados,
+    coloresSeleccionados, setColoresSeleccionados,
+    filtroRebate, setFiltroRebate,
+    filtroOferta, setFiltroOferta,
+    filtroWebTransf: filtroWebTransfFiltro,
+    setFiltroWebTransf: setFiltroWebTransfFiltro,
+    filtroTiendaNube, setFiltroTiendaNube,
+    filtroOutOfCards, setFiltroOutOfCards,
+    filtroMLA, setFiltroMLA,
+    filtroEstadoMLA, setFiltroEstadoMLA,
+    filtroNuevos, setFiltroNuevos,
+    filtroMarkupClasica, setFiltroMarkupClasica,
+    filtroMarkupRebate, setFiltroMarkupRebate,
+    filtroMarkupOferta, setFiltroMarkupOferta,
+    filtroMarkupWebTransf, setFiltroMarkupWebTransf,
+    filtrosAuditoria, setFiltrosAuditoria,
+    construirFiltrosParams,
+    limpiarTodosFiltros,
+  } = filters;
+
+  // Pagination & sorting (local to component, drives data loading)
   const [page, setPage] = useState(1);
-  const [editandoPrecio, setEditandoPrecio] = useState(null);
-  const [precioTemp, setPrecioTemp] = useState('');
-  const [filtroStock, setFiltroStock] = useState("todos");
-  const [filtroPrecio, setFiltroPrecio] = useState("todos");
-  const [totalProductos, setTotalProductos] = useState(0);
   const [pageSize, setPageSize] = useState(50);
-  const [auditoriaVisible, setAuditoriaVisible] = useState(false);
-  const [auditoriaData, setAuditoriaData] = useState([]);
-  const [editandoRebate, setEditandoRebate] = useState(null);
-  const [rebateTemp, setRebateTemp] = useState({ participa: false, porcentaje: 3.8 });
-  const [mostrarExportModal, setMostrarExportModal] = useState(false);
-  const [editandoWebTransf, setEditandoWebTransf] = useState(null);
-  const [webTransfTemp, setWebTransfTemp] = useState({ participa: false, porcentaje: 6.0, preservar: false });
-  const [mostrarCalcularWebModal, setMostrarCalcularWebModal] = useState(false);
-  const [marcas, setMarcas] = useState([]);
-  const [marcasSeleccionadas, setMarcasSeleccionadas] = useState([]);
-  const [busquedaMarca, setBusquedaMarca] = useState('');
-  const [ordenColumna, setOrdenColumna] = useState(null);
-  const [ordenDireccion, setOrdenDireccion] = useState('asc');
   const [ordenColumnas, setOrdenColumnas] = useState([]);
-  const [subcategorias, setSubcategorias] = useState([]);
-  const [subcategoriasSeleccionadas, setSubcategoriasSeleccionadas] = useState([]);
-  const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
-  const [usuarios, setUsuarios] = useState([]);
-  const [tiposAccion, setTiposAccion] = useState([]);
-  const [filtrosAuditoria, setFiltrosAuditoria] = useState({
-    usuarios: [],
-    tipos_accion: [],
-    fecha_desde: '',
-    fecha_hasta: ''
-  });
-  const [panelFiltroActivo, setPanelFiltroActivo] = useState(null); // 'marcas', 'subcategorias', 'auditoria', null
-  const [filtroRebate, setFiltroRebate] = useState(null);
-  const [filtroOferta, setFiltroOferta] = useState(null);
-  const [filtroWebTransf, setFiltroWebTransf] = useState(null);
-  const [filtroTiendaNube, setFiltroTiendaNube] = useState(null); // con_descuento, sin_descuento, no_publicado
-  const [filtroMarkupClasica, setFiltroMarkupClasica] = useState(null);
-  const [filtroMarkupRebate, setFiltroMarkupRebate] = useState(null);
-  const [filtroMarkupOferta, setFiltroMarkupOferta] = useState(null);
-  const [filtroMarkupWebTransf, setFiltroMarkupWebTransf] = useState(null);
-  const [filtroOutOfCards, setFiltroOutOfCards] = useState(null);
-  const [filtroMLA, setFiltroMLA] = useState(null); // con_mla, sin_mla
-  const [filtroEstadoMLA, setFiltroEstadoMLA] = useState(null); // 'activa', 'pausada'
-  const [filtroNuevos, setFiltroNuevos] = useState(null); // ultimos_7_dias
-  const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
-  const [colorDropdownAbierto, setColorDropdownAbierto] = useState(null); // item_id del producto
-  const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
-  const [pms, setPms] = useState([]);
-  const [pmsSeleccionados, setPmsSeleccionados] = useState([]);
-  const [marcasPorPM, setMarcasPorPM] = useState([]); // Marcas filtradas por PMs seleccionados
-  const [subcategoriasPorPM, setSubcategoriasPorPM] = useState([]); // Subcategorías filtradas por PMs seleccionados
-
-  // Estados para navegación por teclado
-  const [celdaActiva, setCeldaActiva] = useState(null); // { rowIndex, colIndex }
-  const [modoNavegacion, setModoNavegacion] = useState(false);
-  const [mostrarShortcutsHelp, setMostrarShortcutsHelp] = useState(false);
-
-  // Estados para vista de cuotas
-  const [vistaModoCuotas, setVistaModoCuotas] = useState(false); // false = vista normal, true = vista cuotas
-  const [recalcularCuotasAuto, setRecalcularCuotasAuto] = useState(() => {
-    // Leer del localStorage, por defecto true
-    const saved = localStorage.getItem('recalcularCuotasAuto');
-    return saved === null ? true : JSON.parse(saved);
-  });
-  const [editandoCuota, setEditandoCuota] = useState(null); // {item_id, tipo: '3'|'6'|'9'|'12'}
-  const [cuotaTemp, setCuotaTemp] = useState('');
-
-  // Estados para vista de precio gremio en USD
-  const [vistaModoPrecioGremioUSD, setVistaModoPrecioGremioUSD] = useState(false); // false = ARS, true = USD
-  const [editandoPrecioGremio, setEditandoPrecioGremio] = useState(null); // item_id del producto siendo editado
-  const [modoEdicionGremio, setModoEdicionGremio] = useState('precio'); // 'precio' | 'markup'
-  const [precioGremioTemp, setPrecioGremioTemp] = useState({ sin_iva: '', con_iva: '', markup: '' });
-  const [dolarVenta, setDolarVenta] = useState(null);
-
-  // Selección múltiple
-  const [productosSeleccionados, setProductosSeleccionados] = useState(new Set());
-  const [ultimoSeleccionado, setUltimoSeleccionado] = useState(null);
-
-  // Modal de configuración individual
-  const [mostrarModalConfig, setMostrarModalConfig] = useState(false);
-  const [productoConfig, setProductoConfig] = useState(null);
-  const [configTemp, setConfigTemp] = useState({
-    recalcular_cuotas_auto: null,
-    markup_adicional_cuotas_custom: null
-  });
-
-  // Modal de información
-  const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
-  const [productoInfo, setProductoInfo] = useState(null);
+  const debouncedSearch = useDebounce(searchInput, 500);
 
   // Toast notification
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
+  const showToast = useCallback((message, type = 'success') => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
+  }, []);
+  useEffect(() => {
+    return () => { if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current); };
+  }, []);
 
-  // Modal de ban
+  // === DATA HOOK: productos, stats, marcas, subcats, PMs, dólar, web tarjeta ===
+  const {
+    productos, setProductos, loading, totalProductos,
+    stats,
+    marcas, subcategorias, usuarios, tiposAccion, pms,
+    marcasPorPM, subcategoriasPorPM,
+    markupWebTarjeta, dolarVenta,
+    auditoriaVisible, setAuditoriaVisible, auditoriaData, verAuditoria,
+    cargarProductos, cargarStats,
+  } = useTiendaData({
+    construirFiltrosParams,
+    page,
+    pageSize,
+    ordenColumnas,
+    debouncedSearch,
+    filters,
+    showToast,
+  });
+
+
+  // === PRICING HOOK: edición de precios, toggles, colores ===
+  const {
+    editandoPrecio, setEditandoPrecio,
+    editandoRebate, setEditandoRebate,
+    editandoWebTransf, setEditandoWebTransf,
+    webTransfTemp, setWebTransfTemp,
+    editandoCuota, setEditandoCuota,
+    cuotaTemp, setCuotaTemp,
+    editandoPrecioGremio, setEditandoPrecioGremio,
+    modoEdicionGremio,
+    precioGremioTemp, setPrecioGremioTemp,
+    iniciarEdicionWebTransf, guardarWebTransf,
+    cambiarColorProducto, cambiarColorRapido,
+    iniciarEdicionCuota, guardarCuota,
+    calcularPrecioDesdeMarkup,
+    iniciarEdicionPrecioGremio, guardarPrecioGremio,
+    eliminarPrecioGremioManual, eliminarTodosPreciosGremioManuales,
+    toggleRebateRapido, toggleWebTransfRapido, toggleOutOfCardsRapido,
+    iniciarEdicionDesdeTeclado,
+  } = useTiendaPricing({
+    setProductos,
+    productos,
+    cargarProductos,
+    cargarStats,
+    showToast,
+  });
+
+  // === ESTADOS DE UI ===
+  const [mostrarExportModal, setMostrarExportModal] = useState(false);
+  const [mostrarCalcularWebModal, setMostrarCalcularWebModal] = useState(false);
+  const [busquedaMarca, setBusquedaMarca] = useState('');
+  const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
+  const [panelFiltroActivo, setPanelFiltroActivo] = useState(null);
+  const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
+  const [colorDropdownAbierto, setColorDropdownAbierto] = useState(null);
+
+  // Navigation state is managed by useTiendaKeyboard (see below)
+
+  // === ESTADOS DE VISTA ===
+  const [vistaModoCuotas, setVistaModoCuotas] = useState(false);
+  const [recalcularCuotasAuto, setRecalcularCuotasAuto] = useState(() => {
+    const saved = localStorage.getItem('recalcularCuotasAuto');
+    return saved === null ? true : JSON.parse(saved);
+  });
+  const [vistaModoPrecioGremioUSD, setVistaModoPrecioGremioUSD] = useState(false);
+
+  // === SELECTION HOOK: multi-select, batch paint ===
+  const {
+    productosSeleccionados,
+    toggleSeleccion,
+    seleccionarTodos,
+    limpiarSeleccion,
+    pintarLote,
+  } = useTiendaSelection({
+    productos,
+    setProductos,
+    cargarStats,
+    showToast,
+  });
+
+  // === MODALES ===
+  const [mostrarModalConfig, setMostrarModalConfig] = useState(false);
+  const [productoConfig, setProductoConfig] = useState(null);
+  const [configTemp, setConfigTemp] = useState({ recalcular_cuotas_auto: null, markup_adicional_cuotas_custom: null });
+  const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
+  const [productoInfo, setProductoInfo] = useState(null);
   const [mostrarModalBan, setMostrarModalBan] = useState(false);
   const [productoBan, setProductoBan] = useState(null);
   const [palabraVerificacion, setPalabraVerificacion] = useState('');
   const [palabraObjetivo, setPalabraObjetivo] = useState('');
   const [motivoBan, setMotivoBan] = useState('');
 
-  // Estado para Web Tarjeta (porcentaje adicional sobre Web Transf)
-  const [markupWebTarjeta, setMarkupWebTarjeta] = useState(0);
-
   const user = useAuthStore((state) => state.user);
 
-  // Permisos granulares de edición para Tienda
-  const puedeEditarPrecioGremio = tienePermiso('tienda.editar_precio_gremio');
+  // === PERMISOS ===
   const puedeEditarPrecioGremioManual = tienePermiso('tienda.editar_precio_gremio_manual');
   const puedeEditarWebTransf = tienePermiso('tienda.editar_precio_web_transf');
-  const puedeEditarCuotas = tienePermiso('productos.editar_precio_cuotas');
-  const puedeOcultarProductos = tienePermiso('tienda.toggle_ocultar');
   const puedeMarcarColor = tienePermiso('productos.marcar_color');
   const puedeMarcarColorLote = tienePermiso('productos.marcar_color_lote');
   const puedeCalcularWebMasivo = tienePermiso('productos.calcular_web_masivo');
+  const puedeEditar = tienePermiso('tienda.editar_precio_gremio') || puedeEditarWebTransf || tienePermiso('productos.editar_precio_cuotas');
 
-  // Legacy: puedeEditar es true si tiene al menos un permiso de edición
-  const puedeEditar = puedeEditarPrecioGremio || puedeEditarWebTransf || puedeEditarCuotas;
-
-  // Columnas navegables según la vista activa
-  const columnasNavegablesNormal = ['precio_clasica', 'precio_gremio', 'precio_web_transf', 'web_tarjeta'];
-  const columnasNavegablesCuotas = ['precio_clasica', 'cuotas_3', 'cuotas_6', 'cuotas_9', 'cuotas_12'];
-  const columnasEditables = vistaModoCuotas ? columnasNavegablesCuotas : columnasNavegablesNormal;
-
-  const debouncedSearch = useDebounce(searchInput, 500);
-
-  // URL Query Params para persistencia de filtros
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [filtrosInicializados, setFiltrosInicializados] = useState(false);
-
-  // Función para mostrar toast
-  const showToast = (message, type = 'success') => {
-    // Limpiar timeout anterior si existe
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-    }
-    
-    setToast({ message, type });
-    toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
-  };
-
-  // Cleanup del toast timeout al desmontar
-  useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  const API_URL = import.meta.env.VITE_API_URL || 'https://pricing.gaussonline.com.ar';
-
-  // Helper para construir parámetros de filtros (DRY - usado en cargarStats, cargarProductos, cargarMarcas, cargarSubcategorias)
-  const construirFiltrosParams = (opciones = {}) => {
-    const { 
-      incluirMarcas = true, 
-      incluirSubcategorias = true,
-      incluirAuditoria = true 
-    } = opciones;
-    
-    const params = {};
-    
-    if (debouncedSearch) params.search = debouncedSearch;
-    if (filtroStock === 'con_stock') params.con_stock = true;
-    if (filtroStock === 'sin_stock') params.con_stock = false;
-    if (filtroPrecio === 'con_precio') params.con_precio = true;
-    if (filtroPrecio === 'sin_precio') params.con_precio = false;
-    
-    if (incluirMarcas && marcasSeleccionadas.length > 0) {
-      params.marcas = marcasSeleccionadas.join(',');
-    }
-    if (incluirSubcategorias && subcategoriasSeleccionadas.length > 0) {
-      params.subcategorias = subcategoriasSeleccionadas.join(',');
-    }
-    
-    if (incluirAuditoria) {
-      if (filtrosAuditoria.usuarios.length > 0) params.audit_usuarios = filtrosAuditoria.usuarios.join(',');
-      if (filtrosAuditoria.tipos_accion.length > 0) params.audit_tipos_accion = filtrosAuditoria.tipos_accion.join(',');
-      if (filtrosAuditoria.fecha_desde) params.audit_fecha_desde = filtrosAuditoria.fecha_desde;
-      if (filtrosAuditoria.fecha_hasta) params.audit_fecha_hasta = filtrosAuditoria.fecha_hasta;
-    }
-    
-    if (filtroRebate === 'con_rebate') params.con_rebate = true;
-    if (filtroRebate === 'sin_rebate') params.con_rebate = false;
-    if (filtroOferta === 'con_oferta') params.con_oferta = true;
-    if (filtroOferta === 'sin_oferta') params.con_oferta = false;
-    if (filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-    if (filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-    if (filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-    if (filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-    if (filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-    if (filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-    if (filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-    if (filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-    if (filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-    if (filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-    if (filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-    if (filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-    if (filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-    if (filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-    if (filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-    if (filtroMLA === 'con_mla') params.con_mla = true;
-    if (filtroMLA === 'sin_mla') params.con_mla = false;
-    if (filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
-    if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
-    if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
-    if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
-    if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
-    
-    return params;
-  };
-
-  // Función para sincronizar filtros a la URL
-  const syncFiltersToURL = () => {
-    const params = new URLSearchParams();
-
-    // Search
-    if (searchInput) params.set('search', searchInput);
-
-    // Stock
-    if (filtroStock && filtroStock !== 'todos') params.set('stock', filtroStock);
-
-    // Precio
-    if (filtroPrecio && filtroPrecio !== 'todos') params.set('precio', filtroPrecio);
-
-    // Marcas (array -> comma separated string)
-    if (marcasSeleccionadas.length > 0) params.set('marcas', marcasSeleccionadas.join(','));
-
-    // Subcategorías
-    if (subcategoriasSeleccionadas.length > 0) params.set('subcats', subcategoriasSeleccionadas.join(','));
-
-    // PMs
-    if (pmsSeleccionados.length > 0) params.set('pms', pmsSeleccionados.join(','));
-
-    // Rebate
-    if (filtroRebate) params.set('rebate', filtroRebate);
-
-    // Oferta
-    if (filtroOferta) params.set('oferta', filtroOferta);
-
-    // Web Transf
-    if (filtroWebTransf) params.set('webtransf', filtroWebTransf);
-
-    // Tienda Nube
-    if (filtroTiendaNube) params.set('tiendanube', filtroTiendaNube);
-
-    // Markup Clásica
-    if (filtroMarkupClasica) params.set('mkclasica', filtroMarkupClasica);
-
-    // Markup Rebate
-    if (filtroMarkupRebate) params.set('mkrebate', filtroMarkupRebate);
-
-    // Markup Oferta
-    if (filtroMarkupOferta) params.set('mkoferta', filtroMarkupOferta);
-
-    // Markup Web Transf
-    if (filtroMarkupWebTransf) params.set('mkwebtransf', filtroMarkupWebTransf);
-
-    // Out of Cards
-    if (filtroOutOfCards) params.set('outofcards', filtroOutOfCards);
-
-    // MLA
-    if (filtroMLA) params.set('mla', filtroMLA);
-
-    // Estado MLA
-    if (filtroEstadoMLA) params.set('estado_mla', filtroEstadoMLA);
-
-    // Nuevos
-    if (filtroNuevos) params.set('nuevos', filtroNuevos);
-
-    // Colores
-    if (coloresSeleccionados.length > 0) params.set('colores', coloresSeleccionados.join(','));
-
-    // Página
-    if (page > 1) params.set('page', page.toString());
-
-    // Page Size
-    if (pageSize !== 50) params.set('pagesize', pageSize.toString());
-
-    // Filtros de Auditoría
-    if (filtrosAuditoria.usuarios.length > 0) params.set('audit_usuarios', filtrosAuditoria.usuarios.join(','));
-    if (filtrosAuditoria.tipos_accion.length > 0) params.set('audit_tipos', filtrosAuditoria.tipos_accion.join(','));
-    if (filtrosAuditoria.fecha_desde) params.set('audit_desde', filtrosAuditoria.fecha_desde);
-    if (filtrosAuditoria.fecha_hasta) params.set('audit_hasta', filtrosAuditoria.fecha_hasta);
-
-    setSearchParams(params, { replace: true });
-  };
-
-  // Función para cargar filtros desde la URL
-  const loadFiltersFromURL = () => {
-    const search = searchParams.get('search');
-    const stock = searchParams.get('stock');
-    const precio = searchParams.get('precio');
-    const marcas = searchParams.get('marcas');
-    const subcats = searchParams.get('subcats');
-    const pms = searchParams.get('pms');
-    const rebate = searchParams.get('rebate');
-    const oferta = searchParams.get('oferta');
-    const webtransf = searchParams.get('webtransf');
-    const tiendanube = searchParams.get('tiendanube');
-    const mkclasica = searchParams.get('mkclasica');
-    const mkrebate = searchParams.get('mkrebate');
-    const mkoferta = searchParams.get('mkoferta');
-    const mkwebtransf = searchParams.get('mkwebtransf');
-    const outofcards = searchParams.get('outofcards');
-    const mla = searchParams.get('mla');
-    const estado_mla = searchParams.get('estado_mla');
-    const nuevos = searchParams.get('nuevos');
-    const colores = searchParams.get('colores');
-    const pageParam = searchParams.get('page');
-    const pagesizeParam = searchParams.get('pagesize');
-    const auditUsuarios = searchParams.get('audit_usuarios');
-    const auditTipos = searchParams.get('audit_tipos');
-    const auditDesde = searchParams.get('audit_desde');
-    const auditHasta = searchParams.get('audit_hasta');
-
-    // Setear estados desde URL
-    if (search) setSearchInput(search);
-    if (stock) setFiltroStock(stock);
-    if (precio) setFiltroPrecio(precio);
-    if (marcas) setMarcasSeleccionadas(marcas.split(',').map(m => m.trim()).filter(Boolean));
-    if (subcats) setSubcategoriasSeleccionadas(subcats.split(',').map(s => s.trim()).filter(Boolean));
-    if (pms) setPmsSeleccionados(pms.split(',').map(p => p.trim()).filter(Boolean));
-    if (rebate) setFiltroRebate(rebate);
-    if (oferta) setFiltroOferta(oferta);
-    if (webtransf) setFiltroWebTransf(webtransf);
-    if (tiendanube) setFiltroTiendaNube(tiendanube);
-    if (mkclasica) setFiltroMarkupClasica(mkclasica);
-    if (mkrebate) setFiltroMarkupRebate(mkrebate);
-    if (mkoferta) setFiltroMarkupOferta(mkoferta);
-    if (mkwebtransf) setFiltroMarkupWebTransf(mkwebtransf);
-    if (outofcards) setFiltroOutOfCards(outofcards);
-    if (mla) setFiltroMLA(mla);
-    if (estado_mla) setFiltroEstadoMLA(estado_mla);
-    if (nuevos) setFiltroNuevos(nuevos);
-    if (colores) setColoresSeleccionados(colores.split(',').map(c => c.trim()).filter(Boolean));
-    if (pageParam) setPage(parseInt(pageParam, 10));
-    if (pagesizeParam) setPageSize(parseInt(pagesizeParam, 10));
-
-    // Filtros de Auditoría
-    if (auditUsuarios || auditTipos || auditDesde || auditHasta) {
-      setFiltrosAuditoria({
-        usuarios: auditUsuarios ? auditUsuarios.split(',').map(u => u.trim()).filter(Boolean) : [],
-        tipos_accion: auditTipos ? auditTipos.split(',').map(t => t.trim()).filter(Boolean) : [],
-        fecha_desde: auditDesde || '',
-        fecha_hasta: auditHasta || ''
-      });
-    }
-  };
-
-  // useEffect inicial: cargar filtros desde URL al montar el componente
-  useEffect(() => {
-    loadFiltersFromURL();
-    // Marcar que los filtros ya fueron inicializados
-    setFiltrosInicializados(true);
-  }, []); // Solo al montar
-
-  // useEffect para sincronizar filtros a URL cuando cambian
-  useEffect(() => {
-    // Solo sincronizar después de que los filtros fueron inicializados desde URL
-    if (filtrosInicializados) {
-      syncFiltersToURL();
-    }
-  }, [
-    filtrosInicializados,
-    searchInput,
-    filtroStock,
-    filtroPrecio,
-    marcasSeleccionadas,
-    subcategoriasSeleccionadas,
-    pmsSeleccionados,
-    filtroRebate,
-    filtroOferta,
-    filtroWebTransf,
-    filtroTiendaNube,
-    filtroMarkupClasica,
-    filtroMarkupRebate,
-    filtroMarkupOferta,
-    filtroMarkupWebTransf,
-    filtroOutOfCards,
-    filtroMLA,
-    filtroEstadoMLA,
-    filtroNuevos,
-    coloresSeleccionados,
-    page,
-    pageSize,
-    filtrosAuditoria
-  ]);
-
-  useEffect(() => {
-    cargarProductos();
-  }, [page, debouncedSearch, filtroStock, filtroPrecio, pageSize, marcasSeleccionadas, subcategoriasSeleccionadas, ordenColumnas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos]);
-
-  // Cargar stats dinámicos cada vez que cambian los filtros
-  useEffect(() => {
-    cargarStats();
-  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, subcategoriasSeleccionadas, filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, pmsSeleccionados, filtroMLA, filtroEstadoMLA, filtroNuevos]);
-
-  // Cargar marcas y subcategorías cuando se seleccionan PMs
-  useEffect(() => {
-    const cargarDatosPorPM = async () => {
-      if (pmsSeleccionados.length > 0) {
-        try {
-          const [marcasRes, subcatsRes] = await Promise.all([
-            productosAPI.obtenerMarcasPorPMs(pmsSeleccionados.join(',')),
-            productosAPI.obtenerSubcategoriasPorPMs(pmsSeleccionados.join(','))
-          ]);
-          setMarcasPorPM(marcasRes.data.marcas);
-          setSubcategoriasPorPM(subcatsRes.data.subcategorias.map(s => s.id));
-        } catch (error) {
-          showToast('Error cargando datos por PM', 'error');
-          setMarcasPorPM([]);
-          setSubcategoriasPorPM([]);
-        }
-      } else {
-        setMarcasPorPM([]);
-        setSubcategoriasPorPM([]);
-      }
-    };
-    cargarDatosPorPM();
-  }, [pmsSeleccionados]);
-
-  const cargarStats = async () => {
-    try {
-      const params = construirFiltrosParams();
-      const statsRes = await productosAPI.statsDinamicos(params);
-      setStats(statsRes.data);
-    } catch (error) {
-      showToast('Error cargando estadísticas', 'error');
-    }
-  };
-
-  // Cargar configuración de Web Tarjeta
-  const cargarConfigWebTarjeta = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/markups-tienda/config/markup_web_tarjeta`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      setMarkupWebTarjeta(response.data.valor || 0);
-    } catch (error) {
-      showToast('Error cargando configuración web tarjeta', 'error');
-    }
-  };
-
-  const cargarDolarVenta = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/tipo-cambio/actual`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setDolarVenta(response.data.venta);
-    } catch (error) {
-      showToast('Error cargando cotización dólar', 'error');
-    }
-  };
-
-  useEffect(() => {
-    cargarUsuariosAuditoria();
-    cargarTiposAccion();
-    cargarPMs();
-    cargarConfigWebTarjeta();
-    cargarDolarVenta();
-  }, []);
-
-  // Recargar marcas cuando cambien filtros (excepto marcasSeleccionadas)
-  useEffect(() => {
-    cargarMarcas();
-  }, [debouncedSearch, filtroStock, filtroPrecio, subcategoriasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
-
-  // Recargar subcategorías cuando cambien filtros (excepto subcategoriasSeleccionadas)
-  useEffect(() => {
-    cargarSubcategorias();
-  }, [debouncedSearch, filtroStock, filtroPrecio, marcasSeleccionadas, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, coloresSeleccionados, filtrosAuditoria]);
-
-  // Copiar enlaces al clipboard con Ctrl+F1/F2/F3 o Ctrl+Shift+1/2/3 (alternativa para Linux)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Detectar qué acción ejecutar (1=código, 2=enlace1, 3=enlace2)
-      let accion = null;
-
-      // Ctrl+F1/F2/F3
-      if (e.ctrlKey && !e.shiftKey && (e.key === 'F1' || e.key === 'F2' || e.key === 'F3')) {
-        accion = e.key === 'F1' ? 1 : e.key === 'F2' ? 2 : 3;
-      }
-      // Ctrl+Shift+1/2/3 (alternativa para sistemas que capturan F1/F2)
-      if (e.ctrlKey && e.shiftKey && (e.key === '!' || e.key === '@' || e.key === '#' || e.key === '1' || e.key === '2' || e.key === '3')) {
-        accion = (e.key === '1' || e.key === '!') ? 1 : (e.key === '2' || e.key === '@') ? 2 : 3;
-      }
-
-      if (accion) {
-        // Prevenir comportamiento por defecto del navegador INMEDIATAMENTE
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Verificar si hay algo en modo edición O si hay una celda activa (navegación)
-        const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
-        const hayProductoSeleccionado = celdaActiva !== null && celdaActiva.rowIndex !== null;
-
-        if (!enModoEdicion && !hayProductoSeleccionado) {
-          showToast('⚠️ Debes posicionarte sobre un producto para usar este atajo', 'error');
-          return;
-        }
-
-        // Obtener el producto activo
-        let producto = null;
-
-        if (enModoEdicion) {
-          // Si está editando, buscar por item_id
-          let itemId = null;
-          if (editandoPrecio) itemId = editandoPrecio;
-          else if (editandoRebate) itemId = editandoRebate;
-          else if (editandoWebTransf) itemId = editandoWebTransf;
-          else if (editandoCuota) itemId = editandoCuota.item_id;
-
-          if (itemId) {
-            producto = productos.find(p => p.item_id === itemId);
-          }
-        } else if (hayProductoSeleccionado) {
-          // Si está navegando, buscar por índice de fila
-          producto = productos[celdaActiva.rowIndex];
-        }
-
-        if (!producto) {
-          showToast('⚠️ Producto no encontrado', 'error');
-          return;
-        }
-
-        if (!producto.codigo) {
-          showToast('⚠️ El producto no tiene código asignado', 'error');
-          return;
-        }
-
-        const itemCode = producto.codigo;
-
-        // Acción 1: copiar solo el código
-        if (accion === 1) {
-          navigator.clipboard.writeText(itemCode).then(() => {
-            showToast(`✅ Código copiado: ${itemCode}`);
-          }).catch(err => {
-            showToast('❌ Error al copiar al portapapeles', 'error');
-          });
-        }
-
-        // Acción 2: primer enlace
-        if (accion === 2) {
-          const url = `https://listado.mercadolibre.com.ar/${itemCode}_OrderId_PRICE_NoIndex_True`;
-          navigator.clipboard.writeText(url).then(() => {
-            showToast(`✅ Enlace 1 copiado: ${itemCode}`);
-          }).catch(err => {
-            showToast('❌ Error al copiar al portapapeles', 'error');
-          });
-        }
-
-        // Acción 3: segundo enlace
-        if (accion === 3) {
-          const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?filters=official_store-57997&page=1&search=${itemCode}&sort=lowest_price`;
-          navigator.clipboard.writeText(url).then(() => {
-            showToast(`✅ Enlace 2 copiado: ${itemCode}`);
-          }).catch(err => {
-            showToast('❌ Error al copiar al portapapeles', 'error');
-          });
-        }
-      }
-    };
-
-    // Usar capture: true para interceptar el evento antes que otros listeners
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, productos, celdaActiva, showToast]);
+  // === KEYBOARD HOOK: navigation, shortcuts, clipboard ===
+  const {
+    celdaActiva, setCeldaActiva,
+    modoNavegacion,
+    mostrarShortcutsHelp, setMostrarShortcutsHelp,
+  } = useTiendaKeyboard({
+    pricing: {
+      editandoPrecio, setEditandoPrecio,
+      editandoRebate, setEditandoRebate,
+      editandoWebTransf, setEditandoWebTransf,
+      editandoCuota,
+      iniciarEdicionDesdeTeclado,
+      cambiarColorRapido,
+      toggleRebateRapido, toggleWebTransfRapido, toggleOutOfCardsRapido,
+    },
+    selection: { toggleSeleccion },
+    data: { productos, setProductos, cargarStats },
+    ui: {
+      panelFiltroActivo, setPanelFiltroActivo,
+      mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados,
+      vistaModoCuotas, setVistaModoCuotas,
+      recalcularCuotasAuto, setRecalcularCuotasAuto,
+      vistaModoPrecioGremioUSD, setVistaModoPrecioGremioUSD,
+      mostrarExportModal, setMostrarExportModal,
+      mostrarCalcularWebModal, setMostrarCalcularWebModal,
+      mostrarModalConfig, mostrarModalInfo,
+      setProductoInfo, setMostrarModalInfo,
+      colorDropdownAbierto, setColorDropdownAbierto,
+    },
+    permissions: { puedeEditar, puedeMarcarColor, puedeEditarWebTransf, puedeCalcularWebMasivo },
+    showToast,
+  });
 
   // Auto-focus en inputs de búsqueda cuando se abren los paneles de filtro
   useEffect(() => {
@@ -681,64 +291,6 @@ export default function Tienda() {
     return matchBusqueda;
   });
 
-  const cargarMarcas = async () => {
-    try {
-      // Excluir marcas de los filtros para evitar filtrado circular
-      const params = construirFiltrosParams({ incluirMarcas: false });
-      const response = await productosAPI.marcas(params);
-      setMarcas(response.data.marcas);
-    } catch (error) {
-      showToast('Error cargando marcas', 'error');
-    }
-  };
-
-  const iniciarEdicionWebTransf = (producto) => {
-    setEditandoWebTransf(producto.item_id);
-    setWebTransfTemp({
-      participa: producto.participa_web_transferencia || false,
-      porcentaje: producto.porcentaje_markup_web || 6.0,
-      preservar: producto.preservar_porcentaje_web || false
-    });
-  };
-
-  const guardarWebTransf = async (itemId) => {
-    try {
-      const token = localStorage.getItem('token');
-      // Normalizar: reemplazar coma por punto
-      const porcentajeNumerico = parseFloat(webTransfTemp.porcentaje.toString().replace(',', '.')) || 0;
-
-      const response = await axios.patch(
-        `${API_URL}/productos/${itemId}/web-transferencia`,
-        null,
-        {
-          params: {
-            participa: webTransfTemp.participa,
-            porcentaje_markup: porcentajeNumerico,
-            preservar_porcentaje: webTransfTemp.preservar
-          },
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-
-      setProductos(prods => prods.map(p =>
-        p.item_id === itemId
-          ? {
-              ...p,
-              participa_web_transferencia: webTransfTemp.participa,
-              porcentaje_markup_web: porcentajeNumerico,
-              preservar_porcentaje_web: webTransfTemp.preservar,
-              precio_web_transferencia: response.data.precio_web_transferencia,
-              markup_web_real: response.data.markup_web_real
-            }
-          : p
-      ));
-
-      setEditandoWebTransf(null);
-    } catch (error) {
-      showToast('Error al guardar web transferencia', 'error');
-    }
-  };
-
   const formatearFechaGMT3 = (fechaString) => {
     const fecha = new Date(fechaString + 'Z'); // Forzar que se interprete como UTC
     // Convertir a GMT-3 (Argentina)
@@ -753,88 +305,6 @@ export default function Tienda() {
       timeZone: 'America/Argentina/Buenos_Aires'
     };
     return fecha.toLocaleString('es-AR', opciones);
-  };
-
-  const cargarProductos = async () => {
-    setLoading(true);
-    try {
-      const params = construirFiltrosParams();
-      
-      params.page = page;
-      params.page_size = pageSize;
-      
-      if (ordenColumnas.length > 0) {
-        params.orden_campos = ordenColumnas.map(o => o.columna).join(',');
-        params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
-      }
-
-      const productosRes = await productosAPI.listarTienda(params);
-      setTotalProductos(productosRes.data.total || productosRes.data.productos.length);
-      setProductos(productosRes.data.productos);
-
-    } catch (error) {
-      showToast('Error cargando datos', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const cargarSubcategorias = async () => {
-    try {
-      // Excluir subcategorías de los filtros para evitar filtrado circular
-      const params = construirFiltrosParams({ incluirSubcategorias: false });
-      const response = await productosAPI.subcategorias(params);
-      setSubcategorias(response.data.categorias);
-    } catch (error) {
-      showToast('Error cargando subcategorías', 'error');
-    }
-  };
-
-  const limpiarTodosFiltros = () => {
-    setSearchInput('');
-    setFiltroStock("todos");
-    setFiltroPrecio("todos");
-    setMarcasSeleccionadas([]);
-    setSubcategoriasSeleccionadas([]);
-    setPmsSeleccionados([]);
-    setFiltrosAuditoria({
-      usuarios: [],
-      tipos_accion: [],
-      fecha_desde: '',
-      fecha_hasta: ''
-    });
-    setFiltroRebate(null);
-    setFiltroOferta(null);
-    setFiltroWebTransf(null);
-    setFiltroTiendaNube(null);
-    setFiltroMarkupClasica(null);
-    setFiltroMarkupRebate(null);
-    setFiltroMarkupOferta(null);
-    setFiltroMarkupWebTransf(null);
-    setFiltroOutOfCards(null);
-    setFiltroMLA(null);
-    setFiltroEstadoMLA(null);
-    setFiltroNuevos(null);
-    setColoresSeleccionados([]);
-    setOrdenColumnas([]);
-    setPage(1);
-
-    // Limpiar también la URL
-    setSearchParams({}, { replace: true });
-  };
-
-  const verAuditoria = async (productoId) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(
-        `${API_URL}/productos/${productoId}/auditoria`,
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
-      setAuditoriaData(response.data);
-      setAuditoriaVisible(true);
-    } catch (error) {
-      showToast('Error al cargar el historial', 'error');
-    }
   };
 
   const getMarkupColor = (markup) => {
@@ -854,23 +324,6 @@ export default function Tienda() {
     { id: 'gris', nombre: 'Inactivo', color: 'var(--product-inactive-bg)', colorTexto: 'var(--product-inactive-text)' },
     { id: null, nombre: 'Sin color', color: null, colorTexto: null },
   ];
-
-  const cambiarColorProducto = async (itemId, color) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.patch(
-        `${API_URL}/productos/${itemId}/color-tienda`,
-        { color },  // Enviar en el body, no en params
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-      setColorDropdownAbierto(null);
-      cargarProductos();
-    } catch (error) {
-      showToast('Error al cambiar el color', 'error');
-    }
-  };
 
   const abrirModalBan = (producto) => {
     // Obtener palabras de la descripción (filtrar palabras de más de 3 caracteres)
@@ -902,16 +355,12 @@ export default function Tienda() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(
-        `${API_URL}/producto-banlist`,
+      await api.post(
+        `/producto-banlist`,
         {
           item_ids: productoBan.item_id ? String(productoBan.item_id) : null,
           eans: productoBan.ean || null,
           motivo: motivoBan || 'Sin motivo especificado'
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
         }
       );
 
@@ -934,299 +383,6 @@ export default function Tienda() {
     setPage(1);
   };
 
-  const iniciarEdicion = (producto) => {
-    setEditandoPrecio(producto.item_id);
-    setPrecioTemp(producto.precio_lista_ml || '');
-  };
-
-  const iniciarEdicionCuota = (producto, tipo) => {
-    setEditandoCuota({ item_id: producto.item_id, tipo });
-    const campoPrecio = `precio_${tipo}_cuotas`;
-    setCuotaTemp(producto[campoPrecio] || '');
-  };
-
-  const guardarCuota = async (itemId, tipo) => {
-    try {
-      const token = localStorage.getItem('token');
-      const precioNormalizado = parseFloat(cuotaTemp.toString().replace(',', '.'));
-
-      const response = await axios.post(
-        `${API_URL}/precios/set-cuota`,
-        null,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          params: {
-            item_id: itemId,
-            tipo_cuota: tipo,
-            precio: precioNormalizado
-          }
-        }
-      );
-
-      const campoPrecio = `precio_${tipo}_cuotas`;
-      const campoMarkup = `markup_${tipo}_cuotas`;
-
-      setProductos(prods => prods.map(p =>
-        p.item_id === itemId
-          ? {
-              ...p,
-              [campoPrecio]: precioNormalizado,
-              [campoMarkup]: response.data[campoMarkup]
-            }
-          : p
-      ));
-
-      setEditandoCuota(null);
-      cargarStats();
-    } catch (error) {
-      showToast('Error al guardar precio de cuota', 'error');
-    }
-  };
-
-  // Función para calcular precios desde markup
-  const calcularPrecioDesdeMarkup = (producto, markupPorcentaje) => {
-    if (!producto.costo_ars || producto.costo_ars <= 0) {
-      return { sin_iva: 0, con_iva: 0 };
-    }
-    
-    const costo_ars = parseFloat(producto.costo_ars);
-    const varios_porcentaje = 7; // Constante del sistema
-    const markup_decimal = parseFloat(markupPorcentaje) / 100;
-    const iva_decimal = (producto.iva || 21) / 100;
-    
-    // Fórmula: Precio sin IVA = Costo × (1 + Varios%) × (1 + Markup%)
-    const precio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_decimal);
-    const precio_con_iva = precio_sin_iva * (1 + iva_decimal);
-    
-    return {
-      sin_iva: precio_sin_iva,
-      con_iva: precio_con_iva
-    };
-  };
-
-  // Función para calcular markup desde precios
-  const calcularMarkupDesdePrecios = (costoArs, precioSinIva) => {
-    if (!costoArs || costoArs <= 0) return null;
-    
-    const varios_porcentaje = 7;
-    // Deshacer el factor "varios" para obtener el precio base
-    const precio_base = precioSinIva / (1 + varios_porcentaje / 100);
-    // Calcular markup: ((Precio_base / Costo) - 1) × 100
-    const markup = ((precio_base / costoArs) - 1) * 100;
-    
-    return markup;
-  };
-
-  const iniciarEdicionPrecioGremio = (producto, event) => {
-    // Detectar Ctrl+Click o Cmd+Click (Mac)
-    if (event?.ctrlKey || event?.metaKey) {
-      // MODO MARKUP
-      setModoEdicionGremio('markup');
-      setEditandoPrecioGremio(producto.item_id);
-      setPrecioGremioTemp({
-        sin_iva: '',
-        con_iva: '',
-        markup: producto.markup_gremio?.toFixed(1) || '' // Pre-cargar markup actual si existe
-      });
-    } else {
-      // MODO PRECIO (normal)
-      setModoEdicionGremio('precio');
-      setEditandoPrecioGremio(producto.item_id);
-      setPrecioGremioTemp({
-        sin_iva: producto.precio_gremio_sin_iva || '',
-        con_iva: producto.precio_gremio_con_iva || '',
-        markup: ''
-      });
-    }
-  };
-
-  const guardarPrecioGremio = async (itemId) => {
-    try {
-      const token = localStorage.getItem('token');
-      const producto = productos.find(p => p.item_id === itemId);
-      
-      let precioSinIva, precioConIva;
-      
-      if (modoEdicionGremio === 'precio') {
-        // MODO PRECIO: usar valores ingresados directamente
-        precioSinIva = parseFloat(precioGremioTemp.sin_iva.toString().replace(',', '.'));
-        precioConIva = parseFloat(precioGremioTemp.con_iva.toString().replace(',', '.'));
-        
-        // Validar que al menos uno esté lleno y sea válido
-        if (isNaN(precioSinIva) && isNaN(precioConIva)) {
-          showToast('⚠️ Ingresá al menos un precio válido', 'error');
-          return;
-        }
-        
-        // Si falta uno, calcularlo
-        if (isNaN(precioSinIva)) {
-          const iva_decimal = (producto.iva || 21) / 100;
-          precioSinIva = precioConIva / (1 + iva_decimal);
-        }
-        if (isNaN(precioConIva)) {
-          const iva_decimal = (producto.iva || 21) / 100;
-          precioConIva = precioSinIva * (1 + iva_decimal);
-        }
-        
-      } else {
-        // MODO MARKUP: calcular ambos precios desde markup
-        const markup = parseFloat(precioGremioTemp.markup.toString().replace(',', '.'));
-        
-        if (isNaN(markup)) {
-          showToast('⚠️ Ingresá un markup válido', 'error');
-          return;
-        }
-        
-        const precios = calcularPrecioDesdeMarkup(producto, markup);
-        precioSinIva = precios.sin_iva;
-        precioConIva = precios.con_iva;
-      }
-      
-      // Validar que los precios sean >= 0
-      if (precioSinIva < 0 || precioConIva < 0) {
-        showToast('⚠️ Los precios no pueden ser negativos', 'error');
-        return;
-      }
-
-      // Llamar al endpoint
-      await axios.patch(
-        `${API_URL}/productos/${itemId}/precio-gremio-override?precio_sin_iva=${precioSinIva}&precio_con_iva=${precioConIva}`,
-        null,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      // Calcular markup para mostrar
-      const markupCalculado = calcularMarkupDesdePrecios(producto.costo_ars, precioSinIva);
-
-      // Actualizar localmente
-      setProductos(prods => prods.map(p =>
-        p.item_id === itemId
-          ? {
-              ...p,
-              precio_gremio_sin_iva: precioSinIva,
-              precio_gremio_con_iva: precioConIva,
-              markup_gremio: markupCalculado,
-              tiene_override_gremio: true
-            }
-          : p
-      ));
-
-      setEditandoPrecioGremio(null);
-      showToast(`✅ Precio gremio actualizado ${modoEdicionGremio === 'markup' ? '(desde markup)' : ''}`);
-      
-    } catch (error) {
-      showToast('❌ Error al guardar precio gremio', 'error');
-    }
-  };
-
-  const eliminarPrecioGremioManual = async (itemId) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.delete(
-        `${API_URL}/productos/${itemId}/precio-gremio-override`,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-
-      // Recargar producto para obtener precio calculado
-      await cargarProductos();
-      showToast('✅ Precio manual eliminado, vuelve al cálculo automático');
-    } catch (error) {
-      showToast('❌ Error al eliminar precio manual', 'error');
-    }
-  };
-
-  const eliminarTodosPreciosGremioManuales = async () => {
-    if (!window.confirm('⚠️ ¿Estás seguro de eliminar TODOS los precios gremio manuales?\n\nTodos los productos volverán al cálculo automático.')) {
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.delete(
-        `${API_URL}/productos/precio-gremio-override/todos`,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-
-      // Recargar productos
-      await cargarProductos();
-      showToast(`✅ ${response.data.message}`);
-    } catch (error) {
-      showToast('❌ Error al eliminar precios manuales', 'error');
-    }
-  };
-
-  // Funciones de selección múltiple
-  const toggleSeleccion = (itemId, shiftKey) => {
-    const nuevaSeleccion = new Set(productosSeleccionados);
-
-    if (shiftKey && ultimoSeleccionado !== null) {
-      // Selección con Shift: seleccionar rango
-      const indices = productos.map(p => p.item_id);
-      const indiceActual = indices.indexOf(itemId);
-      const indiceUltimo = indices.indexOf(ultimoSeleccionado);
-
-      const inicio = Math.min(indiceActual, indiceUltimo);
-      const fin = Math.max(indiceActual, indiceUltimo);
-
-      for (let i = inicio; i <= fin; i++) {
-        nuevaSeleccion.add(indices[i]);
-      }
-    } else {
-      // Toggle individual
-      if (nuevaSeleccion.has(itemId)) {
-        nuevaSeleccion.delete(itemId);
-      } else {
-        nuevaSeleccion.add(itemId);
-      }
-    }
-
-    setProductosSeleccionados(nuevaSeleccion);
-    setUltimoSeleccionado(itemId);
-  };
-
-  const seleccionarTodos = () => {
-    if (productosSeleccionados.size === productos.length) {
-      setProductosSeleccionados(new Set());
-    } else {
-      setProductosSeleccionados(new Set(productos.map(p => p.item_id)));
-    }
-  };
-
-  const limpiarSeleccion = () => {
-    setProductosSeleccionados(new Set());
-    setUltimoSeleccionado(null);
-  };
-
-  const pintarLote = async (color) => {
-    try {
-      const token = localStorage.getItem('token');
-
-      await axios.post(
-        `${API_URL}/productos/actualizar-color-tienda-lote`,
-        {
-          item_ids: Array.from(productosSeleccionados),
-          color: color
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      setProductos(prods => prods.map(p =>
-        productosSeleccionados.has(p.item_id)
-          ? { ...p, color_marcado_tienda: color }
-          : p
-      ));
-
-      limpiarSeleccion();
-      cargarStats();
-    } catch (error) {
-      showToast('Error al actualizar colores en lote', 'error');
-    }
-  };
-
   // Modal de configuración individual
   const abrirModalConfig = (producto) => {
     setProductoConfig(producto);
@@ -1239,7 +395,6 @@ export default function Tienda() {
 
   const guardarConfigIndividual = async () => {
     try {
-      const token = localStorage.getItem('token');
 
       // Preparar datos: null significa usar global
       const data = {
@@ -1250,10 +405,9 @@ export default function Tienda() {
                                         parseFloat(configTemp.markup_adicional_cuotas_custom)
       };
 
-      await axios.patch(
-        `${API_URL}/productos/${productoConfig.item_id}/config-cuotas`,
-        data,
-        { headers: { Authorization: `Bearer ${token}` } }
+      await api.patch(
+        `/productos/${productoConfig.item_id}/config-cuotas`,
+        data
       );
 
       // Actualizar producto en el estado
@@ -1271,692 +425,6 @@ export default function Tienda() {
       showToast('Configuración actualizada correctamente', 'success');
     } catch (error) {
       showToast('Error al guardar configuración: ' + (error.response?.data?.detail || error.message), 'error');
-    }
-  };
-
-  const guardarPrecio = async (itemId) => {
-    try {
-      const token = localStorage.getItem('token');
-      // Normalizar: reemplazar coma por punto
-      const precioNormalizado = parseFloat(precioTemp.toString().replace(',', '.'));
-
-      const response = await axios.post(
-        `${API_URL}/precios/set-rapido`,
-        null,  // No body needed, all params go in URL
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          params: {
-            item_id: itemId,
-            precio: precioNormalizado,
-            recalcular_cuotas: recalcularCuotasAuto  // Enviar flag de recalculo
-          }
-        }
-      );
-
-      setProductos(prods => prods.map(p =>
-        p.item_id === itemId
-          ? {
-              ...p,
-              precio_lista_ml: precioNormalizado,
-              markup: response.data.markup,
-              // Actualizar precios de cuotas si vienen en la respuesta
-              precio_3_cuotas: response.data.precio_3_cuotas || p.precio_3_cuotas,
-              precio_6_cuotas: response.data.precio_6_cuotas || p.precio_6_cuotas,
-              precio_9_cuotas: response.data.precio_9_cuotas || p.precio_9_cuotas,
-              precio_12_cuotas: response.data.precio_12_cuotas || p.precio_12_cuotas,
-              // Actualizar markups de cuotas si vienen en la respuesta
-              markup_3_cuotas: response.data.markup_3_cuotas !== undefined ? response.data.markup_3_cuotas : p.markup_3_cuotas,
-              markup_6_cuotas: response.data.markup_6_cuotas !== undefined ? response.data.markup_6_cuotas : p.markup_6_cuotas,
-              markup_9_cuotas: response.data.markup_9_cuotas !== undefined ? response.data.markup_9_cuotas : p.markup_9_cuotas,
-              markup_12_cuotas: response.data.markup_12_cuotas !== undefined ? response.data.markup_12_cuotas : p.markup_12_cuotas,
-              // Actualizar rebate y web transferencia si vienen en la respuesta
-              precio_rebate: response.data.precio_rebate !== null && response.data.precio_rebate !== undefined ? response.data.precio_rebate : p.precio_rebate,
-              precio_web_transferencia: response.data.precio_web_transferencia !== null && response.data.precio_web_transferencia !== undefined ? response.data.precio_web_transferencia : p.precio_web_transferencia,
-              markup_web_real: response.data.markup_web_real !== null && response.data.markup_web_real !== undefined ? response.data.markup_web_real : p.markup_web_real
-            }
-          : p
-      ));
-
-      setEditandoPrecio(null);
-      cargarStats();
-    } catch (error) {
-      showToast('Error al guardar precio', 'error');
-    }
-  };
-
-  const guardarRebate = async (itemId) => {
-    try {
-      const token = localStorage.getItem('token');
-      // Normalizar: reemplazar coma por punto
-      const porcentajeNormalizado = parseFloat(rebateTemp.porcentaje.toString().replace(',', '.'));
-
-      await axios.patch(
-        `${API_URL}/productos/${itemId}/rebate`,
-        {
-          participa_rebate: rebateTemp.participa,
-          porcentaje_rebate: porcentajeNormalizado
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      setProductos(prods => prods.map(p =>
-        p.item_id === itemId
-          ? {
-              ...p,
-              participa_rebate: rebateTemp.participa,
-              porcentaje_rebate: porcentajeNormalizado,
-              precio_rebate: rebateTemp.participa && p.precio_lista_ml
-                ? p.precio_lista_ml / (1 - porcentajeNormalizado / 100)
-                : null
-            }
-          : p
-      ));
-
-      setEditandoRebate(null);
-    } catch (error) {
-      showToast('Error al guardar rebate', 'error');
-    }
-  };
-
-  const iniciarEdicionRebate = (producto) => {
-    setEditandoRebate(producto.item_id);
-    setRebateTemp({
-      participa: producto.participa_rebate || false,
-      porcentaje: producto.porcentaje_rebate !== null && producto.porcentaje_rebate !== undefined 
-        ? producto.porcentaje_rebate 
-        : 3.8
-    });
-  };
-
-  const cargarUsuariosAuditoria = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/auditoria/usuarios`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      setUsuarios(response.data.usuarios);
-    } catch (error) {
-      showToast('Error cargando usuarios', 'error');
-    }
-  };
-
-  const cargarTiposAccion = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/auditoria/tipos-accion`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      setTiposAccion(response.data.tipos);
-    } catch (error) {
-      showToast('Error cargando tipos de acción', 'error');
-    }
-  };
-
-  const cargarPMs = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/usuarios/pms?solo_con_marcas=true`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      setPms(response.data);
-    } catch (error) {
-      showToast('Error cargando PMs', 'error');
-    }
-  };
-
-  // Sistema de navegación por teclado
-  useEffect(() => {
-    const handleKeyDown = async (e) => {
-      // Si hay un modal abierto, NO procesar shortcuts de la página
-      const hayModalAbierto = mostrarExportModal || mostrarCalcularWebModal || mostrarModalConfig || mostrarModalInfo || mostrarShortcutsHelp;
-
-      if (hayModalAbierto) {
-        // NO hacer preventDefault - dejar que el modal maneje sus eventos
-        // Solo ignorar el evento en este handler
-        return;
-      }
-
-      // ESC: Salir de edición o modo navegación (solo si NO hay modal)
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        // Si estamos editando, salir de edición
-        if (editandoPrecio || editandoRebate || editandoWebTransf) {
-          setEditandoPrecio(null);
-          setEditandoRebate(null);
-          setEditandoWebTransf(null);
-          return;
-        }
-        // Salir del modo navegación
-        setCeldaActiva(null);
-        setModoNavegacion(false);
-        setPanelFiltroActivo(null);
-        setColorDropdownAbierto(null);
-        return;
-      }
-
-      // Si estamos editando una celda
-      if (editandoPrecio || editandoRebate || editandoWebTransf) {
-        // Interceptar Tab para evitar que escape del formulario
-        if (e.key === 'Tab') {
-          e.preventDefault();
-          e.stopPropagation();
-
-          // Encontrar el contenedor de edición activo buscando desde el elemento activo
-          let editContainer = document.activeElement?.closest('.inline-edit, .rebate-edit, .web-transf-edit');
-
-          // Si no hay elemento activo en un contenedor, buscar el contenedor visible
-          if (!editContainer) {
-            if (editandoPrecio) {
-              editContainer = document.querySelector('.inline-edit');
-            } else if (editandoRebate) {
-              editContainer = document.querySelector('.rebate-edit');
-            } else if (editandoWebTransf) {
-              editContainer = document.querySelector('.web-transf-edit');
-            }
-          }
-
-          if (editContainer) {
-            const focusable = Array.from(editContainer.querySelectorAll('input, button')).filter(el => {
-              // Filtrar solo elementos visibles y no disabled
-              return el.offsetParent !== null && !el.disabled;
-            });
-            const currentIndex = focusable.indexOf(document.activeElement);
-
-            if (e.shiftKey) {
-              // Tab + Shift: ir hacia atrás
-              const prevIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
-              focusable[prevIndex]?.focus();
-            } else {
-              // Tab: ir hacia adelante
-              const nextIndex = currentIndex >= focusable.length - 1 ? 0 : currentIndex + 1;
-              focusable[nextIndex]?.focus();
-            }
-          }
-          return;
-        }
-        // Dejar pasar otras teclas (arrows, enter, etc) para que funcionen en los inputs
-        return;
-      }
-
-      // Mostrar ayuda de shortcuts (?)
-      if (e.key === '?' && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        setMostrarShortcutsHelp(!mostrarShortcutsHelp);
-        return;
-      }
-
-      // Ctrl+F: Focus en búsqueda
-      if (e.ctrlKey && e.key === 'f') {
-        e.preventDefault();
-        document.querySelector('.search-bar input')?.focus();
-        return;
-      }
-
-      // Ctrl+I: Abrir info del producto seleccionado
-      if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
-        e.preventDefault();
-        if (celdaActiva && productos[celdaActiva.rowIndex]) {
-          const producto = productos[celdaActiva.rowIndex];
-          setProductoInfo(producto.item_id);
-          setMostrarModalInfo(true);
-        }
-        return;
-      }
-
-      // Alt+M: Toggle filtro de marcas
-      if (e.altKey && e.key === 'm') {
-        e.preventDefault();
-        setPanelFiltroActivo(panelFiltroActivo === 'marcas' ? null : 'marcas');
-        return;
-      }
-
-      // Alt+S: Toggle filtro de subcategorías
-      if (e.altKey && e.key === 's') {
-        e.preventDefault();
-        setPanelFiltroActivo(panelFiltroActivo === 'subcategorias' ? null : 'subcategorias');
-        return;
-      }
-
-      // Alt+A: Toggle filtro de auditoría
-      if (e.altKey && e.key === 'a') {
-        e.preventDefault();
-        setPanelFiltroActivo(panelFiltroActivo === 'auditoria' ? null : 'auditoria');
-        return;
-      }
-
-      // Alt+P: Toggle filtro de PMs
-      if (e.altKey && e.key === 'p') {
-        e.preventDefault();
-        setPanelFiltroActivo(panelFiltroActivo === 'pms' ? null : 'pms');
-        return;
-      }
-
-      // Alt+C: Toggle filtros avanzados (donde está el filtro de colores)
-      if (e.altKey && e.key === 'c') {
-        e.preventDefault();
-        setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados);
-        return;
-      }
-
-      // Alt+F: Toggle filtros avanzados
-      if (e.altKey && e.key === 'f') {
-        e.preventDefault();
-        setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados);
-        return;
-      }
-
-      // Alt+V: Toggle Vista Normal / Vista Cuotas
-      if (e.altKey && e.key === 'v') {
-        e.preventDefault();
-        setVistaModoCuotas(!vistaModoCuotas);
-        // Resetear columna activa para evitar ir a columnas ocultas
-        if (celdaActiva) {
-          setCeldaActiva({ ...celdaActiva, colIndex: 0 });
-        }
-        return;
-      }
-
-      // Alt+R: Toggle Auto-recalcular cuotas
-      if (e.altKey && e.key === 'r') {
-        e.preventDefault();
-        const nuevoValor = !recalcularCuotasAuto;
-        setRecalcularCuotasAuto(nuevoValor);
-        localStorage.setItem('recalcularCuotasAuto', JSON.stringify(nuevoValor));
-        return;
-      }
-
-      // Alt+D: Toggle Precio Gremio ARS / USD
-      if (e.altKey && e.key === 'd') {
-        e.preventDefault();
-        setVistaModoPrecioGremioUSD(!vistaModoPrecioGremioUSD);
-        return;
-      }
-
-      // Ctrl+E: Abrir modal de export
-      if (e.ctrlKey && e.key === 'e') {
-        e.preventDefault();
-        setMostrarExportModal(true);
-        return;
-      }
-
-      // Ctrl+K: Abrir modal de calcular web (requiere permiso)
-      if (e.ctrlKey && e.key === 'k' && puedeCalcularWebMasivo) {
-        e.preventDefault();
-        setMostrarCalcularWebModal(true);
-        return;
-      }
-
-      // Enter: Activar modo navegación en la tabla
-      if (e.key === 'Enter' && !modoNavegacion && productos.length > 0) {
-        e.preventDefault();
-        setModoNavegacion(true);
-        setCeldaActiva({ rowIndex: 0, colIndex: 0 });
-        return;
-      }
-
-      // Navegación en modo tabla
-      if (modoNavegacion && celdaActiva) {
-        const { rowIndex, colIndex } = celdaActiva;
-
-        // Enter: Editar celda activa (igual que Espacio)
-        if (e.key === 'Enter' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota && puedeEditar) {
-          e.preventDefault();
-          const producto = productos[rowIndex];
-          const columna = columnasEditables[colIndex];
-          iniciarEdicionDesdeTeclado(producto, columna);
-          return;
-        }
-
-        // Flechas: Navegación por celdas (solo si NO estamos editando)
-        if (e.key === 'ArrowRight' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          if (colIndex < columnasEditables.length - 1) {
-            setCeldaActiva({ rowIndex, colIndex: colIndex + 1 });
-          }
-          return;
-        }
-
-        if (e.key === 'ArrowLeft' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          if (colIndex > 0) {
-            setCeldaActiva({ rowIndex, colIndex: colIndex - 1 });
-          }
-          return;
-        }
-
-        if (e.key === 'ArrowDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          if (e.shiftKey) {
-            // Shift+ArrowDown: Seleccionar siguiente fila
-            if (rowIndex < productos.length - 1) {
-              const siguienteItemId = productos[rowIndex + 1].item_id;
-              toggleSeleccion(siguienteItemId, true);
-              setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
-            }
-          } else if (e.ctrlKey || e.metaKey) {
-            // Ctrl+ArrowDown: Navegar sin perder selección
-            if (rowIndex < productos.length - 1) {
-              setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
-            }
-          } else if (rowIndex < productos.length - 1) {
-            setCeldaActiva({ rowIndex: rowIndex + 1, colIndex });
-          }
-          return;
-        }
-
-        if (e.key === 'ArrowUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          if (e.shiftKey) {
-            // Shift+ArrowUp: Seleccionar fila anterior
-            if (rowIndex > 0) {
-              const anteriorItemId = productos[rowIndex - 1].item_id;
-              toggleSeleccion(anteriorItemId, true);
-              setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
-            }
-          } else if (e.ctrlKey || e.metaKey) {
-            // Ctrl+ArrowUp: Navegar sin perder selección
-            if (rowIndex > 0) {
-              setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
-            }
-          } else if (rowIndex > 0) {
-            setCeldaActiva({ rowIndex: rowIndex - 1, colIndex });
-          }
-          return;
-        }
-
-        // PageUp: Subir 10 filas (solo si NO estamos editando)
-        if (e.key === 'PageUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          const newRow = Math.max(0, rowIndex - 10);
-          setCeldaActiva({ rowIndex: newRow, colIndex });
-          return;
-        }
-
-        // PageDown: Bajar 10 filas (solo si NO estamos editando)
-        if (e.key === 'PageDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          const newRow = Math.min(productos.length - 1, rowIndex + 10);
-          setCeldaActiva({ rowIndex: newRow, colIndex });
-          return;
-        }
-
-        // Home: Ir a primera columna (solo si NO estamos editando)
-        if (e.key === 'Home' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          setCeldaActiva({ rowIndex, colIndex: 0 });
-          return;
-        }
-
-        // End: Ir a última columna (solo si NO estamos editando)
-        if (e.key === 'End' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
-          e.preventDefault();
-          setCeldaActiva({ rowIndex, colIndex: columnasEditables.length - 1 });
-          return;
-        }
-
-        // Espacio: Editar precio en celda activa (solo si NO estamos editando nada)
-        if (e.key === ' ' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota && puedeEditar) {
-          e.preventDefault();
-          const producto = productos[rowIndex];
-          const columna = columnasEditables[colIndex];
-          iniciarEdicionDesdeTeclado(producto, columna);
-          return;
-        }
-
-        // Números 1-7: Selección rápida de colores (solo si NO estamos editando nada y no estamos en un input)
-        const activeElement = document.activeElement;
-        const isInputFocused = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA');
-        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[0-7]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && !isInputFocused) {
-          e.preventDefault();
-          e.stopPropagation();
-          if (puedeMarcarColor && productos[rowIndex]) {
-            // Colores válidos según el backend
-            const colores = [null, 'rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
-            const colorIndex = parseInt(e.key);
-            if (colorIndex < colores.length) {
-              const producto = productos[rowIndex];
-              const colorSeleccionado = colores[colorIndex];
-              cambiarColorRapido(producto.item_id, colorSeleccionado);
-            }
-          }
-          return;
-        }
-
-        // R: Toggle rebate
-        if (e.key === 'r' && !editandoPrecio && !editandoWebTransf && puedeEditar) {
-          e.preventDefault();
-          const producto = productos[rowIndex];
-          
-          // Si ya estamos editando este producto, desactivar rebate y cerrar edición
-          if (editandoRebate === producto.item_id) {
-            await axios.patch(
-              `${API_URL}/productos/${producto.item_id}/rebate`,
-              {
-                participa_rebate: false,
-                porcentaje_rebate: producto.porcentaje_rebate || 3.8
-              },
-              { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-            );
-            setEditandoRebate(null);
-            cargarProductos();
-          } else {
-            // Si no estamos editando, toggle normal
-            await toggleRebateRapido(producto);
-          }
-          return;
-        }
-
-        // W: Toggle web transferencia (solo si NO estamos editando nada)
-        if (e.key === 'w' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditarWebTransf) {
-          e.preventDefault();
-          const producto = productos[rowIndex];
-          await toggleWebTransfRapido(producto);
-          return;
-        }
-
-        // O: Toggle out of cards
-        if (e.key === 'o' && !editandoPrecio && !editandoWebTransf && puedeEditar) {
-          e.preventDefault();
-          const producto = productos[rowIndex];
-          
-          // Si ya estamos editando Y el producto tiene out_of_cards, desactivarlo
-          if (editandoRebate === producto.item_id && producto.out_of_cards) {
-            await axios.patch(
-              `${API_URL}/productos/${producto.item_id}/out-of-cards`,
-              { out_of_cards: false },
-              { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-            );
-            setEditandoRebate(null);
-            cargarProductos();
-          } else {
-            // Toggle normal
-            await toggleOutOfCardsRapido(producto);
-          }
-          return;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modoNavegacion, celdaActiva, productos, editandoPrecio, editandoRebate, editandoWebTransf, editandoCuota, panelFiltroActivo, mostrarShortcutsHelp, puedeEditar, puedeMarcarColor, puedeEditarWebTransf, puedeCalcularWebMasivo, mostrarFiltrosAvanzados, vistaModoCuotas, recalcularCuotasAuto, mostrarExportModal, mostrarCalcularWebModal, mostrarModalConfig, mostrarModalInfo]);
-
-  // Scroll automático para seguir la celda activa
-  useEffect(() => {
-    if (modoNavegacion && celdaActiva) {
-      // Buscar la fila activa en el DOM
-      const tbody = document.querySelector('.table-tesla-body');
-      if (tbody) {
-        const filas = tbody.querySelectorAll('tr');
-        const filaActiva = filas[celdaActiva.rowIndex];
-        if (filaActiva) {
-          // Hacer scroll para que la fila esté visible (sin tirones)
-          filaActiva.scrollIntoView({
-            behavior: 'auto',  // Instantáneo, no smooth (evita tirones al mantener flecha)
-            block: 'nearest',  // No forzar centrado
-            inline: 'nearest'
-          });
-        }
-      }
-    }
-  }, [celdaActiva, modoNavegacion]);
-
-  // Funciones de edición rápida desde teclado
-  const iniciarEdicionDesdeTeclado = (producto, columna) => {
-    if (columna === 'precio_clasica') {
-      setEditandoPrecio(producto.item_id);
-      setPrecioTemp(producto.precio_lista_ml || '');
-    } else if (columna === 'precio_gremio') {
-      // Precio Gremio es solo lectura - no se edita directamente
-      // El markup se configura desde el tab de Admin/Markups
-    } else if (columna === 'precio_web_transf') {
-      setEditandoWebTransf(producto.item_id);
-      setWebTransfTemp({
-        participa: producto.participa_web_transferencia || false,
-        porcentaje: producto.porcentaje_markup_web || 6.0
-      });
-    } else if (columna === 'cuotas_3') {
-      iniciarEdicionCuota(producto, '3');
-    } else if (columna === 'cuotas_6') {
-      iniciarEdicionCuota(producto, '6');
-    } else if (columna === 'cuotas_9') {
-      iniciarEdicionCuota(producto, '9');
-    } else if (columna === 'cuotas_12') {
-      iniciarEdicionCuota(producto, '12');
-    }
-  };
-
-  const cambiarColorRapido = async (itemId, color) => {
-    try {
-      await axios.patch(
-        `${API_URL}/productos/${itemId}/color`,
-        { color },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-      );
-      cargarProductos();
-    } catch (error) {
-      showToast('Error cambiando color', 'error');
-    }
-  };
-
-  const toggleRebateRapido = async (producto) => {
-    try {
-      // Si el rebate está desactivado, activarlo y abrir modo edición
-      if (!producto.participa_rebate) {
-        await axios.patch(
-          `${API_URL}/productos/${producto.item_id}/rebate`,
-          {
-            participa_rebate: true,
-            porcentaje_rebate: producto.porcentaje_rebate || 3.8
-          },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-        );
-
-        // Abrir modo edición
-        setEditandoRebate(producto.item_id);
-        setRebateTemp({
-          participa: true,
-          porcentaje: producto.porcentaje_rebate || 3.8
-        });
-
-        // Hacer focus en el input de porcentaje
-        setTimeout(() => {
-          const input = document.querySelector('.rebate-edit input[type="number"]');
-          if (input) {
-            input.focus();
-            input.select();
-          }
-        }, 100);
-
-        cargarProductos();
-      } else {
-        // Si está activado, desactivarlo (comportamiento actual)
-        await axios.patch(
-          `${API_URL}/productos/${producto.item_id}/rebate`,
-          {
-            participa_rebate: false,
-            porcentaje_rebate: producto.porcentaje_rebate || 3.8
-          },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-        );
-        cargarProductos();
-      }
-    } catch (error) {
-      showToast('Error al cambiar rebate', 'error');
-    }
-  };
-
-  const toggleWebTransfRapido = async (producto) => {
-    try {
-      await axios.patch(
-        `${API_URL}/productos/${producto.item_id}/web-transferencia`,
-        {
-          participa: !producto.participa_web_transferencia,
-          porcentaje: producto.porcentaje_markup_web || 6.0
-        },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-      );
-      cargarProductos();
-    } catch (error) {
-      showToast('Error al cambiar web transferencia', 'error');
-    }
-  };
-
-  const toggleOutOfCardsRapido = async (producto) => {
-    try {
-      // Si ya tiene out_of_cards, desactivarlo
-      if (producto.out_of_cards) {
-        await axios.patch(
-          `${API_URL}/productos/${producto.item_id}/out-of-cards`,
-          { out_of_cards: false },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-        );
-        
-        // Cerrar modo edición si estaba abierto
-        if (editandoRebate === producto.item_id) {
-          setEditandoRebate(null);
-        }
-        
-        cargarProductos();
-        return;
-      }
-
-      // Si NO tiene out_of_cards, activarlo
-      // Primero, si el rebate NO está activo, activarlo
-      if (!producto.participa_rebate) {
-        await axios.patch(
-          `${API_URL}/productos/${producto.item_id}/rebate`,
-          {
-            participa_rebate: true,
-            porcentaje_rebate: producto.porcentaje_rebate || 3.8
-          },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-        );
-      }
-
-      // Marcar out_of_cards = true
-      await axios.patch(
-        `${API_URL}/productos/${producto.item_id}/out-of-cards`,
-        { out_of_cards: true },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-      );
-
-      // Abrir modo edición
-      setEditandoRebate(producto.item_id);
-      setRebateTemp({
-        participa: true,
-        porcentaje: producto.porcentaje_rebate || 3.8
-      });
-
-      // Hacer focus en el input de porcentaje
-      setTimeout(() => {
-        const input = document.querySelector('.rebate-edit input[type="number"]');
-        if (input) {
-          input.focus();
-          input.select();
-        }
-      }, 100);
-
-      cargarProductos();
-    } catch (error) {
-      showToast('Error al cambiar out of cards', 'error');
     }
   };
 
@@ -1994,27 +462,11 @@ export default function Tienda() {
     else setFiltroNuevos(filtros.nuevos);
 
     // Limpiar otros filtros avanzados
-    if (filtros.webTransf === undefined) setFiltroWebTransf(null);
-    else setFiltroWebTransf(filtros.webTransf);
+    if (filtros.webTransf === undefined) setFiltroWebTransfFiltro(null);
+    else setFiltroWebTransfFiltro(filtros.webTransf);
 
     setFiltroOutOfCards(null);
 
-    setPage(1);
-  };
-
-  const limpiarFiltros = () => {
-    setFiltroStock("todos");
-    setFiltroPrecio("todos");
-    setFiltroRebate(null);
-    setFiltroOferta(null);
-    setFiltroWebTransf(null);
-    setFiltroTiendaNube(null);
-    setFiltroMarkupClasica(null);
-    setFiltroMarkupRebate(null);
-    setFiltroMarkupOferta(null);
-    setFiltroMarkupWebTransf(null);
-    setFiltroMLA(null);
-    setFiltroNuevos(null);
     setPage(1);
   };
 
@@ -2045,15 +497,13 @@ export default function Tienda() {
         <>
       <div className="stats-grid">
         <StatCard
-          title="Total Productos"
+          label="📦 Total Productos"
           value={stats?.total_productos?.toLocaleString('es-AR') || 0}
-          onClick={limpiarFiltros}
-          tooltip="Click para limpiar todos los filtros"
+          onClick={limpiarTodosFiltros}
         />
 
         <StatCard
-          title="Stock & Precio"
-          tooltip="Desglose de stock y precios"
+          label="📊 Stock & Precio"
           subItems={[
             {
               label: 'Con Stock:',
@@ -2077,8 +527,7 @@ export default function Tienda() {
         />
 
         <StatCard
-          title="Nuevos (7 días)"
-          tooltip="Productos cargados en los últimos 7 días"
+          label="✨ Nuevos (7 días)"
           subItems={[
             {
               label: 'Total:',
@@ -2096,8 +545,7 @@ export default function Tienda() {
         />
 
         <StatCard
-          title="Sin MLA"
-          tooltip="Productos sin publicación en MercadoLibre (excluye banlist)"
+          label="Sin MLA"
           subItems={[
             {
               label: 'Total:',
@@ -2114,6 +562,7 @@ export default function Tienda() {
             {
               label: 'Sin Stock:',
               value: stats?.sin_mla_sin_stock?.toLocaleString('es-AR') || 0,
+              color: 'blue',
               onClick: () => aplicarFiltroStat({ mla: 'sin_mla', stock: 'sin_stock' })
             },
             {
@@ -2126,16 +575,14 @@ export default function Tienda() {
         />
 
         <StatCard
-          title="Oferta sin Rebate"
+          label="💎 Oferta sin Rebate"
           value={stats?.mejor_oferta_sin_rebate?.toLocaleString('es-AR') || 0}
-          valueColor="purple"
+          color="purple"
           onClick={() => aplicarFiltroStat({ oferta: 'con_oferta', rebate: 'sin_rebate' })}
-          tooltip="Click para filtrar productos con oferta sin rebate"
         />
 
         <StatCard
-          title="Markup Negativo"
-          tooltip="Productos con markup negativo en diferentes modalidades"
+          label="📉 Markup Negativo"
           subItems={[
             {
               label: 'Clásica:',
@@ -2247,19 +694,19 @@ export default function Tienda() {
 
           <button
             onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
-            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
+            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransfFiltro || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) ? 'active' : ''}`}
           >
             Avanzados
-            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) && (
+            {(filtroRebate || filtroOferta || filtroWebTransfFiltro || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0) && (
               <span className="filter-badge">
-                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length}
+                {[filtroRebate, filtroOferta, filtroWebTransfFiltro, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length}
               </span>
             )}
           </button>
 
           <button
             onClick={limpiarTodosFiltros}
-            className="filter-button clear-all"
+            className="btn-tesla outline-subtle-danger sm"
             title="Limpiar todos los filtros"
           >
             Limpiar
@@ -2268,48 +715,38 @@ export default function Tienda() {
           {/* Separador visual */}
           <div className="filter-separator"></div>
 
-          {/* Vista Normal/Cuotas */}
-          <label className="filter-checkbox-label">
-            <input
-              type="checkbox"
-              checked={vistaModoCuotas}
-              onChange={(e) => {
-                setVistaModoCuotas(e.target.checked);
-                // Resetear columna activa para evitar ir a columnas ocultas
-                if (celdaActiva) {
-                  setCeldaActiva({ ...celdaActiva, colIndex: 0 });
-                }
-              }}
-              className="filter-checkbox"
-            />
-            <span className="filter-checkbox-text">
-              {vistaModoCuotas ? '📊 Cuotas' : '📋 Normal'}
-            </span>
-          </label>
+          {/* Toggle Vista Cuotas */}
+          <button
+            className="filter-button"
+            onClick={() => {
+              setVistaModoCuotas(!vistaModoCuotas);
+              // Resetear columna activa para evitar ir a columnas ocultas
+              if (celdaActiva) {
+                setCeldaActiva({ ...celdaActiva, colIndex: 0 });
+              }
+            }}
+            title="Alt+V para cambiar vista"
+          >
+            {vistaModoCuotas ? '📊 Cuotas' : 'Normal'}
+          </button>
 
           {/* Toggle Precio Gremio ARS/USD */}
-          <label className="filter-checkbox-label" title="Alt+D para cambiar">
-            <input
-              type="checkbox"
-              checked={vistaModoPrecioGremioUSD}
-              onChange={(e) => setVistaModoPrecioGremioUSD(e.target.checked)}
-              className="filter-checkbox"
-            />
-            <span className="filter-checkbox-text">
-              {vistaModoPrecioGremioUSD ? '💵 Gremio USD' : '💰 Gremio ARS'}
-            </span>
-          </label>
+          <button
+            className="filter-button"
+            onClick={() => setVistaModoPrecioGremioUSD(!vistaModoPrecioGremioUSD)}
+            title="Alt+D para cambiar"
+          >
+            {vistaModoPrecioGremioUSD ? '💵 Gremio USD' : '💰 Gremio ARS'}
+          </button>
 
           {/* Auto-recalcular */}
-          <label className="filter-checkbox-label">
-            <input
-              type="checkbox"
-              checked={recalcularCuotasAuto}
-              onChange={(e) => setRecalcularCuotasAuto(e.target.checked)}
-              className="filter-checkbox"
-            />
-            <span className="filter-checkbox-text">♻️ Auto-recalcular</span>
-          </label>
+          <button
+            onClick={() => setRecalcularCuotasAuto(!recalcularCuotasAuto)}
+            className={`btn-tesla outline-subtle-primary sm ${recalcularCuotasAuto ? 'toggle-active' : ''}`}
+            title="Alt+R para toggle"
+          >
+            {recalcularCuotasAuto ? '✓ ' : ''}Auto-recalcular
+          </button>
 
           {/* Separador visual */}
           <div className="filter-separator"></div>
@@ -2317,28 +754,28 @@ export default function Tienda() {
           {/* Botones de Exportar y Calcular */}
           <button
             onClick={() => setMostrarExportModal(true)}
-            className="btn-action export"
+            className="btn-tesla outline-subtle-success sm"
           >
-            <img src={xlsIcon} alt="Excel" />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/></svg>
             Exportar
           </button>
 
           {puedeCalcularWebMasivo && (
           <button
             onClick={() => setMostrarCalcularWebModal(true)}
-            className="btn-action calculate"
+            className="btn-tesla outline-subtle-primary sm"
           >
-            🧮 Calcular Web Transf.
+            Calcular Web Transf.
           </button>
           )}
 
           {tienePermiso('tienda.editar_precio_gremio_manual') && (
           <button
             onClick={eliminarTodosPreciosGremioManuales}
-            className="btn-action reset-gremio"
+            className="btn-tesla outline-subtle-warning sm"
             title="Eliminar todos los precios gremio manuales y volver al cálculo automático"
           >
-            ⟲ Resetear Precios Gremio
+            Resetear Precios Gremio
           </button>
           )}
         </div>
@@ -2358,7 +795,7 @@ export default function Tienda() {
                         setMarcasSeleccionadas([]);
                         setPage(1);
                       }}
-                      className="btn-clear-all"
+                      className="btn-tesla outline-subtle-danger sm"
                     >
                       Limpiar filtros ({marcasSeleccionadas.length})
                     </button>
@@ -2422,7 +859,7 @@ export default function Tienda() {
                         e.stopPropagation();
                         setSubcategoriasSeleccionadas([]);
                       }}
-                      className="btn-clear-all"
+                      className="btn-tesla outline-subtle-danger sm"
                     >
                       Limpiar
                     </button>
@@ -2572,7 +1009,7 @@ export default function Tienda() {
                         setPmsSeleccionados([]);
                         setPage(1);
                       }}
-                      className="btn-clear-all"
+                      className="btn-tesla outline-subtle-danger sm"
                     >
                       Limpiar filtros ({pmsSeleccionados.length})
                     </button>
@@ -2625,7 +1062,7 @@ export default function Tienda() {
                       });
                       setPage(1);
                     }}
-                    className="btn-clear-all"
+                    className="btn-tesla outline-subtle-danger sm"
                   >
                     Limpiar Todo
                   </button>
@@ -2761,7 +1198,7 @@ export default function Tienda() {
               onClick={() => {
                 setFiltroRebate(null);
                 setFiltroOferta(null);
-                setFiltroWebTransf(null);
+                setFiltroWebTransfFiltro(null);
                 setFiltroTiendaNube(null);
                 setFiltroMarkupClasica(null);
                 setFiltroMarkupRebate(null);
@@ -2774,7 +1211,7 @@ export default function Tienda() {
                 setColoresSeleccionados([]);
                 setPage(1);
               }}
-              className="btn-clear-all"
+              className="btn-tesla outline-subtle-danger sm"
             >
               Limpiar Todos
             </button>
@@ -2814,8 +1251,8 @@ export default function Tienda() {
                 <div className="filter-item">
                   <label>💳 Web Transferencia</label>
                   <select
-                    value={filtroWebTransf || 'todos'}
-                    onChange={(e) => { setFiltroWebTransf(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    value={filtroWebTransfFiltro || 'todos'}
+                    onChange={(e) => { setFiltroWebTransfFiltro(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
                     className="filter-select-compact"
                   >
                     <option value="todos">Todos</option>
@@ -3649,49 +2086,49 @@ export default function Tienda() {
                             setProductoInfo(p.item_id);
                             setMostrarModalInfo(true);
                           }}
-                          className="icon-button info"
-                          title="Información detallada (Ctrl+I)"
-                          aria-label="Información detallada del producto"
+                          className="btn-tesla outline-subtle-primary icon-only sm"
+                          title="Información del producto"
+                          aria-label="Información del producto"
                         >
-                          ℹ️
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
                         </button>
                         {puedeEditar && (
                           <button
                             onClick={() => setProductoSeleccionado(p)}
-                            className="icon-button detail"
+                            className="btn-tesla outline-subtle-primary icon-only sm"
                             title="Ver detalle"
                             aria-label="Ver detalle del producto"
                           >
-                            🔍
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
                           </button>
                         )}
                         <button
                           onClick={() => verAuditoria(p.item_id)}
-                          className="icon-button audit"
+                          className="btn-tesla outline-subtle-primary icon-only sm"
                           title="Ver historial de cambios"
                           aria-label="Ver historial de cambios"
                         >
-                          📋
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
                         </button>
                         {puedeEditar && (
                           <button
                             onClick={() => abrirModalConfig(p)}
-                            className="icon-button config"
+                            className="btn-tesla outline-subtle-primary icon-only sm"
                             title="Configuración de cuotas"
                             aria-label="Configuración de cuotas"
                           >
-                            ⚙️
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94L14.4 2.81c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
                           </button>
                         )}
                         {puedeMarcarColor && (
                         <div style={{ position: 'relative', display: 'inline-block' }}>
                           <button
                             onClick={() => setColorDropdownAbierto(colorDropdownAbierto === p.item_id ? null : p.item_id)}
-                            className="icon-button color"
+                            className="btn-tesla outline-subtle-primary icon-only sm"
                             title="Marcar con color"
                             aria-label="Marcar producto con color"
                           >
-                            🎨
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
                           </button>
                           {colorDropdownAbierto === p.item_id && (
                             <div className="color-dropdown">
@@ -3702,11 +2139,11 @@ export default function Tienda() {
                                   style={{
                                     backgroundColor: c.color,
                                     color: c.colorTexto,
-                                    border: c.id === p.color_marcado_tienda ? '2px solid var(--text-primary)' : '1px solid var(--border-primary)'
+                                    border: c.id === p.color_marcado_tienda ? '2px solid var(--text-primary)' : '1px solid var(--border-secondary)'
                                   }}
-                                  onClick={() => cambiarColorProducto(p.item_id, c.id)}
+                                   onClick={() => { cambiarColorProducto(p.item_id, c.id); setColorDropdownAbierto(null); }}
                                   title={c.nombre}
-                                  aria-label={`Marcar como ${c.nombre}`}
+                                  aria-label={`Marcar producto como ${c.nombre}`}
                                 >
                                   {c.nombre}
                                 </button>
@@ -3718,12 +2155,10 @@ export default function Tienda() {
                         {['SUPERADMIN', 'ADMIN'].includes(user?.rol) && (
                           <button
                             onClick={() => abrirModalBan(p)}
-                            className="icon-button ban"
+                            className="btn-tesla outline-subtle-danger icon-only sm"
                             title="Agregar a banlist"
-                            aria-label="Agregar producto a banlist"
-                            style={{ color: 'var(--error)' }}
                           >
-                            🚫
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
                           </button>
                         )}
                       </div>
@@ -3811,17 +2246,23 @@ export default function Tienda() {
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="pagination-btn"
+                className="btn-tesla outline-subtle-primary"
               >
-                ← Anterior
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: '4px' }}>
+                  <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+                </svg>
+                Anterior
               </button>
-              <span>Página {page} {totalProductos > 0 && `(${((page-1)*pageSize + 1)} - ${Math.min(page*pageSize, totalProductos)})`}</span>
+              <span className="pagination-info">Página {page} {totalProductos > 0 && `(1 - ${pageSize} de ${totalProductos.toLocaleString('es-AR')})`}</span>
               <button
                 onClick={() => setPage(p => p + 1)}
                 disabled={productos.length < pageSize}
-                className="pagination-btn"
+                className="btn-tesla outline-subtle-primary"
               >
-                Siguiente →
+                Siguiente
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft: '4px' }}>
+                  <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+                </svg>
               </button>
             </div>
           </>
@@ -3866,7 +2307,7 @@ export default function Tienda() {
             pmsSeleccionados,
             filtroRebate,
             filtroOferta,
-            filtroWebTransf,
+            filtroWebTransfFiltro,
             filtroMarkupClasica,
             filtroMarkupRebate,
             filtroMarkupOferta,
@@ -3897,7 +2338,7 @@ export default function Tienda() {
             pmsSeleccionados,
             filtroRebate,
             filtroOferta,
-            filtroWebTransf,
+            filtroWebTransfFiltro,
             filtroTiendaNube,
             filtroMarkupClasica,
             filtroMarkupRebate,
