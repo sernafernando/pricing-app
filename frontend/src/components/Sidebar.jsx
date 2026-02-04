@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
 import SidebarSection from './SidebarSection';
-import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp } from 'lucide-react';
+import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp, X } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
 export default function Sidebar({ mobileOpen = false, onMobileClose }) {
@@ -124,6 +124,15 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
+      {/* Close button - Solo mobile */}
+      <button
+        onClick={onMobileClose}
+        className={styles.mobileCloseBtn}
+        aria-label="Cerrar menú"
+      >
+        <X size={20} />
+      </button>
+
       {/* Expand/Collapse All - Arriba */}
       {isExpanded && (
         <button
