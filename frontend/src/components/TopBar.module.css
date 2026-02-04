@@ -25,6 +25,30 @@
   gap: 16px;
 }
 
+/* Mobile Menu Button - Hidden by default */
+.mobileMenuBtn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-in-out);
+}
+
+.mobileMenuBtn:hover {
+  background: var(--cf-hover-overlay);
+  color: var(--cf-text-primary);
+}
+
+.mobileMenuBtn:active {
+  transform: scale(0.95);
+}
+
 .logoLink {
   display: flex;
   align-items: center;
@@ -67,7 +91,7 @@
 }
 
 .metricCard:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--cf-hover-overlay);
 }
 
 .metricLabel {
@@ -81,7 +105,7 @@
 .metricValue {
   font-size: 16px;
   font-weight: var(--font-bold);
-  color: #22c55e;
+  color: var(--cf-accent-green);
 }
 
 /* Right Section */
@@ -108,7 +132,7 @@
 }
 
 .userMenu:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--cf-hover-overlay);
   color: var(--cf-text-primary);
 }
 
@@ -116,19 +140,13 @@
   width: 31px;
   height: 31px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--cf-avatar-bg);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
   font-weight: var(--font-semibold);
-  color: var(--cf-text-primary);
-}
-
-/* Light mode: fondo gris en lugar de blanco */
-:global([data-theme="light"]) .userAvatar {
-  background: #e5e7eb;
-  color: #111827;
+  color: var(--cf-avatar-text);
 }
 
 /* User Dropdown */
@@ -183,22 +201,22 @@
 }
 
 .roleSuperAdmin {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
+  background: linear-gradient(135deg, var(--cf-role-superadmin-from), var(--cf-role-superadmin-to));
   color: #fff;
 }
 
 .roleAdmin {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
+  background: linear-gradient(135deg, var(--cf-role-admin-from), var(--cf-role-admin-to));
   color: #fff;
 }
 
 .roleGerente {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  background: linear-gradient(135deg, var(--cf-role-gerente-from), var(--cf-role-gerente-to));
   color: #fff;
 }
 
 .roleDefault {
-  background: linear-gradient(135deg, #64748b, #475569);
+  background: linear-gradient(135deg, var(--cf-role-default-from), var(--cf-role-default-to));
   color: #fff;
 }
 
@@ -221,7 +239,7 @@
 }
 
 .dropdownItem:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--cf-hover-overlay);
 }
 
 .logoutBtn {
@@ -229,7 +247,7 @@
   padding: 8px 10px;
   background: transparent;
   border: none;
-  color: #ef4444;
+  color: var(--cf-accent-red);
   font-size: 13px;
   font-weight: var(--font-medium);
   text-align: center;
@@ -239,13 +257,18 @@
 }
 
 .logoutBtn:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--cf-accent-blue-light);
 }
 
 /* Responsive - Mobile */
 @media (max-width: 768px) {
   .topbar {
     left: 0;
+    padding: 0 16px;
+  }
+
+  .mobileMenuBtn {
+    display: flex;
   }
 
   .metrics {

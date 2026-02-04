@@ -1,33 +1,24 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { Menu } from 'lucide-react';
 
 import ThemeToggleSimple from './ThemeToggleSimple';
 import NotificationBell from './NotificationBell';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './TopBar.module.css';
 import logoIcon from '../assets/white-g-logo.png';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-export default function TopBar({ sidebarExpanded = true }) {
+export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
   const user = useAuthStore((state) => state.user);
   const navigate = useNavigate();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [facturadoHoy, setFacturadoHoy] = useState(null);
+  const [loadingMetric, setLoadingMetric] = useState(false);
 
   useEffect(() => {
     if (user) {
+      setLoadingMetric(true);
       const hoy = new Date().toISOString().split('T')[0];
       api.get(`/dashboard-ml/metricas-generales?fecha_desde=${hoy}&fecha_hasta=${hoy}`)
         .then(res => {
@@ -35,6 +26,10 @@ export default function TopBar({ sidebarExpanded = true }) {
         })
         .catch(err => {
           console.error('Error cargando facturado:', err);
+          setFacturadoHoy(null);
+        })
+        .finally(() => {
+          setLoadingMetric(false);
         });
     }
   }, [user]);
@@ -43,6 +38,29 @@ export default function TopBar({ sidebarExpanded = true }) {
     localStorage.removeItem('token');
     navigate('/login');
   };
+
+  const toggleUserMenu = () => setUserMenuOpen(!userMenuOpen);
+
+  const handleUserMenuKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggleUserMenu();
+    }
+  };
+
+  // Cerrar menú al hacer click fuera
+  useEffect(() => {
+    if (!userMenuOpen) return;
+
+    const handleClickOutside = (e) => {
+      if (!e.target.closest('[data-user-menu]')) {
+        setUserMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [userMenuOpen]);
 
   const getRoleBadgeColor = (rol) => {
     switch (rol) {
@@ -58,8 +76,16 @@ export default function TopBar({ sidebarExpanded = true }) {
       className={styles.topbar}
       data-sidebar-expanded={sidebarExpanded}
     >
-      {/* Left: Logo pequeño */}
+      {/* Left: Hamburguesa (mobile) + Logo */}
       <div className={styles.left}>
+        <button 
+          className={styles.mobileMenuBtn}
+          onClick={onMobileMenuToggle}
+          aria-label="Abrir menú"
+        >
+          <Menu size={24} />
+        </button>
+        
         <Link to="/productos" className={styles.logoLink}>
           <img src={logoIcon} alt="Logo" className={styles.logoIcon} />
         </Link>
@@ -67,7 +93,13 @@ export default function TopBar({ sidebarExpanded = true }) {
 
       {/* Center: Área de métricas */}
       <div className={styles.metrics}>
-        {facturadoHoy !== null && (
+        {loadingMetric && (
+          <div className={styles.metricCard}>
+            <span className={styles.metricLabel}>Facturado ML Hoy</span>
+            <span className={styles.metricValue}>...</span>
+          </div>
+        )}
+        {!loadingMetric && facturadoHoy !== null && (
           <Link to="/dashboard-metricas-ml" className={styles.metricCard} title="Facturado ML hoy - Click para ver métricas">
             <span className={styles.metricLabel}>Facturado ML Hoy</span>
             <span className={styles.metricValue}>
@@ -83,9 +115,11 @@ export default function TopBar({ sidebarExpanded = true }) {
         
         <div 
           className={styles.userMenu} 
-          onClick={() => setUserMenuOpen(!userMenuOpen)}
+          onClick={toggleUserMenu}
+          onKeyDown={handleUserMenuKeyDown}
           role="button"
           tabIndex={0}
+          data-user-menu
         >
           <div className={styles.userAvatar}>
             {user?.nombre?.charAt(0).toUpperCase() || user?.username?.charAt(0).toUpperCase() || 'U'}

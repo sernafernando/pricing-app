@@ -20,7 +20,7 @@
 }
 
 .sectionHeader:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--cf-hover-overlay);
   color: var(--cf-text-secondary);
 }
 
@@ -79,12 +79,12 @@
 }
 
 .item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--cf-hover-overlay);
   color: var(--cf-text-primary);
 }
 
 .item.active {
-  background: rgba(59, 130, 246, 0.15);
+  background: var(--cf-accent-blue-light);
   color: var(--cf-accent-blue);
   font-weight: var(--font-normal);
 }
@@ -96,12 +96,47 @@
 }
 
 /* Cuando el sidebar está colapsado */
-.sidebar[data-expanded="false"] .sectionItems {
+:global([data-expanded="false"]) .sectionHeader {
+  justify-content: center;
+  align-items: center;
+  padding: 12px;
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  gap: 0;
+  margin: 0 auto;
+}
+
+:global([data-expanded="false"]) .icon {
+  width: auto;
+  height: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:global([data-expanded="false"]) .icon svg {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+:global([data-expanded="false"]) .sectionItems {
   padding-left: 0;
   align-items: center;
 }
 
-.sidebar[data-expanded="false"] .item {
+:global([data-expanded="false"]) .item {
   justify-content: center;
   padding: 8px;
+}
+
+/* Highlight sutil en el icono de la sección activa cuando está colapsado */
+.sectionActive {
+  background: var(--cf-accent-blue-light) !important;
+  color: var(--cf-accent-blue) !important;
+}
+
+.sectionActive .icon {
+  opacity: 1;
+  color: var(--cf-accent-blue);
 }
