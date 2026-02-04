@@ -61,7 +61,7 @@
 
 .expandAllBtn:hover {
   color: var(--cf-text-primary);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--cf-hover-overlay);
   border-radius: 4px;
 }
 
@@ -85,17 +85,25 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  padding-left: 12px;
+  padding-left: 14px; /* Ajustado para 48px */
   z-index: 10;
 }
 
 .toggleBtn:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--cf-hover-overlay);
   color: var(--cf-text-primary);
 }
 
 .toggleBtn:active {
   transform: scale(0.98);
+}
+
+.toggleBtn[data-flipped="true"] {
+  transform: scaleX(-1);
+}
+
+.toggleBtn[data-flipped="true"]:active {
+  transform: scaleX(-1) scale(0.98);
 }
 
 /* Navigation */
@@ -106,21 +114,59 @@
   gap: 4px;
 }
 
+/* Cuando el sidebar está colapsado, reducir padding horizontal */
+.sidebar[data-pinned="false"]:not([data-expanded="true"]) .nav,
+.sidebar[data-pinned="false"][data-expanded="false"] .nav {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+/* Mobile Overlay */
+.overlay {
+  display: none;
+}
+
 /* Responsive - Mobile */
 @media (max-width: 768px) {
   .sidebar {
-    width: 0;
-    border-right: none;
+    width: var(--cf-sidebar-width-expanded);
+    transform: translateX(-100%);
+    transition: transform var(--duration-300) var(--ease-out);
+    border-right: 1px solid var(--cf-border-subtle);
+    box-shadow: none;
   }
 
-  .sidebar[data-expanded="true"] {
-    width: var(--cf-sidebar-width-expanded);
-    border-right: 1px solid var(--cf-border-subtle);
+  .sidebar[data-mobile-open="true"] {
+    transform: translateX(0);
     box-shadow: var(--cf-shadow-sidebar-peek);
+    z-index: calc(var(--z-modal) - 1);
+  }
+
+  .overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: calc(var(--z-modal) - 2);
+    animation: fadeIn var(--duration-200) var(--ease-out);
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   .toggleBtn {
     /* En mobile, el botón lo manejará el TopBar */
     display: none;
+  }
+
+  .expandAllBtn {
+    /* Mantener visible en mobile cuando el sidebar está abierto */
+    display: flex;
   }
 }

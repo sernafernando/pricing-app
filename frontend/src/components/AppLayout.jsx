@@ -14,6 +14,9 @@ export default function AppLayout() {
     return saved === null ? true : saved === 'true';
   });
 
+  // Estado para sidebar mobile (independiente del estado desktop)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const user = useAuthStore((state) => state.user);
   const [todasLasAlertas, setTodasLasAlertas] = useState([]);
   const [alertasVisibles, setAlertasVisibles] = useState([]);
@@ -139,13 +142,19 @@ export default function AppLayout() {
 
   return (
     <div className={styles.appLayout}>
-      <Sidebar />
+      <Sidebar 
+        mobileOpen={mobileMenuOpen} 
+        onMobileClose={() => setMobileMenuOpen(false)} 
+      />
       
       <div 
         className={styles.mainWrapper}
         data-sidebar-expanded={sidebarExpanded}
       >
-        <TopBar sidebarExpanded={sidebarExpanded} />
+        <TopBar 
+          sidebarExpanded={sidebarExpanded}
+          onMobileMenuToggle={() => setMobileMenuOpen(!mobileMenuOpen)}
+        />
         
         {/* Alert Banners - Sistema de rotación */}
         <AlertBannerContainer sidebarExpanded={sidebarExpanded}>

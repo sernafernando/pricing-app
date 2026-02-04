@@ -160,7 +160,7 @@
   
   /* Layout dimensions */
   --cf-sidebar-width-expanded: 240px;
-  --cf-sidebar-width-collapsed: 64px;
+  --cf-sidebar-width-collapsed: 48px;
   --cf-topbar-height: 56px;
   
   /* Sidebar specific */
@@ -189,6 +189,23 @@
   /* Accent - Cloudflare blue (same in both themes) */
   --cf-accent-blue: #3b82f6;
   --cf-accent-blue-hover: #60a5fa;
+  
+  /* Semantic colors */
+  --cf-accent-green: #22c55e;
+  --cf-accent-red: #ef4444;
+  --cf-accent-orange: #f59e0b;
+  --cf-accent-yellow: #eab308;
+  --cf-accent-gray: #64748b;
+  
+  /* Role badge gradients */
+  --cf-role-superadmin-from: #ef4444;
+  --cf-role-superadmin-to: #dc2626;
+  --cf-role-admin-from: #f59e0b;
+  --cf-role-admin-to: #d97706;
+  --cf-role-gerente-from: #3b82f6;
+  --cf-role-gerente-to: #2563eb;
+  --cf-role-default-from: #64748b;
+  --cf-role-default-to: #475569;
 }
 
 /* ============================================
@@ -215,6 +232,13 @@
   
   /* Accent variations */
   --cf-accent-blue-light: rgba(59, 130, 246, 0.1);
+  
+  /* Hover overlay for light mode */
+  --cf-hover-overlay: rgba(0, 0, 0, 0.05);
+  
+  /* Avatar background for light mode */
+  --cf-avatar-bg: #e5e7eb;
+  --cf-avatar-text: #111827;
   
   /* Card colors */
   --cf-card-bg: #ffffff;
@@ -252,6 +276,13 @@
   
   /* Accent variations */
   --cf-accent-blue-light: rgba(59, 130, 246, 0.1);
+  
+  /* Hover overlay for dark mode */
+  --cf-hover-overlay: rgba(255, 255, 255, 0.05);
+  
+  /* Avatar background for dark mode */
+  --cf-avatar-bg: rgba(255, 255, 255, 0.12);
+  --cf-avatar-text: #ffffff;
   
   /* Card colors */
   --cf-card-bg: #181818;

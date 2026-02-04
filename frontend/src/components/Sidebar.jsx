@@ -5,7 +5,7 @@ import SidebarSection from './SidebarSection';
 import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
-export default function Sidebar() {
+export default function Sidebar({ mobileOpen = false, onMobileClose }) {
   // Estado persistido: true = expandido fijo, false = colapsado
   const [isPinned, setIsPinned] = useState(() => {
     const saved = localStorage.getItem('sidebarPinned');
@@ -106,13 +106,24 @@ export default function Sidebar() {
   ];
 
   return (
-    <aside
-      className={styles.sidebar}
-      data-pinned={isPinned}
-      data-expanded={isExpanded}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
+    <>
+      {/* Overlay para cerrar sidebar en mobile */}
+      {mobileOpen && (
+        <div 
+          className={styles.overlay} 
+          onClick={onMobileClose}
+          aria-hidden="true"
+        />
+      )}
+      
+      <aside
+        className={styles.sidebar}
+        data-pinned={isPinned}
+        data-expanded={isExpanded}
+        data-mobile-open={mobileOpen}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
       {/* Expand/Collapse All - Arriba */}
       {isExpanded && (
         <button
@@ -151,6 +162,7 @@ export default function Sidebar() {
               isExpanded={isExpanded}
               currentPath={location.pathname}
               forceOpen={expandAll}
+              onItemClick={onMobileClose}
             />
           );
         })}
@@ -162,11 +174,11 @@ export default function Sidebar() {
         className={styles.toggleBtn}
         aria-label={isPinned ? 'Colapsar sidebar' : 'Expandir sidebar'}
         title={isPinned ? 'Colapsar sidebar' : 'Expandir sidebar'}
+        data-flipped={!isPinned}
       >
-        <span style={{ transform: isPinned ? 'none' : 'scaleX(-1)', display: 'flex' }}>
-          <PanelLeftClose size={20} />
-        </span>
+        <PanelLeftClose size={20} />
       </button>
     </aside>
+    </>
   );
 }
