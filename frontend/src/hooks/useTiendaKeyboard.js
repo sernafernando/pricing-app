@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import api from '../services/api';
 
 /**
  * Custom hook para manejar TODA la navegación por teclado y atajos en la vista Tienda.
@@ -438,31 +437,7 @@ export function useTiendaKeyboard({
         if (e.key === 'r' && !editandoPrecio && !editandoWebTransf && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
-
-          if (pricing.editandoRebate === producto.item_id) {
-            await api.patch(
-              `/productos/${producto.item_id}/rebate`,
-              {
-                participa_rebate: false,
-                porcentaje_rebate: producto.porcentaje_rebate || 3.8
-              }
-            );
-
-            setProductos(prods => prods.map(p =>
-              p.item_id === producto.item_id
-                ? {
-                    ...p,
-                    participa_rebate: false,
-                    precio_rebate: null
-                  }
-                : p
-            ));
-
-            pricing.setEditandoRebate(null);
-            cargarStats();
-          } else {
-            await toggleRebateRapido(producto);
-          }
+          await toggleRebateRapido(producto);
           return;
         }
 
@@ -478,24 +453,7 @@ export function useTiendaKeyboard({
         if (e.key === 'o' && !editandoPrecio && !editandoWebTransf && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
-
-          if (pricing.editandoRebate === producto.item_id && producto.out_of_cards) {
-            await api.patch(
-              `/productos/${producto.item_id}/out-of-cards`,
-              { out_of_cards: false }
-            );
-
-            setProductos(prods => prods.map(p =>
-              p.item_id === producto.item_id
-                ? { ...p, out_of_cards: false }
-                : p
-            ));
-
-            pricing.setEditandoRebate(null);
-            cargarStats();
-          } else {
-            await toggleOutOfCardsRapido(producto);
-          }
+          await toggleOutOfCardsRapido(producto);
           return;
         }
       }
