@@ -135,6 +135,9 @@ export function useTiendaKeyboard({
       const { toggleSeleccion } = selection;
       const { puedeEditar, puedeMarcarColor, puedeEditarWebTransf, puedeCalcularWebMasivo } = permissions;
 
+      // Variable para evitar repetir el patrón de guards
+      const enModoEdicion = editandoPrecio || editandoRebate || editandoWebTransf || editandoCuota;
+
       // Si hay un modal abierto, NO procesar shortcuts de la página
       const hayModalAbierto = ui.mostrarExportModal || ui.mostrarCalcularWebModal || ui.mostrarModalConfig || ui.mostrarModalInfo || mostrarShortcutsHelp;
 
@@ -315,7 +318,7 @@ export function useTiendaKeyboard({
         const { rowIndex, colIndex } = celdaActiva;
 
         // Enter: Editar celda activa
-        if (e.key === 'Enter' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota && puedeEditar) {
+        if (e.key === 'Enter' && !enModoEdicion && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
           const columna = columnasEditables[colIndex];
@@ -324,7 +327,7 @@ export function useTiendaKeyboard({
         }
 
         // Flechas: Navegación por celdas
-        if (e.key === 'ArrowRight' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
+        if (e.key === 'ArrowRight' && !enModoEdicion) {
           e.preventDefault();
           if (colIndex < columnasEditables.length - 1) {
             setCeldaActiva({ rowIndex, colIndex: colIndex + 1 });
@@ -332,7 +335,7 @@ export function useTiendaKeyboard({
           return;
         }
 
-        if (e.key === 'ArrowLeft' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
+        if (e.key === 'ArrowLeft' && !enModoEdicion) {
           e.preventDefault();
           if (colIndex > 0) {
             setCeldaActiva({ rowIndex, colIndex: colIndex - 1 });
@@ -340,7 +343,7 @@ export function useTiendaKeyboard({
           return;
         }
 
-        if (e.key === 'ArrowDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
+        if (e.key === 'ArrowDown' && !enModoEdicion) {
           e.preventDefault();
           if (e.shiftKey) {
             if (rowIndex < productos.length - 1) {
@@ -358,7 +361,7 @@ export function useTiendaKeyboard({
           return;
         }
 
-        if (e.key === 'ArrowUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
+        if (e.key === 'ArrowUp' && !enModoEdicion) {
           e.preventDefault();
           if (e.shiftKey) {
             if (rowIndex > 0) {
@@ -377,7 +380,7 @@ export function useTiendaKeyboard({
         }
 
         // PageUp: Subir 10 filas
-        if (e.key === 'PageUp' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
+        if (e.key === 'PageUp' && !enModoEdicion) {
           e.preventDefault();
           const newRow = Math.max(0, rowIndex - 10);
           setCeldaActiva({ rowIndex: newRow, colIndex });
@@ -385,7 +388,7 @@ export function useTiendaKeyboard({
         }
 
         // PageDown: Bajar 10 filas
-        if (e.key === 'PageDown' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
+        if (e.key === 'PageDown' && !enModoEdicion) {
           e.preventDefault();
           const newRow = Math.min(productos.length - 1, rowIndex + 10);
           setCeldaActiva({ rowIndex: newRow, colIndex });
@@ -393,21 +396,21 @@ export function useTiendaKeyboard({
         }
 
         // Home: Ir a primera columna
-        if (e.key === 'Home' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
+        if (e.key === 'Home' && !enModoEdicion) {
           e.preventDefault();
           setCeldaActiva({ rowIndex, colIndex: 0 });
           return;
         }
 
         // End: Ir a última columna
-        if (e.key === 'End' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota) {
+        if (e.key === 'End' && !enModoEdicion) {
           e.preventDefault();
           setCeldaActiva({ rowIndex, colIndex: columnasEditables.length - 1 });
           return;
         }
 
         // Espacio: Editar precio en celda activa
-        if (e.key === ' ' && !editandoPrecio && !editandoRebate && !editandoWebTransf && !editandoCuota && puedeEditar) {
+        if (e.key === ' ' && !enModoEdicion && puedeEditar) {
           e.preventDefault();
           const producto = productos[rowIndex];
           const columna = columnasEditables[colIndex];
@@ -418,7 +421,7 @@ export function useTiendaKeyboard({
         // Números 1-7: Selección rápida de colores
         const activeElement = document.activeElement;
         const isInputFocused = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA');
-        if (!editandoPrecio && !editandoRebate && !editandoWebTransf && /^[0-7]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && !isInputFocused) {
+        if (!enModoEdicion && /^[0-7]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && !isInputFocused) {
           e.preventDefault();
           e.stopPropagation();
           if (puedeMarcarColor && productos[rowIndex]) {
@@ -442,7 +445,7 @@ export function useTiendaKeyboard({
         }
 
         // W: Toggle web transferencia
-        if (e.key === 'w' && !editandoPrecio && !editandoRebate && !editandoWebTransf && puedeEditarWebTransf) {
+        if (e.key === 'w' && !enModoEdicion && puedeEditarWebTransf) {
           e.preventDefault();
           const producto = productos[rowIndex];
           await toggleWebTransfRapido(producto);
@@ -461,8 +464,7 @@ export function useTiendaKeyboard({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modoNavegacion, celdaActiva, data.productos, pricing.editandoPrecio, pricing.editandoRebate, pricing.editandoWebTransf, pricing.editandoCuota, ui.panelFiltroActivo, mostrarShortcutsHelp, permissions.puedeEditar, permissions.puedeMarcarColor, permissions.puedeEditarWebTransf, permissions.puedeCalcularWebMasivo, ui.mostrarFiltrosAvanzados, ui.vistaModoCuotas, ui.recalcularCuotasAuto, ui.mostrarExportModal, ui.mostrarCalcularWebModal, ui.mostrarModalConfig, ui.mostrarModalInfo]);
+  }, [pricing, data, selection, ui, permissions, modoNavegacion, celdaActiva, mostrarShortcutsHelp, showToast]);
 
   // === AUTO-SCROLL para seguir la celda activa ===
   useEffect(() => {
