@@ -98,12 +98,16 @@
   transform: scale(0.98);
 }
 
-.toggleBtn[data-flipped="true"] {
+.toggleBtn[data-flipped="true"] svg {
   transform: scaleX(-1);
 }
 
-.toggleBtn[data-flipped="true"]:active {
-  transform: scaleX(-1) scale(0.98);
+.toggleBtn:active {
+  transform: scale(0.98);
+}
+
+.toggleBtn[data-flipped="true"]:active svg {
+  transform: scaleX(-1);
 }
 
 /* Navigation */
