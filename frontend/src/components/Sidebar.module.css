@@ -41,6 +41,34 @@
   box-shadow: var(--cf-shadow-sidebar-peek);
 }
 
+/* Mobile Close Button - Solo visible en mobile, a la izquierda */
+.mobileCloseBtn {
+  display: none;
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-in-out);
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  z-index: 11;
+}
+
+.mobileCloseBtn:hover {
+  background: var(--cf-hover-overlay);
+  color: var(--cf-text-primary);
+}
+
+.mobileCloseBtn:active {
+  transform: scale(0.95);
+}
+
 /* Expand/Collapse All Button - Arriba */
 .expandAllBtn {
   position: absolute;
@@ -144,6 +172,10 @@
     transform: translateX(0);
     box-shadow: var(--cf-shadow-sidebar-peek);
     z-index: calc(var(--z-modal) - 1);
+  }
+
+  .mobileCloseBtn {
+    display: flex;
   }
 
   .overlay {
