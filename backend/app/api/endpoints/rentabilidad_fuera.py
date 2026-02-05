@@ -225,29 +225,38 @@ async def obtener_rentabilidad_fuera(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            # Escapar comillas simples en los nombres para evitar SQL injection
-            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
-            sucursales_quoted = "','".join(sucursales_escaped)
-            filtros_extra += f" AND sucursal IN ('{sucursales_quoted}')"
+            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            filtros_extra += f" AND sucursal IN ({sucursal_placeholders})"
+            for i, suc in enumerate(sucursales):
+                params[f'sucursal_{i}'] = suc
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            # Escapar comillas simples en los nombres para evitar SQL injection
-            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
-            vendedores_quoted = "','".join(vendedores_escaped)
-            filtros_extra += f" AND vendedor IN ('{vendedores_quoted}')"
+            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            filtros_extra += f" AND vendedor IN ({vendedor_placeholders})"
+            for i, vend in enumerate(vendedores):
+                params[f'vendedor_{i}'] = vend
 
     if lista_productos:
-        filtros_extra += f" AND item_id IN ({','.join(map(str, lista_productos))})"
+        producto_placeholders = ', '.join([f':producto_{i}' for i in range(len(lista_productos))])
+        filtros_extra += f" AND item_id IN ({producto_placeholders})"
+        for i, prod in enumerate(lista_productos):
+            params[f'producto_{i}'] = prod
     if lista_marcas:
-        marcas_quoted = "','".join(lista_marcas)
-        filtros_extra += f" AND marca IN ('{marcas_quoted}')"
+        marca_placeholders = ', '.join([f':marca_{i}' for i in range(len(lista_marcas))])
+        filtros_extra += f" AND marca IN ({marca_placeholders})"
+        for i, marca in enumerate(lista_marcas):
+            params[f'marca_{i}'] = marca
     if lista_categorias:
-        cats_quoted = "','".join(lista_categorias)
-        filtros_extra += f" AND categoria IN ('{cats_quoted}')"
+        cat_placeholders = ', '.join([f':cat_{i}' for i in range(len(lista_categorias))])
+        filtros_extra += f" AND categoria IN ({cat_placeholders})"
+        for i, cat in enumerate(lista_categorias):
+            params[f'cat_{i}'] = cat
     if lista_subcategorias:
-        subcats_quoted = "','".join(lista_subcategorias)
-        filtros_extra += f" AND subcategoria IN ('{subcats_quoted}')"
+        subcat_placeholders = ', '.join([f':subcat_{i}' for i in range(len(lista_subcategorias))])
+        filtros_extra += f" AND subcategoria IN ({subcat_placeholders})"
+        for i, subcat in enumerate(lista_subcategorias):
+            params[f'subcat_{i}'] = subcat
 
     # Obtener vendedores excluidos dinámicamente
     vendedores_excluidos = get_vendedores_excluidos_str(db)
@@ -522,10 +531,15 @@ async def obtener_rentabilidad_fuera(
             return (float(offset.porcentaje or 0) / 100) * costo_total
         return float(offset.monto or 0)
 
-    def obtener_ventas_periodo_offset_fuera(offset, filtro_sql_extra=""):
+    def obtener_ventas_periodo_offset_fuera(offset, filtro_sql_extra="", filtro_params=None):
         """
         Obtiene cantidad y costo de ventas FUERA de ML para un offset,
         considerando su fecha_desde. Usa tabla de métricas pre-calculada.
+        
+        Args:
+            offset: Objeto OffsetGanancia
+            filtro_sql_extra: SQL WHERE clause adicional con placeholders
+            filtro_params: Dict con valores para los placeholders
         """
         offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
         periodo_inicio = max(fecha_desde_dt, offset_inicio_dt)
@@ -542,10 +556,14 @@ async def obtener_rentabilidad_fuera(
             {filtro_sql_extra}
         """
 
-        result = db.execute(text(query_ventas), {
+        params = {
             "periodo_inicio": periodo_inicio.date().isoformat(),
             "periodo_fin": fecha_hasta_dt.date().isoformat()
-        }).first()
+        }
+        if filtro_params:
+            params.update(filtro_params)
+
+        result = db.execute(text(query_ventas), params).first()
 
         return int(result.cantidad or 0), float(result.costo or 0)
 
@@ -638,17 +656,29 @@ async def obtener_rentabilidad_fuera(
 
             # Offsets sin grupo y sin límites - usar fecha de inicio del offset
             if nivel == "marca" and offset.marca == card_nombre and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
-                cant, costo = obtener_ventas_periodo_offset_fuera(offset, f" AND marca = '{card_nombre}'")
+                cant, costo = obtener_ventas_periodo_offset_fuera(
+                    offset,
+                    " AND marca = :filter_marca",
+                    {"filter_marca": card_nombre}
+                )
                 if cant > 0:
                     valor_offset = calcular_valor_offset(offset, cant, costo)
                     aplica = True
             elif nivel == "categoria" and offset.categoria == card_nombre and not offset.subcategoria_id and not offset.item_id:
-                cant, costo = obtener_ventas_periodo_offset_fuera(offset, f" AND categoria = '{card_nombre}'")
+                cant, costo = obtener_ventas_periodo_offset_fuera(
+                    offset,
+                    " AND categoria = :filter_categoria",
+                    {"filter_categoria": card_nombre}
+                )
                 if cant > 0:
                     valor_offset = calcular_valor_offset(offset, cant, costo)
                     aplica = True
             elif nivel == "producto" and offset.item_id and str(offset.item_id) == str(card_identificador):
-                cant, costo = obtener_ventas_periodo_offset_fuera(offset, f" AND item_id = {offset.item_id}")
+                cant, costo = obtener_ventas_periodo_offset_fuera(
+                    offset,
+                    " AND item_id = :filter_item_id",
+                    {"filter_item_id": offset.item_id}
+                )
                 if cant > 0:
                     valor_offset = calcular_valor_offset(offset, cant, costo)
                     aplica = True
@@ -796,17 +826,17 @@ async def buscar_productos_fuera(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            # Escapar comillas simples en los nombres para evitar SQL injection
-            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
-            sucursales_quoted = "','".join(sucursales_escaped)
-            filtros_extra += f" AND sucursal IN ('{sucursales_quoted}')"
+            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            filtros_extra += f" AND sucursal IN ({sucursal_placeholders})"
+            for i, suc in enumerate(sucursales):
+                params[f'sucursal_{i}'] = suc
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            # Escapar comillas simples en los nombres para evitar SQL injection
-            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
-            vendedores_quoted = "','".join(vendedores_escaped)
-            filtros_extra += f" AND vendedor IN ('{vendedores_quoted}')"
+            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            filtros_extra += f" AND vendedor IN ({vendedor_placeholders})"
+            for i, vend in enumerate(vendedores):
+                params[f'vendedor_{i}'] = vend
 
     query = f"""
     SELECT DISTINCT
@@ -867,26 +897,30 @@ async def obtener_filtros_disponibles_fuera(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            # Escapar comillas simples en los nombres para evitar SQL injection
-            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
-            sucursales_quoted = "','".join(sucursales_escaped)
-            filtros_extra += f" AND sucursal IN ('{sucursales_quoted}')"
+            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            filtros_extra += f" AND sucursal IN ({sucursal_placeholders})"
+            for i, suc in enumerate(sucursales):
+                params[f'sucursal_{i}'] = suc
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            # Escapar comillas simples en los nombres para evitar SQL injection
-            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
-            vendedores_quoted = "','".join(vendedores_escaped)
-            filtros_extra += f" AND vendedor IN ('{vendedores_quoted}')"
+            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            filtros_extra += f" AND vendedor IN ({vendedor_placeholders})"
+            for i, vend in enumerate(vendedores):
+                params[f'vendedor_{i}'] = vend
 
     # Marcas
     marcas_where = base_where
     if lista_categorias:
-        cats_quoted = "','".join(lista_categorias)
-        marcas_where += f" AND categoria IN ('{cats_quoted}')"
+        cat_placeholders_m = ', '.join([f':cat_m_{i}' for i in range(len(lista_categorias))])
+        marcas_where += f" AND categoria IN ({cat_placeholders_m})"
+        for i, cat in enumerate(lista_categorias):
+            params[f'cat_m_{i}'] = cat
     if lista_subcategorias:
-        subcats_quoted = "','".join(lista_subcategorias)
-        marcas_where += f" AND subcategoria IN ('{subcats_quoted}')"
+        subcat_placeholders_m = ', '.join([f':subcat_m_{i}' for i in range(len(lista_subcategorias))])
+        marcas_where += f" AND subcategoria IN ({subcat_placeholders_m})"
+        for i, subcat in enumerate(lista_subcategorias):
+            params[f'subcat_m_{i}'] = subcat
 
     marcas_query = f"""
     SELECT DISTINCT marca
@@ -900,11 +934,15 @@ async def obtener_filtros_disponibles_fuera(
     # Categorías
     cats_where = base_where
     if lista_marcas:
-        marcas_quoted = "','".join(lista_marcas)
-        cats_where += f" AND marca IN ('{marcas_quoted}')"
+        marca_placeholders_c = ', '.join([f':marca_c_{i}' for i in range(len(lista_marcas))])
+        cats_where += f" AND marca IN ({marca_placeholders_c})"
+        for i, marca in enumerate(lista_marcas):
+            params[f'marca_c_{i}'] = marca
     if lista_subcategorias:
-        subcats_quoted = "','".join(lista_subcategorias)
-        cats_where += f" AND subcategoria IN ('{subcats_quoted}')"
+        subcat_placeholders_c = ', '.join([f':subcat_c_{i}' for i in range(len(lista_subcategorias))])
+        cats_where += f" AND subcategoria IN ({subcat_placeholders_c})"
+        for i, subcat in enumerate(lista_subcategorias):
+            params[f'subcat_c_{i}'] = subcat
 
     cats_query = f"""
     SELECT DISTINCT categoria
@@ -918,11 +956,15 @@ async def obtener_filtros_disponibles_fuera(
     # Subcategorías
     subcats_where = base_where
     if lista_marcas:
-        marcas_quoted = "','".join(lista_marcas)
-        subcats_where += f" AND marca IN ('{marcas_quoted}')"
+        marca_placeholders_s = ', '.join([f':marca_s_{i}' for i in range(len(lista_marcas))])
+        subcats_where += f" AND marca IN ({marca_placeholders_s})"
+        for i, marca in enumerate(lista_marcas):
+            params[f'marca_s_{i}'] = marca
     if lista_categorias:
-        cats_quoted = "','".join(lista_categorias)
-        subcats_where += f" AND categoria IN ('{cats_quoted}')"
+        cat_placeholders_s = ', '.join([f':cat_s_{i}' for i in range(len(lista_categorias))])
+        subcats_where += f" AND categoria IN ({cat_placeholders_s})"
+        for i, cat in enumerate(lista_categorias):
+            params[f'cat_s_{i}'] = cat
 
     subcats_query = f"""
     SELECT DISTINCT subcategoria
