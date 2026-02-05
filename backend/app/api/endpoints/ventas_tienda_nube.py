@@ -543,16 +543,20 @@ async def get_ventas_tienda_nube_stats(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
-            sucursales_quoted = "','".join(sucursales_escaped)
-            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+            # Crear placeholders dinámicos: :sucursal_0, :sucursal_1, ...
+            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            where_clause += f" AND sucursal IN ({sucursal_placeholders})"
+            for i, suc in enumerate(sucursales):
+                params[f'sucursal_{i}'] = suc
     
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
-            vendedores_quoted = "','".join(vendedores_escaped)
-            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+            # Crear placeholders dinámicos: :vendedor_0, :vendedor_1, ...
+            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            where_clause += f" AND vendedor IN ({vendedor_placeholders})"
+            for i, vend in enumerate(vendedores):
+                params[f'vendedor_{i}'] = vend
     
     # Query única con GROUPING SETS para stats totales, por sucursal y por vendedor
     combined_query = f"""
@@ -865,22 +869,27 @@ async def get_ventas_tienda_nube_por_marca(
     Usa la tabla de métricas pre-calculadas para mayor performance.
     """
     # Construir cláusula WHERE dinámica
+    from sqlalchemy import bindparam
     where_clause = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
     params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
     
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
-            sucursales_quoted = "','".join(sucursales_escaped)
-            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+            # Crear placeholders dinámicos: :sucursal_0, :sucursal_1, ...
+            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            where_clause += f" AND sucursal IN ({sucursal_placeholders})"
+            for i, suc in enumerate(sucursales):
+                params[f'sucursal_{i}'] = suc
     
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
-            vendedores_quoted = "','".join(vendedores_escaped)
-            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+            # Crear placeholders dinámicos: :vendedor_0, :vendedor_1, ...
+            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            where_clause += f" AND vendedor IN ({vendedor_placeholders})"
+            for i, vend in enumerate(vendedores):
+                params[f'vendedor_{i}'] = vend
     
     query = f"""
     SELECT
@@ -938,16 +947,20 @@ async def get_top_productos_tienda_nube(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
-            sucursales_quoted = "','".join(sucursales_escaped)
-            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+            # Crear placeholders dinámicos: :sucursal_0, :sucursal_1, ...
+            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            where_clause += f" AND sucursal IN ({sucursal_placeholders})"
+            for i, suc in enumerate(sucursales):
+                params[f'sucursal_{i}'] = suc
     
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
-            vendedores_quoted = "','".join(vendedores_escaped)
-            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+            # Crear placeholders dinámicos: :vendedor_0, :vendedor_1, ...
+            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            where_clause += f" AND vendedor IN ({vendedor_placeholders})"
+            for i, vend in enumerate(vendedores):
+                params[f'vendedor_{i}'] = vend
     
     query = f"""
     SELECT

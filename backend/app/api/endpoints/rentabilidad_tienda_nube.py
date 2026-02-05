@@ -181,23 +181,35 @@ async def obtener_rentabilidad_tienda_nube(
     fecha_desde_dt = datetime.combine(fecha_desde, datetime.min.time())
     fecha_hasta_dt = datetime.combine(fecha_hasta + timedelta(days=1), datetime.min.time())
 
-    # Construir filtros SQL
+    # Construir filtros SQL con parametrización segura
     filtros_sql = []
+    filter_params = {}
+    
     if lista_marcas:
-        marcas_str = "','".join([m.replace("'", "''") for m in lista_marcas])
-        filtros_sql.append(f"marca IN ('{marcas_str}')")
+        marca_placeholders = ', '.join([f':marca_{i}' for i in range(len(lista_marcas))])
+        filtros_sql.append(f"marca IN ({marca_placeholders})")
+        for i, marca in enumerate(lista_marcas):
+            filter_params[f'marca_{i}'] = marca
     if lista_categorias:
-        categorias_str = "','".join([c.replace("'", "''") for c in lista_categorias])
-        filtros_sql.append(f"categoria IN ('{categorias_str}')")
+        cat_placeholders = ', '.join([f':cat_{i}' for i in range(len(lista_categorias))])
+        filtros_sql.append(f"categoria IN ({cat_placeholders})")
+        for i, cat in enumerate(lista_categorias):
+            filter_params[f'cat_{i}'] = cat
     if lista_subcategorias:
-        subcategorias_str = "','".join([s.replace("'", "''") for s in lista_subcategorias])
-        filtros_sql.append(f"subcategoria IN ('{subcategorias_str}')")
+        subcat_placeholders = ', '.join([f':subcat_{i}' for i in range(len(lista_subcategorias))])
+        filtros_sql.append(f"subcategoria IN ({subcat_placeholders})")
+        for i, subcat in enumerate(lista_subcategorias):
+            filter_params[f'subcat_{i}'] = subcat
     if lista_productos:
-        productos_str = ','.join(map(str, lista_productos))
-        filtros_sql.append(f"item_id IN ({productos_str})")
+        prod_placeholders = ', '.join([f':prod_{i}' for i in range(len(lista_productos))])
+        filtros_sql.append(f"item_id IN ({prod_placeholders})")
+        for i, prod in enumerate(lista_productos):
+            filter_params[f'prod_{i}'] = prod
     if lista_vendedores:
-        vendedores_str = "','".join([v.replace("'", "''") for v in lista_vendedores])
-        filtros_sql.append(f"vendedor IN ('{vendedores_str}')")
+        vend_placeholders = ', '.join([f':vend_{i}' for i in range(len(lista_vendedores))])
+        filtros_sql.append(f"vendedor IN ({vend_placeholders})")
+        for i, vend in enumerate(lista_vendedores):
+            filter_params[f'vend_{i}'] = vend
 
     filtros_where = " AND " + " AND ".join(filtros_sql) if filtros_sql else ""
 
@@ -236,10 +248,14 @@ async def obtener_rentabilidad_tienda_nube(
     ORDER BY monto_venta DESC
     """
 
-    resultados = db.execute(
-        text(query),
-        {"from_date": fecha_desde.isoformat(), "to_date": fecha_hasta.isoformat() + " 23:59:59"}
-    ).fetchall()
+    # Mergear parámetros de fechas con filtros
+    query_params = {
+        "from_date": fecha_desde.isoformat(),
+        "to_date": fecha_hasta.isoformat() + " 23:59:59",
+        **filter_params
+    }
+    
+    resultados = db.execute(text(query), query_params).fetchall()
 
     # Obtener offsets vigentes que aplican a Tienda Nube
     offsets = db.query(OffsetGanancia).filter(
@@ -487,7 +503,12 @@ async def obtener_rentabilidad_tienda_nube(
         WHERE item_id IS NOT NULL {filtros_where}
         GROUP BY item_id, marca, categoria, subcategoria
         """
-        for d in db.execute(text(detalle_query), {"from_date": fecha_desde.isoformat(), "to_date": fecha_hasta.isoformat() + " 23:59:59"}).fetchall():
+        detalle_params = {
+            "from_date": fecha_desde.isoformat(),
+            "to_date": fecha_hasta.isoformat() + " 23:59:59",
+            **filter_params
+        }
+        for d in db.execute(text(detalle_query), detalle_params).fetchall():
             productos_detalle[d.item_id] = {
                 'marca': d.marca,
                 'categoria': d.categoria,
@@ -872,57 +893,72 @@ async def obtener_filtros_tienda_nube(
 
     # Marcas
     marcas_filter = ""
+    marcas_params = {
+        "from_date": fecha_desde.isoformat(),
+        "to_date": fecha_hasta.isoformat() + " 23:59:59"
+    }
     if lista_categorias:
-        categorias_str = "','".join(lista_categorias)
-        marcas_filter += f" AND categoria IN ('{categorias_str}')"
+        cat_placeholders_m = ', '.join([f':cat_m_{i}' for i in range(len(lista_categorias))])
+        marcas_filter += f" AND categoria IN ({cat_placeholders_m})"
+        for i, cat in enumerate(lista_categorias):
+            marcas_params[f'cat_m_{i}'] = cat
     if lista_subcategorias:
-        subcategorias_str = "','".join(lista_subcategorias)
-        marcas_filter += f" AND subcategoria IN ('{subcategorias_str}')"
+        subcat_placeholders_m = ', '.join([f':subcat_m_{i}' for i in range(len(lista_subcategorias))])
+        marcas_filter += f" AND subcategoria IN ({subcat_placeholders_m})"
+        for i, subcat in enumerate(lista_subcategorias):
+            marcas_params[f'subcat_m_{i}'] = subcat
 
     marcas_query = f"""
     {base_query}
     SELECT DISTINCT marca FROM ventas WHERE marca IS NOT NULL {marcas_filter} ORDER BY marca
     """
-    marcas_result = db.execute(
-        text(marcas_query),
-        {"from_date": fecha_desde.isoformat(), "to_date": fecha_hasta.isoformat() + " 23:59:59"}
-    ).fetchall()
+    marcas_result = db.execute(text(marcas_query), marcas_params).fetchall()
 
     # Categorías
     categorias_filter = ""
+    categorias_params = {
+        "from_date": fecha_desde.isoformat(),
+        "to_date": fecha_hasta.isoformat() + " 23:59:59"
+    }
     if lista_marcas:
-        marcas_str = "','".join(lista_marcas)
-        categorias_filter += f" AND marca IN ('{marcas_str}')"
+        marca_placeholders_c = ', '.join([f':marca_c_{i}' for i in range(len(lista_marcas))])
+        categorias_filter += f" AND marca IN ({marca_placeholders_c})"
+        for i, marca in enumerate(lista_marcas):
+            categorias_params[f'marca_c_{i}'] = marca
     if lista_subcategorias:
-        subcategorias_str = "','".join(lista_subcategorias)
-        categorias_filter += f" AND subcategoria IN ('{subcategorias_str}')"
+        subcat_placeholders_c = ', '.join([f':subcat_c_{i}' for i in range(len(lista_subcategorias))])
+        categorias_filter += f" AND subcategoria IN ({subcat_placeholders_c})"
+        for i, subcat in enumerate(lista_subcategorias):
+            categorias_params[f'subcat_c_{i}'] = subcat
 
     categorias_query = f"""
     {base_query}
     SELECT DISTINCT categoria FROM ventas WHERE categoria IS NOT NULL {categorias_filter} ORDER BY categoria
     """
-    categorias_result = db.execute(
-        text(categorias_query),
-        {"from_date": fecha_desde.isoformat(), "to_date": fecha_hasta.isoformat() + " 23:59:59"}
-    ).fetchall()
+    categorias_result = db.execute(text(categorias_query), categorias_params).fetchall()
 
     # Subcategorías
     subcategorias_filter = ""
+    subcategorias_params = {
+        "from_date": fecha_desde.isoformat(),
+        "to_date": fecha_hasta.isoformat() + " 23:59:59"
+    }
     if lista_marcas:
-        marcas_str = "','".join(lista_marcas)
-        subcategorias_filter += f" AND marca IN ('{marcas_str}')"
+        marca_placeholders_s = ', '.join([f':marca_s_{i}' for i in range(len(lista_marcas))])
+        subcategorias_filter += f" AND marca IN ({marca_placeholders_s})"
+        for i, marca in enumerate(lista_marcas):
+            subcategorias_params[f'marca_s_{i}'] = marca
     if lista_categorias:
-        categorias_str = "','".join(lista_categorias)
-        subcategorias_filter += f" AND categoria IN ('{categorias_str}')"
+        cat_placeholders_s = ', '.join([f':cat_s_{i}' for i in range(len(lista_categorias))])
+        subcategorias_filter += f" AND categoria IN ({cat_placeholders_s})"
+        for i, cat in enumerate(lista_categorias):
+            subcategorias_params[f'cat_s_{i}'] = cat
 
     subcategorias_query = f"""
     {base_query}
     SELECT DISTINCT subcategoria FROM ventas WHERE subcategoria IS NOT NULL {subcategorias_filter} ORDER BY subcategoria
     """
-    subcategorias_result = db.execute(
-        text(subcategorias_query),
-        {"from_date": fecha_desde.isoformat(), "to_date": fecha_hasta.isoformat() + " 23:59:59"}
-    ).fetchall()
+    subcategorias_result = db.execute(text(subcategorias_query), subcategorias_params).fetchall()
 
     return {
         "marcas": [m[0] for m in marcas_result if m[0]],
