@@ -15,65 +15,196 @@
   margin: 0 0 20px 0;
 }
 
+.filtrosRapidosWrapper {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 20px;
+}
+
 .filtrosRapidos {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 15px;
+  gap: 0;
+  flex-wrap: nowrap;
+  background: #1a1a1a;
+  padding: 4px;
+  border-radius: 6px;
+  width: fit-content;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .btnFiltroRapido {
-  padding: 6px 14px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-primary);
+  padding: 6px 12px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
-  transition: all 0.2s;
+  transition: all 0.15s;
+  white-space: nowrap;
+  min-width: 40px;
+}
+
+.btnCalendar {
+  font-size: 14px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btnFiltroRapido:hover {
-  background: var(--brand-primary);
-  color: var(--text-inverse);
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.btnFiltroRapido.activo {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+.btnFiltroRapido.activo:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+}
+
+/* Overlay para cerrar dropdown */
+.dropdownOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+}
+
+/* Dropdown de fecha personalizada */
+.dropdownFecha {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  min-width: 280px;
+}
+
+.dropdownFechaContent {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dropdownFechaField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dropdownFechaField label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.dropdownDateInput {
+  padding: 10px 12px;
+  background: #0a0a0a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dropdownDateInput:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: #000;
+}
+
+.dropdownDateInput:focus {
+  outline: none;
   border-color: var(--brand-primary);
+  background: #000;
 }
 
 .filtros {
   display: flex;
-  gap: 15px;
+  gap: 16px;
   align-items: flex-end;
   flex-wrap: wrap;
-  background: var(--bg-tertiary);
-  padding: 15px;
+  background: #1a1a1a;
+  padding: 20px;
   border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: visible;
+}
+
+.filtrosRow {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  flex: 1;
 }
 
 .filtroFecha,
 .filtroSelect {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 8px;
+  min-width: fit-content;
 }
 
 .filtroFecha label,
 .filtroSelect label {
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
 .dateInput,
 .select {
   padding: 8px 12px;
-  border: 1px solid var(--border-primary);
-  border-radius: 4px;
-  font-size: 14px;
-  min-width: 150px;
-  background: var(--bg-primary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  font-size: 13px;
+  min-width: fit-content;
+  background: #0a0a0a;
   color: var(--text-primary);
+  transition: all 0.2s;
+  height: 38px;
+}
+
+.dateInput {
+  min-width: 150px;
+}
+
+.select {
+  min-width: 180px;
+}
+
+.dateInput:hover,
+.select:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: #000;
+}
+
+.dateInput:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  background: #000;
 }
 
 .dateInput {
@@ -92,24 +223,31 @@
   opacity: 0.7;
 }
 
-.select {
-  min-width: 200px;
-  cursor: pointer;
-}
-
 .btnRecargar {
-  padding: 8px 16px;
-  background: var(--brand-primary);
-  color: var(--text-inverse);
-  border: none;
-  border-radius: 4px;
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  background: #2a2a2a;
+  color: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
   cursor: pointer;
-  font-weight: 600;
-  transition: background 0.2s;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.btnRecargar:hover {
-  background: var(--brand-primary-hover);
+.btnRecargar:hover:not(:disabled) {
+  background: #333;
+  color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btnRecargar:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .loading {
@@ -1185,4 +1323,187 @@
 
 :global([data-theme="dark"]) .dateInput:hover::-webkit-calendar-picker-indicator {
   background-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Selector múltiple de PMs */
+.multiSelect {
+  position: relative;
+  min-width: 220px;
+  max-width: 220px;
+  z-index: 100;
+}
+
+.multiSelectHeader {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: #0a0a0a;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+  height: 38px;
+  display: flex;
+  align-items: center;
+}
+
+.multiSelect:hover .multiSelectHeader {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: #000;
+}
+
+.multiSelect:focus-within .multiSelectHeader {
+  border-color: var(--brand-primary);
+  background: #000;
+}
+
+.multiSelectLabel {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.multiSelectDropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 300px;
+  max-width: 400px;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  z-index: 1001;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.3s ease, opacity 0.3s ease;
+}
+
+.multiSelect:hover .multiSelectDropdown,
+.multiSelect:focus-within .multiSelectDropdown {
+  max-height: 450px;
+  opacity: 1;
+  overflow: visible;
+}
+
+.multiSelectActions {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btnMultiSelectAction {
+  flex: 1;
+  padding: 8px 14px;
+  background: rgba(220, 38, 38, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btnMultiSelectAction:hover {
+  background: rgba(220, 38, 38, 0.3);
+  color: #fef2f2;
+  border-color: rgba(220, 38, 38, 0.5);
+}
+
+.multiSelectSearch {
+  padding: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.multiSelectSearchInput {
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.multiSelectSearchInput:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.multiSelectSearchInput::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.multiSelectOptions {
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+.multiSelectOptions::-webkit-scrollbar {
+  width: 6px;
+}
+
+.multiSelectOptions::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.multiSelectOptions::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.multiSelectOptions::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.multiSelectOption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  user-select: none;
+}
+
+.multiSelectOption:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.multiSelectOption input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+.multiSelectOption span {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+/* Scrollbar para dropdown */
+.multiSelectOptions::-webkit-scrollbar {
+  width: 6px;
+}
+
+.multiSelectOptions::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.multiSelectOptions::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 3px;
+}
+
+.multiSelectOptions::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
 }

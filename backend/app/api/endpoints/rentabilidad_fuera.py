@@ -178,6 +178,8 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
 async def obtener_rentabilidad_fuera(
     fecha_desde: date = Query(..., description="Fecha inicio del período"),
     fecha_hasta: date = Query(..., description="Fecha fin del período"),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedor"),
     marcas: Optional[str] = Query(None, description="Marcas separadas por |"),
     categorias: Optional[str] = Query(None, description="Categorías separadas por |"),
     subcategorias: Optional[str] = Query(None, description="Subcategorías separadas por |"),
@@ -219,6 +221,21 @@ async def obtener_rentabilidad_fuera(
         "from_date": fecha_desde.isoformat(),
         "to_date": (fecha_hasta + timedelta(days=1)).isoformat()
     }
+
+    if sucursal:
+        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        if sucursales:
+            # Escapar comillas simples en los nombres para evitar SQL injection
+            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
+            sucursales_quoted = "','".join(sucursales_escaped)
+            filtros_extra += f" AND sucursal IN ('{sucursales_quoted}')"
+    if vendedor:
+        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        if vendedores:
+            # Escapar comillas simples en los nombres para evitar SQL injection
+            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
+            vendedores_quoted = "','".join(vendedores_escaped)
+            filtros_extra += f" AND vendedor IN ('{vendedores_quoted}')"
 
     if lista_productos:
         filtros_extra += f" AND item_id IN ({','.join(map(str, lista_productos))})"
@@ -758,6 +775,8 @@ async def buscar_productos_fuera(
     q: str = Query(..., min_length=2, description="Término de búsqueda"),
     fecha_desde: date = Query(...),
     fecha_hasta: date = Query(...),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedor"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -767,7 +786,29 @@ async def buscar_productos_fuera(
     """
     search_term = f"%{q}%"
 
-    query = """
+    filtros_extra = ""
+    params = {
+        "from_date": fecha_desde.isoformat(),
+        "to_date": (fecha_hasta + timedelta(days=1)).isoformat(),
+        "search": search_term
+    }
+
+    if sucursal:
+        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        if sucursales:
+            # Escapar comillas simples en los nombres para evitar SQL injection
+            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
+            sucursales_quoted = "','".join(sucursales_escaped)
+            filtros_extra += f" AND sucursal IN ('{sucursales_quoted}')"
+    if vendedor:
+        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        if vendedores:
+            # Escapar comillas simples en los nombres para evitar SQL injection
+            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
+            vendedores_quoted = "','".join(vendedores_escaped)
+            filtros_extra += f" AND vendedor IN ('{vendedores_quoted}')"
+
+    query = f"""
     SELECT DISTINCT
         item_id,
         codigo,
@@ -777,17 +818,11 @@ async def buscar_productos_fuera(
     FROM ventas_fuera_ml_metricas
     WHERE fecha_venta BETWEEN :from_date AND :to_date
         AND (codigo ILIKE :search OR descripcion ILIKE :search)
+        {filtros_extra}
     LIMIT 50
     """
 
-    result = db.execute(
-        text(query),
-        {
-            "from_date": fecha_desde.isoformat(),
-            "to_date": (fecha_hasta + timedelta(days=1)).isoformat(),
-            "search": search_term
-        }
-    )
+    result = db.execute(text(query), params)
 
     return [
         ProductoBusquedaFuera(
@@ -805,6 +840,8 @@ async def buscar_productos_fuera(
 async def obtener_filtros_disponibles_fuera(
     fecha_desde: date = Query(...),
     fecha_hasta: date = Query(...),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedor"),
     marcas: Optional[str] = Query(None),
     categorias: Optional[str] = Query(None),
     subcategorias: Optional[str] = Query(None),
@@ -825,6 +862,22 @@ async def obtener_filtros_disponibles_fuera(
     }
 
     base_where = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
+    filtros_extra = ""
+    
+    if sucursal:
+        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        if sucursales:
+            # Escapar comillas simples en los nombres para evitar SQL injection
+            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
+            sucursales_quoted = "','".join(sucursales_escaped)
+            filtros_extra += f" AND sucursal IN ('{sucursales_quoted}')"
+    if vendedor:
+        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        if vendedores:
+            # Escapar comillas simples en los nombres para evitar SQL injection
+            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
+            vendedores_quoted = "','".join(vendedores_escaped)
+            filtros_extra += f" AND vendedor IN ('{vendedores_quoted}')"
 
     # Marcas
     marcas_where = base_where

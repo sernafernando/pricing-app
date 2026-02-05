@@ -32,8 +32,30 @@ def get_marcas_usuario(db: Session, usuario: Usuario) -> Optional[List[str]]:
     return [m[0] for m in marcas] if marcas else []
 
 
-def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session):
-    """Aplica filtro de marcas del PM a una query de MLVentaMetrica."""
+def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session, pm_ids: Optional[str] = None):
+    """
+    Aplica filtro de marcas del PM a una query de MLVentaMetrica.
+    
+    Si pm_ids está presente (usuario admin seleccionó PMs específicos), filtra por esos PMs.
+    Si pm_ids NO está presente, aplica el filtro del usuario actual (comportamiento original).
+    """
+    # Si el usuario admin pasó pm_ids, usar esos en lugar del usuario actual
+    if pm_ids:
+        pm_ids_list = [int(id.strip()) for id in pm_ids.split(',') if id.strip().isdigit()]
+        if pm_ids_list:
+            # Obtener marcas de los PMs seleccionados
+            marcas_pms = db.query(MarcaPM.marca).filter(
+                MarcaPM.usuario_id.in_(pm_ids_list)
+            ).distinct().all()
+            marcas_filtradas = [m[0] for m in marcas_pms] if marcas_pms else []
+            
+            if len(marcas_filtradas) == 0:
+                query = query.filter(MLVentaMetrica.marca == '__NINGUNA__')
+            else:
+                query = query.filter(MLVentaMetrica.marca.in_(marcas_filtradas))
+            return query
+    
+    # Comportamiento original: filtrar por marcas del usuario actual
     marcas_usuario = get_marcas_usuario(db, usuario)
 
     if marcas_usuario is not None:
@@ -45,9 +67,10 @@ def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session):
     return query
 
 
-def aplicar_filtro_tienda_oficial(query, tienda_oficial: Optional[str], db: Session):
+def aplicar_filtro_tienda_oficial(query, tiendas_oficiales: Optional[str], db: Session):
     """
-    Aplica filtro de tienda oficial por mlp_official_store_id.
+    Aplica filtro de tiendas oficiales por mlp_official_store_id.
+    Soporta múltiples tiendas separadas por coma.
     
     Tiendas disponibles:
     - 57997: Gauss
@@ -55,21 +78,51 @@ def aplicar_filtro_tienda_oficial(query, tienda_oficial: Optional[str], db: Sess
     - 144: Forza/Verbatim
     - 191942: Multi-marca (Epson, Logitech, MGN, Razer)
     """
-    if tienda_oficial and tienda_oficial.isdigit():
+    if tiendas_oficiales:
         from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
         from sqlalchemy import cast, String
         
-        store_id = int(tienda_oficial)
+        # Parsear múltiples tiendas
+        store_ids = [int(id.strip()) for id in tiendas_oficiales.split(',') if id.strip().isdigit()]
         
-        # Subquery para obtener mlp_ids de tienda oficial
-        # ml_ventas_metricas.mla_id contiene el mlp_id (numérico) como string
-        mlas_tienda_oficial = db.query(
-            cast(MercadoLibreItemPublicado.mlp_id, String)
-        ).filter(
-            MercadoLibreItemPublicado.mlp_official_store_id == store_id
-        ).distinct()
-        
-        query = query.filter(MLVentaMetrica.mla_id.in_(mlas_tienda_oficial))
+        if store_ids:
+            # Subquery para obtener mlp_ids de tiendas oficiales
+            mlas_tienda_oficial = db.query(
+                cast(MercadoLibreItemPublicado.mlp_id, String)
+            ).filter(
+                MercadoLibreItemPublicado.mlp_official_store_id.in_(store_ids)
+            ).distinct()
+            
+            query = query.filter(MLVentaMetrica.mla_id.in_(mlas_tienda_oficial))
+    return query
+
+
+def aplicar_filtros_comunes(query, fecha_desde: Optional[str], fecha_hasta: Optional[str], 
+                            marcas: Optional[str], categorias: Optional[str], 
+                            tiendas_oficiales: Optional[str], db: Session):
+    """
+    Aplica filtros comunes a todas las queries de dashboard ML.
+    Soporta múltiples valores separados por coma para marcas, categorías y tiendas.
+    """
+    if fecha_desde:
+        query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
+
+    if fecha_hasta:
+        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
+        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
+
+    if marcas:
+        marcas_list = [m.strip() for m in marcas.split(',') if m.strip()]
+        if marcas_list:
+            query = query.filter(MLVentaMetrica.marca.in_(marcas_list))
+
+    if categorias:
+        categorias_list = [c.strip() for c in categorias.split(',') if c.strip()]
+        if categorias_list:
+            query = query.filter(MLVentaMetrica.categoria.in_(categorias_list))
+
+    query = aplicar_filtro_tienda_oficial(query, tiendas_oficiales, db)
+    
     return query
 
 
@@ -144,9 +197,10 @@ class TopProductoResponse(BaseModel):
 async def get_metricas_generales(
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    marca: Optional[str] = Query(None, description="Filtrar por marca"),
-    categoria: Optional[str] = Query(None, description="Filtrar por categoría"),
-    tienda_oficial: Optional[str] = Query(None, description="Filtrar por tienda oficial (true/false)"),
+    marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
+    categorias: Optional[str] = Query(None, description="Filtrar por categorías (separadas por coma)"),
+    tiendas_oficiales: Optional[str] = Query(None, description="Filtrar por tiendas oficiales (IDs separados por coma)"),
+    pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -165,24 +219,11 @@ async def get_metricas_generales(
         func.sum(MLVentaMetrica.costo_envio_ml).label('total_envios')
     )
 
-    # Filtrar por marcas del PM si no es admin/gerente
-    query = aplicar_filtro_marcas_pm(query, current_user, db)
+    # Filtrar por marcas del PM (o por pm_ids si se especificó)
+    query = aplicar_filtro_marcas_pm(query, current_user, db, pm_ids)
 
-    # Aplicar filtros
-    if fecha_desde:
-        query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
-
-    if fecha_hasta:
-        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
-        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
-
-    if marca:
-        query = query.filter(MLVentaMetrica.marca == marca)
-
-    if categoria:
-        query = query.filter(MLVentaMetrica.categoria == categoria)
-
-    query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
+    # Aplicar filtros comunes
+    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, marcas, categorias, tiendas_oficiales, db)
 
     result = query.first()
 
@@ -225,7 +266,9 @@ async def get_metricas_generales(
 async def get_ventas_por_marca(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
-    tienda_oficial: Optional[str] = Query(None),
+    categorias: Optional[str] = Query(None, description="Filtrar por categorías (separadas por coma)"),
+    tiendas_oficiales: Optional[str] = Query(None),
+    pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
     limit: int = Query(20, le=100),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -244,17 +287,10 @@ async def get_ventas_por_marca(
         func.sum(MLVentaMetrica.cantidad).label('cantidad_unidades')
     ).filter(MLVentaMetrica.marca.isnot(None))
 
-    # Filtrar por marcas del PM
-    query = aplicar_filtro_marcas_pm(query, current_user, db)
+    # Filtrar por marcas del PM (o por pm_ids si se especificó)
+    query = aplicar_filtro_marcas_pm(query, current_user, db, pm_ids)
 
-    if fecha_desde:
-        query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
-
-    if fecha_hasta:
-        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
-        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
-
-    query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
+    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, None, categorias, tiendas_oficiales, db)
 
     resultados = query.group_by(MLVentaMetrica.marca).order_by(desc('total_ventas')).limit(limit).all()
 
@@ -276,7 +312,9 @@ async def get_ventas_por_marca(
 async def get_ventas_por_categoria(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
-    tienda_oficial: Optional[str] = Query(None),
+    marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
+    tiendas_oficiales: Optional[str] = Query(None),
+    pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
     limit: int = Query(20, le=100),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -294,16 +332,10 @@ async def get_ventas_por_categoria(
         func.count(MLVentaMetrica.id).label('cantidad_operaciones')
     ).filter(MLVentaMetrica.categoria.isnot(None))
 
-    # Filtrar por marcas del PM
-    query = aplicar_filtro_marcas_pm(query, current_user, db)
+    # Filtrar por marcas del PM (o por pm_ids si se especificó)
+    query = aplicar_filtro_marcas_pm(query, current_user, db, pm_ids)
 
-    if fecha_desde:
-        query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
-
-    if fecha_hasta:
-        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
-        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
-    query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
+    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, marcas, None, tiendas_oficiales, db)
 
     resultados = query.group_by(MLVentaMetrica.categoria).order_by(desc('total_ventas')).limit(limit).all()
 
@@ -324,7 +356,10 @@ async def get_ventas_por_categoria(
 async def get_ventas_por_logistica(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
-    tienda_oficial: Optional[str] = Query(None),
+    marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
+    categorias: Optional[str] = Query(None, description="Filtrar por categorías (separadas por coma)"),
+    tiendas_oficiales: Optional[str] = Query(None),
+    pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -339,16 +374,10 @@ async def get_ventas_por_logistica(
         func.count(MLVentaMetrica.id).label('cantidad_operaciones')
     ).filter(MLVentaMetrica.tipo_logistica.isnot(None))
 
-    # Filtrar por marcas del PM
-    query = aplicar_filtro_marcas_pm(query, current_user, db)
+    # Filtrar por marcas del PM (o por pm_ids si se especificó)
+    query = aplicar_filtro_marcas_pm(query, current_user, db, pm_ids)
 
-    if fecha_desde:
-        query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
-
-    if fecha_hasta:
-        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
-        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
-    query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
+    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, marcas, categorias, tiendas_oficiales, db)
 
     resultados = query.group_by(MLVentaMetrica.tipo_logistica).order_by(desc('total_ventas')).all()
 
@@ -367,7 +396,10 @@ async def get_ventas_por_logistica(
 async def get_ventas_por_dia(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
-    tienda_oficial: Optional[str] = Query(None),
+    marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
+    categorias: Optional[str] = Query(None, description="Filtrar por categorías (separadas por coma)"),
+    tiendas_oficiales: Optional[str] = Query(None),
+    pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -385,16 +417,10 @@ async def get_ventas_por_dia(
         func.count(MLVentaMetrica.id).label('cantidad_operaciones')
     )
 
-    # Filtrar por marcas del PM
-    query = aplicar_filtro_marcas_pm(query, current_user, db)
+    # Filtrar por marcas del PM (o por pm_ids si se especificó)
+    query = aplicar_filtro_marcas_pm(query, current_user, db, pm_ids)
 
-    if fecha_desde:
-        query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
-
-    if fecha_hasta:
-        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
-        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
-    query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
+    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, marcas, categorias, tiendas_oficiales, db)
 
     resultados = query.group_by(fecha_truncada).order_by(fecha_truncada).all()
 
@@ -414,7 +440,10 @@ async def get_ventas_por_dia(
 async def get_top_productos(
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
-    tienda_oficial: Optional[str] = Query(None),
+    marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
+    categorias: Optional[str] = Query(None, description="Filtrar por categorías (separadas por coma)"),
+    tiendas_oficiales: Optional[str] = Query(None),
+    pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
     limit: int = Query(10, le=100),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -435,16 +464,10 @@ async def get_top_productos(
         func.sum(MLVentaMetrica.cantidad).label('cantidad_unidades')
     ).filter(MLVentaMetrica.item_id.isnot(None))
 
-    # Filtrar por marcas del PM
-    query = aplicar_filtro_marcas_pm(query, current_user, db)
+    # Filtrar por marcas del PM (o por pm_ids si se especificó)
+    query = aplicar_filtro_marcas_pm(query, current_user, db, pm_ids)
 
-    if fecha_desde:
-        query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
-
-    if fecha_hasta:
-        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
-        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
-    query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
+    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, marcas, categorias, tiendas_oficiales, db)
 
     resultados = query.group_by(
         MLVentaMetrica.item_id,
@@ -471,17 +494,28 @@ async def get_top_productos(
 
 @router.get("/dashboard-ml/marcas-disponibles")
 async def get_marcas_disponibles(
+    fecha_desde: Optional[str] = Query(None),
+    fecha_hasta: Optional[str] = Query(None),
+    tiendas_oficiales: Optional[str] = Query(None),
+    pm_ids: Optional[str] = Query(None),
+    categorias: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Obtiene lista de marcas disponibles en las métricas.
-    Si el usuario no es admin/gerente, solo ve sus marcas asignadas.
+    Obtiene lista de marcas disponibles en las métricas con filtros aplicados.
+    Aplica filtros de fecha, tiendas oficiales, PMs y categorías.
+    NO aplica filtro de marcas (para evitar circularidad).
     """
     query = db.query(MLVentaMetrica.marca).filter(MLVentaMetrica.marca.isnot(None))
 
-    # Filtrar por marcas del PM
-    query = aplicar_filtro_marcas_pm(query, current_user, db)
+    # Aplicar filtros comunes (fecha, tiendas, categorías) - SIN marcas
+    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, 
+                                     None, categorias,  # marcas=None para evitar circularidad
+                                     tiendas_oficiales, db)
+    
+    # Aplicar filtro de PM por separado
+    query = aplicar_filtro_marcas_pm(query, current_user, db, pm_ids)
 
     marcas = query.distinct().order_by(MLVentaMetrica.marca).all()
     return [m[0] for m in marcas]
@@ -489,17 +523,28 @@ async def get_marcas_disponibles(
 
 @router.get("/dashboard-ml/categorias-disponibles")
 async def get_categorias_disponibles(
+    fecha_desde: Optional[str] = Query(None),
+    fecha_hasta: Optional[str] = Query(None),
+    tiendas_oficiales: Optional[str] = Query(None),
+    pm_ids: Optional[str] = Query(None),
+    marcas: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Obtiene lista de categorías disponibles en las métricas.
-    Si el usuario no es admin/gerente, solo ve sus marcas asignadas.
+    Obtiene lista de categorías disponibles en las métricas con filtros aplicados.
+    Aplica filtros de fecha, tiendas oficiales, PMs y marcas.
+    NO aplica filtro de categorías (para evitar circularidad).
     """
     query = db.query(MLVentaMetrica.categoria).filter(MLVentaMetrica.categoria.isnot(None))
 
-    # Filtrar por marcas del PM
-    query = aplicar_filtro_marcas_pm(query, current_user, db)
+    # Aplicar filtros comunes (fecha, tiendas, marcas) - SIN categorías
+    query = aplicar_filtros_comunes(query, fecha_desde, fecha_hasta, 
+                                     marcas, None,  # categorias=None para evitar circularidad
+                                     tiendas_oficiales, db)
+    
+    # Aplicar filtro de PM por separado
+    query = aplicar_filtro_marcas_pm(query, current_user, db, pm_ids)
 
     categorias = query.distinct().order_by(MLVentaMetrica.categoria).all()
     return [c[0] for c in categorias]

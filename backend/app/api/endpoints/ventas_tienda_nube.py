@@ -119,6 +119,8 @@ class VentaTiendaNubeStatsResponse(BaseModel):
     markup_promedio: Optional[Decimal]
     por_sucursal: dict
     por_vendedor: dict
+    sucursales_disponibles: List[str]
+    vendedores_disponibles: List[str]
 
 
 class VentaTiendaNubePorMarcaResponse(BaseModel):
@@ -485,14 +487,18 @@ async def get_ventas_tienda_nube(
     rows = result.fetchall()
     columns = result.keys()
 
+    # Parsear filtros múltiples
+    sucursales_list = [s.strip() for s in sucursal.split(',') if s.strip()] if sucursal else []
+    vendedores_list = [v.strip() for v in vendedor.split(',') if v.strip()] if vendedor else []
+
     ventas = []
     for row in rows:
         row_dict = dict(zip(columns, row))
 
-        # Aplicar filtros opcionales
-        if sucursal and row_dict.get('sucursal') != sucursal:
+        # Aplicar filtros opcionales (con lógica OR para múltiples valores)
+        if sucursales_list and row_dict.get('sucursal') not in sucursales_list:
             continue
-        if vendedor and row_dict.get('vendedor') != vendedor:
+        if vendedores_list and row_dict.get('vendedor') not in vendedores_list:
             continue
         if marca and row_dict.get('marca') != marca:
             continue
@@ -521,6 +527,8 @@ async def get_ventas_tienda_nube(
 async def get_ventas_tienda_nube_stats(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedores (separados por coma)"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -528,8 +536,26 @@ async def get_ventas_tienda_nube_stats(
     Obtiene estadísticas agregadas de ventas de Tienda Nube.
     Usa la tabla de métricas pre-calculadas para mayor performance.
     """
+    # Construir cláusula WHERE dinámica
+    where_clause = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
+    params = {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+    
+    if sucursal:
+        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        if sucursales:
+            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
+            sucursales_quoted = "','".join(sucursales_escaped)
+            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+    
+    if vendedor:
+        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        if vendedores:
+            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
+            vendedores_quoted = "','".join(vendedores_escaped)
+            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+    
     # Query única con GROUPING SETS para stats totales, por sucursal y por vendedor
-    combined_query = """
+    combined_query = f"""
     SELECT
         sucursal,
         vendedor,
@@ -549,7 +575,7 @@ async def get_ventas_tienda_nube_stats(
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN comision_monto * signo ELSE 0 END), 0) as comision_con_costo,
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN ganancia * signo ELSE 0 END), 0) as ganancia_con_costo
     FROM ventas_tienda_nube_metricas
-    WHERE fecha_venta BETWEEN :from_date AND :to_date
+    {where_clause}
     GROUP BY GROUPING SETS (
         (),
         (sucursal),
@@ -557,10 +583,7 @@ async def get_ventas_tienda_nube_stats(
     )
     """
 
-    results = db.execute(
-        text(combined_query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
-    ).fetchall()
+    results = db.execute(text(combined_query), params).fetchall()
 
     # Inicializar variables
     total_ventas = 0
@@ -614,6 +637,31 @@ async def get_ventas_tienda_nube_stats(
     # Monto limpio = monto - comisión
     monto_limpio_total = monto_con_costo - comision_con_costo
 
+    # Obtener listas completas de sucursales y vendedores disponibles (sin filtro)
+    sucursales_disponibles_query = """
+    SELECT DISTINCT sucursal
+    FROM ventas_tienda_nube_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+        AND sucursal IS NOT NULL
+    ORDER BY sucursal
+    """
+    sucursales_disponibles = [r.sucursal for r in db.execute(
+        text(sucursales_disponibles_query),
+        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+    ).fetchall()]
+
+    vendedores_disponibles_query = """
+    SELECT DISTINCT vendedor
+    FROM ventas_tienda_nube_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+        AND vendedor IS NOT NULL
+    ORDER BY vendedor
+    """
+    vendedores_disponibles = [r.vendedor for r in db.execute(
+        text(vendedores_disponibles_query),
+        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+    ).fetchall()]
+
     return {
         "total_ventas": total_ventas,
         "total_unidades": total_unidades,
@@ -627,7 +675,9 @@ async def get_ventas_tienda_nube_stats(
         "markup_promedio": markup_promedio,
         "productos_sin_costo": productos_sin_costo,
         "por_sucursal": sucursales_dict,
-        "por_vendedor": vendedores_dict
+        "por_vendedor": vendedores_dict,
+        "sucursales_disponibles": sucursales_disponibles,
+        "vendedores_disponibles": vendedores_disponibles
     }
 
 
@@ -805,6 +855,8 @@ async def get_ventas_tienda_nube_por_marca(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(50, le=200, description="Límite de resultados"),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedores (separados por coma)"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -812,7 +864,25 @@ async def get_ventas_tienda_nube_por_marca(
     Obtiene ventas de Tienda Nube agrupadas por marca.
     Usa la tabla de métricas pre-calculadas para mayor performance.
     """
-    query = """
+    # Construir cláusula WHERE dinámica
+    where_clause = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
+    params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
+    
+    if sucursal:
+        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        if sucursales:
+            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
+            sucursales_quoted = "','".join(sucursales_escaped)
+            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+    
+    if vendedor:
+        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        if vendedores:
+            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
+            vendedores_quoted = "','".join(vendedores_escaped)
+            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+    
+    query = f"""
     SELECT
         marca,
         COUNT(*) as total_ventas,
@@ -821,16 +891,13 @@ async def get_ventas_tienda_nube_por_marca(
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN costo_total * signo ELSE 0 END), 0) as costo_con_costo,
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN ganancia * signo ELSE 0 END), 0) as ganancia_con_costo
     FROM ventas_tienda_nube_metricas
-    WHERE fecha_venta BETWEEN :from_date AND :to_date
+    {where_clause}
     GROUP BY marca
     ORDER BY monto_con_costo DESC
     LIMIT :limit
     """
 
-    result = db.execute(
-        text(query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
-    ).fetchall()
+    result = db.execute(text(query), params).fetchall()
 
     marcas = []
     for r in result:
@@ -855,6 +922,8 @@ async def get_top_productos_tienda_nube(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(20, le=100, description="Límite de resultados"),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedores (separados por coma)"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -862,7 +931,25 @@ async def get_top_productos_tienda_nube(
     Obtiene los productos más vendidos en Tienda Nube.
     Usa la tabla de métricas pre-calculadas para mayor performance.
     """
-    query = """
+    # Construir cláusula WHERE dinámica
+    where_clause = "WHERE fecha_venta BETWEEN :from_date AND :to_date AND item_id IS NOT NULL"
+    params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
+    
+    if sucursal:
+        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        if sucursales:
+            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
+            sucursales_quoted = "','".join(sucursales_escaped)
+            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+    
+    if vendedor:
+        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        if vendedores:
+            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
+            vendedores_quoted = "','".join(vendedores_escaped)
+            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+    
+    query = f"""
     SELECT
         item_id,
         codigo,
@@ -872,17 +959,13 @@ async def get_top_productos_tienda_nube(
         COALESCE(SUM(monto_total * signo), 0) as monto_total,
         COUNT(*) as cantidad_operaciones
     FROM ventas_tienda_nube_metricas
-    WHERE fecha_venta BETWEEN :from_date AND :to_date
-      AND item_id IS NOT NULL
+    {where_clause}
     GROUP BY item_id, codigo, descripcion, marca
     ORDER BY unidades_vendidas DESC
     LIMIT :limit
     """
 
-    result = db.execute(
-        text(query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
-    ).fetchall()
+    result = db.execute(text(query), params).fetchall()
 
     return [
         {

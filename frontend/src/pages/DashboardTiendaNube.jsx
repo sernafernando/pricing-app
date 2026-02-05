@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
 import TabRentabilidadTiendaNube from '../components/TabRentabilidadTiendaNube';
@@ -26,21 +26,47 @@ export default function DashboardTiendaNube() {
   const esAdmin = user?.rol === 'ADMIN' || user?.rol === 'SUPERADMIN';
 
   const [loading, setLoading] = useState(true);
+  const [filtroRapidoActivo, setFiltroRapidoActivo] = useState('mesActual');
+  const [mostrarDropdownFecha, setMostrarDropdownFecha] = useState(false);
   
   // Usar query params para tab, fechas y filtros
   const { getFilter, updateFilters } = useQueryFilters({
     tab: 'resumen',
     fecha_desde: getDefaultFechaDesde(),
     fecha_hasta: getDefaultFechaHasta(),
-    sucursal: '',
-    vendedor: ''
+    sucursales: '',
+    vendedores: ''
   });
 
   const tabActivo = getFilter('tab');
   const fechaDesde = getFilter('fecha_desde');
   const fechaHasta = getFilter('fecha_hasta');
-  const sucursalSeleccionada = getFilter('sucursal');
-  const vendedorSeleccionado = getFilter('vendedor');
+  
+  const sucursalesQuery = getFilter('sucursales');
+  const sucursalesSeleccionadas = useMemo(() => {
+    if (!sucursalesQuery) return [];
+    return sucursalesQuery.split(',').filter(Boolean);
+  }, [sucursalesQuery]);
+
+  const vendedoresQuery = getFilter('vendedores');
+  const vendedoresSeleccionados = useMemo(() => {
+    if (!vendedoresQuery) return [];
+    return vendedoresQuery.split(',').filter(Boolean);
+  }, [vendedoresQuery]);
+
+  // Fechas temporales para el dropdown (sincronizadas con las fechas actuales)
+  const [fechaTemporal, setFechaTemporal] = useState({
+    desde: fechaDesde,
+    hasta: fechaHasta
+  });
+
+  // Sincronizar fechas temporales cuando cambian las fechas del filtro
+  useEffect(() => {
+    setFechaTemporal({
+      desde: fechaDesde,
+      hasta: fechaHasta
+    });
+  }, [fechaDesde, fechaHasta]);
 
   // Datos
   const [stats, setStats] = useState(null);
@@ -74,6 +100,14 @@ export default function DashboardTiendaNube() {
         to_date: fechaHasta
       };
 
+      // Agregar filtros si están seleccionados (enviar todos separados por coma)
+      if (sucursalesSeleccionadas.length > 0) {
+        params.sucursal = sucursalesSeleccionadas.join(',');
+      }
+      if (vendedoresSeleccionados.length > 0) {
+        params.vendedor = vendedoresSeleccionados.join(',');
+      }
+
       // Cargar todos los datos en paralelo
       const [statsRes, marcasRes, productosRes] = await Promise.all([
         axios.get(`${API_URL}/ventas-tienda-nube/stats`, { params, headers }),
@@ -85,17 +119,17 @@ export default function DashboardTiendaNube() {
       setVentasPorMarca(marcasRes.data || []);
       setTopProductos(productosRes.data || []);
 
-      // Extraer sucursales y vendedores disponibles de stats
+      // Usar las listas completas de sucursales y vendedores disponibles
       if (statsRes.data) {
-        setSucursalesDisponibles(Object.keys(statsRes.data.por_sucursal || {}));
-        setVendedoresDisponibles(Object.keys(statsRes.data.por_vendedor || {}));
+        setSucursalesDisponibles(statsRes.data.sucursales_disponibles || []);
+        setVendedoresDisponibles(statsRes.data.vendedores_disponibles || []);
       }
     } catch (error) {
       alert('Error al cargar el dashboard');
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta]);
+  }, [fechaDesde, fechaHasta, sucursalesSeleccionadas, vendedoresSeleccionados]);
 
   const cargarOperaciones = useCallback(async () => {
     setLoading(true);
@@ -109,8 +143,13 @@ export default function DashboardTiendaNube() {
         limit: 1000
       };
 
-      if (sucursalSeleccionada) params.sucursal = sucursalSeleccionada;
-      if (vendedorSeleccionado) params.vendedor = vendedorSeleccionado;
+      // Agregar filtros si están seleccionados (enviar todos separados por coma)
+      if (sucursalesSeleccionadas.length > 0) {
+        params.sucursal = sucursalesSeleccionadas.join(',');
+      }
+      if (vendedoresSeleccionados.length > 0) {
+        params.vendedor = vendedoresSeleccionados.join(',');
+      }
 
       // Cargar operaciones, métodos de pago, overrides y jerarquía en paralelo
       const [operacionesRes, metodosPagoRes, constantesRes, overridesRes, jerarquiaRes] = await Promise.all([
@@ -135,19 +174,19 @@ export default function DashboardTiendaNube() {
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta, sucursalSeleccionada, vendedorSeleccionado]);
+  }, [fechaDesde, fechaHasta, sucursalesSeleccionadas, vendedoresSeleccionados]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
       cargarDashboard();
     }
-  }, [fechaDesde, fechaHasta, cargarDashboard]);
+  }, [fechaDesde, fechaHasta, sucursalesSeleccionadas, vendedoresSeleccionados, cargarDashboard]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
       cargarOperaciones();
     }
-  }, [fechaDesde, fechaHasta, cargarOperaciones]);
+  }, [fechaDesde, fechaHasta, sucursalesSeleccionadas, vendedoresSeleccionados, cargarOperaciones]);
 
   const cambiarMetodoPago = async (itTransaction, nuevoMetodo) => {
     try {
@@ -267,26 +306,26 @@ export default function DashboardTiendaNube() {
         desde.setDate(desde.getDate() - 1);
         hasta = new Date(desde);
         break;
-      case '3dias':
+      case '3d':
         desde = new Date(hoy);
         desde.setDate(desde.getDate() - 2);
         break;
-      case 'semana':
+      case '7d':
         desde = new Date(hoy);
         desde.setDate(desde.getDate() - 6);
         break;
-      case '2semanas':
+      case '14d':
         desde = new Date(hoy);
         desde.setDate(desde.getDate() - 13);
         break;
       case 'mesActual':
         desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
         break;
-      case '30dias':
+      case '30d':
         desde = new Date(hoy);
         desde.setDate(desde.getDate() - 29);
         break;
-      case '3meses':
+      case '3m':
         desde = new Date(hoy);
         desde.setMonth(desde.getMonth() - 3);
         break;
@@ -294,10 +333,45 @@ export default function DashboardTiendaNube() {
         return;
     }
 
+    setFiltroRapidoActivo(filtro);
+    setMostrarDropdownFecha(false);
     updateFilters({
       fecha_desde: formatearFechaISO(desde),
       fecha_hasta: formatearFechaISO(hasta)
     });
+  };
+
+  const aplicarFechaPersonalizada = () => {
+    setFiltroRapidoActivo('custom');
+    setMostrarDropdownFecha(false);
+    updateFilters({
+      fecha_desde: fechaTemporal.desde,
+      fecha_hasta: fechaTemporal.hasta
+    });
+  };
+
+  const toggleVendedor = (vendedor) => {
+    const nuevosSeleccionados = vendedoresSeleccionados.includes(vendedor)
+      ? vendedoresSeleccionados.filter(v => v !== vendedor)
+      : [...vendedoresSeleccionados, vendedor];
+    
+    updateFilters({ vendedores: nuevosSeleccionados.join(',') || '' });
+  };
+
+  const limpiarVendedores = () => {
+    updateFilters({ vendedores: '' });
+  };
+
+  const toggleSucursal = (sucursal) => {
+    const nuevasSeleccionadas = sucursalesSeleccionadas.includes(sucursal)
+      ? sucursalesSeleccionadas.filter(s => s !== sucursal)
+      : [...sucursalesSeleccionadas, sucursal];
+    
+    updateFilters({ sucursales: nuevasSeleccionadas.join(',') || '' });
+  };
+
+  const limpiarSucursales = () => {
+    updateFilters({ sucursales: '' });
   };
 
   // Filtrar operaciones por búsqueda
@@ -325,6 +399,175 @@ export default function DashboardTiendaNube() {
       <div className={styles.header}>
         <h1 className={styles.title}>🛒 Dashboard Tienda Nube</h1>
 
+        {/* Contenedor con filtros rápidos + botón reload + filtros adicionales */}
+        <div className={styles.filtrosRapidosWrapper}>
+          {/* Filtros Rápidos Compactos */}
+          <div className={styles.filtrosRapidos}>
+            <button 
+              onClick={() => setMostrarDropdownFecha(!mostrarDropdownFecha)} 
+              className={`${styles.btnFiltroRapido} ${styles.btnCalendar}`}
+              title="Seleccionar rango personalizado"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </button>
+            
+            <button 
+              onClick={() => aplicarFiltroRapido('hoy')} 
+              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === 'hoy' ? styles.activo : ''}`}
+            >
+              Hoy
+            </button>
+            <button 
+              onClick={() => aplicarFiltroRapido('ayer')} 
+              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === 'ayer' ? styles.activo : ''}`}
+            >
+              Ayer
+            </button>
+            <button 
+              onClick={() => aplicarFiltroRapido('3d')} 
+              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === '3d' ? styles.activo : ''}`}
+            >
+              3d
+            </button>
+            <button 
+              onClick={() => aplicarFiltroRapido('7d')} 
+              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === '7d' ? styles.activo : ''}`}
+            >
+              7d
+            </button>
+            <button 
+              onClick={() => aplicarFiltroRapido('14d')} 
+              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === '14d' ? styles.activo : ''}`}
+            >
+              14d
+            </button>
+            <button
+              onClick={() => aplicarFiltroRapido('mesActual')}
+              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === 'mesActual' ? styles.activo : ''}`}
+            >
+              Mes actual
+            </button>
+            <button 
+              onClick={() => aplicarFiltroRapido('30d')} 
+              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === '30d' ? styles.activo : ''}`}
+            >
+              30d
+            </button>
+            <button 
+              onClick={() => aplicarFiltroRapido('3m')} 
+              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === '3m' ? styles.activo : ''}`}
+            >
+              3m
+            </button>
+
+            {/* Dropdown de fecha personalizada */}
+            {mostrarDropdownFecha && (
+              <>
+                <div 
+                  className={styles.dropdownOverlay} 
+                  onClick={() => setMostrarDropdownFecha(false)}
+                />
+                <div className={styles.dropdownFecha}>
+                  <div className={styles.dropdownFechaContent}>
+                    <div className={styles.dropdownFechaField}>
+                      <label>Desde</label>
+                      <input
+                        type="date"
+                        value={fechaTemporal.desde}
+                        onChange={(e) => setFechaTemporal({ ...fechaTemporal, desde: e.target.value })}
+                        className={styles.dropdownDateInput}
+                      />
+                    </div>
+                    <div className={styles.dropdownFechaField}>
+                      <label>Hasta</label>
+                      <input
+                        type="date"
+                        value={fechaTemporal.hasta}
+                        onChange={(e) => setFechaTemporal({ ...fechaTemporal, hasta: e.target.value })}
+                        className={styles.dropdownDateInput}
+                      />
+                    </div>
+                    <button onClick={aplicarFechaPersonalizada} className="btn-tesla outline-subtle-primary sm">
+                      Aplicar
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Botón recargar - Separado */}
+          {tabActivo !== 'rentabilidad' && (
+            <button 
+              onClick={tabActivo === 'resumen' ? cargarDashboard : cargarOperaciones} 
+              className={styles.btnRecargar}
+              title="Recargar"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+            </button>
+          )}
+
+          {/* Filtro de VENDEDORES: selector múltiple (visible en todas las tabs) */}
+          {vendedoresDisponibles.length > 0 && (
+            <div className={styles.filtroSelect}>
+              <label>VENDEDORES:</label>
+              <div className={styles.multiSelect}>
+                <div className={styles.multiSelectHeader}>
+                  <span className={styles.multiSelectLabel}>
+                    {vendedoresSeleccionados.length === 0 
+                      ? 'Todos los vendedores' 
+                      : `${vendedoresSeleccionados.length} vendedor${vendedoresSeleccionados.length > 1 ? 'es' : ''} seleccionado${vendedoresSeleccionados.length > 1 ? 's' : ''}`}
+                  </span>
+                </div>
+                <div className={styles.multiSelectDropdown}>
+                  {vendedoresSeleccionados.length > 0 && (
+                    <div className={styles.multiSelectActions}>
+                      <button 
+                        type="button" 
+                        onClick={limpiarVendedores}
+                        className={styles.btnMultiSelectAction}
+                      >
+                        ✗ Limpiar selección
+                      </button>
+                    </div>
+                  )}
+                  <div className={styles.multiSelectOptions}>
+                    {vendedoresDisponibles.map(vendedor => (
+                      <label key={vendedor} className={styles.multiSelectOption}>
+                        <input
+                          type="checkbox"
+                          checked={vendedoresSeleccionados.includes(vendedor)}
+                          onChange={() => toggleVendedor(vendedor)}
+                        />
+                        <span>{vendedor}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tabActivo === 'operaciones' && (
+            <label className={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={soloSinCosto}
+                onChange={(e) => setSoloSinCosto(e.target.checked)}
+              />
+              Solo sin costo
+            </label>
+          )}
+        </div>
+
         {/* Tabs */}
         <div className={styles.tabs}>
           <button
@@ -337,7 +580,7 @@ export default function DashboardTiendaNube() {
             className={`${styles.tab} ${tabActivo === 'operaciones' ? styles.tabActivo : ''}`}
             onClick={() => updateFilters({ tab: 'operaciones' })}
           >
-            📋 Detalle de Operaciones
+            📋 Operaciones
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'rentabilidad' ? styles.tabActivo : ''}`}
@@ -345,102 +588,6 @@ export default function DashboardTiendaNube() {
           >
             💹 Rentabilidad
           </button>
-        </div>
-
-        {/* Filtros Rápidos */}
-        <div className={styles.filtrosRapidos}>
-          <button onClick={() => aplicarFiltroRapido('hoy')} className={styles.btnFiltroRapido}>
-            Hoy
-          </button>
-          <button onClick={() => aplicarFiltroRapido('ayer')} className={styles.btnFiltroRapido}>
-            Ayer
-          </button>
-          <button onClick={() => aplicarFiltroRapido('3dias')} className={styles.btnFiltroRapido}>
-            Últimos 3 días
-          </button>
-          <button onClick={() => aplicarFiltroRapido('semana')} className={styles.btnFiltroRapido}>
-            Última semana
-          </button>
-          <button onClick={() => aplicarFiltroRapido('2semanas')} className={styles.btnFiltroRapido}>
-            Últimas 2 semanas
-          </button>
-          <button onClick={() => aplicarFiltroRapido('mesActual')} className={styles.btnFiltroRapido}>
-            Mes actual
-          </button>
-          <button onClick={() => aplicarFiltroRapido('30dias')} className={styles.btnFiltroRapido}>
-            Últimos 30 días
-          </button>
-          <button onClick={() => aplicarFiltroRapido('3meses')} className={styles.btnFiltroRapido}>
-            Últimos 3 meses
-          </button>
-        </div>
-
-        <div className={styles.filtros}>
-          <div className={styles.filtroFecha}>
-            <label>Desde:</label>
-            <input
-              type="date"
-              value={fechaDesde}
-              onChange={(e) => updateFilters({ fecha_desde: e.target.value })}
-              className={styles.dateInput}
-            />
-          </div>
-          <div className={styles.filtroFecha}>
-            <label>Hasta:</label>
-            <input
-              type="date"
-              value={fechaHasta}
-              onChange={(e) => updateFilters({ fecha_hasta: e.target.value })}
-              className={styles.dateInput}
-            />
-          </div>
-
-          {tabActivo === 'operaciones' && (
-            <>
-              <div className={styles.filtroSelect}>
-                <label>Sucursal:</label>
-                <select
-                  value={sucursalSeleccionada}
-                  onChange={(e) => updateFilters({ sucursal: e.target.value })}
-                  className={styles.select}
-                >
-                  <option value="">Todas</option>
-                  {sucursalesDisponibles.map(suc => (
-                    <option key={suc} value={suc}>{suc}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className={styles.filtroSelect}>
-                <label>Vendedor:</label>
-                <select
-                  value={vendedorSeleccionado}
-                  onChange={(e) => updateFilters({ vendedor: e.target.value })}
-                  className={styles.select}
-                >
-                  <option value="">Todos</option>
-                  {vendedoresDisponibles.map(vend => (
-                    <option key={vend} value={vend}>{vend}</option>
-                  ))}
-                </select>
-              </div>
-
-              <label className={styles.checkboxLabel}>
-                <input
-                  type="checkbox"
-                  checked={soloSinCosto}
-                  onChange={(e) => setSoloSinCosto(e.target.checked)}
-                />
-                Solo sin costo
-              </label>
-            </>
-          )}
-
-          {tabActivo !== 'rentabilidad' && (
-            <button onClick={tabActivo === 'resumen' ? cargarDashboard : cargarOperaciones} className={styles.btnRecargar}>
-              🔄 Recargar
-            </button>
-          )}
         </div>
       </div>
 
@@ -452,7 +599,11 @@ export default function DashboardTiendaNube() {
       )}
 
       {tabActivo === 'rentabilidad' ? (
-        <TabRentabilidadTiendaNube fechaDesde={fechaDesde} fechaHasta={fechaHasta} />
+        <TabRentabilidadTiendaNube 
+          fechaDesde={fechaDesde} 
+          fechaHasta={fechaHasta}
+          vendedoresSeleccionados={vendedoresSeleccionados}
+        />
       ) : loading ? (
         <div className={styles.loading}>Cargando...</div>
       ) : tabActivo === 'operaciones' ? (
@@ -525,7 +676,7 @@ export default function DashboardTiendaNube() {
                   };
 
                   return (
-                    <tr key={op.id_operacion || idx} className={sinCosto ? styles.rowSinCosto : ''}>
+                    <tr key={`${op.id_operacion}-${idx}`} className={sinCosto ? styles.rowSinCosto : ''}>
                       <td>{formatearFecha(op.fecha)}</td>
                       <td>{op.sucursal || '-'}</td>
                       <td className={styles.descripcion}>
