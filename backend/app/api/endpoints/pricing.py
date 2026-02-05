@@ -1148,12 +1148,12 @@ async def recalcular_cuotas_desde_clasica(
 async def setear_precio_cuota(
     item_id: int,
     tipo_cuota: str = Query(regex="^(clasica|3|6|9|12)$"),  # Acepta clasica, 3, 6, 9 o 12
-    precio: float = Query(gt=0, le=999999999.99),
+    precio: float = Query(ge=0, le=999999999.99),  # Permitir 0 para borrar precios
     lista_tipo: str = Query("web", regex="^(web|pvp)$", description="Tipo de lista: web o pvp"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Setea el precio de un tipo de cuota específico (web o pvp) y calcula su markup."""
+    """Setea el precio de un tipo de cuota específico (web o pvp) y calcula su markup. Si precio=0, borra la cuota."""
 
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
@@ -1174,6 +1174,22 @@ async def setear_precio_cuota(
         else:
             campo_precio = f"precio_{tipo_cuota}_cuotas"
             campo_markup = f"markup_{tipo_cuota}_cuotas"
+
+    # Si precio es 0, borrar la cuota (setear a None)
+    if precio == 0:
+        pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+        if pricing:
+            setattr(pricing, campo_precio, None)
+            setattr(pricing, campo_markup, None)
+            pricing.usuario_id = current_user.id
+            pricing.fecha_modificacion = datetime.now()
+            db.commit()
+            db.refresh(pricing)
+        
+        return {
+            campo_precio: None,
+            campo_markup: None
+        }
 
     # Mapeo de tipo_cuota a pricelist_id según lista_tipo
     if lista_tipo == "pvp":
