@@ -138,6 +138,10 @@ export default function Productos() {
   const [palabraObjetivo, setPalabraObjetivo] = useState('');
   const [motivoBan, setMotivoBan] = useState('');
 
+  // Modal de confirmación markup negativo
+  const [mostrarModalMarkupNegativo, setMostrarModalMarkupNegativo] = useState(false);
+  const [datosGuardadoPendiente, setDatosGuardadoPendiente] = useState(null);
+
   const user = useAuthStore((state) => state.user);
   const { tienePermiso } = usePermisos();
 
@@ -962,6 +966,33 @@ export default function Productos() {
     return !isNaN(num) && isFinite(num);
   };
 
+  // Función para consultar el markup sin guardar (usando el endpoint del backend)
+  const consultarMarkup = async (itemId, precio, listaTipo = 'web') => {
+    try {
+      const token = localStorage.getItem('token');
+      const pricelist_id = listaTipo === 'pvp' ? 12 : 4; // 12 = PVP, 4 = Web
+      
+      const response = await axios.get(
+        `${API_URL}/precios/calcular-markup`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          params: {
+            item_id: itemId,
+            precio: precio,
+            pricelist_id: pricelist_id
+          }
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      // Si hay error al calcular markup, NO bloquear el guardado
+      // pero mostrar un toast de advertencia
+      showToast('No se pudo validar el markup. Revisa la consola.', 'error');
+      return null;
+    }
+  };
+
   const COLORES_DISPONIBLES = [
     { id: 'rojo', nombre: 'Urgente', color: 'var(--product-urgent-bg)', colorTexto: 'var(--product-urgent-text)' },
     { id: 'naranja', nombre: 'Advertencia', color: 'var(--product-warning-bg)', colorTexto: 'var(--product-warning-text)' },
@@ -1061,6 +1092,30 @@ export default function Productos() {
     }
   };
 
+  const confirmarGuardadoMarkupNegativo = async () => {
+    if (!datosGuardadoPendiente) return;
+
+    // Cerrar modal
+    setMostrarModalMarkupNegativo(false);
+    
+    // Verificar si es cuota o precio clásica
+    if (datosGuardadoPendiente.esCuota) {
+      // Guardar cuota con forzar=true
+      await guardarCuota(
+        datosGuardadoPendiente.itemId, 
+        datosGuardadoPendiente.tipo, 
+        datosGuardadoPendiente.esPVP,
+        true // forzar
+      );
+    } else {
+      // Guardar precio clásica con forzar=true
+      await guardarPrecio(datosGuardadoPendiente.itemId, true);
+    }
+    
+    // Limpiar datos pendientes
+    setDatosGuardadoPendiente(null);
+  };
+
   const handleSearchChange = (e) => {
     setSearchInput(e.target.value);
     setPage(1);
@@ -1079,10 +1134,43 @@ export default function Productos() {
     setCuotaTemp(producto[campoPrecio] || '');
   };
 
-  const guardarCuota = async (itemId, tipo, esPVP = false) => {
+  const guardarCuota = async (itemId, tipo, esPVP = false, forzar = false) => {
     try {
       const token = localStorage.getItem('token');
       const precioNormalizado = parseFloat(cuotaTemp.toString().replace(',', '.'));
+
+      // Si NO es forzado Y el precio es mayor a 0, verificar markup antes de guardar
+      // (No validar si precio es 0 o inválido)
+      if (!forzar && precioNormalizado > 0) {
+        // Mapeo de tipo de cuota a pricelist_id
+        const pricelistMap = {
+          'web': { '3': 17, '6': 14, '9': 13, '12': 23 },
+          'pvp': { '3': 18, '6': 19, '9': 20, '12': 21 }
+        };
+        const listaTipo = esPVP ? 'pvp' : 'web';
+        const pricelistId = pricelistMap[listaTipo][tipo];
+
+        if (pricelistId) {
+          const markupData = await consultarMarkup(itemId, precioNormalizado, listaTipo);
+          
+          if (markupData && markupData.markup < 0) {
+            // Markup negativo: mostrar modal de confirmación
+            const producto = productos.find(p => p.item_id === itemId);
+            setDatosGuardadoPendiente({
+              itemId,
+              tipo,
+              esPVP,
+              precio: precioNormalizado,
+              producto,
+              markup: markupData.markup,
+              listaTipo,
+              esCuota: true // Flag para identificar que es cuota, no precio clasica
+            });
+            setMostrarModalMarkupNegativo(true);
+            return; // No continuar hasta que el usuario confirme
+          }
+        }
+      }
 
       const response = await axios.post(
         `${API_URL}/precios/set-cuota`,
@@ -1318,15 +1406,15 @@ export default function Productos() {
     }
   };
 
-  const guardarPrecio = async (itemId) => {
+  const guardarPrecio = async (itemId, forzar = false) => {
     try {
       const token = localStorage.getItem('token');
       // Normalizar: reemplazar coma por punto
       const precioNormalizado = parseFloat(precioTemp.toString().replace(',', '.'));
       
-      // Validar que sea un número válido
-      if (!isValidNumericInput(precioNormalizado) || precioNormalizado <= 0) {
-        showToast('El precio debe ser un número válido mayor a 0', 'error');
+      // Validar que sea un número válido (permitir 0 para borrar)
+      if (!isValidNumericInput(precioNormalizado) || precioNormalizado < 0) {
+        showToast('El precio debe ser un número válido mayor o igual a 0', 'error');
         return;
       }
 
@@ -1335,6 +1423,25 @@ export default function Productos() {
       const shouldRecalcularCuotas = producto?.recalcular_cuotas_auto !== null 
         ? producto.recalcular_cuotas_auto 
         : recalcularCuotasAuto;
+
+      // Si NO es forzado Y el precio es mayor a 0, verificar markup antes de guardar
+      // (No validar si precio es 0 porque es para borrar precios)
+      if (!forzar && precioNormalizado > 0) {
+        const markupData = await consultarMarkup(itemId, precioNormalizado, modoVista === 'pvp' ? 'pvp' : 'web');
+        
+        if (markupData && markupData.markup < 0) {
+          // Markup negativo: mostrar modal de confirmación
+          setDatosGuardadoPendiente({
+            itemId,
+            precio: precioNormalizado,
+            producto,
+            markup: markupData.markup,
+            listaTipo: modoVista === 'pvp' ? 'pvp' : 'web'
+          });
+          setMostrarModalMarkupNegativo(true);
+          return; // No continuar hasta que el usuario confirme
+        }
+      }
 
       // Si estamos en modo PVP, usar set-rapido con lista_tipo=pvp
       if (modoVista === 'pvp') {
@@ -4428,6 +4535,58 @@ export default function Productos() {
                 className="modal-ban-btn-confirm"
               >
                 Confirmar Ban
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmación markup negativo */}
+      {mostrarModalMarkupNegativo && datosGuardadoPendiente && (
+        <div className="modal-ban-overlay">
+          <div className="modal-ban-content" style={{maxWidth: '600px'}}>
+            <h2 className="modal-ban-title" style={{color: 'var(--error)'}}>⚠️ MarkUp Negativo</h2>
+
+            <div className="modal-ban-info">
+              <p><strong>Producto:</strong> {datosGuardadoPendiente.producto.descripcion}</p>
+              <p><strong>Código:</strong> {datosGuardadoPendiente.producto.codigo}</p>
+              <p><strong>Marca:</strong> {datosGuardadoPendiente.producto.marca}</p>
+              {datosGuardadoPendiente.esCuota && (
+                <p><strong>Tipo:</strong> Precio {datosGuardadoPendiente.tipo} cuotas{datosGuardadoPendiente.esPVP ? ' (PVP)' : ''}</p>
+              )}
+              {!datosGuardadoPendiente.esCuota && (
+                <p><strong>Tipo:</strong> Precio Clásica{datosGuardadoPendiente.listaTipo === 'pvp' ? ' (PVP)' : ''}</p>
+              )}
+            </div>
+
+            <div className="modal-ban-warning" style={{backgroundColor: 'var(--error-bg)', borderColor: 'var(--error)', marginTop: '20px'}}>
+              <p style={{fontSize: '1.1em', marginBottom: '10px'}}>
+                ¿Está seguro que quiere guardar el producto <strong>{datosGuardadoPendiente.producto.descripcion}</strong> con un <strong>MarkUp Negativo</strong> del:
+              </p>
+              <p style={{fontSize: '2em', fontWeight: 'bold', color: 'var(--error)', margin: '10px 0'}}>
+                {datosGuardadoPendiente.markup.toFixed(2)}%
+              </p>
+              <p style={{fontSize: '0.95em', color: 'var(--text-secondary)', marginTop: '10px'}}>
+                Esto significa que el precio de venta está por debajo del costo + comisiones.
+              </p>
+            </div>
+
+            <div className="config-modal-actions">
+              <button
+                onClick={() => {
+                  setMostrarModalMarkupNegativo(false);
+                  setDatosGuardadoPendiente(null);
+                  // No limpiar editandoPrecio/editandoCuota para que el usuario pueda corregir el precio
+                }}
+                className="btn-tesla secondary"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarGuardadoMarkupNegativo}
+                className="btn-tesla outline-subtle-danger"
+              >
+                Guardar de todas formas
               </button>
             </div>
           </div>
