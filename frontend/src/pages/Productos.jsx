@@ -967,10 +967,11 @@ export default function Productos() {
   };
 
   // Función para consultar el markup sin guardar (usando el endpoint del backend)
-  const consultarMarkup = async (itemId, precio, listaTipo = 'web') => {
+  const consultarMarkup = async (itemId, precio, listaTipo = 'web', pricelistId = null) => {
     try {
       const token = localStorage.getItem('token');
-      const pricelist_id = listaTipo === 'pvp' ? 12 : 4; // 12 = PVP, 4 = Web
+      // Si no se especifica pricelistId, usar el de clásica por defecto
+      const pricelist_id = pricelistId || (listaTipo === 'pvp' ? 12 : 4);
       
       const response = await axios.get(
         `${API_URL}/precios/calcular-markup`,
@@ -1151,7 +1152,7 @@ export default function Productos() {
         const pricelistId = pricelistMap[listaTipo][tipo];
 
         if (pricelistId) {
-          const markupData = await consultarMarkup(itemId, precioNormalizado, listaTipo);
+          const markupData = await consultarMarkup(itemId, precioNormalizado, listaTipo, pricelistId);
           
           if (markupData && markupData.markup < 0) {
             // Markup negativo: mostrar modal de confirmación
