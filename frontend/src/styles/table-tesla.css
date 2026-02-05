@@ -422,6 +422,70 @@
   accent-color: var(--brand-primary);
 }
 
+/* Checkboxes en filas coloreadas - USAN VARIABLES CSS */
+.table-tesla-body tr.row-color-rojo input[type="checkbox"],
+.table-tesla-body tr.row-color-rojo input[type="checkbox"]:checked {
+  accent-color: var(--product-urgent-accent) !important;
+  border-color: var(--product-urgent-accent) !important;
+}
+.table-tesla-body tr.row-color-rojo input[type="checkbox"]:checked::after {
+  border-color: var(--product-urgent-accent) !important;
+}
+
+.table-tesla-body tr.row-color-naranja input[type="checkbox"],
+.table-tesla-body tr.row-color-naranja input[type="checkbox"]:checked {
+  accent-color: var(--product-warning-accent) !important;
+  border-color: var(--product-warning-accent) !important;
+}
+.table-tesla-body tr.row-color-naranja input[type="checkbox"]:checked::after {
+  border-color: var(--product-warning-accent) !important;
+}
+
+.table-tesla-body tr.row-color-amarillo input[type="checkbox"],
+.table-tesla-body tr.row-color-amarillo input[type="checkbox"]:checked {
+  accent-color: var(--product-attention-accent) !important;
+  border-color: var(--product-attention-accent) !important;
+}
+.table-tesla-body tr.row-color-amarillo input[type="checkbox"]:checked::after {
+  border-color: var(--product-attention-accent) !important;
+}
+
+.table-tesla-body tr.row-color-verde input[type="checkbox"],
+.table-tesla-body tr.row-color-verde input[type="checkbox"]:checked {
+  accent-color: var(--product-ok-accent) !important;
+  border-color: var(--product-ok-accent) !important;
+}
+.table-tesla-body tr.row-color-verde input[type="checkbox"]:checked::after {
+  border-color: var(--product-ok-accent) !important;
+}
+
+.table-tesla-body tr.row-color-azul input[type="checkbox"],
+.table-tesla-body tr.row-color-azul input[type="checkbox"]:checked {
+  accent-color: var(--product-info-accent) !important;
+  border-color: var(--product-info-accent) !important;
+}
+.table-tesla-body tr.row-color-azul input[type="checkbox"]:checked::after {
+  border-color: var(--product-info-accent) !important;
+}
+
+.table-tesla-body tr.row-color-purpura input[type="checkbox"],
+.table-tesla-body tr.row-color-purpura input[type="checkbox"]:checked {
+  accent-color: var(--product-review-accent) !important;
+  border-color: var(--product-review-accent) !important;
+}
+.table-tesla-body tr.row-color-purpura input[type="checkbox"]:checked::after {
+  border-color: var(--product-review-accent) !important;
+}
+
+.table-tesla-body tr.row-color-gris input[type="checkbox"],
+.table-tesla-body tr.row-color-gris input[type="checkbox"]:checked {
+  accent-color: var(--product-inactive-accent) !important;
+  border-color: var(--product-inactive-accent) !important;
+}
+.table-tesla-body tr.row-color-gris input[type="checkbox"]:checked::after {
+  border-color: var(--product-inactive-accent) !important;
+}
+
 /* ============================================
    LOADING STATE
    ============================================ */

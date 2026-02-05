@@ -476,3 +476,35 @@ input[type="checkbox"]:focus-visible {
 .transition-fast { transition: all var(--duration-150) var(--ease-in-out); }
 .transition { transition: all var(--duration-200) var(--ease-in-out); }
 .transition-slow { transition: all var(--duration-300) var(--ease-in-out); }
+
+/* ============================================
+   HIGH CONTRAST MODE
+   ============================================ */
+
+/**
+ * Modo de alto contraste para accesibilidad
+ * Cambia TODOS los textos de filas coloreadas a negro puro
+ * para máxima legibilidad
+ */
+.high-contrast {
+  --product-urgent-text: #000000;
+  --product-urgent-accent: #000000;
+  
+  --product-warning-text: #000000;
+  --product-warning-accent: #000000;
+  
+  --product-attention-text: #000000;
+  --product-attention-accent: #000000;
+  
+  --product-ok-text: #000000;
+  --product-ok-accent: #000000;
+  
+  --product-info-text: #000000;
+  --product-info-accent: #000000;
+  
+  --product-review-text: #000000;
+  --product-review-accent: #000000;
+  
+  --product-inactive-text: #000000;
+  --product-inactive-accent: #000000;
+}

@@ -1,0 +1,557 @@
+/**
+ * ESTILOS COMPARTIDOS - PRODUCTOS Y TIENDA
+ * 
+ * Este archivo contiene todos los estilos comunes entre las páginas
+ * de Productos y Tienda para evitar duplicación de código.
+ * 
+ * Incluye:
+ * - Variables de colores de productos
+ * - Estilos de filas coloreadas
+ * - Checkboxes en filas coloreadas
+ * - Barra de selección múltiple
+ * - Indicador de navegación por teclado
+ * - Modales de confirmación
+ * - Estilos de tabla base
+ */
+
+/* ============================================
+   VARIABLES CSS - COLORES DE PRODUCTOS
+   ============================================ */
+
+:root {
+  /* Fondos y textos de filas coloreadas */
+  --product-urgent-bg: #fecaca;
+  --product-urgent-text: #991b1b;
+  --product-urgent-accent: #7f1d1d; /* Checkbox accent */
+  
+  --product-warning-bg: #fed7aa;
+  --product-warning-text: #9a3412;
+  --product-warning-accent: #7c2d12;
+  
+  --product-attention-bg: #fde68a;
+  --product-attention-text: #92400e;
+  --product-attention-accent: #78350f;
+  
+  --product-ok-bg: #a7f3d0;
+  --product-ok-text: #065f46;
+  --product-ok-accent: #064e3b;
+  
+  --product-info-bg: #93c5fd;
+  --product-info-text: #1e40af;
+  --product-info-accent: #1e3a8a;
+  
+  --product-review-bg: #d8b4fe;
+  --product-review-text: #6b21a8;
+  --product-review-accent: #581c87;
+  
+  --product-inactive-bg: #d1d5db;
+  --product-inactive-text: #374151;
+  --product-inactive-accent: #1f2937;
+}
+
+/* ============================================
+   FILAS COLOREADAS
+   ============================================ */
+
+/* Clases para filas coloreadas - USAN VARIABLES CSS */
+.row-color-rojo {
+  background-color: var(--product-urgent-bg) !important;
+  color: var(--product-urgent-text) !important;
+}
+
+.row-color-rojo td {
+  color: var(--product-urgent-text) !important;
+}
+
+.row-color-naranja {
+  background-color: var(--product-warning-bg) !important;
+  color: var(--product-warning-text) !important;
+}
+
+.row-color-naranja td {
+  color: var(--product-warning-text) !important;
+}
+
+.row-color-amarillo {
+  background-color: var(--product-attention-bg) !important;
+  color: var(--product-attention-text) !important;
+}
+
+.row-color-amarillo td {
+  color: var(--product-attention-text) !important;
+}
+
+.row-color-verde {
+  background-color: var(--product-ok-bg) !important;
+  color: var(--product-ok-text) !important;
+}
+
+.row-color-verde td {
+  color: var(--product-ok-text) !important;
+}
+
+.row-color-azul {
+  background-color: var(--product-info-bg) !important;
+  color: var(--product-info-text) !important;
+}
+
+.row-color-azul td {
+  color: var(--product-info-text) !important;
+}
+
+.row-color-purpura {
+  background-color: var(--product-review-bg) !important;
+  color: var(--product-review-text) !important;
+}
+
+.row-color-purpura td {
+  color: var(--product-review-text) !important;
+}
+
+.row-color-gris {
+  background-color: var(--product-inactive-bg) !important;
+  color: var(--product-inactive-text) !important;
+}
+
+.row-color-gris td {
+  color: var(--product-inactive-text) !important;
+}
+
+/* Asegurar que elementos interactivos tengan buen contraste */
+.row-colored input[type="checkbox"] {
+  opacity: 1;
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  /* Añadir borde para mejor visibilidad */
+  outline: 1px solid rgba(0, 0, 0, 0.3);
+  outline-offset: -1px;
+}
+
+.row-colored .editable-field:hover {
+  opacity: 0.7;
+}
+
+/* Badges y elementos con colores propios dentro de filas coloreadas */
+.row-colored .markup-display,
+.row-colored .text-muted,
+.row-colored .text-success,
+.row-colored .text-danger,
+.row-colored small,
+.row-colored .web-transf-porcentaje,
+.row-colored .web-transf-markup,
+.row-colored .web-transf-info,
+.row-colored .rebate-price,
+.row-colored .rebate-percentage,
+.row-colored .rebate-info,
+.row-colored .mejor-oferta-precio,
+.row-colored .mejor-oferta-detalle,
+.row-colored .mejor-oferta-rebate,
+.row-colored .mejor-oferta-info {
+  color: inherit !important;
+  opacity: 0.75;
+}
+
+/* Los markups y elementos que se colorean dinámicamente con JS también deben heredar el color */
+.row-colored .web-transf-markup[style*="color"],
+.row-colored .mejor-oferta-detalle[style*="color"],
+.row-colored .web-transf-info [style*="color"],
+.row-colored .web-transf-info div,
+.row-colored .web-transf-info span,
+.row-colored .rebate-info [style*="color"],
+.row-colored .rebate-info div,
+.row-colored .rebate-info span,
+.row-colored .mejor-oferta-info [style*="color"],
+.row-colored .mejor-oferta-info div,
+.row-colored .mejor-oferta-info span {
+  color: inherit !important;
+  opacity: 0.85;
+}
+
+/* ============================================
+   BARRA DE SELECCIÓN MÚLTIPLE
+   ============================================ */
+
+.selection-bar {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 35, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 15px 25px;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.selection-bar-count {
+  font-weight: bold;
+}
+
+.selection-bar-colors {
+  display: flex;
+  gap: 8px;
+}
+
+.selection-bar-color-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  border: 2px solid white;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.selection-bar-color-btn:hover {
+  transform: scale(1.1);
+}
+
+.selection-bar-clear-btn {
+  background-color: var(--danger);
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.selection-bar-clear-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+/* ============================================
+   NAVEGACIÓN POR TECLADO
+   ============================================ */
+
+/* Celda activa con resaltado */
+.keyboard-cell-active {
+  position: relative;
+  box-shadow: inset 0 0 0 3px var(--brand-primary) !important;
+  background: rgba(59, 130, 246, 0.1) !important;
+  animation: pulse-cell 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-cell {
+  0%, 100% {
+    box-shadow: inset 0 0 0 3px var(--brand-primary);
+  }
+  50% {
+    box-shadow: inset 0 0 0 3px rgba(59, 130, 246, 0.5);
+  }
+}
+
+/* Fila activa con borde grueso - NO cambiar background para respetar color marcado */
+.keyboard-row-active {
+  outline: 3px solid var(--brand-primary) !important;
+  outline-offset: -3px !important;
+  position: relative !important;
+}
+
+/* Indicador de modo navegación */
+.navigation-indicator {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 35, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.navigation-indicator kbd {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+/* ============================================
+   MODAL DE CONFIRMACIÓN DE BAN
+   ============================================ */
+
+.modal-ban-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modal-ban-content {
+  background-color: var(--bg-primary);
+  padding: 30px;
+  border-radius: 8px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  color: var(--text-primary);
+}
+
+.modal-ban-title {
+  margin-top: 0;
+  color: #ef4444;
+}
+
+.modal-ban-info {
+  margin-bottom: 20px;
+}
+
+.modal-ban-info p {
+  margin: 8px 0;
+}
+
+.modal-ban-warning {
+  padding: 15px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.modal-ban-warning p:first-child {
+  margin: 0 0 10px 0;
+  font-weight: bold;
+}
+
+.modal-ban-word {
+  margin: 10px 0;
+  font-size: 20px;
+  font-weight: bold;
+  color: #dc2626;
+  text-align: center;
+  font-family: monospace;
+  background-color: var(--bg-primary);
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.modal-ban-field {
+  margin-bottom: 15px;
+}
+
+.modal-ban-field label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+.modal-ban-input,
+.modal-ban-textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 16px;
+  box-sizing: border-box;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.modal-ban-textarea {
+  font-size: 14px;
+  min-height: 80px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.modal-ban-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.modal-ban-btn-cancel {
+  padding: 10px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.modal-ban-btn-cancel:hover {
+  opacity: 0.8;
+}
+
+.modal-ban-btn-confirm {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  background-color: #ef4444;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.modal-ban-btn-confirm:hover {
+  background-color: #dc2626;
+}
+
+/* ============================================
+   BOTONES DE ICONOS (ACCIONES EN TABLA)
+   ============================================ */
+
+.icon-button {
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+  border: none;
+  background: var(--bg-primary);
+  min-width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.icon-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Botón Info - Azul */
+.icon-button.info {
+  color: #3b82f6;
+  border-color: transparent;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.icon-button.info:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+/* Botón Detail - Cyan */
+.icon-button.detail {
+  color: #0891b2;
+  border-color: transparent;
+  background: rgba(8, 145, 178, 0.1);
+}
+
+.icon-button.detail:hover {
+  background: rgba(8, 145, 178, 0.15);
+}
+
+/* Botón Audit - Morado */
+.icon-button.audit {
+  color: #7c3aed;
+  border-color: transparent;
+  background: rgba(124, 58, 237, 0.1);
+}
+
+.icon-button.audit:hover {
+  background: rgba(124, 58, 237, 0.15);
+}
+
+/* Botón Config - Gris */
+.icon-button.config {
+  color: #6b7280;
+  border-color: transparent;
+  background: rgba(107, 114, 128, 0.1);
+}
+
+.icon-button.config:hover {
+  background: rgba(107, 114, 128, 0.15);
+}
+
+/* Botón Color - Rosa */
+.icon-button.color {
+  color: #ec4899;
+  border-color: transparent;
+  background: rgba(236, 72, 153, 0.1);
+}
+
+.icon-button.color:hover {
+  background: rgba(236, 72, 153, 0.15);
+}
+
+/* ============================================
+   DROPDOWN DE COLORES
+   ============================================ */
+
+.color-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 8px;
+  z-index: 1000;
+  min-width: 160px;
+}
+
+.color-option {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  margin: 4px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.color-option:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+
+@media (max-width: 768px) {
+  .navigation-indicator {
+    font-size: 12px;
+    padding: 10px 16px;
+    bottom: 10px;
+  }
+}

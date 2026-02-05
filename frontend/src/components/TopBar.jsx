@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { useTheme } from '../contexts/ThemeContext';
 import { Menu } from 'lucide-react';
 
 import ThemeToggleSimple from './ThemeToggleSimple';
@@ -11,6 +12,7 @@ import logoIcon from '../assets/white-g-logo.png';
 
 export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
   const user = useAuthStore((state) => state.user);
+  const { highContrast, toggleHighContrast } = useTheme();
   const navigate = useNavigate();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [facturadoHoy, setFacturadoHoy] = useState(null);
@@ -138,6 +140,17 @@ export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
               
               <div className={styles.dropdownItem}>
                 <ThemeToggleSimple />
+              </div>
+              
+              <div className={styles.dropdownItem}>
+                <button 
+                  className={`${styles.highContrastBtn} ${highContrast ? styles.active : ''}`}
+                  onClick={toggleHighContrast}
+                  type="button"
+                >
+                  {highContrast && <span className={styles.checkmark}>✓</span>}
+                  Alto contraste
+                </button>
               </div>
               
               <div className={styles.dropdownDivider}></div>

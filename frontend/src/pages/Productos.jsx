@@ -12,6 +12,7 @@ import CalcularWebModal from '../components/CalcularWebModal';
 import CalcularPVPModal from '../components/CalcularPVPModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import StatCard from '../components/StatCard';
+import '../styles/tabla-productos-shared.css';
 import './Productos.css';
 
 // Constantes para filtros
