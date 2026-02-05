@@ -1021,7 +1021,7 @@ export default function Productos() {
       // Actualizar estado local en lugar de recargar
       setProductos(prods => prods.map(p =>
         p.item_id === itemId
-          ? { ...p, color }
+          ? { ...p, color_marcado: color }
           : p
       ));
       
@@ -2140,7 +2140,6 @@ export default function Productos() {
 
   const cambiarColorRapido = async (itemId, color) => {
     try {
-      
       await axios.patch(
         `${API_URL}/productos/${itemId}/color`,
         { color },
@@ -2150,7 +2149,7 @@ export default function Productos() {
       // Actualizar estado local en lugar de recargar
       setProductos(prods => prods.map(p =>
         p.item_id === itemId
-          ? { ...p, color }
+          ? { ...p, color_marcado: color }
           : p
       ));
       
