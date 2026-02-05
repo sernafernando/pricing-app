@@ -489,11 +489,17 @@ async def get_operaciones_desde_metricas(
     params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit, "offset": offset}
 
     if sucursal:
-        where_clauses.append("m.sucursal = :sucursal")
-        params["sucursal"] = sucursal
+        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        if sucursales:
+            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
+            sucursales_quoted = "','".join(sucursales_escaped)
+            where_clauses.append(f"m.sucursal IN ('{sucursales_quoted}')")
     if vendedor:
-        where_clauses.append("m.vendedor = :vendedor")
-        params["vendedor"] = vendedor
+        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        if vendedores:
+            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
+            vendedores_quoted = "','".join(vendedores_escaped)
+            where_clauses.append(f"m.vendedor IN ('{vendedores_quoted}')")
     if marca:
         where_clauses.append("m.marca = :marca")
         params["marca"] = marca
@@ -598,11 +604,17 @@ async def get_operaciones_count(
     params = {"from_date": from_date, "to_date": to_date + " 23:59:59"}
 
     if sucursal:
-        where_clauses.append("m.sucursal = :sucursal")
-        params["sucursal"] = sucursal
+        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        if sucursales:
+            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
+            sucursales_quoted = "','".join(sucursales_escaped)
+            where_clauses.append(f"m.sucursal IN ('{sucursales_quoted}')")
     if vendedor:
-        where_clauses.append("m.vendedor = :vendedor")
-        params["vendedor"] = vendedor
+        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        if vendedores:
+            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
+            vendedores_quoted = "','".join(vendedores_escaped)
+            where_clauses.append(f"m.vendedor IN ('{vendedores_quoted}')")
     if marca:
         where_clauses.append("m.marca = :marca")
         params["marca"] = marca
@@ -688,6 +700,8 @@ async def get_ventas_fuera_ml(
 async def get_ventas_fuera_ml_stats(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedores (separados por coma)"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -696,8 +710,24 @@ async def get_ventas_fuera_ml_stats(
     Usa la tabla de métricas pre-calculadas para mayor performance.
     Una sola query con GROUPING SETS para calcular todo de una vez.
     """
+    # Construir cláusula WHERE dinámica
+    where_clause = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
+    params = {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+    
+    if sucursal:
+        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        if sucursales:
+            sucursales_quoted = "','".join(sucursales)
+            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+    
+    if vendedor:
+        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        if vendedores:
+            vendedores_quoted = "','".join(vendedores)
+            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+    
     # Query única con GROUPING SETS para stats totales, por sucursal y por vendedor
-    combined_query = """
+    combined_query = f"""
     SELECT
         sucursal,
         vendedor,
@@ -713,7 +743,7 @@ async def get_ventas_fuera_ml_stats(
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN monto_con_iva * signo ELSE 0 END), 0) as monto_con_costo_con_iva,
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN costo_total * signo ELSE 0 END), 0) as costo_con_costo
     FROM ventas_fuera_ml_metricas
-    WHERE fecha_venta BETWEEN :from_date AND :to_date
+    {where_clause}
     GROUP BY GROUPING SETS (
         (),
         (sucursal),
@@ -721,10 +751,7 @@ async def get_ventas_fuera_ml_stats(
     )
     """
 
-    results = db.execute(
-        text(combined_query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
-    ).fetchall()
+    results = db.execute(text(combined_query), params).fetchall()
 
     # Inicializar variables
     total_ventas = 0
@@ -767,6 +794,31 @@ async def get_ventas_fuera_ml_stats(
     if monto_con_costo > 0 and costo_con_costo > 0:
         markup_promedio = (monto_con_costo / costo_con_costo) - 1
 
+    # Obtener listas completas de sucursales y vendedores disponibles (sin filtro)
+    sucursales_disponibles_query = """
+    SELECT DISTINCT sucursal
+    FROM ventas_fuera_ml_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+        AND sucursal IS NOT NULL
+    ORDER BY sucursal
+    """
+    sucursales_disponibles = [r.sucursal for r in db.execute(
+        text(sucursales_disponibles_query),
+        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+    ).fetchall()]
+
+    vendedores_disponibles_query = """
+    SELECT DISTINCT vendedor
+    FROM ventas_fuera_ml_metricas
+    WHERE fecha_venta BETWEEN :from_date AND :to_date
+        AND vendedor IS NOT NULL
+    ORDER BY vendedor
+    """
+    vendedores_disponibles = [r.vendedor for r in db.execute(
+        text(vendedores_disponibles_query),
+        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+    ).fetchall()]
+
     return {
         "total_ventas": total_ventas,
         "total_unidades": total_unidades,
@@ -776,7 +828,9 @@ async def get_ventas_fuera_ml_stats(
         "markup_promedio": markup_promedio,
         "productos_sin_costo": productos_sin_costo,
         "por_sucursal": sucursales_dict,
-        "por_vendedor": vendedores_dict
+        "por_vendedor": vendedores_dict,
+        "sucursales_disponibles": sucursales_disponibles,
+        "vendedores_disponibles": vendedores_disponibles
     }
 
 
@@ -785,6 +839,8 @@ async def get_ventas_fuera_ml_por_marca(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(50, le=200, description="Límite de resultados"),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedores (separados por coma)"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -792,8 +848,28 @@ async def get_ventas_fuera_ml_por_marca(
     Obtiene ventas agrupadas por marca.
     Usa la tabla de métricas pre-calculadas para mayor performance.
     """
+    # Construir cláusula WHERE dinámica
+    where_clause = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
+    params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
+    
+    if sucursal:
+        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        if sucursales:
+            # Escapar comillas simples en los nombres para evitar SQL injection
+            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
+            sucursales_quoted = "','".join(sucursales_escaped)
+            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+    
+    if vendedor:
+        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        if vendedores:
+            # Escapar comillas simples en los nombres para evitar SQL injection
+            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
+            vendedores_quoted = "','".join(vendedores_escaped)
+            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+    
     # Query rápida desde tabla de métricas pre-calculadas
-    query = """
+    query = f"""
     SELECT
         marca,
         COUNT(*) as total_ventas,
@@ -802,16 +878,13 @@ async def get_ventas_fuera_ml_por_marca(
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN costo_total * signo ELSE 0 END), 0) as costo_con_costo,
         COALESCE(SUM(CASE WHEN costo_total > 0 THEN ganancia * signo ELSE 0 END), 0) as ganancia_con_costo
     FROM ventas_fuera_ml_metricas
-    WHERE fecha_venta BETWEEN :from_date AND :to_date
+    {where_clause}
     GROUP BY marca
     ORDER BY monto_con_costo DESC
     LIMIT :limit
     """
 
-    result = db.execute(
-        text(query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
-    ).fetchall()
+    result = db.execute(text(query), params).fetchall()
 
     # Calcular markup desde totales: ganancia / costo
     marcas = []
@@ -836,6 +909,8 @@ async def get_top_productos_fuera_ml(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(20, le=100, description="Límite de resultados"),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
+    vendedor: Optional[str] = Query(None, description="Filtrar por vendedores (separados por coma)"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -843,8 +918,28 @@ async def get_top_productos_fuera_ml(
     Obtiene los productos más vendidos por fuera de ML.
     Usa la tabla de métricas pre-calculadas para mayor performance.
     """
+    # Construir cláusula WHERE dinámica
+    where_clause = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
+    params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
+    
+    if sucursal:
+        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        if sucursales:
+            # Escapar comillas simples en los nombres para evitar SQL injection
+            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
+            sucursales_quoted = "','".join(sucursales_escaped)
+            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+    
+    if vendedor:
+        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        if vendedores:
+            # Escapar comillas simples en los nombres para evitar SQL injection
+            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
+            vendedores_quoted = "','".join(vendedores_escaped)
+            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+
     # Query rápida desde tabla de métricas pre-calculadas
-    query = """
+    query = f"""
     SELECT
         item_id,
         codigo,
@@ -854,16 +949,13 @@ async def get_top_productos_fuera_ml(
         COALESCE(SUM(monto_total * signo), 0) as monto_total,
         COUNT(*) as cantidad_operaciones
     FROM ventas_fuera_ml_metricas
-    WHERE fecha_venta BETWEEN :from_date AND :to_date
+    {where_clause}
     GROUP BY item_id, codigo, descripcion, marca
     ORDER BY unidades_vendidas DESC
     LIMIT :limit
     """
 
-    result = db.execute(
-        text(query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
-    ).fetchall()
+    result = db.execute(text(query), params).fetchall()
 
     return [
         {

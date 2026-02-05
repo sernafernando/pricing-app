@@ -11,15 +11,57 @@ from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
-from app.models.usuario import Usuario
+from app.models.usuario import Usuario, RolUsuario
+from app.models.marca_pm import MarcaPM
 from app.api.deps import get_current_user
 
 router = APIRouter()
 
 
-def aplicar_filtro_tienda_oficial(query, tienda_oficial: Optional[str], db: Session):
+def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session, pm_ids: Optional[str] = None):
     """
-    Aplica filtro de tienda oficial por mlp_official_store_id.
+    Aplica filtro de marcas del PM a una query de MLVentaMetrica.
+    
+    Si pm_ids está presente (usuario admin seleccionó PMs específicos), filtra por esos PMs.
+    Si pm_ids NO está presente, aplica el filtro del usuario actual (comportamiento original).
+    """
+    # Si el usuario admin pasó pm_ids, usar esos en lugar del usuario actual
+    if pm_ids:
+        pm_ids_list = [int(id.strip()) for id in pm_ids.split(',') if id.strip().isdigit()]
+        if pm_ids_list:
+            # Obtener marcas de los PMs seleccionados
+            marcas_pms = db.query(MarcaPM.marca).filter(
+                MarcaPM.usuario_id.in_(pm_ids_list)
+            ).distinct().all()
+            marcas_filtradas = [m[0] for m in marcas_pms] if marcas_pms else []
+            
+            if len(marcas_filtradas) == 0:
+                query = query.filter(MLVentaMetrica.marca == '__NINGUNA__')
+            else:
+                query = query.filter(MLVentaMetrica.marca.in_(marcas_filtradas))
+            return query
+    
+    # Comportamiento original: filtrar por marcas del usuario actual
+    roles_completos = [RolUsuario.SUPERADMIN, RolUsuario.ADMIN, RolUsuario.GERENTE]
+
+    if usuario.rol in roles_completos:
+        return query  # No filtrar
+
+    marcas = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id == usuario.id).all()
+    marcas_usuario = [m[0] for m in marcas] if marcas else []
+
+    if len(marcas_usuario) == 0:
+        query = query.filter(MLVentaMetrica.marca == '__NINGUNA__')
+    else:
+        query = query.filter(MLVentaMetrica.marca.in_(marcas_usuario))
+
+    return query
+
+
+def aplicar_filtro_tienda_oficial(query, tiendas_oficiales: Optional[str], db: Session):
+    """
+    Aplica filtro de tiendas oficiales por mlp_official_store_id.
+    Soporta múltiples tiendas separadas por coma.
     
     Tiendas disponibles:
     - 57997: Gauss
@@ -27,21 +69,22 @@ def aplicar_filtro_tienda_oficial(query, tienda_oficial: Optional[str], db: Sess
     - 144: Forza/Verbatim
     - 191942: Multi-marca (Epson, Logitech, MGN, Razer)
     """
-    if tienda_oficial and tienda_oficial.isdigit():
+    if tiendas_oficiales:
         from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
         from sqlalchemy import cast, String
         
-        store_id = int(tienda_oficial)
+        # Parsear múltiples tiendas
+        store_ids = [int(id.strip()) for id in tiendas_oficiales.split(',') if id.strip().isdigit()]
         
-        # Subquery para obtener mlp_ids de tienda oficial
-        # ml_ventas_metricas.mla_id contiene el mlp_id (numérico) como string
-        mlas_tienda_oficial = db.query(
-            cast(MercadoLibreItemPublicado.mlp_id, String)
-        ).filter(
-            MercadoLibreItemPublicado.mlp_official_store_id == store_id
-        ).distinct()
-        
-        query = query.filter(MLVentaMetrica.mla_id.in_(mlas_tienda_oficial))
+        if store_ids:
+            # Subquery para obtener mlp_ids de tiendas oficiales
+            mlas_tienda_oficial = db.query(
+                cast(MercadoLibreItemPublicado.mlp_id, String)
+            ).filter(
+                MercadoLibreItemPublicado.mlp_official_store_id.in_(store_ids)
+            ).distinct()
+            
+            query = query.filter(MLVentaMetrica.mla_id.in_(mlas_tienda_oficial))
     return query
 
 
@@ -102,7 +145,8 @@ async def obtener_rentabilidad(
     categorias: Optional[str] = Query(None, description="Categorías separadas por coma"),
     subcategorias: Optional[str] = Query(None, description="Subcategorías separadas por coma"),
     productos: Optional[str] = Query(None, description="Item IDs separados por coma"),
-    tienda_oficial: Optional[str] = Query(None, description="ID de tienda oficial"),
+    tiendas_oficiales: Optional[str] = Query(None, description="IDs de tiendas oficiales separados por coma"),
+    pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -110,6 +154,7 @@ async def obtener_rentabilidad(
     Obtiene métricas de rentabilidad agrupadas según los filtros.
     Los filtros son independientes y se pueden combinar libremente.
     El nivel de agrupación se determina por la cantidad de filtros aplicados.
+    Soporta filtros de PMs y múltiples tiendas oficiales.
     """
     # Parsear filtros múltiples (usar | como separador para evitar conflictos con comas en nombres)
     lista_marcas = [m.strip() for m in marcas.split('|')] if marcas else []
@@ -157,7 +202,8 @@ async def obtener_rentabilidad(
             query = query.filter(MLVentaMetrica.categoria.in_(lista_categorias))
         if lista_subcategorias:
             query = query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
-        query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
+        query = aplicar_filtro_tienda_oficial(query, tiendas_oficiales, db)
+        query = aplicar_filtro_marcas_pm(query, current_user, db, pm_ids)
         return query
 
     # Query según nivel de agrupación
@@ -416,7 +462,7 @@ async def obtener_rentabilidad(
                 # Aquí SÍ aplicamos el filtro de tienda oficial para mostrar solo esa tienda
                 periodo_inicio_dt = max(fecha_desde_dt, offset_inicio_dt)
                 periodo_unidades, periodo_offset, _ = calcular_consumo_grupo_desde_tabla(
-                    offset.grupo_id, periodo_inicio_dt, fecha_hasta_dt, tienda_oficial_filtro=tienda_oficial
+                    offset.grupo_id, periodo_inicio_dt, fecha_hasta_dt, tienda_oficial_filtro=tiendas_oficiales
                 )
 
                 # Verificar si el límite ya se agotó
@@ -476,7 +522,7 @@ async def obtener_rentabilidad(
                 # Calcular el offset sumando ventas que matchean los filtros
                 # Aplicar filtro de tienda oficial para mostrar solo esa tienda
                 total_unidades, total_offset_ars, total_offset_usd = calcular_offset_grupo_en_tiempo_real(
-                    offset.grupo_id, offset, periodo_inicio_dt, fecha_hasta_dt, tc, tienda_oficial_filtro=tienda_oficial
+                    offset.grupo_id, offset, periodo_inicio_dt, fecha_hasta_dt, tc, tienda_oficial_filtro=tiendas_oficiales
                 )
 
                 offsets_grupo_calculados[offset.grupo_id] = {
@@ -742,7 +788,7 @@ async def obtener_rentabilidad(
             query = query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
         
         # Aplicar filtro de tienda oficial
-        query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
+        query = aplicar_filtro_tienda_oficial(query, tiendas_oficiales, db)
 
         # Aplicar filtro específico del offset (marca, categoría, item, etc.)
         if filtro_valor is True:
@@ -1384,7 +1430,8 @@ async def obtener_rentabilidad(
             "categorias": lista_categorias,
             "subcategorias": lista_subcategorias,
             "productos": lista_productos,
-            "tienda_oficial": tienda_oficial,
+            "tiendas_oficiales": tiendas_oficiales,
+            "pm_ids": pm_ids,
             "nivel_agrupacion": nivel
         }
     )
@@ -1404,12 +1451,14 @@ async def buscar_productos(
     q: str = Query(..., min_length=2, description="Término de búsqueda"),
     fecha_desde: date = Query(...),
     fecha_hasta: date = Query(...),
-    tienda_oficial: Optional[str] = Query(None, description="ID de tienda oficial"),
+    tiendas_oficiales: Optional[str] = Query(None, description="IDs de tiendas oficiales separados por coma"),
+    pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """
     Busca productos por código o descripción que tengan ventas en el período.
+    Soporta filtros de PMs y múltiples tiendas oficiales.
     """
     # Convertir fechas a datetime para comparación correcta
     fecha_desde_dt = datetime.combine(fecha_desde, datetime.min.time())
@@ -1431,7 +1480,8 @@ async def buscar_productos(
         )
     )
     
-    query = aplicar_filtro_tienda_oficial(query, tienda_oficial, db)
+    query = aplicar_filtro_tienda_oficial(query, tiendas_oficiales, db)
+    query = aplicar_filtro_marcas_pm(query, current_user, db, pm_ids)
     query = query.distinct().limit(50)
 
     resultados = query.all()
@@ -1455,13 +1505,15 @@ async def obtener_filtros_disponibles(
     marcas: Optional[str] = Query(None),
     categorias: Optional[str] = Query(None),
     subcategorias: Optional[str] = Query(None),
-    tienda_oficial: Optional[str] = Query(None, description="ID de tienda oficial"),
+    tiendas_oficiales: Optional[str] = Query(None, description="IDs de tiendas oficiales separados por coma"),
+    pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """
     Obtiene los valores disponibles para los filtros basado en los datos del período.
     Los filtros se retroalimentan entre sí (bidireccional).
+    Soporta filtros de PMs y múltiples tiendas oficiales.
     """
     # Usar | como separador para evitar conflictos con comas en nombres
     lista_marcas = [m.strip() for m in marcas.split('|')] if marcas else []
@@ -1482,7 +1534,8 @@ async def obtener_filtros_disponibles(
         marcas_query = marcas_query.filter(MLVentaMetrica.categoria.in_(lista_categorias))
     if lista_subcategorias:
         marcas_query = marcas_query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
-    marcas_query = aplicar_filtro_tienda_oficial(marcas_query, tienda_oficial, db)
+    marcas_query = aplicar_filtro_tienda_oficial(marcas_query, tiendas_oficiales, db)
+    marcas_query = aplicar_filtro_marcas_pm(marcas_query, current_user, db, pm_ids)
     marcas_disponibles = marcas_query.distinct().order_by(MLVentaMetrica.marca).all()
 
     # Categorías disponibles (filtradas por marcas y subcategorías seleccionadas)
@@ -1495,7 +1548,8 @@ async def obtener_filtros_disponibles(
         cat_query = cat_query.filter(MLVentaMetrica.marca.in_(lista_marcas))
     if lista_subcategorias:
         cat_query = cat_query.filter(MLVentaMetrica.subcategoria.in_(lista_subcategorias))
-    cat_query = aplicar_filtro_tienda_oficial(cat_query, tienda_oficial, db)
+    cat_query = aplicar_filtro_tienda_oficial(cat_query, tiendas_oficiales, db)
+    cat_query = aplicar_filtro_marcas_pm(cat_query, current_user, db, pm_ids)
     categorias_disponibles = cat_query.distinct().order_by(MLVentaMetrica.categoria).all()
 
     # Subcategorías disponibles (filtradas por marcas y categorías seleccionadas)
@@ -1508,7 +1562,8 @@ async def obtener_filtros_disponibles(
         subcat_query = subcat_query.filter(MLVentaMetrica.marca.in_(lista_marcas))
     if lista_categorias:
         subcat_query = subcat_query.filter(MLVentaMetrica.categoria.in_(lista_categorias))
-    subcat_query = aplicar_filtro_tienda_oficial(subcat_query, tienda_oficial, db)
+    subcat_query = aplicar_filtro_tienda_oficial(subcat_query, tiendas_oficiales, db)
+    subcat_query = aplicar_filtro_marcas_pm(subcat_query, current_user, db, pm_ids)
     subcategorias_disponibles = subcat_query.distinct().order_by(MLVentaMetrica.subcategoria).all()
 
     return {

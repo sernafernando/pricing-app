@@ -124,6 +124,7 @@ def get_ventas_tienda_nube_base_query():
         marca,
         categoria,
         subcategoria,
+        vendedor,
         cantidad * signo as cantidad,
         monto_total * signo as monto_total,
         costo_total * signo as costo_total,
@@ -143,6 +144,7 @@ async def obtener_rentabilidad_tienda_nube(
     categorias: Optional[str] = Query(None, description="Categorías separadas por |"),
     subcategorias: Optional[str] = Query(None, description="Subcategorías separadas por |"),
     productos: Optional[str] = Query(None, description="Item IDs separados por |"),
+    vendedores: Optional[str] = Query(None, description="Vendedores separados por coma"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -159,6 +161,7 @@ async def obtener_rentabilidad_tienda_nube(
     lista_categorias = [c.strip() for c in categorias.split('|')] if categorias else []
     lista_subcategorias = [s.strip() for s in subcategorias.split('|')] if subcategorias else []
     lista_productos = [int(p.strip()) for p in productos.split('|') if p.strip().isdigit()] if productos else []
+    lista_vendedores = [v.strip() for v in vendedores.split(',') if v.strip()] if vendedores else []
 
     # Determinar nivel de agrupación
     if lista_productos:
@@ -181,17 +184,20 @@ async def obtener_rentabilidad_tienda_nube(
     # Construir filtros SQL
     filtros_sql = []
     if lista_marcas:
-        marcas_str = "','".join(lista_marcas)
+        marcas_str = "','".join([m.replace("'", "''") for m in lista_marcas])
         filtros_sql.append(f"marca IN ('{marcas_str}')")
     if lista_categorias:
-        categorias_str = "','".join(lista_categorias)
+        categorias_str = "','".join([c.replace("'", "''") for c in lista_categorias])
         filtros_sql.append(f"categoria IN ('{categorias_str}')")
     if lista_subcategorias:
-        subcategorias_str = "','".join(lista_subcategorias)
+        subcategorias_str = "','".join([s.replace("'", "''") for s in lista_subcategorias])
         filtros_sql.append(f"subcategoria IN ('{subcategorias_str}')")
     if lista_productos:
         productos_str = ','.join(map(str, lista_productos))
         filtros_sql.append(f"item_id IN ({productos_str})")
+    if lista_vendedores:
+        vendedores_str = "','".join([v.replace("'", "''") for v in lista_vendedores])
+        filtros_sql.append(f"vendedor IN ('{vendedores_str}')")
 
     filtros_where = " AND " + " AND ".join(filtros_sql) if filtros_sql else ""
 

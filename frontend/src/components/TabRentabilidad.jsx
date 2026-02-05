@@ -19,7 +19,14 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export default function TabRentabilidad({ fechaDesde, fechaHasta, tiendaOficial }) {
+export default function TabRentabilidad({ 
+  fechaDesde, 
+  fechaHasta, 
+  tiendasOficiales = [], 
+  pmsSeleccionados = [],
+  marcasSeleccionadas: marcasExternas = [],
+  categoriasSeleccionadas: categoriasExternas = []
+}) {
   const [loading, setLoading] = useState(false);
   const [rentabilidad, setRentabilidad] = useState(null);
   const [filtrosDisponibles, setFiltrosDisponibles] = useState({
@@ -68,6 +75,8 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta, tiendaOficial 
   const categoriasKey = useMemo(() => categoriasSeleccionadas.join(','), [categoriasSeleccionadas.join(',')]);
   const subcategoriasKey = useMemo(() => subcategoriasSeleccionadas.join(','), [subcategoriasSeleccionadas.join(',')]);
   const productosKey = useMemo(() => productosSeleccionados.join(','), [productosSeleccionados.join(',')]);
+  const pmsKey = useMemo(() => pmsSeleccionados.join(','), [pmsSeleccionados.join(',')]);
+  const tiendasKey = useMemo(() => tiendasOficiales.join(','), [tiendasOficiales.join(',')]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
@@ -76,14 +85,14 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta, tiendaOficial 
       cargarFiltros();
       cargarRentabilidad();
     }
-  }, [fechaDesde, fechaHasta, tiendaOficial]);
+  }, [fechaDesde, fechaHasta, tiendasKey, pmsKey]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
       cargarRentabilidad();
       cargarFiltros(); // También recargar filtros disponibles cuando cambian las selecciones
     }
-  }, [marcasKey, categoriasKey, subcategoriasKey, productosKey]);
+  }, [marcasKey, categoriasKey, subcategoriasKey, productosKey, pmsKey]);
 
   const cargarFiltros = async () => {
     try {
@@ -101,8 +110,11 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta, tiendaOficial 
       if (subcategoriasSeleccionadas.length > 0) {
         params.subcategorias = subcategoriasSeleccionadas.join('|');
       }
-      if (tiendaOficial) {
-        params.tienda_oficial = tiendaOficial;
+      if (tiendasOficiales.length > 0) {
+        params.tiendas_oficiales = tiendasOficiales.join(',');
+      }
+      if (pmsSeleccionados.length > 0) {
+        params.pm_ids = pmsSeleccionados.join(',');
       }
 
       const response = await api.get('/rentabilidad/filtros', { params });
@@ -132,8 +144,11 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta, tiendaOficial 
       if (productosSeleccionados.length > 0) {
         params.productos = productosSeleccionados.join('|');
       }
-      if (tiendaOficial) {
-        params.tienda_oficial = tiendaOficial;
+      if (tiendasOficiales.length > 0) {
+        params.tiendas_oficiales = tiendasOficiales.join(',');
+      }
+      if (pmsSeleccionados.length > 0) {
+        params.pm_ids = pmsSeleccionados.join(',');
       }
 
       const response = await api.get('/rentabilidad', { params });
@@ -154,8 +169,11 @@ export default function TabRentabilidad({ fechaDesde, fechaHasta, tiendaOficial 
         fecha_desde: fechaDesde,
         fecha_hasta: fechaHasta
       };
-      if (tiendaOficial) {
-        params.tienda_oficial = tiendaOficial;
+      if (tiendasOficiales.length > 0) {
+        params.tiendas_oficiales = tiendasOficiales.join(',');
+      }
+      if (pmsSeleccionados.length > 0) {
+        params.pm_ids = pmsSeleccionados.join(',');
       }
       
       const response = await api.get('/rentabilidad/buscar-productos', { params });

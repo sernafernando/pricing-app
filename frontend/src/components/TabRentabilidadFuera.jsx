@@ -19,7 +19,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
+export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal, vendedor }) {
   const [loading, setLoading] = useState(false);
   const [rentabilidad, setRentabilidad] = useState(null);
   const [filtrosDisponibles, setFiltrosDisponibles] = useState({
@@ -76,7 +76,7 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
       cargarFiltros();
       cargarRentabilidad();
     }
-  }, [fechaDesde, fechaHasta]);
+  }, [fechaDesde, fechaHasta, sucursal, vendedor]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
@@ -90,6 +90,8 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
         fecha_desde: fechaDesde,
         fecha_hasta: fechaHasta
       };
+      if (sucursal) params.sucursal = sucursal;
+      if (vendedor) params.vendedor = vendedor;
       if (marcasSeleccionadas.length > 0) {
         params.marcas = marcasSeleccionadas.join('|');
       }
@@ -114,6 +116,8 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
         fecha_desde: fechaDesde,
         fecha_hasta: fechaHasta
       };
+      if (sucursal) params.sucursal = sucursal;
+      if (vendedor) params.vendedor = vendedor;
       if (marcasSeleccionadas.length > 0) {
         params.marcas = marcasSeleccionadas.join('|');
       }
@@ -140,13 +144,15 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta }) {
     if (busquedaProducto.length < 2) return;
     setBuscandoProductos(true);
     try {
-      const response = await api.get('/rentabilidad-fuera/buscar-productos', {
-        params: {
-          q: busquedaProducto,
-          fecha_desde: fechaDesde,
-          fecha_hasta: fechaHasta
-        }
-      });
+      const params = {
+        q: busquedaProducto,
+        fecha_desde: fechaDesde,
+        fecha_hasta: fechaHasta
+      };
+      if (sucursal) params.sucursal = sucursal;
+      if (vendedor) params.vendedor = vendedor;
+      
+      const response = await api.get('/rentabilidad-fuera/buscar-productos', { params });
       setProductosEncontrados(response.data);
     } catch (error) {
       console.error('Error buscando productos:', error);

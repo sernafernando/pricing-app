@@ -19,7 +19,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
+export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta, vendedoresSeleccionados = [] }) {
   const [loading, setLoading] = useState(false);
   const [rentabilidad, setRentabilidad] = useState(null);
   const [filtrosDisponibles, setFiltrosDisponibles] = useState({
@@ -69,19 +69,21 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
   // Guardar las fechas actuales para mostrar en el UI
   const [fechasActuales, setFechasActuales] = useState({ desde: null, hasta: null });
 
+  const vendedoresKey = useMemo(() => vendedoresSeleccionados.join(','), [vendedoresSeleccionados.join(',')]);
+
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
       setFechasActuales({ desde: fechaDesde, hasta: fechaHasta });
       cargarFiltros();
       cargarRentabilidad();
     }
-  }, [fechaDesde, fechaHasta]);
+  }, [fechaDesde, fechaHasta, vendedoresKey]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
       cargarRentabilidad();
     }
-  }, [marcasKey, categoriasKey, subcategoriasKey, productosKey]);
+  }, [marcasKey, categoriasKey, subcategoriasKey, productosKey, vendedoresKey]);
 
   const cargarFiltros = async () => {
     try {
@@ -124,6 +126,9 @@ export default function TabRentabilidadTiendaNube({ fechaDesde, fechaHasta }) {
       }
       if (productosSeleccionados.length > 0) {
         params.productos = productosSeleccionados.join('|');
+      }
+      if (vendedoresSeleccionados.length > 0) {
+        params.vendedores = vendedoresSeleccionados.join(',');
       }
 
       const response = await api.get('/rentabilidad-tienda-nube', { params });
