@@ -388,6 +388,8 @@
 :root[data-theme="light"] .btn-tesla.outline-subtle-info.icon-only {
   color: inherit;  /* ← Hereda color del texto de la fila */
   opacity: 0.7;
+  border: none;  /* ← Sin borde para icon-only */
+  background: transparent;  /* ← Sin fondo, completamente transparente */
 }
 
 :root[data-theme="light"] .btn-tesla.outline-subtle-primary.icon-only:hover,
@@ -397,7 +399,8 @@
 :root[data-theme="light"] .btn-tesla.outline-subtle-info.icon-only:hover {
   opacity: 1;
   transform: scale(1.15);
-  background: rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.08);  /* ← Solo un poquito de fondo al hacer hover */
+  border: none;  /* ← Sin borde en hover también */
 }
 
 /* ============================================

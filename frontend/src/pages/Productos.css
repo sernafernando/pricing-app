@@ -1,21 +1,3 @@
-/* Variables CSS para colores semánticos de productos */
-:root {
-  --product-urgent-bg: #fee2e2;
-  --product-urgent-text: #991b1b;
-  --product-warning-bg: #fed7aa;
-  --product-warning-text: #9a3412;
-  --product-attention-bg: #fef3c7;
-  --product-attention-text: #92400e;
-  --product-ok-bg: #d1fae5;
-  --product-ok-text: #065f46;
-  --product-info-bg: #dbeafe;
-  --product-info-text: #1e40af;
-  --product-review-bg: #e9d5ff;
-  --product-review-text: #6b21a8;
-  --product-inactive-bg: #e5e7eb;
-  --product-inactive-text: #374151;
-}
-
 /* Contenedor principal */
 .productos-container {
   padding: 20px;
@@ -1069,8 +1051,13 @@
 }
 
 .rebate-percentage {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-secondary);
+  opacity: 0.7;
+  font-weight: 400;
+  background: transparent;
+  padding: 0;
+  margin: 0;
 }
 
 .out-of-cards-checkbox {
@@ -1152,119 +1139,7 @@
   justify-content: center;
 }
 
-.icon-button {
-  padding: 4px 6px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: all 0.2s;
-  border: 1px solid;
-  background: var(--bg-primary);
-  min-width: 26px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-
-.icon-button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-/* Botón Info - Azul */
-.icon-button.info {
-  color: #3b82f6;
-  border-color: #dbeafe;
-  background: #eff6ff;
-}
-
-.icon-button.info:hover {
-  border-color: #3b82f6;
-  background: #dbeafe;
-}
-
-/* Botón Detail - Cyan */
-.icon-button.detail {
-  color: #0891b2;
-  border-color: #cffafe;
-  background: #ecfeff;
-}
-
-.icon-button.detail:hover {
-  border-color: #0891b2;
-  background: #cffafe;
-}
-
-/* Botón Audit - Morado */
-.icon-button.audit {
-  color: #7c3aed;
-  border-color: #ede9fe;
-  background: #f5f3ff;
-}
-
-.icon-button.audit:hover {
-  border-color: #7c3aed;
-  background: #ede9fe;
-}
-
-/* Botón Config - Gris */
-.icon-button.config {
-  color: #6b7280;
-  border-color: #e5e7eb;
-  background: #f9fafb;
-}
-
-.icon-button.config:hover {
-  border-color: #6b7280;
-  background: #e5e7eb;
-}
-
-/* Botón Color - Rosa */
-.icon-button.color {
-  color: #ec4899;
-  border-color: #fce7f3;
-  background: #fdf2f8;
-}
-
-.icon-button.color:hover {
-  border-color: #ec4899;
-  background: #fce7f3;
-}
-
-/* Dropdown de colores */
-.color-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 4px;
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  padding: 8px;
-  z-index: 1000;
-  min-width: 160px;
-}
-
-.color-option {
-  display: block;
-  width: 100%;
-  padding: 8px 12px;
-  margin: 4px 0;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.2s;
-  text-align: left;
-}
-
-.color-option:hover {
-  transform: scale(1.05);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
+/* Icon buttons y color dropdown → ver tabla-productos-shared.css */
 
 /* Filas coloreadas - borde sutil (los colores se definen por clase específica) */
 .row-colored {
@@ -1493,70 +1368,7 @@
   color: var(--brand-primary);
 }
 
-/* ====== NAVEGACIÓN POR TECLADO ====== */
-
-/* Celda activa con resaltado */
-.keyboard-cell-active {
-  position: relative;
-  box-shadow: inset 0 0 0 3px var(--brand-primary) !important;
-  background: rgba(59, 130, 246, 0.1) !important;
-  animation: pulse-cell 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse-cell {
-  0%, 100% {
-    box-shadow: inset 0 0 0 3px var(--brand-primary);
-  }
-  50% {
-    box-shadow: inset 0 0 0 3px rgba(59, 130, 246, 0.5);
-  }
-}
-
-/* Fila activa con borde grueso - NO cambiar background para respetar color marcado */
-.keyboard-row-active {
-  outline: 3px solid var(--brand-primary) !important;
-  outline-offset: -3px !important;
-  position: relative !important;
-}
-
-/* Indicador de modo navegación */
-.navigation-indicator {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--gradient-primary);
-  color: white;
-  padding: 12px 24px;
-  border-radius: 8px;
-  box-shadow: var(--shadow-lg);
-  z-index: 1000;
-  font-size: 14px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  animation: slideUp 0.3s ease-out;
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-  }
-}
-
-.navigation-indicator kbd {
-  background: rgba(255, 255, 255, 0.2);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: monospace;
-  font-size: 12px;
-}
+/* Navegación por teclado → ver tabla-productos-shared.css */
 
 /* Modal de shortcuts */
 .shortcuts-modal-overlay {
@@ -1732,242 +1544,7 @@
   }
 }
 
-/* Modal de confirmación de ban */
-.modal-ban-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-}
-
-.modal-ban-content {
-  background-color: var(--bg-primary);
-  padding: 30px;
-  border-radius: 8px;
-  max-width: 500px;
-  width: 90%;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-  color: var(--text-primary);
-}
-
-.modal-ban-title {
-  margin-top: 0;
-  color: #ef4444;
-}
-
-.modal-ban-info {
-  margin-bottom: 20px;
-}
-
-.modal-ban-info p {
-  margin: 8px 0;
-}
-
-.modal-ban-warning {
-  padding: 15px;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  margin-bottom: 20px;
-}
-
-.modal-ban-warning p:first-child {
-  margin: 0 0 10px 0;
-  font-weight: bold;
-}
-
-.modal-ban-word {
-  margin: 10px 0;
-  font-size: 20px;
-  font-weight: bold;
-  color: #dc2626;
-  text-align: center;
-  font-family: monospace;
-  background-color: var(--bg-primary);
-  padding: 10px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
-}
-
-.modal-ban-field {
-  margin-bottom: 15px;
-}
-
-.modal-ban-field label {
-  display: block;
-  margin-bottom: 5px;
-  font-weight: bold;
-}
-
-.modal-ban-input,
-.modal-ban-textarea {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-size: 16px;
-  box-sizing: border-box;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.modal-ban-textarea {
-  font-size: 14px;
-  min-height: 80px;
-  resize: vertical;
-  font-family: inherit;
-}
-
-.modal-ban-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  margin-top: 20px;
-}
-
-.modal-ban-btn-cancel {
-  padding: 10px 20px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.modal-ban-btn-cancel:hover {
-  opacity: 0.8;
-}
-
-.modal-ban-btn-confirm {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 4px;
-  background-color: #ef4444;
-  color: white;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: bold;
-}
-
-.modal-ban-btn-confirm:hover {
-  background-color: #dc2626;
-}
-
-/* Clases para filas coloreadas - estilo Bootstrap Alerts */
-.row-color-rojo {
-  background-color: #fee2e2 !important;
-  color: #991b1b !important;
-}
-
-.row-color-rojo td {
-  color: #991b1b !important;
-}
-
-.row-color-naranja {
-  background-color: #fed7aa !important;
-  color: #9a3412 !important;
-}
-
-.row-color-naranja td {
-  color: #9a3412 !important;
-}
-
-.row-color-amarillo {
-  background-color: #fef3c7 !important;
-  color: #92400e !important;
-}
-
-.row-color-amarillo td {
-  color: #92400e !important;
-}
-
-.row-color-verde {
-  background-color: #d1fae5 !important;
-  color: #065f46 !important;
-}
-
-.row-color-verde td {
-  color: #065f46 !important;
-}
-
-.row-color-azul {
-  background-color: #dbeafe !important;
-  color: #1e40af !important;
-}
-
-.row-color-azul td {
-  color: #1e40af !important;
-}
-
-.row-color-purpura {
-  background-color: #e9d5ff !important;
-  color: #6b21a8 !important;
-}
-
-.row-color-purpura td {
-  color: #6b21a8 !important;
-}
-
-.row-color-gris {
-  background-color: #e5e7eb !important;
-  color: #374151 !important;
-}
-
-.row-color-gris td {
-  color: #374151 !important;
-}
-
-/* Asegurar que elementos interactivos tengan buen contraste */
-.row-colored input[type="checkbox"] {
-  opacity: 0.8;
-}
-
-.row-colored .editable-field:hover {
-  opacity: 0.7;
-}
-
-/* Badges y elementos con colores propios dentro de filas coloreadas */
-.row-colored .markup-display,
-.row-colored .text-muted,
-.row-colored .text-success,
-.row-colored .text-danger,
-.row-colored small,
-.row-colored .web-transf-porcentaje,
-.row-colored .web-transf-markup,
-.row-colored .web-transf-info,
-.row-colored .rebate-price,
-.row-colored .rebate-percentage,
-.row-colored .rebate-info,
-.row-colored .mejor-oferta-precio,
-.row-colored .mejor-oferta-detalle,
-.row-colored .mejor-oferta-rebate,
-.row-colored .mejor-oferta-info {
-  color: inherit !important;
-  opacity: 0.75;
-}
-
-/* Los markups y elementos que se colorean dinámicamente con JS también deben heredar el color */
-.row-colored .web-transf-markup[style*="color"],
-.row-colored .mejor-oferta-detalle[style*="color"],
-.row-colored .web-transf-info [style*="color"],
-.row-colored .web-transf-info div,
-.row-colored .web-transf-info span,
-.row-colored .rebate-info [style*="color"],
-.row-colored .rebate-info div,
-.row-colored .rebate-info span,
-.row-colored .mejor-oferta-info [style*="color"],
-.row-colored .mejor-oferta-info div,
-.row-colored .mejor-oferta-info span {
-  color: inherit !important;
-  opacity: 0.85;
-}
+/* Modal de ban y filas coloreadas → ver tabla-productos-shared.css */
 
 /* Mensaje vacío en dropdowns */
 .dropdown-empty-message {
@@ -2098,11 +1675,13 @@
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background-color: var(--brand-primary);
+  background: rgba(30, 30, 35, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   color: white;
   padding: 15px 25px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   z-index: 1000;
   display: flex;
   align-items: center;

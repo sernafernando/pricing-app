@@ -242,6 +242,38 @@
   background: var(--cf-hover-overlay);
 }
 
+/* High Contrast Button - Minimalista con check */
+.highContrastBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.highContrastBtn:hover {
+  color: var(--text-primary);
+}
+
+.highContrastBtn.active {
+  color: var(--text-primary);
+  font-weight: var(--font-semibold);
+}
+
+.checkmark {
+  font-size: 14px;
+  font-weight: bold;
+}
+
 .logoutBtn {
   width: 100%;
   padding: 8px 10px;

@@ -10,6 +10,7 @@ import './Tienda.css';
 import '../styles/table-tesla.css';
 import '../styles/buttons-tesla.css';
 import '../styles/utilities.css';
+import '../styles/tabla-productos-shared.css';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -18,7 +19,6 @@ import CalcularWebModal from '../components/CalcularWebModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import SetupMarkups from '../components/SetupMarkups';
 import StatCard from '../components/StatCard';
-import './Productos.css';
 
 export default function Tienda() {
   const { tienePermiso } = usePermisos();
