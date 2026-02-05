@@ -491,15 +491,17 @@ async def get_operaciones_desde_metricas(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
-            sucursales_quoted = "','".join(sucursales_escaped)
-            where_clauses.append(f"m.sucursal IN ('{sucursales_quoted}')")
+            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            where_clauses.append(f"m.sucursal IN ({sucursal_placeholders})")
+            for i, suc in enumerate(sucursales):
+                params[f'sucursal_{i}'] = suc
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
-            vendedores_quoted = "','".join(vendedores_escaped)
-            where_clauses.append(f"m.vendedor IN ('{vendedores_quoted}')")
+            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            where_clauses.append(f"m.vendedor IN ({vendedor_placeholders})")
+            for i, vend in enumerate(vendedores):
+                params[f'vendedor_{i}'] = vend
     if marca:
         where_clauses.append("m.marca = :marca")
         params["marca"] = marca
@@ -606,15 +608,17 @@ async def get_operaciones_count(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
-            sucursales_quoted = "','".join(sucursales_escaped)
-            where_clauses.append(f"m.sucursal IN ('{sucursales_quoted}')")
+            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            where_clauses.append(f"m.sucursal IN ({sucursal_placeholders})")
+            for i, suc in enumerate(sucursales):
+                params[f'sucursal_{i}'] = suc
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
-            vendedores_quoted = "','".join(vendedores_escaped)
-            where_clauses.append(f"m.vendedor IN ('{vendedores_quoted}')")
+            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            where_clauses.append(f"m.vendedor IN ({vendedor_placeholders})")
+            for i, vend in enumerate(vendedores):
+                params[f'vendedor_{i}'] = vend
     if marca:
         where_clauses.append("m.marca = :marca")
         params["marca"] = marca
@@ -717,14 +721,18 @@ async def get_ventas_fuera_ml_stats(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            sucursales_quoted = "','".join(sucursales)
-            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            where_clause += f" AND sucursal IN ({sucursal_placeholders})"
+            for i, suc in enumerate(sucursales):
+                params[f'sucursal_{i}'] = suc
     
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            vendedores_quoted = "','".join(vendedores)
-            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            where_clause += f" AND vendedor IN ({vendedor_placeholders})"
+            for i, vend in enumerate(vendedores):
+                params[f'vendedor_{i}'] = vend
     
     # Query única con GROUPING SETS para stats totales, por sucursal y por vendedor
     combined_query = f"""
@@ -855,18 +863,18 @@ async def get_ventas_fuera_ml_por_marca(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            # Escapar comillas simples en los nombres para evitar SQL injection
-            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
-            sucursales_quoted = "','".join(sucursales_escaped)
-            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            where_clause += f" AND sucursal IN ({sucursal_placeholders})"
+            for i, suc in enumerate(sucursales):
+                params[f'sucursal_{i}'] = suc
     
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            # Escapar comillas simples en los nombres para evitar SQL injection
-            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
-            vendedores_quoted = "','".join(vendedores_escaped)
-            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            where_clause += f" AND vendedor IN ({vendedor_placeholders})"
+            for i, vend in enumerate(vendedores):
+                params[f'vendedor_{i}'] = vend
     
     # Query rápida desde tabla de métricas pre-calculadas
     query = f"""
@@ -925,18 +933,18 @@ async def get_top_productos_fuera_ml(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            # Escapar comillas simples en los nombres para evitar SQL injection
-            sucursales_escaped = [s.replace("'", "''") for s in sucursales]
-            sucursales_quoted = "','".join(sucursales_escaped)
-            where_clause += f" AND sucursal IN ('{sucursales_quoted}')"
+            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            where_clause += f" AND sucursal IN ({sucursal_placeholders})"
+            for i, suc in enumerate(sucursales):
+                params[f'sucursal_{i}'] = suc
     
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            # Escapar comillas simples en los nombres para evitar SQL injection
-            vendedores_escaped = [v.replace("'", "''") for v in vendedores]
-            vendedores_quoted = "','".join(vendedores_escaped)
-            where_clause += f" AND vendedor IN ('{vendedores_quoted}')"
+            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            where_clause += f" AND vendedor IN ({vendedor_placeholders})"
+            for i, vend in enumerate(vendedores):
+                params[f'vendedor_{i}'] = vend
 
     # Query rápida desde tabla de métricas pre-calculadas
     query = f"""

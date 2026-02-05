@@ -736,13 +736,14 @@ async def get_operaciones_con_metricas(
     LIMIT %(limit)s OFFSET %(offset)s
     """
     
-    # Construir filtros dinámicos
+    # Construir filtros dinámicos usando placeholders seguros
     tienda_oficial_filter = ""
+    store_ids_param = None
     if tiendas_oficiales:
         store_ids = [int(id.strip()) for id in tiendas_oficiales.split(',') if id.strip().isdigit()]
         if store_ids:
-            store_ids_str = ','.join(map(str, store_ids))
-            tienda_oficial_filter = f"AND tmlip.mlp_official_store_id IN ({store_ids_str})"
+            store_ids_param = store_ids
+            tienda_oficial_filter = "AND tmlip.mlp_official_store_id = ANY(%(store_ids)s)"
     
     ml_id_filter = ""
     if ml_id:
@@ -753,18 +754,20 @@ async def get_operaciones_con_metricas(
         codigo_filter = "AND (ti.item_code ILIKE %(codigo)s OR pe.codigo ILIKE %(codigo)s)"
     
     marca_filter = ""
+    marcas_param = None
     if marcas:
-        marcas_list = [m.strip().replace("'", "''") for m in marcas.split(',') if m.strip()]
+        marcas_list = [m.strip() for m in marcas.split(',') if m.strip()]
         if marcas_list:
-            marcas_quoted = "','".join(marcas_list)
-            marca_filter = f"AND (tb.brand_desc IN ('{marcas_quoted}') OR pe.marca IN ('{marcas_quoted}'))"
+            marcas_param = marcas_list
+            marca_filter = "AND (tb.brand_desc = ANY(%(marcas)s) OR pe.marca = ANY(%(marcas)s))"
     
     categoria_filter = ""
+    categorias_param = None
     if categorias:
-        categorias_list = [c.strip().replace("'", "''") for c in categorias.split(',') if c.strip()]
+        categorias_list = [c.strip() for c in categorias.split(',') if c.strip()]
         if categorias_list:
-            categorias_quoted = "','".join(categorias_list)
-            categoria_filter = f"AND (tc.cat_desc IN ('{categorias_quoted}') OR pe.categoria IN ('{categorias_quoted}'))"
+            categorias_param = categorias_list
+            categoria_filter = "AND (tc.cat_desc = ANY(%(categorias)s) OR pe.categoria = ANY(%(categorias)s))"
     
     search_filter = ""
     if search:
@@ -798,6 +801,12 @@ async def get_operaciones_con_metricas(
         params['codigo'] = f'%{codigo}%'
     if search:
         params['search_pattern'] = f'%{search}%'
+    if store_ids_param:
+        params['store_ids'] = store_ids_param
+    if marcas_param:
+        params['marcas'] = marcas_param
+    if categorias_param:
+        params['categorias'] = categorias_param
 
     # Ejecutar via raw connection (psycopg2) que soporta %(param)s nativo
     # Obtener la conexión raw de psycopg2
@@ -1056,27 +1065,30 @@ async def exportar_operaciones(
     ORDER BY fecha_venta DESC, id_operacion
     """
 
-    # Construir filtros dinámicos
+    # Construir filtros dinámicos usando placeholders seguros
     tienda_oficial_filter = ""
+    store_ids_param = None
     if tiendas_oficiales:
         store_ids = [int(id.strip()) for id in tiendas_oficiales.split(',') if id.strip().isdigit()]
         if store_ids:
-            store_ids_str = ','.join(map(str, store_ids))
-            tienda_oficial_filter = f"AND tmlip.mlp_official_store_id IN ({store_ids_str})"
+            store_ids_param = store_ids
+            tienda_oficial_filter = "AND tmlip.mlp_official_store_id = ANY(%(store_ids)s)"
 
     marca_filter = ""
+    marcas_param = None
     if marcas:
-        marcas_list = [m.strip().replace("'", "''") for m in marcas.split(',') if m.strip()]
+        marcas_list = [m.strip() for m in marcas.split(',') if m.strip()]
         if marcas_list:
-            marcas_quoted = "','".join(marcas_list)
-            marca_filter = f"AND (tb.brand_desc IN ('{marcas_quoted}') OR pe.marca IN ('{marcas_quoted}'))"
+            marcas_param = marcas_list
+            marca_filter = "AND (tb.brand_desc = ANY(%(marcas)s) OR pe.marca = ANY(%(marcas)s))"
 
     categoria_filter = ""
+    categorias_param = None
     if categorias:
-        categorias_list = [c.strip().replace("'", "''") for c in categorias.split(',') if c.strip()]
+        categorias_list = [c.strip() for c in categorias.split(',') if c.strip()]
         if categorias_list:
-            categorias_quoted = "','".join(categorias_list)
-            categoria_filter = f"AND (tc.cat_desc IN ('{categorias_quoted}') OR pe.categoria IN ('{categorias_quoted}'))"
+            categorias_param = categorias_list
+            categoria_filter = "AND (tc.cat_desc = ANY(%(categorias)s) OR pe.categoria = ANY(%(categorias)s))"
 
     query_str = query_str.format(
         tienda_oficial_filter=tienda_oficial_filter,
@@ -1088,6 +1100,14 @@ async def exportar_operaciones(
         'from_date': from_date,
         'to_date': to_date_full
     }
+    
+    # Agregar parámetros de filtros solo si existen
+    if store_ids_param:
+        params['store_ids'] = store_ids_param
+    if marcas_param:
+        params['marcas'] = marcas_param
+    if categorias_param:
+        params['categorias'] = categorias_param
 
     # Ejecutar query
     raw_connection = db.connection().connection
