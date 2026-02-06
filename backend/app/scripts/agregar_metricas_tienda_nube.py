@@ -34,17 +34,13 @@ from app.models.pricing_constants import PricingConstants
 SD_VENTAS = [1, 4, 21, 56]
 SD_DEVOLUCIONES = [3, 6, 23, 66]
 SD_TODOS = SD_VENTAS + SD_DEVOLUCIONES
-SD_IDS_STR = ','.join(map(str, SD_TODOS))
 
 # df_id de facturas de Tienda Nube
 DF_TIENDA_NUBE = [113, 114]
-DF_IDS_STR = ','.join(map(str, DF_TIENDA_NUBE))
 
 CLIENTES_EXCLUIDOS = [11, 3900]
-CLIENTES_EXCLUIDOS_STR = ','.join(map(str, CLIENTES_EXCLUIDOS))
 
 ITEMS_EXCLUIDOS = [16, 460]
-ITEMS_EXCLUIDOS_STR = ','.join(map(str, ITEMS_EXCLUIDOS))
 
 
 def get_comision_tienda_nube(db: Session, fecha: date = None) -> float:
@@ -71,7 +67,7 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
     """
     Obtiene todas las ventas de Tienda Nube con métricas ya calculadas
     """
-    query = text(f"""
+    query = text("""
     WITH combo_precios AS (
         -- Precio total del combo por transacción
         SELECT
@@ -84,7 +80,7 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
         WHERE tit.it_isassociationgroup IS NOT NULL
           AND tit.it_price IS NOT NULL AND tit.it_price > 0
           AND tct.ct_date BETWEEN :from_date AND :to_date
-          AND tct.df_id IN ({DF_IDS_STR})
+          AND tct.df_id = ANY(:df_ids)
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     ),
     combo_costos AS (
@@ -119,7 +115,7 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
         ) ceh ON true
         WHERE tit.it_isassociationgroup IS NOT NULL
           AND tct.ct_date BETWEEN :from_date AND :to_date
-          AND tct.df_id IN ({DF_IDS_STR})
+          AND tct.df_id = ANY(:df_ids)
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     )
     SELECT
@@ -232,11 +228,11 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
     ) ceh ON true
 
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN ({DF_IDS_STR})
-        AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
+        AND tct.df_id = ANY(:df_ids)
+        AND (tit.item_id != ALL(:items_excluidos) OR tit.item_id IS NULL)
+        AND tct.cust_id != ALL(:clientes_excluidos)
         AND tit.it_qty <> 0
-        AND tct.sd_id IN ({SD_IDS_STR})
+        AND tct.sd_id = ANY(:sd_ids)
         -- Excluir items "Envio"
         AND NOT (
             CASE
@@ -256,7 +252,11 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
 
     result = db.execute(query, {
         'from_date': from_date,
-        'to_date': to_date
+        'to_date': to_date,
+        'df_ids': DF_TIENDA_NUBE,
+        'items_excluidos': ITEMS_EXCLUIDOS,
+        'clientes_excluidos': CLIENTES_EXCLUIDOS,
+        'sd_ids': SD_TODOS
     })
 
     return result.fetchall()
