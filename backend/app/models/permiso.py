@@ -435,11 +435,18 @@ PERMISOS_SISTEMA = [
         "orden": 61
     },
     {
+        "codigo": "admin.gestionar_comparacion_banlist",
+        "nombre": "Gestionar banlist de comparación",
+        "descripcion": "Agregar y quitar items de la banlist de comparación de listas",
+        "categoria": CategoriaPermiso.ADMINISTRACION,
+        "orden": 62
+    },
+    {
         "codigo": "produccion.marcar_prearmado",
         "nombre": "Marcar productos pre-armados",
         "descripcion": "Marcar/desmarcar productos que están siendo pre-armados en producción",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 62
+        "orden": 63
     },
 
     # =========================================================================
@@ -552,6 +559,7 @@ PERMISOS_POR_ROL = {
         "admin.ver_items_sin_mla",
         "admin.gestionar_items_sin_mla_banlist",
         "admin.ver_comparacion_listas_ml",
+        "admin.gestionar_comparacion_banlist",
         "produccion.marcar_prearmado",
         "config.*",
         "alertas.*",
