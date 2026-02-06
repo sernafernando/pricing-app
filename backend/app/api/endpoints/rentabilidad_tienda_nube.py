@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, text
 from typing import List, Optional
 from datetime import date, datetime, timedelta
-from decimal import Decimal
 from pydantic import BaseModel
 
 from app.core.database import get_db

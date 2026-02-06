@@ -601,7 +601,7 @@ async def obtener_rentabilidad(
             # Aquí SÍ aplicamos el filtro de tienda oficial para mostrar solo esa tienda
             periodo_inicio_dt = max(fecha_desde_dt, offset_inicio_dt)
             periodo_unidades, periodo_offset, _ = calcular_consumo_individual_desde_tabla(
-                offset.id, periodo_inicio_dt, fecha_hasta_dt, tienda_oficial_filtro=tienda_oficial
+                offset.id, periodo_inicio_dt, fecha_hasta_dt, tienda_oficial_filtro=tiendas_oficiales
             )
 
             limite_agotado_previo = False
