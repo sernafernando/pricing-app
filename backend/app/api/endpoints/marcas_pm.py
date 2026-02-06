@@ -66,6 +66,7 @@ class MarcasCategoriaItem(BaseModel):
     categoria: str
 
 class MarcasCategoriasListResponse(BaseModel):
+    marcas: List[str]
     pares: List[MarcasCategoriaItem]
     total: int
 
@@ -315,7 +316,11 @@ async def obtener_marcas_por_pms(
         for p in pares
     ]
 
+    # Marcas únicas para retrocompatibilidad con el frontend
+    marcas_unicas = sorted(set(p[0] for p in pares))
+
     return MarcasCategoriasListResponse(
+        marcas=marcas_unicas,
         pares=pares_list,
         total=len(pares_list)
     )
