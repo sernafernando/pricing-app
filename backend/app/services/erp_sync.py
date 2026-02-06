@@ -39,7 +39,7 @@ async def fetch_stock_erp() -> Dict[int, int]:
     url = f"{settings.ERP_BASE_URL}/gbp-parser"
 
     async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(url, json={
+        response = await client.get(url, params={
             "opName": "ItemStock",
             "intStor_id": 1,
             "intItem_id": -1
