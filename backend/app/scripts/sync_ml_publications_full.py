@@ -38,7 +38,7 @@ ACCESS_TOKEN = None
 REFRESH_TOKEN = settings.ML_REFRESH_TOKEN
 
 
-async def refresh_access_token():
+async def refresh_access_token(http_client: httpx.AsyncClient):
     """Refresca el access token usando el refresh token"""
     global ACCESS_TOKEN, REFRESH_TOKEN
 
@@ -53,39 +53,106 @@ async def refresh_access_token():
         "refresh_token": REFRESH_TOKEN
     }
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(url, data=data)
-        response.raise_for_status()
-        tokens = response.json()
+    response = await http_client.post(url, data=data)
+    response.raise_for_status()
+    tokens = response.json()
 
-        ACCESS_TOKEN = tokens.get("access_token")
-        if tokens.get("refresh_token"):
-            REFRESH_TOKEN = tokens.get("refresh_token")
+    ACCESS_TOKEN = tokens.get("access_token")
+    if tokens.get("refresh_token"):
+        REFRESH_TOKEN = tokens.get("refresh_token")
 
-        print(f"✓ Token refrescado exitosamente")
-        return ACCESS_TOKEN
+    print(f"✓ Token refrescado exitosamente")
+    return ACCESS_TOKEN
 
 
-async def call_meli(endpoint: str, retry=True):
+async def call_meli(http_client: httpx.AsyncClient, endpoint: str, retry=True):
     """Llamada a la API de MercadoLibre con manejo automático de tokens"""
     global ACCESS_TOKEN
 
     if not ACCESS_TOKEN:
-        await refresh_access_token()
+        await refresh_access_token(http_client)
 
     url = f"https://api.mercadolibre.com{endpoint}"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(url, headers=headers)
+    response = await http_client.get(url, headers=headers)
 
-        if response.status_code == 401 and retry:
-            print("Token expirado, refrescando...")
-            await refresh_access_token()
-            return await call_meli(endpoint, retry=False)
+    if response.status_code == 401 and retry:
+        print("Token expirado, refrescando...")
+        await refresh_access_token(http_client)
+        return await call_meli(http_client, endpoint, retry=False)
 
-        response.raise_for_status()
-        return response.json()
+    response.raise_for_status()
+    return response.json()
+
+
+def extraer_datos_publicacion(item):
+    """Extrae campaña, SKU e item_id de una respuesta de ML"""
+    # Buscar campaña de cuotas
+    campaign = None
+    sale_terms = item.get("sale_terms", [])
+    for term in sale_terms:
+        if term.get("id") == "INSTALLMENTS_CAMPAIGN":
+            campaign = term.get("value_name")
+            break
+
+    # Lógica condicional de campaña
+    if item.get("listing_type_id") == "gold_special":
+        campaign = "Clásica"
+    elif not campaign and item.get("listing_type_id") == "gold_pro":
+        campaign = "6x_campaign"
+    elif not campaign:
+        campaign = "-"
+
+    # Buscar SKU
+    seller_sku = None
+    attributes = item.get("attributes", [])
+    for attr in attributes:
+        if attr.get("id") == "SELLER_SKU":
+            seller_sku = attr.get("value_id")
+            break
+
+    # Intentar obtener item_id del SKU
+    item_id = None
+    if seller_sku and seller_sku.isdigit():
+        item_id = int(seller_sku)
+
+    return campaign, seller_sku, item_id
+
+
+def aplicar_snapshot(snapshot, item, campaign, seller_sku, item_id):
+    """Actualiza los campos de un snapshot existente con datos nuevos"""
+    snapshot.title = item.get("title")
+    snapshot.price = item.get("price")
+    snapshot.base_price = item.get("base_price")
+    snapshot.available_quantity = item.get("available_quantity")
+    snapshot.sold_quantity = item.get("sold_quantity")
+    snapshot.status = item.get("status")
+    snapshot.listing_type_id = item.get("listing_type_id")
+    snapshot.permalink = item.get("permalink")
+    snapshot.installments_campaign = campaign
+    snapshot.seller_sku = seller_sku
+    snapshot.item_id = item_id
+    snapshot.snapshot_date = datetime.now()
+
+
+def crear_snapshot(mla_id, item, campaign, seller_sku, item_id):
+    """Crea un nuevo objeto MLPublicationSnapshot"""
+    return MLPublicationSnapshot(
+        mla_id=mla_id,
+        title=item.get("title"),
+        price=item.get("price"),
+        base_price=item.get("base_price"),
+        available_quantity=item.get("available_quantity"),
+        sold_quantity=item.get("sold_quantity"),
+        status=item.get("status"),
+        listing_type_id=item.get("listing_type_id"),
+        permalink=item.get("permalink"),
+        installments_campaign=campaign,
+        seller_sku=seller_sku,
+        item_id=item_id,
+        snapshot_date=datetime.now()
+    )
 
 
 async def obtener_todos_mla_ids(db: Session) -> list:
@@ -104,123 +171,133 @@ async def obtener_todos_mla_ids(db: Session) -> list:
     return ids
 
 
-async def procesar_batch(ids_batch: list, db: Session, batch_num: int, total_batches: int):
-    """Procesa un batch de MLA IDs"""
-    chunk_size = 20  # ML API permite hasta 20 items por request
+def precargar_snapshots_hoy(db: Session, today) -> dict:
+    """
+    Precarga todos los snapshot IDs del día de hoy en un dict {mla_id: snapshot_id}
+    para evitar 15.000 queries individuales.
+    """
+    print("Precargando snapshots existentes del día...")
+
+    snapshots = db.query(
+        MLPublicationSnapshot.mla_id,
+        MLPublicationSnapshot.id
+    ).filter(
+        func.date(MLPublicationSnapshot.snapshot_date) == today
+    ).all()
+
+    cache = {row[0]: row[1] for row in snapshots}
+    print(f"✓ {len(cache)} snapshots existentes en cache")
+
+    return cache
+
+
+async def procesar_batch(ids_batch: list, db: Session, batch_num: int, total_batches: int,
+                         http_client: httpx.AsyncClient, snapshots_cache: dict):
+    """
+    Procesa un batch de MLA IDs.
+    Estrategia: commit por chunk de 20 → si falla, fallback a individual.
+    """
+    chunk_size = 20
     saved = 0
     updated = 0
     errors = 0
     errores_detalle = []
 
-    today = datetime.now().date()
-
     for i in range(0, len(ids_batch), chunk_size):
         chunk = ids_batch[i:i + chunk_size]
         ids_str = ",".join(chunk)
 
-        # Llamada a la API (si falla, loguear y seguir con el siguiente chunk)
+        # Llamada a la API
         try:
-            batch = await call_meli(f"/items?ids={ids_str}")
+            batch = await call_meli(http_client, f"/items?ids={ids_str}")
         except Exception as e:
             errors += len(chunk)
             errores_detalle.append(f"  ⚠️  API error chunk [{chunk[0]}...{chunk[-1]}]: {str(e)[:100]}")
             continue
 
-        # Procesar cada publicación INDIVIDUALMENTE
+        # Preparar las operaciones del chunk en memoria
+        chunk_items = []  # [(mla_id, item_data, campaign, seller_sku, item_id), ...]
         for item_wrapper in batch:
-            mla_id = None
-            try:
-                item = item_wrapper.get("body")
-                if not item:
-                    # ML devolvió error para esta publicación específica
-                    error_status = item_wrapper.get("code", "?")
-                    error_mla = item_wrapper.get("body", {})
-                    if isinstance(error_mla, dict):
-                        mla_id = error_mla.get("id", "desconocido")
-                    errors += 1
-                    errores_detalle.append(f"  ⚠️  {mla_id}: ML respondió sin body (code={error_status})")
-                    continue
-
-                mla_id = item.get("id")
-
-                # Buscar campaña de cuotas
-                campaign = None
-                sale_terms = item.get("sale_terms", [])
-                for term in sale_terms:
-                    if term.get("id") == "INSTALLMENTS_CAMPAIGN":
-                        campaign = term.get("value_name")
-                        break
-
-                # Lógica condicional de campaña
-                if item.get("listing_type_id") == "gold_special":
-                    campaign = "Clásica"
-                elif not campaign and item.get("listing_type_id") == "gold_pro":
-                    campaign = "6x_campaign"
-                elif not campaign:
-                    campaign = "-"
-
-                # Buscar SKU
-                seller_sku = None
-                attributes = item.get("attributes", [])
-                for attr in attributes:
-                    if attr.get("id") == "SELLER_SKU":
-                        seller_sku = attr.get("value_id")
-                        break
-
-                # Intentar obtener item_id del SKU
-                item_id = None
-                if seller_sku and seller_sku.isdigit():
-                    item_id = int(seller_sku)
-
-                # Verificar si ya existe un snapshot del día de hoy
-                existing = db.query(MLPublicationSnapshot).filter(
-                    MLPublicationSnapshot.mla_id == mla_id,
-                    func.date(MLPublicationSnapshot.snapshot_date) == today
-                ).first()
-
-                if existing:
-                    existing.title = item.get("title")
-                    existing.price = item.get("price")
-                    existing.base_price = item.get("base_price")
-                    existing.available_quantity = item.get("available_quantity")
-                    existing.sold_quantity = item.get("sold_quantity")
-                    existing.status = item.get("status")
-                    existing.listing_type_id = item.get("listing_type_id")
-                    existing.permalink = item.get("permalink")
-                    existing.installments_campaign = campaign
-                    existing.seller_sku = seller_sku
-                    existing.item_id = item_id
-                    existing.snapshot_date = datetime.now()
-                    db.commit()
-                    updated += 1
-                else:
-                    snapshot = MLPublicationSnapshot(
-                        mla_id=mla_id,
-                        title=item.get("title"),
-                        price=item.get("price"),
-                        base_price=item.get("base_price"),
-                        available_quantity=item.get("available_quantity"),
-                        sold_quantity=item.get("sold_quantity"),
-                        status=item.get("status"),
-                        listing_type_id=item.get("listing_type_id"),
-                        permalink=item.get("permalink"),
-                        installments_campaign=campaign,
-                        seller_sku=seller_sku,
-                        item_id=item_id,
-                        snapshot_date=datetime.now()
-                    )
-                    db.add(snapshot)
-                    db.commit()
-                    saved += 1
-
-            except Exception as e:
-                db.rollback()
+            item = item_wrapper.get("body")
+            if not item:
+                error_status = item_wrapper.get("code", "?")
                 errors += 1
-                errores_detalle.append(f"  ⚠️  {mla_id or 'desconocido'}: {str(e)[:120]}")
+                errores_detalle.append(f"  ⚠️  ML respondió sin body (code={error_status})")
                 continue
 
-        # Pequeña pausa para no saturar la API
-        await asyncio.sleep(0.3)
+            mla_id = item.get("id")
+            campaign, seller_sku, item_id = extraer_datos_publicacion(item)
+            chunk_items.append((mla_id, item, campaign, seller_sku, item_id))
+
+        if not chunk_items:
+            continue
+
+        # Intentar commit del chunk completo
+        try:
+            chunk_saved = 0
+            chunk_updated = 0
+
+            for mla_id, item, campaign, seller_sku, item_id in chunk_items:
+                if mla_id in snapshots_cache:
+                    # Actualizar existente
+                    existing = db.query(MLPublicationSnapshot).get(snapshots_cache[mla_id])
+                    if existing:
+                        aplicar_snapshot(existing, item, campaign, seller_sku, item_id)
+                        chunk_updated += 1
+                    else:
+                        # Cache stale, crear nuevo
+                        snapshot = crear_snapshot(mla_id, item, campaign, seller_sku, item_id)
+                        db.add(snapshot)
+                        chunk_saved += 1
+                else:
+                    # Crear nuevo
+                    snapshot = crear_snapshot(mla_id, item, campaign, seller_sku, item_id)
+                    db.add(snapshot)
+                    chunk_saved += 1
+
+            db.commit()
+
+            # Actualizar contadores y cache
+            saved += chunk_saved
+            updated += chunk_updated
+
+            # Actualizar cache para nuevos snapshots (por si el incremental ya los creó)
+            for mla_id, _, _, _, _ in chunk_items:
+                if mla_id not in snapshots_cache:
+                    # No necesitamos el ID exacto en cache, solo saber que existe
+                    snapshots_cache[mla_id] = -1  # placeholder
+
+        except Exception as chunk_error:
+            # Chunk falló → rollback y procesar individualmente
+            db.rollback()
+            errores_detalle.append(f"  ℹ️  Chunk falló, reintentando individual: {str(chunk_error)[:80]}")
+
+            for mla_id, item, campaign, seller_sku, item_id in chunk_items:
+                try:
+                    if mla_id in snapshots_cache:
+                        existing = db.query(MLPublicationSnapshot).get(snapshots_cache[mla_id])
+                        if existing:
+                            aplicar_snapshot(existing, item, campaign, seller_sku, item_id)
+                        else:
+                            db.add(crear_snapshot(mla_id, item, campaign, seller_sku, item_id))
+                    else:
+                        db.add(crear_snapshot(mla_id, item, campaign, seller_sku, item_id))
+
+                    db.commit()
+
+                    if mla_id in snapshots_cache:
+                        updated += 1
+                    else:
+                        saved += 1
+                        snapshots_cache[mla_id] = -1
+
+                except Exception as e:
+                    db.rollback()
+                    errors += 1
+                    errores_detalle.append(f"  ⚠️  {mla_id}: {str(e)[:120]}")
+
+        # Pausa para no saturar la API
+        await asyncio.sleep(0.1)
 
     return saved, updated, errors, errores_detalle
 
@@ -248,7 +325,11 @@ async def sync_ml_publications_full(db: Session = None):
             print("⚠️  No hay publicaciones para sincronizar")
             return 0, 0, 0
 
-        # 2. Dividir en batches grandes (1000 por batch)
+        # 2. Precargar snapshots existentes del día
+        today = datetime.now().date()
+        snapshots_cache = precargar_snapshots_hoy(db, today)
+
+        # 3. Dividir en batches grandes (1000 por batch)
         batch_size = 1000
         total_batches = (len(all_ids) + batch_size - 1) // batch_size
 
@@ -260,31 +341,34 @@ async def sync_ml_publications_full(db: Session = None):
         total_errors = 0
         todos_los_errores = []
 
-        for batch_num in range(total_batches):
-            start_idx = batch_num * batch_size
-            end_idx = min(start_idx + batch_size, len(all_ids))
-            batch_ids = all_ids[start_idx:end_idx]
+        # 4. Reutilizar UN SOLO httpx client para todas las requests
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            for batch_num in range(total_batches):
+                start_idx = batch_num * batch_size
+                end_idx = min(start_idx + batch_size, len(all_ids))
+                batch_ids = all_ids[start_idx:end_idx]
 
-            print(f"📦 Batch {batch_num + 1}/{total_batches} ({len(batch_ids)} publicaciones)...")
+                print(f"📦 Batch {batch_num + 1}/{total_batches} ({len(batch_ids)} publicaciones)...")
 
-            saved, updated, errors, errores_detalle = await procesar_batch(
-                batch_ids, db, batch_num + 1, total_batches
-            )
+                saved, updated, errors, errores_detalle = await procesar_batch(
+                    batch_ids, db, batch_num + 1, total_batches,
+                    http_client, snapshots_cache
+                )
 
-            total_saved += saved
-            total_updated += updated
-            total_errors += errors
-            todos_los_errores.extend(errores_detalle)
+                total_saved += saved
+                total_updated += updated
+                total_errors += errors
+                todos_los_errores.extend(errores_detalle)
 
-            print(f"   ✓ Nuevos: {saved}, Actualizados: {updated}, Errores: {errors}")
+                print(f"   ✓ Nuevos: {saved}, Actualizados: {updated}, Errores: {errors}")
 
-            # Mostrar errores del batch si los hay
-            for err in errores_detalle:
-                print(err)
+                # Mostrar errores del batch si los hay
+                for err in errores_detalle:
+                    print(err)
 
-            # Pausa entre batches
-            if batch_num < total_batches - 1:
-                await asyncio.sleep(1)
+                # Pausa entre batches
+                if batch_num < total_batches - 1:
+                    await asyncio.sleep(0.5)
 
         print()
         print("=" * 70)
