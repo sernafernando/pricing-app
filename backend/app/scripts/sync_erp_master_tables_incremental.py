@@ -7,12 +7,13 @@ Tablas sincronizadas:
 - tbCategory (categorías) - sync completo (pocas filas)
 - tbSubCategory (subcategorías) - sync completo (pocas filas)
 - tbTaxName (impuestos) - sync completo (pocas filas)
-- tbItem (items) - INCREMENTAL por lastUpdate
+- tbItem (items) - INCREMENTAL por lastUpdate O lastUpdateByProcess (cambios manuales O por proceso)
 - tbItemTaxes (impuestos por item) - sync de items nuevos/actualizados
 
 Ejecutar:
     python -m app.scripts.sync_erp_master_tables_incremental
     python -m app.scripts.sync_erp_master_tables_incremental --minutes 30
+    python -m app.scripts.sync_erp_master_tables_incremental --days 7
 """
 import sys
 import os
@@ -307,21 +308,34 @@ async def sync_tax_names(db: Session):
         return {"nuevos": 0, "actualizados": 0, "error": str(e)}
 
 
-async def sync_items_incremental(db: Session, minutes: int = 15):
+async def sync_items_incremental(db: Session, minutes: int = 15, usar_dia_completo: bool = False):
     """
     Sincronizar items INCREMENTALMENTE
-    Solo trae items con item_LastUpdate en los últimos X minutos
+    Trae items con item_LastUpdate O item_lastUpdate_byProcess en los últimos X minutos
+    (cambios manuales OR cambios por proceso del sistema)
+    
+    Args:
+        db: Sesión de base de datos
+        minutes: Minutos hacia atrás para buscar cambios
+        usar_dia_completo: Si True, ajusta la fecha a 00:00:00 (para consultas por días)
     """
     print(f"  📦 Items (últimos {minutes} min)...", end=" ", flush=True)
 
     try:
         # Calcular fecha límite
         fecha_limite = datetime.now() - timedelta(minutes=minutes)
+        
+        # Si se usa días, ajustar a inicio del día (00:00:00)
+        if usar_dia_completo:
+            fecha_limite = fecha_limite.replace(hour=0, minute=0, second=0, microsecond=0)
+        
         fecha_str = fecha_limite.strftime("%Y-%m-%d %H:%M:%S")
 
         async with httpx.AsyncClient(timeout=120.0) as client:
+            # Enviar AMBOS parámetros - el SQL del ERP usa OR para capturar cambios manuales O por proceso
             response = await client.get(GBP_PARSER_URL, params={
                 "strScriptLabel": "scriptItem",
+                "lastUpdate": fecha_str,
                 "lastUpdateByProcess": fecha_str
             })
             response.raise_for_status()
@@ -568,7 +582,7 @@ async def verificar_items_faltantes(db: Session):
         return {"sincronizados": 0, "error": str(e)}
 
 
-async def main_async(minutes: int = 15):
+async def main_async(minutes: int = 15, usar_dia_completo: bool = False):
     """Función principal async"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print("=" * 60)
@@ -584,7 +598,7 @@ async def main_async(minutes: int = 15):
         await sync_tax_names(db)
 
         # Items - sync incremental
-        result_items = await sync_items_incremental(db, minutes=minutes)
+        result_items = await sync_items_incremental(db, minutes=minutes, usar_dia_completo=usar_dia_completo)
 
         # Impuestos de items actualizados
         await sync_item_taxes_for_items(db, result_items.get("items", []))
@@ -608,11 +622,23 @@ async def main_async(minutes: int = 15):
 
 def main():
     parser = argparse.ArgumentParser(description='Sync incremental de tablas maestras ERP')
-    parser.add_argument('--minutes', type=int, default=15,
-                        help='Minutos hacia atrás para buscar cambios (default: 15)')
+    parser.add_argument('--minutes', type=int, default=None,
+                        help='Minutos hacia atrás para buscar cambios')
+    parser.add_argument('--days', type=int, default=None,
+                        help='Días hacia atrás para buscar cambios (ajusta a 00:00:00)')
     args = parser.parse_args()
 
-    asyncio.run(main_async(args.minutes))
+    # Calcular minutos basado en días o usar default de 15 minutos
+    usar_dia_completo = False
+    if args.days is not None:
+        minutes = args.days * 24 * 60  # Convertir días a minutos
+        usar_dia_completo = True  # Ajustar a 00:00:00
+    elif args.minutes is not None:
+        minutes = args.minutes
+    else:
+        minutes = 15  # Default
+
+    asyncio.run(main_async(minutes, usar_dia_completo))
 
 
 if __name__ == "__main__":
