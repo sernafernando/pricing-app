@@ -354,16 +354,23 @@ async def obtener_rentabilidad(
         if not filtros:
             return 0, 0.0, 0.0
 
-        # Construir condiciones para los filtros
+        # Construir condiciones para los filtros (parametrizadas para evitar SQL injection)
         condiciones_filtro = []
-        for f in filtros:
+        filtro_params = {}
+        for idx, f in enumerate(filtros):
             conds = []
             if f.marca:
-                conds.append(f"marca = '{f.marca}'")
+                key = f"filtro_marca_{idx}"
+                conds.append(f"marca = :{key}")
+                filtro_params[key] = f.marca
             if f.categoria:
-                conds.append(f"categoria = '{f.categoria}'")
+                key = f"filtro_cat_{idx}"
+                conds.append(f"categoria = :{key}")
+                filtro_params[key] = f.categoria
             if f.item_id:
-                conds.append(f"item_id = {f.item_id}")
+                key = f"filtro_item_{idx}"
+                conds.append(f"item_id = :{key}")
+                filtro_params[key] = f.item_id
             if conds:
                 condiciones_filtro.append(f"({' AND '.join(conds)})")
 
@@ -374,7 +381,7 @@ async def obtener_rentabilidad(
         
         # Filtro de tienda oficial (usar parámetro preparado para evitar SQL injection)
         filtro_tienda = ""
-        params_ml = {"desde": desde_dt, "hasta": hasta_dt}
+        params_ml = {"desde": desde_dt, "hasta": hasta_dt, **filtro_params}
         if tienda_oficial_filtro and tienda_oficial_filtro.isdigit():
             filtro_tienda = "AND mlp_official_store_id = :tienda_oficial"
             params_ml["tienda_oficial"] = int(tienda_oficial_filtro)
@@ -400,7 +407,7 @@ async def obtener_rentabilidad(
             WHERE ({where_filtros})
             AND fecha_venta >= :desde AND fecha_venta < :hasta
         """)
-        result_fuera = db.execute(query_fuera, {"desde": desde_dt, "hasta": hasta_dt}).first()
+        result_fuera = db.execute(query_fuera, {"desde": desde_dt, "hasta": hasta_dt, **filtro_params}).first()
 
         total_unidades = int(result_ml.total_unidades or 0) + int(result_fuera.total_unidades or 0)
         total_costo = float(result_ml.total_costo or 0) + float(result_fuera.total_costo or 0)
