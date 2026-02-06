@@ -57,7 +57,7 @@ async def fetch_stock_erp() -> Dict[int, int]:
 
 def calcular_hash(producto: Dict) -> str:
     """Calcula hash de los datos relevantes para detectar cambios"""
-    datos = f"{producto.get('coslis_price', 0)}{producto.get('Descripción', '')}{producto.get('Stock', 0)}{producto.get('Envío', 0)}"
+    datos = f"{producto.get('Código', '')}{producto.get('coslis_price', 0)}{producto.get('Descripción', '')}{producto.get('Stock', 0)}{producto.get('Envío', 0)}"
     return hashlib.sha256(datos.encode()).hexdigest()
 
 async def sincronizar_erp(db: Session) -> Dict:
