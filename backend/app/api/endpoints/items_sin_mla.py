@@ -12,6 +12,7 @@ from app.api.deps import get_current_user
 from app.models.producto import ProductoERP
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.item_sin_mla_banlist import ItemSinMLABanlist
+from app.models.comparacion_listas_banlist import ComparacionListasBanlist
 from app.models.usuario import Usuario
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 
@@ -102,6 +103,27 @@ class ComparacionListaResponse(BaseModel):
     permalink: Optional[str]
 
     model_config = ConfigDict(from_attributes=True)
+
+class ComparacionBaneadoResponse(BaseModel):
+    id: int
+    mla_id: str
+    item_id: Optional[int]
+    codigo: str
+    descripcion: str
+    marca: str
+    lista_sistema: str
+    motivo: Optional[str]
+    usuario_nombre: str
+    fecha_creacion: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+class BanComparacionRequest(BaseModel):
+    mla_id: str
+    motivo: Optional[str] = None
+
+class UnbanComparacionRequest(BaseModel):
+    banlist_id: int
 
 
 @router.get("/items-sin-mla", response_model=List[ItemSinMLAResponse])
@@ -427,6 +449,11 @@ async def get_comparacion_listas(
     
     if not verificar_permiso(db, current_user, "admin.ver_comparacion_listas_ml"):
         raise HTTPException(status_code=403, detail="No tienes permiso para ver la comparación de listas")
+
+    # Subquery: mla_ids baneados en la banlist de comparación
+    mla_baneados_subq = db.query(
+        ComparacionListasBanlist.mla_id
+    ).subquery()
     
     # Subquery para obtener el snapshot más reciente de cada publicación (sin filtrar por fecha)
     latest_snapshots = db.query(
@@ -451,6 +478,8 @@ async def get_comparacion_listas(
     ).join(
         ProductoERP,
         ProductoERP.item_id == MercadoLibreItemPublicado.item_id
+    ).filter(
+        MLPublicationSnapshot.mla_id.notin_(mla_baneados_subq)
     )
 
     # Aplicar filtros opcionales
@@ -516,3 +545,139 @@ async def get_comparacion_listas(
             ))
 
     return diferencias
+
+
+@router.get("/comparacion-baneados", response_model=List[ComparacionBaneadoResponse])
+async def get_comparacion_baneados(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Obtiene todos los items en la banlist de comparación de listas
+    """
+    from app.services.permisos_service import verificar_permiso
+
+    if not verificar_permiso(db, current_user, "admin.gestionar_comparacion_banlist"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de comparación")
+
+    baneados = db.query(
+        ComparacionListasBanlist,
+        Usuario
+    ).join(
+        Usuario, Usuario.id == ComparacionListasBanlist.usuario_id
+    ).order_by(ComparacionListasBanlist.fecha_creacion.desc()).all()
+
+    resultados = []
+    for banlist_entry, usuario in baneados:
+        # Buscar info del producto a través de la publicación
+        publicacion = db.query(
+            MercadoLibreItemPublicado,
+            ProductoERP
+        ).join(
+            ProductoERP, ProductoERP.item_id == MercadoLibreItemPublicado.item_id
+        ).filter(
+            MercadoLibreItemPublicado.mlp_publicationID == banlist_entry.mla_id
+        ).first()
+
+        if publicacion:
+            pub, producto = publicacion
+            lista_sistema = LISTAS_PRECIOS.get(pub.prli_id, "Desconocida")
+            resultados.append(ComparacionBaneadoResponse(
+                id=banlist_entry.id,
+                mla_id=banlist_entry.mla_id,
+                item_id=producto.item_id,
+                codigo=producto.codigo or "",
+                descripcion=producto.descripcion or "",
+                marca=producto.marca or "",
+                lista_sistema=lista_sistema,
+                motivo=banlist_entry.motivo,
+                usuario_nombre=usuario.nombre,
+                fecha_creacion=banlist_entry.fecha_creacion.isoformat()
+            ))
+        else:
+            # La publicación ya no existe, pero el ban sí
+            resultados.append(ComparacionBaneadoResponse(
+                id=banlist_entry.id,
+                mla_id=banlist_entry.mla_id,
+                item_id=None,
+                codigo="",
+                descripcion="(publicación no encontrada)",
+                marca="",
+                lista_sistema="",
+                motivo=banlist_entry.motivo,
+                usuario_nombre=usuario.nombre,
+                fecha_creacion=banlist_entry.fecha_creacion.isoformat()
+            ))
+
+    return resultados
+
+
+@router.post("/banear-comparacion")
+async def banear_comparacion(
+    request: BanComparacionRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Agrega una publicación MLA a la banlist de comparación de listas
+    """
+    from app.services.permisos_service import verificar_permiso
+
+    if not verificar_permiso(db, current_user, "admin.gestionar_comparacion_banlist"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de comparación")
+
+    # Verificar que no esté ya baneado
+    existente = db.query(ComparacionListasBanlist).filter(
+        ComparacionListasBanlist.mla_id == request.mla_id
+    ).first()
+
+    if existente:
+        raise HTTPException(status_code=400, detail="La publicación ya está en la banlist de comparación")
+
+    nuevo_ban = ComparacionListasBanlist(
+        mla_id=request.mla_id,
+        motivo=request.motivo,
+        usuario_id=current_user.id
+    )
+
+    db.add(nuevo_ban)
+    db.commit()
+    db.refresh(nuevo_ban)
+
+    return {
+        "success": True,
+        "message": f"Publicación {request.mla_id} agregada a la banlist de comparación",
+        "banlist_id": nuevo_ban.id
+    }
+
+
+@router.post("/desbanear-comparacion")
+async def desbanear_comparacion(
+    request: UnbanComparacionRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Quita una publicación MLA de la banlist de comparación de listas
+    """
+    from app.services.permisos_service import verificar_permiso
+
+    if not verificar_permiso(db, current_user, "admin.gestionar_comparacion_banlist"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de comparación")
+
+    ban_entry = db.query(ComparacionListasBanlist).filter(
+        ComparacionListasBanlist.id == request.banlist_id
+    ).first()
+
+    if not ban_entry:
+        raise HTTPException(status_code=404, detail="Entrada de banlist no encontrada")
+
+    mla_id = ban_entry.mla_id
+
+    db.delete(ban_entry)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Publicación {mla_id} removida de la banlist de comparación"
+    }

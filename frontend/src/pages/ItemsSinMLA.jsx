@@ -65,6 +65,27 @@ const ItemsSinMLA = () => {
   const [busquedaComparacion, setBusquedaComparacion] = useState('');
   const [marcaComparacion, setMarcaComparacion] = useState('');
 
+  // Estado para multi-selección en comparación
+  const [comparacionSeleccionados, setComparacionSeleccionados] = useState(new Set());
+  const [ultimoComparacionSeleccionado, setUltimoComparacionSeleccionado] = useState(null);
+
+  // Modal para banear comparación
+  const [comparacionItemSeleccionado, setComparacionItemSeleccionado] = useState(null);
+  const [showComparacionMotivoModal, setShowComparacionMotivoModal] = useState(false);
+  const [comparacionMotivo, setComparacionMotivo] = useState('');
+
+  // Estado para banlist de comparación
+  const [comparacionBaneados, setComparacionBaneados] = useState([]);
+  const [loadingComparacionBaneados, setLoadingComparacionBaneados] = useState(false);
+  const [busquedaComparacionBanlist, setBusquedaComparacionBanlist] = useState('');
+
+  // Selector de banlist activa en tab banlist
+  const [banlistActiva, setBanlistActiva] = useState('items-sin-mla');
+
+  // Estado para multi-selección en banlist de comparación
+  const [comparacionBaneadosSeleccionados, setComparacionBaneadosSeleccionados] = useState(new Set());
+  const [ultimoComparacionBaneadoSeleccionado, setUltimoComparacionBaneadoSeleccionado] = useState(null);
+
   const API_URL = import.meta.env.VITE_API_URL;
   const token = localStorage.getItem('token');
 
@@ -75,11 +96,15 @@ const ItemsSinMLA = () => {
 
   useEffect(() => {
     if (activeTab === 'banlist') {
-      cargarItemsBaneados();
+      if (banlistActiva === 'items-sin-mla') {
+        cargarItemsBaneados();
+      } else {
+        cargarComparacionBaneados();
+      }
     } else if (activeTab === 'comparacion') {
       cargarComparacionListas();
     }
-  }, [activeTab]);
+  }, [activeTab, banlistActiva]);
 
   const cargarListasPrecio = async () => {
     try {
@@ -216,6 +241,204 @@ const ItemsSinMLA = () => {
       setLoadingComparacion(false);
     }
   };
+
+  // === Funciones para banlist de comparación ===
+  const cargarComparacionBaneados = async () => {
+    setLoadingComparacionBaneados(true);
+    try {
+      const response = await axios.get(`${API_URL}/items-sin-mla/comparacion-baneados`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setComparacionBaneados(response.data);
+    } catch (error) {
+      console.error('Error al cargar banlist de comparación:', error);
+      alert('Error al cargar banlist de comparación');
+    } finally {
+      setLoadingComparacionBaneados(false);
+    }
+  };
+
+  const handleBanearComparacion = (item) => {
+    setComparacionItemSeleccionado(item);
+    setComparacionMotivo('');
+    setShowComparacionMotivoModal(true);
+  };
+
+  const confirmarBanearComparacion = async () => {
+    if (!comparacionItemSeleccionado) return;
+
+    try {
+      await axios.post(
+        `${API_URL}/items-sin-mla/banear-comparacion`,
+        { mla_id: comparacionItemSeleccionado.mla_id, motivo: comparacionMotivo || null },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      alert(`Publicación ${comparacionItemSeleccionado.mla_id} agregada a la banlist`);
+      setShowComparacionMotivoModal(false);
+      setComparacionItemSeleccionado(null);
+      setComparacionMotivo('');
+
+      cargarComparacionListas();
+      if (banlistActiva === 'comparacion') {
+        cargarComparacionBaneados();
+      }
+    } catch (error) {
+      console.error('Error al banear comparación:', error);
+      alert(error.response?.data?.detail || 'Error al banear publicación');
+    }
+  };
+
+  const handleDesbanearComparacion = async (banlistId, mlaId) => {
+    if (!confirm(`¿Seguro que deseas quitar ${mlaId} de la banlist?`)) return;
+
+    try {
+      await axios.post(
+        `${API_URL}/items-sin-mla/desbanear-comparacion`,
+        { banlist_id: banlistId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      alert(`Publicación ${mlaId} removida de la banlist`);
+      cargarComparacionBaneados();
+      cargarComparacionListas();
+    } catch (error) {
+      console.error('Error al desbanear comparación:', error);
+      alert('Error al desbanear publicación');
+    }
+  };
+
+  const banearComparacionSeleccionados = async () => {
+    if (comparacionSeleccionados.size === 0) return;
+    if (!window.confirm(`¿Banear ${comparacionSeleccionados.size} publicaciones?`)) return;
+
+    try {
+      for (const mlaId of comparacionSeleccionados) {
+        await axios.post(
+          `${API_URL}/items-sin-mla/banear-comparacion`,
+          { mla_id: mlaId, motivo: 'Baneado masivamente' },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+
+      alert(`${comparacionSeleccionados.size} publicaciones baneadas exitosamente`);
+      setComparacionSeleccionados(new Set());
+      setUltimoComparacionSeleccionado(null);
+      cargarComparacionListas();
+      cargarComparacionBaneados();
+    } catch (error) {
+      console.error('Error baneando comparaciones:', error);
+      alert('Error al banear publicaciones masivamente');
+    }
+  };
+
+  const handleSeleccionarComparacion = (mlaId, event) => {
+    const shiftPressed = event?.shiftKey;
+    const nuevaSeleccion = new Set(comparacionSeleccionados);
+
+    if (shiftPressed && ultimoComparacionSeleccionado !== null) {
+      const itemsActuales = sortedItems(itemsComparacion);
+      const indices = [
+        itemsActuales.findIndex(i => i.mla_id === ultimoComparacionSeleccionado),
+        itemsActuales.findIndex(i => i.mla_id === mlaId)
+      ].sort((a, b) => a - b);
+
+      for (let i = indices[0]; i <= indices[1]; i++) {
+        if (itemsActuales[i]) {
+          nuevaSeleccion.add(itemsActuales[i].mla_id);
+        }
+      }
+    } else {
+      if (nuevaSeleccion.has(mlaId)) {
+        nuevaSeleccion.delete(mlaId);
+      } else {
+        nuevaSeleccion.add(mlaId);
+      }
+    }
+
+    setComparacionSeleccionados(nuevaSeleccion);
+    setUltimoComparacionSeleccionado(mlaId);
+  };
+
+  const handleSeleccionarTodosComparacion = () => {
+    if (comparacionSeleccionados.size === itemsComparacion.length) {
+      setComparacionSeleccionados(new Set());
+    } else {
+      setComparacionSeleccionados(new Set(itemsComparacion.map(item => item.mla_id)));
+    }
+  };
+
+  // Multi-selección en banlist de comparación
+  const handleSeleccionarComparacionBaneado = (banlistId, event) => {
+    const shiftPressed = event?.shiftKey;
+    const nuevaSeleccion = new Set(comparacionBaneadosSeleccionados);
+
+    if (shiftPressed && ultimoComparacionBaneadoSeleccionado !== null) {
+      const itemsActuales = sortedItems(comparacionBaneados);
+      const indices = [
+        itemsActuales.findIndex(i => i.id === ultimoComparacionBaneadoSeleccionado),
+        itemsActuales.findIndex(i => i.id === banlistId)
+      ].sort((a, b) => a - b);
+
+      for (let i = indices[0]; i <= indices[1]; i++) {
+        if (itemsActuales[i]) {
+          nuevaSeleccion.add(itemsActuales[i].id);
+        }
+      }
+    } else {
+      if (nuevaSeleccion.has(banlistId)) {
+        nuevaSeleccion.delete(banlistId);
+      } else {
+        nuevaSeleccion.add(banlistId);
+      }
+    }
+
+    setComparacionBaneadosSeleccionados(nuevaSeleccion);
+    setUltimoComparacionBaneadoSeleccionado(banlistId);
+  };
+
+  const handleSeleccionarTodosComparacionBaneados = () => {
+    if (comparacionBaneadosSeleccionados.size === comparacionBaneados.length) {
+      setComparacionBaneadosSeleccionados(new Set());
+    } else {
+      setComparacionBaneadosSeleccionados(new Set(comparacionBaneados.map(item => item.id)));
+    }
+  };
+
+  const desbanearComparacionSeleccionados = async () => {
+    if (comparacionBaneadosSeleccionados.size === 0) return;
+    if (!window.confirm(`¿Desbanear ${comparacionBaneadosSeleccionados.size} publicaciones?`)) return;
+
+    try {
+      for (const banlistId of comparacionBaneadosSeleccionados) {
+        await axios.post(
+          `${API_URL}/items-sin-mla/desbanear-comparacion`,
+          { banlist_id: banlistId },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+
+      alert(`${comparacionBaneadosSeleccionados.size} publicaciones desbaneadas exitosamente`);
+      setComparacionBaneadosSeleccionados(new Set());
+      setUltimoComparacionBaneadoSeleccionado(null);
+      cargarComparacionBaneados();
+      cargarComparacionListas();
+    } catch (error) {
+      console.error('Error desbaneando comparaciones:', error);
+      alert('Error al desbanear publicaciones masivamente');
+    }
+  };
+
+  // Filtrar banlist de comparación por búsqueda
+  const comparacionBaneadosFiltrados = comparacionBaneados.filter(item => {
+    if (!busquedaComparacionBanlist) return true;
+    const busq = busquedaComparacionBanlist.toLowerCase();
+    return (
+      item.mla_id?.toLowerCase().includes(busq) ||
+      item.codigo?.toLowerCase().includes(busq) ||
+      item.descripcion?.toLowerCase().includes(busq)
+    );
+  });
 
   const handleBanear = (item) => {
     setItemSeleccionado(item);
@@ -540,12 +763,12 @@ const ItemsSinMLA = () => {
             🔍 Sin MLA ({itemsSinMLA.length})
           </button>
         )}
-        {tienePermiso('admin.gestionar_items_sin_mla_banlist') && (
+        {(tienePermiso('admin.gestionar_items_sin_mla_banlist') || tienePermiso('admin.gestionar_comparacion_banlist')) && (
           <button
             className={`tab-button ${activeTab === 'banlist' ? 'active' : ''}`}
             onClick={() => setActiveTab('banlist')}
           >
-            🚫 Banlist ({itemsBaneados.length})
+            🚫 Banlist
           </button>
         )}
         {tienePermiso('admin.ver_comparacion_listas_ml') && (
@@ -799,127 +1022,376 @@ const ItemsSinMLA = () => {
         </div>
       )}
 
-      {/* Contenido del Tab 2: Banlist */}
-      {activeTab === 'banlist' && tienePermiso('admin.gestionar_items_sin_mla_banlist') && (
+      {/* Contenido del Tab 2: Banlist (con selector) */}
+      {activeTab === 'banlist' && (tienePermiso('admin.gestionar_items_sin_mla_banlist') || tienePermiso('admin.gestionar_comparacion_banlist')) && (
         <div className="tab-content">
-          <p className="tab-description">
-            Items que no deben aparecer en el reporte de sin MLA
-          </p>
-
-          {/* Filtros */}
-          <div className="filters-section">
-            <div className="filter-group">
-              <label>🔎 Buscar:</label>
-              <input
-                type="text"
-                placeholder="Código o descripción"
-                value={busquedaBanlist}
-                onChange={(e) => setBusquedaBanlist(e.target.value)}
-                className="filter-input"
-              />
-            </div>
-
-            <div className="filter-group marcas-filter-container" style={{position: 'relative'}}>
-              <label>🏷️ Marca:</label>
+          {/* Selector de banlist */}
+          <div className="banlist-selector">
+            {tienePermiso('admin.gestionar_items_sin_mla_banlist') && (
               <button
-                onClick={() => setPanelMarcasAbiertoBanlist(!panelMarcasAbiertoBanlist)}
-                className={`filter-button-dropdown ${marcasSeleccionadasBanlist.length > 0 ? 'active' : ''}`}
+                className={`banlist-selector-btn ${banlistActiva === 'items-sin-mla' ? 'active' : ''}`}
+                onClick={() => { setBanlistActiva('items-sin-mla'); setOrdenColumnas([]); }}
               >
-                {marcasSeleccionadasBanlist.length > 0
-                  ? `${marcasSeleccionadasBanlist.length} marcas`
-                  : 'Todas las marcas'}
-                {marcasSeleccionadasBanlist.length > 0 && (
-                  <span className="filter-badge-inline">{marcasSeleccionadasBanlist.length}</span>
-                )}
+                🔍 Items sin MLA ({itemsBaneados.length})
               </button>
-
-              {panelMarcasAbiertoBanlist && (
-                <div className="dropdown-panel">
-                  <div className="dropdown-header">
-                    <input
-                      type="text"
-                      placeholder="Buscar marca..."
-                      value={busquedaMarcaBanlist}
-                      onChange={(e) => setBusquedaMarcaBanlist(e.target.value)}
-                      className="dropdown-search"
-                    />
-                    {marcasSeleccionadasBanlist.length > 0 && (
-                      <button
-                        onClick={() => setMarcasSeleccionadasBanlist([])}
-                        className="btn-clear-dropdown"
-                      >
-                        Limpiar ({marcasSeleccionadasBanlist.length})
-                      </button>
-                    )}
-                  </div>
-                  <div className="dropdown-list">
-                    {marcasBanlist
-                      .filter(marca => !busquedaMarcaBanlist || marca.toLowerCase().includes(busquedaMarcaBanlist.toLowerCase()))
-                      .map(marca => (
-                        <label
-                          key={marca}
-                          className={`dropdown-item ${marcasSeleccionadasBanlist.includes(marca) ? 'selected' : ''}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={marcasSeleccionadasBanlist.includes(marca)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setMarcasSeleccionadasBanlist([...marcasSeleccionadasBanlist, marca]);
-                              } else {
-                                setMarcasSeleccionadasBanlist(marcasSeleccionadasBanlist.filter(m => m !== marca));
-                              }
-                            }}
-                          />
-                          <span>{marca}</span>
-                        </label>
-                      ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="filter-group">
-              <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
-                <input
-                  type="checkbox"
-                  checked={soloNuevosBanlist}
-                  onChange={(e) => setSoloNuevosBanlist(e.target.checked)}
-                  style={{marginRight: '6px', cursor: 'pointer'}}
-                />
-                ✨ Solo nuevos
-              </label>
-            </div>
-
-            <button onClick={limpiarFiltrosBanlist} className="btn-limpiar">
-              🗑️ Limpiar
-            </button>
+            )}
+            {tienePermiso('admin.gestionar_comparacion_banlist') && (
+              <button
+                className={`banlist-selector-btn ${banlistActiva === 'comparacion' ? 'active' : ''}`}
+                onClick={() => { setBanlistActiva('comparacion'); setOrdenColumnas([]); }}
+              >
+                📊 Comparación ({comparacionBaneados.length})
+              </button>
+            )}
           </div>
 
+          {/* Banlist de Items sin MLA */}
+          {banlistActiva === 'items-sin-mla' && tienePermiso('admin.gestionar_items_sin_mla_banlist') && (
+            <>
+              <p className="tab-description">
+                Items que no deben aparecer en el reporte de sin MLA
+              </p>
+
+              {/* Filtros */}
+              <div className="filters-section">
+                <div className="filter-group">
+                  <label>🔎 Buscar:</label>
+                  <input
+                    type="text"
+                    placeholder="Código o descripción"
+                    value={busquedaBanlist}
+                    onChange={(e) => setBusquedaBanlist(e.target.value)}
+                    className="filter-input"
+                  />
+                </div>
+
+                <div className="filter-group marcas-filter-container" style={{position: 'relative'}}>
+                  <label>🏷️ Marca:</label>
+                  <button
+                    onClick={() => setPanelMarcasAbiertoBanlist(!panelMarcasAbiertoBanlist)}
+                    className={`filter-button-dropdown ${marcasSeleccionadasBanlist.length > 0 ? 'active' : ''}`}
+                  >
+                    {marcasSeleccionadasBanlist.length > 0
+                      ? `${marcasSeleccionadasBanlist.length} marcas`
+                      : 'Todas las marcas'}
+                    {marcasSeleccionadasBanlist.length > 0 && (
+                      <span className="filter-badge-inline">{marcasSeleccionadasBanlist.length}</span>
+                    )}
+                  </button>
+
+                  {panelMarcasAbiertoBanlist && (
+                    <div className="dropdown-panel">
+                      <div className="dropdown-header">
+                        <input
+                          type="text"
+                          placeholder="Buscar marca..."
+                          value={busquedaMarcaBanlist}
+                          onChange={(e) => setBusquedaMarcaBanlist(e.target.value)}
+                          className="dropdown-search"
+                        />
+                        {marcasSeleccionadasBanlist.length > 0 && (
+                          <button
+                            onClick={() => setMarcasSeleccionadasBanlist([])}
+                            className="btn-clear-dropdown"
+                          >
+                            Limpiar ({marcasSeleccionadasBanlist.length})
+                          </button>
+                        )}
+                      </div>
+                      <div className="dropdown-list">
+                        {marcasBanlist
+                          .filter(marca => !busquedaMarcaBanlist || marca.toLowerCase().includes(busquedaMarcaBanlist.toLowerCase()))
+                          .map(marca => (
+                            <label
+                              key={marca}
+                              className={`dropdown-item ${marcasSeleccionadasBanlist.includes(marca) ? 'selected' : ''}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={marcasSeleccionadasBanlist.includes(marca)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setMarcasSeleccionadasBanlist([...marcasSeleccionadasBanlist, marca]);
+                                  } else {
+                                    setMarcasSeleccionadasBanlist(marcasSeleccionadasBanlist.filter(m => m !== marca));
+                                  }
+                                }}
+                              />
+                              <span>{marca}</span>
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="filter-group">
+                  <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
+                    <input
+                      type="checkbox"
+                      checked={soloNuevosBanlist}
+                      onChange={(e) => setSoloNuevosBanlist(e.target.checked)}
+                      style={{marginRight: '6px', cursor: 'pointer'}}
+                    />
+                    ✨ Solo nuevos
+                  </label>
+                </div>
+
+                <button onClick={limpiarFiltrosBanlist} className="btn-limpiar">
+                  🗑️ Limpiar
+                </button>
+              </div>
+
+              {/* Barra de acciones para multi-selección */}
+              {baneadosSeleccionados.size > 0 && (
+                <div className="seleccion-bar">
+                  <span>{baneadosSeleccionados.size} item(s) seleccionado(s)</span>
+                  <button onClick={desbanearSeleccionados} className="btn-desbanear-seleccionados">
+                    ✅ Desbanear seleccionados
+                  </button>
+                </div>
+              )}
+
+              {loadingBaneados ? (
+                <div className="loading">Cargando banlist...</div>
+              ) : (
+                <div className="table-container">
+                  <table className="items-table">
+                    <thead>
+                      <tr>
+                        <th className="checkbox-col">
+                          <input
+                            type="checkbox"
+                            checked={baneadosSeleccionados.size === itemsBaneados.length && itemsBaneados.length > 0}
+                            onChange={handleSeleccionarTodosBaneados}
+                          />
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('item_id', e)}>
+                          Item ID {getIconoOrden('item_id')} {getNumeroOrden('item_id') && <span className="orden-numero">{getNumeroOrden('item_id')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('codigo', e)}>
+                          Código {getIconoOrden('codigo')} {getNumeroOrden('codigo') && <span className="orden-numero">{getNumeroOrden('codigo')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('descripcion', e)}>
+                          Descripción {getIconoOrden('descripcion')} {getNumeroOrden('descripcion') && <span className="orden-numero">{getNumeroOrden('descripcion')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('marca', e)}>
+                          Marca {getIconoOrden('marca')} {getNumeroOrden('marca') && <span className="orden-numero">{getNumeroOrden('marca')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('motivo', e)}>
+                          Motivo {getIconoOrden('motivo')} {getNumeroOrden('motivo') && <span className="orden-numero">{getNumeroOrden('motivo')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('usuario_nombre', e)}>
+                          Usuario {getIconoOrden('usuario_nombre')} {getNumeroOrden('usuario_nombre') && <span className="orden-numero">{getNumeroOrden('usuario_nombre')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('fecha_creacion', e)}>
+                          Fecha {getIconoOrden('fecha_creacion')} {getNumeroOrden('fecha_creacion') && <span className="orden-numero">{getNumeroOrden('fecha_creacion')}</span>}
+                        </th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itemsBaneados.length === 0 ? (
+                        <tr>
+                          <td colSpan="9" className="no-data">
+                            No hay items en la banlist
+                          </td>
+                        </tr>
+                      ) : (
+                        sortedItems(itemsBaneados).map((item) => (
+                          <tr
+                            key={item.id}
+                            className={baneadosSeleccionados.has(item.id) ? 'fila-seleccionada' : ''}
+                          >
+                            <td className="checkbox-col">
+                              <input
+                                type="checkbox"
+                                checked={baneadosSeleccionados.has(item.id)}
+                                onChange={(e) => handleSeleccionarBaneado(item.id, e)}
+                              />
+                            </td>
+                            <td>{item.item_id}</td>
+                            <td>{item.codigo}</td>
+                            <td className="descripcion-cell">
+                              {esItemNuevo(item.item_id) && <span className="badge-nuevo">NUEVO</span>}
+                              {item.descripcion}
+                            </td>
+                            <td>{item.marca}</td>
+                            <td className="motivo-cell">{item.motivo || '-'}</td>
+                            <td>{item.usuario_nombre}</td>
+                            <td>{new Date(item.fecha_creacion).toLocaleDateString()}</td>
+                            <td>
+                              <button
+                                onClick={() => handleDesbanear(item.id, item.item_id)}
+                                className="btn-desbanear"
+                                title="Quitar de banlist"
+                              >
+                                ✅ Desbanear
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Banlist de Comparación */}
+          {banlistActiva === 'comparacion' && tienePermiso('admin.gestionar_comparacion_banlist') && (
+            <>
+              <p className="tab-description">
+                Publicaciones excluidas de la comparación de listas (errores ya revisados)
+              </p>
+
+              {/* Filtros */}
+              <div className="filters-section">
+                <div className="filter-group">
+                  <label>🔎 Buscar:</label>
+                  <input
+                    type="text"
+                    placeholder="MLA ID, código o descripción"
+                    value={busquedaComparacionBanlist}
+                    onChange={(e) => setBusquedaComparacionBanlist(e.target.value)}
+                    className="filter-input"
+                  />
+                </div>
+              </div>
+
+              {/* Barra de acciones para multi-selección */}
+              {comparacionBaneadosSeleccionados.size > 0 && (
+                <div className="seleccion-bar">
+                  <span>{comparacionBaneadosSeleccionados.size} publicación(es) seleccionada(s)</span>
+                  <button onClick={desbanearComparacionSeleccionados} className="btn-desbanear-seleccionados">
+                    ✅ Desbanear seleccionados
+                  </button>
+                </div>
+              )}
+
+              {loadingComparacionBaneados ? (
+                <div className="loading">Cargando banlist de comparación...</div>
+              ) : (
+                <div className="table-container">
+                  <table className="items-table">
+                    <thead>
+                      <tr>
+                        <th className="checkbox-col">
+                          <input
+                            type="checkbox"
+                            checked={comparacionBaneadosSeleccionados.size === comparacionBaneadosFiltrados.length && comparacionBaneadosFiltrados.length > 0}
+                            onChange={handleSeleccionarTodosComparacionBaneados}
+                          />
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('mla_id', e)}>
+                          MLA ID {getIconoOrden('mla_id')} {getNumeroOrden('mla_id') && <span className="orden-numero">{getNumeroOrden('mla_id')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('item_id', e)}>
+                          Item ID {getIconoOrden('item_id')} {getNumeroOrden('item_id') && <span className="orden-numero">{getNumeroOrden('item_id')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('codigo', e)}>
+                          Código {getIconoOrden('codigo')} {getNumeroOrden('codigo') && <span className="orden-numero">{getNumeroOrden('codigo')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('descripcion', e)}>
+                          Descripción {getIconoOrden('descripcion')} {getNumeroOrden('descripcion') && <span className="orden-numero">{getNumeroOrden('descripcion')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('lista_sistema', e)}>
+                          Lista {getIconoOrden('lista_sistema')} {getNumeroOrden('lista_sistema') && <span className="orden-numero">{getNumeroOrden('lista_sistema')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('motivo', e)}>
+                          Motivo {getIconoOrden('motivo')} {getNumeroOrden('motivo') && <span className="orden-numero">{getNumeroOrden('motivo')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('usuario_nombre', e)}>
+                          Usuario {getIconoOrden('usuario_nombre')} {getNumeroOrden('usuario_nombre') && <span className="orden-numero">{getNumeroOrden('usuario_nombre')}</span>}
+                        </th>
+                        <th className="sortable" onClick={(e) => handleSort('fecha_creacion', e)}>
+                          Fecha {getIconoOrden('fecha_creacion')} {getNumeroOrden('fecha_creacion') && <span className="orden-numero">{getNumeroOrden('fecha_creacion')}</span>}
+                        </th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comparacionBaneadosFiltrados.length === 0 ? (
+                        <tr>
+                          <td colSpan="10" className="no-data">
+                            No hay publicaciones en la banlist de comparación
+                          </td>
+                        </tr>
+                      ) : (
+                        sortedItems(comparacionBaneadosFiltrados).map((item) => (
+                          <tr
+                            key={item.id}
+                            className={comparacionBaneadosSeleccionados.has(item.id) ? 'fila-seleccionada' : ''}
+                          >
+                            <td className="checkbox-col">
+                              <input
+                                type="checkbox"
+                                checked={comparacionBaneadosSeleccionados.has(item.id)}
+                                onChange={(e) => handleSeleccionarComparacionBaneado(item.id, e)}
+                              />
+                            </td>
+                            <td>{item.mla_id}</td>
+                            <td>{item.item_id || '-'}</td>
+                            <td>{item.codigo || '-'}</td>
+                            <td className="descripcion-cell">{item.descripcion}</td>
+                            <td>
+                              {item.lista_sistema && <span className="badge-lista">{item.lista_sistema}</span>}
+                            </td>
+                            <td className="motivo-cell">{item.motivo || '-'}</td>
+                            <td>{item.usuario_nombre}</td>
+                            <td>{new Date(item.fecha_creacion).toLocaleDateString()}</td>
+                            <td>
+                              <button
+                                onClick={() => handleDesbanearComparacion(item.id, item.mla_id)}
+                                className="btn-desbanear"
+                                title="Quitar de banlist"
+                              >
+                                ✅ Desbanear
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Contenido del Tab 3: Comparación de Listas */}
+      {activeTab === 'comparacion' && tienePermiso('admin.ver_comparacion_listas_ml') && (
+        <div className="tab-content">
           {/* Barra de acciones para multi-selección */}
-          {baneadosSeleccionados.size > 0 && (
+          {comparacionSeleccionados.size > 0 && tienePermiso('admin.gestionar_comparacion_banlist') && (
             <div className="seleccion-bar">
-              <span>{baneadosSeleccionados.size} item(s) seleccionado(s)</span>
-              <button onClick={desbanearSeleccionados} className="btn-desbanear-seleccionados">
-                ✅ Desbanear seleccionados
+              <span>{comparacionSeleccionados.size} publicación(es) seleccionada(s)</span>
+              <button onClick={banearComparacionSeleccionados} className="btn-banear-seleccionados">
+                🚫 Banear seleccionados
               </button>
             </div>
           )}
 
-          {loadingBaneados ? (
-            <div className="loading">Cargando banlist...</div>
+          {/* Tabla de comparación */}
+          {loadingComparacion ? (
+            <div className="loading">Cargando comparación...</div>
           ) : (
             <div className="table-container">
               <table className="items-table">
                 <thead>
                   <tr>
-                    <th className="checkbox-col">
-                      <input
-                        type="checkbox"
-                        checked={baneadosSeleccionados.size === itemsBaneados.length && itemsBaneados.length > 0}
-                        onChange={handleSeleccionarTodosBaneados}
-                      />
-                    </th>
+                    {tienePermiso('admin.gestionar_comparacion_banlist') && (
+                      <th className="checkbox-col">
+                        <input
+                          type="checkbox"
+                          checked={comparacionSeleccionados.size === itemsComparacion.length && itemsComparacion.length > 0}
+                          onChange={handleSeleccionarTodosComparacion}
+                        />
+                      </th>
+                    )}
                     <th className="sortable" onClick={(e) => handleSort('item_id', e)}>
                       Item ID {getIconoOrden('item_id')} {getNumeroOrden('item_id') && <span className="orden-numero">{getNumeroOrden('item_id')}</span>}
                     </th>
@@ -932,99 +1404,48 @@ const ItemsSinMLA = () => {
                     <th className="sortable" onClick={(e) => handleSort('marca', e)}>
                       Marca {getIconoOrden('marca')} {getNumeroOrden('marca') && <span className="orden-numero">{getNumeroOrden('marca')}</span>}
                     </th>
-                    <th className="sortable" onClick={(e) => handleSort('motivo', e)}>
-                      Motivo {getIconoOrden('motivo')} {getNumeroOrden('motivo') && <span className="orden-numero">{getNumeroOrden('motivo')}</span>}
+                    <th className="sortable" onClick={(e) => handleSort('mla_id', e)}>
+                      MLA ID {getIconoOrden('mla_id')} {getNumeroOrden('mla_id') && <span className="orden-numero">{getNumeroOrden('mla_id')}</span>}
                     </th>
-                    <th className="sortable" onClick={(e) => handleSort('usuario_nombre', e)}>
-                      Usuario {getIconoOrden('usuario_nombre')} {getNumeroOrden('usuario_nombre') && <span className="orden-numero">{getNumeroOrden('usuario_nombre')}</span>}
+                    <th className="sortable" onClick={(e) => handleSort('lista_sistema', e)}>
+                      Lista Sistema {getIconoOrden('lista_sistema')} {getNumeroOrden('lista_sistema') && <span className="orden-numero">{getNumeroOrden('lista_sistema')}</span>}
                     </th>
-                    <th className="sortable" onClick={(e) => handleSort('fecha_creacion', e)}>
-                      Fecha {getIconoOrden('fecha_creacion')} {getNumeroOrden('fecha_creacion') && <span className="orden-numero">{getNumeroOrden('fecha_creacion')}</span>}
+                    <th className="sortable" onClick={(e) => handleSort('campana_ml', e)}>
+                      Campaña ML {getIconoOrden('campana_ml')} {getNumeroOrden('campana_ml') && <span className="orden-numero">{getNumeroOrden('campana_ml')}</span>}
                     </th>
-                    <th>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {itemsBaneados.length === 0 ? (
-                    <tr>
-                      <td colSpan="9" className="no-data">
-                        No hay items en la banlist
-                      </td>
-                    </tr>
-                  ) : (
-                    sortedItems(itemsBaneados).map((item) => (
-                      <tr
-                        key={item.id}
-                        className={baneadosSeleccionados.has(item.id) ? 'fila-seleccionada' : ''}
-                      >
-                        <td className="checkbox-col">
-                          <input
-                            type="checkbox"
-                            checked={baneadosSeleccionados.has(item.id)}
-                            onChange={(e) => handleSeleccionarBaneado(item.id, e)}
-                          />
-                        </td>
-                        <td>{item.item_id}</td>
-                        <td>{item.codigo}</td>
-                        <td className="descripcion-cell">
-                          {esItemNuevo(item.item_id) && <span className="badge-nuevo">NUEVO</span>}
-                          {item.descripcion}
-                        </td>
-                        <td>{item.marca}</td>
-                        <td className="motivo-cell">{item.motivo || '-'}</td>
-                        <td>{item.usuario_nombre}</td>
-                        <td>{new Date(item.fecha_creacion).toLocaleDateString()}</td>
-                        <td>
-                          <button
-                            onClick={() => handleDesbanear(item.id, item.item_id)}
-                            className="btn-desbanear"
-                            title="Quitar de banlist"
-                          >
-                            ✅ Desbanear
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Contenido del Tab 3: Comparación de Listas */}
-      {activeTab === 'comparacion' && tienePermiso('admin.ver_comparacion_listas_ml') && (
-        <div className="tab-content">
-          {/* Tabla de comparación */}
-          {loadingComparacion ? (
-            <div className="loading">Cargando comparación...</div>
-          ) : (
-            <div className="table-container">
-              <table className="items-table">
-                <thead>
-                  <tr>
-                    <th>Item ID</th>
-                    <th>Código</th>
-                    <th>Descripción</th>
-                    <th>Marca</th>
-                    <th>MLA ID</th>
-                    <th>Lista Sistema</th>
-                    <th>Campaña ML</th>
-                    <th>Precio Sistema</th>
-                    <th>Precio ML</th>
+                    <th className="sortable" onClick={(e) => handleSort('precio_sistema', e)}>
+                      Precio Sistema {getIconoOrden('precio_sistema')} {getNumeroOrden('precio_sistema') && <span className="orden-numero">{getNumeroOrden('precio_sistema')}</span>}
+                    </th>
+                    <th className="sortable" onClick={(e) => handleSort('precio_ml', e)}>
+                      Precio ML {getIconoOrden('precio_ml')} {getNumeroOrden('precio_ml') && <span className="orden-numero">{getNumeroOrden('precio_ml')}</span>}
+                    </th>
+                    {tienePermiso('admin.gestionar_comparacion_banlist') && (
+                      <th>Acciones</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {itemsComparacion.length === 0 ? (
                     <tr>
-                      <td colSpan="9" style={{textAlign: 'center', padding: '20px'}}>
-                        {loadingComparacion ? 'Cargando...' : 'No hay diferencias encontradas entre listas del sistema y campañas de ML'}
+                      <td colSpan={tienePermiso('admin.gestionar_comparacion_banlist') ? 11 : 9} className="no-data">
+                        No hay diferencias encontradas entre listas del sistema y campañas de ML
                       </td>
                     </tr>
                   ) : (
-                    itemsComparacion.map((item) => (
-                      <tr key={`${item.mla_id}-${item.item_id}`}>
+                    sortedItems(itemsComparacion).map((item) => (
+                      <tr
+                        key={`${item.mla_id}-${item.item_id}`}
+                        className={comparacionSeleccionados.has(item.mla_id) ? 'fila-seleccionada' : ''}
+                      >
+                        {tienePermiso('admin.gestionar_comparacion_banlist') && (
+                          <td className="checkbox-col">
+                            <input
+                              type="checkbox"
+                              checked={comparacionSeleccionados.has(item.mla_id)}
+                              onChange={(e) => handleSeleccionarComparacion(item.mla_id, e)}
+                            />
+                          </td>
+                        )}
                         <td>{item.item_id}</td>
                         <td>{item.codigo}</td>
                         <td className="descripcion-cell">{item.descripcion}</td>
@@ -1047,6 +1468,17 @@ const ItemsSinMLA = () => {
                         </td>
                         <td>${item.precio_sistema?.toFixed(2)}</td>
                         <td>${item.precio_ml?.toFixed(2)}</td>
+                        {tienePermiso('admin.gestionar_comparacion_banlist') && (
+                          <td>
+                            <button
+                              onClick={() => handleBanearComparacion(item)}
+                              className="btn-banear"
+                              title="Agregar a banlist"
+                            >
+                              🚫 Banear
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))
                   )}
@@ -1057,7 +1489,7 @@ const ItemsSinMLA = () => {
         </div>
       )}
 
-      {/* Modal para agregar motivo al banear */}
+      {/* Modal para agregar motivo al banear (items sin MLA) */}
       {showMotivoModal && (
         <div className="modal-overlay" onClick={() => setShowMotivoModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -1080,6 +1512,42 @@ const ItemsSinMLA = () => {
                 Confirmar
               </button>
               <button onClick={() => setShowMotivoModal(false)} className="btn-cancelar">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para agregar motivo al banear (comparación) */}
+      {showComparacionMotivoModal && (
+        <div className="modal-overlay" onClick={() => setShowComparacionMotivoModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>🚫 Banear de Comparación</h3>
+            <p>
+              <strong>MLA:</strong> {comparacionItemSeleccionado?.mla_id}
+            </p>
+            <p>
+              <strong>Item:</strong> {comparacionItemSeleccionado?.item_id} - {comparacionItemSeleccionado?.descripcion}
+            </p>
+            <p>
+              <strong>Lista:</strong> {comparacionItemSeleccionado?.lista_sistema} → <strong>Campaña ML:</strong> {comparacionItemSeleccionado?.campana_ml}
+            </p>
+            <div className="form-group">
+              <label>Motivo (opcional):</label>
+              <textarea
+                value={comparacionMotivo}
+                onChange={(e) => setComparacionMotivo(e.target.value)}
+                placeholder="Ej: Campaña correcta, error de sincronización ya resuelto, etc."
+                rows="4"
+                className="motivo-textarea"
+              />
+            </div>
+            <div className="modal-actions">
+              <button onClick={confirmarBanearComparacion} className="btn-confirmar">
+                Confirmar
+              </button>
+              <button onClick={() => setShowComparacionMotivoModal(false)} className="btn-cancelar">
                 Cancelar
               </button>
             </div>

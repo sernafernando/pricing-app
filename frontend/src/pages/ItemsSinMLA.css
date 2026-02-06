@@ -723,6 +723,41 @@
   font-size: 14px;
 }
 
+/* Banlist Selector (sub-tabs dentro de la tab banlist) */
+.banlist-selector {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  width: fit-content;
+}
+
+.banlist-selector-btn {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+
+.banlist-selector-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.banlist-selector-btn.active {
+  background: var(--bg-primary);
+  color: var(--primary-color);
+  border-color: var(--border-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
 /* Dark theme support */
 :root[data-theme="dark"] .btn-banear {
   background: #4a1a1a;
