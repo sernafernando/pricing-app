@@ -240,7 +240,7 @@ async def procesar_batch(ids_batch: list, db: Session, batch_num: int, total_bat
             for mla_id, item, campaign, seller_sku, item_id in chunk_items:
                 if mla_id in snapshots_cache:
                     # Actualizar existente
-                    existing = db.query(MLPublicationSnapshot).get(snapshots_cache[mla_id])
+                    existing = db.get(MLPublicationSnapshot, snapshots_cache[mla_id])
                     if existing:
                         aplicar_snapshot(existing, item, campaign, seller_sku, item_id)
                         chunk_updated += 1
@@ -275,7 +275,7 @@ async def procesar_batch(ids_batch: list, db: Session, batch_num: int, total_bat
             for mla_id, item, campaign, seller_sku, item_id in chunk_items:
                 try:
                     if mla_id in snapshots_cache:
-                        existing = db.query(MLPublicationSnapshot).get(snapshots_cache[mla_id])
+                        existing = db.get(MLPublicationSnapshot, snapshots_cache[mla_id])
                         if existing:
                             aplicar_snapshot(existing, item, campaign, seller_sku, item_id)
                         else:
