@@ -479,7 +479,9 @@ async def get_comparacion_listas(
         ProductoERP,
         ProductoERP.item_id == MercadoLibreItemPublicado.item_id
     ).filter(
-        MLPublicationSnapshot.mla_id.notin_(mla_baneados_subq)
+        MLPublicationSnapshot.mla_id.notin_(mla_baneados_subq),
+        MLPublicationSnapshot.status == 'active',
+        MLPublicationSnapshot.price.isnot(None)
     )
 
     # Aplicar filtros opcionales
