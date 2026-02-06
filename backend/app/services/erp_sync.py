@@ -40,7 +40,7 @@ async def fetch_stock_erp() -> Dict[int, int]:
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.get(url, params={
-            "opName": "ItemStock",
+            "opName": "ItemStorage_funGetXMLData",
             "intStor_id": 1,
             "intItem_id": -1
         })
