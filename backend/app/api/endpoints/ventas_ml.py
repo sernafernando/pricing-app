@@ -24,18 +24,18 @@ from decimal import Decimal
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
 
-def get_marcas_usuario_ventas(db: Session, usuario: Usuario) -> Optional[List[str]]:
+def get_pares_marca_cat_usuario_ventas(db: Session, usuario: Usuario) -> Optional[set]:
     """
-    Obtiene las marcas asignadas al usuario si no es admin/gerente.
-    Retorna None si el usuario puede ver todas las marcas.
+    Obtiene los pares (marca, categoría) asignados al usuario si no es admin/gerente.
+    Retorna None si el usuario puede ver todo. Retorna set vacío si no tiene asignaciones.
     """
     roles_completos = [RolUsuario.SUPERADMIN, RolUsuario.ADMIN, RolUsuario.GERENTE]
 
     if usuario.rol in roles_completos:
         return None
 
-    marcas = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id == usuario.id).all()
-    return [m[0] for m in marcas] if marcas else []
+    pares = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id == usuario.id).all()
+    return {(m.upper(), c.upper()) for m, c in pares} if pares else set()
 
 router = APIRouter()
 
@@ -533,21 +533,19 @@ async def get_operaciones_con_metricas(
     Soporta paginación server-side con limit/offset.
     """
 
-    # Obtener marcas del usuario para filtrar
+    # Obtener pares marca+categoría del usuario para filtrar
     # Si pm_ids está presente (usuario admin seleccionó PMs), usar esos en lugar del usuario actual
     if pm_ids:
         pm_ids_list = [int(id.strip()) for id in pm_ids.split(',') if id.strip().isdigit()]
         if pm_ids_list:
-            marcas_pms = db.query(MarcaPM.marca).filter(
+            pares_pms = db.query(MarcaPM.marca, MarcaPM.categoria).filter(
                 MarcaPM.usuario_id.in_(pm_ids_list)
             ).distinct().all()
-            marcas_usuario = [m[0] for m in marcas_pms] if marcas_pms else []
-            if len(marcas_usuario) == 0:
-                marcas_usuario = ['__NINGUNA__']  # Forzar resultado vacío
+            pares_usuario = {(m.upper(), c.upper()) for m, c in pares_pms} if pares_pms else set()
         else:
-            marcas_usuario = get_marcas_usuario_ventas(db, current_user)
+            pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
     else:
-        marcas_usuario = get_marcas_usuario_ventas(db, current_user)
+        pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
 
     to_date_full = to_date + ' 23:59:59'
 
@@ -826,10 +824,12 @@ async def get_operaciones_con_metricas(
     for row in rows:
         # Filtrar por marcas del PM si no es admin/gerente
         # (Los demás filtros ya se aplicaron en el SQL)
-        if marcas_usuario is not None:
-            if len(marcas_usuario) == 0:
-                continue  # Sin marcas asignadas, no ve nada
-            if row.marca not in marcas_usuario:
+        if pares_usuario is not None:
+            if len(pares_usuario) == 0:
+                continue  # Sin pares asignados, no ve nada
+            marca_upper = (row.marca or '').upper()
+            cat_upper = (row.categoria or '').upper()
+            if (marca_upper, cat_upper) not in pares_usuario:
                 continue
 
         # Usar el costo de envío del PRODUCTO (productos_erp.envio)
@@ -913,16 +913,14 @@ async def exportar_operaciones(
     if pm_ids:
         pm_ids_list = [int(id.strip()) for id in pm_ids.split(',') if id.strip().isdigit()]
         if pm_ids_list:
-            marcas_pms = db.query(MarcaPM.marca).filter(
+            pares_pms = db.query(MarcaPM.marca, MarcaPM.categoria).filter(
                 MarcaPM.usuario_id.in_(pm_ids_list)
             ).distinct().all()
-            marcas_usuario = [m[0] for m in marcas_pms] if marcas_pms else []
-            if len(marcas_usuario) == 0:
-                marcas_usuario = ['__NINGUNA__']
+            pares_usuario = {(m.upper(), c.upper()) for m, c in pares_pms} if pares_pms else set()
         else:
-            marcas_usuario = get_marcas_usuario_ventas(db, current_user)
+            pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
     else:
-        marcas_usuario = get_marcas_usuario_ventas(db, current_user)
+        pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
 
     to_date_full = to_date + ' 23:59:59'
 
@@ -1123,10 +1121,12 @@ async def exportar_operaciones(
     # Procesar operaciones
     operaciones = []
     for row in rows:
-        if marcas_usuario is not None:
-            if len(marcas_usuario) == 0:
+        if pares_usuario is not None:
+            if len(pares_usuario) == 0:
                 continue
-            if row.marca not in marcas_usuario:
+            marca_upper = (row.marca or '').upper()
+            cat_upper = (row.categoria or '').upper()
+            if (marca_upper, cat_upper) not in pares_usuario:
                 continue
 
         costo_envio_producto = None

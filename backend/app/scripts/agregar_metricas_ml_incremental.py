@@ -458,19 +458,32 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         }
                         tipo_publicacion = pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}")
 
-                    # Obtener PM asignado a la marca del producto
+                    # Obtener PM asignado a la marca+categoría del producto
                     from app.models.marca_pm import MarcaPM
                     pm_nombre = None
 
-                    # Intentar con marca de tb_brand primero
-                    if row.marca:
-                        marca_pm = db.query(MarcaPM).filter(MarcaPM.marca == row.marca).first()
+                    # Intentar con marca+categoría de tb_brand/tb_category primero
+                    if row.marca and row.categoria:
+                        marca_pm = db.query(MarcaPM).filter(
+                            MarcaPM.marca == row.marca,
+                            MarcaPM.categoria == row.categoria
+                        ).first()
                         if marca_pm and marca_pm.usuario:
                             pm_nombre = marca_pm.usuario.nombre
 
-                    # Si no encontró PM, intentar con marca de productos_erp como fallback
-                    if not pm_nombre and producto_actual and producto_actual.marca:
-                        marca_pm = db.query(MarcaPM).filter(MarcaPM.marca == producto_actual.marca).first()
+                    # Si no encontró PM, intentar con marca+categoría de productos_erp como fallback
+                    if not pm_nombre and producto_actual and producto_actual.marca and producto_actual.categoria:
+                        marca_pm = db.query(MarcaPM).filter(
+                            MarcaPM.marca == producto_actual.marca,
+                            MarcaPM.categoria == producto_actual.categoria
+                        ).first()
+                        if marca_pm and marca_pm.usuario:
+                            pm_nombre = marca_pm.usuario.nombre
+
+                    # Último fallback: buscar solo por marca (cualquier categoría)
+                    if not pm_nombre and (row.marca or (producto_actual and producto_actual.marca)):
+                        marca_buscar = row.marca or producto_actual.marca
+                        marca_pm = db.query(MarcaPM).filter(MarcaPM.marca == marca_buscar).first()
                         if marca_pm and marca_pm.usuario:
                             pm_nombre = marca_pm.usuario.nombre
 

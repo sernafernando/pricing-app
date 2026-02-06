@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
+from sqlalchemy import func, tuple_
 from pydantic import BaseModel, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Dict
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.usuario import Usuario, RolUsuario
@@ -12,9 +12,12 @@ from app.models.subcategoria import Subcategoria
 
 router = APIRouter()
 
+# ── Pydantic Models ──────────────────────────────────────────────────────────
+
 class MarcaPMResponse(BaseModel):
     id: int
     marca: str
+    categoria: str
     usuario_id: Optional[int]
     usuario_nombre: Optional[str] = None
     usuario_email: Optional[str] = None
@@ -27,14 +30,43 @@ class MarcaPMUpdate(BaseModel):
 class MarcaPMUpdateResponse(BaseModel):
     mensaje: str
     marca: str
+    categoria: str
     usuario_id: Optional[int]
+
+class AsignacionMarcaRequest(BaseModel):
+    """Asigna un PM a categorías específicas de una marca."""
+    marca: str
+    categorias: List[str]
+    usuario_id: Optional[int] = None
+
+class AsignacionMarcaResponse(BaseModel):
+    mensaje: str
+    marca: str
+    categorias_actualizadas: int
 
 class SyncMarcasResponse(BaseModel):
     mensaje: str
-    marcas_nuevas: int
+    pares_nuevos: int
+
+class CategoriasPorMarcaItem(BaseModel):
+    marca: str
+    categorias: List[str]
+
+class CategoriasPorMarcaResponse(BaseModel):
+    data: List[CategoriasPorMarcaItem]
+    total_marcas: int
+    total_pares: int
 
 class MarcasListResponse(BaseModel):
     marcas: List[str]
+    total: int
+
+class MarcasCategoriaItem(BaseModel):
+    marca: str
+    categoria: str
+
+class MarcasCategoriasListResponse(BaseModel):
+    pares: List[MarcasCategoriaItem]
     total: int
 
 class SubcategoriaItem(BaseModel):
@@ -53,39 +85,86 @@ class UsuarioPMResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
 @router.get("/marcas-pm", response_model=List[MarcaPMResponse])
 async def listar_marcas_pm(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
-):
+) -> List[MarcaPMResponse]:
     """
-    Lista todas las marcas con sus PMs asignados.
-    
-    Endpoint administrativo que permite ver todas las marcas del ERP
-    con sus respectivos Product Managers asignados. Útil para gestionar
-    la asignación de responsabilidades por marca.
-    
+    Lista todas las marcas+categorías con sus PMs asignados.
+
+    Endpoint administrativo que permite ver todos los pares marca-categoría
+    del ERP con sus respectivos Product Managers asignados.
+
     Requiere rol: ADMIN o SUPERADMIN
     """
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
         raise HTTPException(403, "No tienes permisos")
 
-    # Usar joinedload para evitar N+1 queries al acceder a marca.usuario
     marcas = db.query(MarcaPM).options(joinedload(MarcaPM.usuario)).all()
 
-    # Enriquecer con datos del usuario
     resultado = []
     for marca in marcas:
-        marca_dict = {
+        resultado.append({
             "id": marca.id,
             "marca": marca.marca,
+            "categoria": marca.categoria,
             "usuario_id": marca.usuario_id,
             "usuario_nombre": marca.usuario.nombre if marca.usuario else None,
-            "usuario_email": marca.usuario.email if marca.usuario else None
-        }
-        resultado.append(marca_dict)
+            "usuario_email": marca.usuario.email if marca.usuario else None,
+        })
 
     return resultado
+
+
+@router.get("/marcas-pm/categorias-disponibles", response_model=CategoriasPorMarcaResponse)
+async def categorias_disponibles_por_marca(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+) -> CategoriasPorMarcaResponse:
+    """
+    Devuelve todas las categorías disponibles por marca desde productos_erp.
+
+    Consulta los pares (marca, categoría) distintos que existen en productos.
+    Útil para el frontend de GestionPM para saber qué checkboxes mostrar.
+
+    Requiere rol: ADMIN o SUPERADMIN
+    """
+    if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
+        raise HTTPException(403, "No tienes permisos")
+
+    pares = db.query(
+        ProductoERP.marca,
+        ProductoERP.categoria
+    ).filter(
+        ProductoERP.marca.isnot(None),
+        ProductoERP.categoria.isnot(None)
+    ).distinct().order_by(
+        ProductoERP.marca,
+        ProductoERP.categoria
+    ).all()
+
+    # Agrupar por marca
+    marcas_dict: Dict[str, List[str]] = {}
+    for marca, categoria in pares:
+        if marca not in marcas_dict:
+            marcas_dict[marca] = []
+        marcas_dict[marca].append(categoria)
+
+    data = [
+        CategoriasPorMarcaItem(marca=marca, categorias=cats)
+        for marca, cats in marcas_dict.items()
+    ]
+
+    return CategoriasPorMarcaResponse(
+        data=data,
+        total_marcas=len(marcas_dict),
+        total_pares=len(pares)
+    )
+
 
 @router.patch("/marcas-pm/{marca_id}", response_model=MarcaPMUpdateResponse)
 async def actualizar_pm_marca(
@@ -93,16 +172,15 @@ async def actualizar_pm_marca(
     datos: MarcaPMUpdate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
-):
-    """Asigna o desasigna un PM a una marca (solo admin/superadmin)"""
+) -> MarcaPMUpdateResponse:
+    """Asigna o desasigna un PM a un par marca-categoría (solo admin/superadmin)."""
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
         raise HTTPException(403, "No tienes permisos")
 
     marca = db.query(MarcaPM).filter(MarcaPM.id == marca_id).first()
     if not marca:
-        raise HTTPException(404, "Marca no encontrada")
+        raise HTTPException(404, "Registro marca-categoría no encontrado")
 
-    # Si se asigna un usuario, verificar que existe
     if datos.usuario_id is not None:
         usuario = db.query(Usuario).filter(Usuario.id == datos.usuario_id).first()
         if not usuario:
@@ -115,57 +193,112 @@ async def actualizar_pm_marca(
     return MarcaPMUpdateResponse(
         mensaje="PM actualizado",
         marca=marca.marca,
+        categoria=marca.categoria,
         usuario_id=marca.usuario_id
     )
+
+
+@router.put("/marcas-pm/asignar", response_model=AsignacionMarcaResponse)
+async def asignar_pm_por_categorias(
+    datos: AsignacionMarcaRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+) -> AsignacionMarcaResponse:
+    """
+    Asigna un PM a categorías específicas de una marca.
+
+    Recibe una marca, una lista de categorías y un usuario_id.
+    Actualiza todos los registros marca+categoría correspondientes.
+    Útil para la UI de checkboxes donde se seleccionan categorías por marca.
+
+    Requiere rol: ADMIN o SUPERADMIN
+    """
+    if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
+        raise HTTPException(403, "No tienes permisos")
+
+    if datos.usuario_id is not None:
+        usuario = db.query(Usuario).filter(Usuario.id == datos.usuario_id).first()
+        if not usuario:
+            raise HTTPException(404, "Usuario no encontrado")
+
+    # Actualizar todos los registros de esa marca con esas categorías
+    registros = db.query(MarcaPM).filter(
+        func.upper(MarcaPM.marca) == datos.marca.upper(),
+        MarcaPM.categoria.in_(datos.categorias)
+    ).all()
+
+    if not registros:
+        raise HTTPException(404, f"No se encontraron registros para marca '{datos.marca}' con las categorías indicadas")
+
+    for reg in registros:
+        reg.usuario_id = datos.usuario_id
+
+    db.commit()
+
+    return AsignacionMarcaResponse(
+        mensaje="PM asignado a categorías",
+        marca=datos.marca,
+        categorias_actualizadas=len(registros)
+    )
+
 
 @router.post("/marcas-pm/sync", response_model=SyncMarcasResponse)
 async def sincronizar_marcas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
-):
-    """Sincroniza marcas nuevas desde productos_erp (solo admin/superadmin)"""
+) -> SyncMarcasResponse:
+    """
+    Sincroniza pares marca-categoría nuevos desde productos_erp.
+
+    Consulta pares (marca, categoría) distintos en productos_erp y agrega
+    los que aún no existen en marcas_pm con usuario_id=None.
+
+    Requiere rol: ADMIN o SUPERADMIN
+    """
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
         raise HTTPException(403, "No tienes permisos")
 
-    # Obtener todas las marcas únicas de productos_erp
-    marcas_erp = db.query(ProductoERP.marca).distinct().filter(
-        ProductoERP.marca.isnot(None)
-    ).all()
+    # Obtener todos los pares únicos de productos_erp
+    pares_erp = db.query(
+        ProductoERP.marca,
+        ProductoERP.categoria
+    ).filter(
+        ProductoERP.marca.isnot(None),
+        ProductoERP.categoria.isnot(None)
+    ).distinct().all()
 
-    # Obtener todas las marcas ya existentes en una sola query (evita N+1)
-    marcas_existentes = {m.marca for m in db.query(MarcaPM).all()}
+    # Obtener todos los pares ya existentes en marcas_pm (en memoria)
+    pares_existentes = {
+        (m.marca.upper(), m.categoria.upper())
+        for m in db.query(MarcaPM.marca, MarcaPM.categoria).all()
+    }
 
-    marcas_nuevas = 0
-    for (marca,) in marcas_erp:
-        # Verificar si ya existe (comparación en memoria, no DB)
-        if marca not in marcas_existentes:
-            nueva_marca = MarcaPM(marca=marca, usuario_id=None)
-            db.add(nueva_marca)
-            marcas_nuevas += 1
+    pares_nuevos = 0
+    for marca, categoria in pares_erp:
+        if (marca.upper(), categoria.upper()) not in pares_existentes:
+            db.add(MarcaPM(marca=marca, categoria=categoria, usuario_id=None))
+            pares_nuevos += 1
 
     db.commit()
 
     return SyncMarcasResponse(
         mensaje="Sincronización completada",
-        marcas_nuevas=marcas_nuevas
+        pares_nuevos=pares_nuevos
     )
 
-@router.get("/pms/marcas", response_model=MarcasListResponse)
+
+@router.get("/pms/marcas", response_model=MarcasCategoriasListResponse)
 async def obtener_marcas_por_pms(
     pm_ids: str,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
-):
+) -> MarcasCategoriasListResponse:
     """
-    Obtiene las marcas asignadas a uno o más PMs.
-    
-    Endpoint de filtrado que permite obtener las marcas que están bajo
-    la responsabilidad de uno o múltiples Product Managers. Útil para
-    filtrar productos por PM en el catálogo o reportes.
-    
+    Obtiene los pares marca-categoría asignados a uno o más PMs.
+
     Args:
         pm_ids: IDs de usuarios PM separados por coma (ejemplo: "1,2,3")
-    
+
     Acceso: Todos los usuarios autenticados
     """
     try:
@@ -173,35 +306,34 @@ async def obtener_marcas_por_pms(
     except ValueError:
         raise HTTPException(400, "IDs de PM inválidos")
 
-    # Obtener marcas asignadas a esos PMs
-    marcas = db.query(MarcaPM.marca).filter(
+    pares = db.query(MarcaPM.marca, MarcaPM.categoria).filter(
         MarcaPM.usuario_id.in_(pm_ids_list)
     ).all()
 
-    marcas_list = [m[0] for m in marcas]
+    pares_list = [
+        MarcasCategoriaItem(marca=p[0], categoria=p[1])
+        for p in pares
+    ]
 
-    return MarcasListResponse(
-        marcas=marcas_list,
-        total=len(marcas_list)
+    return MarcasCategoriasListResponse(
+        pares=pares_list,
+        total=len(pares_list)
     )
+
 
 @router.get("/pms/subcategorias", response_model=SubcategoriasListResponse)
 async def obtener_subcategorias_por_pms(
     pm_ids: str,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
-):
+) -> SubcategoriasListResponse:
     """
-    Obtiene las subcategorías de productos de marcas asignadas a uno o más PMs.
-    
-    Endpoint de filtrado que permite obtener todas las subcategorías que tienen
-    productos de marcas bajo la responsabilidad de uno o múltiples Product Managers.
-    Útil para filtros en cascada (PM -> Marca -> Subcategoría) en interfaces de
-    catálogo, reportes o dashboards.
-    
+    Obtiene las subcategorías de productos cuya marca+categoría están
+    asignadas a uno o más PMs.
+
     Args:
         pm_ids: IDs de usuarios PM separados por coma (ejemplo: "1,2,3")
-    
+
     Acceso: Todos los usuarios autenticados
     """
     try:
@@ -209,20 +341,18 @@ async def obtener_subcategorias_por_pms(
     except ValueError:
         raise HTTPException(400, "IDs de PM inválidos")
 
-    # Obtener marcas asignadas a esos PMs
-    marcas = db.query(MarcaPM.marca).filter(
+    # Obtener pares marca-categoría asignados a esos PMs
+    pares = db.query(MarcaPM.marca, MarcaPM.categoria).filter(
         MarcaPM.usuario_id.in_(pm_ids_list)
     ).all()
 
-    marcas_list = [m[0] for m in marcas]
+    if not pares:
+        return SubcategoriasListResponse(subcategorias=[], total=0)
 
-    if not marcas_list:
-        return SubcategoriasListResponse(
-            subcategorias=[],
-            total=0
-        )
+    marcas_list = [p[0] for p in pares]
+    categorias_list = [p[1] for p in pares]
 
-    # Obtener subcategorías de productos con esas marcas
+    # Obtener subcategorías de productos con esas marcas Y categorías
     subcategorias = db.query(
         Subcategoria.id,
         Subcategoria.nombre
@@ -230,7 +360,12 @@ async def obtener_subcategorias_por_pms(
         ProductoERP,
         ProductoERP.subcategoria_id == Subcategoria.id
     ).filter(
-        func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_list])
+        tuple_(
+            func.upper(ProductoERP.marca),
+            func.upper(ProductoERP.categoria)
+        ).in_(
+            [(m.upper(), c.upper()) for m, c in pares]
+        )
     ).distinct().all()
 
     subcategorias_list = [
@@ -243,17 +378,15 @@ async def obtener_subcategorias_por_pms(
         total=len(subcategorias_list)
     )
 
+
 @router.get("/usuarios/pms", response_model=List[UsuarioPMResponse])
 async def listar_usuarios_pm(
     solo_con_marcas: bool = False,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
-):
-    """Lista usuarios disponibles para filtrar como PMs (todos los usuarios)"""
-    # Removido el check de permisos - ahora todos pueden ver los PMs para filtrar
-
+) -> List[UsuarioPMResponse]:
+    """Lista usuarios disponibles para filtrar como PMs (todos los usuarios)."""
     if solo_con_marcas:
-        # Obtener solo usuarios que tienen al menos una marca asignada
         usuarios_con_marcas = db.query(Usuario).join(
             MarcaPM, Usuario.id == MarcaPM.usuario_id
         ).filter(
@@ -270,7 +403,6 @@ async def listar_usuarios_pm(
             for u in usuarios_con_marcas
         ]
     else:
-        # Obtener todos los usuarios activos
         usuarios = db.query(Usuario).filter(Usuario.activo == True).all()
 
         return [
