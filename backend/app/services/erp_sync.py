@@ -26,20 +26,24 @@ def convertir_a_entero(valor, default=0):
         return default
 
 async def fetch_productos_erp() -> List[Dict]:
-    """Trae productos del ERP"""
-    url = f"{settings.ERP_BASE_URL}{settings.ERP_PRODUCTOS_ENDPOINT}"
+    """Trae productos del ERP via gbp-parser"""
+    url = f"{settings.ERP_BASE_URL}/gbp-parser"
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.get(url)
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(url, json={"intExpgr_id": 64})
         response.raise_for_status()
         return response.json()
 
 async def fetch_stock_erp() -> Dict[int, int]:
-    """Trae stock de todos los productos"""
-    url = f"{settings.ERP_BASE_URL}{settings.ERP_STOCK_ENDPOINT}"
+    """Trae stock de todos los productos via gbp-parser"""
+    url = f"{settings.ERP_BASE_URL}/gbp-parser"
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.get(url)
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(url, json={
+            "opName": "ItemStock",
+            "intStor_id": 1,
+            "intItem_id": -1
+        })
         response.raise_for_status()
         data = response.json()
 
