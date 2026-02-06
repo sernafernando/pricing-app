@@ -110,18 +110,38 @@ async def procesar_batch(ids_batch: list, db: Session, batch_num: int, total_bat
     saved = 0
     updated = 0
     errors = 0
+    errores_detalle = []
+
+    today = datetime.now().date()
 
     for i in range(0, len(ids_batch), chunk_size):
         chunk = ids_batch[i:i + chunk_size]
         ids_str = ",".join(chunk)
 
+        # Llamada a la API (si falla, loguear y seguir con el siguiente chunk)
         try:
             batch = await call_meli(f"/items?ids={ids_str}")
+        except Exception as e:
+            errors += len(chunk)
+            errores_detalle.append(f"  ⚠️  API error chunk [{chunk[0]}...{chunk[-1]}]: {str(e)[:100]}")
+            continue
 
-            for item_wrapper in batch:
+        # Procesar cada publicación INDIVIDUALMENTE
+        for item_wrapper in batch:
+            mla_id = None
+            try:
                 item = item_wrapper.get("body")
                 if not item:
+                    # ML devolvió error para esta publicación específica
+                    error_status = item_wrapper.get("code", "?")
+                    error_mla = item_wrapper.get("body", {})
+                    if isinstance(error_mla, dict):
+                        mla_id = error_mla.get("id", "desconocido")
+                    errors += 1
+                    errores_detalle.append(f"  ⚠️  {mla_id}: ML respondió sin body (code={error_status})")
                     continue
+
+                mla_id = item.get("id")
 
                 # Buscar campaña de cuotas
                 campaign = None
@@ -152,10 +172,7 @@ async def procesar_batch(ids_batch: list, db: Session, batch_num: int, total_bat
                 if seller_sku and seller_sku.isdigit():
                     item_id = int(seller_sku)
 
-                mla_id = item.get("id")
-
                 # Verificar si ya existe un snapshot del día de hoy
-                today = datetime.now().date()
                 existing = db.query(MLPublicationSnapshot).filter(
                     MLPublicationSnapshot.mla_id == mla_id,
                     func.date(MLPublicationSnapshot.snapshot_date) == today
@@ -174,6 +191,7 @@ async def procesar_batch(ids_batch: list, db: Session, batch_num: int, total_bat
                     existing.seller_sku = seller_sku
                     existing.item_id = item_id
                     existing.snapshot_date = datetime.now()
+                    db.commit()
                     updated += 1
                 else:
                     snapshot = MLPublicationSnapshot(
@@ -192,19 +210,19 @@ async def procesar_batch(ids_batch: list, db: Session, batch_num: int, total_bat
                         snapshot_date=datetime.now()
                     )
                     db.add(snapshot)
+                    db.commit()
                     saved += 1
 
-            db.commit()
-
-        except Exception as e:
-            errors += 1
-            db.rollback()
-            continue
+            except Exception as e:
+                db.rollback()
+                errors += 1
+                errores_detalle.append(f"  ⚠️  {mla_id or 'desconocido'}: {str(e)[:120]}")
+                continue
 
         # Pequeña pausa para no saturar la API
         await asyncio.sleep(0.3)
 
-    return saved, updated, errors
+    return saved, updated, errors, errores_detalle
 
 
 async def sync_ml_publications_full(db: Session = None):
@@ -240,6 +258,7 @@ async def sync_ml_publications_full(db: Session = None):
         total_saved = 0
         total_updated = 0
         total_errors = 0
+        todos_los_errores = []
 
         for batch_num in range(total_batches):
             start_idx = batch_num * batch_size
@@ -248,15 +267,20 @@ async def sync_ml_publications_full(db: Session = None):
 
             print(f"📦 Batch {batch_num + 1}/{total_batches} ({len(batch_ids)} publicaciones)...")
 
-            saved, updated, errors = await procesar_batch(
+            saved, updated, errors, errores_detalle = await procesar_batch(
                 batch_ids, db, batch_num + 1, total_batches
             )
 
             total_saved += saved
             total_updated += updated
             total_errors += errors
+            todos_los_errores.extend(errores_detalle)
 
             print(f"   ✓ Nuevos: {saved}, Actualizados: {updated}, Errores: {errors}")
+
+            # Mostrar errores del batch si los hay
+            for err in errores_detalle:
+                print(err)
 
             # Pausa entre batches
             if batch_num < total_batches - 1:
@@ -269,6 +293,15 @@ async def sync_ml_publications_full(db: Session = None):
         print(f"Total nuevos: {total_saved}")
         print(f"Total actualizados: {total_updated}")
         print(f"Total errores: {total_errors}")
+        print(f"Total procesados OK: {total_saved + total_updated}")
+
+        if todos_los_errores:
+            print()
+            print(f"DETALLE DE ERRORES ({len(todos_los_errores)}):")
+            for err in todos_los_errores:
+                print(err)
+
+        print()
         print(f"Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("=" * 70)
 
