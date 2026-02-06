@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func, and_, select
+from sqlalchemy import or_, func, and_, select, tuple_
 from typing import Optional, List
 from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
@@ -347,17 +347,19 @@ async def listar_productos(
         marcas_list = [m.strip().upper() for m in marcas.split(',')]
         query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
 
-    # Filtro por PMs (Product Managers)
+    # Filtro por PMs (Product Managers) - filtra por pares (marca, categoria)
     if pms:
         from app.models.marca_pm import MarcaPM
         pm_ids = [int(pm.strip()) for pm in pms.split(',')]
 
-        # Obtener marcas asignadas a esos PMs
-        marcas_pm = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
-        marcas_asignadas = [m[0] for m in marcas_pm]
+        # Obtener pares marca-categoría asignados a esos PMs
+        pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
 
-        if marcas_asignadas:
-            query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
+        if pares_pm:
+            pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+            query = query.filter(
+                tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+            )
         else:
             # Si no hay marcas asignadas, retornar vacío
             return ProductoListResponse(total=0, page=page, page_size=page_size, productos=[])
@@ -1487,15 +1489,17 @@ async def listar_productos_tienda(
     if subcategorias:
         query = query.filter(ProductoERP.subcategoria_id.in_([int(s.strip()) for s in subcategorias.split(',')]))
 
-    # Filtro por PMs (Product Managers)
+    # Filtro por PMs (Product Managers) - filtra por pares (marca, categoria)
     if pms:
         from app.models.marca_pm import MarcaPM
         pm_ids = [int(pm.strip()) for pm in pms.split(',')]
-        marcas_pm = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
-        marcas_asignadas = [m[0] for m in marcas_pm]
+        pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
 
-        if marcas_asignadas:
-            query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
+        if pares_pm:
+            pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+            query = query.filter(
+                tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+            )
         else:
             return ProductoTiendaListResponse(total=0, page=page, page_size=page_size, productos=[])
 
@@ -2775,16 +2779,17 @@ async def obtener_stats_dinamicos(
         else:
             query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
 
-    # Filtro de PMs
+    # Filtro de PMs - filtra por pares (marca, categoria)
     if pms:
         from app.models.marca_pm import MarcaPM
         pm_list = pms.split(',')
         pm_ints = [int(pm) for pm in pm_list]
-        # Obtener marcas asignadas a esos PMs
-        marcas_pm = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pm_ints)).all()
-        marcas_asignadas = [m[0] for m in marcas_pm]
-        if marcas_asignadas:
-            query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
+        pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ints)).all()
+        if pares_pm:
+            pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+            query = query.filter(
+                tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+            )
         else:
             # Si el PM no tiene marcas asignadas, filtrar para que no devuelva nada
             query = query.filter(ProductoERP.item_id == -1)
@@ -3336,10 +3341,14 @@ async def exportar_rebate(
         if filtros.get('pms'):
             from app.models.marca_pm import MarcaPM
             pms_ids = [int(pm) for pm in filtros['pms'].split(',')]
-            marcas_asignadas = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pms_ids)).all()
-            marcas_list = [m[0].upper() for m in marcas_asignadas]
-            if marcas_list:
-                query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
+            pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pms_ids)).all()
+            if pares_pm:
+                pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+                query = query.filter(
+                    tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+                )
+            else:
+                query = query.filter(ProductoERP.item_id == -1)
 
         if filtros.get('con_rebate') is not None:
             if filtros['con_rebate']:
@@ -3845,14 +3854,18 @@ async def calcular_web_masivo(
             colores_list = request.filtros['colores'].split(',')
             query = query.filter(ProductoPricing.color.in_(colores_list))
 
-        # Filtro de PMs
+        # Filtro de PMs - filtra por pares (marca, categoria)
         if request.filtros.get('pms'):
             from app.models.marca_pm import MarcaPM
             pm_ids = [int(pm.strip()) for pm in request.filtros['pms'].split(',')]
-            marcas_pm = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
-            marcas_asignadas = [m[0] for m in marcas_pm]
-            if marcas_asignadas:
-                query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
+            pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
+            if pares_pm:
+                pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+                query = query.filter(
+                    tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+                )
+            else:
+                query = query.filter(ProductoERP.item_id == -1)
 
         # Filtro de MLA
         if request.filtros.get('con_mla') is not None:
@@ -4079,10 +4092,14 @@ async def calcular_pvp_masivo(
         if request.filtros.get('pms'):
             from app.models.marca_pm import MarcaPM
             pm_ids = [int(pm.strip()) for pm in request.filtros['pms'].split(',')]
-            marcas_pm = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
-            marcas_asignadas = [m[0] for m in marcas_pm]
-            if marcas_asignadas:
-                query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
+            pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
+            if pares_pm:
+                pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+                query = query.filter(
+                    tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+                )
+            else:
+                query = query.filter(ProductoERP.item_id == -1)
 
         # Filtros de markup
         if request.filtros.get('markup_clasica_positivo') is not None:
@@ -5022,17 +5039,18 @@ async def exportar_web_transferencia(
         subcats_list = [int(s) for s in subcategorias.split(',')]
         query = query.filter(ProductoERP.subcategoria_id.in_(subcats_list))
 
-    # Filtro por PMs (Product Managers)
+    # Filtro por PMs (Product Managers) - filtra por pares (marca, categoria)
     if pms:
         from app.models.marca_pm import MarcaPM
         pm_ids = [int(pm.strip()) for pm in pms.split(',')]
 
-        # Obtener marcas asignadas a esos PMs
-        marcas_pm = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
-        marcas_asignadas = [m[0] for m in marcas_pm]
+        pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
 
-        if marcas_asignadas:
-            query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
+        if pares_pm:
+            pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+            query = query.filter(
+                tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+            )
         else:
             # Si el PM no tiene marcas asignadas, no hay productos
             wb = Workbook()
@@ -5496,17 +5514,18 @@ async def exportar_clasica(
         subcats_list = [int(s) for s in subcategorias.split(',')]
         query = query.filter(ProductoERP.subcategoria_id.in_(subcats_list))
 
-    # Filtro por PMs (Product Managers)
+    # Filtro por PMs (Product Managers) - filtra por pares (marca, categoria)
     if pms:
         from app.models.marca_pm import MarcaPM
         pm_ids = [int(pm.strip()) for pm in pms.split(',')]
 
-        # Obtener marcas asignadas a esos PMs
-        marcas_pm = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
-        marcas_asignadas = [m[0] for m in marcas_pm]
+        pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
 
-        if marcas_asignadas:
-            query = query.filter(func.upper(ProductoERP.marca).in_([m.upper() for m in marcas_asignadas]))
+        if pares_pm:
+            pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+            query = query.filter(
+                tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+            )
         else:
             # Si el PM no tiene marcas asignadas, no hay productos
             from io import BytesIO
@@ -6127,10 +6146,14 @@ async def exportar_vista_actual(
         if pms:
             from app.models.marca_pm import MarcaPM
             pms_ids = [int(pm) for pm in pms.split(',')]
-            marcas_asignadas = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id.in_(pms_ids)).all()
-            marcas_list = [m[0].upper() for m in marcas_asignadas]
-            if marcas_list:
-                query = query.filter(func.upper(ProductoERP.marca).in_(marcas_list))
+            pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pms_ids)).all()
+            if pares_pm:
+                pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+                query = query.filter(
+                    tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+                )
+            else:
+                query = query.filter(ProductoERP.item_id == -1)
 
         # Filtros de auditoría
         if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:

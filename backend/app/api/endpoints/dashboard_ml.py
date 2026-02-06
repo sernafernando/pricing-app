@@ -3,7 +3,7 @@ Endpoints para el dashboard de ventas ML con métricas pre-calculadas
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, desc, extract
+from sqlalchemy import func, and_, desc, extract, tuple_
 from typing import List, Optional
 from datetime import datetime, date, timedelta
 from decimal import Decimal
@@ -22,23 +22,23 @@ ARGENTINA_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 router = APIRouter()
 
 
-def get_marcas_usuario(db: Session, usuario: Usuario) -> Optional[List[str]]:
+def get_pares_marca_categoria_usuario(db: Session, usuario: Usuario) -> Optional[list]:
     """
-    Obtiene las marcas asignadas al usuario si no es admin/gerente.
-    Retorna None si el usuario puede ver todas las marcas.
+    Obtiene los pares (marca, categoría) asignados al usuario si no es admin/gerente.
+    Retorna None si el usuario puede ver todo.
     """
     roles_completos = [RolUsuario.SUPERADMIN, RolUsuario.ADMIN, RolUsuario.GERENTE]
 
     if usuario.rol in roles_completos:
         return None
 
-    marcas = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id == usuario.id).all()
-    return [m[0] for m in marcas] if marcas else []
+    pares = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id == usuario.id).all()
+    return [(m.upper(), c.upper()) for m, c in pares] if pares else []
 
 
 def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session, pm_ids: Optional[str] = None):
     """
-    Aplica filtro de marcas del PM a una query de MLVentaMetrica.
+    Aplica filtro de pares marca+categoría del PM a una query de MLVentaMetrica.
     
     Si pm_ids está presente (usuario admin seleccionó PMs específicos), filtra por esos PMs.
     Si pm_ids NO está presente, aplica el filtro del usuario actual (comportamiento original).
@@ -47,26 +47,29 @@ def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session, pm_ids: Optio
     if pm_ids:
         pm_ids_list = [int(id.strip()) for id in pm_ids.split(',') if id.strip().isdigit()]
         if pm_ids_list:
-            # Obtener marcas de los PMs seleccionados
-            marcas_pms = db.query(MarcaPM.marca).filter(
+            pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(
                 MarcaPM.usuario_id.in_(pm_ids_list)
             ).distinct().all()
-            marcas_filtradas = [m[0] for m in marcas_pms] if marcas_pms else []
             
-            if len(marcas_filtradas) == 0:
+            if not pares_pm:
                 query = query.filter(MLVentaMetrica.marca == '__NINGUNA__')
             else:
-                query = query.filter(MLVentaMetrica.marca.in_(marcas_filtradas))
+                pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+                query = query.filter(
+                    tuple_(func.upper(MLVentaMetrica.marca), func.upper(MLVentaMetrica.categoria)).in_(pares_upper)
+                )
             return query
     
-    # Comportamiento original: filtrar por marcas del usuario actual
-    marcas_usuario = get_marcas_usuario(db, usuario)
+    # Comportamiento original: filtrar por marca+categoría del usuario actual
+    pares_usuario = get_pares_marca_categoria_usuario(db, usuario)
 
-    if marcas_usuario is not None:
-        if len(marcas_usuario) == 0:
+    if pares_usuario is not None:
+        if len(pares_usuario) == 0:
             query = query.filter(MLVentaMetrica.marca == '__NINGUNA__')
         else:
-            query = query.filter(MLVentaMetrica.marca.in_(marcas_usuario))
+            query = query.filter(
+                tuple_(func.upper(MLVentaMetrica.marca), func.upper(MLVentaMetrica.categoria)).in_(pares_usuario)
+            )
 
     return query
 
@@ -568,11 +571,20 @@ async def get_mis_marcas(
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Obtiene las marcas asignadas al usuario actual.
-    Si es admin/gerente, retorna None indicando que puede ver todas.
+    Obtiene los pares marca+categoría asignados al usuario actual.
+    Si es admin/gerente, retorna None indicando que puede ver todo.
     """
-    marcas = get_marcas_usuario(db, current_user)
+    pares = get_pares_marca_categoria_usuario(db, current_user)
+    if pares is None:
+        return {
+            "puede_ver_todo": True,
+            "marcas": [],
+            "pares": []
+        }
+    # Extraer marcas únicas para retrocompatibilidad
+    marcas_unicas = list({m for m, c in pares})
     return {
-        "puede_ver_todo": marcas is None,
-        "marcas": marcas if marcas else []
+        "puede_ver_todo": False,
+        "marcas": marcas_unicas,
+        "pares": [{"marca": m, "categoria": c} for m, c in pares]
     }

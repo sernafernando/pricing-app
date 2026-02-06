@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_, text
+from sqlalchemy import func, and_, or_, text, tuple_
 from typing import List, Optional
 from datetime import date, datetime, timedelta
 from pydantic import BaseModel
@@ -20,7 +20,7 @@ router = APIRouter()
 
 def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session, pm_ids: Optional[str] = None):
     """
-    Aplica filtro de marcas del PM a una query de MLVentaMetrica.
+    Aplica filtro de pares marca+categoría del PM a una query de MLVentaMetrica.
     
     Si pm_ids está presente (usuario admin seleccionó PMs específicos), filtra por esos PMs.
     Si pm_ids NO está presente, aplica el filtro del usuario actual (comportamiento original).
@@ -29,31 +29,34 @@ def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session, pm_ids: Optio
     if pm_ids:
         pm_ids_list = [int(id.strip()) for id in pm_ids.split(',') if id.strip().isdigit()]
         if pm_ids_list:
-            # Obtener marcas de los PMs seleccionados
-            marcas_pms = db.query(MarcaPM.marca).filter(
+            pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(
                 MarcaPM.usuario_id.in_(pm_ids_list)
             ).distinct().all()
-            marcas_filtradas = [m[0] for m in marcas_pms] if marcas_pms else []
             
-            if len(marcas_filtradas) == 0:
+            if not pares_pm:
                 query = query.filter(MLVentaMetrica.marca == '__NINGUNA__')
             else:
-                query = query.filter(MLVentaMetrica.marca.in_(marcas_filtradas))
+                pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+                query = query.filter(
+                    tuple_(func.upper(MLVentaMetrica.marca), func.upper(MLVentaMetrica.categoria)).in_(pares_upper)
+                )
             return query
     
-    # Comportamiento original: filtrar por marcas del usuario actual
+    # Comportamiento original: filtrar por marcas+categorías del usuario actual
     roles_completos = [RolUsuario.SUPERADMIN, RolUsuario.ADMIN, RolUsuario.GERENTE]
 
     if usuario.rol in roles_completos:
         return query  # No filtrar
 
-    marcas = db.query(MarcaPM.marca).filter(MarcaPM.usuario_id == usuario.id).all()
-    marcas_usuario = [m[0] for m in marcas] if marcas else []
+    pares = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id == usuario.id).all()
 
-    if len(marcas_usuario) == 0:
+    if not pares:
         query = query.filter(MLVentaMetrica.marca == '__NINGUNA__')
     else:
-        query = query.filter(MLVentaMetrica.marca.in_(marcas_usuario))
+        pares_upper = [(m.upper(), c.upper()) for m, c in pares]
+        query = query.filter(
+            tuple_(func.upper(MLVentaMetrica.marca), func.upper(MLVentaMetrica.categoria)).in_(pares_upper)
+        )
 
     return query
 
