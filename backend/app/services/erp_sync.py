@@ -147,8 +147,7 @@ async def sincronizar_erp(db: Session) -> Dict:
                         db.add(nuevo_producto)
                         stats["productos_nuevos"] += 1
 
-                    else:
-                        # Actualizar SIEMPRE todos los campos (sin comparar hash)
+                    elif producto_existente.hash_datos != hash_nuevo:
                         producto_existente.codigo = codigo
                         producto_existente.descripcion = producto_data.get('Descripción')
                         producto_existente.marca = producto_data.get('Marca')
@@ -161,6 +160,12 @@ async def sincronizar_erp(db: Session) -> Dict:
                         producto_existente.envio = envio
                         producto_existente.hash_datos = hash_nuevo
                         stats["productos_actualizados"] += 1
+                    else:
+                        if producto_existente.stock != stock:
+                            producto_existente.stock = stock
+                            stats["productos_actualizados"] += 1
+                        else:
+                            stats["productos_sin_cambios"] += 1
 
                     # SINCRONIZAR PRECIO si viene del ERP
                     if precio_publicado and precio_publicado > 0:
