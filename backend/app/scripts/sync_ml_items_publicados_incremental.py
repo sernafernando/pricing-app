@@ -85,7 +85,10 @@ async def sync_items_publicados_incremental(db: Session):
     """
     Sincroniza items publicados de ML de forma incremental
     1. Trae items nuevos (mlp_id > ultimo_mlp_id)
-    2. Actualiza items modificados recientemente (mlp_lastUpdate reciente)
+    2. Actualiza items modificados recientemente usando updateFrom/updateTo (filtrado en ERP)
+    
+    OPTIMIZACIÓN: El PASO 2 ahora usa updateFrom/updateTo para que el ERP 
+    filtre en SQL por mlp_lastUpdate, evitando traer miles de registros innecesarios.
     """
 
     # Obtener el último mlp_id sincronizado
@@ -133,15 +136,16 @@ async def sync_items_publicados_incremental(db: Session):
         else:
             print("   ℹ️  No hay items nuevos")
 
-        # PASO 2: Traer items MODIFICADOS en los últimos 7 días
+        # PASO 2: Traer items MODIFICADOS en los últimos 7 días usando updateFrom/updateTo
         print("\n🔄 Paso 2: Buscando items modificados recientemente...")
-        desde_modificados = (hoy - timedelta(days=7)).strftime('%Y-%m-%d')
+        desde_modificados = (hoy - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+        hasta_modificados = hoy.strftime('%Y-%m-%d %H:%M:%S')
 
         params_modificados = {
             "strScriptLabel": "scriptMLItemsPublicados",
-            "fromDate": desde_modificados,
-            "toDate": hasta
-            # NO enviamos mlpId para que traiga todos
+            "updateFrom": desde_modificados,
+            "updateTo": hasta_modificados,
+            "mlpIdTo": str(ultimo_mlp_id)  # Solo items existentes (no > ultimo_mlp_id)
         }
 
         async with httpx.AsyncClient(timeout=180.0) as client:
@@ -150,39 +154,15 @@ async def sync_items_publicados_incremental(db: Session):
             items_modificados = response.json()
 
         if items_modificados:
-            print(f"   Recibidos {len(items_modificados)} items del período")
-
-            # Filtrar solo los que existen en BD y tienen mlp_lastUpdate reciente
-            items_a_actualizar = []
-            for item in items_modificados:
-                mlp_id = convertir_a_entero(item.get('mlp_id'))
-                if not mlp_id or mlp_id > ultimo_mlp_id:
-                    continue  # Ya lo procesamos en paso 1
-
-                mlp_lastUpdate = convertir_fecha(item.get('mlp_lastUpdate'))
-                if not mlp_lastUpdate:
-                    continue
-
-                # Verificar si está desactualizado en BD
-                item_bd = db.query(MercadoLibreItemPublicado).filter(
-                    MercadoLibreItemPublicado.mlp_id == mlp_id
-                ).first()
-
-                if item_bd:
-                    # Si el lastUpdate del ERP es más reciente, actualizar
-                    if not item_bd.mlp_lastUpdate or mlp_lastUpdate > item_bd.mlp_lastUpdate:
-                        items_a_actualizar.append(item)
-
-            if items_a_actualizar:
-                print(f"   Encontrados {len(items_a_actualizar)} items modificados a actualizar")
-                ins, act, err = await procesar_items(db, items_a_actualizar, "modificados")
-                insertados_total += ins
-                actualizados_total += act
-                errores_total += err
-            else:
-                print("   ℹ️  No hay items modificados para actualizar")
+            print(f"   ✨ Recibidos {len(items_modificados)} items modificados (filtrados por ERP)")
+            
+            # Ahora solo procesamos - el ERP ya filtró por mlp_lastUpdate
+            ins, act, err = await procesar_items(db, items_modificados, "modificados")
+            insertados_total += ins
+            actualizados_total += act
+            errores_total += err
         else:
-            print("   ℹ️  No hay items modificados")
+            print("   ℹ️  No hay items modificados para actualizar")
 
         nuevo_maximo = db.query(func.max(MercadoLibreItemPublicado.mlp_id)).scalar()
 
