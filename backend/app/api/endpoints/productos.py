@@ -2990,6 +2990,7 @@ async def listar_marcas(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    pms: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Lista marcas disponibles según filtros activos"""
@@ -3051,6 +3052,19 @@ async def listar_marcas(
             query = query.filter(ProductoPricing.markup_calculado > 0)
         else:
             query = query.filter(ProductoPricing.markup_calculado < 0)
+
+    # Filtro por PMs - filtra por pares (marca, categoria)
+    if pms:
+        from app.models.marca_pm import MarcaPM
+        pm_ids = [int(pm.strip()) for pm in pms.split(',')]
+        pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
+        if pares_pm:
+            pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+            query = query.filter(
+                tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+            )
+        else:
+            return {"marcas": []}
 
     marcas = query.order_by(ProductoERP.marca).all()
     return {"marcas": [m[0] for m in marcas if m[0]]}
@@ -4788,6 +4802,7 @@ async def listar_subcategorias(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    pms: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Lista subcategorías disponibles según filtros activos"""
@@ -4851,6 +4866,19 @@ async def listar_subcategorias(
             query = query.filter(ProductoPricing.markup_calculado > 0)
         else:
             query = query.filter(ProductoPricing.markup_calculado < 0)
+
+    # Filtro por PMs - filtra por pares (marca, categoria)
+    if pms:
+        from app.models.marca_pm import MarcaPM
+        pm_ids = [int(pm.strip()) for pm in pms.split(',')]
+        pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
+        if pares_pm:
+            pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+            query = query.filter(
+                tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+            )
+        else:
+            return {"categorias": []}
 
     # Obtener IDs de subcategorías disponibles
     subcat_ids_disponibles = [s[0] for s in query.all() if s[0]]
