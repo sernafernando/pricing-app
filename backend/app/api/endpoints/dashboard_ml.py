@@ -8,12 +8,16 @@ from typing import List, Optional
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 from pydantic import BaseModel
+from zoneinfo import ZoneInfo
 
 from app.core.database import get_db
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.usuario import Usuario, RolUsuario
 from app.models.marca_pm import MarcaPM
 from app.api.deps import get_current_user
+
+# Timezone de Argentina
+ARGENTINA_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
 router = APIRouter()
 
@@ -103,13 +107,21 @@ def aplicar_filtros_comunes(query, fecha_desde: Optional[str], fecha_hasta: Opti
     """
     Aplica filtros comunes a todas las queries de dashboard ML.
     Soporta múltiples valores separados por coma para marcas, categorías y tiendas.
+    
+    IMPORTANTE: Las fechas se interpretan en timezone Argentina (America/Argentina/Buenos_Aires).
+    Esto asegura que "hoy" incluya todas las ventas del día calendario argentino,
+    no del día UTC.
     """
     if fecha_desde:
-        query = query.filter(MLVentaMetrica.fecha_venta >= datetime.fromisoformat(fecha_desde).date())
+        # Convertir fecha a datetime con timezone Argentina a las 00:00:00
+        fecha_desde_dt = datetime.fromisoformat(fecha_desde).replace(tzinfo=ARGENTINA_TZ)
+        query = query.filter(MLVentaMetrica.fecha_venta >= fecha_desde_dt)
 
     if fecha_hasta:
-        fecha_hasta_ajustada = datetime.fromisoformat(fecha_hasta).date() + timedelta(days=1)
-        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_ajustada)
+        # Convertir fecha_hasta a datetime con timezone Argentina al día siguiente a las 00:00:00
+        # (para incluir todo el día hasta las 23:59:59.999999)
+        fecha_hasta_dt = datetime.fromisoformat(fecha_hasta).replace(tzinfo=ARGENTINA_TZ) + timedelta(days=1)
+        query = query.filter(MLVentaMetrica.fecha_venta < fecha_hasta_dt)
 
     if marcas:
         marcas_list = [m.strip() for m in marcas.split(',') if m.strip()]
