@@ -33,17 +33,13 @@ from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 SD_VENTAS = [1, 4, 21, 56]
 SD_DEVOLUCIONES = [3, 6, 23, 66]
 SD_TODOS = SD_VENTAS + SD_DEVOLUCIONES
-SD_IDS_STR = ','.join(map(str, SD_TODOS))
 
 DF_PERMITIDOS = [1, 2, 3, 4, 5, 6, 63, 85, 86, 87, 65, 67, 68, 69, 70, 71, 72, 73, 74, 81,
                  103, 105, 106, 109, 111, 115, 116, 117, 118, 122, 124, 125, 126, 127]
-DF_IDS_STR = ','.join(map(str, DF_PERMITIDOS))
 
 CLIENTES_EXCLUIDOS = [11, 3900]
-CLIENTES_EXCLUIDOS_STR = ','.join(map(str, CLIENTES_EXCLUIDOS))
 
 ITEMS_EXCLUIDOS = [16, 460]
-ITEMS_EXCLUIDOS_STR = ','.join(map(str, ITEMS_EXCLUIDOS))
 
 VENDEDORES_EXCLUIDOS_DEFAULT = [10, 11, 12]
 
@@ -65,9 +61,10 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
     """
     Obtiene todas las ventas fuera de ML con métricas ya calculadas
     """
-    VENDEDORES_EXCLUIDOS_STR = get_vendedores_excluidos_str(db)
+    vendedores_excluidos_str = get_vendedores_excluidos_str(db)
+    vendedores_excluidos = [int(x) for x in vendedores_excluidos_str.split(',')]
 
-    query = text(f"""
+    query = text("""
     WITH combo_precios AS (
         -- Precio total del combo por transacción
         SELECT
@@ -119,7 +116,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
     SELECT
         tit.it_transaction,
         tit.ct_transaction,
-        tit.item_id,
+        COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice) as item_id,
         ti.item_code as codigo,
         COALESCE(ti.item_desc, titd.itm_desc) as descripcion,
         tbd.brand_desc as marca,
@@ -225,12 +222,12 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
     ) ceh ON true
 
     WHERE tct.ct_date BETWEEN :from_date AND :to_date
-        AND tct.df_id IN ({DF_IDS_STR})
-        AND (tit.item_id NOT IN ({ITEMS_EXCLUIDOS_STR}) OR tit.item_id IS NULL)
-        AND tct.cust_id NOT IN ({CLIENTES_EXCLUIDOS_STR})
-        AND tct.sm_id NOT IN ({VENDEDORES_EXCLUIDOS_STR})
+        AND tct.df_id = ANY(:df_ids)
+        AND (tit.item_id != ALL(:items_excluidos) OR tit.item_id IS NULL)
+        AND tct.cust_id != ALL(:clientes_excluidos)
+        AND tct.sm_id != ALL(:vendedores_excluidos)
         AND tit.it_qty <> 0
-        AND tct.sd_id IN ({SD_IDS_STR})
+        AND tct.sd_id = ANY(:sd_ids)
         -- Excluir items "Envio" (lógica igual a query original)
         AND NOT (
             CASE
@@ -250,7 +247,12 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
 
     result = db.execute(query, {
         'from_date': from_date,
-        'to_date': to_date
+        'to_date': to_date,
+        'df_ids': DF_PERMITIDOS,
+        'items_excluidos': ITEMS_EXCLUIDOS,
+        'clientes_excluidos': CLIENTES_EXCLUIDOS,
+        'vendedores_excluidos': vendedores_excluidos,
+        'sd_ids': SD_TODOS
     })
 
     return result.fetchall()

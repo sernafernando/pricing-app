@@ -225,38 +225,26 @@ async def obtener_rentabilidad_fuera(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
-            filtros_extra += f" AND sucursal IN ({sucursal_placeholders})"
-            for i, suc in enumerate(sucursales):
-                params[f'sucursal_{i}'] = suc
+            filtros_extra += " AND sucursal = ANY(:sucursales)"
+            params['sucursales'] = sucursales
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
-            filtros_extra += f" AND vendedor IN ({vendedor_placeholders})"
-            for i, vend in enumerate(vendedores):
-                params[f'vendedor_{i}'] = vend
+            filtros_extra += " AND vendedor = ANY(:vendedores)"
+            params['vendedores'] = vendedores
 
     if lista_productos:
-        producto_placeholders = ', '.join([f':producto_{i}' for i in range(len(lista_productos))])
-        filtros_extra += f" AND item_id IN ({producto_placeholders})"
-        for i, prod in enumerate(lista_productos):
-            params[f'producto_{i}'] = prod
+        filtros_extra += " AND item_id = ANY(:productos)"
+        params['productos'] = lista_productos
     if lista_marcas:
-        marca_placeholders = ', '.join([f':marca_{i}' for i in range(len(lista_marcas))])
-        filtros_extra += f" AND marca IN ({marca_placeholders})"
-        for i, marca in enumerate(lista_marcas):
-            params[f'marca_{i}'] = marca
+        filtros_extra += " AND marca = ANY(:marcas)"
+        params['marcas'] = lista_marcas
     if lista_categorias:
-        cat_placeholders = ', '.join([f':cat_{i}' for i in range(len(lista_categorias))])
-        filtros_extra += f" AND categoria IN ({cat_placeholders})"
-        for i, cat in enumerate(lista_categorias):
-            params[f'cat_{i}'] = cat
+        filtros_extra += " AND categoria = ANY(:categorias)"
+        params['categorias'] = lista_categorias
     if lista_subcategorias:
-        subcat_placeholders = ', '.join([f':subcat_{i}' for i in range(len(lista_subcategorias))])
-        filtros_extra += f" AND subcategoria IN ({subcat_placeholders})"
-        for i, subcat in enumerate(lista_subcategorias):
-            params[f'subcat_{i}'] = subcat
+        filtros_extra += " AND subcategoria = ANY(:subcategorias)"
+        params['subcategorias'] = lista_subcategorias
 
     # Obtener vendedores excluidos dinámicamente
     vendedores_excluidos = get_vendedores_excluidos_str(db)
@@ -826,17 +814,13 @@ async def buscar_productos_fuera(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
-            filtros_extra += f" AND sucursal IN ({sucursal_placeholders})"
-            for i, suc in enumerate(sucursales):
-                params[f'sucursal_{i}'] = suc
+            filtros_extra += " AND sucursal = ANY(:sucursales)"
+            params['sucursales'] = sucursales
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
-            filtros_extra += f" AND vendedor IN ({vendedor_placeholders})"
-            for i, vend in enumerate(vendedores):
-                params[f'vendedor_{i}'] = vend
+            filtros_extra += " AND vendedor = ANY(:vendedores)"
+            params['vendedores'] = vendedores
 
     query = f"""
     SELECT DISTINCT
@@ -897,30 +881,22 @@ async def obtener_filtros_disponibles_fuera(
     if sucursal:
         sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
         if sucursales:
-            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
-            filtros_extra += f" AND sucursal IN ({sucursal_placeholders})"
-            for i, suc in enumerate(sucursales):
-                params[f'sucursal_{i}'] = suc
+            filtros_extra += " AND sucursal = ANY(:sucursales)"
+            params['sucursales'] = sucursales
     if vendedor:
         vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
         if vendedores:
-            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
-            filtros_extra += f" AND vendedor IN ({vendedor_placeholders})"
-            for i, vend in enumerate(vendedores):
-                params[f'vendedor_{i}'] = vend
+            filtros_extra += " AND vendedor = ANY(:vendedores)"
+            params['vendedores'] = vendedores
 
     # Marcas
     marcas_where = base_where
     if lista_categorias:
-        cat_placeholders_m = ', '.join([f':cat_m_{i}' for i in range(len(lista_categorias))])
-        marcas_where += f" AND categoria IN ({cat_placeholders_m})"
-        for i, cat in enumerate(lista_categorias):
-            params[f'cat_m_{i}'] = cat
+        marcas_where += " AND categoria = ANY(:cat_m)"
+        params['cat_m'] = lista_categorias
     if lista_subcategorias:
-        subcat_placeholders_m = ', '.join([f':subcat_m_{i}' for i in range(len(lista_subcategorias))])
-        marcas_where += f" AND subcategoria IN ({subcat_placeholders_m})"
-        for i, subcat in enumerate(lista_subcategorias):
-            params[f'subcat_m_{i}'] = subcat
+        marcas_where += " AND subcategoria = ANY(:subcat_m)"
+        params['subcat_m'] = lista_subcategorias
 
     marcas_query = f"""
     SELECT DISTINCT marca
@@ -934,15 +910,11 @@ async def obtener_filtros_disponibles_fuera(
     # Categorías
     cats_where = base_where
     if lista_marcas:
-        marca_placeholders_c = ', '.join([f':marca_c_{i}' for i in range(len(lista_marcas))])
-        cats_where += f" AND marca IN ({marca_placeholders_c})"
-        for i, marca in enumerate(lista_marcas):
-            params[f'marca_c_{i}'] = marca
+        cats_where += " AND marca = ANY(:marca_c)"
+        params['marca_c'] = lista_marcas
     if lista_subcategorias:
-        subcat_placeholders_c = ', '.join([f':subcat_c_{i}' for i in range(len(lista_subcategorias))])
-        cats_where += f" AND subcategoria IN ({subcat_placeholders_c})"
-        for i, subcat in enumerate(lista_subcategorias):
-            params[f'subcat_c_{i}'] = subcat
+        cats_where += " AND subcategoria = ANY(:subcat_c)"
+        params['subcat_c'] = lista_subcategorias
 
     cats_query = f"""
     SELECT DISTINCT categoria
@@ -956,15 +928,11 @@ async def obtener_filtros_disponibles_fuera(
     # Subcategorías
     subcats_where = base_where
     if lista_marcas:
-        marca_placeholders_s = ', '.join([f':marca_s_{i}' for i in range(len(lista_marcas))])
-        subcats_where += f" AND marca IN ({marca_placeholders_s})"
-        for i, marca in enumerate(lista_marcas):
-            params[f'marca_s_{i}'] = marca
+        subcats_where += " AND marca = ANY(:marca_s)"
+        params['marca_s'] = lista_marcas
     if lista_categorias:
-        cat_placeholders_s = ', '.join([f':cat_s_{i}' for i in range(len(lista_categorias))])
-        subcats_where += f" AND categoria IN ({cat_placeholders_s})"
-        for i, cat in enumerate(lista_categorias):
-            params[f'cat_s_{i}'] = cat
+        subcats_where += " AND categoria = ANY(:cat_s)"
+        params['cat_s'] = lista_categorias
 
     subcats_query = f"""
     SELECT DISTINCT subcategoria

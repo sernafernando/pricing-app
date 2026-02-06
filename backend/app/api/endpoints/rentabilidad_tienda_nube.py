@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, text
 from typing import List, Optional
 from datetime import date, datetime, timedelta
-from decimal import Decimal
 from pydantic import BaseModel
 
 from app.core.database import get_db
@@ -53,12 +52,6 @@ SD_DEVOLUCIONES = [3, 6, 23, 66]
 SD_TODOS = SD_VENTAS + SD_DEVOLUCIONES
 ITEMS_EXCLUIDOS = [16, 460]
 CLIENTES_EXCLUIDOS = [11, 3900]
-
-DF_IDS_STR = ','.join(map(str, DF_TIENDA_NUBE))
-SD_IDS_STR = ','.join(map(str, SD_TODOS))
-ITEMS_EXCLUIDOS_STR = ','.join(map(str, ITEMS_EXCLUIDOS))
-CLIENTES_EXCLUIDOS_STR = ','.join(map(str, CLIENTES_EXCLUIDOS))
-
 
 # ============================================================================
 # Schemas
@@ -186,30 +179,20 @@ async def obtener_rentabilidad_tienda_nube(
     filter_params = {}
     
     if lista_marcas:
-        marca_placeholders = ', '.join([f':marca_{i}' for i in range(len(lista_marcas))])
-        filtros_sql.append(f"marca IN ({marca_placeholders})")
-        for i, marca in enumerate(lista_marcas):
-            filter_params[f'marca_{i}'] = marca
+        filtros_sql.append("marca = ANY(:marcas)")
+        filter_params['marcas'] = lista_marcas
     if lista_categorias:
-        cat_placeholders = ', '.join([f':cat_{i}' for i in range(len(lista_categorias))])
-        filtros_sql.append(f"categoria IN ({cat_placeholders})")
-        for i, cat in enumerate(lista_categorias):
-            filter_params[f'cat_{i}'] = cat
+        filtros_sql.append("categoria = ANY(:categorias)")
+        filter_params['categorias'] = lista_categorias
     if lista_subcategorias:
-        subcat_placeholders = ', '.join([f':subcat_{i}' for i in range(len(lista_subcategorias))])
-        filtros_sql.append(f"subcategoria IN ({subcat_placeholders})")
-        for i, subcat in enumerate(lista_subcategorias):
-            filter_params[f'subcat_{i}'] = subcat
+        filtros_sql.append("subcategoria = ANY(:subcategorias)")
+        filter_params['subcategorias'] = lista_subcategorias
     if lista_productos:
-        prod_placeholders = ', '.join([f':prod_{i}' for i in range(len(lista_productos))])
-        filtros_sql.append(f"item_id IN ({prod_placeholders})")
-        for i, prod in enumerate(lista_productos):
-            filter_params[f'prod_{i}'] = prod
+        filtros_sql.append("item_id = ANY(:productos)")
+        filter_params['productos'] = lista_productos
     if lista_vendedores:
-        vend_placeholders = ', '.join([f':vend_{i}' for i in range(len(lista_vendedores))])
-        filtros_sql.append(f"vendedor IN ({vend_placeholders})")
-        for i, vend in enumerate(lista_vendedores):
-            filter_params[f'vend_{i}'] = vend
+        filtros_sql.append("vendedor = ANY(:vendedores)")
+        filter_params['vendedores'] = lista_vendedores
 
     filtros_where = " AND " + " AND ".join(filtros_sql) if filtros_sql else ""
 
@@ -231,6 +214,9 @@ async def obtener_rentabilidad_tienda_nube(
         select_nombre = "COALESCE(codigo || ' - ' || descripcion, descripcion)"
         select_identificador = "item_id::text"
 
+    # Para nivel producto, agregar filtro de item_id IS NOT NULL
+    item_id_filter = " AND item_id IS NOT NULL" if nivel == "producto" else ""
+
     query = f"""
     WITH ventas AS (
         {get_ventas_tienda_nube_base_query()}
@@ -243,7 +229,7 @@ async def obtener_rentabilidad_tienda_nube(
         COALESCE(SUM(costo_total), 0) as costo_total,
         COALESCE(SUM(cantidad), 0) as cantidad_total
     FROM ventas
-    WHERE {select_nombre} IS NOT NULL {filtros_where}
+    WHERE {select_nombre} IS NOT NULL {item_id_filter} {filtros_where}
     GROUP BY {group_by}
     ORDER BY monto_venta DESC
     """
@@ -898,15 +884,11 @@ async def obtener_filtros_tienda_nube(
         "to_date": fecha_hasta.isoformat() + " 23:59:59"
     }
     if lista_categorias:
-        cat_placeholders_m = ', '.join([f':cat_m_{i}' for i in range(len(lista_categorias))])
-        marcas_filter += f" AND categoria IN ({cat_placeholders_m})"
-        for i, cat in enumerate(lista_categorias):
-            marcas_params[f'cat_m_{i}'] = cat
+        marcas_filter += " AND categoria = ANY(:cat_m)"
+        marcas_params['cat_m'] = lista_categorias
     if lista_subcategorias:
-        subcat_placeholders_m = ', '.join([f':subcat_m_{i}' for i in range(len(lista_subcategorias))])
-        marcas_filter += f" AND subcategoria IN ({subcat_placeholders_m})"
-        for i, subcat in enumerate(lista_subcategorias):
-            marcas_params[f'subcat_m_{i}'] = subcat
+        marcas_filter += " AND subcategoria = ANY(:subcat_m)"
+        marcas_params['subcat_m'] = lista_subcategorias
 
     marcas_query = f"""
     {base_query}
@@ -921,15 +903,11 @@ async def obtener_filtros_tienda_nube(
         "to_date": fecha_hasta.isoformat() + " 23:59:59"
     }
     if lista_marcas:
-        marca_placeholders_c = ', '.join([f':marca_c_{i}' for i in range(len(lista_marcas))])
-        categorias_filter += f" AND marca IN ({marca_placeholders_c})"
-        for i, marca in enumerate(lista_marcas):
-            categorias_params[f'marca_c_{i}'] = marca
+        categorias_filter += " AND marca = ANY(:marca_c)"
+        categorias_params['marca_c'] = lista_marcas
     if lista_subcategorias:
-        subcat_placeholders_c = ', '.join([f':subcat_c_{i}' for i in range(len(lista_subcategorias))])
-        categorias_filter += f" AND subcategoria IN ({subcat_placeholders_c})"
-        for i, subcat in enumerate(lista_subcategorias):
-            categorias_params[f'subcat_c_{i}'] = subcat
+        categorias_filter += " AND subcategoria = ANY(:subcat_c)"
+        categorias_params['subcat_c'] = lista_subcategorias
 
     categorias_query = f"""
     {base_query}
@@ -944,15 +922,11 @@ async def obtener_filtros_tienda_nube(
         "to_date": fecha_hasta.isoformat() + " 23:59:59"
     }
     if lista_marcas:
-        marca_placeholders_s = ', '.join([f':marca_s_{i}' for i in range(len(lista_marcas))])
-        subcategorias_filter += f" AND marca IN ({marca_placeholders_s})"
-        for i, marca in enumerate(lista_marcas):
-            subcategorias_params[f'marca_s_{i}'] = marca
+        subcategorias_filter += " AND marca = ANY(:marca_s)"
+        subcategorias_params['marca_s'] = lista_marcas
     if lista_categorias:
-        cat_placeholders_s = ', '.join([f':cat_s_{i}' for i in range(len(lista_categorias))])
-        subcategorias_filter += f" AND categoria IN ({cat_placeholders_s})"
-        for i, cat in enumerate(lista_categorias):
-            subcategorias_params[f'cat_s_{i}'] = cat
+        subcategorias_filter += " AND categoria = ANY(:cat_s)"
+        subcategorias_params['cat_s'] = lista_categorias
 
     subcategorias_query = f"""
     {base_query}

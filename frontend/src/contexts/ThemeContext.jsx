@@ -31,8 +31,10 @@ export const ThemeProvider = ({ children }) => {
     // Aplicar/remover clase high-contrast
     if (highContrast) {
       document.documentElement.classList.add('high-contrast');
+      console.log('✅ High contrast activado - clase agregada a <html>');
     } else {
       document.documentElement.classList.remove('high-contrast');
+      console.log('❌ High contrast desactivado - clase removida de <html>');
     }
     localStorage.setItem('highContrast', highContrast);
   }, [highContrast]);

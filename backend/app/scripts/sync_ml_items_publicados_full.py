@@ -6,9 +6,18 @@ Estrategia:
 - Sincronización completa: 1 vez al día (este script - por lotes usando mlpIdFrom/mlpIdTo)
 - Sincronización incremental: cada hora (sync_ml_items_publicados_incremental.py)
 
+Modos de ejecución:
+- FULL: Sincroniza TODOS los items sin filtros (por defecto)
+- SMART: Sincroniza solo items modificados en los últimos N días (usa updateFrom/updateTo)
+
 Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
+    
+    # Modo FULL (todos los items)
     python -m app.scripts.sync_ml_items_publicados_full
+    
+    # Modo SMART (solo modificados en últimos 30 días)
+    python -m app.scripts.sync_ml_items_publicados_full --smart --days 30
 """
 import sys
 import os
@@ -20,6 +29,7 @@ if __name__ == "__main__":
 
 import asyncio
 import httpx
+import argparse
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
@@ -83,13 +93,23 @@ def convertir_fecha(valor):
             return None
 
 
-async def sync_items_publicados_full(db: Session):
+async def sync_items_publicados_full(db: Session, smart_mode: bool = False, days: int = 30):
     """
-    Sincroniza TODAS las publicaciones de ML (sin filtrar por status)
-    Para sync diario completo
+    Sincroniza publicaciones de ML con dos modos:
+    - FULL: Sincroniza TODAS las publicaciones (sin filtrar por status)
+    - SMART: Sincroniza solo items modificados en los últimos N días
+    
     Ahora usa paginación por mlpId para evitar timeouts
+    
+    Args:
+        db: Session de SQLAlchemy
+        smart_mode: Si True, usa updateFrom/updateTo para filtrar por fecha de modificación
+        days: Cantidad de días hacia atrás para el modo SMART (default: 30)
     """
-    print(f"📅 Sincronizando TODAS las publicaciones por lotes...")
+    modo = "SMART" if smart_mode else "FULL"
+    print(f"📅 Sincronizando publicaciones en modo {modo}...")
+    if smart_mode:
+        print(f"   🧠 Filtrando por items modificados en los últimos {days} días")
 
     # Obtener rango de mlp_id en la BD
     from sqlalchemy import func
@@ -111,17 +131,33 @@ async def sync_items_publicados_full(db: Session):
     # Procesar por lotes
     current_id = 1  # Empezar desde 1 para incluir items nuevos
     
+    # Preparar filtros de fecha si está en modo SMART
+    updateFrom = None
+    updateTo = None
+    if smart_mode:
+        from datetime import datetime, timedelta
+        hoy = datetime.now()
+        desde = hoy - timedelta(days=days)
+        updateFrom = desde.strftime('%Y-%m-%d %H:%M:%S')
+        updateTo = hoy.strftime('%Y-%m-%d %H:%M:%S')
+    
     async with httpx.AsyncClient(timeout=300.0) as client:
         while current_id <= max_id + BATCH_SIZE:  # +BATCH_SIZE para capturar nuevos
             batch_end = current_id + BATCH_SIZE - 1
             
-            print(f"\n📦 Procesando lote: mlp_id {current_id} - {batch_end}")
+            modo_texto = f" (modificados últimos {days}d)" if smart_mode else ""
+            print(f"\n📦 Procesando lote: mlp_id {current_id} - {batch_end}{modo_texto}")
             
             params = {
                 "strScriptLabel": "scriptMLItemsPublicados",
                 "mlpIdFrom": current_id,
                 "mlpIdTo": batch_end
             }
+            
+            # Agregar filtros de fecha si está en modo SMART
+            if smart_mode:
+                params["updateFrom"] = updateFrom
+                params["updateTo"] = updateTo
             
             try:
                 response = await client.get(API_URL, params=params)
@@ -236,14 +272,39 @@ async def sync_items_publicados_full(db: Session):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description='Sincronización de Items Publicados ML - Modo FULL o SMART'
+    )
+    parser.add_argument(
+        '--smart',
+        action='store_true',
+        help='Modo SMART: sincroniza solo items modificados recientemente (más rápido)'
+    )
+    parser.add_argument(
+        '--days',
+        type=int,
+        default=30,
+        help='Días hacia atrás para modo SMART (default: 30)'
+    )
+    
+    args = parser.parse_args()
+    
+    modo = "SMART" if args.smart else "FULL"
+    
     print("="*60)
-    print("📦 Sincronización COMPLETA de Items Publicados ML")
+    print(f"📦 Sincronización de Items Publicados ML - Modo {modo}")
+    if args.smart:
+        print(f"🧠 Filtro: Items modificados en últimos {args.days} días")
     print(f"🕐 Inicio: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*60)
 
     db = SessionLocal()
     try:
-        result = asyncio.run(sync_items_publicados_full(db))
+        result = asyncio.run(sync_items_publicados_full(
+            db, 
+            smart_mode=args.smart, 
+            days=args.days
+        ))
     finally:
         db.close()
 
