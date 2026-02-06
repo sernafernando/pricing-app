@@ -119,7 +119,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
     SELECT
         tit.it_transaction,
         tit.ct_transaction,
-        tit.item_id,
+        COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice) as item_id,
         ti.item_code as codigo,
         COALESCE(ti.item_desc, titd.itm_desc) as descripcion,
         tbd.brand_desc as marca,

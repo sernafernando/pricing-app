@@ -259,6 +259,7 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.ganancia).label('ganancia')
         )
         query = aplicar_filtros_base(query)
+        query = query.filter(MLVentaMetrica.item_id.isnot(None))
         query = query.group_by(MLVentaMetrica.item_id, MLVentaMetrica.codigo, MLVentaMetrica.descripcion)
 
     resultados = query.all()

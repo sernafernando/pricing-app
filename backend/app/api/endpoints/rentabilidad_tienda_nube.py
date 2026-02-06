@@ -231,6 +231,9 @@ async def obtener_rentabilidad_tienda_nube(
         select_nombre = "COALESCE(codigo || ' - ' || descripcion, descripcion)"
         select_identificador = "item_id::text"
 
+    # Para nivel producto, agregar filtro de item_id IS NOT NULL
+    item_id_filter = " AND item_id IS NOT NULL" if nivel == "producto" else ""
+
     query = f"""
     WITH ventas AS (
         {get_ventas_tienda_nube_base_query()}
@@ -243,7 +246,7 @@ async def obtener_rentabilidad_tienda_nube(
         COALESCE(SUM(costo_total), 0) as costo_total,
         COALESCE(SUM(cantidad), 0) as cantidad_total
     FROM ventas
-    WHERE {select_nombre} IS NOT NULL {filtros_where}
+    WHERE {select_nombre} IS NOT NULL {item_id_filter} {filtros_where}
     GROUP BY {group_by}
     ORDER BY monto_venta DESC
     """
