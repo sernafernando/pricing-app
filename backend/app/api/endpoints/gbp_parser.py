@@ -1,13 +1,14 @@
 """
 Endpoint para parsear respuestas SOAP del ERP (reemplazo del worker de Cloudflare)
 """
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from typing import Optional, Dict, Any
 import httpx
 import re
 import json
 import os
 from pydantic import BaseModel
+from app.api.deps import get_current_user
 
 router = APIRouter()
 
@@ -284,7 +285,7 @@ def parse_soap_response(xml_content: str) -> Any:
 
 
 @router.api_route("/gbp-parser", methods=["GET", "POST"])
-async def gbp_parser(request: Request):
+async def gbp_parser(request: Request, current_user = Depends(get_current_user)):
     """
     Endpoint para parsear respuestas SOAP del ERP.
     Reemplaza el worker de Cloudflare.

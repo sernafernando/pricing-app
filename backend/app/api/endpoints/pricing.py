@@ -142,7 +142,8 @@ class CalcularPorPrecioRequest(BaseModel):
 @router.post("/precios/calcular-por-markup")
 async def calcular_por_markup(
     request: CalcularPorMarkupRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """Dado un markup objetivo, calcula el precio necesario"""
     
@@ -192,7 +193,8 @@ async def calcular_markup_get(
     item_id: Optional[int] = None,
     item_code: Optional[str] = None,
     pricelist_id: int = 4,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Endpoint GET para calcular markup dado un precio.
@@ -245,7 +247,8 @@ async def calcular_markup_get(
 @router.post("/precios/calcular-por-precio")
 async def calcular_por_precio(
     request: CalcularPorPrecioRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """Dado un precio manual, calcula qué markup resulta"""
     
@@ -487,7 +490,8 @@ async def setear_precio(
 @router.get("/precios/historial/{item_id}")
 async def obtener_historial(
     item_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el histórico de cambios de precio"""
     
@@ -530,7 +534,8 @@ class CalcularPreciosCompletosRequest(BaseModel):
 @router.post("/precios/calcular-completo")
 async def calcular_precios_completos(
     request: CalcularPreciosCompletosRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Calcula precio clásica + todos los precios en cuotas

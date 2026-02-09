@@ -6,11 +6,16 @@
 --
 -- Uso:
 --   psql -U usuario -d database_name -f scripts/deploy_alertas.sql
+--
+-- NOTA: El script usa dos transacciones separadas porque PostgreSQL no
+-- permite usar un nuevo valor de ENUM en la misma transacción donde se agregó.
+-- ALTER TYPE ... ADD VALUE necesita estar committeado antes de poder usarse
+-- en INSERT/UPDATE.
 -- ============================================================================
 
-BEGIN;
-
--- 1. Agregar 'alertas' al ENUM categoriapermiso (si no existe)
+-- ============================================================================
+-- PASO 1: Agregar valor al ENUM (transacción independiente, auto-commit)
+-- ============================================================================
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -22,7 +27,12 @@ BEGIN
     END IF;
 END$$;
 
--- 2. Crear tabla alertas
+-- ============================================================================
+-- PASO 2: Crear tablas, permisos y asignaciones (transacción principal)
+-- ============================================================================
+BEGIN;
+
+-- Crear tabla alertas
 CREATE TABLE IF NOT EXISTS alertas (
     id SERIAL PRIMARY KEY,
     titulo VARCHAR(200) NOT NULL,
@@ -44,7 +54,7 @@ CREATE TABLE IF NOT EXISTS alertas (
 
 CREATE INDEX IF NOT EXISTS ix_alertas_id ON alertas(id);
 
--- 4. Crear tabla alertas_usuarios_destinatarios (M2M)
+-- Crear tabla alertas_usuarios_destinatarios (M2M)
 CREATE TABLE IF NOT EXISTS alertas_usuarios_destinatarios (
     id SERIAL PRIMARY KEY,
     alerta_id INTEGER NOT NULL REFERENCES alertas(id) ON DELETE CASCADE,
@@ -57,7 +67,7 @@ CREATE INDEX IF NOT EXISTS ix_alertas_usuarios_destinatarios_id ON alertas_usuar
 CREATE INDEX IF NOT EXISTS ix_alertas_usuarios_destinatarios_alerta_id ON alertas_usuarios_destinatarios(alerta_id);
 CREATE INDEX IF NOT EXISTS ix_alertas_usuarios_destinatarios_usuario_id ON alertas_usuarios_destinatarios(usuario_id);
 
--- 5. Crear tabla alertas_usuarios_estado (track de quién cerró)
+-- Crear tabla alertas_usuarios_estado (track de quién cerró)
 CREATE TABLE IF NOT EXISTS alertas_usuarios_estado (
     id SERIAL PRIMARY KEY,
     alerta_id INTEGER NOT NULL REFERENCES alertas(id) ON DELETE CASCADE,
@@ -73,7 +83,7 @@ CREATE INDEX IF NOT EXISTS ix_alertas_usuarios_estado_id ON alertas_usuarios_est
 CREATE INDEX IF NOT EXISTS ix_alertas_usuarios_estado_alerta_id ON alertas_usuarios_estado(alerta_id);
 CREATE INDEX IF NOT EXISTS ix_alertas_usuarios_estado_usuario_id ON alertas_usuarios_estado(usuario_id);
 
--- 6. Crear tabla configuracion_alertas (singleton)
+-- Crear tabla configuracion_alertas (singleton)
 CREATE TABLE IF NOT EXISTS configuracion_alertas (
     id INTEGER PRIMARY KEY DEFAULT 1,
     max_alertas_visibles INTEGER NOT NULL DEFAULT 1,
@@ -87,14 +97,18 @@ INSERT INTO configuracion_alertas (id, max_alertas_visibles)
 VALUES (1, 1)
 ON CONFLICT (id) DO NOTHING;
 
--- 7. Insertar permisos de alertas
+-- Insertar permisos de alertas (o corregir si ya existen con categoría incorrecta)
 INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico)
 VALUES 
     ('alertas.gestionar', 'Gestionar alertas', 'Crear, editar, activar/desactivar y eliminar alertas del sistema', 'alertas', 90, true),
     ('alertas.configurar', 'Configurar sistema de alertas', 'Modificar configuración global de alertas (máximo visibles, etc.)', 'alertas', 91, true)
-ON CONFLICT (codigo) DO NOTHING;
+ON CONFLICT (codigo) DO UPDATE SET
+    categoria = EXCLUDED.categoria,
+    descripcion = EXCLUDED.descripcion,
+    es_critico = EXCLUDED.es_critico,
+    orden = EXCLUDED.orden;
 
--- 8. Asignar permisos a roles ADMIN (SUPERADMIN ya tiene todos)
+-- Asignar permisos a roles ADMIN (SUPERADMIN ya tiene todos)
 DO $$
 DECLARE
     perm_gestionar_id INTEGER;
@@ -128,7 +142,7 @@ SELECT tablename FROM pg_tables WHERE tablename LIKE 'alertas%' OR tablename = '
 
 \echo ''
 \echo '✅ Permisos de alertas:'
-SELECT codigo, nombre FROM permisos WHERE codigo LIKE 'alertas.%';
+SELECT codigo, nombre, categoria FROM permisos WHERE codigo LIKE 'alertas.%';
 
 \echo ''
 \echo '✅ Configuración por defecto:'

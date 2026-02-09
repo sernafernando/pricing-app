@@ -12,6 +12,7 @@ import httpx
 import logging
 
 from app.core.database import get_db
+from app.api.deps import get_current_user
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_detail import SaleOrderDetail
 from app.models.export_87_snapshot import Export87Snapshot
@@ -355,7 +356,8 @@ async def obtener_todos_pedidos_export(
 @router.post("/pedidos-export/sincronizar-export-80")
 async def sincronizar_export_80(
     db: Session = Depends(get_db),
-    force_full: bool = Query(False, description="Forzar sincronización completa (puede tardar varios minutos)")
+    force_full: bool = Query(False, description="Forzar sincronización completa (puede tardar varios minutos)"),
+    current_user = Depends(get_current_user)
 ):
     """
     Sincroniza pedidos desde el export_id 87 del ERP (sin filtros) via gbp-parser.

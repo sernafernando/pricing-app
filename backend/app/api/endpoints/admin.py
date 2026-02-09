@@ -105,7 +105,7 @@ class ConfiguracionUpdate(BaseModel):
     valor: str
 
 @router.get("/admin/configuracion")
-async def obtener_configuraciones(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+async def obtener_configuraciones(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
     """Obtiene todas las configuraciones"""
     configs = db.query(Configuracion).all()
     return {
@@ -121,7 +121,7 @@ async def obtener_configuraciones(db: Session = Depends(get_db), current_user: U
     }
 
 @router.get("/admin/configuracion/{clave}")
-async def obtener_configuracion(clave: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+async def obtener_configuracion(clave: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
     """Obtiene una configuración específica"""
     config = db.query(Configuracion).filter(Configuracion.clave == clave).first()
 
