@@ -210,7 +210,10 @@ async def obtener_pedidos_local(
             and_(
                 SaleOrderDetail.soh_id == pedido.soh_id,
                 SaleOrderDetail.bra_id == pedido.bra_id,
-                func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).notin_([2953, 2954])
+                or_(
+                    func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).is_(None),
+                    func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).notin_([2953, 2954])
+                )
             )
         )
         
@@ -434,18 +437,24 @@ async def obtener_estadisticas_local(
             SaleOrderDetail.bra_id == SaleOrderHeader.bra_id
         )
     ).filter(
-        func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).notin_([2953, 2954])
+        or_(
+            func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).is_(None),
+            func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).notin_([2953, 2954])
+        )
     )
     if base_filter:
         query = query.filter(and_(*base_filter))
     total_items = query.scalar() or 0
     
-    # Con TiendaNube
-    query = db.query(func.count(SaleOrderHeader.soh_id)).filter(
+    # Con TiendaNube (contar pedidos que tienen registro en tb_tiendanube_orders)
+    query = db.query(func.count(SaleOrderHeader.soh_id)).join(
+        TiendaNubeOrder,
         and_(
-            SaleOrderHeader.ws_internalid.isnot(None),
-            SaleOrderHeader.ws_internalid != ''
+            SaleOrderHeader.soh_id == TiendaNubeOrder.soh_id,
+            SaleOrderHeader.bra_id == TiendaNubeOrder.bra_id
         )
+    ).filter(
+        TiendaNubeOrder.tno_orderid.isnot(None)
     )
     if base_filter:
         query = query.filter(and_(*base_filter))
