@@ -3160,6 +3160,9 @@ async def actualizar_precio(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza precio de un producto y registra en auditoría"""
+    from app.services.permisos_service import verificar_permiso
+    if not verificar_permiso(db, current_user, 'productos.editar_precios'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para editar precios")
     
     producto = db.query(ProductoPricing).filter(ProductoPricing.id == producto_id).first()
     if not producto:
@@ -3204,6 +3207,9 @@ async def actualizar_rebate(
     current_user = Depends(get_current_user)
 ):
     """Actualiza configuración de rebate de un producto"""
+    from app.services.permisos_service import verificar_permiso
+    if not verificar_permiso(db, current_user, 'productos.toggle_rebate'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar rebate")
     from app.services.auditoria_service import registrar_auditoria
     from app.models.auditoria import TipoAccion
 
@@ -3636,6 +3642,9 @@ async def actualizar_web_transferencia(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Activa/desactiva web transferencia y calcula precio"""
+    from app.services.permisos_service import verificar_permiso
+    if not verificar_permiso(db, current_user, 'productos.toggle_web_transferencia'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar web transferencia")
     from app.services.pricing_calculator import (
         calcular_precio_web_transferencia,
         obtener_tipo_cambio_actual,
@@ -4352,6 +4361,9 @@ async def actualizar_color_producto(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el color de marcado de un producto"""
+    from app.services.permisos_service import verificar_permiso
+    if not verificar_permiso(db, current_user, 'productos.marcar_color'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para marcar colores")
 
     color = request.get('color')
 
@@ -4386,6 +4398,9 @@ async def actualizar_color_producto_tienda(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el color de marcado de tienda de un producto"""
+    from app.services.permisos_service import verificar_permiso
+    if not verificar_permiso(db, current_user, 'productos.marcar_color'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para marcar colores")
 
     color = request.get('color')
 
@@ -4425,6 +4440,9 @@ async def actualizar_config_cuotas_producto(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza la configuración individual de recálculo de cuotas y markup adicional de un producto"""
+    from app.services.permisos_service import verificar_permiso
+    if not verificar_permiso(db, current_user, 'productos.editar_precio_cuotas'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para editar configuración de cuotas")
 
     recalcular_cuotas_auto = body.recalcular_cuotas_auto
     markup_adicional_cuotas_custom = body.markup_adicional_cuotas_custom
@@ -5963,6 +5981,9 @@ async def actualizar_out_of_cards(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el estado de out_of_cards de un producto"""
+    from app.services.permisos_service import verificar_permiso
+    if not verificar_permiso(db, current_user, 'productos.toggle_out_of_cards'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para marcar out of cards")
     from app.services.auditoria_service import registrar_auditoria
     from app.models.auditoria import TipoAccion
     

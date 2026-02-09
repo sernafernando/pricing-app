@@ -107,7 +107,12 @@ async def listar_brands_con_markups(
         )
 
     # Query base para obtener marcas de tb_brand
-    where_clause = f"AND LOWER(b.brand_desc) LIKE LOWER('%{busqueda}%')" if busqueda else ""
+    params = {}
+    where_clause = ""
+    if busqueda:
+        where_clause = "AND LOWER(b.brand_desc) LIKE LOWER(:busqueda)"
+        params["busqueda"] = f"%{busqueda}%"
+
     query = db.execute(text(f"""
         SELECT DISTINCT
             b.comp_id,
@@ -122,7 +127,7 @@ async def listar_brands_con_markups(
         WHERE 1=1
         {where_clause}
         ORDER BY b.brand_desc
-    """))
+    """), params)
 
     results = []
     for row in query:
@@ -442,6 +447,12 @@ async def obtener_config_valor(
     """
     Obtiene un valor de configuración específico.
     """
+    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para gestionar markups de tienda"
+        )
+
     config = db.query(TiendaConfig).filter(TiendaConfig.clave == clave).first()
     if not config:
         return {"clave": clave, "valor": 0}

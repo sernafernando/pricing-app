@@ -26,6 +26,12 @@ def aplicar_filtro_marcas_pm(query, usuario: Usuario, db: Session, pm_ids: Optio
     Si pm_ids NO está presente, aplica el filtro del usuario actual (comportamiento original).
     """
     # Si el usuario admin pasó pm_ids, usar esos en lugar del usuario actual
+    # SEGURIDAD: solo roles admin/gerente pueden usar pm_ids para ver datos de otros PMs
+    if pm_ids:
+        roles_admin = [RolUsuario.SUPERADMIN, RolUsuario.ADMIN, RolUsuario.GERENTE]
+        if usuario.rol not in roles_admin:
+            pm_ids = None  # Ignorar pm_ids para usuarios no admin
+        
     if pm_ids:
         pm_ids_list = [int(id.strip()) for id in pm_ids.split(',') if id.strip().isdigit()]
         if pm_ids_list:

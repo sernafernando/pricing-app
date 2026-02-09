@@ -668,13 +668,13 @@ async def get_ventas_fuera_ml(
 
     query_str = get_ventas_fuera_ml_query(vendedores_excluidos)
 
-    # Agregar LIMIT y OFFSET
-    query_str += f"\nLIMIT {limit} OFFSET {offset}"
+    # Agregar LIMIT y OFFSET (parametrizado para evitar SQLi)
+    query_str += "\nLIMIT :limit OFFSET :offset"
 
     # Ejecutar query
     result = db.execute(
         text(query_str),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+        {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit, "offset": offset}
     )
 
     rows = result.fetchall()

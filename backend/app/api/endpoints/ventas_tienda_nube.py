@@ -477,11 +477,11 @@ async def get_ventas_tienda_nube(
     comision_tn_pct = get_comision_tienda_nube(db, fecha_desde)
 
     query_str = get_ventas_tienda_nube_query()
-    query_str += f"\nLIMIT {limit} OFFSET {offset}"
+    query_str += "\nLIMIT :limit OFFSET :offset"
 
     result = db.execute(
         text(query_str),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+        {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit, "offset": offset}
     )
 
     rows = result.fetchall()

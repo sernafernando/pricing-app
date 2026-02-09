@@ -9,9 +9,10 @@ export const useAuthStore = create((set) => ({
   login: async (username, password) => {
     try {
       const response = await authAPI.login(username, password);
-      const { access_token, usuario } = response.data;
+      const { access_token, refresh_token, usuario } = response.data;
       
       localStorage.setItem('token', access_token);
+      localStorage.setItem('refresh_token', refresh_token);
       set({ token: access_token, user: usuario, isAuthenticated: true });
       
       return { success: true };
@@ -22,6 +23,7 @@ export const useAuthStore = create((set) => ({
   
   logout: () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('refresh_token');
     set({ token: null, user: null, isAuthenticated: false });
   },
   
@@ -31,6 +33,7 @@ export const useAuthStore = create((set) => ({
       set({ user: response.data, isAuthenticated: true });
     } catch (error) {
       localStorage.removeItem('token');
+      localStorage.removeItem('refresh_token');
       set({ token: null, user: null, isAuthenticated: false });
     }
   },

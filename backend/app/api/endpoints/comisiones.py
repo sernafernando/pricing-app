@@ -225,7 +225,7 @@ async def crear_nueva_version_comisiones(
     """
 
     # Verificar que el usuario sea admin
-    if current_user.rol not in ['ADMIN', 'SUPERADMIN']:
+    if current_user.rol_codigo not in ['ADMIN', 'SUPERADMIN']:
         raise HTTPException(403, "No tienes permisos para crear versiones de comisiones")
 
     # Validar que haya 13 grupos
@@ -318,7 +318,7 @@ async def actualizar_version_comisiones(
     Solo se puede editar si es la versión activa actual.
     """
     # Verificar permisos
-    if current_user.rol not in ['ADMIN', 'SUPERADMIN']:
+    if current_user.rol_codigo not in ['ADMIN', 'SUPERADMIN']:
         raise HTTPException(403, "No tienes permisos para editar versiones de comisiones")
 
     # Obtener versión
@@ -409,7 +409,7 @@ async def eliminar_version_comisiones(
     Requiere motivo para auditoría.
     """
     # Verificar permisos
-    if current_user.rol not in ['ADMIN', 'SUPERADMIN']:
+    if current_user.rol_codigo not in ['ADMIN', 'SUPERADMIN']:
         raise HTTPException(403, "No tienes permisos para eliminar versiones de comisiones")
 
     # Obtener versión

@@ -14,6 +14,7 @@ from app.models.offset_individual_consumo import OffsetIndividualConsumo, Offset
 from app.models.usuario import Usuario
 from app.models.cur_exch_history import CurExchHistory
 from app.api.deps import get_current_user
+from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
 
@@ -169,6 +170,8 @@ async def crear_grupo(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Crea un nuevo grupo de offsets con filtros opcionales"""
+    if not verificar_permiso(db, current_user, 'config.editar_constantes'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     nuevo_grupo = OffsetGrupo(
         nombre=grupo.nombre,
         descripcion=grupo.descripcion,
@@ -226,6 +229,8 @@ async def eliminar_grupo(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina un grupo de offsets (solo si no tiene offsets asociados)"""
+    if not verificar_permiso(db, current_user, 'config.editar_constantes'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
@@ -251,6 +256,8 @@ async def agregar_filtro_a_grupo(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Agrega un filtro a un grupo existente"""
+    if not verificar_permiso(db, current_user, 'config.editar_constantes'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
@@ -289,6 +296,8 @@ async def eliminar_filtro_de_grupo(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina un filtro de un grupo"""
+    if not verificar_permiso(db, current_user, 'config.editar_constantes'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     filtro = db.query(OffsetGrupoFiltro).filter(
         OffsetGrupoFiltro.id == filtro_id,
         OffsetGrupoFiltro.grupo_id == grupo_id
@@ -310,6 +319,8 @@ async def actualizar_filtros_grupo(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Reemplaza todos los filtros de un grupo con los nuevos"""
+    if not verificar_permiso(db, current_user, 'config.editar_constantes'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
@@ -547,6 +558,8 @@ async def crear_offset(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Crea un nuevo offset de ganancia. Si se pasan múltiples item_ids, crea uno por cada producto."""
+    if not verificar_permiso(db, current_user, 'config.editar_constantes'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     # Validar tipo de offset
     if offset.tipo_offset == 'porcentaje_costo' and offset.porcentaje is None:
         raise HTTPException(400, "Debe especificar el porcentaje para tipo porcentaje_costo")
@@ -667,6 +680,8 @@ async def actualizar_offset(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza un offset existente"""
+    if not verificar_permiso(db, current_user, 'config.editar_constantes'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     offset = db.query(OffsetGanancia).filter(OffsetGanancia.id == offset_id).first()
 
     if not offset:
@@ -766,6 +781,8 @@ async def eliminar_offset(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina un offset"""
+    if not verificar_permiso(db, current_user, 'config.editar_constantes'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     offset = db.query(OffsetGanancia).filter(OffsetGanancia.id == offset_id).first()
 
     if not offset:
@@ -1015,6 +1032,8 @@ async def recalcular_consumo_grupo(
     Lee las ventas ML y fuera de ML y recalcula todo el consumo del grupo.
     Soporta tanto offsets con item_id directo como filtros de grupo (marca, categoría, etc.)
     """
+    if not verificar_permiso(db, current_user, 'config.editar_constantes'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
@@ -1158,16 +1177,23 @@ async def recalcular_consumo_grupo(
     # Procesar ventas ML con filtros de grupo
     # ============================================
     if filtros_grupo:
-        # Construir query dinámica basada en filtros
+        # Construir query dinámica basada en filtros (parametrizada para evitar SQLi)
         condiciones_filtro = []
-        for f in filtros_grupo:
+        filtro_params = {"fecha_inicio": fecha_inicio}
+        for idx, f in enumerate(filtros_grupo):
             conds = []
             if f.marca:
-                conds.append(f"m.marca = '{f.marca}'")
+                key = f"ml_marca_{idx}"
+                conds.append(f"m.marca = :{key}")
+                filtro_params[key] = f.marca
             if f.categoria:
-                conds.append(f"m.categoria = '{f.categoria}'")
+                key = f"ml_cat_{idx}"
+                conds.append(f"m.categoria = :{key}")
+                filtro_params[key] = f.categoria
             if f.item_id:
-                conds.append(f"m.item_id = {f.item_id}")
+                key = f"ml_item_{idx}"
+                conds.append(f"m.item_id = :{key}")
+                filtro_params[key] = f.item_id
             if conds:
                 condiciones_filtro.append(f"({' AND '.join(conds)})")
 
@@ -1189,9 +1215,7 @@ async def recalcular_consumo_grupo(
                 ORDER BY m.fecha_venta
             """)
 
-            ventas_ml_filtros = db.execute(ventas_ml_filtros_query, {
-                "fecha_inicio": fecha_inicio
-            }).fetchall()
+            ventas_ml_filtros = db.execute(ventas_ml_filtros_query, filtro_params).fetchall()
 
             for venta in ventas_ml_filtros:
                 # Skip si ya se procesó
@@ -1288,14 +1312,21 @@ async def recalcular_consumo_grupo(
     # ============================================
     if filtros_grupo:
         condiciones_filtro = []
-        for f in filtros_grupo:
+        filtro_params_fuera = {"fecha_inicio": fecha_inicio}
+        for idx, f in enumerate(filtros_grupo):
             conds = []
             if f.marca:
-                conds.append(f"v.marca = '{f.marca}'")
+                key = f"fuera_marca_{idx}"
+                conds.append(f"v.marca = :{key}")
+                filtro_params_fuera[key] = f.marca
             if f.categoria:
-                conds.append(f"v.categoria = '{f.categoria}'")
+                key = f"fuera_cat_{idx}"
+                conds.append(f"v.categoria = :{key}")
+                filtro_params_fuera[key] = f.categoria
             if f.item_id:
-                conds.append(f"v.item_id = {f.item_id}")
+                key = f"fuera_item_{idx}"
+                conds.append(f"v.item_id = :{key}")
+                filtro_params_fuera[key] = f.item_id
             if conds:
                 condiciones_filtro.append(f"({' AND '.join(conds)})")
 
@@ -1317,9 +1348,7 @@ async def recalcular_consumo_grupo(
                 ORDER BY v.fecha_venta
             """)
 
-            ventas_fuera_filtros = db.execute(ventas_fuera_filtros_query, {
-                "fecha_inicio": fecha_inicio
-            }).fetchall()
+            ventas_fuera_filtros = db.execute(ventas_fuera_filtros_query, filtro_params_fuera).fetchall()
 
             for venta in ventas_fuera_filtros:
                 if ('fuera', venta.id) in operaciones_procesadas:
@@ -1564,6 +1593,8 @@ async def recalcular_consumo_offset_individual(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Recalcula el consumo de un offset individual desde cero."""
+    if not verificar_permiso(db, current_user, 'config.editar_constantes'):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     offset = db.query(OffsetGanancia).filter(
         OffsetGanancia.id == offset_id,
         OffsetGanancia.grupo_id.is_(None)  # Solo offsets individuales
