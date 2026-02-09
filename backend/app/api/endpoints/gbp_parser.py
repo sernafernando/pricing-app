@@ -285,7 +285,7 @@ def parse_soap_response(xml_content: str) -> Any:
 
 
 @router.api_route("/gbp-parser", methods=["GET", "POST"])
-async def gbp_parser(request: Request, current_user = Depends(get_current_user)):
+async def gbp_parser(request: Request):
     """
     Endpoint para parsear respuestas SOAP del ERP.
     Reemplaza el worker de Cloudflare.
