@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_admin, get_current_user
 from app.models.usuario import Usuario
 from app.services.erp_sync import sincronizar_erp
 from app.services.ml_sync import sincronizar_publicaciones_ml
@@ -60,7 +60,7 @@ async def sincronizar_tipo_cambio(db: Session = Depends(get_db), current_user: U
         return {"status": "error", "message": str(e)}
 
 @router.get("/tipo-cambio/actual")
-async def obtener_tipo_cambio_actual_endpoint(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
+async def obtener_tipo_cambio_actual_endpoint(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene el tipo de cambio más reciente"""
     from app.models.tipo_cambio import TipoCambio
 
@@ -83,7 +83,7 @@ async def obtener_tipo_cambio_actual_endpoint(db: Session = Depends(get_db), cur
 async def obtener_tipo_cambio_por_fecha(
     fecha: str,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_admin)
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Obtiene el tipo de cambio para una fecha específica.
