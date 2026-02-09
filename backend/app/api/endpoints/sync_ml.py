@@ -27,6 +27,6 @@ async def sincronizar_precios(
     }
 
 @router.get("/sync-ml/listas")
-async def listar_listas():
+async def listar_listas(current_user = Depends(get_current_user)):
     """Lista las pricelists disponibles"""
     return {"listas": PRICELISTS}

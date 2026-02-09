@@ -8,6 +8,7 @@ from typing import List
 from pydantic import BaseModel
 
 from app.core.database import get_db
+from app.api.deps import get_current_user
 from app.models.sale_order_status import SaleOrderStatus
 
 router = APIRouter()
@@ -30,7 +31,8 @@ class SaleOrderStatusResponse(BaseModel):
 @router.get("/sale-order-status", response_model=List[SaleOrderStatusResponse])
 async def obtener_estados_pedido(
     db: Session = Depends(get_db),
-    only_active: bool = True
+    only_active: bool = True,
+    current_user = Depends(get_current_user)
 ):
     """
     Obtiene todos los estados de pedidos (ssos_id).
@@ -64,7 +66,8 @@ async def obtener_estados_pedido(
 @router.get("/sale-order-status/by-category/{category}", response_model=List[SaleOrderStatusResponse])
 async def obtener_estados_por_categoria(
     category: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
     """
     Obtiene estados de pedidos filtrados por categoría.

@@ -139,7 +139,8 @@ async def listar_productos(
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     tienda_oficial: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     query = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
@@ -1392,7 +1393,8 @@ async def listar_productos_tienda(
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     tienda_oficial: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """Endpoint específico para la página de Tienda con precio_gremio."""
     from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
@@ -1928,7 +1930,7 @@ async def listar_productos_tienda(
 
 
 @router.get("/productos/{item_id}", response_model=ProductoResponse)
-async def obtener_producto(item_id: int, db: Session = Depends(get_db)):
+async def obtener_producto(item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     result = db.query(ProductoERP, ProductoPricing).outerjoin(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     ).filter(ProductoERP.item_id == item_id).first()
@@ -2097,7 +2099,7 @@ async def obtener_producto(item_id: int, db: Session = Depends(get_db)):
     )
 
 @router.get("/productos/{item_id}/pricing-stored")
-async def obtener_precio_stored(item_id: int, db: Session = Depends(get_db)):
+async def obtener_precio_stored(item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene el precio_lista_ml almacenado en productos_pricing para un item_id
     """
@@ -2136,7 +2138,8 @@ async def obtener_estadisticas(
     audit_fecha_hasta: Optional[str] = None,
     con_mla: Optional[bool] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Obtiene estadísticas de productos según filtros aplicados.
@@ -2520,7 +2523,8 @@ async def obtener_stats_dinamicos(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Obtiene estadísticas dinámicas de productos según filtros aplicados.
@@ -2967,7 +2971,7 @@ async def obtener_stats_dinamicos(
 
 
 @router.get("/categorias")
-async def listar_categorias(db: Session = Depends(get_db)):
+async def listar_categorias(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     categorias = db.query(ProductoERP.categoria).distinct().order_by(ProductoERP.categoria).all()
     return {"categorias": [c[0] for c in categorias if c[0]]}
 
@@ -2991,7 +2995,8 @@ async def listar_marcas(
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
     pms: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """Lista marcas disponibles según filtros activos"""
 
@@ -3070,7 +3075,7 @@ async def listar_marcas(
     return {"marcas": [m[0] for m in marcas if m[0]]}
 
 @router.get("/productos/{item_id}/ofertas-vigentes")
-async def obtener_ofertas_vigentes(item_id: int, db: Session = Depends(get_db)):
+async def obtener_ofertas_vigentes(item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     from app.models.publicacion_ml import PublicacionML
     from app.models.oferta_ml import OfertaML
     from app.services.pricing_calculator import (
@@ -4821,7 +4826,8 @@ async def listar_subcategorias(
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
     pms: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """Lista subcategorías disponibles según filtros activos"""
     from app.models.comision_config import SubcategoriaGrupo
@@ -4930,7 +4936,7 @@ async def listar_subcategorias(
     }
     
 @router.post("/sincronizar-subcategorias")
-async def sincronizar_subcategorias_endpoint():
+async def sincronizar_subcategorias_endpoint(current_user: Usuario = Depends(get_current_user)):
     """Sincroniza subcategorías desde el worker"""
     from app.scripts.sync_subcategorias import sincronizar_subcategorias
     sincronizar_subcategorias()
@@ -4965,7 +4971,8 @@ async def exportar_web_transferencia(
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
     estado_mla: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """Exporta precios de Web Transferencia en formato Excel con filtros opcionales"""
     from io import BytesIO
@@ -6039,7 +6046,8 @@ async def exportar_vista_actual(
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
     estado_mla: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """Exporta la vista actual de productos a Excel con todos los datos"""
     try:
