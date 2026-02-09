@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+from app.api.deps import get_current_admin
+from app.models.usuario import Usuario
 from app.services.erp_sync import sincronizar_erp
 from app.services.ml_sync import sincronizar_publicaciones_ml
 from app.services.google_sheets_sync import sincronizar_ofertas_sheets
@@ -9,7 +11,7 @@ from typing import Dict
 router = APIRouter()
 
 @router.post("/sync")
-async def sync_erp(db: Session = Depends(get_db)):
+async def sync_erp(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
     """Sincroniza productos desde el ERP y precios de ML"""
     try:
         # Sincronizar ERP
@@ -30,7 +32,7 @@ async def sync_erp(db: Session = Depends(get_db)):
         return {"status": "error", "message": str(e)}
         
 @router.post("/sync-ml")
-async def sincronizar_ml(db: Session = Depends(get_db)):
+async def sincronizar_ml(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
     """Sincroniza publicaciones de Mercado Libre"""
     try:
         resultado = await sincronizar_publicaciones_ml(db)
@@ -39,7 +41,7 @@ async def sincronizar_ml(db: Session = Depends(get_db)):
         return {"status": "error", "message": str(e)}
 
 @router.post("/sync-sheets")
-async def sincronizar_sheets(db: Session = Depends(get_db)):
+async def sincronizar_sheets(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
     """Sincroniza ofertas desde Google Sheets"""
     try:
         resultado = sincronizar_ofertas_sheets(db)
@@ -48,7 +50,7 @@ async def sincronizar_sheets(db: Session = Depends(get_db)):
         return {"status": "error", "message": str(e)}
 
 @router.post("/sync-tipo-cambio")
-async def sincronizar_tipo_cambio(db: Session = Depends(get_db)):
+async def sincronizar_tipo_cambio(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
     """Sincroniza tipo de cambio desde BNA"""
     try:
         from app.services.tipo_cambio_service import actualizar_tipo_cambio_bna
@@ -58,7 +60,7 @@ async def sincronizar_tipo_cambio(db: Session = Depends(get_db)):
         return {"status": "error", "message": str(e)}
 
 @router.get("/tipo-cambio/actual")
-async def obtener_tipo_cambio_actual_endpoint(db: Session = Depends(get_db)):
+async def obtener_tipo_cambio_actual_endpoint(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
     """Obtiene el tipo de cambio más reciente"""
     from app.models.tipo_cambio import TipoCambio
 
@@ -80,7 +82,8 @@ async def obtener_tipo_cambio_actual_endpoint(db: Session = Depends(get_db)):
 @router.get("/tipo-cambio/fecha/{fecha}")
 async def obtener_tipo_cambio_por_fecha(
     fecha: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_admin)
 ):
     """
     Obtiene el tipo de cambio para una fecha específica.
@@ -119,7 +122,7 @@ async def obtener_tipo_cambio_por_fecha(
     }
 
 @router.post("/recalcular-markups")
-async def recalcular_markups_endpoint(db: Session = Depends(get_db)):
+async def recalcular_markups_endpoint(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
     """Recalcula markups de todos los productos con precio"""
     from app.models.producto import ProductoERP, ProductoPricing
     from app.services.pricing_calculator import (

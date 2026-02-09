@@ -1,16 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import date
 
 from app.core.database import get_db
+from app.api.deps import get_current_user, get_current_admin
+from app.models.usuario import Usuario
 from app.models.comision_config import GrupoComision, SubcategoriaGrupo, ComisionListaGrupo
 from app.models.configuracion import Configuracion
 
 router = APIRouter()
 
 @router.get("/admin/comisiones/{grupo_id}")
-async def obtener_comisiones_grupo(grupo_id: int, db: Session = Depends(get_db)):
+async def obtener_comisiones_grupo(grupo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene todas las comisiones de un grupo"""
     comisiones = db.query(ComisionListaGrupo).filter(
         ComisionListaGrupo.grupo_id == grupo_id
@@ -31,7 +33,8 @@ async def obtener_comisiones_grupo(grupo_id: int, db: Session = Depends(get_db))
 async def obtener_comision_especifica(
     pricelist_id: int,
     grupo_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene la comisión para una lista y grupo específicos"""
     comision = db.query(ComisionListaGrupo).filter(
@@ -49,7 +52,7 @@ async def obtener_comision_especifica(
     }
 
 @router.get("/admin/subcategorias-grupos")
-async def listar_subcategorias_grupos(db: Session = Depends(get_db)):
+async def listar_subcategorias_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todas las subcategorías y sus grupos asignados"""
     mappings = db.query(SubcategoriaGrupo).all()
     return {
@@ -65,13 +68,13 @@ async def listar_subcategorias_grupos(db: Session = Depends(get_db)):
 from app.services.bna_scraper import actualizar_tipo_cambio
 
 @router.post("/admin/actualizar-tipo-cambio")
-async def actualizar_tc_manual(db: Session = Depends(get_db)):
+async def actualizar_tc_manual(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_admin)):
     """Actualiza el tipo de cambio scrapeando el BNA"""
     resultado = await actualizar_tipo_cambio(db)
     return resultado
 
 @router.get("/admin/tipo-cambio-actual")
-async def obtener_tc_actual(db: Session = Depends(get_db)):
+async def obtener_tc_actual(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene el tipo de cambio actual"""
     from app.models.tipo_cambio import TipoCambio
 
@@ -102,7 +105,7 @@ class ConfiguracionUpdate(BaseModel):
     valor: str
 
 @router.get("/admin/configuracion")
-async def obtener_configuraciones(db: Session = Depends(get_db)):
+async def obtener_configuraciones(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene todas las configuraciones"""
     configs = db.query(Configuracion).all()
     return {
@@ -118,7 +121,7 @@ async def obtener_configuraciones(db: Session = Depends(get_db)):
     }
 
 @router.get("/admin/configuracion/{clave}")
-async def obtener_configuracion(clave: str, db: Session = Depends(get_db)):
+async def obtener_configuracion(clave: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene una configuración específica"""
     config = db.query(Configuracion).filter(Configuracion.clave == clave).first()
 
@@ -136,7 +139,8 @@ async def obtener_configuracion(clave: str, db: Session = Depends(get_db)):
 async def actualizar_configuracion(
     clave: str,
     update: ConfiguracionUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_admin)
 ):
     """Actualiza una configuración"""
     config = db.query(Configuracion).filter(Configuracion.clave == clave).first()

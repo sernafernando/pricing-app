@@ -7,6 +7,8 @@ from typing import Optional
 from datetime import date, datetime
 
 from app.core.database import get_db
+from app.api.deps import get_current_admin
+from app.models.usuario import Usuario
 from app.services.erp_worker_client import erp_worker_client
 from app.models.tb_brand import TBBrand
 from app.models.tb_category import TBCategory
@@ -24,7 +26,7 @@ from app.models.tb_tax_number_type import TBTaxNumberType
 from app.models.tb_state import TBState
 
 
-router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"])
+router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"], dependencies=[Depends(get_current_admin)])
 
 
 @router.post("/brands")

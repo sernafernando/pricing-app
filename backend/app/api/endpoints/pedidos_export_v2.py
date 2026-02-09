@@ -13,10 +13,11 @@ import logging
 
 from app.core.database import get_db
 from app.models.pedido_export import PedidoExport
-# from app.api.deps import get_current_user  # No usamos auth por ahora
+from app.api.deps import get_current_user
+from app.models.usuario import Usuario
 from app.services.tienda_nube_order_client import TiendaNubeOrderClient
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 logger = logging.getLogger(__name__)
 
 

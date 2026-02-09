@@ -5,7 +5,7 @@ from typing import Optional
 from datetime import timedelta
 
 from app.core.database import get_db
-from app.core.security import verify_password, get_password_hash, create_access_token
+from app.core.security import verify_password, get_password_hash, create_access_token, create_refresh_token, decode_token
 from app.core.config import settings
 from app.models.usuario import Usuario, RolUsuario, AuthProvider
 from app.models.rol import Rol
@@ -19,8 +19,12 @@ class LoginRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str
     usuario: dict
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 class RegisterRequest(BaseModel):
     username: str
@@ -58,18 +62,18 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
             detail="Usuario o contraseña incorrectos"
         )
     
-    # Crear token usando username (no email)
+    # Crear tokens (access + refresh) usando username
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    token_data = {"sub": usuario.username}
     access_token = create_access_token(
-        data={
-            "sub": usuario.username,  # Ahora usamos username en el token
-            "rol": usuario.rol_codigo  # Usar property en lugar del enum
-        },
-        expires_delta=access_token_expires
+        data=token_data,
+        expires_delta=access_token_expires,
     )
+    refresh_token = create_refresh_token(data=token_data)
     
     return TokenResponse(
         access_token=access_token,
+        refresh_token=refresh_token,
         token_type="bearer",
         usuario={
             "id": usuario.id,
@@ -82,7 +86,19 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/auth/register")
 async def register(request: RegisterRequest, db: Session = Depends(get_db)):
-    """Registrar nuevo usuario (solo para desarrollo - en producción usar invitaciones)"""
+    """
+    Registrar nuevo usuario.
+    NOTA: Este endpoint requiere un token de invitación en producción.
+    TODO: Implementar sistema de invitaciones.
+    """
+    # SEGURIDAD: En producción, este endpoint debería estar deshabilitado
+    # o requerir un token de invitación. Por ahora se deshabilita.
+    import os
+    if os.getenv("ENVIRONMENT", "production") == "production":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registro público deshabilitado. Contacta al administrador."
+        )
     
     # Verificar que no exista username
     existing = db.query(Usuario).filter(Usuario.username == request.username).first()
@@ -146,4 +162,54 @@ async def get_me(current_user: Usuario = Depends(get_current_user)):
         "nombre": current_user.nombre,
         "rol": current_user.rol_codigo,  # Usar property en lugar del enum
         "activo": current_user.activo
+    }
+
+@router.post("/auth/refresh")
+async def refresh_access_token(request: RefreshRequest, db: Session = Depends(get_db)):
+    """
+    Renueva el access_token usando un refresh_token válido.
+    Devuelve un nuevo access_token (el refresh_token sigue siendo el mismo hasta que expire).
+    """
+    payload = decode_token(request.refresh_token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token inválido o expirado"
+        )
+    
+    # Verificar que sea un refresh token (no un access token reutilizado)
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token no es un refresh token"
+        )
+    
+    username: str = payload.get("sub")
+    if username is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token inválido"
+        )
+    
+    # Verificar que el usuario siga existiendo y activo
+    usuario = db.query(Usuario).filter(
+        (Usuario.username == username) | (Usuario.email == username)
+    ).first()
+    
+    if usuario is None or not usuario.activo:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuario no encontrado o inactivo"
+        )
+    
+    # Generar nuevo access token
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    new_access_token = create_access_token(
+        data={"sub": usuario.username},
+        expires_delta=access_token_expires,
+    )
+    
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer"
     }

@@ -13,6 +13,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from app.core.database import get_db
+from app.api.deps import get_current_user
+from app.models.usuario import Usuario
 from app.models.tb_customer import TBCustomer
 from app.models.tb_state import TBState
 from app.models.tb_fiscal_class import TBFiscalClass
@@ -121,7 +123,7 @@ CAMPOS_DISPONIBLES = {
 
 
 @router.get("/campos-disponibles")
-async def obtener_campos_disponibles():
+async def obtener_campos_disponibles(current_user: Usuario = Depends(get_current_user)):
     """
     Retorna la lista de campos disponibles para exportación
     """
@@ -151,7 +153,8 @@ async def listar_clientes(
     cust_id_desde: Optional[int] = Query(None, description="ID de cliente desde (rango)"),
     cust_id_hasta: Optional[int] = Query(None, description="ID de cliente hasta (rango)"),
     cust_ids: Optional[str] = Query(None, description="IDs de clientes separados por coma (ej: 123,456,789)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Lista clientes con filtros y paginación
@@ -332,7 +335,8 @@ async def listar_clientes(
 async def obtener_cliente(
     cust_id: int,
     comp_id: int = Query(1, description="ID de compañía"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Obtiene un cliente específico por ID
@@ -430,7 +434,8 @@ async def obtener_cliente(
 @router.post("/exportar")
 async def exportar_clientes(
     export_request: ExportClientesRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Exporta clientes a CSV con campos seleccionados y filtros aplicados
@@ -674,7 +679,8 @@ async def exportar_clientes(
 
 @router.get("/filtros/provincias")
 async def obtener_provincias(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Retorna lista de provincias para el filtro
@@ -694,7 +700,8 @@ async def obtener_provincias(
 
 @router.get("/filtros/condiciones-fiscales")
 async def obtener_condiciones_fiscales(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Retorna lista de condiciones fiscales que tienen clientes asignados
@@ -726,7 +733,8 @@ async def obtener_condiciones_fiscales(
 
 @router.get("/filtros/sucursales")
 async def obtener_sucursales(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Retorna lista de sucursales para el filtro
@@ -746,7 +754,8 @@ async def obtener_sucursales(
 
 @router.get("/filtros/vendedores")
 async def obtener_vendedores(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Retorna lista de vendedores para el filtro
@@ -769,7 +778,8 @@ async def actualizar_cliente(
     cust_id: int,
     datos: ClienteUpdateRequest,
     comp_id: int = Query(1, description="ID de compañía"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
 ):
     """
     Actualiza campos editables de un cliente
