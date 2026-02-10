@@ -287,12 +287,32 @@
   transform: scale(1.02);
 }
 
+/* Purple (violet) - Con texto */
+.btn-tesla.outline-subtle-purple {
+  background: rgba(139, 92, 246, 0.1);
+  color: rgba(167, 139, 250, 1);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  box-shadow: none;
+}
+
+.btn-tesla.outline-subtle-purple:hover {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.5);
+  transform: scale(1.05);
+}
+
+.btn-tesla.outline-subtle-purple:active {
+  background: rgba(139, 92, 246, 0.15);
+  transform: scale(1.02);
+}
+
 /* ICON-ONLY: Hereda color del texto de la fila y opacidad reducida */
 .btn-tesla.outline-subtle-primary.icon-only,
 .btn-tesla.outline-subtle-success.icon-only,
 .btn-tesla.outline-subtle-danger.icon-only,
 .btn-tesla.outline-subtle-warning.icon-only,
-.btn-tesla.outline-subtle-info.icon-only {
+.btn-tesla.outline-subtle-info.icon-only,
+.btn-tesla.outline-subtle-purple.icon-only {
   background: transparent;  /* ← Sin fondo */
   color: inherit;           /* ← Hereda color del texto de la fila */
   border: none;             /* ← Sin borde */
@@ -303,7 +323,8 @@
 .btn-tesla.outline-subtle-success.icon-only:hover,
 .btn-tesla.outline-subtle-danger.icon-only:hover,
 .btn-tesla.outline-subtle-warning.icon-only:hover,
-.btn-tesla.outline-subtle-info.icon-only:hover {
+.btn-tesla.outline-subtle-info.icon-only:hover,
+.btn-tesla.outline-subtle-purple.icon-only:hover {
   opacity: 1;
   transform: scale(1.15);
   background: rgba(255, 255, 255, 0.1);
@@ -313,7 +334,8 @@
 .btn-tesla.outline-subtle-success.icon-only:active,
 .btn-tesla.outline-subtle-danger.icon-only:active,
 .btn-tesla.outline-subtle-warning.icon-only:active,
-.btn-tesla.outline-subtle-info.icon-only:active {
+.btn-tesla.outline-subtle-info.icon-only:active,
+.btn-tesla.outline-subtle-purple.icon-only:active {
   opacity: 0.9;
   transform: scale(1.1);
   background: rgba(255, 255, 255, 0.05);
@@ -380,12 +402,25 @@
   transform: scale(1.05);
 }
 
+:root[data-theme="light"] .btn-tesla.outline-subtle-purple {
+  background: rgba(139, 92, 246, 0.1);
+  color: rgba(109, 40, 217, 1);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+:root[data-theme="light"] .btn-tesla.outline-subtle-purple:hover {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.5);
+  transform: scale(1.05);
+}
+
 /* Light mode - Icon-only con opacidad y color heredado */
 :root[data-theme="light"] .btn-tesla.outline-subtle-primary.icon-only,
 :root[data-theme="light"] .btn-tesla.outline-subtle-success.icon-only,
 :root[data-theme="light"] .btn-tesla.outline-subtle-danger.icon-only,
 :root[data-theme="light"] .btn-tesla.outline-subtle-warning.icon-only,
-:root[data-theme="light"] .btn-tesla.outline-subtle-info.icon-only {
+:root[data-theme="light"] .btn-tesla.outline-subtle-info.icon-only,
+:root[data-theme="light"] .btn-tesla.outline-subtle-purple.icon-only {
   color: inherit;  /* ← Hereda color del texto de la fila */
   opacity: 0.7;
   border: none;  /* ← Sin borde para icon-only */
@@ -396,7 +431,8 @@
 :root[data-theme="light"] .btn-tesla.outline-subtle-success.icon-only:hover,
 :root[data-theme="light"] .btn-tesla.outline-subtle-danger.icon-only:hover,
 :root[data-theme="light"] .btn-tesla.outline-subtle-warning.icon-only:hover,
-:root[data-theme="light"] .btn-tesla.outline-subtle-info.icon-only:hover {
+:root[data-theme="light"] .btn-tesla.outline-subtle-info.icon-only:hover,
+:root[data-theme="light"] .btn-tesla.outline-subtle-purple.icon-only:hover {
   opacity: 1;
   transform: scale(1.15);
   background: rgba(0, 0, 0, 0.08);  /* ← Solo un poquito de fondo al hacer hover */
@@ -404,8 +440,15 @@
 }
 
 /* ============================================
-   TAMAÑOS - sm, base, lg
+   TAMAÑOS - xs, sm, base, lg
    ============================================ */
+
+.btn-tesla.xs {
+  height: auto;
+  padding: 4px 8px;
+  font-size: 12px;
+  gap: 2px;
+}
 
 .btn-tesla.sm {
   height: var(--btn-height-sm);
@@ -476,6 +519,12 @@
 
 .btn-tesla.icon-only.lg {
   width: var(--btn-height-lg);
+}
+
+.btn-tesla.icon-only.xs {
+  width: 26px;
+  height: 26px;
+  padding: 0;
 }
 
 /* ============================================
@@ -642,6 +691,53 @@
 :root[data-theme="light"] .btn-tesla.toggle-active:hover {
   background: rgba(59, 130, 246, 0.25) !important;
   border-color: rgba(59, 130, 246, 0.6) !important;
+}
+
+/* Color variants for toggle-active */
+.btn-tesla.toggle-active-warning {
+  background: rgba(245, 158, 11, 0.18) !important;
+  border-color: rgba(245, 158, 11, 0.55) !important;
+  color: rgba(251, 191, 36, 1) !important;
+  font-weight: 600;
+}
+
+.btn-tesla.toggle-active-warning:hover {
+  background: rgba(245, 158, 11, 0.28) !important;
+  border-color: rgba(245, 158, 11, 0.7) !important;
+}
+
+:root[data-theme="light"] .btn-tesla.toggle-active-warning {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.45) !important;
+  color: rgba(180, 110, 0, 1) !important;
+}
+
+:root[data-theme="light"] .btn-tesla.toggle-active-warning:hover {
+  background: rgba(245, 158, 11, 0.22) !important;
+  border-color: rgba(245, 158, 11, 0.6) !important;
+}
+
+.btn-tesla.toggle-active-info {
+  background: rgba(14, 165, 233, 0.18) !important;
+  border-color: rgba(14, 165, 233, 0.55) !important;
+  color: rgba(56, 189, 248, 1) !important;
+  font-weight: 600;
+}
+
+.btn-tesla.toggle-active-info:hover {
+  background: rgba(14, 165, 233, 0.28) !important;
+  border-color: rgba(14, 165, 233, 0.7) !important;
+}
+
+:root[data-theme="light"] .btn-tesla.toggle-active-info {
+  background: rgba(14, 165, 233, 0.12) !important;
+  border-color: rgba(14, 165, 233, 0.45) !important;
+  color: rgba(3, 105, 161, 1) !important;
+}
+
+:root[data-theme="light"] .btn-tesla.toggle-active-info:hover {
+  background: rgba(14, 165, 233, 0.22) !important;
+  border-color: rgba(14, 165, 233, 0.6) !important;
 }
 
 /* ============================================

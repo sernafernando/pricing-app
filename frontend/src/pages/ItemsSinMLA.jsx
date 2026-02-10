@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuthStore } from '../store/authStore';
+import ModalInfoProducto from '../components/ModalInfoProducto';
 import './ItemsSinMLA.css';
 
 // Inline SVG icons — stroke-based, consistent 16x16 default
@@ -29,6 +30,7 @@ const Icon = {
   check:       (sz) => s(<><polyline points="20 6 9 17 4 12"/></>, sz),
   x:           (sz) => s(<><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>, sz),
   checkCircle: (sz) => s(<><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>, sz),
+  info:        (sz) => s(<><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></>, sz),
 };
 
 const ItemsSinMLA = () => {
@@ -131,6 +133,10 @@ const ItemsSinMLA = () => {
 
   // Modal de asignación masiva
   const [showAsignarMasivoModal, setShowAsignarMasivoModal] = useState(false);
+
+  // Modal de info producto
+  const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
+  const [productoInfoId, setProductoInfoId] = useState(null);
 
   const API_URL = import.meta.env.VITE_API_URL;
   const token = localStorage.getItem('token');
@@ -1080,28 +1086,20 @@ const ItemsSinMLA = () => {
               </select>
             </div>
 
-            <div className="filter-group">
-              <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
-                <input
-                  type="checkbox"
-                  checked={soloNuevos}
-                  onChange={(e) => setSoloNuevos(e.target.checked)}
-                  style={{marginRight: '6px', cursor: 'pointer'}}
-                />
-                {Icon.sparkle(13)} Solo nuevos
-              </label>
-            </div>
+            <div className="filter-group-toggles">
+              <button
+                onClick={() => setSoloNuevos(!soloNuevos)}
+                className={`btn-toggle-filter ${soloNuevos ? 'active-warning' : ''}`}
+              >
+                {soloNuevos ? Icon.check(12) : Icon.sparkle(13)} Solo nuevos
+              </button>
 
-            <div className="filter-group">
-              <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
-                <input
-                  type="checkbox"
-                  checked={sinPublicaciones}
-                  onChange={(e) => setSinPublicaciones(e.target.checked)}
-                  style={{marginRight: '6px', cursor: 'pointer'}}
-                />
-                {Icon.alertCircle(13)} Sin publicaciones
-              </label>
+              <button
+                onClick={() => setSinPublicaciones(!sinPublicaciones)}
+                className={`btn-toggle-filter ${sinPublicaciones ? 'active-info' : ''}`}
+              >
+                {sinPublicaciones ? Icon.check(12) : Icon.alertCircle(13)} Sin publicaciones
+              </button>
             </div>
 
             {(tienePermiso('admin.asignar_items_sin_mla') || tienePermiso('admin.gestionar_asignaciones')) && (
@@ -1151,7 +1149,7 @@ const ItemsSinMLA = () => {
               </>
             )}
 
-            <button onClick={limpiarFiltros} className="btn-limpiar">
+            <button onClick={limpiarFiltros} className="btn-tesla outline-subtle-danger sm" title="Limpiar todos los filtros">
               {Icon.trash(13)} Limpiar
             </button>
           </div>
@@ -1162,11 +1160,11 @@ const ItemsSinMLA = () => {
               <span>{itemsSeleccionados.size} item(s) seleccionado(s)</span>
               <div className="seleccion-bar-actions">
                 {(tienePermiso('admin.asignar_items_sin_mla') || tienePermiso('admin.gestionar_asignaciones')) && (
-                  <button onClick={handleAsignarMasivo} className="btn-asignar-seleccionados">
+                  <button onClick={handleAsignarMasivo} className="btn-tesla outline-subtle-purple sm">
                     {Icon.pin(14)} Asignar seleccionados
                   </button>
                 )}
-                <button onClick={banearSeleccionados} className="btn-banear-seleccionados">
+                <button onClick={banearSeleccionados} className="btn-tesla outline-subtle-danger sm">
                   {Icon.ban(14)} Banear seleccionados
                 </button>
               </div>
@@ -1322,21 +1320,31 @@ const ItemsSinMLA = () => {
                             )}
                           </td>
                           <td className="acciones-cell">
+                            <button
+                              onClick={() => { setProductoInfoId(item.item_id); setMostrarModalInfo(true); }}
+                              className="btn-tesla outline-subtle-primary icon-only sm"
+                              title="Ver información del producto"
+                              aria-label="Ver información del producto"
+                            >
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                            </button>
                             {(tienePermiso('admin.asignar_items_sin_mla') || tienePermiso('admin.gestionar_asignaciones')) && (
                               <button
                                 onClick={() => handleAsignar(item)}
-                                className="btn-asignar"
+                                className="btn-tesla outline-subtle-primary icon-only sm"
                                 title="Asignar listas"
+                                aria-label="Asignar listas"
                               >
-                                {Icon.pin(12)} Asignar
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
                               </button>
                             )}
                             <button
                               onClick={() => handleBanear(item)}
-                              className="btn-banear"
+                              className="btn-tesla outline-subtle-danger icon-only sm"
                               title="Agregar a banlist"
+                              aria-label="Agregar a banlist"
                             >
-                              {Icon.ban(12)} Banear
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
                             </button>
                           </td>
                         </tr>
@@ -1453,19 +1461,14 @@ const ItemsSinMLA = () => {
                   )}
                 </div>
 
-                <div className="filter-group">
-                  <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
-                    <input
-                      type="checkbox"
-                      checked={soloNuevosBanlist}
-                      onChange={(e) => setSoloNuevosBanlist(e.target.checked)}
-                      style={{marginRight: '6px', cursor: 'pointer'}}
-                    />
-                    {Icon.sparkle(13)} Solo nuevos
-                  </label>
-                </div>
+                <button
+                  onClick={() => setSoloNuevosBanlist(!soloNuevosBanlist)}
+                  className={`btn-toggle-filter ${soloNuevosBanlist ? 'active-warning' : ''}`}
+                >
+                  {soloNuevosBanlist ? Icon.check(12) : Icon.sparkle(13)} Solo nuevos
+                </button>
 
-                <button onClick={limpiarFiltrosBanlist} className="btn-limpiar">
+                <button onClick={limpiarFiltrosBanlist} className="btn-tesla outline-subtle-danger sm" title="Limpiar todos los filtros">
                   {Icon.trash(13)} Limpiar
                 </button>
               </div>
@@ -1474,7 +1477,7 @@ const ItemsSinMLA = () => {
               {baneadosSeleccionados.size > 0 && (
                 <div className="seleccion-bar">
                   <span>{baneadosSeleccionados.size} item(s) seleccionado(s)</span>
-                  <button onClick={desbanearSeleccionados} className="btn-desbanear-seleccionados">
+                  <button onClick={desbanearSeleccionados} className="btn-tesla outline-subtle-success sm">
                     {Icon.checkCircle(14)} Desbanear seleccionados
                   </button>
                 </div>
@@ -1551,7 +1554,7 @@ const ItemsSinMLA = () => {
                             <td>
                               <button
                                 onClick={() => handleDesbanear(item.id, item.item_id)}
-                                className="btn-desbanear"
+                                className="btn-tesla outline-subtle-success xs"
                                 title="Quitar de banlist"
                               >
                                 {Icon.checkCircle(12)} Desbanear
@@ -1592,7 +1595,7 @@ const ItemsSinMLA = () => {
               {comparacionBaneadosSeleccionados.size > 0 && (
                 <div className="seleccion-bar">
                   <span>{comparacionBaneadosSeleccionados.size} publicación(es) seleccionada(s)</span>
-                  <button onClick={desbanearComparacionSeleccionados} className="btn-desbanear-seleccionados">
+                  <button onClick={desbanearComparacionSeleccionados} className="btn-tesla outline-subtle-success sm">
                     {Icon.checkCircle(14)} Desbanear seleccionados
                   </button>
                 </div>
@@ -1672,7 +1675,7 @@ const ItemsSinMLA = () => {
                             <td>
                               <button
                                 onClick={() => handleDesbanearComparacion(item.id, item.mla_id)}
-                                className="btn-desbanear"
+                                className="btn-tesla outline-subtle-success xs"
                                 title="Quitar de banlist"
                               >
                                 {Icon.checkCircle(12)} Desbanear
@@ -1697,7 +1700,7 @@ const ItemsSinMLA = () => {
           {comparacionSeleccionados.size > 0 && tienePermiso('admin.gestionar_comparacion_banlist') && (
             <div className="seleccion-bar">
               <span>{comparacionSeleccionados.size} publicación(es) seleccionada(s)</span>
-              <button onClick={banearComparacionSeleccionados} className="btn-banear-seleccionados">
+              <button onClick={banearComparacionSeleccionados} className="btn-tesla outline-subtle-danger sm">
                 {Icon.ban(14)} Banear seleccionados
               </button>
             </div>
@@ -1800,7 +1803,7 @@ const ItemsSinMLA = () => {
                           <td>
                             <button
                               onClick={() => handleBanearComparacion(item)}
-                              className="btn-banear"
+                              className="btn-tesla outline-subtle-danger xs"
                               title="Agregar a banlist"
                             >
                               {Icon.ban(12)} Banear
@@ -1836,10 +1839,10 @@ const ItemsSinMLA = () => {
               />
             </div>
             <div className="modal-actions">
-              <button onClick={confirmarBanear} className="btn-confirmar">
+              <button onClick={confirmarBanear} className="btn-tesla primary">
                 Confirmar
               </button>
-              <button onClick={() => setShowMotivoModal(false)} className="btn-cancelar">
+              <button onClick={() => setShowMotivoModal(false)} className="btn-tesla ghost">
                 Cancelar
               </button>
             </div>
@@ -1924,12 +1927,12 @@ const ItemsSinMLA = () => {
             <div className="modal-actions">
               <button
                 onClick={confirmarAsignar}
-                className="btn-confirmar"
+                className="btn-tesla primary"
                 disabled={listasParaAsignar.length === 0 || loadingAsignacion}
               >
                 {loadingAsignacion ? 'Asignando...' : `Asignar ${listasParaAsignar.length} lista(s)`}
               </button>
-              <button onClick={() => setShowAsignarModal(false)} className="btn-cancelar">
+              <button onClick={() => setShowAsignarModal(false)} className="btn-tesla ghost">
                 Cancelar
               </button>
             </div>
@@ -1976,12 +1979,12 @@ const ItemsSinMLA = () => {
             <div className="modal-actions">
               <button
                 onClick={confirmarAsignarMasivo}
-                className="btn-confirmar"
+                className="btn-tesla primary"
                 disabled={loadingAsignacion}
               >
                 {loadingAsignacion ? 'Asignando...' : `Asignar ${itemsSeleccionados.size} item(s)`}
               </button>
-              <button onClick={() => setShowAsignarMasivoModal(false)} className="btn-cancelar">
+              <button onClick={() => setShowAsignarMasivoModal(false)} className="btn-tesla ghost">
                 Cancelar
               </button>
             </div>
@@ -2014,16 +2017,23 @@ const ItemsSinMLA = () => {
               />
             </div>
             <div className="modal-actions">
-              <button onClick={confirmarBanearComparacion} className="btn-confirmar">
+              <button onClick={confirmarBanearComparacion} className="btn-tesla primary">
                 Confirmar
               </button>
-              <button onClick={() => setShowComparacionMotivoModal(false)} className="btn-cancelar">
+              <button onClick={() => setShowComparacionMotivoModal(false)} className="btn-tesla ghost">
                 Cancelar
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Modal de información de producto */}
+      <ModalInfoProducto
+        isOpen={mostrarModalInfo}
+        onClose={() => setMostrarModalInfo(false)}
+        itemId={productoInfoId}
+      />
     </div>
   );
 };
