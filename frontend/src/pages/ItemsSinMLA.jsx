@@ -1839,10 +1839,10 @@ const ItemsSinMLA = () => {
               />
             </div>
             <div className="modal-actions">
-              <button onClick={confirmarBanear} className="btn-tesla primary">
+              <button onClick={confirmarBanear} className="btn-tesla outline-subtle-primary">
                 Confirmar
               </button>
-              <button onClick={() => setShowMotivoModal(false)} className="btn-tesla ghost">
+              <button onClick={() => setShowMotivoModal(false)} className="btn-tesla outline-subtle-danger">
                 Cancelar
               </button>
             </div>
@@ -1927,12 +1927,12 @@ const ItemsSinMLA = () => {
             <div className="modal-actions">
               <button
                 onClick={confirmarAsignar}
-                className="btn-tesla primary"
+                className="btn-tesla outline-subtle-primary"
                 disabled={listasParaAsignar.length === 0 || loadingAsignacion}
               >
                 {loadingAsignacion ? 'Asignando...' : `Asignar ${listasParaAsignar.length} lista(s)`}
               </button>
-              <button onClick={() => setShowAsignarModal(false)} className="btn-tesla ghost">
+              <button onClick={() => setShowAsignarModal(false)} className="btn-tesla outline-subtle-danger">
                 Cancelar
               </button>
             </div>
@@ -1979,12 +1979,12 @@ const ItemsSinMLA = () => {
             <div className="modal-actions">
               <button
                 onClick={confirmarAsignarMasivo}
-                className="btn-tesla primary"
+                className="btn-tesla outline-subtle-primary"
                 disabled={loadingAsignacion}
               >
                 {loadingAsignacion ? 'Asignando...' : `Asignar ${itemsSeleccionados.size} item(s)`}
               </button>
-              <button onClick={() => setShowAsignarMasivoModal(false)} className="btn-tesla ghost">
+              <button onClick={() => setShowAsignarMasivoModal(false)} className="btn-tesla outline-subtle-danger">
                 Cancelar
               </button>
             </div>
@@ -2017,10 +2017,10 @@ const ItemsSinMLA = () => {
               />
             </div>
             <div className="modal-actions">
-              <button onClick={confirmarBanearComparacion} className="btn-tesla primary">
+              <button onClick={confirmarBanearComparacion} className="btn-tesla outline-subtle-primary">
                 Confirmar
               </button>
-              <button onClick={() => setShowComparacionMotivoModal(false)} className="btn-tesla ghost">
+              <button onClick={() => setShowComparacionMotivoModal(false)} className="btn-tesla outline-subtle-danger">
                 Cancelar
               </button>
             </div>
