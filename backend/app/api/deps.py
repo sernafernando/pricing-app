@@ -146,3 +146,36 @@ async def get_user_or_localhost(
         )
     
     return usuario
+
+
+async def get_admin_or_localhost(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
+    db: Session = Depends(get_db)
+) -> Optional[Usuario]:
+    """
+    Permite acceso sin auth desde localhost (scripts internos/crons).
+    Desde cualquier otra IP, requiere JWT válido con rol admin.
+    
+    Retorna el Usuario admin autenticado o None si es localhost sin token.
+    """
+    usuario = await get_user_or_localhost(request, credentials, db)
+    
+    # Localhost sin token: pasá
+    if usuario is None:
+        client_ip = request.client.host if request.client else None
+        if client_ip in LOCALHOST_IPS:
+            return None
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token requerido"
+        )
+    
+    # Con usuario: verificar que sea admin
+    if usuario.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo administradores pueden realizar esta acción"
+        )
+    
+    return usuario
