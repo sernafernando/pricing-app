@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import adminStyles from '../pages/Admin.module.css';
 import styles from './PanelPermisos.module.css';
 
@@ -43,7 +43,7 @@ export default function PanelRoles() {
 
   const [busquedaPermiso, setBusquedaPermiso] = useState('');
 
-  const API_URL = import.meta.env.VITE_API_URL;
+
 
   useEffect(() => {
     cargarDatos();
@@ -51,12 +51,9 @@ export default function PanelRoles() {
 
   const cargarDatos = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       const [rolesRes, catalogoRes] = await Promise.all([
-        axios.get(`${API_URL}/roles`, { headers }),
-        axios.get(`${API_URL}/permisos/catalogo`, { headers })
+        api.get('/roles'),
+        api.get('/permisos/catalogo')
       ]);
 
       setRoles(rolesRes.data);
@@ -81,10 +78,7 @@ export default function PanelRoles() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const res = await axios.get(`${API_URL}/roles/${rol.id}/permisos`, { headers });
+      const res = await api.get(`/roles/${rol.id}/permisos`);
       setPermisosRol(res.data.permisos.map(p => p.codigo));
     } catch (error) {
       console.error('Error cargando permisos del rol:', error);
@@ -108,12 +102,9 @@ export default function PanelRoles() {
 
     setGuardando(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      await axios.put(`${API_URL}/roles/${rolSeleccionado.id}/permisos`, {
+      await api.put(`/roles/${rolSeleccionado.id}/permisos`, {
         permisos: permisosRol
-      }, { headers });
+      });
 
       setMensaje({ tipo: 'success', texto: 'Permisos guardados correctamente' });
       setTimeout(() => setMensaje(null), 3000);
@@ -133,10 +124,7 @@ export default function PanelRoles() {
 
     setGuardando(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      await axios.post(`${API_URL}/roles`, formRol, { headers });
+      await api.post('/roles', formRol);
 
       setMensaje({ tipo: 'success', texto: 'Rol creado correctamente' });
       setMostrarFormRol(false);
@@ -156,14 +144,11 @@ export default function PanelRoles() {
 
     setGuardando(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      await axios.patch(`${API_URL}/roles/${editandoRol.id}`, {
+      await api.patch(`/roles/${editandoRol.id}`, {
         nombre: formRol.nombre,
         descripcion: formRol.descripcion,
         orden: formRol.orden
-      }, { headers });
+      });
 
       setMensaje({ tipo: 'success', texto: 'Rol actualizado correctamente' });
       setEditandoRol(null);
@@ -189,10 +174,7 @@ export default function PanelRoles() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      await axios.delete(`${API_URL}/roles/${rol.id}`, { headers });
+      await api.delete(`/roles/${rol.id}`);
 
       setMensaje({ tipo: 'success', texto: 'Rol eliminado correctamente' });
       if (rolSeleccionado?.id === rol.id) {
@@ -215,10 +197,7 @@ export default function PanelRoles() {
 
     setGuardando(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      await axios.post(`${API_URL}/roles/${rolSeleccionado.id}/clonar`, clonarData, { headers });
+      await api.post(`/roles/${rolSeleccionado.id}/clonar`, clonarData);
 
       setMensaje({ tipo: 'success', texto: 'Rol clonado correctamente' });
       setMostrarClonar(false);

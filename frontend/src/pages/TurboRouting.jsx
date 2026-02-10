@@ -1,13 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './TurboRouting.module.css';
 import { usePermisos } from '../contexts/PermisosContext';
 import MapaEnvios from '../components/turbo/MapaEnvios';
 import GestionZonas from '../components/turbo/GestionZonas';
 import TabBanlist from '../components/turbo/TabBanlist';
 import TabAsignaciones from '../components/turbo/TabAsignaciones';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function TurboRouting() {
   const { tienePermiso } = usePermisos();
@@ -45,7 +43,6 @@ export default function TurboRouting() {
   // Asignación automática
   const [asignandoAutomatico, setAsignandoAutomatico] = useState(false);
   
-  const getToken = () => localStorage.getItem('token');
   const puedeGestionar = tienePermiso('ordenes.gestionar_turbo_routing');
   
   // ========================================
@@ -54,8 +51,7 @@ export default function TurboRouting() {
   
   const fetchEnvios = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/turbo/envios/pendientes`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
+      const response = await api.get('/turbo/envios/pendientes', {
         params: { incluir_asignados: incluirAsignados }
       });
       setEnvios(response.data);
@@ -66,9 +62,7 @@ export default function TurboRouting() {
   
   const fetchMotoqueros = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/turbo/motoqueros`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      const response = await api.get('/turbo/motoqueros');
       setMotoqueros(response.data);
     } catch (error) {
       alert('Error al cargar motoqueros');
@@ -78,12 +72,8 @@ export default function TurboRouting() {
   const fetchEstadisticas = useCallback(async () => {
     try {
       const [statsRes, resumenRes] = await Promise.all([
-        axios.get(`${API_URL}/turbo/estadisticas`, {
-          headers: { Authorization: `Bearer ${getToken()}` }
-        }),
-        axios.get(`${API_URL}/turbo/asignaciones/resumen`, {
-          headers: { Authorization: `Bearer ${getToken()}` }
-        })
+        api.get('/turbo/estadisticas'),
+        api.get('/turbo/asignaciones/resumen')
       ]);
       setEstadisticas(statsRes.data);
       setResumen(resumenRes.data);
@@ -94,8 +84,7 @@ export default function TurboRouting() {
   
   const fetchZonas = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/turbo/zonas`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
+      const response = await api.get('/turbo/zonas', {
         params: { solo_activas: false } // Mostrar TODAS las zonas (activas e inactivas)
       });
       setZonas(response.data);
@@ -106,8 +95,7 @@ export default function TurboRouting() {
   
   const fetchEnviosParaMapa = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/turbo/envios/pendientes`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
+      const response = await api.get('/turbo/envios/pendientes', {
         params: { incluir_asignados: true }
       });
       setEnvios(response.data);
@@ -184,20 +172,18 @@ export default function TurboRouting() {
     
     setProcesando(true);
     try {
-      await axios.post(
-        `${API_URL}/turbo/asignacion/manual`,
+      await api.post(
+        '/turbo/asignacion/manual',
         {
           motoquero_id: motoqueroSeleccionado,
           mlshippingids: Array.from(enviosSeleccionados)
-        },
-        { headers: { Authorization: `Bearer ${getToken()}` } }
+        }
       );
       
       // Invalidar cache para que stats se actualicen
-      await axios.post(
-        `${API_URL}/turbo/cache/invalidar`,
-        {},
-        { headers: { Authorization: `Bearer ${getToken()}` } }
+      await api.post(
+        '/turbo/cache/invalidar',
+        {}
       ).catch(() => {}); // Ignore errors
       
       alert(`✅ ${enviosSeleccionados.size} envíos asignados correctamente`);
@@ -229,10 +215,9 @@ export default function TurboRouting() {
     
     setGeocodificando(true);
     try {
-      const response = await axios.post(
-        `${API_URL}/turbo/geocoding/batch-ml`,
-        {},
-        { headers: { Authorization: `Bearer ${getToken()}` } }
+      const response = await api.post(
+        '/turbo/geocoding/batch-ml',
+        {}
       );
       
       const { exitosos, total, sin_coordenadas, porcentaje_exito } = response.data;
@@ -269,10 +254,9 @@ export default function TurboRouting() {
     
     setAsignandoAutomatico(true);
     try {
-      const response = await axios.post(
-        `${API_URL}/turbo/asignar-automatico`,
-        {},
-        { headers: { Authorization: `Bearer ${getToken()}` } }
+      const response = await api.post(
+        '/turbo/asignar-automatico',
+        {}
       );
       
       const { total_procesados, total_asignados, total_sin_zona, mensaje } = response.data;
@@ -332,14 +316,10 @@ export default function TurboRouting() {
     setProcesando(true);
     try {
       if (mode === 'create') {
-        await axios.post(`${API_URL}/turbo/motoqueros`, data, {
-          headers: { Authorization: `Bearer ${getToken()}` }
-        });
+        await api.post('/turbo/motoqueros', data);
         alert('✅ Motoquero creado');
       } else {
-        await axios.put(`${API_URL}/turbo/motoqueros/${data.id}`, data, {
-          headers: { Authorization: `Bearer ${getToken()}` }
-        });
+        await api.put(`/turbo/motoqueros/${data.id}`, data);
         alert('✅ Motoquero actualizado');
       }
       
@@ -356,9 +336,7 @@ export default function TurboRouting() {
     if (!confirm('¿Desactivar este motoquero?')) return;
     
     try {
-      await axios.delete(`${API_URL}/turbo/motoqueros/${id}`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      await api.delete(`/turbo/motoqueros/${id}`);
       alert('✅ Motoquero desactivado');
       await fetchMotoqueros();
     } catch (error) {
@@ -414,9 +392,7 @@ export default function TurboRouting() {
             className="btn-tesla ghost"
             onClick={async () => {
               try {
-                await axios.post(`${API_URL}/turbo/cache/invalidar`, {}, {
-                  headers: { Authorization: `Bearer ${getToken()}` }
-                });
+                await api.post('/turbo/cache/invalidar', {});
                 alert('✅ Cache invalidado');
                 await loadData();
               } catch (error) {

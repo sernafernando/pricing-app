@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import './PanelConstantesPricing.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function PanelConstantesPricing() {
   const modalNuevaVersion = useModalClickOutside(() => setMostrarFormNuevaVersion(false));
@@ -35,21 +33,12 @@ export default function PanelConstantesPricing() {
   const cargarDatos = async () => {
     setCargando(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       // Cargar constantes actuales
-      const actual = await axios.get(
-        `${API_URL}/pricing-constants/actual`,
-        { headers }
-      );
+      const actual = await api.get('/pricing-constants/actual');
       setConstanteActual(actual.data);
 
       // Cargar todas las versiones
-      const todasVersiones = await axios.get(
-        `${API_URL}/pricing-constants`,
-        { headers }
-      );
+      const todasVersiones = await api.get('/pricing-constants');
       setVersiones(todasVersiones.data);
 
     } catch (error) {
@@ -77,13 +66,8 @@ export default function PanelConstantesPricing() {
 
     try {
       setCargando(true);
-      const token = localStorage.getItem('token');
 
-      await axios.post(
-        `${API_URL}/pricing-constants`,
-        nuevaVersion,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.post('/pricing-constants', nuevaVersion);
 
       alert('Nueva versión de constantes creada correctamente');
       setMostrarFormNuevaVersion(false);
@@ -101,12 +85,8 @@ export default function PanelConstantesPricing() {
 
     try {
       setCargando(true);
-      const token = localStorage.getItem('token');
 
-      await axios.delete(
-        `${API_URL}/pricing-constants/${id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.delete(`/pricing-constants/${id}`);
 
       alert('Versión eliminada correctamente');
       cargarDatos();

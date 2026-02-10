@@ -1,9 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 
 const PermisosContext = createContext();
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export const usePermisos = () => {
   const context = useContext(PermisosContext);
@@ -33,9 +31,7 @@ export const PermisosProvider = ({ children }) => {
         return;
       }
 
-      const res = await axios.get(`${API_URL}/permisos/mis-permisos`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get('/permisos/mis-permisos');
 
       setPermisos(new Set(res.data.permisos));
       setRol(res.data.rol);

@@ -1,20 +1,6 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './SetupMarkups.module.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
-
-const api = axios.create({
-  baseURL: `${API_URL}`,
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 export default function SetupMarkups() {
   // Estados para marcas

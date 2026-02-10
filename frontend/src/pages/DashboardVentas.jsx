@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './DashboardVentas.module.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function DashboardVentas() {
   const [ventas, setVentas] = useState([]);
@@ -33,17 +31,12 @@ export default function DashboardVentas() {
   const cargarVentas = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(
-        `${API_URL}/ventas-ml`,
-        {
-          params: {
-            from_date: fromDate,
-            to_date: toDate
-          },
-          headers: { Authorization: `Bearer ${token}` }
+      const response = await api.get('/ventas-ml', {
+        params: {
+          from_date: fromDate,
+          to_date: toDate
         }
-      );
+      });
       setVentas(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error('Error cargando ventas:', error);

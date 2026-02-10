@@ -1,9 +1,7 @@
 import { createPortal } from 'react-dom';
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './PricingModal.module.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function PricingModal({ producto, onClose, onSave }) {
   const [modo, setModo] = useState('markup');
@@ -30,40 +28,26 @@ export default function PricingModal({ producto, onClose, onSave }) {
     setError('');
 
     try {
-      const token = localStorage.getItem('token');
-
       if (modo === 'markup') {
-        const response = await axios.post(
-          `${API_URL}/precios/calcular-completo`,
-          {
-            item_id: producto.item_id,
-            markup_objetivo: parseFloat(markupObjetivo),
-            adicional_cuotas: 4.0,
-          },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        const response = await api.post('/precios/calcular-completo', {
+          item_id: producto.item_id,
+          markup_objetivo: parseFloat(markupObjetivo),
+          adicional_cuotas: 4.0,
+        });
         setResultado(response.data);
       } else {
-        const responsePrecio = await axios.post(
-          `${API_URL}/precios/calcular-por-precio`,
-          {
-            item_id: producto.item_id,
-            pricelist_id: 4,
-            precio_manual: parseFloat(precioManual),
-          },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        const responsePrecio = await api.post('/precios/calcular-por-precio', {
+          item_id: producto.item_id,
+          pricelist_id: 4,
+          precio_manual: parseFloat(precioManual),
+        });
 
         const markupResultante = responsePrecio.data.markup_resultante;
-        const responseCuotas = await axios.post(
-          `${API_URL}/precios/calcular-completo`,
-          {
-            item_id: producto.item_id,
-            markup_objetivo: markupResultante,
-            adicional_cuotas: 4.0,
-          },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        const responseCuotas = await api.post('/precios/calcular-completo', {
+          item_id: producto.item_id,
+          markup_objetivo: markupResultante,
+          adicional_cuotas: 4.0,
+        });
 
         setResultado({
           modo: 'precio',
@@ -95,27 +79,21 @@ export default function PricingModal({ producto, onClose, onSave }) {
      }
 
     try {
-      const token = localStorage.getItem('token');
-
       // Extraer precios de cuotas del resultado
       const cuotas = resultado.cuotas || {};
 
-      await axios.post(
-        `${API_URL}/precios/set`,
-        {
-          item_id: producto.item_id,
-          precio_lista_ml: precio,
-          motivo: `Seteo ${modo === 'markup' ? 'por markup' : 'manual'}`,
-          participa_rebate: participaRebate,
-          porcentaje_rebate: porcentajeRebate,
-          // Enviar precios con cuotas
-          precio_3_cuotas: cuotas['3_cuotas']?.precio || null,
-          precio_6_cuotas: cuotas['6_cuotas']?.precio || null,
-          precio_9_cuotas: cuotas['9_cuotas']?.precio || null,
-          precio_12_cuotas: cuotas['12_cuotas']?.precio || null
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.post('/precios/set', {
+        item_id: producto.item_id,
+        precio_lista_ml: precio,
+        motivo: `Seteo ${modo === 'markup' ? 'por markup' : 'manual'}`,
+        participa_rebate: participaRebate,
+        porcentaje_rebate: porcentajeRebate,
+        // Enviar precios con cuotas
+        precio_3_cuotas: cuotas['3_cuotas']?.precio || null,
+        precio_6_cuotas: cuotas['6_cuotas']?.precio || null,
+        precio_9_cuotas: cuotas['9_cuotas']?.precio || null,
+        precio_12_cuotas: cuotas['12_cuotas']?.precio || null
+      });
 
       alert('Precio guardado exitosamente');
       onSave();
@@ -134,9 +112,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
   const cargarOfertas = async () => {
     setLoadingOfertas(true);
     try {
-      const response = await axios.get(
-        `${API_URL}/productos/${producto.item_id}/ofertas-vigentes`
-      );
+      const response = await api.get(`/productos/${producto.item_id}/ofertas-vigentes`);
       setOfertas(response.data);
     } catch (error) {
       console.error('Error cargando ofertas:', error);

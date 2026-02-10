@@ -36,8 +36,10 @@ export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
     }
   }, [user]);
 
+  const logout = useAuthStore((state) => state.logout);
+
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    logout();
     navigate('/login');
   };
 

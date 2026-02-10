@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import styles from './ModalDetalleCliente.module.css';
-import axios from 'axios';
-
-const API_URL = import.meta.env.VITE_API_URL;
+import api from '../services/api';
 
 export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) {
   const [editando, setEditando] = useState(false);
@@ -34,8 +32,8 @@ export default function ModalDetalleCliente({ cliente, onClose, onActualizar }) 
   const handleGuardar = async () => {
     setGuardando(true);
     try {
-      const response = await axios.patch(
-        `${API_URL}/clientes/${cliente.cust_id}?comp_id=${cliente.comp_id}`,
+      const response = await api.patch(
+        `/clientes/${cliente.cust_id}?comp_id=${cliente.comp_id}`,
         datosEdit
       );
       

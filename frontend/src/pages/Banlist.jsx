@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './Admin.module.css';
 import { useAuthStore } from '../store/authStore';
 
@@ -64,18 +64,13 @@ function MLABanlistTab() {
   const user = useAuthStore((state) => state.user);
   const esAdmin = ['SUPERADMIN', 'ADMIN'].includes(user?.rol);
 
-  const API_URL = import.meta.env.VITE_API_URL;
-
   useEffect(() => {
     cargarBanlist();
   }, []);
 
   const cargarBanlist = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/mla-banlist`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/mla-banlist');
       setMlas(response.data);
       setCargando(false);
     } catch (error) {
@@ -93,15 +88,10 @@ function MLABanlistTab() {
 
     setAgregando(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_URL}/mla-banlist`,
-        {
-          mlas: mlasInput,
-          motivo: motivo || null
-        },
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
+      const response = await api.post('/mla-banlist', {
+        mlas: mlasInput,
+        motivo: motivo || null
+      });
 
       let mensaje = `✅ ${response.data.total_agregados} MLA(s) agregados correctamente`;
 
@@ -128,10 +118,7 @@ function MLABanlistTab() {
     if (!confirm(`¿Eliminar ${mla} de la banlist?`)) return;
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`${API_URL}/mla-banlist/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/mla-banlist/${id}`);
 
       alert('✅ MLA eliminado de la banlist');
       cargarBanlist();
@@ -317,18 +304,13 @@ function ProductoBanlistTab() {
   const user = useAuthStore((state) => state.user);
   const esAdmin = ['SUPERADMIN', 'ADMIN'].includes(user?.rol);
 
-  const API_URL = import.meta.env.VITE_API_URL;
-
   useEffect(() => {
     cargarBanlist();
   }, []);
 
   const cargarBanlist = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/producto-banlist`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/producto-banlist');
       setProductos(response.data);
       setCargando(false);
     } catch (error) {
@@ -346,16 +328,11 @@ function ProductoBanlistTab() {
 
     setAgregando(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_URL}/producto-banlist`,
-        {
-          item_ids: itemIdsInput || null,
-          eans: eansInput || null,
-          motivo: motivo || null
-        },
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
+      const response = await api.post('/producto-banlist', {
+        item_ids: itemIdsInput || null,
+        eans: eansInput || null,
+        motivo: motivo || null
+      });
 
       let mensaje = `✅ ${response.data.total_agregados} producto(s) agregados correctamente`;
 
@@ -387,10 +364,7 @@ function ProductoBanlistTab() {
     if (!confirm(`¿Eliminar ${identificador} de la banlist?`)) return;
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`${API_URL}/producto-banlist/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/producto-banlist/${id}`);
 
       alert('✅ Producto eliminado de la banlist');
       cargarBanlist();

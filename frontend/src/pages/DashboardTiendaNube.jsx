@@ -1,13 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
 import TabRentabilidadTiendaNube from '../components/TabRentabilidadTiendaNube';
 import EditableCell from '../components/EditableCell';
 import { useAuthStore } from '../store/authStore';
 import { useQueryFilters } from '../hooks/useQueryFilters';
-
-// API base URL
-const API_URL = import.meta.env.VITE_API_URL;
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -92,9 +89,6 @@ export default function DashboardTiendaNube() {
   const cargarDashboard = useCallback(async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       const params = {
         from_date: fechaDesde,
         to_date: fechaHasta
@@ -110,9 +104,9 @@ export default function DashboardTiendaNube() {
 
       // Cargar todos los datos en paralelo
       const [statsRes, marcasRes, productosRes] = await Promise.all([
-        axios.get(`${API_URL}/ventas-tienda-nube/stats`, { params, headers }),
-        axios.get(`${API_URL}/ventas-tienda-nube/por-marca`, { params: { ...params, limit: 15 }, headers }),
-        axios.get(`${API_URL}/ventas-tienda-nube/top-productos`, { params: { ...params, limit: 20 }, headers })
+        api.get('/ventas-tienda-nube/stats', { params }),
+        api.get('/ventas-tienda-nube/por-marca', { params: { ...params, limit: 15 } }),
+        api.get('/ventas-tienda-nube/top-productos', { params: { ...params, limit: 20 } })
       ]);
 
       setStats(statsRes.data);
@@ -134,9 +128,6 @@ export default function DashboardTiendaNube() {
   const cargarOperaciones = useCallback(async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       const params = {
         from_date: fechaDesde,
         to_date: fechaHasta,
@@ -153,11 +144,11 @@ export default function DashboardTiendaNube() {
 
       // Cargar operaciones, métodos de pago, overrides y jerarquía en paralelo
       const [operacionesRes, metodosPagoRes, constantesRes, overridesRes, jerarquiaRes] = await Promise.all([
-        axios.get(`${API_URL}/ventas-tienda-nube`, { params, headers }),
-        axios.get(`${API_URL}/ventas-tienda-nube/metodos-pago`, { params: { from_date: fechaDesde, to_date: fechaHasta }, headers }),
-        axios.get(`${API_URL}/pricing-constants/actual`, { headers }),
-        axios.get(`${API_URL}/ventas-tienda-nube/overrides`, { params: { from_date: fechaDesde, to_date: fechaHasta }, headers }),
-        axios.get(`${API_URL}/ventas-tienda-nube/jerarquia-productos`, { headers }).catch(() => ({ data: {} }))
+        api.get('/ventas-tienda-nube', { params }),
+        api.get('/ventas-tienda-nube/metodos-pago', { params: { from_date: fechaDesde, to_date: fechaHasta } }),
+        api.get('/pricing-constants/actual'),
+        api.get('/ventas-tienda-nube/overrides', { params: { from_date: fechaDesde, to_date: fechaHasta } }),
+        api.get('/ventas-tienda-nube/jerarquia-productos').catch(() => ({ data: {} }))
       ]);
 
       setOperaciones(operacionesRes.data || []);
@@ -190,13 +181,10 @@ export default function DashboardTiendaNube() {
 
   const cambiarMetodoPago = async (itTransaction, nuevoMetodo) => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      await axios.post(`${API_URL}/ventas-tienda-nube/metodo-pago`, {
+      await api.post('/ventas-tienda-nube/metodo-pago', {
         it_transaction: itTransaction,
         metodo_pago: nuevoMetodo
-      }, { headers });
+      });
 
       // Actualizar estado local
       setMetodosPago(prev => ({ ...prev, [itTransaction]: nuevoMetodo }));
@@ -210,13 +198,10 @@ export default function DashboardTiendaNube() {
 
   const guardarOverrideAPI = useCallback(async (itTransaction, campo, valor) => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      await axios.post(`${API_URL}/ventas-tienda-nube/override`, {
+      await api.post('/ventas-tienda-nube/override', {
         it_transaction: itTransaction,
         [campo]: valor
-      }, { headers });
+      });
     } catch (error) {
       alert('Error al guardar cambios');
     }

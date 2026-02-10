@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './CalcularWebModal.module.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, showToast }) {
   const [porcentajeConPrecio, setPorcentajeConPrecio] = useState('6.0');
@@ -129,8 +127,6 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
 
     setCalculando(true);
     try {
-      const token = localStorage.getItem('token');
-
       const body = {
         porcentaje_con_precio: parseFloat(porcentajeConPrecio.toString().replace(',', '.')) || 0,
         porcentaje_sin_precio: parseFloat(porcentajeSinPrecio.toString().replace(',', '.')) || 0
@@ -177,11 +173,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
         if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') body.filtros.nuevos_ultimos_7_dias = true;
       }
 
-      const response = await axios.post(
-        `${API_URL}/productos/calcular-web-masivo`,
-        body,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await api.post('/productos/calcular-web-masivo', body);
 
       showToast(`✅ Precios calculados: ${response.data.procesados} productos`);
       onSuccess();

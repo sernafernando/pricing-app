@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
 import TabRentabilidadFuera from '../components/TabRentabilidadFuera';
 import TabAdminVentasFuera from '../components/TabAdminVentasFuera';
@@ -8,9 +8,6 @@ import PaginationControls from '../components/PaginationControls';
 import { useAuthStore } from '../store/authStore';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
-
-// API base URL
-const API_URL = import.meta.env.VITE_API_URL;
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -94,15 +91,11 @@ export default function DashboardVentasFuera() {
   // Helper para cargar overrides y jerarquía (definido antes del hook de paginación)
   const cargarOverridesYJerarquia = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       const [overridesRes, jerarquiaRes] = await Promise.all([
-        axios.get(`${API_URL}/ventas-fuera-ml/overrides`, { 
-          params: { from_date: fechaDesde, to_date: fechaHasta }, 
-          headers 
+        api.get('/ventas-fuera-ml/overrides', { 
+          params: { from_date: fechaDesde, to_date: fechaHasta }
         }),
-        axios.get(`${API_URL}/ventas-fuera-ml/jerarquia-productos`, { headers })
+        api.get('/ventas-fuera-ml/jerarquia-productos')
           .catch(() => ({ data: {} }))
       ]);
 
@@ -136,9 +129,6 @@ export default function DashboardVentasFuera() {
   const cargarDashboard = useCallback(async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       const params = {
         from_date: fechaDesde,
         to_date: fechaHasta
@@ -154,9 +144,9 @@ export default function DashboardVentasFuera() {
 
       // Cargar todos los datos en paralelo
       const [statsRes, marcasRes, productosRes] = await Promise.all([
-        axios.get(`${API_URL}/ventas-fuera-ml/stats`, { params, headers }),
-        axios.get(`${API_URL}/ventas-fuera-ml/por-marca`, { params: { ...params, limit: 15 }, headers }),
-        axios.get(`${API_URL}/ventas-fuera-ml/top-productos`, { params: { ...params, limit: 20 }, headers })
+        api.get('/ventas-fuera-ml/stats', { params }),
+        api.get('/ventas-fuera-ml/por-marca', { params: { ...params, limit: 15 } }),
+        api.get('/ventas-fuera-ml/top-productos', { params: { ...params, limit: 20 } })
       ]);
 
       setStats(statsRes.data);
@@ -201,13 +191,10 @@ export default function DashboardVentasFuera() {
 
   const guardarOverrideAPI = useCallback(async (itTransaction, campo, valor) => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      await axios.post(`${API_URL}/ventas-fuera-ml/override`, {
+      await api.post('/ventas-fuera-ml/override', {
         it_transaction: itTransaction,
         [campo]: valor
-      }, { headers });
+      });
 
       // Invalidar cache para que se recargue con datos frescos
       pagination.invalidateCache();

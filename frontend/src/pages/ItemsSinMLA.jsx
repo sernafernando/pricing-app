@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../hooks/usePermisos';
 import { useAuthStore } from '../store/authStore';
@@ -138,8 +138,7 @@ const ItemsSinMLA = () => {
   const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
   const [productoInfoId, setProductoInfoId] = useState(null);
 
-  const API_URL = import.meta.env.VITE_API_URL;
-  const token = localStorage.getItem('token');
+
 
   useEffect(() => {
     cargarListasPrecio();
@@ -164,8 +163,7 @@ const ItemsSinMLA = () => {
 
   const cargarAsignaciones = async () => {
     try {
-      const response = await axios.get(`${API_URL}/asignaciones/items-sin-mla`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await api.get('/asignaciones/items-sin-mla', {
         params: { estado: 'pendiente' }
       });
       setAsignaciones(response.data);
@@ -176,9 +174,7 @@ const ItemsSinMLA = () => {
 
   const cargarUsuariosAsignables = async () => {
     try {
-      const response = await axios.get(`${API_URL}/asignaciones/usuarios-asignables`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/asignaciones/usuarios-asignables');
       setUsuariosAsignables(response.data);
     } catch (error) {
       // Si no tiene permiso, no pasa nada — no muestra el dropdown
@@ -203,16 +199,15 @@ const ItemsSinMLA = () => {
 
     setLoadingAsignacion(true);
     try {
-      await axios.post(
-        `${API_URL}/asignaciones/asignar`,
+      await api.post(
+        '/asignaciones/asignar',
         {
           item_id: itemParaAsignar.item_id,
           listas: listasParaAsignar,
           usuario_id: usuarioDestinoId ? parseInt(usuarioDestinoId) : null,
           notas: notasAsignacion || null,
           listas_sin_mla: itemParaAsignar.listas_sin_mla,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       setShowAsignarModal(false);
@@ -230,10 +225,9 @@ const ItemsSinMLA = () => {
     if (!window.confirm(`¿Desasignar ${asignacionIds.length} asignación(es)?`)) return;
 
     try {
-      await axios.post(
-        `${API_URL}/asignaciones/desasignar`,
-        { asignacion_ids: asignacionIds },
-        { headers: { Authorization: `Bearer ${token}` } }
+      await api.post(
+        '/asignaciones/desasignar',
+        { asignacion_ids: asignacionIds }
       );
       cargarAsignaciones();
     } catch (error) {
@@ -266,14 +260,13 @@ const ItemsSinMLA = () => {
         }
       }
 
-      await axios.post(
-        `${API_URL}/asignaciones/asignar-masivo`,
+      await api.post(
+        '/asignaciones/asignar-masivo',
         {
           items,
           usuario_id: usuarioDestinoId ? parseInt(usuarioDestinoId) : null,
           notas: notasAsignacion || null,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       setShowAsignarMasivoModal(false);
@@ -299,9 +292,7 @@ const ItemsSinMLA = () => {
 
   const cargarListasPrecio = async () => {
     try {
-      const response = await axios.get(`${API_URL}/items-sin-mla/listas-precios`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/items-sin-mla/listas-precios');
       setListasPrecio(response.data);
     } catch (error) {
       console.error('Error al cargar listas de precios:', error);
@@ -317,8 +308,7 @@ const ItemsSinMLA = () => {
       if (listaPrecioFiltro) paramsBase.prli_id = listaPrecioFiltro;
       if (conStock !== null) paramsBase.con_stock = conStock;
 
-      const responseBase = await axios.get(`${API_URL}/items-sin-mla/items-sin-mla`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const responseBase = await api.get('/items-sin-mla/items-sin-mla', {
         params: paramsBase
       });
 
@@ -360,9 +350,7 @@ const ItemsSinMLA = () => {
   const cargarItemsBaneados = async () => {
     setLoadingBaneados(true);
     try {
-      const response = await axios.get(`${API_URL}/items-sin-mla/items-baneados`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/items-sin-mla/items-baneados');
 
       const data = response.data;
       setItemsBaneadosOriginales(data);
@@ -426,8 +414,7 @@ const ItemsSinMLA = () => {
       if (busquedaComparacion) params.buscar = busquedaComparacion;
       if (marcaComparacion) params.marca = marcaComparacion;
 
-      const response = await axios.get(`${API_URL}/items-sin-mla/comparacion-listas`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await api.get('/items-sin-mla/comparacion-listas', {
         params
       });
 
@@ -444,9 +431,7 @@ const ItemsSinMLA = () => {
   const cargarComparacionBaneados = async () => {
     setLoadingComparacionBaneados(true);
     try {
-      const response = await axios.get(`${API_URL}/items-sin-mla/comparacion-baneados`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/items-sin-mla/comparacion-baneados');
       setComparacionBaneados(response.data);
     } catch (error) {
       console.error('Error al cargar banlist de comparación:', error);
@@ -466,10 +451,9 @@ const ItemsSinMLA = () => {
     if (!comparacionItemSeleccionado) return;
 
     try {
-      await axios.post(
-        `${API_URL}/items-sin-mla/banear-comparacion`,
-        { mla_id: comparacionItemSeleccionado.mla_id, motivo: comparacionMotivo || null },
-        { headers: { Authorization: `Bearer ${token}` } }
+      await api.post(
+        '/items-sin-mla/banear-comparacion',
+        { mla_id: comparacionItemSeleccionado.mla_id, motivo: comparacionMotivo || null }
       );
 
       alert(`Publicación ${comparacionItemSeleccionado.mla_id} agregada a la banlist`);
@@ -491,10 +475,9 @@ const ItemsSinMLA = () => {
     if (!confirm(`¿Seguro que deseas quitar ${mlaId} de la banlist?`)) return;
 
     try {
-      await axios.post(
-        `${API_URL}/items-sin-mla/desbanear-comparacion`,
-        { banlist_id: banlistId },
-        { headers: { Authorization: `Bearer ${token}` } }
+      await api.post(
+        '/items-sin-mla/desbanear-comparacion',
+        { banlist_id: banlistId }
       );
 
       alert(`Publicación ${mlaId} removida de la banlist`);
@@ -512,10 +495,9 @@ const ItemsSinMLA = () => {
 
     try {
       for (const mlaId of comparacionSeleccionados) {
-        await axios.post(
-          `${API_URL}/items-sin-mla/banear-comparacion`,
-          { mla_id: mlaId, motivo: 'Baneado masivamente' },
-          { headers: { Authorization: `Bearer ${token}` } }
+        await api.post(
+          '/items-sin-mla/banear-comparacion',
+          { mla_id: mlaId, motivo: 'Baneado masivamente' }
         );
       }
 
@@ -609,10 +591,9 @@ const ItemsSinMLA = () => {
 
     try {
       for (const banlistId of comparacionBaneadosSeleccionados) {
-        await axios.post(
-          `${API_URL}/items-sin-mla/desbanear-comparacion`,
-          { banlist_id: banlistId },
-          { headers: { Authorization: `Bearer ${token}` } }
+        await api.post(
+          '/items-sin-mla/desbanear-comparacion',
+          { banlist_id: banlistId }
         );
       }
 
@@ -648,10 +629,9 @@ const ItemsSinMLA = () => {
     if (!itemSeleccionado) return;
 
     try {
-      await axios.post(
-        `${API_URL}/items-sin-mla/banear-item`,
-        { item_id: itemSeleccionado.item_id, motivo: motivo || null },
-        { headers: { Authorization: `Bearer ${token}` } }
+      await api.post(
+        '/items-sin-mla/banear-item',
+        { item_id: itemSeleccionado.item_id, motivo: motivo || null }
       );
 
       alert(`Item ${itemSeleccionado.item_id} agregado a la banlist`);
@@ -676,10 +656,9 @@ const ItemsSinMLA = () => {
     }
 
     try {
-      await axios.post(
-        `${API_URL}/items-sin-mla/desbanear-item`,
-        { banlist_id: banlistId },
-        { headers: { Authorization: `Bearer ${token}` } }
+      await api.post(
+        '/items-sin-mla/desbanear-item',
+        { banlist_id: banlistId }
       );
 
       alert(`Item ${itemId} removido de la banlist`);
@@ -852,10 +831,9 @@ const ItemsSinMLA = () => {
 
     try {
       for (const itemId of itemsSeleccionados) {
-        await axios.post(
-          `${API_URL}/items-sin-mla/banear-item`,
-          { item_id: itemId, motivo: 'Baneado masivamente' },
-          { headers: { Authorization: `Bearer ${token}` } }
+        await api.post(
+          '/items-sin-mla/banear-item',
+          { item_id: itemId, motivo: 'Baneado masivamente' }
         );
       }
 
@@ -917,10 +895,9 @@ const ItemsSinMLA = () => {
 
     try {
       for (const banlistId of baneadosSeleccionados) {
-        await axios.post(
-          `${API_URL}/items-sin-mla/desbanear-item`,
-          { banlist_id: banlistId },
-          { headers: { Authorization: `Bearer ${token}` } }
+        await api.post(
+          '/items-sin-mla/desbanear-item',
+          { banlist_id: banlistId }
         );
       }
 

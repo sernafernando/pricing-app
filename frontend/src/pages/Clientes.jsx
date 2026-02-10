@@ -2,10 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import styles from './Clientes.module.css';
-import axios from 'axios';
+import api from '../services/api';
 import ModalDetalleCliente from '../components/ModalDetalleCliente';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Clientes() {
   const [clientes, setClientes] = useState([]);
@@ -88,10 +86,10 @@ export default function Clientes() {
   const cargarFiltros = async () => {
     try {
       const [provRes, fiscalRes, sucRes, vendRes] = await Promise.all([
-        axios.get(`${API_URL}/clientes/filtros/provincias`),
-        axios.get(`${API_URL}/clientes/filtros/condiciones-fiscales`),
-        axios.get(`${API_URL}/clientes/filtros/sucursales`),
-        axios.get(`${API_URL}/clientes/filtros/vendedores`)
+        api.get('/clientes/filtros/provincias'),
+        api.get('/clientes/filtros/condiciones-fiscales'),
+        api.get('/clientes/filtros/sucursales'),
+        api.get('/clientes/filtros/vendedores')
       ]);
 
       setProvincias(provRes.data);
@@ -105,7 +103,7 @@ export default function Clientes() {
 
   const cargarCamposDisponibles = async () => {
     try {
-      const response = await axios.get(`${API_URL}/clientes/campos-disponibles`);
+      const response = await api.get('/clientes/campos-disponibles');
       setCamposDisponibles(response.data.campos);
       // Seleccionar algunos campos por defecto
       const camposDefault = response.data.campos
@@ -139,7 +137,7 @@ export default function Clientes() {
       if (filtroCustIdDesde) params.append('cust_id_desde', filtroCustIdDesde);
       if (filtroCustIdHasta) params.append('cust_id_hasta', filtroCustIdHasta);
 
-      const response = await axios.get(`${API_URL}/clientes?${params}`);
+      const response = await api.get(`/clientes?${params}`);
       setClientes(response.data.clientes);
       setTotalClientes(response.data.total);
       setTotalPages(response.data.total_pages);
@@ -175,13 +173,9 @@ export default function Clientes() {
         cust_id_hasta: filtroCustIdHasta ? parseInt(filtroCustIdHasta) : null
       };
 
-      const response = await axios.post(
-        `${API_URL}/clientes/exportar`,
-        payload,
-        {
-          responseType: 'blob'
-        }
-      );
+      const response = await api.post('/clientes/exportar', payload, {
+        responseType: 'blob'
+      });
 
       // Descargar archivo XLSX
       const url = window.URL.createObjectURL(new Blob([response.data], {
@@ -275,8 +269,8 @@ export default function Clientes() {
 
   const handleVerDetalle = async (cliente) => {
     try {
-      const response = await axios.get(
-        `${API_URL}/clientes/${cliente.cust_id}?comp_id=${cliente.comp_id}`
+      const response = await api.get(
+        `/clientes/${cliente.cust_id}?comp_id=${cliente.comp_id}`
       );
       setClienteSeleccionado(response.data);
       setMostrarModalDetalle(true);

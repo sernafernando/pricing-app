@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './CalcularWebModal.module.css'; // Reutilizar el mismo CSS
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, showToast }) {
   const [markupPVPClasica, setMarkupPVPClasica] = useState('15.0');
@@ -126,8 +124,6 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
 
     setCalculando(true);
     try {
-      const token = localStorage.getItem('token');
-
       const body = {
         markup_pvp_clasica: parseFloat(markupPVPClasica.toString().replace(',', '.')) || 0,
         adicional_cuotas: parseFloat(adicionalCuotas.toString().replace(',', '.')) || 0
@@ -165,11 +161,7 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
         if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') body.filtros.nuevos_ultimos_7_dias = true;
       }
 
-      const response = await axios.post(
-        `${API_URL}/productos/calcular-pvp-masivo`,
-        body,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await api.post('/productos/calcular-pvp-masivo', body);
 
       showToast(`✅ Precios PVP calculados: ${response.data.procesados} productos`);
       onSuccess();

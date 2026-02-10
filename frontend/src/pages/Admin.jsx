@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './Admin.module.css';
 import PanelComisiones from '../components/PanelComisiones';
 import PanelConstantesPricing from '../components/PanelConstantesPricing';
 import PanelPermisos from '../components/PanelPermisos';
 import PanelRoles from '../components/PanelRoles';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Admin() {
   const [tabActiva, setTabActiva] = useState('general');
@@ -27,11 +25,8 @@ export default function Admin() {
 
   const cargarDatos = async () => {
     try {
-      const token = localStorage.getItem('token');
-
       // Cargar tipo de cambio actual
-      const tcRes = await axios.get(`${API_URL}/tipo-cambio/actual`,
-        { headers: { Authorization: `Bearer ${token}` }});
+      const tcRes = await api.get('/tipo-cambio/actual');
       setTipoCambio(tcRes.data);
     } catch (error) {
       console.error('Error cargando datos:', error);
@@ -49,16 +44,12 @@ export default function Admin() {
     setLogSync([]);
     
     try {
-      const token = localStorage.getItem('token');
-      
       agregarLog('Sincronizando tipo de cambio...');
-      await axios.post(`${API_URL}/sync-tipo-cambio`, {}, 
-        { headers: { Authorization: `Bearer ${token}` }});
+      await api.post('/sync-tipo-cambio', {});
       agregarLog('✓ Tipo de cambio sincronizado');
       
       agregarLog('Sincronizando productos ERP...');
-      const erpRes = await axios.post(`${API_URL}/sync`, {}, 
-        { headers: { Authorization: `Bearer ${token}` }});
+      const erpRes = await api.post('/sync', {});
       // Mostrar resultados ERP
       if (erpRes.data.erp) {
         const totalErp = (erpRes.data.erp.productos_nuevos || 0) + (erpRes.data.erp.productos_actualizados || 0);
@@ -76,18 +67,15 @@ export default function Admin() {
       }
       
       agregarLog('Sincronizando publicaciones ML...');
-      const mlRes = await axios.post(`${API_URL}/sync-ml`, {},
-        { headers: { Authorization: `Bearer ${token}` }});
+      const mlRes = await api.post('/sync-ml', {});
       agregarLog(`✓ ML: ${mlRes.data.total_publicaciones || 0} publicaciones`);
       
       agregarLog('Sincronizando ofertas...');
-      const sheetsRes = await axios.post(`${API_URL}/sync-sheets`, {}, 
-        { headers: { Authorization: `Bearer ${token}` }});
+      const sheetsRes = await api.post('/sync-sheets', {});
       agregarLog(`✓ Ofertas: ${sheetsRes.data.total} sincronizadas`);
       
       agregarLog('Recalculando markups...');
-      const markupRes = await axios.post(`${API_URL}/recalcular-markups`, {}, 
-        { headers: { Authorization: `Bearer ${token}` }});
+      const markupRes = await api.post('/recalcular-markups', {});
       agregarLog(`✓ Markups: ${markupRes.data.actualizados} actualizados`);
       
       agregarLog('=== SINCRONIZACIÓN COMPLETADA ===');
@@ -101,12 +89,7 @@ export default function Admin() {
 
   const sincronizarPreciosML = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_URL}/sync-ml/precios`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await api.post('/sync-ml/precios', {});
       alert('Sincronización iniciada: ' + JSON.stringify(response.data));
     } catch (error) {
       alert('Error al sincronizar: ' + error.message);
@@ -137,16 +120,11 @@ export default function Admin() {
     }
 
     try {
-      const token = localStorage.getItem('token');
       const endpoint = tipoLimpieza === 'rebate'
-        ? `${API_URL}/productos/limpiar-rebate`
-        : `${API_URL}/productos/limpiar-web-transferencia`;
+        ? '/productos/limpiar-rebate'
+        : '/productos/limpiar-web-transferencia';
 
-      const response = await axios.post(
-        endpoint,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await api.post(endpoint, {});
 
       alert(`✓ ${response.data.mensaje}\nProductos actualizados: ${response.data.productos_actualizados}`);
 

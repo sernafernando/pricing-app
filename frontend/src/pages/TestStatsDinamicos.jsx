@@ -1,26 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import './Productos.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 const TestStatsDinamicos = () => {
   const [statsGlobales, setStatsGlobales] = useState(null);
   const [statsDinamicos, setStatsDinamicos] = useState(null);
   const [filtros, setFiltros] = useState({});
   const [loading, setLoading] = useState(false);
-
-  const api = axios.create({
-    baseURL: API_URL,
-  });
-
-  api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  });
 
   // Cargar stats globales al inicio
   useEffect(() => {

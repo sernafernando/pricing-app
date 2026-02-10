@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './Admin.module.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function GestionPM() {
   const [registros, setRegistros] = useState([]);
@@ -17,12 +15,9 @@ export default function GestionPM() {
 
   const cargarDatos = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       const [registrosRes, usuariosRes] = await Promise.all([
-        axios.get(`${API_URL}/marcas-pm`, { headers }),
-        axios.get(`${API_URL}/usuarios/pms`, { headers }),
+        api.get('/marcas-pm'),
+        api.get('/usuarios/pms'),
       ]);
 
       setRegistros(registrosRes.data);
@@ -37,12 +32,9 @@ export default function GestionPM() {
 
   const asignarPM = async (registroId, usuarioId) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.patch(
-        `${API_URL}/marcas-pm/${registroId}`,
-        { usuario_id: usuarioId === '' ? null : parseInt(usuarioId) },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.patch(`/marcas-pm/${registroId}`, {
+        usuario_id: usuarioId === '' ? null : parseInt(usuarioId)
+      });
       cargarDatos();
     } catch (error) {
       alert('Error al asignar PM: ' + (error.response?.data?.detail || error.message));
@@ -51,16 +43,11 @@ export default function GestionPM() {
 
   const asignarPMMasivo = async (marca, categorias, usuarioId) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.put(
-        `${API_URL}/marcas-pm/asignar`,
-        {
-          marca,
-          categorias,
-          usuario_id: usuarioId === '' ? null : parseInt(usuarioId),
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.put('/marcas-pm/asignar', {
+        marca,
+        categorias,
+        usuario_id: usuarioId === '' ? null : parseInt(usuarioId),
+      });
       cargarDatos();
     } catch (error) {
       alert('Error al asignar PM: ' + (error.response?.data?.detail || error.message));
@@ -69,12 +56,7 @@ export default function GestionPM() {
 
   const sincronizarMarcas = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_URL}/marcas-pm/sync`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await api.post('/marcas-pm/sync', {});
       alert(`Sincronizacion completada\nPares marca-categoria nuevos: ${response.data.pares_nuevos}`);
       cargarDatos();
     } catch (error) {

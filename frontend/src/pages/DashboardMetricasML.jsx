@@ -1,13 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './DashboardMetricasML.module.css';
 import TabRentabilidad from '../components/TabRentabilidad';
 import PaginationControls from '../components/PaginationControls';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
-
-// API base URL
-const API_URL = import.meta.env.VITE_API_URL;
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -140,9 +137,6 @@ export default function DashboardMetricasML() {
   // Cargar opciones disponibles para filtros
   const cargarOpcionesDisponibles = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       // Params comunes para ambos endpoints
       const baseParams = {
         fecha_desde: fechaDesde,
@@ -160,8 +154,8 @@ export default function DashboardMetricasML() {
       if (marcasSeleccionadas.length > 0) categoriasParams.marcas = marcasSeleccionadas.join(',');
 
       const [marcasRes, categoriasRes] = await Promise.all([
-        axios.get(`${API_URL}/dashboard-ml/marcas-disponibles`, { headers, params: marcasParams }),
-        axios.get(`${API_URL}/dashboard-ml/categorias-disponibles`, { headers, params: categoriasParams })
+        api.get('/dashboard-ml/marcas-disponibles', { params: marcasParams }),
+        api.get('/dashboard-ml/categorias-disponibles', { params: categoriasParams })
       ]);
 
       setMarcasDisponibles(marcasRes.data || []);
@@ -179,9 +173,6 @@ export default function DashboardMetricasML() {
   const cargarDashboard = useCallback(async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       const params = {
         fecha_desde: fechaDesde,
         fecha_hasta: fechaHasta
@@ -201,12 +192,12 @@ export default function DashboardMetricasML() {
         diasRes,
         productosRes
       ] = await Promise.all([
-        axios.get(`${API_URL}/dashboard-ml/metricas-generales`, { params, headers }),
-        axios.get(`${API_URL}/dashboard-ml/por-marca`, { params, headers }),
-        axios.get(`${API_URL}/dashboard-ml/por-categoria`, { params, headers }),
-        axios.get(`${API_URL}/dashboard-ml/por-logistica`, { params, headers }),
-        axios.get(`${API_URL}/dashboard-ml/por-dia`, { params, headers }),
-        axios.get(`${API_URL}/dashboard-ml/top-productos`, { params, headers })
+        api.get('/dashboard-ml/metricas-generales', { params }),
+        api.get('/dashboard-ml/por-marca', { params }),
+        api.get('/dashboard-ml/por-categoria', { params }),
+        api.get('/dashboard-ml/por-logistica', { params }),
+        api.get('/dashboard-ml/por-dia', { params }),
+        api.get('/dashboard-ml/top-productos', { params })
       ]);
 
       setMetricasGenerales(metricasRes.data);
@@ -233,9 +224,7 @@ export default function DashboardMetricasML() {
   useEffect(() => {
     const cargarPMs = async () => {
       try {
-        const response = await axios.get(`${API_URL}/usuarios/pms?solo_con_marcas=true`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-        });
+        const response = await api.get('/usuarios/pms', { params: { solo_con_marcas: true } });
         setPms(response.data);
       } catch (error) {
         console.error('Error al cargar PMs:', error);
@@ -381,7 +370,6 @@ export default function DashboardMetricasML() {
     try {
       showToast('Generando archivo Excel...', 'info');
       
-      const token = localStorage.getItem('token');
       const params = {
         from_date: fechaDesde,
         to_date: fechaHasta
@@ -392,9 +380,8 @@ export default function DashboardMetricasML() {
       if (tiendasOficialesSeleccionadas.length > 0) params.tiendas_oficiales = tiendasOficialesSeleccionadas.join(',');
       if (pmsSeleccionados.length > 0) params.pm_ids = pmsSeleccionados.join(',');
       
-      const response = await axios.get(`${API_URL}/ventas-ml/exportar-operaciones`, {
+      const response = await api.get('/ventas-ml/exportar-operaciones', {
         params,
-        headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob'
       });
       

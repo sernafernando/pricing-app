@@ -11,11 +11,9 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import ModalTesla, { ModalSection, ModalAlert, ModalFooterButtons } from './ModalTesla';
 import './PricingModalTesla.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function PricingModalTesla({ producto, onClose, onSave, isOpen }) {
   const [modo, setModo] = useState('markup');
@@ -37,8 +35,8 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
     
     setLoadingOfertas(true);
     try {
-      const response = await axios.get(
-        `${API_URL}/productos/${producto.item_id}/ofertas-vigentes`
+      const response = await api.get(
+        `/productos/${producto.item_id}/ofertas-vigentes`
       );
       setOfertas(response.data);
     } catch (error) {
@@ -83,39 +81,34 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
     setError('');
 
     try {
-      const token = localStorage.getItem('token');
-
       if (modo === 'markup') {
-        const response = await axios.post(
-          `${API_URL}/precios/calcular-completo`,
+        const response = await api.post(
+          '/precios/calcular-completo',
           {
             item_id: producto.item_id,
             markup_objetivo: parseFloat(markupObjetivo),
             adicional_cuotas: 4.0,
-          },
-          { headers: { Authorization: `Bearer ${token}` } }
+          }
         );
         setResultado(response.data);
       } else {
-        const responsePrecio = await axios.post(
-          `${API_URL}/precios/calcular-por-precio`,
+        const responsePrecio = await api.post(
+          '/precios/calcular-por-precio',
           {
             item_id: producto.item_id,
             pricelist_id: 4,
             precio_manual: parseFloat(precioManual),
-          },
-          { headers: { Authorization: `Bearer ${token}` } }
+          }
         );
 
         const markupResultante = responsePrecio.data.markup_resultante;
-        const responseCuotas = await axios.post(
-          `${API_URL}/precios/calcular-completo`,
+        const responseCuotas = await api.post(
+          '/precios/calcular-completo',
           {
             item_id: producto.item_id,
             markup_objetivo: markupResultante,
             adicional_cuotas: 4.0,
-          },
-          { headers: { Authorization: `Bearer ${token}` } }
+          }
         );
 
         setResultado({
@@ -150,11 +143,10 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
     setGuardando(true);
 
     try {
-      const token = localStorage.getItem('token');
       const cuotas = resultado.cuotas || {};
 
-      await axios.post(
-        `${API_URL}/precios/set`,
+      await api.post(
+        '/precios/set',
         {
           item_id: producto.item_id,
           precio_lista_ml: precio,
@@ -165,8 +157,7 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
           precio_6_cuotas: cuotas['6_cuotas']?.precio || null,
           precio_9_cuotas: cuotas['9_cuotas']?.precio || null,
           precio_12_cuotas: cuotas['12_cuotas']?.precio || null
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       alert('Precio guardado exitosamente');

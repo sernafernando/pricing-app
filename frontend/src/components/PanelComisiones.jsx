@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import './PanelComisiones.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function PanelComisiones() {
   const modalNuevaVersion = useModalClickOutside(() => setMostrarFormNuevaVersion(false));
@@ -40,28 +38,16 @@ export default function PanelComisiones() {
   const cargarDatos = async () => {
     setCargando(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       // Cargar versión vigente
-      const vigente = await axios.get(
-        `${API_URL}/comisiones/vigente`,
-        { headers }
-      );
+      const vigente = await api.get('/comisiones/vigente');
       setVersionActual(vigente.data);
 
       // Cargar comisiones calculadas
-      const calculadas = await axios.get(
-        `${API_URL}/comisiones/calculadas`,
-        { headers }
-      );
+      const calculadas = await api.get('/comisiones/calculadas');
       setComisionesCalculadas(calculadas.data);
 
       // Cargar todas las versiones
-      const todasVersiones = await axios.get(
-        `${API_URL}/comisiones/versiones`,
-        { headers }
-      );
+      const todasVersiones = await api.get('/comisiones/versiones');
       setVersiones(todasVersiones.data);
 
     } catch (error) {
@@ -170,14 +156,9 @@ export default function PanelComisiones() {
 
     setCargando(true);
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(
-        `${API_URL}/comisiones/version/${version.id}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          data: { motivo: motivo.trim() }
-        }
-      );
+      await api.delete(`/comisiones/version/${version.id}`, {
+        data: { motivo: motivo.trim() }
+      });
 
       alert('✅ Versión eliminada correctamente');
       setMostrarDetalleVersion(false);
@@ -208,23 +189,13 @@ export default function PanelComisiones() {
 
     setCargando(true);
     try {
-      const token = localStorage.getItem('token');
-
       if (esEdicion) {
         // Actualizar versión existente
-        await axios.patch(
-          `${API_URL}/comisiones/version/${versionSeleccionada.id}`,
-          nuevaVersion,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        await api.patch(`/comisiones/version/${versionSeleccionada.id}`, nuevaVersion);
         alert('✅ Versión actualizada exitosamente');
       } else {
         // Crear nueva versión
-        await axios.post(
-          `${API_URL}/comisiones/nueva-version`,
-          nuevaVersion,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        await api.post('/comisiones/nueva-version', nuevaVersion);
         alert('✅ Nueva versión de comisiones creada exitosamente');
       }
 

@@ -4,6 +4,29 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
 });
 
+// --- Auth event system ---
+// En vez de hacer window.location.href = '/login' (que recarga toda la app
+// y el usuario pierde lo que estaba haciendo), usamos un callback que el
+// authStore registra. Así el logout se maneja con React Router, sin reload.
+let _onAuthFailure = null;
+
+/**
+ * Registra el handler que se ejecuta cuando la sesión expira irrecuperablemente.
+ * Llamar desde authStore.js al inicializar.
+ */
+export function registerAuthFailureHandler(handler) {
+  _onAuthFailure = handler;
+}
+
+function handleAuthFailure() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('refresh_token');
+  if (_onAuthFailure) {
+    _onAuthFailure();
+  }
+}
+
+// --- Request interceptor ---
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
@@ -12,7 +35,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor: refresh automático en 401
+// --- Response interceptor: silent refresh + request queuing ---
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -37,11 +60,9 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // Si es el endpoint de refresh el que falló, hacer logout
+    // Si es el endpoint de refresh el que falló → sesión irrecuperable
     if (originalRequest.url?.includes('/auth/refresh')) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('refresh_token');
-      window.location.href = '/login';
+      handleAuthFailure();
       return Promise.reject(error);
     }
 
@@ -61,8 +82,7 @@ api.interceptors.response.use(
     const refreshToken = localStorage.getItem('refresh_token');
     if (!refreshToken) {
       isRefreshing = false;
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+      handleAuthFailure();
       return Promise.reject(error);
     }
 
@@ -78,9 +98,7 @@ api.interceptors.response.use(
       return api(originalRequest);
     } catch (refreshError) {
       processQueue(refreshError, null);
-      localStorage.removeItem('token');
-      localStorage.removeItem('refresh_token');
-      window.location.href = '/login';
+      handleAuthFailure();
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

@@ -1,10 +1,8 @@
 import { useState, useEffect, Fragment } from 'react';
-import axios from 'axios';
+import api from '../../services/api';
 import styles from './TabAsignaciones.module.css';
 import '../../styles/buttons-tesla.css';
 import '../../styles/modals-tesla.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 const limpiarNombreZona = (zona) => {
   if (!zona) return '-';
@@ -32,21 +30,12 @@ export default function TabAsignaciones() {
   const [nuevoMotoqueroId, setNuevoMotoqueroId] = useState(null);
   const [reasignando, setReasignando] = useState(false);
 
-  const getToken = () => localStorage.getItem('token');
-
   const fetchAsignaciones = async () => {
     setLoading(true);
     try {
-      const { data: response } = await axios.get(`${API_URL}/turbo/asignaciones/hoy`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      const { data: response } = await api.get('/turbo/asignaciones/hoy');
       setData(response);
     } catch (error) {
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        localStorage.removeItem('token');
-        window.location.href = '/login';
-        return;
-      }
       alert(error.response?.data?.detail || 'Error cargando asignaciones del día');
     } finally {
       setLoading(false);
@@ -55,9 +44,7 @@ export default function TabAsignaciones() {
 
   const fetchMotoqueros = async () => {
     try {
-      const { data: response } = await axios.get(`${API_URL}/turbo/motoqueros`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      const { data: response } = await api.get('/turbo/motoqueros');
       setMotoqueros(response.filter(m => m.activo));
     } catch (error) {
       alert('Error al cargar motoqueros');
@@ -117,26 +104,17 @@ export default function TabAsignaciones() {
 
     setReasignando(true);
     try {
-      await axios.post(
-        `${API_URL}/turbo/asignacion/manual`,
-        {
-          mlshippingids: [modalReasignar.mlshippingid],
-          motoquero_id: nuevoMotoqueroId,
-          zona_id: null,
-          asignado_por: 'manual'
-        },
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
+      await api.post('/turbo/asignacion/manual', {
+        mlshippingids: [modalReasignar.mlshippingid],
+        motoquero_id: nuevoMotoqueroId,
+        zona_id: null,
+        asignado_por: 'manual'
+      });
 
       alert('Envío reasignado correctamente');
       setModalReasignar(null);
-      fetchAsignaciones(); // Recargar datos
+      fetchAsignaciones();
     } catch (error) {
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        localStorage.removeItem('token');
-        window.location.href = '/login';
-        return;
-      }
       alert(error.response?.data?.detail || 'Error al reasignar envío');
     } finally {
       setReasignando(false);
