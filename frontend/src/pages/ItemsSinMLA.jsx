@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../hooks/usePermisos';
@@ -802,7 +802,6 @@ const ItemsSinMLA = () => {
 
   const handleSeleccionarItem = (itemId, event) => {
     const shiftPressed = event?.shiftKey;
-    const ctrlPressed = event?.ctrlKey || event?.metaKey;
 
     const nuevaSeleccion = new Set(itemsSeleccionados);
 
@@ -868,7 +867,6 @@ const ItemsSinMLA = () => {
   // Funciones para multi-selección en banlist
   const handleSeleccionarBaneado = (banlistId, event) => {
     const shiftPressed = event?.shiftKey;
-    const ctrlPressed = event?.ctrlKey || event?.metaKey;
 
     const nuevaSeleccion = new Set(baneadosSeleccionados);
 
@@ -1106,16 +1104,9 @@ const ItemsSinMLA = () => {
               </label>
             </div>
 
-            <button onClick={limpiarFiltros} className="btn-limpiar">
-              {Icon.trash(13)} Limpiar
-            </button>
-          </div>
-
-          {/* Filtros de asignación */}
-          {(tienePermiso('admin.asignar_items_sin_mla') || tienePermiso('admin.gestionar_asignaciones')) && (
-            <div className="filters-section asignacion-filters">
+            {(tienePermiso('admin.asignar_items_sin_mla') || tienePermiso('admin.gestionar_asignaciones')) && (
               <div className="filter-group">
-                <label>{Icon.pin(13)} Estado asignación:</label>
+                <label>{Icon.pin(13)} Asignación:</label>
                 <select
                   value={filtroEstadoAsignacion}
                   onChange={(e) => setFiltroEstadoAsignacion(e.target.value)}
@@ -1126,40 +1117,44 @@ const ItemsSinMLA = () => {
                   <option value="sin-asignar">Sin asignar</option>
                 </select>
               </div>
+            )}
 
-              {filtroEstadoAsignacion === 'asignado' && (
-                <>
-                  <div className="filter-group">
-                    <label>{Icon.user(13)} Asignado a:</label>
-                    <select
-                      value={filtroAsignadoA}
-                      onChange={(e) => setFiltroAsignadoA(e.target.value)}
-                      className="filter-select"
-                    >
-                      <option value="">Todos</option>
-                      {usuariosAsignables.map(u => (
-                        <option key={u.id} value={u.id}>{u.nombre}</option>
-                      ))}
-                    </select>
-                  </div>
+            {(tienePermiso('admin.asignar_items_sin_mla') || tienePermiso('admin.gestionar_asignaciones')) && filtroEstadoAsignacion === 'asignado' && (
+              <>
+                <div className="filter-group">
+                  <label>{Icon.user(13)} Asignado a:</label>
+                  <select
+                    value={filtroAsignadoA}
+                    onChange={(e) => setFiltroAsignadoA(e.target.value)}
+                    className="filter-select"
+                  >
+                    <option value="">Todos</option>
+                    {usuariosAsignables.map(u => (
+                      <option key={u.id} value={u.id}>{u.nombre}</option>
+                    ))}
+                  </select>
+                </div>
 
-                  <div className="filter-group">
-                    <label>{Icon.edit(13)} Asignado por:</label>
-                    <select
-                      value={filtroAsignadoPor}
-                      onChange={(e) => setFiltroAsignadoPor(e.target.value)}
-                      className="filter-select"
-                    >
-                      <option value="">Todos</option>
-                      {usuariosAsignables.map(u => (
-                        <option key={u.id} value={u.id}>{u.nombre}</option>
-                      ))}
-                    </select>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+                <div className="filter-group">
+                  <label>{Icon.edit(13)} Asignado por:</label>
+                  <select
+                    value={filtroAsignadoPor}
+                    onChange={(e) => setFiltroAsignadoPor(e.target.value)}
+                    className="filter-select"
+                  >
+                    <option value="">Todos</option>
+                    {usuariosAsignables.map(u => (
+                      <option key={u.id} value={u.id}>{u.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+
+            <button onClick={limpiarFiltros} className="btn-limpiar">
+              {Icon.trash(13)} Limpiar
+            </button>
+          </div>
 
           {/* Barra de acciones para multi-selección */}
           {itemsSeleccionados.size > 0 && (
