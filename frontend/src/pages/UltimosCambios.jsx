@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './UltimosCambios.module.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function UltimosCambios() {
   const [cambios, setCambios] = useState([]);
@@ -16,10 +14,9 @@ export default function UltimosCambios() {
   const cargarCambios = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(
-        `${API_URL}/auditoria/ultimos-cambios?limit=${limit}`,
-        { headers: { Authorization: `Bearer ${token}` }}
+      const response = await api.get(
+        `/auditoria/ultimos-cambios`,
+        { params: { limit } }
       );
       setCambios(response.data);
     } catch (error) {

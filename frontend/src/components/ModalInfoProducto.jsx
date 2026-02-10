@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import axios from 'axios';
+import { useState, useEffect, useMemo } from 'react';
+import api from '../services/api';
 import '../styles/ModalInfoProducto.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 import { usePermisos } from '../contexts/PermisosContext';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const { overlayRef, handleOverlayMouseDown, handleOverlayClick } = useModalClickOutside(onClose);
@@ -52,11 +50,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const cargarDetalle = async () => {
     setCargando(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(
-        `${API_URL}/productos/${itemId}/detalle`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await api.get(`/productos/${itemId}/detalle`);
       setDetalle(response.data);
     } catch (error) {
       console.error('Error cargando detalle:', error);
@@ -69,11 +63,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const cargarDatosMl = async () => {
     setCargandoMl(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(
-        `${API_URL}/productos/${itemId}/mercadolibre`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await api.get(`/productos/${itemId}/mercadolibre`);
       setDatosMl(response.data);
     } catch (error) {
       console.error('Error cargando datos de ML:', error);

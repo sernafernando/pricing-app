@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './TabRentabilidad.module.css';
 
 export default function TabAdminVentasFuera() {
@@ -13,7 +13,7 @@ export default function TabAdminVentasFuera() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
 
-  const API_URL = import.meta.env.VITE_API_URL;
+
 
   useEffect(() => {
     cargarVendedoresExcluidos();
@@ -22,10 +22,7 @@ export default function TabAdminVentasFuera() {
   const cargarVendedoresExcluidos = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/vendedores-excluidos`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/vendedores-excluidos');
       setVendedoresExcluidos(response.data);
     } catch (err) {
       console.error('Error cargando vendedores excluidos:', err);
@@ -42,10 +39,8 @@ export default function TabAdminVentasFuera() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/vendedores-excluidos/disponibles`, {
-        params: { buscar: termino },
-        headers: { Authorization: `Bearer ${token}` }
+      const response = await api.get('/vendedores-excluidos/disponibles', {
+        params: { buscar: termino }
       });
       setVendedoresDisponibles(response.data);
     } catch (err) {
@@ -76,13 +71,10 @@ export default function TabAdminVentasFuera() {
 
     setGuardando(true);
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(`${API_URL}/vendedores-excluidos`, {
+      await api.post('/vendedores-excluidos', {
         sm_id: vendedorSeleccionado.sm_id,
         sm_name: vendedorSeleccionado.sm_name,
         motivo: motivo || null
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
 
       await cargarVendedoresExcluidos();
@@ -103,10 +95,7 @@ export default function TabAdminVentasFuera() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`${API_URL}/vendedores-excluidos/${sm_id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/vendedores-excluidos/${sm_id}`);
 
       await cargarVendedoresExcluidos();
     } catch (err) {

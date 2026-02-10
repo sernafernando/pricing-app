@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { useDebounce } from '../hooks/useDebounce';
 import styles from './Productos.module.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 const LISTAS = {
   4: "Clásica",
@@ -31,19 +29,12 @@ export default function PreciosListas() {
   const cargarProductos = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
       const params = { page, page_size: pageSize };
       if (debouncedSearch) params.search = debouncedSearch;
       if (filtroStock === 'con_stock') params.con_stock = true;
       if (filtroStock === 'sin_stock') params.con_stock = false;
 
-      const response = await axios.get(
-        `${API_URL}/productos/precios-listas`,
-        {
-          params,
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
+      const response = await api.get('/productos/precios-listas', { params });
       
       setProductos(response.data.productos);
       setTotalProductos(response.data.total);

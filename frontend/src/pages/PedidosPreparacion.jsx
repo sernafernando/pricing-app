@@ -1,10 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './PedidosPreparacion.module.css';
 import TabPedidosExport from '../components/TabPedidosExport';
 import { usePermisos } from '../contexts/PermisosContext';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 // Componente Card para mostrar producto con sus componentes
 function ProductoCard({ producto, componentes, onLoadComponentes, getBadgeClass }) {
@@ -108,8 +106,6 @@ export default function PedidosPreparacion() {
   const [busquedaPrearmado, setBusquedaPrearmado] = useState('');
   const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
 
-  const getToken = () => localStorage.getItem('token');
-  
   // Permisos
   const puedeGestionarBanlist = tienePermiso('admin.gestionar_produccion_banlist');
   const puedeMarcarPrearmado = tienePermiso('produccion.marcar_prearmado');
@@ -149,9 +145,8 @@ export default function PedidosPreparacion() {
     setProcesando(prev => new Set([...prev, modalPrearmado.item_id]));
     
     try {
-      await axios.post(`${API_URL}/produccion-prearmado/${modalPrearmado.item_id}`, 
-        { cantidad },
-        { headers: { Authorization: `Bearer ${getToken()}` }}
+      await api.post(`/produccion-prearmado/${modalPrearmado.item_id}`, 
+        { cantidad }
       );
       
       // Actualizar estado local
@@ -180,9 +175,7 @@ export default function PedidosPreparacion() {
     setProcesando(prev => new Set([...prev, itemId]));
     
     try {
-      await axios.delete(`${API_URL}/produccion-prearmado/${itemId}`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      await api.delete(`/produccion-prearmado/${itemId}`);
       
       setResumen(prev => prev.map(item => 
         item.item_id === itemId 
@@ -206,9 +199,7 @@ export default function PedidosPreparacion() {
   // Cargar banlist
   const cargarBanlist = async () => {
     try {
-      const response = await axios.get(`${API_URL}/produccion-banlist`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      const response = await api.get('/produccion-banlist');
       setBanlist(response.data);
     } catch (error) {
       console.error('Error cargando banlist:', error);
@@ -238,11 +229,9 @@ export default function PedidosPreparacion() {
     setProcesando(prev => new Set([...prev, itemId]));
     
     try {
-      await axios.post(`${API_URL}/produccion-banlist`, {
+      await api.post('/produccion-banlist', {
         item_id: itemId,
         motivo: motivo.trim()
-      }, {
-        headers: { Authorization: `Bearer ${getToken()}` }
       });
       
       alert('✅ Producto baneado de la vista de producción');
@@ -267,9 +256,7 @@ export default function PedidosPreparacion() {
     if (!confirm('¿Seguro que querés quitar este producto del banlist?')) return;
     
     try {
-      await axios.delete(`${API_URL}/produccion-banlist/${itemId}`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      await api.delete(`/produccion-banlist/${itemId}`);
       
       // Actualizar lista local
       setBanlist(prev => prev.filter(b => b.item_id !== itemId));
@@ -290,8 +277,7 @@ export default function PedidosPreparacion() {
     }
 
     try {
-      const response = await axios.get(`${API_URL}/productos`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
+      const response = await api.get('/productos', {
         params: {
           search: termino,
           page: 1,
@@ -315,9 +301,8 @@ export default function PedidosPreparacion() {
     }
 
     try {
-      await axios.post(`${API_URL}/produccion-prearmado/${producto.item_id}`, 
-        { cantidad },
-        { headers: { Authorization: `Bearer ${getToken()}` }}
+      await api.post(`/produccion-prearmado/${producto.item_id}`, 
+        { cantidad }
       );
       
       alert(`✅ Pre-armado agregado: ${cantidad} unidades de ${producto.codigo}`);
@@ -336,9 +321,7 @@ export default function PedidosPreparacion() {
 
   const cargarTiposEnvio = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/pedidos-preparacion/tipos-envio`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      const response = await api.get('/pedidos-preparacion/tipos-envio');
       setTiposEnvio(response.data);
     } catch (error) {
       console.error('Error cargando tipos de envío:', error);
@@ -347,9 +330,7 @@ export default function PedidosPreparacion() {
 
   const cargarEstadisticas = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/pedidos-preparacion/estadisticas`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      const response = await api.get('/pedidos-preparacion/estadisticas');
       setEstadisticas(response.data);
     } catch (error) {
       console.error('Error cargando estadísticas:', error);
@@ -368,12 +349,10 @@ export default function PedidosPreparacion() {
         tipoEnvio,
         search,
         vistaProduccion,
-        url: `${API_URL}/pedidos-preparacion/resumen?${params}`
+        url: `/pedidos-preparacion/resumen?${params}`
       });
 
-      const response = await axios.get(`${API_URL}/pedidos-preparacion/resumen?${params}`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      const response = await api.get(`/pedidos-preparacion/resumen?${params}`);
       console.log('[PedidosPreparacion] Resultados:', response.data.length, 'productos');
       setResumen(response.data);
     } catch (error) {
@@ -386,9 +365,7 @@ export default function PedidosPreparacion() {
   const sincronizarDatos = async () => {
     setSyncing(true);
     try {
-      await axios.post(`${API_URL}/pedidos-preparacion/sync`, {}, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      await api.post('/pedidos-preparacion/sync', {});
       // Recargar todo después de sincronizar
       await Promise.all([cargarDatos(), cargarEstadisticas(), cargarTiposEnvio()]);
     } catch (error) {
@@ -400,9 +377,7 @@ export default function PedidosPreparacion() {
 
   const cargarComponentes = useCallback(async (itemId) => {
     try {
-      const response = await axios.get(`${API_URL}/pedidos-preparacion/componentes/${itemId}`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      const response = await api.get(`/pedidos-preparacion/componentes/${itemId}`);
       setComponentes(prev => ({ ...prev, [itemId]: response.data }));
     } catch (error) {
       console.error('Error cargando componentes:', error);

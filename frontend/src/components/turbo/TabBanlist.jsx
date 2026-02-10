@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../../services/api';
 import styles from '../../pages/TurboRouting.module.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function TabBanlist() {
   const [banlist, setBanlist] = useState([]);
@@ -15,14 +13,10 @@ export default function TabBanlist() {
   const [notas, setNotas] = useState('');
   const [enviando, setEnviando] = useState(false);
 
-  const getToken = () => localStorage.getItem('token');
-
   const fetchBanlist = async () => {
     setLoading(true);
     try {
-      const { data } = await axios.get(`${API_URL}/turbo/banlist`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      const { data } = await api.get('/turbo/banlist');
       setBanlist(data.items || []);
       setTotal(data.total || 0);
     } catch (error) {
@@ -46,12 +40,10 @@ export default function TabBanlist() {
 
     setEnviando(true);
     try {
-      await axios.post(`${API_URL}/turbo/banlist`, {
+      await api.post('/turbo/banlist', {
         mlshippingid: mlshippingid.trim(),
         motivo,
         notas: notas.trim() || null
-      }, {
-        headers: { Authorization: `Bearer ${getToken()}` }
       });
       
       alert(`✅ Envío ${mlshippingid} agregado a banlist`);
@@ -77,9 +69,7 @@ export default function TabBanlist() {
     }
 
     try {
-      await axios.delete(`${API_URL}/turbo/banlist/${id}`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      await api.delete(`/turbo/banlist/${id}`);
       
       alert(`✅ Envío ${mlshippingid} removido de banlist`);
       fetchBanlist();

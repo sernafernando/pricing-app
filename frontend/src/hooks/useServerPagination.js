@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { useDebounce } from './useDebounce';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 /**
  * Hook para paginación server-side con soporte para scroll infinito y paginación clásica.
@@ -73,15 +71,12 @@ export function useServerPagination({
     if (!countEndpoint || !enabled) return;
 
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-      
       const params = {
         ...filters,
         ...(debouncedSearch && { search: debouncedSearch })
       };
 
-      const response = await axios.get(`${API_URL}${countEndpoint}`, { params, headers });
+      const response = await api.get(countEndpoint, { params });
       setTotalItems(response.data.total || 0);
     } catch (err) {
       console.error('Error cargando total:', err);
@@ -109,9 +104,6 @@ export function useServerPagination({
     setError(null);
 
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-      
       const offset = (page - 1) * pageSize;
       const params = {
         ...filters,
@@ -120,7 +112,7 @@ export function useServerPagination({
         ...(debouncedSearch && { search: debouncedSearch })
       };
 
-      const response = await axios.get(`${API_URL}${endpoint}`, { params, headers });
+      const response = await api.get(endpoint, { params });
       const newData = response.data || [];
 
       // Actualizar data

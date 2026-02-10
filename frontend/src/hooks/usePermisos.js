@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-
-const API_URL = import.meta.env.VITE_API_URL;
+import api from '../services/api';
 
 /**
  * Hook para gestionar permisos del usuario actual
@@ -23,9 +21,7 @@ export function usePermisos() {
         return;
       }
 
-      const res = await axios.get(`${API_URL}/permisos/mis-permisos`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get('/permisos/mis-permisos');
 
       setPermisos(new Set(res.data.permisos));
       setRol(res.data.rol);

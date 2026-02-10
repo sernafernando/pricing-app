@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import '../styles/Calculos.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 const Calculos = () => {
   const [calculos, setCalculos] = useState([]);
@@ -25,10 +23,7 @@ const Calculos = () => {
 
   const cargarGruposComision = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/comisiones/calculadas`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/comisiones/calculadas');
       setGruposComision(response.data);
     } catch (error) {
       console.error('Error cargando grupos de comisión:', error);
@@ -37,10 +32,7 @@ const Calculos = () => {
 
   const cargarTipoCambio = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/tipo-cambio`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/tipo-cambio');
       setTipoCambio(response.data.tipo_cambio);
     } catch (error) {
       console.error('Error cargando tipo de cambio:', error);
@@ -49,10 +41,7 @@ const Calculos = () => {
 
   const cargarConstantes = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/pricing-constants/actual`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/pricing-constants/actual');
       setConstantes(response.data);
     } catch (error) {
       console.error('Error cargando constantes:', error);
@@ -71,10 +60,7 @@ const Calculos = () => {
 
   const cargarCalculos = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/calculos`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/calculos');
       setCalculos(response.data);
     } catch (error) {
       console.error('Error cargando cálculos:', error);
@@ -188,7 +174,6 @@ const Calculos = () => {
 
     try {
       const resultados = recalcular(formData);
-      const token = localStorage.getItem('token');
 
       // Preparar datos de cuotas si existen
       let cuotasData = null;
@@ -208,8 +193,8 @@ const Calculos = () => {
       }
 
       // Guardar datos básicos
-      await axios.put(
-        `${API_URL}/calculos/${calculoEditando}`,
+      await api.put(
+        `/calculos/${calculoEditando}`,
         {
           descripcion: formData.descripcion,
           ean: formData.ean,
@@ -223,8 +208,7 @@ const Calculos = () => {
           tipo_cambio_usado: formData.tipo_cambio_usado,
           ...resultados,
           precios_cuotas: cuotasData
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       await cargarCalculos();
@@ -238,11 +222,9 @@ const Calculos = () => {
 
   const actualizarCantidad = async (id, cantidad) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.patch(
-        `${API_URL}/calculos/${id}/cantidad`,
-        { cantidad: parseInt(cantidad) || 0 },
-        { headers: { Authorization: `Bearer ${token}` } }
+      await api.patch(
+        `/calculos/${id}/cantidad`,
+        { cantidad: parseInt(cantidad) || 0 }
       );
 
       // Actualizar solo el cálculo específico en el estado
@@ -262,10 +244,9 @@ const Calculos = () => {
 
     try {
       const resultadosBasicos = recalcular(formData);
-      const token = localStorage.getItem('token');
       
-      const response = await axios.post(
-        `${API_URL}/calculos/calcular-cuotas`,
+      const response = await api.post(
+        '/calculos/calcular-cuotas',
         {
           costo: formData.costo,
           moneda_costo: formData.moneda_costo,
@@ -275,8 +256,7 @@ const Calculos = () => {
           tipo_cambio: formData.tipo_cambio_usado,
           grupo_id: formData.grupo_cuotas,
           adicional_markup: formData.adicional_cuotas
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       setFormData({
@@ -315,10 +295,7 @@ const Calculos = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`${API_URL}/calculos/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/calculos/${id}`);
 
       await cargarCalculos();
       setSeleccionados(new Set());
@@ -352,11 +329,9 @@ const Calculos = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(
-        `${API_URL}/calculos/acciones/eliminar-masivo`,
-        { calculo_ids: idsAEliminar },
-        { headers: { Authorization: `Bearer ${token}` } }
+      await api.post(
+        '/calculos/acciones/eliminar-masivo',
+        { calculo_ids: idsAEliminar }
       );
 
       await cargarCalculos();
@@ -379,11 +354,9 @@ const Calculos = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(
-        `${API_URL}/calculos/exportar/excel?${queryParams}`,
+      const response = await api.get(
+        `/calculos/exportar/excel?${queryParams}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'
         }
       );

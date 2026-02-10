@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './TabPedidosExport.module.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 export default function TabPedidosExport() {
   const [pedidos, setPedidos] = useState([]);
@@ -45,15 +43,12 @@ export default function TabPedidosExport() {
   const [usuariosDisponibles, setUsuariosDisponibles] = useState([]);
   const [provinciasDisponibles, setProvinciasDisponibles] = useState([]);
   
-  const getToken = () => localStorage.getItem('token');
-
   const cargarEstadisticas = useCallback(async () => {
     try {
       // Usar estadísticas del endpoint local con ssos_id=20 (En Preparación)
       // dias_atras=60 por defecto (últimos 60 días)
-      const response = await axios.get(
-        `${API_URL}/pedidos-local/estadisticas?ssos_id=20&dias_atras=60`,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
+      const response = await api.get(
+        '/pedidos-local/estadisticas', { params: { ssos_id: 20, dias_atras: 60 } }
       );
       setEstadisticas(response.data);
     } catch (error) {
@@ -63,10 +58,7 @@ export default function TabPedidosExport() {
 
   const cargarUsuariosDisponibles = useCallback(async () => {
     try {
-      const response = await axios.get(
-        `${API_URL}/pedidos-simple/usuarios-disponibles`,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
+      const response = await api.get('/pedidos-simple/usuarios-disponibles');
       setUsuariosDisponibles(response.data);
     } catch (error) {
       console.error('Error cargando usuarios:', error);
@@ -75,10 +67,7 @@ export default function TabPedidosExport() {
 
   const cargarProvinciasDisponibles = useCallback(async () => {
     try {
-      const response = await axios.get(
-        `${API_URL}/pedidos-simple/provincias-disponibles`,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
+      const response = await api.get('/pedidos-simple/provincias-disponibles');
       setProvinciasDisponibles(response.data);
     } catch (error) {
       console.error('Error cargando provincias:', error);
@@ -103,9 +92,8 @@ export default function TabPedidosExport() {
       if (search) params.append('buscar', search);
       params.append('limit', '500');
 
-      const response = await axios.get(
-        `${API_URL}/pedidos-local?${params.toString()}`,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
+      const response = await api.get(
+        `/pedidos-local?${params.toString()}`
       );
       
       // Si "Solo Otros" está activado, filtrar en el frontend
@@ -132,13 +120,10 @@ export default function TabPedidosExport() {
 
     setSyncing(true);
     try {
-      const response = await axios.post(
-        `${API_URL}/pedidos-local/sincronizar`,
+      const response = await api.post(
+        '/pedidos-local/sincronizar',
         {},
-        { 
-          headers: { Authorization: `Bearer ${getToken()}` },
-          timeout: 120000 // 2 minutos timeout
-        }
+        { timeout: 120000 } // 2 minutos timeout
       );
       
       const headers = response.data.headers_archivados_limpiados || 0;
@@ -185,10 +170,9 @@ export default function TabPedidosExport() {
 
   const guardarDireccion = async () => {
     try {
-      await axios.put(
-        `${API_URL}/pedidos-simple/${pedidoSeleccionado.soh_id}/override-shipping`,
-        direccionForm,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
+      await api.put(
+        `/pedidos-simple/${pedidoSeleccionado.soh_id}/override-shipping`,
+        direccionForm
       );
       
       alert('✅ Dirección actualizada correctamente');
@@ -196,9 +180,8 @@ export default function TabPedidosExport() {
       await cargarPedidos();
       
       // Actualizar pedido seleccionado
-      const pedidoActualizado = await axios.get(
-        `${API_URL}/pedidos-simple?solo_activos=true&limit=1`,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
+      const pedidoActualizado = await api.get(
+        '/pedidos-simple', { params: { solo_activos: true, limit: 1 } }
       );
       const updated = pedidoActualizado.data.find(p => p.soh_id === pedidoSeleccionado.soh_id);
       if (updated) setPedidoSeleccionado(updated);
@@ -213,9 +196,8 @@ export default function TabPedidosExport() {
     if (!confirm('¿Eliminar override y volver a los datos originales?')) return;
     
     try {
-      await axios.delete(
-        `${API_URL}/pedidos-simple/${pedidoSeleccionado.soh_id}/override-shipping`,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
+      await api.delete(
+        `/pedidos-simple/${pedidoSeleccionado.soh_id}/override-shipping`
       );
       
       alert('✅ Override eliminado, mostrando datos originales');
@@ -246,13 +228,9 @@ export default function TabPedidosExport() {
         params.tipo_envio_manual = tipoEnvio;
       }
 
-      const response = await axios.get(
-        `${API_URL}/pedidos-simple/${pedidoSeleccionado.soh_id}/etiqueta-zpl`,
-        {
-          params: params,
-          headers: { Authorization: `Bearer ${getToken()}` },
-          responseType: 'blob'
-        }
+      const response = await api.get(
+        `/pedidos-simple/${pedidoSeleccionado.soh_id}/etiqueta-zpl`,
+        { params: params, responseType: 'blob' }
       );
 
       // Crear blob y descargar
@@ -300,13 +278,10 @@ export default function TabPedidosExport() {
 
   const actualizarBultosDomicilio = async (sohId, numBultos, tipoDomicilio) => {
     try {
-      await axios.put(
-        `${API_URL}/pedidos-simple/${sohId}/bultos-domicilio`,
+      await api.put(
+        `/pedidos-simple/${sohId}/bultos-domicilio`,
         null,
-        {
-          params: { num_bultos: numBultos, tipo_domicilio: tipoDomicilio },
-          headers: { Authorization: `Bearer ${getToken()}` }
-        }
+        { params: { num_bultos: numBultos, tipo_domicilio: tipoDomicilio } }
       );
       
       // Actualizar en el estado local
@@ -347,13 +322,9 @@ export default function TabPedidosExport() {
           params.append('tipo_domicilio_manual', pedido.override_tipo_domicilio);
         }
 
-        const response = await axios.get(
-          `${API_URL}/pedidos-simple/${sohId}/etiqueta-zpl`,
-          {
-            params: params,
-            headers: { Authorization: `Bearer ${getToken()}` },
-            responseType: 'text'
-          }
+        const response = await api.get(
+          `/pedidos-simple/${sohId}/etiqueta-zpl`,
+          { params: params, responseType: 'text' }
         );
 
         allZpl += response.data + '\n\n';

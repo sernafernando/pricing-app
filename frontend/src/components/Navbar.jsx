@@ -1,24 +1,12 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './Navbar.module.css';
 import logo from '../assets/white-g-logo.png';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
 import ThemeToggle from './ThemeToggle';
 import NotificationBell from './NotificationBell';
-
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 export default function Navbar() {
   const location = useLocation();
@@ -65,8 +53,10 @@ export default function Navbar() {
     return paths.some(path => location.pathname === path);
   };
 
+  const logout = useAuthStore((state) => state.logout);
+
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    logout();
     navigate('/login');
   };
 

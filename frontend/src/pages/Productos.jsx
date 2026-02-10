@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { productosAPI } from '../services/api';
 import PricingModalTesla from '../components/PricingModalTesla';
 import { useDebounce } from '../hooks/useDebounce';
-import axios from 'axios';
+import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
 import ExportModal from '../components/ExportModal';
@@ -146,7 +146,6 @@ export default function Productos() {
   const user = useAuthStore((state) => state.user);
   const { tienePermiso } = usePermisos();
 
-  const API_URL = import.meta.env.VITE_API_URL;
   const toastTimeoutRef = useRef(null);
 
   // Permisos granulares de edición
@@ -729,20 +728,18 @@ export default function Productos() {
 
   const guardarWebTransf = async (itemId) => {
     try {
-      const token = localStorage.getItem('token');
       // Normalizar: reemplazar coma por punto
       const porcentajeNumerico = parseFloat(webTransfTemp.porcentaje.toString().replace(',', '.')) || 0;
 
-      const response = await axios.patch(
-        `${API_URL}/productos/${itemId}/web-transferencia`,
+      const response = await api.patch(
+        `/productos/${itemId}/web-transferencia`,
         null,
         {
           params: {
             participa: webTransfTemp.participa,
             porcentaje_markup: porcentajeNumerico,
             preservar_porcentaje: webTransfTemp.preservar
-          },
-          headers: { Authorization: `Bearer ${token}` }
+          }
         }
       );
 
@@ -942,10 +939,8 @@ export default function Productos() {
 
   const verAuditoria = async (productoId) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(
-        `${API_URL}/productos/${productoId}/auditoria`,
-        { headers: { Authorization: `Bearer ${token}` }}
+      const response = await api.get(
+        `/productos/${productoId}/auditoria`
       );
       setAuditoriaData(response.data);
       setAuditoriaVisible(true);
@@ -972,14 +967,12 @@ export default function Productos() {
   // Función para consultar el markup sin guardar (usando el endpoint del backend)
   const consultarMarkup = async (itemId, precio, listaTipo = 'web', pricelistId = null) => {
     try {
-      const token = localStorage.getItem('token');
       // Si no se especifica pricelistId, usar el de clásica por defecto
       const pricelist_id = pricelistId || (listaTipo === 'pvp' ? 12 : 4);
       
-      const response = await axios.get(
-        `${API_URL}/precios/calcular-markup`,
+      const response = await api.get(
+        '/precios/calcular-markup',
         {
-          headers: { Authorization: `Bearer ${token}` },
           params: {
             item_id: itemId,
             precio: precio,
@@ -1010,14 +1003,9 @@ export default function Productos() {
 
   const cambiarColorProducto = async (itemId, color) => {
     try {
-      const token = localStorage.getItem('token');
-      
-      await axios.patch(
-        `${API_URL}/productos/${itemId}/color`,
-        { color },  // Enviar en el body, no en params
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
+      await api.patch(
+        `/productos/${itemId}/color`,
+        { color }
       );
       
       // Actualizar estado local en lugar de recargar
@@ -1068,16 +1056,12 @@ export default function Productos() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(
-        `${API_URL}/producto-banlist`,
+      await api.post(
+        '/producto-banlist',
         {
           item_ids: productoBan.item_id ? String(productoBan.item_id) : null,
           eans: productoBan.ean || null,
           motivo: motivoBan || 'Sin motivo especificado'
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
         }
       );
 
@@ -1140,7 +1124,6 @@ export default function Productos() {
 
   const guardarCuota = async (itemId, tipo, esPVP = false, forzar = false) => {
     try {
-      const token = localStorage.getItem('token');
       const precioNormalizado = parseFloat(cuotaTemp.toString().replace(',', '.'));
 
       // Si NO es forzado Y el precio es mayor a 0, verificar markup antes de guardar
@@ -1176,11 +1159,10 @@ export default function Productos() {
         }
       }
 
-      const response = await axios.post(
-        `${API_URL}/precios/set-cuota`,
+      const response = await api.post(
+        '/precios/set-cuota',
         null,
         {
-          headers: { Authorization: `Bearer ${token}` },
           params: {
             item_id: itemId,
             tipo_cuota: tipo,
@@ -1227,13 +1209,10 @@ export default function Productos() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-
-      const response = await axios.post(
-        `${API_URL}/precios/recalcular-cuotas`,
+      const response = await api.post(
+        '/precios/recalcular-cuotas',
         null,
         {
-          headers: { Authorization: `Bearer ${token}` },
           params: {
             item_id: producto.item_id,
             lista_tipo: listaTipo
@@ -1327,15 +1306,12 @@ export default function Productos() {
 
   const pintarLote = async (color) => {
     try {
-      const token = localStorage.getItem('token');
-
-      await axios.post(
-        `${API_URL}/productos/actualizar-color-lote`,
+      await api.post(
+        '/productos/actualizar-color-lote',
         {
           item_ids: Array.from(productosSeleccionados),
           color: color
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       setProductos(prods => prods.map(p =>
@@ -1365,8 +1341,6 @@ export default function Productos() {
 
   const guardarConfigIndividual = async () => {
     try {
-      const token = localStorage.getItem('token');
-
       // Preparar datos: null significa usar global
       const data = {
         recalcular_cuotas_auto: configTemp.recalcular_cuotas_auto === 'null' ? null :
@@ -1378,10 +1352,9 @@ export default function Productos() {
                                             parseFloat(configTemp.markup_adicional_cuotas_pvp_custom)
       };
 
-      const response = await axios.patch(
-        `${API_URL}/productos/${productoConfig.item_id}/config-cuotas`,
-        data,
-        { headers: { Authorization: `Bearer ${token}` } }
+      const response = await api.patch(
+        `/productos/${productoConfig.item_id}/config-cuotas`,
+        data
       );
 
       // Actualizar producto en el estado
@@ -1412,7 +1385,6 @@ export default function Productos() {
 
   const guardarPrecio = async (itemId, forzar = false) => {
     try {
-      const token = localStorage.getItem('token');
       // Normalizar: reemplazar coma por punto
       const precioNormalizado = parseFloat(precioTemp.toString().replace(',', '.'));
       
@@ -1449,11 +1421,10 @@ export default function Productos() {
 
       // Si estamos en modo PVP, usar set-rapido con lista_tipo=pvp
       if (modoVista === 'pvp') {
-        const response = await axios.post(
-          `${API_URL}/precios/set-rapido`,
+        const response = await api.post(
+          '/precios/set-rapido',
           null,
           {
-            headers: { Authorization: `Bearer ${token}` },
             params: {
               item_id: itemId,
               precio: precioNormalizado,
@@ -1514,11 +1485,10 @@ export default function Productos() {
       }
 
       // Modo web (comportamiento original)
-      const response = await axios.post(
-        `${API_URL}/precios/set-rapido`,
+      const response = await api.post(
+        '/precios/set-rapido',
         null,  // No body needed, all params go in URL
         {
-          headers: { Authorization: `Bearer ${token}` },
           params: {
             item_id: itemId,
             precio: precioNormalizado,
@@ -1590,7 +1560,6 @@ export default function Productos() {
 
   const guardarRebate = async (itemId) => {
     try {
-      const token = localStorage.getItem('token');
       // Normalizar: reemplazar coma por punto
       const porcentajeNormalizado = parseFloat(rebateTemp.porcentaje.toString().replace(',', '.'));
 
@@ -1600,13 +1569,12 @@ export default function Productos() {
         return;
       }
       
-      await axios.patch(
-        `${API_URL}/productos/${itemId}/rebate`,
+      await api.patch(
+        `/productos/${itemId}/rebate`,
         {
           participa_rebate: rebateTemp.participa,
           porcentaje_rebate: porcentajeNormalizado
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       setProductos(prods => prods.map(p =>
@@ -1641,9 +1609,7 @@ export default function Productos() {
 
   const cargarUsuariosAuditoria = async () => {
     try {
-      const response = await axios.get(`${API_URL}/auditoria/usuarios`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      const response = await api.get('/auditoria/usuarios');
       setUsuarios(response.data.usuarios);
     } catch (error) {
       showToast('Error al cargar usuarios', 'error');
@@ -1652,9 +1618,7 @@ export default function Productos() {
 
   const cargarTiposAccion = async () => {
     try {
-      const response = await axios.get(`${API_URL}/auditoria/tipos-accion`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      const response = await api.get('/auditoria/tipos-accion');
       setTiposAccion(response.data.tipos);
     } catch (error) {
       showToast('Error al cargar tipos de acción', 'error');
@@ -1663,9 +1627,7 @@ export default function Productos() {
 
   const cargarPMs = async () => {
     try {
-      const response = await axios.get(`${API_URL}/usuarios/pms?solo_con_marcas=true`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      const response = await api.get('/usuarios/pms?solo_con_marcas=true');
       setPms(response.data);
     } catch (error) {
       showToast('Error al cargar PMs', 'error');
@@ -2013,13 +1975,12 @@ export default function Productos() {
           
           // Si ya estamos editando este producto, desactivar rebate y cerrar edición
           if (editandoRebate === producto.item_id) {
-            await axios.patch(
-              `${API_URL}/productos/${producto.item_id}/rebate`,
+            await api.patch(
+              `/productos/${producto.item_id}/rebate`,
               {
                 participa_rebate: false,
                 porcentaje_rebate: producto.porcentaje_rebate || 3.8
-              },
-              { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+              }
             );
             
             // Actualizar estado local en lugar de recargar
@@ -2060,10 +2021,9 @@ export default function Productos() {
           
           // Si ya estamos editando Y el producto tiene out_of_cards, desactivarlo
           if (editandoRebate === producto.item_id && producto.out_of_cards) {
-            await axios.patch(
-              `${API_URL}/productos/${producto.item_id}/out-of-cards`,
-              { out_of_cards: false },
-              { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+            await api.patch(
+              `/productos/${producto.item_id}/out-of-cards`,
+              { out_of_cards: false }
             );
             
             // Actualizar estado local en lugar de recargar
@@ -2142,10 +2102,9 @@ export default function Productos() {
 
   const cambiarColorRapido = async (itemId, color) => {
     try {
-      await axios.patch(
-        `${API_URL}/productos/${itemId}/color`,
-        { color },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      await api.patch(
+        `/productos/${itemId}/color`,
+        { color }
       );
       
       // Actualizar estado local en lugar de recargar
@@ -2167,13 +2126,12 @@ export default function Productos() {
     try {
       // Si el rebate está desactivado, activarlo y abrir modo edición
       if (!producto.participa_rebate) {
-        const response = await axios.patch(
-          `${API_URL}/productos/${producto.item_id}/rebate`,
+        const response = await api.patch(
+          `/productos/${producto.item_id}/rebate`,
           {
             participa_rebate: true,
             porcentaje_rebate: producto.porcentaje_rebate || 3.8
-          },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+          }
         );
 
         // Actualizar estado local en lugar de recargar
@@ -2209,13 +2167,12 @@ export default function Productos() {
         cargarStats();
       } else {
         // Si está activado, desactivarlo
-        const response = await axios.patch(
-          `${API_URL}/productos/${producto.item_id}/rebate`,
+        await api.patch(
+          `/productos/${producto.item_id}/rebate`,
           {
             participa_rebate: false,
             porcentaje_rebate: producto.porcentaje_rebate || 3.8
-          },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+          }
         );
         
         // Actualizar estado local en lugar de recargar
@@ -2245,13 +2202,12 @@ export default function Productos() {
 
   const toggleWebTransfRapido = async (producto) => {
     try {
-      const response = await axios.patch(
-        `${API_URL}/productos/${producto.item_id}/web-transferencia`,
+      const response = await api.patch(
+        `/productos/${producto.item_id}/web-transferencia`,
         {
           participa: !producto.participa_web_transferencia,
           porcentaje: producto.porcentaje_markup_web || 6.0
-        },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        }
       );
       
       // Actualizar estado local en lugar de recargar
@@ -2277,10 +2233,9 @@ export default function Productos() {
     try {
       // Si ya tiene out_of_cards, desactivarlo
       if (producto.out_of_cards) {
-        await axios.patch(
-          `${API_URL}/productos/${producto.item_id}/out-of-cards`,
-          { out_of_cards: false },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        await api.patch(
+          `/productos/${producto.item_id}/out-of-cards`,
+          { out_of_cards: false }
         );
         
         // Actualizar estado local en lugar de recargar
@@ -2304,21 +2259,19 @@ export default function Productos() {
       // Primero, si el rebate NO está activo, activarlo
       let rebateResponse = null;
       if (!producto.participa_rebate) {
-        rebateResponse = await axios.patch(
-          `${API_URL}/productos/${producto.item_id}/rebate`,
+        rebateResponse = await api.patch(
+          `/productos/${producto.item_id}/rebate`,
           {
             participa_rebate: true,
             porcentaje_rebate: producto.porcentaje_rebate || 3.8
-          },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+          }
         );
       }
 
       // Marcar out_of_cards = true
-      await axios.patch(
-        `${API_URL}/productos/${producto.item_id}/out-of-cards`,
-        { out_of_cards: true },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      await api.patch(
+        `/productos/${producto.item_id}/out-of-cards`,
+        { out_of_cards: true }
       );
 
       // Actualizar estado local en lugar de recargar
@@ -3693,10 +3646,9 @@ export default function Productos() {
                                     e.stopPropagation();
                                     const nuevoValor = e.target.checked;
                                     try {
-                                      await axios.patch(
-                                        `${API_URL}/productos/${p.item_id}/out-of-cards`,
-                                        { out_of_cards: nuevoValor },
-                                        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+                                      await api.patch(
+                                        `/productos/${p.item_id}/out-of-cards`,
+                                        { out_of_cards: nuevoValor }
                                       );
                                       
                                       // Actualizar estado local en lugar de recargar

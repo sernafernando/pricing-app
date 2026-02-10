@@ -1,21 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../services/api';
 import styles from './Notificaciones.module.css';
-
-const API_URL = import.meta.env.VITE_API_URL;
-
-const api = axios.create({
-  baseURL: `${API_URL}`,
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 export default function Notificaciones() {
   const [notificaciones, setNotificaciones] = useState([]);
@@ -276,10 +262,11 @@ export default function Notificaciones() {
 
     try {
       setLoadingOrder({ ...loadingOrder, [notif.id]: true });
-      const response = await axios.get(
+      const response = await fetch(
         `https://ml-webhook.gaussonline.com.ar/api/ml/render?resource=%2Forders%2F${notif.id_operacion}&format=json`
       );
-      setOrderData({ ...orderData, [notif.id]: response.data });
+      const data = await response.json();
+      setOrderData({ ...orderData, [notif.id]: data });
     } catch (error) {
       console.error('Error al obtener datos de orden:', error);
     } finally {
