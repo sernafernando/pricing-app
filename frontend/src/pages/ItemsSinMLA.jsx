@@ -1,8 +1,35 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../hooks/usePermisos';
+import { useAuthStore } from '../store/authStore';
 import './ItemsSinMLA.css';
+
+// Inline SVG icons — stroke-based, consistent 16x16 default
+const s = (d, size = 16) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{verticalAlign: 'middle', marginRight: 4, flexShrink: 0}}>
+    {d}
+  </svg>
+);
+
+const Icon = {
+  clipboard:   (sz) => s(<><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></>, sz),
+  search:      (sz) => s(<><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></>, sz),
+  ban:         (sz) => s(<><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></>, sz),
+  barChart:    (sz) => s(<><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></>, sz),
+  tag:         (sz) => s(<><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></>, sz),
+  dollar:      (sz) => s(<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>, sz),
+  box:         (sz) => s(<><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></>, sz),
+  sparkle:     (sz) => s(<><path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z"/></>, sz),
+  alertCircle: (sz) => s(<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>, sz),
+  trash:       (sz) => s(<><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></>, sz),
+  pin:         (sz) => s(<><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></>, sz),
+  user:        (sz) => s(<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>, sz),
+  edit:        (sz) => s(<><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></>, sz),
+  check:       (sz) => s(<><polyline points="20 6 9 17 4 12"/></>, sz),
+  x:           (sz) => s(<><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>, sz),
+  checkCircle: (sz) => s(<><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>, sz),
+};
 
 const ItemsSinMLA = () => {
   const { tienePermiso } = usePermisos();
@@ -33,6 +60,7 @@ const ItemsSinMLA = () => {
   const [listasPrecio, setListasPrecio] = useState([]);
   const [conStock, setConStock] = useState(null); // null = todos, true = con stock, false = sin stock
   const [soloNuevos, setSoloNuevos] = useState(false); // Filtro para mostrar solo items nuevos
+  const [sinPublicaciones, setSinPublicaciones] = useState(false); // Filtro: sin ninguna publicación
 
   // Estado para agregar motivo al banear
   const [itemSeleccionado, setItemSeleccionado] = useState(null);
@@ -86,12 +114,32 @@ const ItemsSinMLA = () => {
   const [comparacionBaneadosSeleccionados, setComparacionBaneadosSeleccionados] = useState(new Set());
   const [ultimoComparacionBaneadoSeleccionado, setUltimoComparacionBaneadoSeleccionado] = useState(null);
 
+  // ========== SISTEMA DE ASIGNACIONES ==========
+  const [asignaciones, setAsignaciones] = useState([]); // Todas las asignaciones pendientes
+  const [usuariosAsignables, setUsuariosAsignables] = useState([]);
+  const [showAsignarModal, setShowAsignarModal] = useState(false);
+  const [itemParaAsignar, setItemParaAsignar] = useState(null); // Item actual para asignar
+  const [listasParaAsignar, setListasParaAsignar] = useState([]); // Listas seleccionadas en el modal
+  const [usuarioDestinoId, setUsuarioDestinoId] = useState(''); // '' = auto-asignarse
+  const [notasAsignacion, setNotasAsignacion] = useState('');
+  const [loadingAsignacion, setLoadingAsignacion] = useState(false);
+
+  // Filtros de asignaciones en tab sin-mla
+  const [filtroAsignadoA, setFiltroAsignadoA] = useState(''); // usuario_id del asignado
+  const [filtroAsignadoPor, setFiltroAsignadoPor] = useState(''); // asignado_por_id
+  const [filtroEstadoAsignacion, setFiltroEstadoAsignacion] = useState(''); // '' = sin filtro, 'pendiente', 'asignado', 'sin-asignar'
+
+  // Modal de asignación masiva
+  const [showAsignarMasivoModal, setShowAsignarMasivoModal] = useState(false);
+
   const API_URL = import.meta.env.VITE_API_URL;
   const token = localStorage.getItem('token');
 
   useEffect(() => {
     cargarListasPrecio();
     cargarItemsSinMLA();
+    cargarAsignaciones();
+    cargarUsuariosAsignables();
   }, []);
 
   useEffect(() => {
@@ -105,6 +153,143 @@ const ItemsSinMLA = () => {
       cargarComparacionListas();
     }
   }, [activeTab, banlistActiva]);
+
+  // ========== FUNCIONES DE ASIGNACIONES ==========
+
+  const cargarAsignaciones = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/asignaciones/items-sin-mla`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { estado: 'pendiente' }
+      });
+      setAsignaciones(response.data);
+    } catch (error) {
+      console.error('Error al cargar asignaciones:', error);
+    }
+  };
+
+  const cargarUsuariosAsignables = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/asignaciones/usuarios-asignables`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUsuariosAsignables(response.data);
+    } catch (error) {
+      // Si no tiene permiso, no pasa nada — no muestra el dropdown
+      console.error('Error al cargar usuarios asignables:', error);
+    }
+  };
+
+  const getAsignacionesItem = (itemId) => {
+    return asignaciones.filter(a => a.referencia_id === itemId);
+  };
+
+  const handleAsignar = (item) => {
+    setItemParaAsignar(item);
+    setListasParaAsignar([...item.listas_sin_mla]); // Pre-seleccionar todas las listas faltantes
+    setUsuarioDestinoId('');
+    setNotasAsignacion('');
+    setShowAsignarModal(true);
+  };
+
+  const confirmarAsignar = async () => {
+    if (!itemParaAsignar || listasParaAsignar.length === 0) return;
+
+    setLoadingAsignacion(true);
+    try {
+      await axios.post(
+        `${API_URL}/api/asignaciones/asignar`,
+        {
+          item_id: itemParaAsignar.item_id,
+          listas: listasParaAsignar,
+          usuario_id: usuarioDestinoId ? parseInt(usuarioDestinoId) : null,
+          notas: notasAsignacion || null,
+          listas_sin_mla: itemParaAsignar.listas_sin_mla,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setShowAsignarModal(false);
+      setItemParaAsignar(null);
+      cargarAsignaciones();
+    } catch (error) {
+      console.error('Error al asignar:', error);
+      alert(error.response?.data?.detail || 'Error al asignar item');
+    } finally {
+      setLoadingAsignacion(false);
+    }
+  };
+
+  const handleDesasignar = async (asignacionIds) => {
+    if (!window.confirm(`¿Desasignar ${asignacionIds.length} asignación(es)?`)) return;
+
+    try {
+      await axios.post(
+        `${API_URL}/api/asignaciones/desasignar`,
+        { asignacion_ids: asignacionIds },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      cargarAsignaciones();
+    } catch (error) {
+      console.error('Error al desasignar:', error);
+      alert(error.response?.data?.detail || 'Error al desasignar');
+    }
+  };
+
+  const handleAsignarMasivo = () => {
+    if (itemsSeleccionados.size === 0) return;
+    setUsuarioDestinoId('');
+    setNotasAsignacion('');
+    setShowAsignarMasivoModal(true);
+  };
+
+  const confirmarAsignarMasivo = async () => {
+    if (itemsSeleccionados.size === 0) return;
+
+    setLoadingAsignacion(true);
+    try {
+      const items = [];
+      for (const itemId of itemsSeleccionados) {
+        const item = itemsSinMLA.find(i => i.item_id === itemId);
+        if (item) {
+          items.push({
+            item_id: item.item_id,
+            listas: item.listas_sin_mla, // Asignar TODAS las listas faltantes
+            listas_sin_mla: item.listas_sin_mla,
+          });
+        }
+      }
+
+      await axios.post(
+        `${API_URL}/api/asignaciones/asignar-masivo`,
+        {
+          items,
+          usuario_id: usuarioDestinoId ? parseInt(usuarioDestinoId) : null,
+          notas: notasAsignacion || null,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setShowAsignarMasivoModal(false);
+      setItemsSeleccionados(new Set());
+      setUltimoSeleccionado(null);
+      cargarAsignaciones();
+    } catch (error) {
+      console.error('Error al asignar masivo:', error);
+      alert(error.response?.data?.detail || 'Error al asignar masivamente');
+    } finally {
+      setLoadingAsignacion(false);
+    }
+  };
+
+  const formatFechaHora = (isoString) => {
+    if (!isoString) return '-';
+    const fecha = new Date(isoString);
+    return fecha.toLocaleDateString('es-AR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+  };
 
   const cargarListasPrecio = async () => {
     try {
@@ -148,6 +333,13 @@ const ItemsSinMLA = () => {
         const maxId = Math.max(...itemsFiltrados.map(i => i.item_id));
         const umbral = maxId * 0.95;
         itemsFiltrados = itemsFiltrados.filter(item => item.item_id >= umbral);
+      }
+
+      // Filtro sin ninguna publicación (no tiene en NINGUNA lista)
+      if (sinPublicaciones) {
+        itemsFiltrados = itemsFiltrados.filter(item =>
+          !item.listas_con_mla || item.listas_con_mla.length === 0
+        );
       }
 
       setItemsSinMLA(itemsFiltrados);
@@ -505,12 +697,13 @@ const ItemsSinMLA = () => {
     setListaPrecioFiltro('');
     setConStock(null);
     setSoloNuevos(false);
+    setSinPublicaciones(false);
     setPanelMarcasAbierto(false);
   };
 
   useEffect(() => {
     cargarItemsSinMLA();
-  }, [marcasSeleccionadas, busqueda, listaPrecioFiltro, conStock, soloNuevos]);
+  }, [marcasSeleccionadas, busqueda, listaPrecioFiltro, conStock, soloNuevos, sinPublicaciones]);
 
   const handleSort = (columna, event) => {
     const shiftPressed = event?.shiftKey;
@@ -747,7 +940,7 @@ const ItemsSinMLA = () => {
   return (
     <div className="items-sin-mla-container">
       <div className="page-header">
-        <h1>📋 Items sin MLA</h1>
+        <h1>{Icon.clipboard(22)} Items sin MLA</h1>
         <p className="page-description">
           Gestión de productos sin publicación en MercadoLibre
         </p>
@@ -760,7 +953,7 @@ const ItemsSinMLA = () => {
             className={`tab-button ${activeTab === 'sin-mla' ? 'active' : ''}`}
             onClick={() => setActiveTab('sin-mla')}
           >
-            🔍 Sin MLA ({itemsSinMLA.length})
+            {Icon.search(14)} Sin MLA ({itemsSinMLA.length})
           </button>
         )}
         {(tienePermiso('admin.gestionar_items_sin_mla_banlist') || tienePermiso('admin.gestionar_comparacion_banlist')) && (
@@ -768,7 +961,7 @@ const ItemsSinMLA = () => {
             className={`tab-button ${activeTab === 'banlist' ? 'active' : ''}`}
             onClick={() => setActiveTab('banlist')}
           >
-            🚫 Banlist
+            {Icon.ban(14)} Banlist
           </button>
         )}
         {tienePermiso('admin.ver_comparacion_listas_ml') && (
@@ -776,7 +969,7 @@ const ItemsSinMLA = () => {
             className={`tab-button ${activeTab === 'comparacion' ? 'active' : ''}`}
             onClick={() => setActiveTab('comparacion')}
           >
-            📊 Comparación Listas ({itemsComparacion.length})
+            {Icon.barChart(14)} Comparación Listas ({itemsComparacion.length})
           </button>
         )}
       </div>
@@ -787,7 +980,7 @@ const ItemsSinMLA = () => {
           {/* Filtros */}
           <div className="filters-section">
             <div className="filter-group">
-              <label>🔎 Buscar:</label>
+              <label>{Icon.search(13)} Buscar:</label>
               <input
                 type="text"
                 placeholder="Código o descripción"
@@ -798,7 +991,7 @@ const ItemsSinMLA = () => {
             </div>
 
             <div className="filter-group marcas-filter-container" style={{position: 'relative'}}>
-              <label>🏷️ Marca:</label>
+              <label>{Icon.tag(13)} Marca:</label>
               <button
                 onClick={() => setPanelMarcasAbierto(!panelMarcasAbierto)}
                 className={`filter-button-dropdown ${marcasSeleccionadas.length > 0 ? 'active' : ''}`}
@@ -858,7 +1051,7 @@ const ItemsSinMLA = () => {
             </div>
 
             <div className="filter-group">
-              <label>💰 Lista faltante:</label>
+              <label>{Icon.dollar(13)} Lista faltante:</label>
               <select
                 value={listaPrecioFiltro}
                 onChange={(e) => setListaPrecioFiltro(e.target.value)}
@@ -874,7 +1067,7 @@ const ItemsSinMLA = () => {
             </div>
 
             <div className="filter-group">
-              <label>📦 Stock:</label>
+              <label>{Icon.box(13)} Stock:</label>
               <select
                 value={conStock === null ? '' : conStock.toString()}
                 onChange={(e) => {
@@ -897,22 +1090,91 @@ const ItemsSinMLA = () => {
                   onChange={(e) => setSoloNuevos(e.target.checked)}
                   style={{marginRight: '6px', cursor: 'pointer'}}
                 />
-                ✨ Solo nuevos
+                {Icon.sparkle(13)} Solo nuevos
+              </label>
+            </div>
+
+            <div className="filter-group">
+              <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
+                <input
+                  type="checkbox"
+                  checked={sinPublicaciones}
+                  onChange={(e) => setSinPublicaciones(e.target.checked)}
+                  style={{marginRight: '6px', cursor: 'pointer'}}
+                />
+                {Icon.alertCircle(13)} Sin publicaciones
               </label>
             </div>
 
             <button onClick={limpiarFiltros} className="btn-limpiar">
-              🗑️ Limpiar
+              {Icon.trash(13)} Limpiar
             </button>
           </div>
+
+          {/* Filtros de asignación */}
+          {(tienePermiso('admin.asignar_items_sin_mla') || tienePermiso('admin.gestionar_asignaciones')) && (
+            <div className="filters-section asignacion-filters">
+              <div className="filter-group">
+                <label>{Icon.pin(13)} Estado asignación:</label>
+                <select
+                  value={filtroEstadoAsignacion}
+                  onChange={(e) => setFiltroEstadoAsignacion(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="">Todos</option>
+                  <option value="asignado">Asignados</option>
+                  <option value="sin-asignar">Sin asignar</option>
+                </select>
+              </div>
+
+              {filtroEstadoAsignacion === 'asignado' && (
+                <>
+                  <div className="filter-group">
+                    <label>{Icon.user(13)} Asignado a:</label>
+                    <select
+                      value={filtroAsignadoA}
+                      onChange={(e) => setFiltroAsignadoA(e.target.value)}
+                      className="filter-select"
+                    >
+                      <option value="">Todos</option>
+                      {usuariosAsignables.map(u => (
+                        <option key={u.id} value={u.id}>{u.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="filter-group">
+                    <label>{Icon.edit(13)} Asignado por:</label>
+                    <select
+                      value={filtroAsignadoPor}
+                      onChange={(e) => setFiltroAsignadoPor(e.target.value)}
+                      className="filter-select"
+                    >
+                      <option value="">Todos</option>
+                      {usuariosAsignables.map(u => (
+                        <option key={u.id} value={u.id}>{u.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Barra de acciones para multi-selección */}
           {itemsSeleccionados.size > 0 && (
             <div className="seleccion-bar">
               <span>{itemsSeleccionados.size} item(s) seleccionado(s)</span>
-              <button onClick={banearSeleccionados} className="btn-banear-seleccionados">
-                🚫 Banear seleccionados
-              </button>
+              <div className="seleccion-bar-actions">
+                {(tienePermiso('admin.asignar_items_sin_mla') || tienePermiso('admin.gestionar_asignaciones')) && (
+                  <button onClick={handleAsignarMasivo} className="btn-asignar-seleccionados">
+                    {Icon.pin(14)} Asignar seleccionados
+                  </button>
+                )}
+                <button onClick={banearSeleccionados} className="btn-banear-seleccionados">
+                  {Icon.ban(14)} Banear seleccionados
+                </button>
+              </div>
             </div>
           )}
 
@@ -952,69 +1214,140 @@ const ItemsSinMLA = () => {
                     <th className="sortable" onClick={(e) => handleSort('listas_con_mla', e)}>
                       Tiene en {getIconoOrden('listas_con_mla')} {getNumeroOrden('listas_con_mla') && <span className="orden-numero">{getNumeroOrden('listas_con_mla')}</span>}
                     </th>
+                    <th>Asignación</th>
                     <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {itemsSinMLA.length === 0 ? (
-                    <tr>
-                      <td colSpan="9" className="no-data">
-                        No hay items sin MLA con los filtros aplicados
-                      </td>
-                    </tr>
-                  ) : (
-                    sortedItems(itemsSinMLA).map((item) => (
-                      <tr
-                        key={item.item_id}
-                        className={itemsSeleccionados.has(item.item_id) ? 'fila-seleccionada' : ''}
-                      >
-                        <td className="checkbox-col">
-                          <input
-                            type="checkbox"
-                            checked={itemsSeleccionados.has(item.item_id)}
-                            onChange={(e) => handleSeleccionarItem(item.item_id, e)}
-                          />
-                        </td>
-                        <td>{item.item_id}</td>
-                        <td>{item.codigo}</td>
-                        <td className="descripcion-cell">
-                          {esItemNuevo(item.item_id) && <span className="badge-nuevo">NUEVO</span>}
-                          {item.descripcion}
-                        </td>
-                        <td>{item.marca}</td>
-                        <td className={item.stock > 0 ? 'stock-positive' : 'stock-zero'}>
-                          {item.stock}
-                        </td>
-                        <td className="listas-cell">
-                          {item.listas_sin_mla && item.listas_sin_mla.length > 0 ? (
-                            <div className="listas-badges">
-                              {item.listas_sin_mla.map((lista, idx) => (
-                                <span key={idx} className="badge badge-error">{lista}</span>
-                              ))}
-                            </div>
-                          ) : '-'}
-                        </td>
-                        <td className="listas-cell">
-                          {item.listas_con_mla && item.listas_con_mla.length > 0 ? (
-                            <div className="listas-badges">
-                              {item.listas_con_mla.map((lista, idx) => (
-                                <span key={idx} className="badge badge-success">{lista}</span>
-                              ))}
-                            </div>
-                          ) : '-'}
-                        </td>
-                        <td>
-                          <button
-                            onClick={() => handleBanear(item)}
-                            className="btn-banear"
-                            title="Agregar a banlist"
-                          >
-                            🚫 Banear
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                  {(() => {
+                    // Aplicar filtros de asignación sobre los items
+                    let itemsFiltrados = sortedItems(itemsSinMLA);
+
+                    if (filtroEstadoAsignacion === 'asignado') {
+                      itemsFiltrados = itemsFiltrados.filter(item => {
+                        const asigs = getAsignacionesItem(item.item_id);
+                        if (asigs.length === 0) return false;
+                        if (filtroAsignadoA && !asigs.some(a => a.usuario_id === parseInt(filtroAsignadoA))) return false;
+                        if (filtroAsignadoPor && !asigs.some(a => a.asignado_por_id === parseInt(filtroAsignadoPor))) return false;
+                        return true;
+                      });
+                    } else if (filtroEstadoAsignacion === 'sin-asignar') {
+                      itemsFiltrados = itemsFiltrados.filter(item => getAsignacionesItem(item.item_id).length === 0);
+                    }
+
+                    if (itemsFiltrados.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan="11" className="no-data">
+                            No hay items sin MLA con los filtros aplicados
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return itemsFiltrados.map((item) => {
+                      const asignacionesItem = getAsignacionesItem(item.item_id);
+                      const tieneAsignacion = asignacionesItem.length > 0;
+
+                      return (
+                        <tr
+                          key={item.item_id}
+                          className={`${itemsSeleccionados.has(item.item_id) ? 'fila-seleccionada' : ''} ${tieneAsignacion ? 'fila-asignada' : ''}`}
+                        >
+                          <td className="checkbox-col">
+                            <input
+                              type="checkbox"
+                              checked={itemsSeleccionados.has(item.item_id)}
+                              onChange={(e) => handleSeleccionarItem(item.item_id, e)}
+                            />
+                          </td>
+                          <td>{item.item_id}</td>
+                          <td>{item.codigo}</td>
+                          <td className="descripcion-cell">
+                            {esItemNuevo(item.item_id) && <span className="badge-nuevo">NUEVO</span>}
+                            {item.descripcion}
+                          </td>
+                          <td>{item.marca}</td>
+                          <td className={item.stock > 0 ? 'stock-positive' : 'stock-zero'}>
+                            {item.stock}
+                          </td>
+                          <td className="listas-cell">
+                            {item.listas_sin_mla && item.listas_sin_mla.length > 0 ? (
+                              <div className="listas-badges">
+                                {item.listas_sin_mla.map((lista, idx) => {
+                                  const asigLista = asignacionesItem.find(a => a.subtipo === lista);
+                                  return (
+                                    <span
+                                      key={idx}
+                                      className={`badge ${asigLista ? 'badge-asignada' : 'badge-error'}`}
+                                      title={asigLista ? `Asignado a ${asigLista.usuario_nombre} por ${asigLista.asignado_por_nombre} - ${formatFechaHora(asigLista.fecha_asignacion)}` : ''}
+                                    >
+                                      {asigLista && Icon.pin(11)}{lista}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            ) : '-'}
+                          </td>
+                          <td className="listas-cell">
+                            {item.listas_con_mla && item.listas_con_mla.length > 0 ? (
+                              <div className="listas-badges">
+                                {item.listas_con_mla.map((lista, idx) => (
+                                  <span key={idx} className="badge badge-success">{lista}</span>
+                                ))}
+                              </div>
+                            ) : '-'}
+                          </td>
+                          <td className="asignacion-cell">
+                            {tieneAsignacion ? (
+                              <div className="asignacion-info">
+                                {asignacionesItem.map(a => (
+                                  <div key={a.id} className="asignacion-detalle">
+                                    <span className="asignacion-usuario" title={`Asignado por ${a.asignado_por_nombre}`}>
+                                      {Icon.user(12)} {a.usuario_nombre}
+                                    </span>
+                                    <span className="asignacion-fecha">
+                                      {formatFechaHora(a.fecha_asignacion)}
+                                    </span>
+                                    <span className="asignacion-por" title="Asignado por">
+                                      {Icon.edit(11)} {a.asignado_por_nombre}
+                                    </span>
+                                    <button
+                                      onClick={() => handleDesasignar([a.id])}
+                                      className="btn-desasignar-mini"
+                                      title="Desasignar"
+                                    >
+                                      {Icon.x(12)}
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="sin-asignar">—</span>
+                            )}
+                          </td>
+                          <td className="acciones-cell">
+                            {(tienePermiso('admin.asignar_items_sin_mla') || tienePermiso('admin.gestionar_asignaciones')) && (
+                              <button
+                                onClick={() => handleAsignar(item)}
+                                className="btn-asignar"
+                                title="Asignar listas"
+                              >
+                                {Icon.pin(12)} Asignar
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleBanear(item)}
+                              className="btn-banear"
+                              title="Agregar a banlist"
+                            >
+                              {Icon.ban(12)} Banear
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -1032,7 +1365,7 @@ const ItemsSinMLA = () => {
                 className={`banlist-selector-btn ${banlistActiva === 'items-sin-mla' ? 'active' : ''}`}
                 onClick={() => { setBanlistActiva('items-sin-mla'); setOrdenColumnas([]); }}
               >
-                🔍 Items sin MLA ({itemsBaneados.length})
+                {Icon.search(14)} Items sin MLA ({itemsBaneados.length})
               </button>
             )}
             {tienePermiso('admin.gestionar_comparacion_banlist') && (
@@ -1040,7 +1373,7 @@ const ItemsSinMLA = () => {
                 className={`banlist-selector-btn ${banlistActiva === 'comparacion' ? 'active' : ''}`}
                 onClick={() => { setBanlistActiva('comparacion'); setOrdenColumnas([]); }}
               >
-                📊 Comparación ({comparacionBaneados.length})
+                {Icon.barChart(14)} Comparación ({comparacionBaneados.length})
               </button>
             )}
           </div>
@@ -1055,7 +1388,7 @@ const ItemsSinMLA = () => {
               {/* Filtros */}
               <div className="filters-section">
                 <div className="filter-group">
-                  <label>🔎 Buscar:</label>
+                  <label>{Icon.search(13)} Buscar:</label>
                   <input
                     type="text"
                     placeholder="Código o descripción"
@@ -1066,7 +1399,7 @@ const ItemsSinMLA = () => {
                 </div>
 
                 <div className="filter-group marcas-filter-container" style={{position: 'relative'}}>
-                  <label>🏷️ Marca:</label>
+                  <label>{Icon.tag(13)} Marca:</label>
                   <button
                     onClick={() => setPanelMarcasAbiertoBanlist(!panelMarcasAbiertoBanlist)}
                     className={`filter-button-dropdown ${marcasSeleccionadasBanlist.length > 0 ? 'active' : ''}`}
@@ -1133,12 +1466,12 @@ const ItemsSinMLA = () => {
                       onChange={(e) => setSoloNuevosBanlist(e.target.checked)}
                       style={{marginRight: '6px', cursor: 'pointer'}}
                     />
-                    ✨ Solo nuevos
+                    {Icon.sparkle(13)} Solo nuevos
                   </label>
                 </div>
 
                 <button onClick={limpiarFiltrosBanlist} className="btn-limpiar">
-                  🗑️ Limpiar
+                  {Icon.trash(13)} Limpiar
                 </button>
               </div>
 
@@ -1147,7 +1480,7 @@ const ItemsSinMLA = () => {
                 <div className="seleccion-bar">
                   <span>{baneadosSeleccionados.size} item(s) seleccionado(s)</span>
                   <button onClick={desbanearSeleccionados} className="btn-desbanear-seleccionados">
-                    ✅ Desbanear seleccionados
+                    {Icon.checkCircle(14)} Desbanear seleccionados
                   </button>
                 </div>
               )}
@@ -1226,7 +1559,7 @@ const ItemsSinMLA = () => {
                                 className="btn-desbanear"
                                 title="Quitar de banlist"
                               >
-                                ✅ Desbanear
+                                {Icon.checkCircle(12)} Desbanear
                               </button>
                             </td>
                           </tr>
@@ -1249,7 +1582,7 @@ const ItemsSinMLA = () => {
               {/* Filtros */}
               <div className="filters-section">
                 <div className="filter-group">
-                  <label>🔎 Buscar:</label>
+                  <label>{Icon.search(13)} Buscar:</label>
                   <input
                     type="text"
                     placeholder="MLA ID, código o descripción"
@@ -1265,7 +1598,7 @@ const ItemsSinMLA = () => {
                 <div className="seleccion-bar">
                   <span>{comparacionBaneadosSeleccionados.size} publicación(es) seleccionada(s)</span>
                   <button onClick={desbanearComparacionSeleccionados} className="btn-desbanear-seleccionados">
-                    ✅ Desbanear seleccionados
+                    {Icon.checkCircle(14)} Desbanear seleccionados
                   </button>
                 </div>
               )}
@@ -1347,7 +1680,7 @@ const ItemsSinMLA = () => {
                                 className="btn-desbanear"
                                 title="Quitar de banlist"
                               >
-                                ✅ Desbanear
+                                {Icon.checkCircle(12)} Desbanear
                               </button>
                             </td>
                           </tr>
@@ -1370,7 +1703,7 @@ const ItemsSinMLA = () => {
             <div className="seleccion-bar">
               <span>{comparacionSeleccionados.size} publicación(es) seleccionada(s)</span>
               <button onClick={banearComparacionSeleccionados} className="btn-banear-seleccionados">
-                🚫 Banear seleccionados
+                {Icon.ban(14)} Banear seleccionados
               </button>
             </div>
           )}
@@ -1475,7 +1808,7 @@ const ItemsSinMLA = () => {
                               className="btn-banear"
                               title="Agregar a banlist"
                             >
-                              🚫 Banear
+                              {Icon.ban(12)} Banear
                             </button>
                           </td>
                         )}
@@ -1493,7 +1826,7 @@ const ItemsSinMLA = () => {
       {showMotivoModal && (
         <div className="modal-overlay" onClick={() => setShowMotivoModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>🚫 Agregar a Banlist</h3>
+            <h3>{Icon.ban(18)} Agregar a Banlist</h3>
             <p>
               <strong>Item:</strong> {itemSeleccionado?.item_id} - {itemSeleccionado?.descripcion}
             </p>
@@ -1519,11 +1852,153 @@ const ItemsSinMLA = () => {
         </div>
       )}
 
+      {/* Modal de asignación individual */}
+      {showAsignarModal && itemParaAsignar && (
+        <div className="modal-overlay" onClick={() => setShowAsignarModal(false)}>
+          <div className="modal-content modal-asignacion" onClick={(e) => e.stopPropagation()}>
+            <h3>{Icon.pin(18)} Asignar Item</h3>
+            <p>
+              <strong>Item:</strong> {itemParaAsignar.item_id} - {itemParaAsignar.descripcion}
+            </p>
+            <p>
+              <strong>Marca:</strong> {itemParaAsignar.marca}
+            </p>
+
+            <div className="form-group">
+              <label>Seleccionar listas a asignar:</label>
+              <div className="listas-checkboxes">
+                {itemParaAsignar.listas_sin_mla.map((lista) => {
+                  const yaAsignada = asignaciones.some(
+                    a => a.referencia_id === itemParaAsignar.item_id && a.subtipo === lista
+                  );
+                  return (
+                    <label key={lista} className={`lista-checkbox ${yaAsignada ? 'lista-ya-asignada' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={listasParaAsignar.includes(lista)}
+                        disabled={yaAsignada}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setListasParaAsignar([...listasParaAsignar, lista]);
+                          } else {
+                            setListasParaAsignar(listasParaAsignar.filter(l => l !== lista));
+                          }
+                        }}
+                      />
+                      <span className={`badge ${yaAsignada ? 'badge-asignada' : 'badge-error'}`}>
+                        {lista}
+                      </span>
+                      {yaAsignada && (
+                        <span className="ya-asignada-label">
+                          (asignado a {asignaciones.find(a => a.referencia_id === itemParaAsignar.item_id && a.subtipo === lista)?.usuario_nombre})
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {tienePermiso('admin.gestionar_asignaciones') && (
+              <div className="form-group">
+                <label>Asignar a:</label>
+                <select
+                  value={usuarioDestinoId}
+                  onChange={(e) => setUsuarioDestinoId(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="">A mí mismo</option>
+                  {usuariosAsignables.map(u => (
+                    <option key={u.id} value={u.id}>{u.nombre}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>Notas (opcional):</label>
+              <textarea
+                value={notasAsignacion}
+                onChange={(e) => setNotasAsignacion(e.target.value)}
+                placeholder="Ej: Prioridad alta, producto nuevo, etc."
+                rows="3"
+                className="motivo-textarea"
+              />
+            </div>
+
+            <div className="modal-actions">
+              <button
+                onClick={confirmarAsignar}
+                className="btn-confirmar"
+                disabled={listasParaAsignar.length === 0 || loadingAsignacion}
+              >
+                {loadingAsignacion ? 'Asignando...' : `Asignar ${listasParaAsignar.length} lista(s)`}
+              </button>
+              <button onClick={() => setShowAsignarModal(false)} className="btn-cancelar">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de asignación masiva */}
+      {showAsignarMasivoModal && (
+        <div className="modal-overlay" onClick={() => setShowAsignarMasivoModal(false)}>
+          <div className="modal-content modal-asignacion" onClick={(e) => e.stopPropagation()}>
+            <h3>{Icon.pin(18)} Asignar {itemsSeleccionados.size} Items</h3>
+            <p className="tab-description">
+              Se asignarán TODAS las listas faltantes de cada item seleccionado.
+            </p>
+
+            {tienePermiso('admin.gestionar_asignaciones') && (
+              <div className="form-group">
+                <label>Asignar a:</label>
+                <select
+                  value={usuarioDestinoId}
+                  onChange={(e) => setUsuarioDestinoId(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="">A mí mismo</option>
+                  {usuariosAsignables.map(u => (
+                    <option key={u.id} value={u.id}>{u.nombre}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>Notas (opcional):</label>
+              <textarea
+                value={notasAsignacion}
+                onChange={(e) => setNotasAsignacion(e.target.value)}
+                placeholder="Ej: Lote para publicar esta semana"
+                rows="3"
+                className="motivo-textarea"
+              />
+            </div>
+
+            <div className="modal-actions">
+              <button
+                onClick={confirmarAsignarMasivo}
+                className="btn-confirmar"
+                disabled={loadingAsignacion}
+              >
+                {loadingAsignacion ? 'Asignando...' : `Asignar ${itemsSeleccionados.size} item(s)`}
+              </button>
+              <button onClick={() => setShowAsignarMasivoModal(false)} className="btn-cancelar">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal para agregar motivo al banear (comparación) */}
       {showComparacionMotivoModal && (
         <div className="modal-overlay" onClick={() => setShowComparacionMotivoModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>🚫 Banear de Comparación</h3>
+            <h3>{Icon.ban(18)} Banear de Comparación</h3>
             <p>
               <strong>MLA:</strong> {comparacionItemSeleccionado?.mla_id}
             </p>

@@ -442,11 +442,26 @@ PERMISOS_SISTEMA = [
         "orden": 62
     },
     {
+        "codigo": "admin.asignar_items_sin_mla",
+        "nombre": "Asignarse items sin MLA",
+        "descripcion": "Auto-asignarse items sin MLA para trabajar en sus publicaciones faltantes",
+        "categoria": CategoriaPermiso.ADMINISTRACION,
+        "orden": 63
+    },
+    {
+        "codigo": "admin.gestionar_asignaciones",
+        "nombre": "Gestionar asignaciones",
+        "descripcion": "Asignar/desasignar items sin MLA a cualquier usuario (no solo a uno mismo)",
+        "categoria": CategoriaPermiso.ADMINISTRACION,
+        "orden": 64,
+        "es_critico": True
+    },
+    {
         "codigo": "produccion.marcar_prearmado",
         "nombre": "Marcar productos pre-armados",
         "descripcion": "Marcar/desmarcar productos que están siendo pre-armados en producción",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 63
+        "orden": 65
     },
 
     # =========================================================================
@@ -560,6 +575,8 @@ PERMISOS_POR_ROL = {
         "admin.gestionar_items_sin_mla_banlist",
         "admin.ver_comparacion_listas_ml",
         "admin.gestionar_comparacion_banlist",
+        "admin.asignar_items_sin_mla",
+        "admin.gestionar_asignaciones",
         "produccion.marcar_prearmado",
         "config.*",
         "alertas.*",
@@ -587,6 +604,7 @@ PERMISOS_POR_ROL = {
         "reportes.exportar",
         "admin.ver_items_sin_mla",
         "admin.ver_comparacion_listas_ml",
+        "admin.asignar_items_sin_mla",
         "config.ver_comisiones",
         "config.ver_constantes",
         "config.ver_tipo_cambio",

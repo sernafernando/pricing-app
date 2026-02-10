@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import asyncio
-from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, producto_banlist, ventas_ml, ventas_fuera_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog, tienda_nube, gbp_parser, notificaciones, offsets_ganancia, rentabilidad, rentabilidad_fuera, vendedores_excluidos, ventas_tienda_nube, rentabilidad_tienda_nube, permisos, markups_tienda, roles, pedidos_preparacion, clientes, pedidos_export, usuarios_erp, pedidos_export_v2, pedidos_export_simple, produccion_banlist, turbo_routing, pedidos_export_local, sale_order_status
+from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, producto_banlist, ventas_ml, ventas_fuera_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog, tienda_nube, gbp_parser, notificaciones, offsets_ganancia, rentabilidad, rentabilidad_fuera, vendedores_excluidos, ventas_tienda_nube, rentabilidad_tienda_nube, permisos, markups_tienda, roles, pedidos_preparacion, clientes, pedidos_export, usuarios_erp, pedidos_export_v2, pedidos_export_simple, produccion_banlist, turbo_routing, pedidos_export_local, sale_order_status, asignaciones
 from app.routers import alertas
 
 # Variable global para controlar la tarea de background
@@ -70,6 +70,7 @@ app.include_router(usuarios_erp.router, prefix="/api", tags=["usuarios-erp"])
 app.include_router(produccion_banlist.router, prefix="/api", tags=["produccion-banlist"])
 app.include_router(turbo_routing.router, prefix="/api", tags=["turbo-routing"])
 app.include_router(alertas.router, prefix="/api", tags=["alertas"])
+app.include_router(asignaciones.router, prefix="/api/asignaciones", tags=["asignaciones"])
 
 @app.get("/")
 async def root():
