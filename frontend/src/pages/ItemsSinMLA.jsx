@@ -164,7 +164,7 @@ const ItemsSinMLA = () => {
 
   const cargarAsignaciones = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/asignaciones/items-sin-mla`, {
+      const response = await axios.get(`${API_URL}/asignaciones/items-sin-mla`, {
         headers: { Authorization: `Bearer ${token}` },
         params: { estado: 'pendiente' }
       });
@@ -176,7 +176,7 @@ const ItemsSinMLA = () => {
 
   const cargarUsuariosAsignables = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/asignaciones/usuarios-asignables`, {
+      const response = await axios.get(`${API_URL}/asignaciones/usuarios-asignables`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setUsuariosAsignables(response.data);
@@ -204,7 +204,7 @@ const ItemsSinMLA = () => {
     setLoadingAsignacion(true);
     try {
       await axios.post(
-        `${API_URL}/api/asignaciones/asignar`,
+        `${API_URL}/asignaciones/asignar`,
         {
           item_id: itemParaAsignar.item_id,
           listas: listasParaAsignar,
@@ -231,7 +231,7 @@ const ItemsSinMLA = () => {
 
     try {
       await axios.post(
-        `${API_URL}/api/asignaciones/desasignar`,
+        `${API_URL}/asignaciones/desasignar`,
         { asignacion_ids: asignacionIds },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -267,7 +267,7 @@ const ItemsSinMLA = () => {
       }
 
       await axios.post(
-        `${API_URL}/api/asignaciones/asignar-masivo`,
+        `${API_URL}/asignaciones/asignar-masivo`,
         {
           items,
           usuario_id: usuarioDestinoId ? parseInt(usuarioDestinoId) : null,
