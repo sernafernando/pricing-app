@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -8,6 +8,9 @@ from app.core.security import decode_token
 from app.models.usuario import Usuario, RolUsuario
 
 security = HTTPBearer()
+security_optional = HTTPBearer(auto_error=False)
+
+LOCALHOST_IPS = {"127.0.0.1", "::1", "localhost"}
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -76,3 +79,70 @@ async def get_current_pricing_manager(current_user: Usuario = Depends(get_curren
             detail="Necesitas permisos de pricing manager"
         )
     return current_user
+
+
+async def get_user_or_localhost(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
+    db: Session = Depends(get_db)
+) -> Optional[Usuario]:
+    """
+    Permite acceso sin auth desde localhost (scripts internos/crons).
+    Desde cualquier otra IP, requiere JWT válido.
+    
+    Retorna el Usuario autenticado o None si es localhost sin token.
+    """
+    client_ip = request.client.host if request.client else None
+    
+    if client_ip in LOCALHOST_IPS:
+        # Localhost: si trae token lo validamos, si no, pasá igual
+        if credentials:
+            payload = decode_token(credentials.credentials)
+            if payload:
+                username: str = payload.get("sub")
+                if username:
+                    usuario = db.query(Usuario).filter(
+                        (Usuario.username == username) | (Usuario.email == username)
+                    ).first()
+                    if usuario and usuario.activo:
+                        return usuario
+        return None
+    
+    # No es localhost: JWT obligatorio
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token requerido"
+        )
+    
+    payload = decode_token(credentials.credentials)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado"
+        )
+    
+    username: str = payload.get("sub")
+    if username is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido"
+        )
+    
+    usuario = db.query(Usuario).filter(
+        (Usuario.username == username) | (Usuario.email == username)
+    ).first()
+    
+    if usuario is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuario no encontrado"
+        )
+    
+    if not usuario.activo:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuario inactivo"
+        )
+    
+    return usuario
