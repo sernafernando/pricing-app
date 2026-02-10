@@ -1296,6 +1296,7 @@ const ItemsSinMLA = () => {
                               <div className="asignacion-info">
                                 {asignacionesItem.map(a => (
                                   <div key={a.id} className="asignacion-detalle">
+                                    <span className="badge badge-asignada">{a.subtipo}</span>
                                     <span className="asignacion-usuario" title={`Asignado por ${a.asignado_por_nombre}`}>
                                       {Icon.user(12)} {a.usuario_nombre}
                                     </span>
