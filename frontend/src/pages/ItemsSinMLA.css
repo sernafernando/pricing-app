@@ -886,6 +886,24 @@
   flex-shrink: 0;
 }
 
+.lista-checkbox input[type="checkbox"]:checked {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: var(--error) !important;
+}
+
+.lista-checkbox input[type="checkbox"]:checked::after {
+  border-color: var(--error) !important;
+}
+
+:root[data-theme="light"] .lista-checkbox input[type="checkbox"]:checked {
+  background: rgba(227, 25, 55, 0.1) !important;
+  border-color: var(--error) !important;
+}
+
+:root[data-theme="light"] .lista-checkbox input[type="checkbox"]:checked::after {
+  border-color: var(--error) !important;
+}
+
 .lista-ya-asignada {
   opacity: 0.6;
   cursor: not-allowed;
