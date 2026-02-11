@@ -204,6 +204,7 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
                 fecha_venta=fecha_venta,
                 comision_base_porcentaje=comision_base_porcentaje,
                 db_session=db,
+                ml_logistic_type=tipo_logistica,
             )
 
             monto_limpio = metricas["monto_limpio"]
