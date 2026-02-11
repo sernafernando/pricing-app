@@ -23,6 +23,7 @@ export default function PanelConstantesPricing() {
     markup_adicional_cuotas: 4.0,
     comision_tienda_nube: 1.0,
     comision_tienda_nube_tarjeta: 3.0,
+    offset_flex: '',
     fecha_desde: new Date().toISOString().split('T')[0]
   });
 
@@ -54,6 +55,7 @@ export default function PanelConstantesPricing() {
 
     setNuevaVersion({
       ...constanteActual,
+      offset_flex: constanteActual.offset_flex ?? '',
       fecha_desde: new Date().toISOString().split('T')[0]
     });
   };
@@ -67,7 +69,11 @@ export default function PanelConstantesPricing() {
     try {
       setCargando(true);
 
-      await api.post('/pricing-constants', nuevaVersion);
+      const payload = {
+        ...nuevaVersion,
+        offset_flex: nuevaVersion.offset_flex === '' ? null : nuevaVersion.offset_flex,
+      };
+      await api.post('/pricing-constants', payload);
 
       alert('Nueva versión de constantes creada correctamente');
       setMostrarFormNuevaVersion(false);
@@ -170,6 +176,14 @@ export default function PanelConstantesPricing() {
             <div className="constante-item">
               <label>Markup Adicional Cuotas (%):</label>
               <span>{constanteActual.markup_adicional_cuotas}%</span>
+            </div>
+          </div>
+
+          <h4 style={{marginTop: '20px', marginBottom: '10px'}}>Otros Parámetros</h4>
+          <div className="constantes-grid">
+            <div className="constante-item">
+              <label>Offset Flex ($):</label>
+              <span>{constanteActual.offset_flex != null ? `$${Number(constanteActual.offset_flex).toLocaleString('es-AR')}` : 'Sin asignar'}</span>
             </div>
           </div>
 
@@ -294,6 +308,16 @@ export default function PanelConstantesPricing() {
                     onChange={e => setNuevaVersion({...nuevaVersion, markup_adicional_cuotas: parseFloat(e.target.value)})}
                   />
                 </div>
+                <div className="form-group">
+                  <label>Offset Flex ($):</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={nuevaVersion.offset_flex}
+                    onChange={e => setNuevaVersion({...nuevaVersion, offset_flex: e.target.value === '' ? '' : parseFloat(e.target.value)})}
+                    placeholder="Sin asignar"
+                  />
+                </div>
               </div>
 
               <h4>Comisiones Tienda Nube</h4>
@@ -341,44 +365,81 @@ export default function PanelConstantesPricing() {
       {/* Historial de Versiones */}
       <div className="versiones-historial">
         <h3>Historial de Versiones</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Fecha Desde</th>
-              <th>Fecha Hasta</th>
-              <th>Tier 1</th>
-              <th>Tier 2</th>
-              <th>Tier 3</th>
-              <th>Varios %</th>
-              <th>Markup Cuotas %</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {versiones.map(version => (
-              <tr key={version.id}>
-                <td>{new Date(version.fecha_desde).toLocaleDateString('es-AR')}</td>
-                <td>{version.fecha_hasta ? new Date(version.fecha_hasta).toLocaleDateString('es-AR') : 'Vigente'}</td>
-                <td>${version.monto_tier1?.toLocaleString('es-AR')}</td>
-                <td>${version.monto_tier2?.toLocaleString('es-AR')}</td>
-                <td>${version.monto_tier3?.toLocaleString('es-AR')}</td>
-                <td>{version.varios_porcentaje}%</td>
-                <td>{version.markup_adicional_cuotas}%</td>
-                <td>
-                  {versiones.length > 1 && (
-                    <button
-                      className="btn-tesla outline-subtle-danger sm"
-                      onClick={() => handleEliminarVersion(version.id)}
-                      disabled={cargando}
-                    >
-                      Eliminar
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {versiones.map(version => (
+          <div key={version.id} className="version-card">
+            <div className="version-card-header">
+              <div className="version-fechas">
+                <span className="version-fecha-desde">
+                  Desde: {new Date(version.fecha_desde).toLocaleDateString('es-AR')}
+                </span>
+                <span className="version-fecha-hasta">
+                  Hasta: {version.fecha_hasta ? new Date(version.fecha_hasta).toLocaleDateString('es-AR') : <strong>Vigente</strong>}
+                </span>
+              </div>
+              {versiones.length > 1 && (
+                <button
+                  className="btn-tesla outline-subtle-danger sm"
+                  onClick={() => handleEliminarVersion(version.id)}
+                  disabled={cargando}
+                >
+                  Eliminar
+                </button>
+              )}
+            </div>
+            <div className="version-card-body">
+              <table className="version-detail-table">
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>Tier 1</th>
+                    <th>Tier 2</th>
+                    <th>Tier 3 (envío gratis)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="version-row-label">Monto</td>
+                    <td>${version.monto_tier1?.toLocaleString('es-AR')}</td>
+                    <td>${version.monto_tier2?.toLocaleString('es-AR')}</td>
+                    <td>${version.monto_tier3?.toLocaleString('es-AR')}</td>
+                  </tr>
+                  <tr>
+                    <td className="version-row-label">Comisión</td>
+                    <td>${version.comision_tier1?.toLocaleString('es-AR')}</td>
+                    <td>${version.comision_tier2?.toLocaleString('es-AR')}</td>
+                    <td>${version.comision_tier3?.toLocaleString('es-AR')}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div className="version-params">
+                <div className="version-param">
+                  <span className="version-param-label">Varios</span>
+                  <span className="version-param-value">{version.varios_porcentaje}%</span>
+                </div>
+                <div className="version-param">
+                  <span className="version-param-label">Markup Cuotas</span>
+                  <span className="version-param-value">{version.markup_adicional_cuotas}%</span>
+                </div>
+                <div className="version-param">
+                  <span className="version-param-label">Grupo Comisión</span>
+                  <span className="version-param-value">{version.grupo_comision_default}</span>
+                </div>
+                <div className="version-param">
+                  <span className="version-param-label">Offset Flex</span>
+                  <span className="version-param-value">{version.offset_flex != null ? `$${Number(version.offset_flex).toLocaleString('es-AR')}` : '—'}</span>
+                </div>
+                <div className="version-param">
+                  <span className="version-param-label">TN Efectivo/Transf.</span>
+                  <span className="version-param-value">{version.comision_tienda_nube || 1.0}%</span>
+                </div>
+                <div className="version-param">
+                  <span className="version-param-label">TN Tarjeta</span>
+                  <span className="version-param-value">{version.comision_tienda_nube_tarjeta || 3.0}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
