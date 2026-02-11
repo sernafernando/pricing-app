@@ -1089,6 +1089,13 @@
   color: #d97706;
 }
 
+.offsetFlexVarianza {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #16a34a;
+  vertical-align: super;
+}
+
 /* Responsive para KPIs */
 @media (max-width: 1024px) {
   .kpisContainer {
