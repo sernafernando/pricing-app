@@ -55,6 +55,7 @@ export default function CuentasCorrientes() {
   const [sucursalSeleccionada, setSucursalSeleccionada] = useState('');
   const [exportando, setExportando] = useState(false);
   const [syncedAt, setSyncedAt] = useState(null);
+  const [filtroSaldo, setFiltroSaldo] = useState('todos');
 
   const config = TABS[tab];
 
@@ -124,6 +125,7 @@ export default function CuentasCorrientes() {
     setBuscar('');
     setBuscarInput('');
     setSucursalSeleccionada('');
+    setFiltroSaldo('todos');
     setData([]);
     setSyncedAt(null);
   };
@@ -137,6 +139,7 @@ export default function CuentasCorrientes() {
     setBuscarInput('');
     setBuscar('');
     setSucursalSeleccionada('');
+    setFiltroSaldo('todos');
   };
 
   const exportarExcel = async () => {
@@ -176,8 +179,15 @@ export default function CuentasCorrientes() {
     }).format(monto);
   };
 
+  const dataFiltrada = data.filter((item) => {
+    if (filtroSaldo === 'deuda') return item.pendiente > 0;
+    if (filtroSaldo === 'favor') return item.pendiente < 0;
+    if (filtroSaldo === 'sin_deuda') return item.pendiente === 0;
+    return true;
+  });
+
   const calcularTotales = () => {
-    return data.reduce(
+    return dataFiltrada.reduce(
       (acc, item) => {
         acc.montoTotal += item.monto_total || 0;
         acc.montoAbonado += item.monto_abonado || 0;
@@ -189,7 +199,7 @@ export default function CuentasCorrientes() {
   };
 
   const totales = calcularTotales();
-  const hayFiltrosActivos = buscar || sucursalSeleccionada;
+  const hayFiltrosActivos = buscar || sucursalSeleccionada || filtroSaldo !== 'todos';
 
   return (
     <div className={styles.container}>
@@ -227,6 +237,16 @@ export default function CuentasCorrientes() {
               </option>
             ))}
           </select>
+          <select
+            value={filtroSaldo}
+            onChange={(e) => setFiltroSaldo(e.target.value)}
+            className={styles.selectSucursal}
+          >
+            <option value="todos">Todos los saldos</option>
+            <option value="deuda">Con deuda</option>
+            <option value="favor">A favor</option>
+            <option value="sin_deuda">Sin deuda</option>
+          </select>
           {hayFiltrosActivos && (
             <button
               type="button"
@@ -246,7 +266,7 @@ export default function CuentasCorrientes() {
           <button
             onClick={exportarExcel}
             className="btn-tesla outline-subtle-success sm"
-            disabled={exportando || loading || data.length === 0}
+            disabled={exportando || loading || dataFiltrada.length === 0}
           >
             {exportando ? 'Exportando...' : 'Exportar Excel'}
           </button>
@@ -275,7 +295,7 @@ export default function CuentasCorrientes() {
           <div className={styles.statsCard}>
             <div className={styles.statItem}>
               <div className={styles.statLabel}>{config.countLabel}</div>
-              <div className={styles.statValue}>{data.length}</div>
+              <div className={styles.statValue}>{dataFiltrada.length}</div>
             </div>
             <div className={styles.statItem}>
               <div className={styles.statLabel}>Monto Total</div>
@@ -310,7 +330,7 @@ export default function CuentasCorrientes() {
                 </tr>
               </thead>
               <tbody>
-                {data.length === 0 ? (
+                {dataFiltrada.length === 0 ? (
                   <tr>
                     <td colSpan="6" className={styles.noData}>
                       {syncedAt
@@ -319,7 +339,7 @@ export default function CuentasCorrientes() {
                     </td>
                   </tr>
                 ) : (
-                  data.map((item) => (
+                  dataFiltrada.map((item) => (
                     <tr key={`${item.bra_id}-${item[config.idField]}`}>
                       <td>{item.sucursal}</td>
                       <td className={styles.centrado}>{item[config.idField]}</td>
