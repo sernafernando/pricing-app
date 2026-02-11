@@ -26,6 +26,7 @@ import Notificaciones from './pages/Notificaciones';
 import PedidosPreparacion from './pages/PedidosPreparacion';
 import Clientes from './pages/Clientes';
 import TurboRouting from './pages/TurboRouting';
+import CuentasCorrientes from './pages/CuentasCorrientes';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
@@ -180,6 +181,11 @@ function App() {
             <Route path="/turbo-routing" element={
               <ProtectedRoute permiso="ordenes.gestionar_turbo_routing">
                 <TurboRouting />
+              </ProtectedRoute>
+            } />
+            <Route path="/cuentas-corrientes" element={
+              <ProtectedRoute permiso="reportes.ver_cuentas_corrientes">
+                <CuentasCorrientes />
               </ProtectedRoute>
             } />
           </Route>

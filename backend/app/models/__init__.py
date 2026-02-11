@@ -41,6 +41,8 @@ from app.models.asignacion_turbo import AsignacionTurbo
 from app.models.geocoding_cache import GeocodingCache
 from app.models.alerta import Alerta, AlertaUsuarioDestinatario, AlertaUsuarioEstado, ConfiguracionAlerta
 from app.models.asignacion import Asignacion
+from app.models.cuenta_corriente_proveedor import CuentaCorrienteProveedor
+from app.models.cuenta_corriente_cliente import CuentaCorrienteCliente
 
 __all__ = [
     "ProductoERP",
@@ -98,4 +100,6 @@ __all__ = [
     "AlertaUsuarioEstado",
     "ConfiguracionAlerta",
     "Asignacion",
+    "CuentaCorrienteProveedor",
+    "CuentaCorrienteCliente",
 ]
