@@ -2,7 +2,7 @@
 Modelo para trackear el consumo de grupos de offsets.
 Registra cada venta que consume un offset de grupo con límite.
 """
-from sqlalchemy import Column, Integer, BigInteger, String, Float, DateTime, Date, ForeignKey, Numeric
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, ForeignKey, Numeric
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base

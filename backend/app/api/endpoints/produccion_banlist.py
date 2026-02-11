@@ -3,7 +3,6 @@ Endpoints para gestión de banlist y pre-armado en Producción - Preparación
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
 from typing import List
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime

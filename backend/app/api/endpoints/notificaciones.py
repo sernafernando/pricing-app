@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
-from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, ConfigDict
+from typing import List, Optional
 from datetime import datetime
 from app.api.deps import get_current_user
 from app.core.database import get_db

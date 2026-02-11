@@ -5,7 +5,6 @@ from typing import List, Optional
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.usuario import Usuario
-from app.models.usuario import RolUsuario
 from app.models.rol import Rol
 from passlib.context import CryptContext
 

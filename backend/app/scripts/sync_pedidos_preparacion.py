@@ -62,7 +62,7 @@ def truncate_cache(db: Session):
     # Reiniciar la secuencia del autoincrement
     db.execute(text("ALTER SEQUENCE pedido_preparacion_cache_id_seq RESTART WITH 1"))
     db.commit()
-    print(f"   Tabla truncada correctamente")
+    print("   Tabla truncada correctamente")
 
 
 def insert_cache(db: Session, data: list) -> int:
@@ -99,7 +99,7 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
     """
     # Intentar adquirir el lock - si otro proceso está sincronizando, retorna inmediatamente
     if _sync_lock.locked():
-        print(f"\n⚠️ Ya hay una sincronización en progreso, saltando...")
+        print("\n⚠️ Ya hay una sincronización en progreso, saltando...")
         return {
             "status": "skipped",
             "message": "Sincronización ya en progreso",
@@ -107,7 +107,7 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
         }
     
     async with _sync_lock:
-        print(f"\n📦 Sincronizando pedidos en preparación...")
+        print("\n📦 Sincronizando pedidos en preparación...")
         print(f"   Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         close_db = False
@@ -117,7 +117,7 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
 
         try:
             # 1. Obtener datos del ERP via gbp-parser
-            print(f"   Consultando query 67 via gbp-parser...")
+            print("   Consultando query 67 via gbp-parser...")
             data = await fetch_query_67()
 
             if not data:
@@ -127,11 +127,11 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
             print(f"   Recibidos {len(data)} registros")
 
             # 2. Truncar tabla
-            print(f"   Truncando tabla cache...")
+            print("   Truncando tabla cache...")
             truncate_cache(db)
 
             # 3. Insertar nuevos datos
-            print(f"   Insertando datos...")
+            print("   Insertando datos...")
             inserted = insert_cache(db, data)
 
             print(f"   ✅ Sincronización completada: {inserted} registros insertados")

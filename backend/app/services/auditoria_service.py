@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Session
 from app.models.auditoria import Auditoria, TipoAccion
-from app.models.usuario import Usuario
 from typing import Optional, Dict, Any
 
 def registrar_auditoria(

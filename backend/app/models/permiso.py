@@ -3,7 +3,7 @@ Sistema de Permisos Híbrido
 - Roles base con permisos por defecto
 - Overrides por usuario (agregar o quitar permisos específicos)
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Enum as SQLEnum, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base

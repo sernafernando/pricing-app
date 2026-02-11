@@ -460,7 +460,6 @@ async def obtener_rentabilidad(
             # Si hay resumen, lo usamos para el límite total
             if resumen:
                 # Consumo total acumulado desde la tabla de resumen
-                acum_unidades = resumen.total_unidades or 0
                 acum_offset_usd = float(resumen.total_monto_usd or 0)
                 acum_offset_ars = float(resumen.total_monto_ars or 0)
 
@@ -598,7 +597,6 @@ async def obtener_rentabilidad(
         offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
 
         if resumen:
-            acum_unidades = resumen.total_unidades or 0
             acum_offset_usd = float(resumen.total_monto_usd or 0)
             acum_offset_ars = float(resumen.total_monto_ars or 0)
 

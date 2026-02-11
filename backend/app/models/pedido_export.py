@@ -2,7 +2,7 @@
 Modelo para tb_pedidos_export
 Tabla simple que guarda TAL CUAL los datos del Export 87
 """
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, Text
+from sqlalchemy import Column, Integer, Numeric, Boolean, DateTime, Text
 from sqlalchemy.sql import func
 from app.core.database import Base
 

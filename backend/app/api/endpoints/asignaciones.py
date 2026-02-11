@@ -578,7 +578,6 @@ async def verificar_estado_asignaciones(
     from app.api.endpoints.items_sin_mla import (
         LISTAS_PRECIOS, LISTAS_WEB_A_PVP
     )
-    from app.models.producto import ProductoERP
     from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
     if not verificar_permiso(db, current_user, "admin.ver_items_sin_mla"):

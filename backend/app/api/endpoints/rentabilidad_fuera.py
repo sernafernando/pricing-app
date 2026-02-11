@@ -4,10 +4,9 @@ Replica la funcionalidad de rentabilidad.py pero usando datos del ERP directamen
 """
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import text, or_, func, and_
+from sqlalchemy import text, or_, func
 from typing import List, Optional
 from datetime import date, datetime, timedelta
-from decimal import Decimal
 from pydantic import BaseModel
 
 from app.core.database import get_db
@@ -342,9 +341,8 @@ async def obtener_rentabilidad_fuera(
             ).first()
 
             if resumen:
-                acum_unidades = resumen.total_unidades or 0
-                acum_offset_usd = float(resumen.total_monto_usd or 0)
-                acum_offset_ars = float(resumen.total_monto_ars or 0)
+                float(resumen.total_monto_usd or 0)
+                float(resumen.total_monto_ars or 0)
 
                 # Consumo ANTES del período filtrado
                 consumo_previo_unidades = 0
@@ -432,9 +430,8 @@ async def obtener_rentabilidad_fuera(
         ).first()
 
         if resumen:
-            acum_unidades = resumen.total_unidades or 0
-            acum_offset_usd = float(resumen.total_monto_usd or 0)
-            acum_offset_ars = float(resumen.total_monto_ars or 0)
+            float(resumen.total_monto_usd or 0)
+            float(resumen.total_monto_ars or 0)
 
             consumo_previo_unidades = 0
             consumo_previo_offset = 0.0

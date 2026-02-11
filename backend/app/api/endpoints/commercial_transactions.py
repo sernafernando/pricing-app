@@ -246,7 +246,7 @@ async def sync_commercial_transactions(
 
         return {
             "success": True,
-            "message": f"Sincronización completada",
+            "message": "Sincronización completada",
             "transacciones_insertadas": transacciones_insertadas,
             "transacciones_actualizadas": transacciones_actualizadas,
             "transacciones_errores": transacciones_errores,

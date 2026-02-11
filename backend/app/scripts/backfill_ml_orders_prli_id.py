@@ -31,7 +31,7 @@ def backfill_prli_id_from_snapshots(db: Session, limit: int = 1000):
     Backfill prli_id usando snapshots de publicaciones.
     """
     
-    print(f"📊 Buscando órdenes sin prli_id...")
+    print("📊 Buscando órdenes sin prli_id...")
     
     # Contar órdenes sin prli_id
     count_query = text("""
@@ -92,20 +92,20 @@ def backfill_prli_id_from_snapshots(db: Session, limit: int = 1000):
     """)
     
     try:
-        print(f"🔄 Ejecutando backfill...")
+        print("🔄 Ejecutando backfill...")
         result = db.execute(update_query)
         db.commit()
         
         rows_updated = result.rowcount
-        print(f"✅ Backfill completado!")
+        print("✅ Backfill completado!")
         print(f"   Órdenes actualizadas: {rows_updated}")
         print(f"   Órdenes pendientes: {total_sin_prli - rows_updated}")
         
         if total_sin_prli - rows_updated > 0:
-            print(f"\n⚠️  Algunas órdenes no pudieron ser actualizadas:")
-            print(f"   - No tienen snapshots cercanos")
-            print(f"   - No tienen publicación en items_publicados")
-            print(f"   Estas órdenes quedarán con prli_id = NULL")
+            print("\n⚠️  Algunas órdenes no pudieron ser actualizadas:")
+            print("   - No tienen snapshots cercanos")
+            print("   - No tienen publicación en items_publicados")
+            print("   Estas órdenes quedarán con prli_id = NULL")
         
         return rows_updated
         

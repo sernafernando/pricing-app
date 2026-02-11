@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_, desc, text
+from sqlalchemy import func, and_, desc
 from typing import List, Optional
 from datetime import datetime, date, timedelta
 import httpx
@@ -9,13 +9,7 @@ import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from app.core.database import get_db
-from app.models.venta_ml import VentaML, MetricasVentasDiarias, MetricasVentasPorMarca, MetricasVentasPorCategoria
-from app.models.tb_brand import TBBrand
-from app.models.tb_category import TBCategory
-from app.models.tb_subcategory import TBSubCategory
-from app.models.tb_item import TBItem
-from app.models.tb_tax_name import TBTaxName
-from app.models.tb_item_taxes import TBItemTaxes
+from app.models.venta_ml import VentaML
 from app.models.usuario import Usuario, RolUsuario
 from app.models.marca_pm import MarcaPM
 from app.api.deps import get_current_user
@@ -165,7 +159,7 @@ async def sync_ventas_ml(
 
         return {
             "success": True,
-            "message": f"Sincronización completada",
+            "message": "Sincronización completada",
             "ventas_insertadas": ventas_insertadas,
             "ventas_actualizadas": ventas_actualizadas,
             "ventas_errores": ventas_errores,
@@ -745,7 +739,7 @@ async def get_operaciones_con_metricas(
     
     ml_id_filter = ""
     if ml_id:
-        ml_id_filter = f"AND tmloh.ml_id = %(ml_id)s"
+        ml_id_filter = "AND tmloh.ml_id = %(ml_id)s"
     
     codigo_filter = ""
     if codigo:

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text, and_, or_
 from typing import List, Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from decimal import Decimal
 from pydantic import BaseModel, ConfigDict
 from app.core.database import get_db
@@ -869,7 +869,6 @@ async def get_ventas_tienda_nube_por_marca(
     Usa la tabla de métricas pre-calculadas para mayor performance.
     """
     # Construir cláusula WHERE dinámica
-    from sqlalchemy import bindparam
     where_clause = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
     params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
     
@@ -1401,7 +1400,6 @@ async def set_metodos_pago_bulk_tn(
     Guarda o actualiza métodos de pago para múltiples operaciones TN.
     """
     from app.models.metodo_pago_tn import MetodoPagoTN
-    from fastapi import HTTPException
 
     actualizados = 0
     creados = 0

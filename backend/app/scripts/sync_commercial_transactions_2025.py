@@ -44,12 +44,12 @@ async def sync_transacciones_mes(db: Session, from_date: str, to_date: str):
             transacciones_data = response.json()
 
         if not isinstance(transacciones_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(transacciones_data) == 1 and "Column1" in transacciones_data[0]:
-            print(f"   ⚠️  No hay datos disponibles para este período")
+            print("   ⚠️  No hay datos disponibles para este período")
             return 0, 0, 0
 
         print(f"   Procesando {len(transacciones_data)} transacciones...")
@@ -64,7 +64,7 @@ async def sync_transacciones_mes(db: Session, from_date: str, to_date: str):
                 # Verificar que tenga ct_transaction
                 ct_transaction = trans_json.get("ct_transaction")
                 if ct_transaction is None:
-                    print(f"   ⚠️  Transacción sin ct_transaction, omitiendo...")
+                    print("   ⚠️  Transacción sin ct_transaction, omitiendo...")
                     transacciones_errores += 1
                     continue
 

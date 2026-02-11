@@ -54,7 +54,7 @@ def sincronizar_subcategorias():
                 nuevas += 1
         
         db.commit()
-        print(f"✅ Sincronización completada:")
+        print("✅ Sincronización completada:")
         print(f"   - {actualizadas} subcategorías actualizadas")
         print(f"   - {nuevas} subcategorías nuevas")
         

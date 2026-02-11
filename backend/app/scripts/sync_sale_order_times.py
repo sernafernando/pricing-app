@@ -138,7 +138,7 @@ def sync_sale_order_times(db: Session, data: list):
     # Commit final
     db.commit()
 
-    logger.info(f"\n✅ Sincronización completada:")
+    logger.info("\n✅ Sincronización completada:")
     logger.info(f"  - Insertados: {insertados}")
     logger.info(f"  - Actualizados: {actualizados}")
     logger.info(f"  - Errores: {errores}")

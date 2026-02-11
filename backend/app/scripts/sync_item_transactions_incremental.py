@@ -40,7 +40,7 @@ async def sync_item_transactions_incremental(db: Session):
         return 0, 0, 0
 
     print(f"📊 Último it_transaction en BD: {ultimo_it}")
-    print(f"🔄 Buscando item transactions nuevos...\n")
+    print("🔄 Buscando item transactions nuevos...\n")
 
     try:
         # Llamar al endpoint externo usando itTransaction
@@ -58,16 +58,16 @@ async def sync_item_transactions_incremental(db: Session):
             items_data = response.json()
 
         if not isinstance(items_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(items_data) == 1 and "Column1" in items_data[0]:
-            print(f"   ⚠️  No hay datos disponibles")
+            print("   ⚠️  No hay datos disponibles")
             return 0, 0, 0
 
         if not items_data or len(items_data) == 0:
-            print(f"✅ No hay item transactions nuevos. Base de datos actualizada.")
+            print("✅ No hay item transactions nuevos. Base de datos actualizada.")
             return 0, 0, 0
 
         print(f"   Encontrados {len(items_data)} item transactions nuevos")
@@ -269,7 +269,7 @@ async def sync_item_transactions_incremental(db: Session):
         # Obtener nuevo máximo
         nuevo_max = db.query(func.max(ItemTransaction.it_transaction)).scalar()
 
-        print(f"\n✅ Sincronización completada!")
+        print("\n✅ Sincronización completada!")
         print(f"   Insertados: {items_insertados}")
         print(f"   Errores: {items_errores}")
         print(f"   Nuevo it_transaction máximo: {nuevo_max}")

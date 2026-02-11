@@ -29,7 +29,7 @@ async def sync_ml_orders_shipping_incremental(db: Session):
     Sincroniza envíos de órdenes de MercadoLibre de forma incremental
     Solo trae los envíos nuevos desde el último mlm_id
     """
-    print(f"\n📦 Sincronizando envíos ML incrementales...")
+    print("\n📦 Sincronizando envíos ML incrementales...")
 
     try:
         # Obtener el último mlm_id sincronizado
@@ -49,7 +49,7 @@ async def sync_ml_orders_shipping_incremental(db: Session):
             "mlmId": ultimo_mlm_id
         }
 
-        print(f"   Consultando API...")
+        print("   Consultando API...")
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.get(url, params=params)
@@ -57,16 +57,16 @@ async def sync_ml_orders_shipping_incremental(db: Session):
             shipping_data = response.json()
 
         if not isinstance(shipping_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(shipping_data) == 1 and "Column1" in shipping_data[0]:
-            print(f"   ⚠️  No hay datos disponibles")
+            print("   ⚠️  No hay datos disponibles")
             return 0, 0, 0
 
         if not shipping_data or len(shipping_data) == 0:
-            print(f"✅ No hay envíos nuevos para sincronizar.")
+            print("✅ No hay envíos nuevos para sincronizar.")
             return 0, 0, 0
 
         print(f"   Procesando {len(shipping_data)} envíos nuevos...")
@@ -120,7 +120,7 @@ async def sync_ml_orders_shipping_incremental(db: Session):
                 # Verificar que tenga mlm_id
                 mlm_id = shipping_json.get("mlm_id")
                 if mlm_id is None:
-                    print(f"   ⚠️  Envío sin mlm_id, omitiendo...")
+                    print("   ⚠️  Envío sin mlm_id, omitiendo...")
                     shipping_errores += 1
                     continue
 

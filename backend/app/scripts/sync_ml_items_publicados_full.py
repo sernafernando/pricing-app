@@ -165,7 +165,7 @@ async def sync_items_publicados_full(db: Session, smart_mode: bool = False, days
                 data = response.json()
                 
                 if not data or len(data) == 0:
-                    print(f"   ⏭️  Sin datos en este rango")
+                    print("   ⏭️  Sin datos en este rango")
                     current_id = batch_end + 1
                     continue
                 
@@ -262,7 +262,7 @@ async def sync_items_publicados_full(db: Session, smart_mode: bool = False, days
             current_id = batch_end + 1
     
     print(f"\n{'='*60}")
-    print(f"✅ Sincronización FULL completada!")
+    print("✅ Sincronización FULL completada!")
     print(f"   Insertados: {total_insertados}")
     print(f"   Actualizados: {total_actualizados}")
     print(f"   Errores: {total_errores}")

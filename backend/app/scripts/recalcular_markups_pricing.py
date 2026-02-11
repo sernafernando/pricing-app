@@ -43,7 +43,7 @@ def main():
     try:
         # Mostrar constantes actuales
         constantes = obtener_constantes_pricing(db)
-        print(f"\nConstantes de pricing actuales:")
+        print("\nConstantes de pricing actuales:")
         print(f"  Tier1: ${constantes['monto_tier1']:,.0f} -> comisión ${constantes['tier1']:,.0f}")
         print(f"  Tier2: ${constantes['monto_tier2']:,.0f} -> comisión ${constantes['tier2']:,.0f}")
         print(f"  Tier3: ${constantes['monto_tier3']:,.0f} -> comisión ${constantes['tier3']:,.0f}")
@@ -206,9 +206,9 @@ def main():
 
         db.commit()
 
-        print(f"\n" + "=" * 60)
-        print(f"COMPLETADO")
-        print(f"=" * 60)
+        print("\n" + "=" * 60)
+        print("COMPLETADO")
+        print("=" * 60)
         print(f"Productos modificados: {productos_modificados}")
         print(f"Markups Web actualizados: {actualizados_web}")
         print(f"Markups PVP clásico actualizados: {actualizados_pvp}")

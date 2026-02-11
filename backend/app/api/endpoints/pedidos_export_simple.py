@@ -4,13 +4,12 @@ Sin quilombo de tablas intermedias.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_, text, case
-from typing import List, Optional, Dict, Any
+from sqlalchemy import func, and_, or_
+from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 import logging
 import httpx
-import os
 from pathlib import Path
 from fastapi.responses import Response
 
@@ -674,7 +673,6 @@ async def generar_etiqueta_zpl(
     # PRIORIDAD: override > TN > ERP
     direccion = pedido.override_shipping_address or pedido.tiendanube_shipping_address or pedido.soh_deliveryaddress or 'N/A'
     ciudad = pedido.override_shipping_city or pedido.tiendanube_shipping_city or 'N/A'
-    provincia = pedido.override_shipping_province or pedido.tiendanube_shipping_province or 'N/A'
     codigo_postal = pedido.override_shipping_zipcode or pedido.tiendanube_shipping_zipcode or 'N/A'
     telefono = pedido.override_shipping_phone or pedido.tiendanube_shipping_phone or 'N/A'
     destinatario = pedido.override_shipping_recipient or pedido.tiendanube_recipient_name or 'N/A'

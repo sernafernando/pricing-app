@@ -12,7 +12,7 @@ Algoritmo:
 """
 import logging
 from typing import List, Dict, Any, Tuple, Optional
-from shapely.geometry import Point, Polygon, shape
+from shapely.geometry import Point, shape
 
 logger = logging.getLogger(__name__)
 

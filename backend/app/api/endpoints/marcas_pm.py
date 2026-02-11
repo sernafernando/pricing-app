@@ -354,8 +354,8 @@ async def obtener_subcategorias_por_pms(
     if not pares:
         return SubcategoriasListResponse(subcategorias=[], total=0)
 
-    marcas_list = [p[0] for p in pares]
-    categorias_list = [p[1] for p in pares]
+    [p[0] for p in pares]
+    [p[1] for p in pares]
 
     # Obtener subcategorías de productos con esas marcas Y categorías
     subcategorias = db.query(

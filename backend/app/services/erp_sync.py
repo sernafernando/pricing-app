@@ -3,7 +3,6 @@ import hashlib
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.producto import ProductoERP, ProductoPricing
-from datetime import datetime
 from typing import Dict, List
 
 def convertir_a_numero(valor, default=0):
@@ -113,8 +112,6 @@ async def sincronizar_erp(db: Session) -> Dict:
                         continue
 
                     stock = stock_dict.get(item_id, 0)
-                    if item_id == 22:  # Debug temporal
-                        print(f"DEBUG item_id 22: stock desde dict={stock}, stock actual en DB={producto_existente.stock if producto_existente else 'nuevo'}")
                     producto_data['Stock'] = stock
                     hash_nuevo = calcular_hash(producto_data)
 

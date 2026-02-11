@@ -3,7 +3,6 @@ Endpoint para gestión de usuarios del ERP (tb_user)
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 import logging

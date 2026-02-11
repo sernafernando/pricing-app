@@ -59,7 +59,7 @@ async def refresh_access_token():
         if tokens.get("refresh_token"):
             REFRESH_TOKEN = tokens.get("refresh_token")
 
-        print(f"✓ Token refrescado exitosamente")
+        print("✓ Token refrescado exitosamente")
         return ACCESS_TOKEN
 
 

@@ -4,9 +4,9 @@ USA tb_pedidos_export - sin quilombo de JOINs.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_, text
-from typing import List, Optional, Dict, Any
-from datetime import datetime, date
+from sqlalchemy import func, and_, or_
+from typing import List, Optional
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 import httpx
 import logging
@@ -14,8 +14,6 @@ import logging
 from app.core.database import get_db
 from app.models.pedido_export import PedidoExport
 from app.api.deps import get_current_user
-from app.models.usuario import Usuario
-from app.services.tienda_nube_order_client import TiendaNubeOrderClient
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 logger = logging.getLogger(__name__)

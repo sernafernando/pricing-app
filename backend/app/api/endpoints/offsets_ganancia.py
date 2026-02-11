@@ -413,7 +413,6 @@ async def obtener_opciones_filtros(
     para poder filtrar en cascada en el frontend.
     """
     from app.models.producto import ProductoERP
-    from app.models.subcategoria import Subcategoria
 
     # Obtener todas las combinaciones únicas de marca-categoría-subcategoría
     # No filtramos por activo para incluir todos los productos

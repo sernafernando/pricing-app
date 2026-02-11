@@ -5,7 +5,6 @@ Implementa el sistema híbrido: rol base + overrides por usuario.
 from typing import List, Optional, Set
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from functools import lru_cache
 from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
 from app.models.usuario import Usuario
 

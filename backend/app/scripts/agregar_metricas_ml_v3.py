@@ -50,7 +50,7 @@ def get_sql_server_connection():
 
 def fetch_data_from_sql_server(from_date: date, to_date: date) -> pd.DataFrame:
     """Ejecuta el query de scriptDashboard en SQL Server"""
-    print(f"\n🔍 Consultando SQL Server...")
+    print("\n🔍 Consultando SQL Server...")
     print(f"   Rango: {from_date} a {to_date}")
 
     conn = get_sql_server_connection()
@@ -309,7 +309,7 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
 
     print()
     print(f"{'='*60}")
-    print(f"✅ COMPLETADO")
+    print("✅ COMPLETADO")
     print(f"{'='*60}")
     print(f"Insertados: {total_insertados}")
     print(f"Actualizados: {total_actualizados}")
@@ -329,7 +329,7 @@ def main():
     to_date_inclusive = to_date + timedelta(days=1)
 
     print(f"\n{'='*60}")
-    print(f"AGREGACIÓN DE MÉTRICAS ML (v3 - SQL Server directo)")
+    print("AGREGACIÓN DE MÉTRICAS ML (v3 - SQL Server directo)")
     print(f"{'='*60}")
     print(f"Rango: {from_date} a {to_date} (inclusive)")
     print()

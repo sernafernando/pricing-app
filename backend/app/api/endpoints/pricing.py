@@ -8,7 +8,6 @@ from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.models.usuario import Usuario
-from app.models.configuracion import Configuracion
 from app.services.pricing_calculator import (
     calcular_precio_producto,
     calcular_comision_ml_total,
@@ -17,8 +16,7 @@ from app.services.pricing_calculator import (
     convertir_a_pesos,
     obtener_tipo_cambio_actual,
     obtener_grupo_subcategoria,
-    obtener_comision_base,
-    precio_por_markup_goalseek
+    obtener_comision_base
 )
 
 
@@ -761,7 +759,7 @@ async def setear_precio_rapido(
                     # Solo guardar si el precio es válido (mayor a 0), el markup puede ser negativo
                     if precio_calculado > 0:
                         precios_cuotas[nombre_campo] = precio_calculado
-            except Exception as e:
+            except Exception:
                 # Si falla el cálculo, continuar con el siguiente
                 pass
 

@@ -2,12 +2,11 @@
 Endpoint para parsear respuestas SOAP del ERP (reemplazo del worker de Cloudflare)
 """
 from fastapi import APIRouter, HTTPException, Request, Depends
-from typing import Optional, Dict, Any
+from typing import Any
 import httpx
 import re
 import json
 import os
-from pydantic import BaseModel
 from app.api.deps import get_user_or_localhost
 
 router = APIRouter()

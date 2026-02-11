@@ -43,12 +43,12 @@ async def sync_ventas_mes(db: Session, from_date: str, to_date: str):
             ventas_data = response.json()
 
         if not isinstance(ventas_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error (ej: {"Column1": "-9"})
         if len(ventas_data) == 1 and "Column1" in ventas_data[0]:
-            print(f"   ⚠️  No hay datos disponibles para este período")
+            print("   ⚠️  No hay datos disponibles para este período")
             return 0, 0, 0
 
         print(f"   Procesando {len(ventas_data)} ventas...")
@@ -63,7 +63,7 @@ async def sync_ventas_mes(db: Session, from_date: str, to_date: str):
                 # Verificar que tenga ID_de_Operación
                 id_operacion = venta_json.get("ID_de_Operación")
                 if id_operacion is None:
-                    print(f"   ⚠️  Venta sin ID_de_Operación, omitiendo...")
+                    print("   ⚠️  Venta sin ID_de_Operación, omitiendo...")
                     ventas_errores += 1
                     continue
 

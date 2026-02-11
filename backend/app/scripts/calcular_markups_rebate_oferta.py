@@ -167,7 +167,7 @@ def calcular_markups(db: Session):
     # Commit final
     db.commit()
 
-    print(f"\n✅ Cálculo completado!")
+    print("\n✅ Cálculo completado!")
     print(f"   Markups rebate calculados: {actualizados_rebate}")
     print(f"   Markups oferta calculados: {actualizados_oferta}")
     print(f"   Errores: {errores}")

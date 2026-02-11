@@ -405,7 +405,7 @@ def main():
         # Modo fecha específica
         from_date = args.from_date
         to_date = args.to_date + ' 23:59:59'
-        mode = f"PERÍODO ESPECÍFICO"
+        mode = "PERÍODO ESPECÍFICO"
     elif args.full:
         # Modo completo: último año
         from_date = (now - timedelta(days=365)).strftime('%Y-%m-%d')
@@ -432,7 +432,7 @@ def main():
 
     try:
         # Obtener datos
-        print(f"\n🔍 Consultando ventas fuera de ML...")
+        print("\n🔍 Consultando ventas fuera de ML...")
         rows = obtener_ventas_fuera_ml(db, from_date, to_date)
         print(f"  ✓ Obtenidos {len(rows)} registros")
 

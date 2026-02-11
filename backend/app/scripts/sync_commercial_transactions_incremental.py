@@ -40,7 +40,7 @@ async def sync_transacciones_incrementales(db: Session, batch_size: int = 1000):
         return 0, 0, 0
 
     print(f"📊 Último ct_transaction en BD: {ultimo_ct}")
-    print(f"🔄 Buscando transacciones nuevas...\n")
+    print("🔄 Buscando transacciones nuevas...\n")
 
     try:
         # El endpoint necesita fechas, pero usaremos un rango amplio
@@ -65,12 +65,12 @@ async def sync_transacciones_incrementales(db: Session, batch_size: int = 1000):
             transacciones_data = response.json()
 
         if not isinstance(transacciones_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(transacciones_data) == 1 and "Column1" in transacciones_data[0]:
-            print(f"   ⚠️  No hay datos disponibles")
+            print("   ⚠️  No hay datos disponibles")
             return 0, 0, 0
 
         # Filtrar solo transacciones nuevas (ct_transaction > ultimo_ct)
@@ -80,7 +80,7 @@ async def sync_transacciones_incrementales(db: Session, batch_size: int = 1000):
         ]
 
         if not transacciones_nuevas:
-            print(f"✅ No hay transacciones nuevas. Base de datos actualizada.")
+            print("✅ No hay transacciones nuevas. Base de datos actualizada.")
             return 0, 0, 0
 
         print(f"   Encontradas {len(transacciones_nuevas)} transacciones nuevas")
@@ -241,7 +241,7 @@ async def sync_transacciones_incrementales(db: Session, batch_size: int = 1000):
         # Obtener nuevo máximo
         nuevo_max = db.query(func.max(CommercialTransaction.ct_transaction)).scalar()
 
-        print(f"\n✅ Sincronización completada!")
+        print("\n✅ Sincronización completada!")
         print(f"   Insertadas: {transacciones_insertadas}")
         print(f"   Errores: {transacciones_errores}")
         print(f"   Nuevo ct_transaction máximo: {nuevo_max}")

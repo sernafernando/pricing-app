@@ -43,16 +43,16 @@ async def sync_details_lote(db: Session, from_it: int, to_it: int):
             details_data = response.json()
 
         if not isinstance(details_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(details_data) == 1 and "Column1" in details_data[0]:
-            print(f"   ⚠️  No hay datos disponibles para este lote")
+            print("   ⚠️  No hay datos disponibles para este lote")
             return 0, 0, 0
 
         if not details_data or len(details_data) == 0:
-            print(f"   ℹ️  No hay detalles para este lote")
+            print("   ℹ️  No hay detalles para este lote")
             return 0, 0, 0
 
         print(f"   Procesando {len(details_data)} item transaction details...")

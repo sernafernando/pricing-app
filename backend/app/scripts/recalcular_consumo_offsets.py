@@ -100,7 +100,7 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
 
     if not offsets_grupo:
         if verbose:
-            print(f"     Sin offsets en el grupo")
+            print("     Sin offsets en el grupo")
         return {"grupo_id": grupo_id, "consumos_creados": 0, "mensaje": "Sin offsets"}
 
     # Determinar fecha de inicio (la más antigua de los offsets)
@@ -322,7 +322,7 @@ def recalcular_offset_individual(db, offset: OffsetGanancia, cotizacion: float, 
         params = {"subcat_id": offset.subcategoria_id, "fecha_inicio": fecha_inicio}
     else:
         if verbose:
-            print(f"     ⚠️ Offset sin criterio válido")
+            print("     ⚠️ Offset sin criterio válido")
         return {"offset_id": offset.id, "consumos_creados": 0, "mensaje": "Sin criterio válido"}
 
     ventas = db.execute(ventas_query, params).fetchall()

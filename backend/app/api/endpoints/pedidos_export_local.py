@@ -5,7 +5,7 @@ SIN necesidad de llamar al gbp-parser.
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func, text
+from sqlalchemy import and_, or_, func
 from typing import List, Optional
 from datetime import datetime, timedelta
 import json

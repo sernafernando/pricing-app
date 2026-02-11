@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 from app.models.tipo_cambio import TipoCambio
 from app.models.comision_config import SubcategoriaGrupo, ComisionListaGrupo
 from app.models.comision_versionada import ComisionVersion, ComisionBase, ComisionAdicionalCuota
@@ -6,7 +6,6 @@ from app.models.pricing_constants import PricingConstants
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from datetime import date
-import math
 
 # Constantes de tiers de ML (valores por defecto si no hay en BD)
 MONTOT1 = 15000

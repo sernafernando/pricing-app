@@ -26,9 +26,9 @@ async def sync_item_transactions_agosto(db: Session):
     """
     Sincroniza item transactions de agosto 2025
     """
-    print(f"\n📅 Sincronizando item transactions de agosto 2025...")
-    print(f"   Desde: 2025-08-01")
-    print(f"   Hasta: 2025-08-31\n")
+    print("\n📅 Sincronizando item transactions de agosto 2025...")
+    print("   Desde: 2025-08-01")
+    print("   Hasta: 2025-08-31\n")
 
     try:
         # Llamar al endpoint externo
@@ -45,12 +45,12 @@ async def sync_item_transactions_agosto(db: Session):
             items_data = response.json()
 
         if not isinstance(items_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(items_data) == 1 and "Column1" in items_data[0]:
-            print(f"   ⚠️  No hay datos disponibles para agosto 2025")
+            print("   ⚠️  No hay datos disponibles para agosto 2025")
             return 0, 0, 0
 
         print(f"   Procesando {len(items_data)} item transactions...")
@@ -105,7 +105,7 @@ async def sync_item_transactions_agosto(db: Session):
                 # Verificar que tenga it_transaction
                 it_transaction = item_json.get("it_transaction")
                 if it_transaction is None:
-                    print(f"   ⚠️  Item sin it_transaction, omitiendo...")
+                    print("   ⚠️  Item sin it_transaction, omitiendo...")
                     items_errores += 1
                     continue
 

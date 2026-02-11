@@ -58,7 +58,7 @@ async def fix_optval_statusId(db: Session):
         print("✅ No hay registros para actualizar")
         return 0
 
-    print(f"🔄 Actualizando registros...\n")
+    print("🔄 Actualizando registros...\n")
 
     actualizados = 0
     errores = 0
@@ -75,7 +75,7 @@ async def fix_optval_statusId(db: Session):
             "toDate": hasta
         }
 
-        print(f"📡 Consultando API del ERP (últimos 90 días)...")
+        print("📡 Consultando API del ERP (últimos 90 días)...")
 
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.get(API_URL, params=params)
@@ -126,11 +126,11 @@ async def fix_optval_statusId(db: Session):
             MercadoLibreItemPublicado.optval_statusId.is_(None)
         ).count()
 
-        print(f"\n✅ Actualización completada!")
+        print("\n✅ Actualización completada!")
         print(f"   Actualizados: {actualizados}")
         print(f"   Errores: {errores}")
         print(f"   Registros con None restantes: {registros_null_final}")
-        print(f"   (Los registros con None restantes son items antiguos no disponibles en los últimos 90 días)")
+        print("   (Los registros con None restantes son items antiguos no disponibles en los últimos 90 días)")
 
         return actualizados
 

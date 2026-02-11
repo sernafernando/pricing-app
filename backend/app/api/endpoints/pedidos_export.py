@@ -16,7 +16,6 @@ from app.api.deps import get_current_user
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_detail import SaleOrderDetail
 from app.models.export_87_snapshot import Export87Snapshot
-from app.api.deps import get_current_user
 from app.services.tienda_nube_order_client import TiendaNubeOrderClient
 
 router = APIRouter()

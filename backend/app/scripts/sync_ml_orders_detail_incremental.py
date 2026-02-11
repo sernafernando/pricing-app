@@ -39,7 +39,7 @@ async def sync_ml_orders_detail_incremental(db: Session):
         return 0, 0, 0
 
     print(f"📊 Último mlod_id en BD: {ultimo_mlod}")
-    print(f"🔄 Buscando detalles nuevos...\n")
+    print("🔄 Buscando detalles nuevos...\n")
 
     try:
         # Llamar al endpoint externo usando mlodId
@@ -57,16 +57,16 @@ async def sync_ml_orders_detail_incremental(db: Session):
             details_data = response.json()
 
         if not isinstance(details_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(details_data) == 1 and "Column1" in details_data[0]:
-            print(f"   ⚠️  No hay datos disponibles")
+            print("   ⚠️  No hay datos disponibles")
             return 0, 0, 0
 
         if not details_data or len(details_data) == 0:
-            print(f"✅ No hay detalles nuevos. Base de datos actualizada.")
+            print("✅ No hay detalles nuevos. Base de datos actualizada.")
             return 0, 0, 0
 
         print(f"   Encontrados {len(details_data)} detalles nuevos")
@@ -171,7 +171,7 @@ async def sync_ml_orders_detail_incremental(db: Session):
         # Obtener nuevo máximo
         nuevo_max = db.query(func.max(MercadoLibreOrderDetail.mlod_id)).scalar()
 
-        print(f"\n✅ Sincronización completada!")
+        print("\n✅ Sincronización completada!")
         print(f"   Insertados: {details_insertados}")
         print(f"   Errores: {details_errores}")
         print(f"   Nuevo mlod_id máximo: {nuevo_max}")

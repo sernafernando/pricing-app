@@ -64,7 +64,7 @@ def sync_full(db: Session, batch_size: int = 10000, max_is_id: int = 1000000):
             data = asyncio.run(fetch_from_erp(params))
 
             if not data or len(data) == 0:
-                print(f"   ⚠️  Sin registros en este rango")
+                print("   ⚠️  Sin registros en este rango")
             else:
                 print(f"   ✓ Obtenidos {len(data)} registros")
 
@@ -142,7 +142,7 @@ def sync_full(db: Session, batch_size: int = 10000, max_is_id: int = 1000000):
             current_from = current_to + 1
             batch_num += 1
 
-    print(f"\n✅ Sincronización completa finalizada")
+    print("\n✅ Sincronización completa finalizada")
     print(f"   Total procesado: {total_procesado} registros")
 
 
@@ -232,7 +232,7 @@ def sync_incremental(db: Session, days_back: int = 7):
 
     db.commit()
 
-    print(f"\n✅ Sincronización incremental finalizada")
+    print("\n✅ Sincronización incremental finalizada")
     print(f"   Total actualizado: {total_updated} registros")
 
 

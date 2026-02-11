@@ -28,7 +28,7 @@ def main():
 
     try:
         registros_creados = sincronizar_costos_faltantes(db, commit=True)
-        logger.info(f"\n✅ Sincronización completada")
+        logger.info("\n✅ Sincronización completada")
         logger.info(f"   Registros creados: {registros_creados}")
 
     except Exception as e:

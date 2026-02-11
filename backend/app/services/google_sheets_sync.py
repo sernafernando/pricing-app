@@ -68,7 +68,7 @@ def obtener_datos_sheets() -> List[Dict]:
                     row_dict[clean_headers[i]] = value
             data.append(row_dict)
         return data
-    except Exception as e:
+    except Exception:
         raise
 
 def sincronizar_ofertas_sheets(db: Session) -> Dict:

@@ -341,7 +341,7 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
 
     try:
         print(f"\n{'='*60}")
-        print(f"AGREGACIÓN DE MÉTRICAS ML")
+        print("AGREGACIÓN DE MÉTRICAS ML")
         print(f"{'='*60}")
 
         # Sumar 1 día al to_date para incluir todo el día
@@ -429,42 +429,42 @@ async def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int
                 break
 
             for order in orders_chunk:
-            orden_count += 1
-            details = db.query(MercadoLibreOrderDetail).filter(
-                MercadoLibreOrderDetail.mlo_id == order.mlo_id
-            ).all()
+                orden_count += 1
+                details = db.query(MercadoLibreOrderDetail).filter(
+                    MercadoLibreOrderDetail.mlo_id == order.mlo_id
+                ).all()
 
-            if not details:
-                if orden_count <= 5:  # Solo mostrar las primeras 5
-                    print(f"  ⚠️  Orden {order.mlo_id} sin detalles")
-                continue
+                if not details:
+                    if orden_count <= 5:  # Solo mostrar las primeras 5
+                        print(f"  ⚠️  Orden {order.mlo_id} sin detalles")
+                    continue
 
-            for detail in details:
-                resultado = await agregar_metricas_venta(
-                    db, order, detail, constantes,
-                    pack_item_counts=pack_item_counts,
-                    order_item_counts=order_item_counts
-                )
+                for detail in details:
+                    resultado = await agregar_metricas_venta(
+                        db, order, detail, constantes,
+                        pack_item_counts=pack_item_counts,
+                        order_item_counts=order_item_counts
+                    )
 
-                if resultado == "insertado":
-                    total_insertados += 1
-                elif resultado == "actualizado":
-                    total_actualizados += 1
-                elif resultado == "error":
-                    total_errores += 1
+                    if resultado == "insertado":
+                        total_insertados += 1
+                    elif resultado == "actualizado":
+                        total_actualizados += 1
+                    elif resultado == "error":
+                        total_errores += 1
 
-            try:
-                db.commit()
-            except Exception as e:
-                print(f"  ❌ Error commit orden {order.mlo_id}: {str(e)}")
-                db.rollback()
+                try:
+                    db.commit()
+                except Exception as e:
+                    print(f"  ❌ Error commit orden {order.mlo_id}: {str(e)}")
+                    db.rollback()
 
-            if (total_insertados + total_actualizados) % batch_size == 0 and (total_insertados + total_actualizados) > 0:
-                print(f"  Procesados: {total_insertados + total_actualizados} | Nuevos: {total_insertados} | Actualizados: {total_actualizados}")
+                if (total_insertados + total_actualizados) % batch_size == 0 and (total_insertados + total_actualizados) > 0:
+                    print(f"  Procesados: {total_insertados + total_actualizados} | Nuevos: {total_insertados} | Actualizados: {total_actualizados}")
 
         print()
         print(f"{'='*60}")
-        print(f"✅ COMPLETADO")
+        print("✅ COMPLETADO")
         print(f"{'='*60}")
         print(f"Insertados: {total_insertados}")
         print(f"Actualizados: {total_actualizados}")

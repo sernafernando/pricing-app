@@ -1,12 +1,11 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.api.deps import get_current_admin, get_current_user, get_admin_or_localhost
+from app.api.deps import get_current_user, get_admin_or_localhost
 from app.models.usuario import Usuario
 from app.services.erp_sync import sincronizar_erp
 from app.services.ml_sync import sincronizar_publicaciones_ml
 from app.services.google_sheets_sync import sincronizar_ofertas_sheets
-from typing import Dict
 
 router = APIRouter()
 
@@ -180,7 +179,7 @@ async def recalcular_markups_endpoint(db: Session = Depends(get_db), current_use
                 pricing.markup_calculado = round(markup * 100, 2)
                 actualizados += 1
                 
-            except Exception as e:
+            except Exception:
                 errores += 1
                 continue
         

@@ -268,7 +268,7 @@ async def actualizar_ticket(
             ticket_id=ticket.id,
             usuario_id=current_user.id,
             accion="metadata_updated",
-            descripcion=f"Actualización de campos del ticket",
+            descripcion="Actualización de campos del ticket",
             cambios=cambios_realizados
         )
         db.add(historial_entry)

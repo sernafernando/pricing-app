@@ -66,7 +66,7 @@ async def actualizar_tipo_cambio(db: Session) -> Dict:
     Scrapea el BNA y actualiza la base de datos
     """
     
-    print(f"🔄 Scrapeando tipo de cambio del BNA...")
+    print("🔄 Scrapeando tipo de cambio del BNA...")
     
     cotizacion = await scrapear_dolar_bna()
     

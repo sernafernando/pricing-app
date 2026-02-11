@@ -100,7 +100,7 @@ async def sync_items_publicados_incremental(db: Session):
         return 0, 0, 0
 
     print(f"📊 Último mlp_id en BD: {ultimo_mlp_id}")
-    print(f"🔄 Sincronizando items publicados...\n")
+    print("🔄 Sincronizando items publicados...\n")
 
     insertados_total = 0
     actualizados_total = 0
@@ -166,7 +166,7 @@ async def sync_items_publicados_incremental(db: Session):
 
         nuevo_maximo = db.query(func.max(MercadoLibreItemPublicado.mlp_id)).scalar()
 
-        print(f"\n✅ Sincronización completada!")
+        print("\n✅ Sincronización completada!")
         print(f"   Insertados: {insertados_total}")
         print(f"   Actualizados: {actualizados_total}")
         print(f"   Errores: {errores_total}")

@@ -1,0 +1,27 @@
+# Ruff configuration for Pricing App backend
+# Docs: https://docs.astral.sh/ruff/configuration/
+
+target-version = "py311"
+line-length = 120
+
+[lint]
+# Only Pyflakes (F) rules for now — catches real bugs.
+# Style rules (E/W) are deferred: formatting is handled by `ruff format`.
+# E712, E722, E501, W293 etc. are noisy in a legacy codebase and not actionable today.
+select = ["F"]
+
+ignore = [
+  # F821 undefined names in scripts are often guarded by sys.path manipulation.
+  # We keep F821 enabled globally but suppress in scripts below.
+]
+
+# F821 (undefined name) — real bugs, kept as errors.
+# F401 (unused import) — auto-fixed in this commit.
+# F541 (f-string without placeholders) — auto-fixed in this commit.
+# F841 (unused variable) — auto-fixed where safe.
+# F811 (redefined unused) — kept as error.
+
+[lint.per-file-ignores]
+# Scripts use sys.path manipulation before imports — some imports look unused
+# because they're used after path setup. Also some have syntax experiments.
+"app/scripts/*.py" = ["F401", "F841", "F811"]

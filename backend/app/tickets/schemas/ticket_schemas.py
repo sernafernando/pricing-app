@@ -1,5 +1,5 @@
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Optional, Dict, Any
 from datetime import datetime
 from app.tickets.models.ticket import PrioridadTicket
 

@@ -47,7 +47,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
     Replica la query del ERP pero usando tablas tb_* locales
     """
 
-    print(f"\n🔍 Consultando tablas locales PostgreSQL...")
+    print("\n🔍 Consultando tablas locales PostgreSQL...")
     print(f"   Rango: {from_date} a {to_date}")
 
     # Query complejo que replica la lógica del ERP

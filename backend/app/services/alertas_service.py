@@ -5,7 +5,7 @@ Lógica de negocio para el sistema de alertas globales.
 from typing import List, Optional
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import or_
 from app.models.alerta import Alerta, AlertaUsuarioDestinatario, AlertaUsuarioEstado, ConfiguracionAlerta
 from app.models.usuario import Usuario
 

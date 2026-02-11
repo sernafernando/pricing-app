@@ -346,7 +346,7 @@ async def obtener_envios_turbo_pendientes(
         asignaciones_map = {str(asig.mlshippingid): asig for asig in asignaciones}
     
     # 8. Construir respuesta con paginación
-    total = len(envios_turbo_actualizados)
+    len(envios_turbo_actualizados)
     envios_paginados = envios_turbo_actualizados[offset:offset+limit]
     
     resultado = []
@@ -1381,7 +1381,7 @@ async def asignar_automaticamente_por_zona(
             "total_sin_zona": len(envios_sin_asignar),
             "asignaciones": [],
             "sin_zona": [str(e.mlshippingid) for e in envios_sin_asignar],
-            "mensaje": f"Ningún envío tiene coordenadas. Ejecutá geocoding batch primero."
+            "mensaje": "Ningún envío tiene coordenadas. Ejecutá geocoding batch primero."
         }
     
     # 3. Obtener zonas activas con motoqueros asignados

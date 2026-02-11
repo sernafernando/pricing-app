@@ -172,7 +172,7 @@ if __name__ == "__main__":
     result_details = sync_archived_details()
     
     logger.info("\n" + "="*70)
-    logger.info(f"RESULTADO FINAL:")
+    logger.info("RESULTADO FINAL:")
     logger.info(f"  - Headers borrados: {result_headers.get('headers_borrados', 0)}")
     logger.info(f"  - Details borrados: {result_details.get('details_borrados', 0)}")
     logger.info("="*70 + "\n")

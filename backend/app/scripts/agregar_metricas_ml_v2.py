@@ -212,7 +212,7 @@ def process_and_insert(db: Session, df: pd.DataFrame):
 
     print()
     print(f"{'='*60}")
-    print(f"✅ COMPLETADO")
+    print("✅ COMPLETADO")
     print(f"{'='*60}")
     print(f"Insertados: {total_insertados}")
     print(f"Actualizados: {total_actualizados}")
@@ -229,7 +229,7 @@ def main():
     to_date = datetime.strptime(args.to_date, '%Y-%m-%d').date()
 
     print(f"\n{'='*60}")
-    print(f"AGREGACIÓN DE MÉTRICAS ML (v2 - usando API)")
+    print("AGREGACIÓN DE MÉTRICAS ML (v2 - usando API)")
     print(f"{'='*60}")
     print(f"Rango: {from_date} a {to_date}")
     print()

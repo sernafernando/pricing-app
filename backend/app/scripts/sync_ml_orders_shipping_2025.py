@@ -42,12 +42,12 @@ async def sync_ml_orders_shipping_mes(db: Session, from_date: str, to_date: str)
             shipping_data = response.json()
 
         if not isinstance(shipping_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(shipping_data) == 1 and "Column1" in shipping_data[0]:
-            print(f"   ⚠️  No hay datos disponibles para este período")
+            print("   ⚠️  No hay datos disponibles para este período")
             return 0, 0, 0
 
         print(f"   Procesando {len(shipping_data)} envíos...")
@@ -101,7 +101,7 @@ async def sync_ml_orders_shipping_mes(db: Session, from_date: str, to_date: str)
                 # Verificar que tenga mlm_id
                 mlm_id = shipping_json.get("mlm_id")
                 if mlm_id is None:
-                    print(f"   ⚠️  Envío sin mlm_id, omitiendo...")
+                    print("   ⚠️  Envío sin mlm_id, omitiendo...")
                     shipping_errores += 1
                     continue
 

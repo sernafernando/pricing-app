@@ -42,12 +42,12 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
             details_data = response.json()
 
         if not isinstance(details_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(details_data) == 1 and "Column1" in details_data[0]:
-            print(f"   ⚠️  No hay datos disponibles para este período")
+            print("   ⚠️  No hay datos disponibles para este período")
             return 0, 0, 0
 
         print(f"   Procesando {len(details_data)} detalles...")
@@ -113,7 +113,7 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
                 # Verificar que tenga mlod_id
                 mlod_id = detail_json.get("mlod_id")
                 if mlod_id is None:
-                    print(f"   ⚠️  Detalle sin mlod_id, omitiendo...")
+                    print("   ⚠️  Detalle sin mlod_id, omitiendo...")
                     details_errores += 1
                     continue
 

@@ -99,7 +99,7 @@ async def obtener_resumen(
 
     # Filtro vista Producción: EAN con "-" Y (Notebook OR NB OR PC ARMADA OR AIO)
     if vista_produccion:
-        from sqlalchemy import or_, and_
+        from sqlalchemy import or_
         query = query.filter(
             PedidoPreparacionCache.item_code.like('%-%'),
             or_(*[PedidoPreparacionCache.item_desc.ilike(p) for p in PRODUCCION_PATRONES])
@@ -222,7 +222,6 @@ async def sincronizar_pedidos(
     Fuerza una sincronización manual de pedidos en preparación.
     """
     from app.scripts.sync_pedidos_preparacion import sync_pedidos_preparacion
-    import asyncio
 
     try:
         # Ejecutar sincronización

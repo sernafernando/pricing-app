@@ -30,8 +30,8 @@ def crear_admin():
         db.commit()
         
         print("✅ Usuario admin creado")
-        print(f"   Email: fserna@gaussonline.com.ar")
-        print(f"   Password: ********")
+        print("   Email: fserna@gaussonline.com.ar")
+        print("   Password: ********")
         print("   ⚠️  CAMBIAR PASSWORD EN PRODUCCIÓN")
         
     except Exception as e:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import date
@@ -6,7 +6,7 @@ from datetime import date
 from app.core.database import get_db
 from app.api.deps import get_current_user, get_current_admin
 from app.models.usuario import Usuario
-from app.models.comision_config import GrupoComision, SubcategoriaGrupo, ComisionListaGrupo
+from app.models.comision_config import SubcategoriaGrupo, ComisionListaGrupo
 from app.models.configuracion import Configuracion
 
 router = APIRouter()

@@ -61,7 +61,7 @@ async def refresh_access_token(http_client: httpx.AsyncClient):
     if tokens.get("refresh_token"):
         REFRESH_TOKEN = tokens.get("refresh_token")
 
-    print(f"✓ Token refrescado exitosamente")
+    print("✓ Token refrescado exitosamente")
     return ACCESS_TOKEN
 
 

@@ -166,12 +166,12 @@ async def ejecutar_todas_sincronizaciones():
     print(f"⏱️  Duración: {duracion:.2f} segundos")
     print("="*60)
 
-    print(f"\n📊 Resumen:")
+    print("\n📊 Resumen:")
     print(f"   ✅ Exitosos: {len(resultados['exitosos'])}")
     print(f"   ❌ Errores: {len(resultados['errores'])}")
 
     if resultados['errores']:
-        print(f"\n⚠️  Errores encontrados:")
+        print("\n⚠️  Errores encontrados:")
         for error in resultados['errores']:
             print(f"   • {error}")
 

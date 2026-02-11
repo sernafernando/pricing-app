@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
-from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
+from app.models.permiso import Permiso, RolPermisoBase
 from app.services.permisos_service import PermisosService, verificar_permiso
 
 router = APIRouter(prefix="/permisos", tags=["permisos"])
@@ -178,7 +178,7 @@ async def crear_override(
 
     service = PermisosService(db)
     try:
-        override = service.agregar_override(
+        service.agregar_override(
             usuario_id=request.usuario_id,
             permiso_codigo=request.permiso_codigo,
             concedido=request.concedido,

@@ -321,8 +321,7 @@ async def obtener_rentabilidad_tienda_nube(
             offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
 
             if resumen:
-                acum_unidades = resumen.total_unidades or 0
-                acum_offset_ars = float(resumen.total_monto_ars or 0)
+                float(resumen.total_monto_ars or 0)
 
                 # Consumo previo al período filtrado
                 consumo_previo_unidades = 0

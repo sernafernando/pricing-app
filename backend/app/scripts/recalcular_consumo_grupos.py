@@ -166,7 +166,7 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
 
     if not offsets_grupo and not filtros_grupo:
         if verbose:
-            print(f"  - No hay offsets ni filtros en este grupo")
+            print("  - No hay offsets ni filtros en este grupo")
         return {"grupo_id": grupo_id, "consumos_creados": 0, "mensaje": "Sin offsets ni filtros"}
 
     # Determinar fecha de inicio (la más antigua de los offsets)

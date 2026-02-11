@@ -1,11 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
 from typing import List, Optional 
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
-from app.models.auditoria_precio import AuditoriaPrecio
 from app.models.auditoria import Auditoria, TipoAccion
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime

@@ -1,9 +1,9 @@
 """
 Endpoints para el dashboard de ventas ML con métricas pre-calculadas
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, desc, extract, tuple_
+from sqlalchemy import func, desc, tuple_
 from typing import List, Optional
 from datetime import datetime, date, timedelta
 from decimal import Decimal

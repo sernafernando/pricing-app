@@ -46,7 +46,7 @@ async def sync_details_incremental(db: Session):
         return 0, 0, 0
 
     if ultimo_it_con_detalles >= max_it_transaction:
-        print(f"✅ No hay item transactions nuevos para sincronizar.")
+        print("✅ No hay item transactions nuevos para sincronizar.")
         print(f"   Último it_transaction con detalles: {ultimo_it_con_detalles}")
         print(f"   Último it_transaction disponible: {max_it_transaction}")
         return 0, 0, 0
@@ -66,7 +66,7 @@ async def sync_details_incremental(db: Session):
             "toItTransaction": to_it
         }
 
-        print(f"📅 Consultando API...")
+        print("📅 Consultando API...")
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.get(url, params=params)
@@ -74,16 +74,16 @@ async def sync_details_incremental(db: Session):
             details_data = response.json()
 
         if not isinstance(details_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(details_data) == 1 and "Column1" in details_data[0]:
-            print(f"   ⚠️  No hay datos disponibles")
+            print("   ⚠️  No hay datos disponibles")
             return 0, 0, 0
 
         if not details_data or len(details_data) == 0:
-            print(f"✅ No hay detalles nuevos para sincronizar.")
+            print("✅ No hay detalles nuevos para sincronizar.")
             return 0, 0, 0
 
         print(f"   Encontrados {len(details_data)} detalles nuevos\n")
@@ -140,7 +140,7 @@ async def sync_details_incremental(db: Session):
         # Obtener nuevo máximo
         nuevo_max = db.query(func.max(ItemTransactionDetail.it_transaction)).scalar()
 
-        print(f"\n✅ Sincronización completada!")
+        print("\n✅ Sincronización completada!")
         print(f"   Insertados: {details_insertados}")
         print(f"   Errores: {details_errores}")
         print(f"   Nuevo it_transaction máximo con detalles: {nuevo_max}")

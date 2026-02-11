@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
-from decimal import Decimal
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
