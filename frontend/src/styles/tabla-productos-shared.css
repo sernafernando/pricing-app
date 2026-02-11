@@ -168,6 +168,12 @@
   opacity: 0.85;
 }
 
+/* Markup con offset: mantener violeta en filas coloreadas */
+.row-colored .markup-offset-display {
+  color: var(--purple) !important;
+  opacity: 0.9;
+}
+
 /* ============================================
    BARRA DE SELECCIÓN MÚLTIPLE
    ============================================ */
