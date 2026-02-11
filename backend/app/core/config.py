@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
+from typing import List, Optional
 
 class Settings(BaseSettings):
     # Database
@@ -20,6 +20,25 @@ class Settings(BaseSettings):
     
     # Environment
     ENVIRONMENT: str = "production"
+
+    # CORS — comma-separated origins, e.g. "https://app.example.com,https://admin.example.com"
+    # Leave empty to use defaults: permissive in development, restrictive in production.
+    CORS_ALLOWED_ORIGINS: str = ""
+
+    @property
+    def cors_origins(self) -> List[str]:
+        """
+        Resolve allowed CORS origins based on environment.
+
+        - If CORS_ALLOWED_ORIGINS is set, use those (any environment).
+        - If development and no explicit origins, allow all (localhost convenience).
+        - If production and no explicit origins, block everything (fail-safe).
+        """
+        if self.CORS_ALLOWED_ORIGINS:
+            return [o.strip() for o in self.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
+        if self.ENVIRONMENT == "development":
+            return ["*"]
+        return []
     
     # Google Sheets
     GOOGLE_SHEETS_ID: str = ""

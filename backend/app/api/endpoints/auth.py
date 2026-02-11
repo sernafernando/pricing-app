@@ -5,6 +5,7 @@ from typing import Optional
 from datetime import timedelta
 
 from app.core.database import get_db
+from app.core.exceptions import api_error, ErrorCode, ErrorResponse
 from app.core.security import verify_password, get_password_hash, create_access_token, create_refresh_token, decode_token
 from app.core.config import settings
 from app.models.usuario import Usuario, RolUsuario, AuthProvider
@@ -32,7 +33,7 @@ class RegisterRequest(BaseModel):
     password: str
     nombre: str
 
-@router.post("/auth/login", response_model=TokenResponse)
+@router.post("/auth/login", response_model=TokenResponse, responses={401: {"model": ErrorResponse}})
 async def login(request: LoginRequest, db: Session = Depends(get_db)):
     """Login con username o email (detecta automáticamente por presencia de @)"""
     
@@ -45,22 +46,13 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         usuario = db.query(Usuario).filter(Usuario.username == request.username).first()
     
     if not usuario:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario o contraseña incorrectos"
-        )
+        raise api_error(401, ErrorCode.INVALID_CREDENTIALS, "Usuario o contraseña incorrectos")
     
     if not usuario.activo:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario inactivo"
-        )
+        raise api_error(401, ErrorCode.INACTIVE_USER, "Usuario inactivo")
     
     if not verify_password(request.password, usuario.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario o contraseña incorrectos"
-        )
+        raise api_error(401, ErrorCode.INVALID_CREDENTIALS, "Usuario o contraseña incorrectos")
     
     # Crear tokens (access + refresh) usando username
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -95,35 +87,23 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
     # o requerir un token de invitación. Por ahora se deshabilita.
     import os
     if os.getenv("ENVIRONMENT", "production") == "production":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Registro público deshabilitado. Contacta al administrador."
-        )
+        raise api_error(403, ErrorCode.REGISTRATION_DISABLED, "Registro público deshabilitado. Contacta al administrador.")
     
     # Verificar que no exista username
     existing = db.query(Usuario).filter(Usuario.username == request.username).first()
     if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username ya registrado"
-        )
+        raise api_error(400, ErrorCode.ALREADY_EXISTS, "Username ya registrado")
     
     # Verificar email si fue proporcionado
     if request.email:
         existing_email = db.query(Usuario).filter(Usuario.email == request.email).first()
         if existing_email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email ya registrado"
-            )
+            raise api_error(400, ErrorCode.ALREADY_EXISTS, "Email ya registrado")
     
     # Buscar el rol VENTAS por defecto para nuevos registros
     rol_default = db.query(Rol).filter(Rol.codigo == "VENTAS").first()
     if not rol_default:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error de configuración: rol VENTAS no existe"
-        )
+        raise api_error(500, ErrorCode.MISSING_CONFIGURATION, "Error de configuración: rol VENTAS no existe")
 
     # Crear usuario
     nuevo_usuario = Usuario(
@@ -152,7 +132,7 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
         }
     }
 
-@router.get("/auth/me")
+@router.get("/auth/me", responses={401: {"model": ErrorResponse}})
 async def get_me(current_user: Usuario = Depends(get_current_user)):
     """Obtiene información del usuario actual"""
     return {
@@ -164,7 +144,7 @@ async def get_me(current_user: Usuario = Depends(get_current_user)):
         "activo": current_user.activo
     }
 
-@router.post("/auth/refresh")
+@router.post("/auth/refresh", responses={401: {"model": ErrorResponse}})
 async def refresh_access_token(request: RefreshRequest, db: Session = Depends(get_db)):
     """
     Renueva el access_token usando un refresh_token válido.
@@ -172,24 +152,15 @@ async def refresh_access_token(request: RefreshRequest, db: Session = Depends(ge
     """
     payload = decode_token(request.refresh_token)
     if payload is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token inválido o expirado"
-        )
+        raise api_error(401, ErrorCode.INVALID_TOKEN, "Refresh token inválido o expirado")
     
     # Verificar que sea un refresh token (no un access token reutilizado)
     if payload.get("type") != "refresh":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token no es un refresh token"
-        )
+        raise api_error(401, ErrorCode.INVALID_TOKEN_TYPE, "Token no es un refresh token")
     
     username: str = payload.get("sub")
     if username is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token inválido"
-        )
+        raise api_error(401, ErrorCode.INVALID_TOKEN, "Refresh token inválido")
     
     # Verificar que el usuario siga existiendo y activo
     usuario = db.query(Usuario).filter(
@@ -197,10 +168,7 @@ async def refresh_access_token(request: RefreshRequest, db: Session = Depends(ge
     ).first()
     
     if usuario is None or not usuario.activo:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario no encontrado o inactivo"
-        )
+        raise api_error(401, ErrorCode.INACTIVE_USER, "Usuario no encontrado o inactivo")
     
     # Generar nuevo access token
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

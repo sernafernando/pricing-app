@@ -1,9 +1,14 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import asyncio
 from app.api.endpoints import sync, productos, pricing, admin, auth, usuarios, auditoria, sync_ml, marcas_pm, mla_banlist, producto_banlist, ventas_ml, ventas_fuera_ml, commercial_transactions, comisiones, calculos, configuracion, items_sin_mla, dashboard_ml, erp_sync, ml_catalog, tienda_nube, gbp_parser, notificaciones, offsets_ganancia, rentabilidad, rentabilidad_fuera, vendedores_excluidos, ventas_tienda_nube, rentabilidad_tienda_nube, permisos, markups_tienda, roles, pedidos_preparacion, clientes, pedidos_export, usuarios_erp, pedidos_export_v2, pedidos_export_simple, produccion_banlist, turbo_routing, pedidos_export_local, sale_order_status, asignaciones
 from app.routers import alertas
+from app.core.config import settings
+from app.core.exceptions import http_exception_handler
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Variable global para controlar la tarea de background
 _background_task = None
@@ -17,9 +22,12 @@ app = FastAPI(
     openapi_url="/api/openapi.json"
 )
 
+# Global error handler — ensures all errors follow the standard envelope
+app.add_exception_handler(HTTPException, http_exception_handler)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -96,13 +104,13 @@ async def sync_pedidos_preparacion_task():
 
     # Esperar 30 segundos después del inicio para que todo esté listo
     await asyncio.sleep(30)
-    print("📦 Iniciando sincronización periódica de pedidos en preparación (cada 5 min)")
+    logger.info("Background task started: sync pedidos preparacion (interval=300s)")
 
     while True:
         try:
             await sync_pedidos_preparacion()
         except Exception as e:
-            print(f"❌ Error en sincronización de pedidos: {e}")
+            logger.error("Sync pedidos preparacion failed: %s", e, exc_info=True)
 
         # Esperar 5 minutos
         await asyncio.sleep(300)
@@ -111,7 +119,8 @@ async def sync_pedidos_preparacion_task():
 @app.on_event("startup")
 async def startup_event():
     global _background_task
-    print("🚀 Pricing API iniciada")
+    logger.info("Pricing API started (version=%s, env=%s)", app.version, settings.ENVIRONMENT)
+    logger.info("CORS allowed origins: %s", settings.cors_origins)
 
     # Iniciar tarea de sincronización de pedidos en preparación
     _background_task = asyncio.create_task(sync_pedidos_preparacion_task())
@@ -120,7 +129,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     global _background_task
-    print("👋 Pricing API detenida")
+    logger.info("Pricing API shutting down")
 
     # Cancelar tarea de background
     if _background_task:
@@ -128,4 +137,4 @@ async def shutdown_event():
         try:
             await _background_task
         except asyncio.CancelledError:
-            pass
+            logger.info("Background task cancelled successfully")
