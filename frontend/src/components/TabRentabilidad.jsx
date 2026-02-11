@@ -627,6 +627,14 @@ export default function TabRentabilidad({
                   {formatPercent(rentabilidad.totales.markup_promedio)}
                 </span>
               </div>
+              {rentabilidad.totales.offset_flex_total > 0 && (
+                <div className={styles.totalItem}>
+                  <span className={styles.totalLabel}>Offset Flex</span>
+                  <span className={styles.totalValor} style={{ color: '#d97706' }}>
+                    {formatMoney(rentabilidad.totales.offset_flex_total)}
+                  </span>
+                </div>
+              )}
               {rentabilidad.totales.offset_total > 0 && (
                 <>
                   <div className={styles.totalItem}>
@@ -710,6 +718,12 @@ export default function TabRentabilidad({
                       {formatPercent(card.markup_promedio)}
                     </span>
                   </div>
+                  {card.offset_flex_total > 0 && (
+                    <div className={styles.cardMetrica}>
+                      <span>Offset Flex:</span>
+                      <span style={{ color: '#d97706' }}>{formatMoney(card.offset_flex_total)}</span>
+                    </div>
+                  )}
                   {card.offset_total > 0 && (
                     <>
                       <div className={styles.cardMetricaOffset}>

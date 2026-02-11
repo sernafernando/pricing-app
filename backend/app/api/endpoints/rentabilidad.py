@@ -131,6 +131,9 @@ class CardRentabilidad(BaseModel):
     ganancia: float
     markup_promedio: float
 
+    # Offset Flex (métrica separada del sistema de offsets de compensación)
+    offset_flex_total: float = 0.0
+
     # Offsets aplicados
     offset_total: float
     ganancia_con_offset: float
@@ -227,6 +230,7 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.monto_limpio).label("monto_limpio"),
             func.sum(MLVentaMetrica.costo_total_sin_iva).label("costo_total"),
             func.sum(MLVentaMetrica.ganancia).label("ganancia"),
+            func.coalesce(func.sum(MLVentaMetrica.offset_flex), 0).label("offset_flex_total"),
         )
         query = aplicar_filtros_base(query)
         query = query.filter(MLVentaMetrica.marca.isnot(None)).group_by(MLVentaMetrica.marca)
@@ -240,6 +244,7 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.monto_limpio).label("monto_limpio"),
             func.sum(MLVentaMetrica.costo_total_sin_iva).label("costo_total"),
             func.sum(MLVentaMetrica.ganancia).label("ganancia"),
+            func.coalesce(func.sum(MLVentaMetrica.offset_flex), 0).label("offset_flex_total"),
         )
         query = aplicar_filtros_base(query)
         query = query.filter(MLVentaMetrica.categoria.isnot(None)).group_by(MLVentaMetrica.categoria)
@@ -253,6 +258,7 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.monto_limpio).label("monto_limpio"),
             func.sum(MLVentaMetrica.costo_total_sin_iva).label("costo_total"),
             func.sum(MLVentaMetrica.ganancia).label("ganancia"),
+            func.coalesce(func.sum(MLVentaMetrica.offset_flex), 0).label("offset_flex_total"),
         )
         query = aplicar_filtros_base(query)
         query = query.filter(MLVentaMetrica.subcategoria.isnot(None)).group_by(MLVentaMetrica.subcategoria)
@@ -266,6 +272,7 @@ async def obtener_rentabilidad(
             func.sum(MLVentaMetrica.monto_limpio).label("monto_limpio"),
             func.sum(MLVentaMetrica.costo_total_sin_iva).label("costo_total"),
             func.sum(MLVentaMetrica.ganancia).label("ganancia"),
+            func.coalesce(func.sum(MLVentaMetrica.offset_flex), 0).label("offset_flex_total"),
         )
         query = aplicar_filtros_base(query)
         query = query.filter(MLVentaMetrica.item_id.isnot(None))
@@ -1308,6 +1315,7 @@ async def obtener_rentabilidad(
     total_costo = 0.0
     total_ganancia = 0.0
     total_offset = 0.0
+    total_offset_flex = 0.0
     total_desglose_offsets = []
 
     for r in resultados:
@@ -1323,6 +1331,7 @@ async def obtener_rentabilidad(
         monto_limpio = float(r.monto_limpio or 0)
         costo_total = float(r.costo_total or 0)
         ganancia = float(r.ganancia or 0)
+        offset_flex_card = float(r.offset_flex_total or 0)
 
         # Calcular markup a partir de ganancia/costo (no promediar porcentajes)
         markup_promedio = ((ganancia / costo_total) * 100) if costo_total > 0 else 0
@@ -1344,6 +1353,7 @@ async def obtener_rentabilidad(
                 costo_total=costo_total,
                 ganancia=ganancia,
                 markup_promedio=markup_promedio,
+                offset_flex_total=offset_flex_card,
                 offset_total=offset_aplicable,
                 ganancia_con_offset=ganancia_con_offset,
                 markup_con_offset=markup_con_offset,
@@ -1359,6 +1369,7 @@ async def obtener_rentabilidad(
         total_costo += costo_total
         total_ganancia += ganancia
         total_offset += offset_aplicable
+        total_offset_flex += offset_flex_card
         if desglose_offsets:
             total_desglose_offsets.extend(desglose_offsets)
 
@@ -1451,6 +1462,7 @@ async def obtener_rentabilidad(
         costo_total=total_costo,
         ganancia=total_ganancia,
         markup_promedio=total_markup,
+        offset_flex_total=total_offset_flex,
         offset_total=total_offset,
         ganancia_con_offset=total_ganancia_con_offset,
         markup_con_offset=total_markup_con_offset,
