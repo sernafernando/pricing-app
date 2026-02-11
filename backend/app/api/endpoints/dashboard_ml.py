@@ -442,7 +442,9 @@ async def get_ventas_por_dia(
     Obtiene ventas agrupadas por día.
     Si el usuario no es admin/gerente, solo ve sus marcas asignadas.
     """
-    fecha_truncada = func.date(MLVentaMetrica.fecha_venta)
+    # Convertir a timezone Argentina antes de truncar a date,
+    # para que las ventas de las 21-00hs ARG no se agrupen en el día siguiente (UTC)
+    fecha_truncada = func.date(func.timezone("America/Argentina/Buenos_Aires", MLVentaMetrica.fecha_venta))
 
     query = db.query(
         fecha_truncada.label("fecha"),
