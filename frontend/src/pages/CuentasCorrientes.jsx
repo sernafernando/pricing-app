@@ -32,8 +32,24 @@ export default function CuentasCorrientes() {
   const [error, setError] = useState(null);
   const [buscar, setBuscar] = useState('');
   const [buscarInput, setBuscarInput] = useState('');
+  const [sucursales, setSucursales] = useState([]);
+  const [sucursalSeleccionada, setSucursalSeleccionada] = useState('');
+  const [exportando, setExportando] = useState(false);
 
   const config = TABS[tab];
+
+  // Cargar sucursales al montar
+  useEffect(() => {
+    const cargarSucursales = async () => {
+      try {
+        const response = await api.get('/cuentas-corrientes/sucursales');
+        setSucursales(response.data || []);
+      } catch (err) {
+        console.error('Error cargando sucursales:', err);
+      }
+    };
+    cargarSucursales();
+  }, []);
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
@@ -41,6 +57,7 @@ export default function CuentasCorrientes() {
     try {
       const params = {};
       if (buscar) params.buscar = buscar;
+      if (sucursalSeleccionada) params.sucursal = sucursalSeleccionada;
 
       const response = await api.get(config.endpoint, { params });
       setData(response.data?.data || []);
@@ -54,7 +71,7 @@ export default function CuentasCorrientes() {
     } finally {
       setLoading(false);
     }
-  }, [buscar, config.endpoint]);
+  }, [buscar, sucursalSeleccionada, config.endpoint]);
 
   useEffect(() => {
     cargarDatos();
@@ -65,6 +82,7 @@ export default function CuentasCorrientes() {
     setTab(nuevoTab);
     setBuscar('');
     setBuscarInput('');
+    setSucursalSeleccionada('');
     setData([]);
   };
 
@@ -76,6 +94,35 @@ export default function CuentasCorrientes() {
   const handleLimpiar = () => {
     setBuscarInput('');
     setBuscar('');
+    setSucursalSeleccionada('');
+  };
+
+  const exportarExcel = async () => {
+    setExportando(true);
+    try {
+      const params = { tipo: tab };
+      if (buscar) params.buscar = buscar;
+      if (sucursalSeleccionada) params.sucursal = sucursalSeleccionada;
+
+      const response = await api.get('/cuentas-corrientes/exportar', {
+        params,
+        responseType: 'blob',
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `cuentas_corrientes_${tab}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error exportando:', err);
+      setError('Error al exportar el archivo');
+    } finally {
+      setExportando(false);
+    }
   };
 
   const formatearMoneda = (monto) => {
@@ -100,6 +147,7 @@ export default function CuentasCorrientes() {
   };
 
   const totales = calcularTotales();
+  const hayFiltrosActivos = buscar || sucursalSeleccionada;
 
   return (
     <div className={styles.container}>
@@ -114,25 +162,44 @@ export default function CuentasCorrientes() {
               placeholder={config.searchPlaceholder}
               className={styles.searchInput}
             />
-            <button type="submit" className={styles.btnBuscar}>
+            <button type="submit" className="btn-tesla outline-subtle-primary sm">
               Buscar
             </button>
-            {buscar && (
-              <button
-                type="button"
-                onClick={handleLimpiar}
-                className={styles.btnLimpiar}
-              >
-                Limpiar
-              </button>
-            )}
           </form>
+          <select
+            value={sucursalSeleccionada}
+            onChange={(e) => setSucursalSeleccionada(e.target.value)}
+            className={styles.selectSucursal}
+          >
+            <option value="">Todas las sucursales</option>
+            {sucursales.map((s) => (
+              <option key={s.bra_id} value={s.bra_id}>
+                {s.bra_desc}
+              </option>
+            ))}
+          </select>
+          {hayFiltrosActivos && (
+            <button
+              type="button"
+              onClick={handleLimpiar}
+              className="btn-tesla outline-subtle-danger sm"
+            >
+              Limpiar
+            </button>
+          )}
           <button
             onClick={cargarDatos}
-            className={styles.btnRecargar}
+            className="btn-tesla outline-subtle-primary sm"
             disabled={loading}
           >
             {loading ? 'Cargando...' : 'Actualizar'}
+          </button>
+          <button
+            onClick={exportarExcel}
+            className="btn-tesla outline-subtle-success sm"
+            disabled={exportando || loading || data.length === 0}
+          >
+            {exportando ? 'Exportando...' : 'Exportar Excel'}
           </button>
         </div>
       </div>
@@ -203,7 +270,7 @@ export default function CuentasCorrientes() {
                 ) : (
                   data.map((item) => (
                     <tr key={`${item.bra_id}-${item[config.idField]}`}>
-                      <td className={styles.centrado}>{item.bra_id}</td>
+                      <td>{item.sucursal}</td>
                       <td className={styles.centrado}>{item[config.idField]}</td>
                       <td>{item[config.nameField]}</td>
                       <td className={styles.monto}>
