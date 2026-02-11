@@ -14,6 +14,7 @@ from io import BytesIO
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 from typing import Optional
 import httpx
@@ -126,6 +127,14 @@ def _serialize_results(
             item["cliente"] = r.cliente
         data.append(item)
     return data
+
+
+def _get_synced_at(db: Session, tipo: str) -> Optional[str]:
+    """Obtiene el timestamp de la última sincronización para un tipo dado."""
+    cfg = _TIPO_CONFIG[tipo]
+    model = cfg["model"]
+    result = db.query(sa_func.max(model.synced_at)).scalar()
+    return result.isoformat() if result else None
 
 
 def _query_filtered(
@@ -251,6 +260,7 @@ async def listar_cuentas_corrientes_proveedores(
     resultados = _query_filtered(db, "proveedores", buscar, sucursal)
     return {
         "total": len(resultados),
+        "synced_at": _get_synced_at(db, "proveedores"),
         "data": _serialize_results(resultados, "proveedores", branch_map),
     }
 
@@ -267,6 +277,7 @@ async def listar_cuentas_corrientes_clientes(
     resultados = _query_filtered(db, "clientes", buscar, sucursal)
     return {
         "total": len(resultados),
+        "synced_at": _get_synced_at(db, "clientes"),
         "data": _serialize_results(resultados, "clientes", branch_map),
     }
 

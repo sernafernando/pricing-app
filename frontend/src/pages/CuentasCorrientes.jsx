@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 import styles from './CuentasCorrientes.module.css';
 
@@ -25,10 +25,28 @@ const TABS = {
   },
 };
 
+function formatearTimestamp(isoString) {
+  if (!isoString) return null;
+  try {
+    const fecha = new Date(isoString);
+    return fecha.toLocaleString('es-AR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'America/Argentina/Buenos_Aires',
+    });
+  } catch {
+    return null;
+  }
+}
+
 export default function CuentasCorrientes() {
   const [tab, setTab] = useState('proveedores');
   const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState(null);
   const [buscar, setBuscar] = useState('');
@@ -36,9 +54,7 @@ export default function CuentasCorrientes() {
   const [sucursales, setSucursales] = useState([]);
   const [sucursalSeleccionada, setSucursalSeleccionada] = useState('');
   const [exportando, setExportando] = useState(false);
-
-  // Track si ya se hizo sync para cada tab (para no martillar el ERP)
-  const syncDone = useRef({ proveedores: false, clientes: false });
+  const [syncedAt, setSyncedAt] = useState(null);
 
   const config = TABS[tab];
 
@@ -66,6 +82,7 @@ export default function CuentasCorrientes() {
 
       const response = await api.get(config.endpoint, { params });
       setData(response.data?.data || []);
+      setSyncedAt(response.data?.synced_at || null);
     } catch (err) {
       console.error('Error cargando cuentas corrientes:', err);
       const msg =
@@ -78,13 +95,17 @@ export default function CuentasCorrientes() {
     }
   }, [buscar, sucursalSeleccionada, config.endpoint]);
 
-  // Sincronizar con ERP (POST) y luego recargar datos locales
-  const sincronizarERP = useCallback(async () => {
+  // Al montar y cuando cambian filtros → solo leer tabla local
+  useEffect(() => {
+    cargarDatos();
+  }, [cargarDatos]);
+
+  // Botón "Actualizar": sync con ERP + recargar
+  const handleActualizar = async () => {
     setSyncing(true);
     setError(null);
     try {
       await api.post(`/cuentas-corrientes/sync?tipo=${tab}`);
-      syncDone.current[tab] = true;
     } catch (err) {
       console.error('Error sincronizando con ERP:', err);
       const msg =
@@ -94,27 +115,6 @@ export default function CuentasCorrientes() {
     } finally {
       setSyncing(false);
     }
-  }, [tab]);
-
-  // Al montar o cambiar de tab: sync automático (una vez) + cargar datos
-  useEffect(() => {
-    const init = async () => {
-      if (!syncDone.current[tab]) {
-        await sincronizarERP();
-      }
-      await cargarDatos();
-    };
-    init();
-  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Cuando cambian filtros, solo leer tabla local
-  useEffect(() => {
-    cargarDatos();
-  }, [cargarDatos]);
-
-  // Botón "Actualizar": forzar sync con ERP + recargar
-  const handleActualizar = async () => {
-    await sincronizarERP();
     await cargarDatos();
   };
 
@@ -125,6 +125,7 @@ export default function CuentasCorrientes() {
     setBuscarInput('');
     setSucursalSeleccionada('');
     setData([]);
+    setSyncedAt(null);
   };
 
   const handleBuscar = (e) => {
@@ -189,12 +190,18 @@ export default function CuentasCorrientes() {
 
   const totales = calcularTotales();
   const hayFiltrosActivos = buscar || sucursalSeleccionada;
-  const isBusy = loading || syncing;
 
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <h1 className={styles.title}>Cuentas Corrientes</h1>
+        <div className={styles.headerLeft}>
+          <h1 className={styles.title}>Cuentas Corrientes</h1>
+          {syncedAt && (
+            <span className={styles.syncedAt}>
+              Datos al {formatearTimestamp(syncedAt)}
+            </span>
+          )}
+        </div>
         <div className={styles.acciones}>
           <form onSubmit={handleBuscar} className={styles.buscador}>
             <input
@@ -232,14 +239,14 @@ export default function CuentasCorrientes() {
           <button
             onClick={handleActualizar}
             className="btn-tesla outline-subtle-primary sm"
-            disabled={isBusy}
+            disabled={syncing}
           >
-            {syncing ? 'Sincronizando ERP...' : 'Actualizar'}
+            {syncing ? 'Sincronizando...' : 'Actualizar'}
           </button>
           <button
             onClick={exportarExcel}
             className="btn-tesla outline-subtle-success sm"
-            disabled={exportando || isBusy || data.length === 0}
+            disabled={exportando || loading || data.length === 0}
           >
             {exportando ? 'Exportando...' : 'Exportar Excel'}
           </button>
@@ -261,12 +268,8 @@ export default function CuentasCorrientes() {
 
       {error && <div className={styles.errorBanner}>{error}</div>}
 
-      {isBusy ? (
-        <div className={styles.loading}>
-          {syncing
-            ? 'Sincronizando con el ERP, puede demorar unos segundos...'
-            : 'Cargando datos...'}
-        </div>
+      {loading ? (
+        <div className={styles.loading}>Cargando datos...</div>
       ) : (
         <>
           <div className={styles.statsCard}>
@@ -310,7 +313,9 @@ export default function CuentasCorrientes() {
                 {data.length === 0 ? (
                   <tr>
                     <td colSpan="6" className={styles.noData}>
-                      No se encontraron cuentas corrientes
+                      {syncedAt
+                        ? 'No se encontraron cuentas corrientes con los filtros aplicados'
+                        : 'Sin datos — presioná "Actualizar" para sincronizar con el ERP'}
                     </td>
                   </tr>
                 ) : (
