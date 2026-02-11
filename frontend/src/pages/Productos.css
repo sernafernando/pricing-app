@@ -1018,6 +1018,13 @@
   margin-top: 2px;
 }
 
+/* Markup con offset aplicado (violeta) */
+.markup-offset-display {
+  color: var(--purple) !important;
+  margin-left: 4px;
+  font-weight: 700;
+}
+
 /* Columna de precio rebate */
 .rebate-edit {
   display: flex;
