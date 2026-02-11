@@ -149,7 +149,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                 )
             ) as cambio_momento,
 
-            tmlos.ml_logistic_type as tipo_logistica,
+            COALESCE(tmlos.mllogistic_type, tmlos.ml_logistic_type) as tipo_logistica,
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
             tmloh.mlshippingid as shipping_id,
