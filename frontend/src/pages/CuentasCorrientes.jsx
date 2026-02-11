@@ -180,6 +180,7 @@ export default function CuentasCorrientes() {
   };
 
   const dataFiltrada = data.filter((item) => {
+    if (filtroSaldo === 'pendiente') return item.pendiente !== 0;
     if (filtroSaldo === 'deuda') return item.pendiente > 0;
     if (filtroSaldo === 'favor') return item.pendiente < 0;
     if (filtroSaldo === 'sin_deuda') return item.pendiente === 0;
@@ -243,6 +244,7 @@ export default function CuentasCorrientes() {
             className={styles.selectSucursal}
           >
             <option value="todos">Todos los saldos</option>
+            <option value="pendiente">Con pendiente</option>
             <option value="deuda">Con deuda</option>
             <option value="favor">A favor</option>
             <option value="sin_deuda">Sin deuda</option>
