@@ -78,7 +78,7 @@ def fetch_data_from_sql_server(from_date: date, to_date: date) -> pd.DataFrame:
             tmloh.ml_pack_id [ML_pack_id],
             tmlip.mlp_price4FreeShipping [mlp_price4FreeShipping],
             tmlos.mlshippmentcost4seller [Costo_Envío],
-            tmlos.mllogistic_type [ML_logistic_type],
+            COALESCE(tmlos.ml_logistic_type, tmlos.mllogistic_type) [ML_logistic_type],
             tmlos.mlshippment_id [MLShippingID],
             tmlod.mlo_sale_fee_amount [Comisión_en_pesos],
             tmlip.prli_id [priceList],

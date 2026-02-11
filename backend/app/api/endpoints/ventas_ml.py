@@ -664,7 +664,7 @@ async def get_operaciones_con_metricas(
             ) as pricelist_id,
 
             -- Tipo de logística del envío (self_service = Flex, fulfillment = Full, etc.)
-            COALESCE(tmlos.mllogistic_type, tmlos.ml_logistic_type) as ml_logistic_type
+            COALESCE(tmlos.ml_logistic_type, tmlos.mllogistic_type) as ml_logistic_type
 
         FROM tb_mercadolibre_orders_detail tmlod
 
@@ -1034,7 +1034,7 @@ async def exportar_operaciones(
             ) as pricelist_id,
 
             -- Tipo de logística del envío (self_service = Flex, fulfillment = Full, etc.)
-            COALESCE(tmlos.mllogistic_type, tmlos.ml_logistic_type) as ml_logistic_type
+            COALESCE(tmlos.ml_logistic_type, tmlos.mllogistic_type) as ml_logistic_type
 
         FROM tb_mercadolibre_orders_detail tmlod
         LEFT JOIN tb_mercadolibre_orders_header tmloh
