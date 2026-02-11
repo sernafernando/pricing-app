@@ -15,10 +15,25 @@
   gap: 16px;
 }
 
+.headerLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .title {
   font-size: 28px;
   font-weight: 700;
   color: var(--text-primary);
+}
+
+.syncedAt {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-tertiary, var(--text-secondary));
+  opacity: 0.5;
+  letter-spacing: 0.03em;
+  user-select: none;
 }
 
 .acciones {
