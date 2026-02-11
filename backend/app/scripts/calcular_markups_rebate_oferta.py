@@ -5,6 +5,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.calcular_markups_rebate_oferta
 """
+
 import sys
 import os
 
@@ -26,7 +27,7 @@ from app.services.pricing_calculator import (
     obtener_comision_base,
     calcular_comision_ml_total,
     calcular_limpio,
-    calcular_markup
+    calcular_markup,
 )
 from datetime import date
 
@@ -41,11 +42,12 @@ def calcular_markups(db: Session):
     hoy = date.today()
 
     # Obtener todos los productos con pricing
-    productos = db.query(ProductoERP, ProductoPricing).outerjoin(
-        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
-    ).filter(
-        ProductoPricing.item_id.isnot(None)
-    ).all()
+    productos = (
+        db.query(ProductoERP, ProductoPricing)
+        .outerjoin(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
+        .filter(ProductoPricing.item_id.isnot(None))
+        .all()
+    )
 
     total_productos = len(productos)
     print(f"📊 Procesando {total_productos} productos\n")
@@ -62,7 +64,9 @@ def calcular_markups(db: Session):
             # ========== CALCULAR MARKUP REBATE ==========
             if producto_pricing.participa_rebate and producto_pricing.precio_lista_ml and producto_erp.costo:
                 try:
-                    porcentaje_rebate_val = float(producto_pricing.porcentaje_rebate if producto_pricing.porcentaje_rebate is not None else 3.8)
+                    porcentaje_rebate_val = float(
+                        producto_pricing.porcentaje_rebate if producto_pricing.porcentaje_rebate is not None else 3.8
+                    )
                     precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
 
                     # Calcular markup completo considerando comisiones
@@ -76,10 +80,7 @@ def calcular_markups(db: Session):
 
                     if comision_base_rebate and precio_rebate > 0:
                         comisiones_rebate = calcular_comision_ml_total(
-                            precio_rebate,
-                            comision_base_rebate,
-                            producto_erp.iva,
-                            db=db
+                            precio_rebate, comision_base_rebate, producto_erp.iva, db=db
                         )
                         limpio_rebate = calcular_limpio(
                             precio_rebate,
@@ -87,7 +88,7 @@ def calcular_markups(db: Session):
                             producto_erp.envio or 0,
                             comisiones_rebate["comision_total"],
                             db=db,
-                            grupo_id=grupo_id_rebate
+                            grupo_id=grupo_id_rebate,
                         )
                         markup_rebate_val = calcular_markup(limpio_rebate, costo_rebate) * 100
                         actualizados_rebate += 1
@@ -105,12 +106,17 @@ def calcular_markups(db: Session):
 
                     for pub in pubs:
                         # Buscar oferta vigente para esta publicación
-                        oferta = db.query(OfertaML).filter(
-                            OfertaML.mla == pub.mla,
-                            OfertaML.fecha_desde <= hoy,
-                            OfertaML.fecha_hasta >= hoy,
-                            OfertaML.pvp_seller.isnot(None)
-                        ).order_by(OfertaML.fecha_desde.desc()).first()
+                        oferta = (
+                            db.query(OfertaML)
+                            .filter(
+                                OfertaML.mla == pub.mla,
+                                OfertaML.fecha_desde <= hoy,
+                                OfertaML.fecha_hasta >= hoy,
+                                OfertaML.pvp_seller.isnot(None),
+                            )
+                            .order_by(OfertaML.fecha_desde.desc())
+                            .first()
+                        )
 
                         if oferta:
                             if not mejor_oferta:
@@ -125,16 +131,15 @@ def calcular_markups(db: Session):
                             if producto_erp.moneda_costo == "USD":
                                 tipo_cambio_oferta = obtener_tipo_cambio_actual(db, "USD")
 
-                            costo_oferta = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_oferta)
+                            costo_oferta = convertir_a_pesos(
+                                producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_oferta
+                            )
                             grupo_id_oferta = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
                             comision_base_oferta = obtener_comision_base(db, mejor_pub.pricelist_id, grupo_id_oferta)
 
                             if comision_base_oferta:
                                 comisiones_oferta = calcular_comision_ml_total(
-                                    mejor_oferta_pvp,
-                                    comision_base_oferta,
-                                    producto_erp.iva,
-                                    db=db
+                                    mejor_oferta_pvp, comision_base_oferta, producto_erp.iva, db=db
                                 )
                                 limpio_oferta = calcular_limpio(
                                     mejor_oferta_pvp,
@@ -142,7 +147,7 @@ def calcular_markups(db: Session):
                                     producto_erp.envio or 0,
                                     comisiones_oferta["comision_total"],
                                     db=db,
-                                    grupo_id=grupo_id_oferta
+                                    grupo_id=grupo_id_oferta,
                                 )
                                 markup_oferta_val = calcular_markup(limpio_oferta, costo_oferta) * 100
                                 actualizados_oferta += 1

@@ -3,6 +3,7 @@ Endpoints para métricas de ventas de Tienda Nube
 Filtra específicamente por facturas de Tienda Nube (df_id 113, 114)
 Incluye comisión configurable desde pricing_constants
 """
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text, and_, or_
@@ -22,15 +23,17 @@ def get_comision_tienda_nube(db: Session, fecha: date = None) -> float:
     if fecha is None:
         fecha = date.today()
 
-    constants = db.query(PricingConstants).filter(
-        and_(
-            PricingConstants.fecha_desde <= fecha,
-            or_(
-                PricingConstants.fecha_hasta.is_(None),
-                PricingConstants.fecha_hasta >= fecha
+    constants = (
+        db.query(PricingConstants)
+        .filter(
+            and_(
+                PricingConstants.fecha_desde <= fecha,
+                or_(PricingConstants.fecha_hasta.is_(None), PricingConstants.fecha_hasta >= fecha),
             )
         )
-    ).order_by(PricingConstants.fecha_desde.desc()).first()
+        .order_by(PricingConstants.fecha_desde.desc())
+        .first()
+    )
 
     if constants and constants.comision_tienda_nube is not None:
         return float(constants.comision_tienda_nube)
@@ -56,18 +59,20 @@ ITEMS_EXCLUIDOS = [16, 460]
 CLIENTES_EXCLUIDOS = [11, 3900]
 
 # Strings pre-generados para queries
-DF_IDS_STR = ','.join(map(str, DF_TIENDA_NUBE))
-SD_IDS_STR = ','.join(map(str, SD_TODOS))
-ITEMS_EXCLUIDOS_STR = ','.join(map(str, ITEMS_EXCLUIDOS))
-CLIENTES_EXCLUIDOS_STR = ','.join(map(str, CLIENTES_EXCLUIDOS))
+DF_IDS_STR = ",".join(map(str, DF_TIENDA_NUBE))
+SD_IDS_STR = ",".join(map(str, SD_TODOS))
+ITEMS_EXCLUIDOS_STR = ",".join(map(str, ITEMS_EXCLUIDOS))
+CLIENTES_EXCLUIDOS_STR = ",".join(map(str, CLIENTES_EXCLUIDOS))
 
 
 # ============================================================================
 # Schemas
 # ============================================================================
 
+
 class VentaTiendaNubeResponse(BaseModel):
     """Respuesta detallada de una venta de Tienda Nube"""
+
     id_operacion: int
     metrica_id: Optional[int] = None
     sucursal: Optional[str]
@@ -108,6 +113,7 @@ class VentaTiendaNubeResponse(BaseModel):
 
 class VentaTiendaNubeStatsResponse(BaseModel):
     """Estadísticas agregadas de ventas de Tienda Nube"""
+
     total_ventas: int
     total_unidades: Decimal
     monto_total_sin_iva: Decimal
@@ -125,6 +131,7 @@ class VentaTiendaNubeStatsResponse(BaseModel):
 
 class VentaTiendaNubePorMarcaResponse(BaseModel):
     """Ventas agrupadas por marca"""
+
     marca: Optional[str]
     total_ventas: int
     unidades_vendidas: Decimal
@@ -135,6 +142,7 @@ class VentaTiendaNubePorMarcaResponse(BaseModel):
 
 class OperacionTiendaNubeResponse(BaseModel):
     """Respuesta de operación desde métricas (para detalle de operaciones con paginación)"""
+
     metrica_id: int
     id_operacion: int
     sucursal: Optional[str]
@@ -165,12 +173,14 @@ class OperacionTiendaNubeResponse(BaseModel):
 
 class CountResponse(BaseModel):
     """Response para endpoints de conteo (usado en paginación)"""
+
     total: int
 
 
 # ============================================================================
 # Helpers
 # ============================================================================
+
 
 def get_ventas_tienda_nube_query():
     """
@@ -454,6 +464,7 @@ def get_ventas_tienda_nube_query():
 # Endpoints
 # ============================================================================
 
+
 @router.get("/ventas-tienda-nube", response_model=List[VentaTiendaNubeResponse])
 async def get_ventas_tienda_nube(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
@@ -465,7 +476,7 @@ async def get_ventas_tienda_nube(
     limit: int = Query(1000, le=10000, description="Límite de resultados"),
     offset: int = Query(0, description="Offset para paginación"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene ventas de Tienda Nube con métricas calculadas.
@@ -480,43 +491,42 @@ async def get_ventas_tienda_nube(
     query_str += "\nLIMIT :limit OFFSET :offset"
 
     result = db.execute(
-        text(query_str),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit, "offset": offset}
+        text(query_str), {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit, "offset": offset}
     )
 
     rows = result.fetchall()
     columns = result.keys()
 
     # Parsear filtros múltiples
-    sucursales_list = [s.strip() for s in sucursal.split(',') if s.strip()] if sucursal else []
-    vendedores_list = [v.strip() for v in vendedor.split(',') if v.strip()] if vendedor else []
+    sucursales_list = [s.strip() for s in sucursal.split(",") if s.strip()] if sucursal else []
+    vendedores_list = [v.strip() for v in vendedor.split(",") if v.strip()] if vendedor else []
 
     ventas = []
     for row in rows:
         row_dict = dict(zip(columns, row))
 
         # Aplicar filtros opcionales (con lógica OR para múltiples valores)
-        if sucursales_list and row_dict.get('sucursal') not in sucursales_list:
+        if sucursales_list and row_dict.get("sucursal") not in sucursales_list:
             continue
-        if vendedores_list and row_dict.get('vendedor') not in vendedores_list:
+        if vendedores_list and row_dict.get("vendedor") not in vendedores_list:
             continue
-        if marca and row_dict.get('marca') != marca:
+        if marca and row_dict.get("marca") != marca:
             continue
-        if cliente and cliente.lower() not in (row_dict.get('cliente') or '').lower():
+        if cliente and cliente.lower() not in (row_dict.get("cliente") or "").lower():
             continue
 
         # Calcular comisión de TN y ganancia
-        precio_final = float(row_dict.get('precio_final_sin_iva') or 0)
-        costo = float(row_dict.get('costo_pesos_sin_iva') or 0)
+        precio_final = float(row_dict.get("precio_final_sin_iva") or 0)
+        costo = float(row_dict.get("costo_pesos_sin_iva") or 0)
 
         comision_tn_pesos = precio_final * (comision_tn_pct / 100)
         monto_limpio = precio_final - comision_tn_pesos
         ganancia = monto_limpio - costo
 
-        row_dict['comision_tn_porcentaje'] = comision_tn_pct
-        row_dict['comision_tn_pesos'] = comision_tn_pesos
-        row_dict['monto_limpio'] = monto_limpio
-        row_dict['ganancia'] = ganancia
+        row_dict["comision_tn_porcentaje"] = comision_tn_pct
+        row_dict["comision_tn_pesos"] = comision_tn_pesos
+        row_dict["monto_limpio"] = monto_limpio
+        row_dict["ganancia"] = ganancia
 
         ventas.append(row_dict)
 
@@ -530,7 +540,7 @@ async def get_ventas_tienda_nube_stats(
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
     vendedor: Optional[str] = Query(None, description="Filtrar por vendedores (separados por coma)"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene estadísticas agregadas de ventas de Tienda Nube.
@@ -539,25 +549,25 @@ async def get_ventas_tienda_nube_stats(
     # Construir cláusula WHERE dinámica
     where_clause = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
     params = {"from_date": from_date, "to_date": to_date + " 23:59:59"}
-    
+
     if sucursal:
-        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        sucursales = [s.strip() for s in sucursal.split(",") if s.strip()]
         if sucursales:
             # Crear placeholders dinámicos: :sucursal_0, :sucursal_1, ...
-            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            sucursal_placeholders = ", ".join([f":sucursal_{i}" for i in range(len(sucursales))])
             where_clause += f" AND sucursal IN ({sucursal_placeholders})"
             for i, suc in enumerate(sucursales):
-                params[f'sucursal_{i}'] = suc
-    
+                params[f"sucursal_{i}"] = suc
+
     if vendedor:
-        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        vendedores = [v.strip() for v in vendedor.split(",") if v.strip()]
         if vendedores:
             # Crear placeholders dinámicos: :vendedor_0, :vendedor_1, ...
-            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            vendedor_placeholders = ", ".join([f":vendedor_{i}" for i in range(len(vendedores))])
             where_clause += f" AND vendedor IN ({vendedor_placeholders})"
             for i, vend in enumerate(vendedores):
-                params[f'vendedor_{i}'] = vend
-    
+                params[f"vendedor_{i}"] = vend
+
     # Query única con GROUPING SETS para stats totales, por sucursal y por vendedor
     combined_query = f"""
     SELECT
@@ -618,7 +628,7 @@ async def get_ventas_tienda_nube_stats(
                 sucursales_dict[row.sucursal] = {
                     "ventas": row.total_ventas,
                     "unidades": float(row.total_unidades or 0),
-                    "monto": float(row.monto_total_sin_iva or 0)
+                    "monto": float(row.monto_total_sin_iva or 0),
                 }
         # Row con is_vendedor_total = 0 es agrupado por vendedor
         elif row.is_sucursal_total == 1 and row.is_vendedor_total == 0:
@@ -626,7 +636,7 @@ async def get_ventas_tienda_nube_stats(
                 vendedores_dict[row.vendedor] = {
                     "ventas": row.total_ventas,
                     "unidades": float(row.total_unidades or 0),
-                    "monto": float(row.monto_total_sin_iva or 0)
+                    "monto": float(row.monto_total_sin_iva or 0),
                 }
 
     # Calcular markup promedio: ganancia / costo
@@ -649,10 +659,12 @@ async def get_ventas_tienda_nube_stats(
         AND sucursal IS NOT NULL
     ORDER BY sucursal
     """
-    sucursales_disponibles = [r.sucursal for r in db.execute(
-        text(sucursales_disponibles_query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
-    ).fetchall()]
+    sucursales_disponibles = [
+        r.sucursal
+        for r in db.execute(
+            text(sucursales_disponibles_query), {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+        ).fetchall()
+    ]
 
     vendedores_disponibles_query = """
     SELECT DISTINCT vendedor
@@ -661,10 +673,12 @@ async def get_ventas_tienda_nube_stats(
         AND vendedor IS NOT NULL
     ORDER BY vendedor
     """
-    vendedores_disponibles = [r.vendedor for r in db.execute(
-        text(vendedores_disponibles_query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
-    ).fetchall()]
+    vendedores_disponibles = [
+        r.vendedor
+        for r in db.execute(
+            text(vendedores_disponibles_query), {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+        ).fetchall()
+    ]
 
     return {
         "total_ventas": total_ventas,
@@ -681,7 +695,7 @@ async def get_ventas_tienda_nube_stats(
         "por_sucursal": sucursales_dict,
         "por_vendedor": vendedores_dict,
         "sucursales_disponibles": sucursales_disponibles,
-        "vendedores_disponibles": vendedores_disponibles
+        "vendedores_disponibles": vendedores_disponibles,
     }
 
 
@@ -697,7 +711,7 @@ async def get_operaciones_tn_desde_metricas(
     limit: int = Query(1000, le=50000, description="Límite de resultados"),
     offset: int = Query(0, description="Offset para paginación"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene operaciones desde la tabla de métricas pre-calculadas.
@@ -795,7 +809,7 @@ async def get_operaciones_tn_desde_metricas(
             "comision_tn_pesos": float(r.comision_monto) if r.comision_monto else 0,
             "markup": float(r.markup) / 100 if r.markup else None,  # Convertir a decimal (0.15 en lugar de 15%)
             "ganancia": float(r.ganancia) if r.ganancia else 0,
-            "signo": r.signo
+            "signo": r.signo,
         }
         for r in result
     ]
@@ -811,7 +825,7 @@ async def get_operaciones_tn_count(
     solo_sin_costo: bool = Query(False, description="Solo mostrar operaciones sin costo"),
     search: Optional[str] = Query(None, description="Buscar en código, descripción o cliente"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Cuenta el total de operaciones de Tienda Nube que coinciden con los filtros.
@@ -862,7 +876,7 @@ async def get_ventas_tienda_nube_por_marca(
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
     vendedor: Optional[str] = Query(None, description="Filtrar por vendedores (separados por coma)"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene ventas de Tienda Nube agrupadas por marca.
@@ -871,25 +885,25 @@ async def get_ventas_tienda_nube_por_marca(
     # Construir cláusula WHERE dinámica
     where_clause = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
     params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
-    
+
     if sucursal:
-        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        sucursales = [s.strip() for s in sucursal.split(",") if s.strip()]
         if sucursales:
             # Crear placeholders dinámicos: :sucursal_0, :sucursal_1, ...
-            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            sucursal_placeholders = ", ".join([f":sucursal_{i}" for i in range(len(sucursales))])
             where_clause += f" AND sucursal IN ({sucursal_placeholders})"
             for i, suc in enumerate(sucursales):
-                params[f'sucursal_{i}'] = suc
-    
+                params[f"sucursal_{i}"] = suc
+
     if vendedor:
-        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        vendedores = [v.strip() for v in vendedor.split(",") if v.strip()]
         if vendedores:
             # Crear placeholders dinámicos: :vendedor_0, :vendedor_1, ...
-            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            vendedor_placeholders = ", ".join([f":vendedor_{i}" for i in range(len(vendedores))])
             where_clause += f" AND vendedor IN ({vendedor_placeholders})"
             for i, vend in enumerate(vendedores):
-                params[f'vendedor_{i}'] = vend
-    
+                params[f"vendedor_{i}"] = vend
+
     query = f"""
     SELECT
         marca,
@@ -914,14 +928,16 @@ async def get_ventas_tienda_nube_por_marca(
         ganancia_con_costo = float(r.ganancia_con_costo or 0)
         # Markup = ganancia / costo
         markup = (ganancia_con_costo / costo_con_costo) if costo_con_costo > 0 else None
-        marcas.append({
-            "marca": r.marca,
-            "total_ventas": r.total_ventas,
-            "unidades_vendidas": Decimal(str(r.unidades_vendidas or 0)),
-            "monto_sin_iva": Decimal(str(monto_con_costo)),
-            "costo_total": Decimal(str(costo_con_costo)),
-            "markup_promedio": Decimal(str(markup)) if markup is not None else None
-        })
+        marcas.append(
+            {
+                "marca": r.marca,
+                "total_ventas": r.total_ventas,
+                "unidades_vendidas": Decimal(str(r.unidades_vendidas or 0)),
+                "monto_sin_iva": Decimal(str(monto_con_costo)),
+                "costo_total": Decimal(str(costo_con_costo)),
+                "markup_promedio": Decimal(str(markup)) if markup is not None else None,
+            }
+        )
     return marcas
 
 
@@ -933,7 +949,7 @@ async def get_top_productos_tienda_nube(
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursales (separadas por coma)"),
     vendedor: Optional[str] = Query(None, description="Filtrar por vendedores (separados por coma)"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene los productos más vendidos en Tienda Nube.
@@ -942,25 +958,25 @@ async def get_top_productos_tienda_nube(
     # Construir cláusula WHERE dinámica
     where_clause = "WHERE fecha_venta BETWEEN :from_date AND :to_date AND item_id IS NOT NULL"
     params = {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
-    
+
     if sucursal:
-        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        sucursales = [s.strip() for s in sucursal.split(",") if s.strip()]
         if sucursales:
             # Crear placeholders dinámicos: :sucursal_0, :sucursal_1, ...
-            sucursal_placeholders = ', '.join([f':sucursal_{i}' for i in range(len(sucursales))])
+            sucursal_placeholders = ", ".join([f":sucursal_{i}" for i in range(len(sucursales))])
             where_clause += f" AND sucursal IN ({sucursal_placeholders})"
             for i, suc in enumerate(sucursales):
-                params[f'sucursal_{i}'] = suc
-    
+                params[f"sucursal_{i}"] = suc
+
     if vendedor:
-        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        vendedores = [v.strip() for v in vendedor.split(",") if v.strip()]
         if vendedores:
             # Crear placeholders dinámicos: :vendedor_0, :vendedor_1, ...
-            vendedor_placeholders = ', '.join([f':vendedor_{i}' for i in range(len(vendedores))])
+            vendedor_placeholders = ", ".join([f":vendedor_{i}" for i in range(len(vendedores))])
             where_clause += f" AND vendedor IN ({vendedor_placeholders})"
             for i, vend in enumerate(vendedores):
-                params[f'vendedor_{i}'] = vend
-    
+                params[f"vendedor_{i}"] = vend
+
     query = f"""
     SELECT
         item_id,
@@ -987,7 +1003,7 @@ async def get_top_productos_tienda_nube(
             "marca": r.marca,
             "unidades_vendidas": float(r.unidades_vendidas or 0),
             "monto_total": float(r.monto_total or 0),
-            "cantidad_operaciones": r.cantidad_operaciones
+            "cantidad_operaciones": r.cantidad_operaciones,
         }
         for r in result
     ]
@@ -999,7 +1015,7 @@ async def get_ventas_tienda_nube_por_categoria(
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(50, le=200, description="Límite de resultados"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene ventas de Tienda Nube agrupadas por categoría.
@@ -1022,8 +1038,7 @@ async def get_ventas_tienda_nube_por_categoria(
     """
 
     result = db.execute(
-        text(query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
+        text(query), {"from_date": from_date, "to_date": to_date + " 23:59:59", "limit": limit}
     ).fetchall()
 
     return [
@@ -1033,7 +1048,9 @@ async def get_ventas_tienda_nube_por_categoria(
             "unidades_vendidas": float(r.unidades_vendidas or 0),
             "monto_total": float(r.monto_con_costo or 0),
             "costo_total": float(r.costo_con_costo or 0),
-            "markup": (float(r.ganancia_con_costo or 0) / float(r.costo_con_costo)) if float(r.costo_con_costo or 0) > 0 else None
+            "markup": (float(r.ganancia_con_costo or 0) / float(r.costo_con_costo))
+            if float(r.costo_con_costo or 0) > 0
+            else None,
         }
         for r in result
     ]
@@ -1046,7 +1063,7 @@ async def get_ventas_tienda_nube_por_subcategoria(
     categoria: Optional[str] = Query(None, description="Filtrar por categoría"),
     limit: int = Query(50, le=200, description="Límite de resultados"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene ventas de Tienda Nube agrupadas por subcategoría.
@@ -1088,7 +1105,9 @@ async def get_ventas_tienda_nube_por_subcategoria(
             "unidades_vendidas": float(r.unidades_vendidas or 0),
             "monto_total": float(r.monto_con_costo or 0),
             "costo_total": float(r.costo_con_costo or 0),
-            "markup": (float(r.ganancia_con_costo or 0) / float(r.costo_con_costo)) if float(r.costo_con_costo or 0) > 0 else None
+            "markup": (float(r.ganancia_con_costo or 0) / float(r.costo_con_costo))
+            if float(r.costo_con_costo or 0) > 0
+            else None,
         }
         for r in result
     ]
@@ -1098,13 +1117,16 @@ async def get_ventas_tienda_nube_por_subcategoria(
 # Endpoints para actualización de métricas
 # ============================================================================
 
+
 class ActualizarCostoTNRequest(BaseModel):
     """Request para actualizar el costo de una operación de TN"""
+
     costo_unitario: float
 
 
 class ActualizarMetricaTNRequest(BaseModel):
     """Request para actualizar campos de una métrica de TN"""
+
     costo_unitario: Optional[float] = None
     marca: Optional[str] = None
     categoria: Optional[str] = None
@@ -1118,7 +1140,7 @@ async def actualizar_costo_operacion_tn(
     metrica_id: int,
     request: ActualizarCostoTNRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Actualiza el costo unitario de una operación de Tienda Nube.
@@ -1127,18 +1149,16 @@ async def actualizar_costo_operacion_tn(
     from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
     from fastapi import HTTPException
 
-    metrica = db.query(VentaTiendaNubeMetrica).filter(
-        VentaTiendaNubeMetrica.id == metrica_id
-    ).first()
+    metrica = db.query(VentaTiendaNubeMetrica).filter(VentaTiendaNubeMetrica.id == metrica_id).first()
 
     if not metrica:
         raise HTTPException(status_code=404, detail="Operación no encontrada")
 
     # Actualizar costo unitario
     costo_unitario = Decimal(str(request.costo_unitario))
-    cantidad = metrica.cantidad or Decimal('1')
-    monto_total = metrica.monto_total or Decimal('0')
-    comision_monto = metrica.comision_monto or Decimal('0')
+    cantidad = metrica.cantidad or Decimal("1")
+    monto_total = metrica.monto_total or Decimal("0")
+    comision_monto = metrica.comision_monto or Decimal("0")
 
     # Calcular costo total
     costo_total = costo_unitario * cantidad
@@ -1157,7 +1177,7 @@ async def actualizar_costo_operacion_tn(
     metrica.costo_total = costo_total
     metrica.ganancia = ganancia
     metrica.markup_porcentaje = Decimal(str(markup_porcentaje)) if markup_porcentaje is not None else None
-    metrica.moneda_costo = 'ARS'
+    metrica.moneda_costo = "ARS"
 
     db.commit()
     db.refresh(metrica)
@@ -1168,7 +1188,7 @@ async def actualizar_costo_operacion_tn(
         "costo_unitario": float(metrica.costo_unitario),
         "costo_total": float(metrica.costo_total),
         "ganancia": float(metrica.ganancia),
-        "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None
+        "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None,
     }
 
 
@@ -1177,7 +1197,7 @@ async def actualizar_metrica_tn(
     metrica_id: int,
     request: ActualizarMetricaTNRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Actualiza campos de una métrica de venta de Tienda Nube.
@@ -1187,9 +1207,7 @@ async def actualizar_metrica_tn(
     from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
     from fastapi import HTTPException
 
-    metrica = db.query(VentaTiendaNubeMetrica).filter(
-        VentaTiendaNubeMetrica.id == metrica_id
-    ).first()
+    metrica = db.query(VentaTiendaNubeMetrica).filter(VentaTiendaNubeMetrica.id == metrica_id).first()
 
     if not metrica:
         raise HTTPException(status_code=404, detail="Operación no encontrada")
@@ -1220,9 +1238,9 @@ async def actualizar_metrica_tn(
     # Actualizar costo y recalcular
     if request.costo_unitario is not None:
         costo_unitario = Decimal(str(request.costo_unitario))
-        cantidad = metrica.cantidad or Decimal('1')
-        monto_total = metrica.monto_total or Decimal('0')
-        comision_monto = metrica.comision_monto or Decimal('0')
+        cantidad = metrica.cantidad or Decimal("1")
+        monto_total = metrica.monto_total or Decimal("0")
+        comision_monto = metrica.comision_monto or Decimal("0")
 
         costo_total = costo_unitario * cantidad
         ganancia = monto_total - costo_total - comision_monto
@@ -1236,7 +1254,7 @@ async def actualizar_metrica_tn(
         metrica.costo_total = costo_total
         metrica.ganancia = ganancia
         metrica.markup_porcentaje = Decimal(str(markup_porcentaje)) if markup_porcentaje is not None else None
-        metrica.moneda_costo = 'ARS'
+        metrica.moneda_costo = "ARS"
         campos_actualizados.append("costo_unitario")
 
     if not campos_actualizados:
@@ -1258,16 +1276,14 @@ async def actualizar_metrica_tn(
             "costo_unitario": float(metrica.costo_unitario) if metrica.costo_unitario else None,
             "costo_total": float(metrica.costo_total) if metrica.costo_total else None,
             "ganancia": float(metrica.ganancia) if metrica.ganancia else None,
-            "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None
-        }
+            "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None,
+        },
     }
 
 
 @router.get("/ventas-tienda-nube/metricas/{metrica_id}")
 async def get_metrica_detalle_tn(
-    metrica_id: int,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    metrica_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
     Obtiene el detalle de una métrica específica de Tienda Nube.
@@ -1275,9 +1291,7 @@ async def get_metrica_detalle_tn(
     from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
     from fastapi import HTTPException
 
-    metrica = db.query(VentaTiendaNubeMetrica).filter(
-        VentaTiendaNubeMetrica.id == metrica_id
-    ).first()
+    metrica = db.query(VentaTiendaNubeMetrica).filter(VentaTiendaNubeMetrica.id == metrica_id).first()
 
     if not metrica:
         raise HTTPException(status_code=404, detail="Operación no encontrada")
@@ -1301,13 +1315,14 @@ async def get_metrica_detalle_tn(
         "ganancia": float(metrica.ganancia) if metrica.ganancia else 0,
         "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None,
         "moneda_costo": metrica.moneda_costo,
-        "fecha_venta": metrica.fecha_venta.isoformat() if metrica.fecha_venta else None
+        "fecha_venta": metrica.fecha_venta.isoformat() if metrica.fecha_venta else None,
     }
 
 
 # ============================================================================
 # Endpoints para método de pago
 # ============================================================================
+
 
 class MetodoPagoRequest(BaseModel):
     it_transaction: int
@@ -1323,7 +1338,7 @@ async def get_metodos_pago_tn(
     from_date: str = Query(..., description="Fecha desde (YYYY-MM-DD)"),
     to_date: str = Query(..., description="Fecha hasta (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene los métodos de pago guardados para operaciones TN en un período.
@@ -1337,8 +1352,7 @@ async def get_metodos_pago_tn(
     WHERE fecha_venta BETWEEN :from_date AND :to_date
     """
     metricas_result = db.execute(
-        text(metricas_query),
-        {"from_date": from_date, "to_date": to_date + " 23:59:59"}
+        text(metricas_query), {"from_date": from_date, "to_date": to_date + " 23:59:59"}
     ).fetchall()
 
     it_transactions = [r.it_transaction for r in metricas_result]
@@ -1347,18 +1361,14 @@ async def get_metodos_pago_tn(
         return {}
 
     # Obtener métodos de pago guardados
-    metodos = db.query(MetodoPagoTN).filter(
-        MetodoPagoTN.it_transaction.in_(it_transactions)
-    ).all()
+    metodos = db.query(MetodoPagoTN).filter(MetodoPagoTN.it_transaction.in_(it_transactions)).all()
 
     return {m.it_transaction: m.metodo_pago for m in metodos}
 
 
 @router.post("/ventas-tienda-nube/metodo-pago")
 async def set_metodo_pago_tn(
-    request: MetodoPagoRequest,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    request: MetodoPagoRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
     Guarda o actualiza el método de pago para una operación TN.
@@ -1366,22 +1376,20 @@ async def set_metodo_pago_tn(
     from app.models.metodo_pago_tn import MetodoPagoTN
     from fastapi import HTTPException
 
-    if request.metodo_pago not in ['efectivo', 'tarjeta']:
+    if request.metodo_pago not in ["efectivo", "tarjeta"]:
         raise HTTPException(status_code=400, detail="Método de pago debe ser 'efectivo' o 'tarjeta'")
 
     # Buscar si ya existe
-    metodo_existente = db.query(MetodoPagoTN).filter(
-        MetodoPagoTN.it_transaction == request.it_transaction
-    ).first()
+    metodo_existente = db.query(MetodoPagoTN).filter(MetodoPagoTN.it_transaction == request.it_transaction).first()
 
     if metodo_existente:
         metodo_existente.metodo_pago = request.metodo_pago
-        metodo_existente.usuario_id = current_user.id if hasattr(current_user, 'id') else None
+        metodo_existente.usuario_id = current_user.id if hasattr(current_user, "id") else None
     else:
         nuevo_metodo = MetodoPagoTN(
             it_transaction=request.it_transaction,
             metodo_pago=request.metodo_pago,
-            usuario_id=current_user.id if hasattr(current_user, 'id') else None
+            usuario_id=current_user.id if hasattr(current_user, "id") else None,
         )
         db.add(nuevo_metodo)
 
@@ -1392,9 +1400,7 @@ async def set_metodo_pago_tn(
 
 @router.post("/ventas-tienda-nube/metodos-pago/bulk")
 async def set_metodos_pago_bulk_tn(
-    request: MetodoPagoBulkRequest,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    request: MetodoPagoBulkRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
     Guarda o actualiza métodos de pago para múltiples operaciones TN.
@@ -1405,23 +1411,21 @@ async def set_metodos_pago_bulk_tn(
     creados = 0
 
     for op in request.operaciones:
-        if op.metodo_pago not in ['efectivo', 'tarjeta']:
+        if op.metodo_pago not in ["efectivo", "tarjeta"]:
             continue
 
-        metodo_existente = db.query(MetodoPagoTN).filter(
-            MetodoPagoTN.it_transaction == op.it_transaction
-        ).first()
+        metodo_existente = db.query(MetodoPagoTN).filter(MetodoPagoTN.it_transaction == op.it_transaction).first()
 
         if metodo_existente:
             if metodo_existente.metodo_pago != op.metodo_pago:
                 metodo_existente.metodo_pago = op.metodo_pago
-                metodo_existente.usuario_id = current_user.id if hasattr(current_user, 'id') else None
+                metodo_existente.usuario_id = current_user.id if hasattr(current_user, "id") else None
                 actualizados += 1
         else:
             nuevo_metodo = MetodoPagoTN(
                 it_transaction=op.it_transaction,
                 metodo_pago=op.metodo_pago,
-                usuario_id=current_user.id if hasattr(current_user, 'id') else None
+                usuario_id=current_user.id if hasattr(current_user, "id") else None,
             )
             db.add(nuevo_metodo)
             creados += 1
@@ -1436,15 +1440,17 @@ def get_comision_tienda_nube_tarjeta(db: Session, fecha: date = None) -> float:
     if fecha is None:
         fecha = date.today()
 
-    constants = db.query(PricingConstants).filter(
-        and_(
-            PricingConstants.fecha_desde <= fecha,
-            or_(
-                PricingConstants.fecha_hasta.is_(None),
-                PricingConstants.fecha_hasta >= fecha
+    constants = (
+        db.query(PricingConstants)
+        .filter(
+            and_(
+                PricingConstants.fecha_desde <= fecha,
+                or_(PricingConstants.fecha_hasta.is_(None), PricingConstants.fecha_hasta >= fecha),
             )
         )
-    ).order_by(PricingConstants.fecha_desde.desc()).first()
+        .order_by(PricingConstants.fecha_desde.desc())
+        .first()
+    )
 
     if constants and constants.comision_tienda_nube_tarjeta is not None:
         return float(constants.comision_tienda_nube_tarjeta)
@@ -1455,8 +1461,10 @@ def get_comision_tienda_nube_tarjeta(db: Session, fecha: date = None) -> float:
 # Override de datos de ventas (marca, categoría, subcategoría)
 # ============================================================================
 
+
 class VentaOverrideRequest(BaseModel):
     """Request para actualizar datos de una venta"""
+
     it_transaction: int
     codigo: Optional[str] = None
     descripcion: Optional[str] = None
@@ -1471,6 +1479,7 @@ class VentaOverrideRequest(BaseModel):
 
 class VentaOverrideResponse(BaseModel):
     """Response de override"""
+
     it_transaction: int
     codigo: Optional[str] = None
     descripcion: Optional[str] = None
@@ -1484,10 +1493,7 @@ class VentaOverrideResponse(BaseModel):
 
 
 @router.get("/ventas-tienda-nube/jerarquia-productos")
-async def get_jerarquia_productos_tn(
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-):
+async def get_jerarquia_productos_tn(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Obtiene la jerarquía de productos (marca -> categoría -> subcategoría)
     para los selects dependientes en el frontend.
@@ -1527,10 +1533,7 @@ async def get_jerarquia_productos_tn(
 
     # Convertir a formato serializable
     return {
-        marca: {
-            cat: sorted(list(subcats)) if subcats else []
-            for cat, subcats in cats.items()
-        }
+        marca: {cat: sorted(list(subcats)) if subcats else [] for cat, subcats in cats.items()}
         for marca, cats in sorted(jerarquia.items())
     }
 
@@ -1540,7 +1543,7 @@ async def get_overrides_tn(
     from_date: str = Query(...),
     to_date: str = Query(...),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene todos los overrides de ventas TN para un rango de fechas.
@@ -1562,9 +1565,9 @@ async def get_overrides_tn(
         return {}
 
     # Obtener overrides
-    overrides = db.query(VentaTiendaNubeOverride).filter(
-        VentaTiendaNubeOverride.it_transaction.in_(it_transactions)
-    ).all()
+    overrides = (
+        db.query(VentaTiendaNubeOverride).filter(VentaTiendaNubeOverride.it_transaction.in_(it_transactions)).all()
+    )
 
     return {
         o.it_transaction: {
@@ -1576,7 +1579,7 @@ async def get_overrides_tn(
             "cliente": o.cliente,
             "cantidad": float(o.cantidad) if o.cantidad else None,
             "precio_unitario": float(o.precio_unitario) if o.precio_unitario else None,
-            "costo_unitario": float(o.costo_unitario) if o.costo_unitario else None
+            "costo_unitario": float(o.costo_unitario) if o.costo_unitario else None,
         }
         for o in overrides
     }
@@ -1584,9 +1587,7 @@ async def get_overrides_tn(
 
 @router.post("/ventas-tienda-nube/override")
 async def set_override_tn(
-    request: VentaOverrideRequest,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    request: VentaOverrideRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
     Guarda o actualiza el override de datos para una venta TN.
@@ -1595,73 +1596,65 @@ async def set_override_tn(
     from sqlalchemy.dialects.postgresql import insert
     from app.models.venta_override import VentaTiendaNubeOverride
 
-    usuario_id = current_user.id if hasattr(current_user, 'id') else None
+    usuario_id = current_user.id if hasattr(current_user, "id") else None
 
     # Helper para limpiar strings vacíos
     def clean_str(val):
-        if val is None or val == '':
+        if val is None or val == "":
             return None
         return val
 
     # Preparar valores para el upsert
     valores_insert = {
-        'it_transaction': request.it_transaction,
-        'codigo': clean_str(request.codigo),
-        'descripcion': clean_str(request.descripcion),
-        'marca': clean_str(request.marca),
-        'categoria': clean_str(request.categoria),
-        'subcategoria': clean_str(request.subcategoria),
-        'cliente': clean_str(request.cliente),
-        'cantidad': request.cantidad,
-        'precio_unitario': request.precio_unitario,
-        'costo_unitario': request.costo_unitario,
-        'usuario_id': usuario_id
+        "it_transaction": request.it_transaction,
+        "codigo": clean_str(request.codigo),
+        "descripcion": clean_str(request.descripcion),
+        "marca": clean_str(request.marca),
+        "categoria": clean_str(request.categoria),
+        "subcategoria": clean_str(request.subcategoria),
+        "cliente": clean_str(request.cliente),
+        "cantidad": request.cantidad,
+        "precio_unitario": request.precio_unitario,
+        "costo_unitario": request.costo_unitario,
+        "usuario_id": usuario_id,
     }
 
     # Preparar valores para update (solo campos que vinieron en el request)
-    valores_update = {'usuario_id': usuario_id}
+    valores_update = {"usuario_id": usuario_id}
 
     # Campos de texto
-    for campo in ['codigo', 'descripcion', 'marca', 'categoria', 'subcategoria', 'cliente']:
+    for campo in ["codigo", "descripcion", "marca", "categoria", "subcategoria", "cliente"]:
         val = getattr(request, campo)
         if val is not None:
             valores_update[campo] = clean_str(val)
 
     # Campos numéricos
-    for campo in ['cantidad', 'precio_unitario', 'costo_unitario']:
+    for campo in ["cantidad", "precio_unitario", "costo_unitario"]:
         val = getattr(request, campo)
         if val is not None:
             valores_update[campo] = val
 
     # UPSERT: INSERT ... ON CONFLICT DO UPDATE
     stmt = insert(VentaTiendaNubeOverride).values(**valores_insert)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=['it_transaction'],
-        set_=valores_update
-    )
+    stmt = stmt.on_conflict_do_update(index_elements=["it_transaction"], set_=valores_update)
 
     db.execute(stmt)
     db.commit()
 
-    return {
-        "success": True,
-        "it_transaction": request.it_transaction
-    }
+    return {"success": True, "it_transaction": request.it_transaction}
 
 
 @router.delete("/ventas-tienda-nube/override/{it_transaction}")
 async def delete_override_tn(
-    it_transaction: int,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    it_transaction: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """Elimina un override de venta TN."""
     from app.models.venta_override import VentaTiendaNubeOverride
     from fastapi import HTTPException
 
-    override = db.query(VentaTiendaNubeOverride).filter(
-        VentaTiendaNubeOverride.it_transaction == it_transaction
-    ).first()
+    override = (
+        db.query(VentaTiendaNubeOverride).filter(VentaTiendaNubeOverride.it_transaction == it_transaction).first()
+    )
 
     if not override:
         raise HTTPException(status_code=404, detail="Override no encontrado")

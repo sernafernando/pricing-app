@@ -1,6 +1,7 @@
 """
 Modelo para tbSalesman - Vendedores (versión reducida)
 """
+
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Numeric
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -8,6 +9,7 @@ from app.core.database import Base
 
 class TBSalesman(Base):
     """Tabla de vendedores del ERP"""
+
     __tablename__ = "tb_salesman"
 
     # Primary Keys

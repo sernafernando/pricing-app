@@ -6,6 +6,7 @@ Ejecutar:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_item_cost_list
 """
+
 import sys
 from pathlib import Path
 
@@ -14,7 +15,8 @@ sys.path.insert(0, str(backend_dir))
 
 # Cargar .env
 from dotenv import load_dotenv
-env_path = backend_dir / '.env'
+
+env_path = backend_dir / ".env"
 load_dotenv(dotenv_path=env_path)
 
 import requests
@@ -28,9 +30,7 @@ from app.models.item_cost_list import ItemCostList
 def fetch_item_cost_list_from_erp():
     """Obtiene la lista de costos desde el ERP vía GBP Worker"""
     url = "http://localhost:8002/api/gbp-parser"
-    params = {
-        'strScriptLabel': 'scriptItemCostList'
-    }
+    params = {"strScriptLabel": "scriptItemCostList"}
 
     print("📥 Descargando lista de costos desde ERP...")
 
@@ -63,37 +63,41 @@ def sync_item_cost_list(db: Session, data: list):
     for record in data:
         try:
             # Buscar registro existente
-            existente = db.query(ItemCostList).filter(
-                and_(
-                    ItemCostList.comp_id == record.get('comp_id'),
-                    ItemCostList.coslis_id == record.get('coslis_id'),
-                    ItemCostList.item_id == record.get('item_id')
+            existente = (
+                db.query(ItemCostList)
+                .filter(
+                    and_(
+                        ItemCostList.comp_id == record.get("comp_id"),
+                        ItemCostList.coslis_id == record.get("coslis_id"),
+                        ItemCostList.item_id == record.get("item_id"),
+                    )
                 )
-            ).first()
+                .first()
+            )
 
             # Convertir fecha si existe
             coslis_cd = None
-            if record.get('coslis_cd'):
+            if record.get("coslis_cd"):
                 try:
-                    coslis_cd = datetime.fromisoformat(record['coslis_cd'].replace('T', ' '))
+                    coslis_cd = datetime.fromisoformat(record["coslis_cd"].replace("T", " "))
                 except:
                     pass
 
             if existente:
                 # Actualizar
-                existente.coslis_price = record.get('coslis_price')
-                existente.curr_id = record.get('curr_id')
+                existente.coslis_price = record.get("coslis_price")
+                existente.curr_id = record.get("curr_id")
                 existente.coslis_cd = coslis_cd
                 actualizados += 1
             else:
                 # Insertar nuevo
                 nuevo = ItemCostList(
-                    comp_id=record.get('comp_id'),
-                    coslis_id=record.get('coslis_id'),
-                    item_id=record.get('item_id'),
-                    coslis_price=record.get('coslis_price'),
-                    curr_id=record.get('curr_id'),
-                    coslis_cd=coslis_cd
+                    comp_id=record.get("comp_id"),
+                    coslis_id=record.get("coslis_id"),
+                    item_id=record.get("item_id"),
+                    coslis_price=record.get("coslis_price"),
+                    curr_id=record.get("curr_id"),
+                    coslis_cd=coslis_cd,
                 )
                 db.add(nuevo)
                 insertados += 1
@@ -127,6 +131,7 @@ async def sync_item_cost_list_incremental(db: Session):
         tuple: (insertados, actualizados, errores)
     """
     import logging
+
     logger = logging.getLogger(__name__)
 
     logger.info("=== Iniciando sincronización de Item Cost List ===")
@@ -148,40 +153,46 @@ async def sync_item_cost_list_incremental(db: Session):
         for record in data:
             try:
                 # Buscar registro existente
-                existente = db.query(ItemCostList).filter(
-                    and_(
-                        ItemCostList.comp_id == record.get('comp_id'),
-                        ItemCostList.coslis_id == record.get('coslis_id'),
-                        ItemCostList.item_id == record.get('item_id')
+                existente = (
+                    db.query(ItemCostList)
+                    .filter(
+                        and_(
+                            ItemCostList.comp_id == record.get("comp_id"),
+                            ItemCostList.coslis_id == record.get("coslis_id"),
+                            ItemCostList.item_id == record.get("item_id"),
+                        )
                     )
-                ).first()
+                    .first()
+                )
 
                 # Convertir fecha si existe
                 coslis_cd = None
-                if record.get('coslis_cd'):
+                if record.get("coslis_cd"):
                     try:
-                        coslis_cd = datetime.fromisoformat(record['coslis_cd'].replace('T', ' ').replace('Z', ''))
+                        coslis_cd = datetime.fromisoformat(record["coslis_cd"].replace("T", " ").replace("Z", ""))
                     except:
                         pass
 
                 if existente:
                     # Actualizar solo si cambió el precio o la fecha
-                    if (existente.coslis_price != record.get('coslis_price') or
-                        existente.curr_id != record.get('curr_id') or
-                        existente.coslis_cd != coslis_cd):
-                        existente.coslis_price = record.get('coslis_price')
-                        existente.curr_id = record.get('curr_id')
+                    if (
+                        existente.coslis_price != record.get("coslis_price")
+                        or existente.curr_id != record.get("curr_id")
+                        or existente.coslis_cd != coslis_cd
+                    ):
+                        existente.coslis_price = record.get("coslis_price")
+                        existente.curr_id = record.get("curr_id")
                         existente.coslis_cd = coslis_cd
                         actualizados += 1
                 else:
                     # Insertar nuevo
                     nuevo = ItemCostList(
-                        comp_id=record.get('comp_id'),
-                        coslis_id=record.get('coslis_id'),
-                        item_id=record.get('item_id'),
-                        coslis_price=record.get('coslis_price'),
-                        curr_id=record.get('curr_id'),
-                        coslis_cd=coslis_cd
+                        comp_id=record.get("comp_id"),
+                        coslis_id=record.get("coslis_id"),
+                        item_id=record.get("item_id"),
+                        coslis_price=record.get("coslis_price"),
+                        curr_id=record.get("curr_id"),
+                        coslis_cd=coslis_cd,
                     )
                     db.add(nuevo)
                     insertados += 1
@@ -199,7 +210,9 @@ async def sync_item_cost_list_incremental(db: Session):
         # Commit final
         db.commit()
 
-        logger.info(f"✅ Sincronización completada: {insertados} nuevos, {actualizados} actualizados, {errores} errores")
+        logger.info(
+            f"✅ Sincronización completada: {insertados} nuevos, {actualizados} actualizados, {errores} errores"
+        )
         return (insertados, actualizados, errores)
 
     except Exception as e:
@@ -233,6 +246,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Error crítico: {str(e)}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     finally:

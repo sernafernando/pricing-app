@@ -9,6 +9,7 @@ class OffsetGrupo(Base):
     Grupo de offsets para agrupar múltiples productos/offsets que comparten límites.
     Permite que varios productos compartan un límite de unidades o monto máximo.
     """
+
     __tablename__ = "offset_grupos"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -16,7 +17,7 @@ class OffsetGrupo(Base):
     descripcion = Column(String(255), nullable=True)
 
     # Auditoría
-    usuario_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

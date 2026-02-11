@@ -16,16 +16,17 @@ class OffsetGrupoFiltro(Base):
     - marca="Lenovo", item_id=12345 -> un producto específico de Lenovo
     - categoria="Monitores" -> todos los monitores de cualquier marca
     """
+
     __tablename__ = "offset_grupo_filtros"
 
     id = Column(Integer, primary_key=True, index=True)
-    grupo_id = Column(Integer, ForeignKey('offset_grupos.id', ondelete='CASCADE'), nullable=False, index=True)
+    grupo_id = Column(Integer, ForeignKey("offset_grupos.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # Filtros (todos opcionales, se combinan con AND)
     marca = Column(String(255), nullable=True, index=True)
     categoria = Column(String(255), nullable=True, index=True)
     subcategoria_id = Column(Integer, nullable=True, index=True)
-    item_id = Column(Integer, ForeignKey('productos_erp.item_id'), nullable=True, index=True)
+    item_id = Column(Integer, ForeignKey("productos_erp.item_id"), nullable=True, index=True)
 
     # Auditoría
     created_at = Column(DateTime(timezone=True), server_default=func.now())

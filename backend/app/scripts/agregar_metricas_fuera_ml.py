@@ -8,6 +8,7 @@ Ejecutar:
     python app/scripts/agregar_metricas_fuera_ml.py --full  # Para reprocesar todo
     python app/scripts/agregar_metricas_fuera_ml.py --days 30  # Últimos 30 días
 """
+
 import sys
 import argparse
 from pathlib import Path
@@ -17,7 +18,8 @@ backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from dotenv import load_dotenv
-env_path = backend_dir / '.env'
+
+env_path = backend_dir / ".env"
 load_dotenv(dotenv_path=env_path)
 
 from datetime import datetime, date, timedelta
@@ -34,8 +36,42 @@ SD_VENTAS = [1, 4, 21, 56]
 SD_DEVOLUCIONES = [3, 6, 23, 66]
 SD_TODOS = SD_VENTAS + SD_DEVOLUCIONES
 
-DF_PERMITIDOS = [1, 2, 3, 4, 5, 6, 63, 85, 86, 87, 65, 67, 68, 69, 70, 71, 72, 73, 74, 81,
-                 103, 105, 106, 109, 111, 115, 116, 117, 118, 122, 124, 125, 126, 127]
+DF_PERMITIDOS = [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    63,
+    85,
+    86,
+    87,
+    65,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    81,
+    103,
+    105,
+    106,
+    109,
+    111,
+    115,
+    116,
+    117,
+    118,
+    122,
+    124,
+    125,
+    126,
+    127,
+]
 
 CLIENTES_EXCLUIDOS = [11, 3900]
 
@@ -53,8 +89,8 @@ def get_vendedores_excluidos_str(db: Session) -> str:
     todos_excluidos = excluidos_ids.union(set(VENDEDORES_EXCLUIDOS_DEFAULT))
 
     if not todos_excluidos:
-        return '0'
-    return ','.join(map(str, sorted(todos_excluidos)))
+        return "0"
+    return ",".join(map(str, sorted(todos_excluidos)))
 
 
 def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
@@ -62,7 +98,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
     Obtiene todas las ventas fuera de ML con métricas ya calculadas
     """
     vendedores_excluidos_str = get_vendedores_excluidos_str(db)
-    vendedores_excluidos = [int(x) for x in vendedores_excluidos_str.split(',')]
+    vendedores_excluidos = [int(x) for x in vendedores_excluidos_str.split(",")]
 
     query = text("""
     WITH combo_precios AS (
@@ -245,15 +281,18 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
     ORDER BY tct.ct_date, tit.it_transaction
     """)
 
-    result = db.execute(query, {
-        'from_date': from_date,
-        'to_date': to_date,
-        'df_ids': DF_PERMITIDOS,
-        'items_excluidos': ITEMS_EXCLUIDOS,
-        'clientes_excluidos': CLIENTES_EXCLUIDOS,
-        'vendedores_excluidos': vendedores_excluidos,
-        'sd_ids': SD_TODOS
-    })
+    result = db.execute(
+        query,
+        {
+            "from_date": from_date,
+            "to_date": to_date,
+            "df_ids": DF_PERMITIDOS,
+            "items_excluidos": ITEMS_EXCLUIDOS,
+            "clientes_excluidos": CLIENTES_EXCLUIDOS,
+            "vendedores_excluidos": vendedores_excluidos,
+            "sd_ids": SD_TODOS,
+        },
+    )
 
     return result.fetchall()
 
@@ -266,31 +305,29 @@ def process_and_insert(db: Session, rows):
         return 0, 0, 0
 
     print(f"\n📊 Procesando {len(rows)} registros...")
-    
+
     # PASO 1: Deduplicar resultados de la query (la query puede traer duplicados por los JOINs)
     seen_it_transactions = set()
     rows_deduplicated = []
     duplicados_query = 0
-    
+
     for row in rows:
         if row.it_transaction not in seen_it_transactions:
             seen_it_transactions.add(row.it_transaction)
             rows_deduplicated.append(row)
         else:
             duplicados_query += 1
-    
+
     if duplicados_query > 0:
         print(f"  ⚠️  Detectados {duplicados_query} duplicados en la query (se ignoran)")
-    
+
     print(f"  Registros únicos a procesar: {len(rows_deduplicated)}")
-    
+
     # PASO 2: Bulk fetch - Traer todos los it_transaction existentes de una vez (evita N+1)
     incoming_ids = [row.it_transaction for row in rows_deduplicated]
-    
-    existing_records = db.query(VentaFueraMLMetrica).filter(
-        VentaFueraMLMetrica.it_transaction.in_(incoming_ids)
-    ).all()
-    
+
+    existing_records = db.query(VentaFueraMLMetrica).filter(VentaFueraMLMetrica.it_transaction.in_(incoming_ids)).all()
+
     # Crear mapa it_transaction → registro para lookup O(1)
     existing_map = {record.it_transaction: record for record in existing_records}
     print(f"  Encontrados {len(existing_map)} registros existentes en DB")
@@ -326,46 +363,46 @@ def process_and_insert(db: Session, rows):
                     markup_porcentaje = -99999999.99
 
             data = {
-                'it_transaction': row.it_transaction,
-                'ct_transaction': row.ct_transaction,
-                'item_id': row.item_id,
-                'codigo': row.codigo,
-                'descripcion': row.descripcion[:500] if row.descripcion else None,
-                'marca': row.marca,
-                'categoria': row.categoria,
-                'subcategoria': row.subcategoria,
-                'bra_id': row.bra_id,
-                'sucursal': row.sucursal,
-                'sm_id': row.sm_id,
-                'vendedor': row.vendedor,
-                'cust_id': row.cust_id,
-                'cliente': row.cliente,
-                'df_id': row.df_id,
-                'tipo_comprobante': row.tipo_comprobante,
-                'numero_comprobante': row.numero_comprobante,
-                'fecha_venta': row.fecha_venta,
-                'fecha_calculo': fecha_calculo,
-                'sd_id': row.sd_id,
-                'signo': signo,
-                'cantidad': Decimal(str(row.cantidad or 0)),
-                'monto_unitario': Decimal(str(row.monto_unitario or 0)),
-                'monto_total': Decimal(str(monto_total)),
-                'iva_porcentaje': Decimal(str(iva_porcentaje)),
-                'monto_iva': Decimal(str(monto_iva)),
-                'monto_con_iva': Decimal(str(monto_con_iva)),
-                'costo_unitario': Decimal(str(row.costo_unitario or 0)),
-                'costo_total': Decimal(str(costo_total)),
-                'moneda_costo': row.moneda_costo,
-                'cotizacion_dolar': Decimal(str(row.cotizacion_dolar)) if row.cotizacion_dolar else None,
-                'ganancia': Decimal(str(ganancia)),
-                'markup_porcentaje': Decimal(str(markup_porcentaje)) if markup_porcentaje is not None else None,
-                'es_combo': bool(row.es_combo) if row.es_combo is not None else False,
-                'combo_group_id': int(row.combo_group_id) if row.combo_group_id else None
+                "it_transaction": row.it_transaction,
+                "ct_transaction": row.ct_transaction,
+                "item_id": row.item_id,
+                "codigo": row.codigo,
+                "descripcion": row.descripcion[:500] if row.descripcion else None,
+                "marca": row.marca,
+                "categoria": row.categoria,
+                "subcategoria": row.subcategoria,
+                "bra_id": row.bra_id,
+                "sucursal": row.sucursal,
+                "sm_id": row.sm_id,
+                "vendedor": row.vendedor,
+                "cust_id": row.cust_id,
+                "cliente": row.cliente,
+                "df_id": row.df_id,
+                "tipo_comprobante": row.tipo_comprobante,
+                "numero_comprobante": row.numero_comprobante,
+                "fecha_venta": row.fecha_venta,
+                "fecha_calculo": fecha_calculo,
+                "sd_id": row.sd_id,
+                "signo": signo,
+                "cantidad": Decimal(str(row.cantidad or 0)),
+                "monto_unitario": Decimal(str(row.monto_unitario or 0)),
+                "monto_total": Decimal(str(monto_total)),
+                "iva_porcentaje": Decimal(str(iva_porcentaje)),
+                "monto_iva": Decimal(str(monto_iva)),
+                "monto_con_iva": Decimal(str(monto_con_iva)),
+                "costo_unitario": Decimal(str(row.costo_unitario or 0)),
+                "costo_total": Decimal(str(costo_total)),
+                "moneda_costo": row.moneda_costo,
+                "cotizacion_dolar": Decimal(str(row.cotizacion_dolar)) if row.cotizacion_dolar else None,
+                "ganancia": Decimal(str(ganancia)),
+                "markup_porcentaje": Decimal(str(markup_porcentaje)) if markup_porcentaje is not None else None,
+                "es_combo": bool(row.es_combo) if row.es_combo is not None else False,
+                "combo_group_id": int(row.combo_group_id) if row.combo_group_id else None,
             }
 
             if existente:
                 for key, value in data.items():
-                    if key != 'it_transaction':
+                    if key != "it_transaction":
                         setattr(existente, key, value)
                 total_actualizados += 1
             else:
@@ -391,12 +428,12 @@ def process_and_insert(db: Session, rows):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Agregar métricas de ventas fuera de ML')
-    parser.add_argument('--full', action='store_true', help='Reprocesar todo (último año)')
-    parser.add_argument('--days', type=int, default=None, help='Procesar últimos N días')
-    parser.add_argument('--minutes', type=int, default=10, help='Minutos hacia atrás (modo incremental)')
-    parser.add_argument('--from-date', type=str, default=None, help='Fecha desde (YYYY-MM-DD)')
-    parser.add_argument('--to-date', type=str, default=None, help='Fecha hasta (YYYY-MM-DD)')
+    parser = argparse.ArgumentParser(description="Agregar métricas de ventas fuera de ML")
+    parser.add_argument("--full", action="store_true", help="Reprocesar todo (último año)")
+    parser.add_argument("--days", type=int, default=None, help="Procesar últimos N días")
+    parser.add_argument("--minutes", type=int, default=10, help="Minutos hacia atrás (modo incremental)")
+    parser.add_argument("--from-date", type=str, default=None, help="Fecha desde (YYYY-MM-DD)")
+    parser.add_argument("--to-date", type=str, default=None, help="Fecha hasta (YYYY-MM-DD)")
     args = parser.parse_args()
 
     now = datetime.now()
@@ -404,22 +441,22 @@ def main():
     if args.from_date and args.to_date:
         # Modo fecha específica
         from_date = args.from_date
-        to_date = args.to_date + ' 23:59:59'
+        to_date = args.to_date + " 23:59:59"
         mode = "PERÍODO ESPECÍFICO"
     elif args.full:
         # Modo completo: último año
-        from_date = (now - timedelta(days=365)).strftime('%Y-%m-%d')
-        to_date = now.strftime('%Y-%m-%d 23:59:59')
+        from_date = (now - timedelta(days=365)).strftime("%Y-%m-%d")
+        to_date = now.strftime("%Y-%m-%d 23:59:59")
         mode = "COMPLETO (último año)"
     elif args.days:
         # Modo días específicos
-        from_date = (now - timedelta(days=args.days)).strftime('%Y-%m-%d')
-        to_date = now.strftime('%Y-%m-%d 23:59:59')
+        from_date = (now - timedelta(days=args.days)).strftime("%Y-%m-%d")
+        to_date = now.strftime("%Y-%m-%d 23:59:59")
         mode = f"ÚLTIMOS {args.days} DÍAS"
     else:
         # Modo incremental (default)
-        from_date = (now - timedelta(minutes=args.minutes)).strftime('%Y-%m-%d %H:%M:%S')
-        to_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        from_date = (now - timedelta(minutes=args.minutes)).strftime("%Y-%m-%d %H:%M:%S")
+        to_date = now.strftime("%Y-%m-%d %H:%M:%S")
         mode = f"INCREMENTAL (últimos {args.minutes} minutos)"
 
     print("=" * 60)
@@ -450,6 +487,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Error crítico: {str(e)}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     finally:

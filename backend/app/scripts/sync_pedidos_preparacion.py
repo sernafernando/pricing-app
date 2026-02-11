@@ -14,6 +14,7 @@ La query 67 devuelve:
 - ML_logistic_type (Turbo si MLshipping_method_id=515282)
 - PreparaPaquete (COUNT de ML_pack_id)
 """
+
 import sys
 import os
 
@@ -29,6 +30,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.core.database import SessionLocal
+
 # Importar todos los modelos para evitar problemas de dependencias circulares
 import app.models  # noqa
 from app.models.pedido_preparacion_cache import PedidoPreparacionCache
@@ -45,10 +47,7 @@ async def fetch_query_67() -> list:
     Llama al gbp-parser con intExpgr_id=67 para obtener los pedidos en preparación.
     """
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.get(
-            GBP_PARSER_URL,
-            params={"intExpgr_id": 67}
-        )
+        response = await client.get(GBP_PARSER_URL, params={"intExpgr_id": 67})
         response.raise_for_status()
         return response.json()
 
@@ -79,7 +78,7 @@ def insert_cache(db: Session, data: list) -> int:
                 item_desc=str(row.get("item_desc", ""))[:500] if row.get("item_desc") else None,
                 cantidad=Decimal(str(row.get("cantidad", 0))) if row.get("cantidad") else Decimal(0),
                 ml_logistic_type=str(row.get("ML_logistic_type", ""))[:50] if row.get("ML_logistic_type") else None,
-                prepara_paquete=int(row.get("PreparaPaquete", 0)) if row.get("PreparaPaquete") else 0
+                prepara_paquete=int(row.get("PreparaPaquete", 0)) if row.get("PreparaPaquete") else 0,
             )
             db.add(cache_item)
             inserted += 1
@@ -100,12 +99,8 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
     # Intentar adquirir el lock - si otro proceso está sincronizando, retorna inmediatamente
     if _sync_lock.locked():
         print("\n⚠️ Ya hay una sincronización en progreso, saltando...")
-        return {
-            "status": "skipped",
-            "message": "Sincronización ya en progreso",
-            "count": 0
-        }
-    
+        return {"status": "skipped", "message": "Sincronización ya en progreso", "count": 0}
+
     async with _sync_lock:
         print("\n📦 Sincronizando pedidos en preparación...")
         print(f"   Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -136,11 +131,7 @@ async def sync_pedidos_preparacion(db: Session = None) -> dict:
 
             print(f"   ✅ Sincronización completada: {inserted} registros insertados")
 
-            return {
-                "status": "success",
-                "count": inserted,
-                "timestamp": datetime.now().isoformat()
-            }
+            return {"status": "success", "count": inserted, "timestamp": datetime.now().isoformat()}
 
         except httpx.HTTPStatusError as e:
             print(f"   ❌ Error HTTP: {e.response.status_code} - {e.response.text}")

@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_item_transactions_incremental
 """
+
 import sys
 import os
 
@@ -20,10 +21,12 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import SessionLocal
+
 # Importar todos los modelos para evitar problemas de dependencias circulares
 import app.models  # noqa
 from app.models.item_transaction import ItemTransaction
 import uuid
+
 
 async def sync_item_transactions_incremental(db: Session):
     """
@@ -45,10 +48,7 @@ async def sync_item_transactions_incremental(db: Session):
     try:
         # Llamar al endpoint externo usando itTransaction
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptItemTransaction",
-            "itTransaction": ultimo_it
-        }
+        params = {"strScriptLabel": "scriptItemTransaction", "itTransaction": ultimo_it}
 
         print(f"📅 Consultando API desde it_transaction > {ultimo_it}...")
 
@@ -71,7 +71,9 @@ async def sync_item_transactions_incremental(db: Session):
             return 0, 0, 0
 
         print(f"   Encontrados {len(items_data)} item transactions nuevos")
-        print(f"   Rango: {min(i.get('it_transaction') for i in items_data)} - {max(i.get('it_transaction') for i in items_data)}\n")
+        print(
+            f"   Rango: {min(i.get('it_transaction') for i in items_data)} - {max(i.get('it_transaction') for i in items_data)}\n"
+        )
 
         # Insertar items nuevos
         items_insertados = 0
@@ -96,12 +98,12 @@ async def sync_item_transactions_incremental(db: Session):
             if isinstance(value, (int, float)):
                 return bool(value)
             if isinstance(value, str):
-                return value.lower() in ('true', '1', 'yes', 't')
+                return value.lower() in ("true", "1", "yes", "t")
             return False
 
         def to_decimal(value):
             """Convierte a decimal, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return float(value)
@@ -110,7 +112,7 @@ async def sync_item_transactions_incremental(db: Session):
 
         def to_int(value):
             """Convierte a entero, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return int(value)
@@ -188,7 +190,9 @@ async def sync_item_transactions_incremental(db: Session):
                     it_packinginvoiceselectedguid=guid_value,
                     it_transaction_original=to_int(item_json.get("it_transaction_original")),
                     it_transaction_nostockdiscount=to_int(item_json.get("it_transaction_NoStockDiscount")),
-                    it_salescurrid4exchangetobranchcurrency=to_int(item_json.get("it_SalesCurrId4exchangeToBranchCurrency")),
+                    it_salescurrid4exchangetobranchcurrency=to_int(
+                        item_json.get("it_SalesCurrId4exchangeToBranchCurrency")
+                    ),
                     it_allusetag1=item_json.get("it_AllUseTag1"),
                     it_allusetag2=item_json.get("it_AllUseTag2"),
                     it_allusetag3=item_json.get("it_AllUseTag3"),
@@ -220,7 +224,9 @@ async def sync_item_transactions_incremental(db: Session):
                     it_surcharge3=to_decimal(item_json.get("it_surcharge3")),
                     it_surcharge4=to_decimal(item_json.get("it_surcharge4")),
                     stor_id_related4branchtransfer=to_int(item_json.get("stor_id_related4BranchTransfer")),
-                    it_transaction_related4branchtransfer=to_int(item_json.get("it_transaction_related4BranchTransfer")),
+                    it_transaction_related4branchtransfer=to_int(
+                        item_json.get("it_transaction_related4BranchTransfer")
+                    ),
                     it_pod_id=to_int(item_json.get("it_pod_id")),
                     pubh_id=to_int(item_json.get("pubh_id")),
                     it_ewaddress=item_json.get("it_EWAddress"),
@@ -245,9 +251,11 @@ async def sync_item_transactions_incremental(db: Session):
                     it_disableprintinemission=to_bool(item_json.get("it_disablePrintInEmmition")),
                     it_packinginvoiceqtyinvoiced=to_decimal(item_json.get("it_packingInvoiceQTYInvoiced")),
                     wscup_id=to_int(item_json.get("wscup_id")),
-                    it_isinbranchtransfertotalizerstorage=to_bool(item_json.get("it_isInBranchTransferTotalizerStorage")),
+                    it_isinbranchtransfertotalizerstorage=to_bool(
+                        item_json.get("it_isInBranchTransferTotalizerStorage")
+                    ),
                     tis_itemdiscountplan=to_decimal(item_json.get("tis_itemDiscountPlan")),
-                    it_itemdiscount=to_decimal(item_json.get("it_itemDiscount"))
+                    it_itemdiscount=to_decimal(item_json.get("it_itemDiscount")),
                 )
 
                 db.add(item)
@@ -283,6 +291,7 @@ async def sync_item_transactions_incremental(db: Session):
         db.rollback()
         print(f"❌ Error en sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0, 0, 0
 

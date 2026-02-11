@@ -2,6 +2,7 @@
 Modelo para trackear el consumo de offsets individuales (sin grupo).
 Registra cada venta que consume un offset individual con límite.
 """
+
 from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Numeric, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -14,12 +15,13 @@ class OffsetIndividualConsumo(Base):
     Cada vez que una venta consume un offset individual con límite,
     se registra aquí para poder calcular el consumo acumulado.
     """
+
     __tablename__ = "offset_individual_consumo"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Referencia al offset
-    offset_id = Column(Integer, ForeignKey('offsets_ganancia.id'), index=True, nullable=False)
+    offset_id = Column(Integer, ForeignKey("offsets_ganancia.id"), index=True, nullable=False)
 
     # Referencia a la venta (puede ser ML o fuera de ML)
     id_operacion = Column(BigInteger, index=True, nullable=True)  # Para ventas ML
@@ -39,7 +41,7 @@ class OffsetIndividualConsumo(Base):
 
     # Cotización usada
     cotizacion_dolar = Column(Numeric(10, 4), nullable=True)
-    
+
     # Tienda oficial (para calcular offsets por tienda)
     tienda_oficial = Column(String(20), index=True, nullable=True)  # ID de tienda oficial ML
 
@@ -56,12 +58,13 @@ class OffsetIndividualResumen(Base):
     Se actualiza cada vez que se agrega un consumo.
     Permite consultas rápidas del estado del offset.
     """
+
     __tablename__ = "offset_individual_resumen"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Referencia al offset
-    offset_id = Column(Integer, ForeignKey('offsets_ganancia.id'), unique=True, index=True, nullable=False)
+    offset_id = Column(Integer, ForeignKey("offsets_ganancia.id"), unique=True, index=True, nullable=False)
 
     # Totales acumulados (desde fecha_desde del offset hasta hoy)
     total_unidades = Column(Integer, default=0)

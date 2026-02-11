@@ -1,6 +1,7 @@
 """
 Endpoints para sincronización de productos de Tienda Nube
 """
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -31,10 +32,7 @@ class SyncTiendaNubeResponse(BaseModel):
 
 
 @router.post("/sync", response_model=SyncTiendaNubeResponse)
-async def sincronizar_tienda_nube(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def sincronizar_tienda_nube(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Sincroniza productos y variantes desde Tienda Nube
     Equivalente al script de Google Sheets pero guardando en BD
@@ -42,7 +40,7 @@ async def sincronizar_tienda_nube(
     if not TN_STORE_ID or not TN_ACCESS_TOKEN:
         raise HTTPException(
             status_code=500,
-            detail="Configuración de Tienda Nube no encontrada. Verificar TN_STORE_ID y TN_ACCESS_TOKEN en .env"
+            detail="Configuración de Tienda Nube no encontrada. Verificar TN_STORE_ID y TN_ACCESS_TOKEN en .env",
         )
 
     logger.info(f"Iniciando sincronización de Tienda Nube - Store ID: {TN_STORE_ID}")
@@ -55,7 +53,7 @@ async def sincronizar_tienda_nube(
     # Headers para la API
     headers = {
         "Authentication": f"bearer {TN_ACCESS_TOKEN}",
-        "User-Agent": "GAUSS Pricing App (pricing@gaussonline.com.ar)"
+        "User-Agent": "GAUSS Pricing App (pricing@gaussonline.com.ar)",
     }
 
     # Obtener todos los productos con paginación
@@ -83,32 +81,19 @@ async def sincronizar_tienda_nube(
                     page += 1
 
                 elif response.status_code == 401:
-                    raise HTTPException(
-                        status_code=401,
-                        detail="Token de acceso inválido o expirado"
-                    )
+                    raise HTTPException(status_code=401, detail="Token de acceso inválido o expirado")
                 else:
                     logger.error(f"Error en API TN - Código: {response.status_code}")
                     raise HTTPException(
-                        status_code=response.status_code,
-                        detail=f"Error al consultar Tienda Nube: {response.text}"
+                        status_code=response.status_code, detail=f"Error al consultar Tienda Nube: {response.text}"
                     )
 
             except httpx.HTTPError as e:
                 logger.error(f"Error de conexión: {e}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Error de conexión con Tienda Nube: {str(e)}"
-                )
+                raise HTTPException(status_code=500, detail=f"Error de conexión con Tienda Nube: {str(e)}")
 
     if not all_products:
-        return SyncTiendaNubeResponse(
-            total_productos=0,
-            total_variantes=0,
-            nuevos=0,
-            actualizados=0,
-            errores=0
-        )
+        return SyncTiendaNubeResponse(total_productos=0, total_variantes=0, nuevos=0, actualizados=0, errores=0)
 
     logger.info(f"Total productos obtenidos: {len(all_products)}")
 
@@ -128,13 +113,15 @@ async def sincronizar_tienda_nube(
         variants = product.get("variants", [])
         if not variants:
             # Si no hay variantes explícitas, usar datos del producto base
-            variants = [{
-                "id": product_id,
-                "sku": "",
-                "price": product.get("price"),
-                "compare_at_price": None,
-                "promotional_price": None
-            }]
+            variants = [
+                {
+                    "id": product_id,
+                    "sku": "",
+                    "price": product.get("price"),
+                    "compare_at_price": None,
+                    "promotional_price": None,
+                }
+            ]
 
         for variant in variants:
             total_variantes += 1
@@ -143,14 +130,19 @@ async def sincronizar_tienda_nube(
                 variant_id = variant.get("id")
                 variant_sku = variant.get("sku", "")
                 price = float(variant.get("price", 0)) if variant.get("price") else None
-                compare_at_price = float(variant.get("compare_at_price", 0)) if variant.get("compare_at_price") else None
-                promotional_price = float(variant.get("promotional_price", 0)) if variant.get("promotional_price") else None
+                compare_at_price = (
+                    float(variant.get("compare_at_price", 0)) if variant.get("compare_at_price") else None
+                )
+                promotional_price = (
+                    float(variant.get("promotional_price", 0)) if variant.get("promotional_price") else None
+                )
 
                 # Buscar si existe la variante
-                existing = db.query(TiendaNubeProducto).filter(
-                    TiendaNubeProducto.product_id == product_id,
-                    TiendaNubeProducto.variant_id == variant_id
-                ).first()
+                existing = (
+                    db.query(TiendaNubeProducto)
+                    .filter(TiendaNubeProducto.product_id == product_id, TiendaNubeProducto.variant_id == variant_id)
+                    .first()
+                )
 
                 if existing:
                     # Actualizar
@@ -171,7 +163,7 @@ async def sincronizar_tienda_nube(
                         price=price,
                         compare_at_price=compare_at_price,
                         promotional_price=promotional_price,
-                        activo=True
+                        activo=True,
                     )
                     db.add(nuevo_producto)
                     nuevos += 1
@@ -183,7 +175,8 @@ async def sincronizar_tienda_nube(
     # Intentar relacionar con productos del ERP por SKU
     try:
         # Primero intentar match exacto
-        db.execute(text("""
+        db.execute(
+            text("""
             UPDATE tienda_nube_productos tn
             SET item_id = pe.item_id
             FROM productos_erp pe
@@ -191,11 +184,13 @@ async def sincronizar_tienda_nube(
             AND tn.item_id IS NULL
             AND tn.variant_sku IS NOT NULL
             AND tn.variant_sku != ''
-        """))
+        """)
+        )
 
         # Intentar match sin el 0 inicial (ERP tiene 0123456, TN tiene 123456)
         # Solo para SKUs que empiezan con 0 y aún no tienen match
-        db.execute(text("""
+        db.execute(
+            text("""
             UPDATE tienda_nube_productos tn
             SET item_id = pe.item_id
             FROM productos_erp pe
@@ -205,11 +200,13 @@ async def sincronizar_tienda_nube(
             AND tn.variant_sku != ''
             AND pe.codigo LIKE '0%'
             AND LENGTH(pe.codigo) > 1
-        """))
+        """)
+        )
 
         # Intentar match agregando 0 inicial (ERP tiene 0123456, TN tiene 123456)
         # Solo para SKUs que aún no tienen match
-        db.execute(text("""
+        db.execute(
+            text("""
             UPDATE tienda_nube_productos tn
             SET item_id = pe.item_id
             FROM productos_erp pe
@@ -218,7 +215,8 @@ async def sincronizar_tienda_nube(
             AND tn.variant_sku IS NOT NULL
             AND tn.variant_sku != ''
             AND tn.variant_sku NOT LIKE '0%'
-        """))
+        """)
+        )
 
         logger.info("SKUs relacionados con productos ERP (con fallback de 0 inicial)")
     except Exception as e:
@@ -233,25 +231,20 @@ async def sincronizar_tienda_nube(
         total_variantes=total_variantes,
         nuevos=nuevos,
         actualizados=actualizados,
-        errores=errores
+        errores=errores,
     )
 
 
 @router.get("/productos")
 async def listar_productos_tienda_nube(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Lista productos sincronizados de Tienda Nube
     """
-    productos = db.query(TiendaNubeProducto).filter(
-        TiendaNubeProducto.activo == True
-    ).offset(skip).limit(limit).all()
+    productos = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.activo == True).offset(skip).limit(limit).all()
 
     return {
         "productos": productos,
-        "total": db.query(TiendaNubeProducto).filter(TiendaNubeProducto.activo == True).count()
+        "total": db.query(TiendaNubeProducto).filter(TiendaNubeProducto.activo == True).count(),
     }

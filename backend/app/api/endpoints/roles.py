@@ -1,6 +1,7 @@
 """
 Endpoints para gestión de roles
 """
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -18,6 +19,7 @@ router = APIRouter(prefix="/roles", tags=["roles"])
 # =============================================================================
 # SCHEMAS
 # =============================================================================
+
 
 class RolBase(BaseModel):
     codigo: str
@@ -71,18 +73,14 @@ class ClonarRolRequest(BaseModel):
 # ENDPOINTS
 # =============================================================================
 
+
 @router.get("", response_model=List[RolResponse])
 async def listar_roles(
-    incluir_inactivos: bool = False,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    incluir_inactivos: bool = False, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Lista todos los roles del sistema"""
-    if not verificar_permiso(db, current_user, 'admin.ver_roles'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para ver roles"
-        )
+    if not verificar_permiso(db, current_user, "admin.ver_roles"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para ver roles")
 
     service = RolesService(db)
     roles = service.listar_roles(incluir_inactivos=incluir_inactivos)
@@ -96,24 +94,17 @@ async def listar_roles(
             es_sistema=rol.es_sistema,
             orden=rol.orden,
             activo=rol.activo,
-            usuarios_count=service.contar_usuarios_rol(rol.id)
+            usuarios_count=service.contar_usuarios_rol(rol.id),
         )
         for rol in roles
     ]
 
 
 @router.get("/{rol_id}", response_model=RolConPermisosResponse)
-async def obtener_rol(
-    rol_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def obtener_rol(rol_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene un rol con sus permisos"""
-    if not verificar_permiso(db, current_user, 'admin.ver_roles'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para ver roles"
-        )
+    if not verificar_permiso(db, current_user, "admin.ver_roles"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para ver roles")
 
     service = RolesService(db)
     rol = service.obtener_rol(rol_id)
@@ -132,31 +123,23 @@ async def obtener_rol(
         orden=rol.orden,
         activo=rol.activo,
         usuarios_count=service.contar_usuarios_rol(rol.id),
-        permisos=permisos
+        permisos=permisos,
     )
 
 
 @router.post("", response_model=RolResponse)
 async def crear_rol(
-    request: RolCreate,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    request: RolCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Crea un nuevo rol"""
-    if not verificar_permiso(db, current_user, 'admin.gestionar_roles'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar roles"
-        )
+    if not verificar_permiso(db, current_user, "admin.gestionar_roles"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar roles")
 
     service = RolesService(db)
 
     try:
         rol = service.crear_rol(
-            codigo=request.codigo,
-            nombre=request.nombre,
-            descripcion=request.descripcion,
-            orden=request.orden
+            codigo=request.codigo, nombre=request.nombre, descripcion=request.descripcion, orden=request.orden
         )
         return RolResponse(
             id=rol.id,
@@ -166,7 +149,7 @@ async def crear_rol(
             es_sistema=rol.es_sistema,
             orden=rol.orden,
             activo=rol.activo,
-            usuarios_count=0
+            usuarios_count=0,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -174,17 +157,11 @@ async def crear_rol(
 
 @router.patch("/{rol_id}", response_model=RolResponse)
 async def actualizar_rol(
-    rol_id: int,
-    request: RolUpdate,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    rol_id: int, request: RolUpdate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza un rol existente"""
-    if not verificar_permiso(db, current_user, 'admin.gestionar_roles'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar roles"
-        )
+    if not verificar_permiso(db, current_user, "admin.gestionar_roles"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar roles")
 
     service = RolesService(db)
     rol = service.actualizar_rol(
@@ -192,7 +169,7 @@ async def actualizar_rol(
         nombre=request.nombre,
         descripcion=request.descripcion,
         orden=request.orden,
-        activo=request.activo
+        activo=request.activo,
     )
 
     if not rol:
@@ -206,22 +183,15 @@ async def actualizar_rol(
         es_sistema=rol.es_sistema,
         orden=rol.orden,
         activo=rol.activo,
-        usuarios_count=service.contar_usuarios_rol(rol.id)
+        usuarios_count=service.contar_usuarios_rol(rol.id),
     )
 
 
 @router.delete("/{rol_id}")
-async def eliminar_rol(
-    rol_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def eliminar_rol(rol_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Elimina un rol (si no es de sistema y no tiene usuarios)"""
-    if not verificar_permiso(db, current_user, 'admin.gestionar_roles'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar roles"
-        )
+    if not verificar_permiso(db, current_user, "admin.gestionar_roles"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar roles")
 
     service = RolesService(db)
 
@@ -239,18 +209,14 @@ async def eliminar_rol(
 # PERMISOS DEL ROL
 # =============================================================================
 
+
 @router.get("/{rol_id}/permisos")
 async def obtener_permisos_rol(
-    rol_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    rol_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene los permisos de un rol con detalles"""
-    if not verificar_permiso(db, current_user, 'admin.ver_roles'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para ver roles"
-        )
+    if not verificar_permiso(db, current_user, "admin.ver_roles"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para ver roles")
 
     service = RolesService(db)
     rol = service.obtener_rol(rol_id)
@@ -260,11 +226,7 @@ async def obtener_permisos_rol(
 
     permisos = service.obtener_permisos_rol_detallados(rol_id)
 
-    return {
-        "rol_id": rol_id,
-        "rol_codigo": rol.codigo,
-        "permisos": permisos
-    }
+    return {"rol_id": rol_id, "rol_codigo": rol.codigo, "permisos": permisos}
 
 
 @router.put("/{rol_id}/permisos")
@@ -272,24 +234,17 @@ async def set_permisos_rol(
     rol_id: int,
     request: SetPermisosRequest,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """Establece los permisos de un rol (reemplaza todos)"""
-    if not verificar_permiso(db, current_user, 'admin.gestionar_roles'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar roles"
-        )
+    if not verificar_permiso(db, current_user, "admin.gestionar_roles"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar roles")
 
     service = RolesService(db)
 
     try:
         cantidad = service.set_permisos_rol(rol_id, request.permisos)
-        return {
-            "success": True,
-            "message": f"Se asignaron {cantidad} permisos al rol",
-            "permisos_asignados": cantidad
-        }
+        return {"success": True, "message": f"Se asignaron {cantidad} permisos al rol", "permisos_asignados": cantidad}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -298,19 +253,17 @@ async def set_permisos_rol(
 # CLONAR ROL
 # =============================================================================
 
+
 @router.post("/{rol_id}/clonar", response_model=RolResponse)
 async def clonar_rol(
     rol_id: int,
     request: ClonarRolRequest,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """Clona un rol existente con sus permisos"""
-    if not verificar_permiso(db, current_user, 'admin.gestionar_roles'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar roles"
-        )
+    if not verificar_permiso(db, current_user, "admin.gestionar_roles"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar roles")
 
     service = RolesService(db)
 
@@ -319,7 +272,7 @@ async def clonar_rol(
             rol_origen_id=rol_id,
             nuevo_codigo=request.nuevo_codigo,
             nuevo_nombre=request.nuevo_nombre,
-            descripcion=request.descripcion
+            descripcion=request.descripcion,
         )
         return RolResponse(
             id=nuevo_rol.id,
@@ -329,7 +282,7 @@ async def clonar_rol(
             es_sistema=nuevo_rol.es_sistema,
             orden=nuevo_rol.orden,
             activo=nuevo_rol.activo,
-            usuarios_count=0
+            usuarios_count=0,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -339,18 +292,14 @@ async def clonar_rol(
 # USUARIOS DEL ROL
 # =============================================================================
 
+
 @router.get("/{rol_id}/usuarios")
 async def obtener_usuarios_rol(
-    rol_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    rol_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene los usuarios que tienen un rol específico"""
-    if not verificar_permiso(db, current_user, 'admin.ver_roles'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para ver roles"
-        )
+    if not verificar_permiso(db, current_user, "admin.ver_roles"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para ver roles")
 
     service = RolesService(db)
     rol = service.obtener_rol(rol_id)
@@ -360,8 +309,4 @@ async def obtener_usuarios_rol(
 
     usuarios = service.obtener_usuarios_rol(rol_id)
 
-    return {
-        "rol_id": rol_id,
-        "rol_codigo": rol.codigo,
-        "usuarios": usuarios
-    }
+    return {"rol_id": rol_id, "rol_codigo": rol.codigo, "usuarios": usuarios}

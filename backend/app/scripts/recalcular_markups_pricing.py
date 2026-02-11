@@ -7,6 +7,7 @@ Script para recalcular TODOS los markups en productos_pricing:
 Ejecutar:
     python app/scripts/recalcular_markups_pricing.py
 """
+
 import sys
 from pathlib import Path
 
@@ -16,7 +17,8 @@ sys.path.append(str(backend_path))
 
 # Cargar variables de entorno desde .env
 from dotenv import load_dotenv
-env_path = backend_path / '.env'
+
+env_path = backend_path / ".env"
 load_dotenv(dotenv_path=env_path)
 
 from app.core.database import SessionLocal
@@ -29,7 +31,7 @@ from app.services.pricing_calculator import (
     obtener_comision_base,
     calcular_comision_ml_total,
     calcular_limpio,
-    calcular_markup
+    calcular_markup,
 )
 
 
@@ -55,11 +57,12 @@ def main():
         print(f"  Tipo de cambio USD: ${tc_usd:,.2f}" if tc_usd else "  Tipo de cambio: No disponible")
 
         # Obtener productos con precio web o PVP
-        productos = db.query(ProductoPricing, ProductoERP).join(
-            ProductoERP, ProductoERP.item_id == ProductoPricing.item_id
-        ).filter(
-            (ProductoPricing.precio_lista_ml.isnot(None)) | (ProductoPricing.precio_pvp.isnot(None))
-        ).all()
+        productos = (
+            db.query(ProductoPricing, ProductoERP)
+            .join(ProductoERP, ProductoERP.item_id == ProductoPricing.item_id)
+            .filter((ProductoPricing.precio_lista_ml.isnot(None)) | (ProductoPricing.precio_pvp.isnot(None)))
+            .all()
+        )
 
         print(f"\nProductos a procesar: {len(productos)}")
 
@@ -79,7 +82,7 @@ def main():
                 costo_ars = convertir_a_pesos(
                     producto_erp.costo,
                     producto_erp.moneda_costo,
-                    tc_usd if producto_erp.moneda_costo == "USD" else None
+                    tc_usd if producto_erp.moneda_costo == "USD" else None,
                 )
 
                 # Obtener grupo
@@ -96,7 +99,7 @@ def main():
                             comision_base,
                             float(producto_erp.iva),
                             db=db,
-                            constantes=constantes
+                            constantes=constantes,
                         )
 
                         # Calcular limpio
@@ -106,7 +109,7 @@ def main():
                             float(producto_erp.envio or 0),
                             comisiones["comision_total"],
                             db=db,
-                            grupo_id=grupo_id
+                            grupo_id=grupo_id,
                         )
 
                         # Calcular markup
@@ -130,7 +133,7 @@ def main():
                             comision_base_pvp,
                             float(producto_erp.iva),
                             db=db,
-                            constantes=constantes
+                            constantes=constantes,
                         )
 
                         limpio_pvp = calcular_limpio(
@@ -139,7 +142,7 @@ def main():
                             float(producto_erp.envio or 0),
                             comisiones_pvp["comision_total"],
                             db=db,
-                            grupo_id=grupo_id
+                            grupo_id=grupo_id,
                         )
 
                         markup_pvp = calcular_markup(limpio_pvp, costo_ars)
@@ -154,10 +157,10 @@ def main():
                 # ========== RECALCULAR MARKUPS CUOTAS PVP ==========
                 if pricing.precio_pvp and pricing.precio_pvp > 0:
                     cuotas_config = [
-                        (pricing.precio_pvp_3_cuotas, 18, 'markup_pvp_3_cuotas'),
-                        (pricing.precio_pvp_6_cuotas, 19, 'markup_pvp_6_cuotas'),
-                        (pricing.precio_pvp_9_cuotas, 20, 'markup_pvp_9_cuotas'),
-                        (pricing.precio_pvp_12_cuotas, 21, 'markup_pvp_12_cuotas')
+                        (pricing.precio_pvp_3_cuotas, 18, "markup_pvp_3_cuotas"),
+                        (pricing.precio_pvp_6_cuotas, 19, "markup_pvp_6_cuotas"),
+                        (pricing.precio_pvp_9_cuotas, 20, "markup_pvp_9_cuotas"),
+                        (pricing.precio_pvp_12_cuotas, 21, "markup_pvp_12_cuotas"),
                     ]
 
                     for precio_cuota, pricelist_id, nombre_markup in cuotas_config:
@@ -170,7 +173,7 @@ def main():
                                         comision_base_cuota,
                                         float(producto_erp.iva),
                                         db=db,
-                                        constantes=constantes
+                                        constantes=constantes,
                                     )
 
                                     limpio_cuota = calcular_limpio(
@@ -179,16 +182,23 @@ def main():
                                         float(producto_erp.envio or 0),
                                         comisiones_cuota["comision_total"],
                                         db=db,
-                                        grupo_id=grupo_id
+                                        grupo_id=grupo_id,
                                     )
 
                                     markup_cuota = calcular_markup(limpio_cuota, costo_ars)
                                     markup_cuota_porcentaje = round(markup_cuota * 100, 2)
 
-                                    old_markup_cuota = float(getattr(pricing, nombre_markup)) if getattr(pricing, nombre_markup) else None
+                                    old_markup_cuota = (
+                                        float(getattr(pricing, nombre_markup))
+                                        if getattr(pricing, nombre_markup)
+                                        else None
+                                    )
                                     setattr(pricing, nombre_markup, markup_cuota_porcentaje)
-                                    
-                                    if old_markup_cuota is None or abs(old_markup_cuota - markup_cuota_porcentaje) > 0.01:
+
+                                    if (
+                                        old_markup_cuota is None
+                                        or abs(old_markup_cuota - markup_cuota_porcentaje) > 0.01
+                                    ):
                                         actualizados_cuotas_pvp += 1
                                         producto_tuvo_cambios = True
                             except Exception:
@@ -199,7 +209,7 @@ def main():
                 errores += 1
                 if errores <= 10:  # Mostrar solo los primeros 10 errores
                     print(f"  Error en item_id {producto_erp.item_id}: {e}")
-            
+
             # Contar producto si tuvo algún cambio
             if producto_tuvo_cambios:
                 productos_modificados += 1
@@ -218,6 +228,7 @@ def main():
     except Exception as e:
         print(f"\nError general: {e}")
         import traceback
+
         traceback.print_exc()
         db.rollback()
     finally:

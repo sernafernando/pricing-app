@@ -1,6 +1,7 @@
 """
 Modelos para configuración de markups de tienda
 """
+
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -12,6 +13,7 @@ class MarkupTiendaBrand(Base):
     Configuración de markup por marca para la tienda.
     Permite definir markups específicos para cada marca.
     """
+
     __tablename__ = "markups_tienda_brand"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -29,8 +31,8 @@ class MarkupTiendaBrand(Base):
     notas = Column(Text, nullable=True)
 
     # Auditoría
-    created_by_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
-    updated_by_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    updated_by_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -47,6 +49,7 @@ class MarkupTiendaProducto(Base):
     Configuración de markup por producto individual para la tienda.
     Permite definir markups específicos para productos individuales (sobrescribe el de marca).
     """
+
     __tablename__ = "markups_tienda_producto"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -65,8 +68,8 @@ class MarkupTiendaProducto(Base):
     notas = Column(Text, nullable=True)
 
     # Auditoría
-    created_by_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
-    updated_by_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    updated_by_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -75,7 +78,9 @@ class MarkupTiendaProducto(Base):
     updated_by = relationship("Usuario", foreign_keys=[updated_by_id])
 
     def __repr__(self):
-        return f"<MarkupTiendaProducto(item_id={self.item_id}, codigo='{self.codigo}', markup={self.markup_porcentaje}%)>"
+        return (
+            f"<MarkupTiendaProducto(item_id={self.item_id}, codigo='{self.codigo}', markup={self.markup_porcentaje}%)>"
+        )
 
 
 class TiendaConfig(Base):
@@ -83,6 +88,7 @@ class TiendaConfig(Base):
     Configuración global para la tienda.
     Almacena settings como markup_web_tarjeta.
     """
+
     __tablename__ = "tienda_config"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -91,7 +97,7 @@ class TiendaConfig(Base):
     descripcion = Column(String(255), nullable=True)
 
     # Auditoría
-    updated_by_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
+    updated_by_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     updated_by = relationship("Usuario", foreign_keys=[updated_by_id])

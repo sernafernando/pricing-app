@@ -2,6 +2,7 @@
 Servicio para gestionar el historial de costos de productos.
 Crea registros automáticamente cuando se actualiza el costo en productos_erp.
 """
+
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.models.item_cost_list_history import ItemCostListHistory
@@ -12,11 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def crear_registro_historial_costo(
-    db: Session,
-    item_id: int,
-    costo: float,
-    moneda_costo: str,
-    user_id: int = None
+    db: Session, item_id: int, costo: float, moneda_costo: str, user_id: int = None
 ) -> ItemCostListHistory:
     """
     Crea un registro en item_cost_list_history para trackear cambios de costo.
@@ -32,9 +29,7 @@ def crear_registro_historial_costo(
         El registro creado
     """
     # Obtener el último iclh_id para generar el siguiente
-    last_record = db.query(ItemCostListHistory).order_by(
-        ItemCostListHistory.iclh_id.desc()
-    ).first()
+    last_record = db.query(ItemCostListHistory).order_by(ItemCostListHistory.iclh_id.desc()).first()
 
     next_iclh_id = (last_record.iclh_id + 1) if last_record else 1
 
@@ -52,24 +47,21 @@ def crear_registro_historial_costo(
         iclh_price_aw=None,
         curr_id=curr_id,
         iclh_cd=datetime.now(),
-        user_id_lastupdate=user_id
+        user_id_lastupdate=user_id,
     )
 
     db.add(nuevo_registro)
     db.flush()  # Para obtener el ID sin hacer commit
 
-    logger.info(f"Registro de historial creado: item_id={item_id}, costo={costo}, moneda={moneda_costo}, iclh_id={next_iclh_id}")
+    logger.info(
+        f"Registro de historial creado: item_id={item_id}, costo={costo}, moneda={moneda_costo}, iclh_id={next_iclh_id}"
+    )
 
     return nuevo_registro
 
 
 def actualizar_costo_con_historial(
-    db: Session,
-    item_id: int,
-    nuevo_costo: float,
-    moneda_costo: str,
-    user_id: int = None,
-    commit: bool = True
+    db: Session, item_id: int, nuevo_costo: float, moneda_costo: str, user_id: int = None, commit: bool = True
 ) -> tuple[ProductoERP, ItemCostListHistory]:
     """
     Actualiza el costo de un producto y crea registro en historial.
@@ -96,7 +88,9 @@ def actualizar_costo_con_historial(
     moneda_anterior = producto.moneda_costo.value if producto.moneda_costo else "ARS"
 
     if costo_anterior != nuevo_costo or moneda_anterior != moneda_costo:
-        logger.info(f"Actualizando costo: item_id={item_id}, {moneda_anterior} ${costo_anterior} -> {moneda_costo} ${nuevo_costo}")
+        logger.info(
+            f"Actualizando costo: item_id={item_id}, {moneda_anterior} ${costo_anterior} -> {moneda_costo} ${nuevo_costo}"
+        )
 
         # Actualizar producto
         producto.costo = nuevo_costo
@@ -106,11 +100,7 @@ def actualizar_costo_con_historial(
         historial = None
         if nuevo_costo > 0:
             historial = crear_registro_historial_costo(
-                db=db,
-                item_id=item_id,
-                costo=nuevo_costo,
-                moneda_costo=moneda_costo,
-                user_id=user_id
+                db=db, item_id=item_id, costo=nuevo_costo, moneda_costo=moneda_costo, user_id=user_id
             )
 
         if commit:
@@ -140,10 +130,7 @@ def sincronizar_costos_faltantes(db: Session, commit: bool = True) -> int:
     logger.info("=== Sincronizando costos faltantes ===")
 
     # Obtener productos con costo > 0
-    productos_con_costo = db.query(ProductoERP).filter(
-        ProductoERP.costo > 0,
-        ProductoERP.activo == True
-    ).all()
+    productos_con_costo = db.query(ProductoERP).filter(ProductoERP.costo > 0, ProductoERP.activo == True).all()
 
     logger.info(f"Productos con costo > 0: {len(productos_con_costo)}")
 
@@ -151,11 +138,15 @@ def sincronizar_costos_faltantes(db: Session, commit: bool = True) -> int:
 
     for producto in productos_con_costo:
         # Verificar si tiene historial
-        tiene_historial = db.query(ItemCostListHistory).filter(
-            ItemCostListHistory.item_id == producto.item_id,
-            ItemCostListHistory.coslis_id == 1,
-            ItemCostListHistory.iclh_price > 0
-        ).first()
+        tiene_historial = (
+            db.query(ItemCostListHistory)
+            .filter(
+                ItemCostListHistory.item_id == producto.item_id,
+                ItemCostListHistory.coslis_id == 1,
+                ItemCostListHistory.iclh_price > 0,
+            )
+            .first()
+        )
 
         if not tiene_historial:
             logger.info(f"Producto sin historial: item_id={producto.item_id}, codigo={producto.codigo}")
@@ -163,11 +154,7 @@ def sincronizar_costos_faltantes(db: Session, commit: bool = True) -> int:
             # Crear registro
             moneda = producto.moneda_costo.value if producto.moneda_costo else "ARS"
             crear_registro_historial_costo(
-                db=db,
-                item_id=producto.item_id,
-                costo=float(producto.costo),
-                moneda_costo=moneda,
-                user_id=None
+                db=db, item_id=producto.item_id, costo=float(producto.costo), moneda_costo=moneda, user_id=None
             )
             registros_creados += 1
 

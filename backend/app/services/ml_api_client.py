@@ -6,6 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class MercadoLibreAPIClient:
     """Cliente para la API de MercadoLibre"""
 
@@ -34,8 +35,8 @@ class MercadoLibreAPIClient:
                         "grant_type": "refresh_token",
                         "client_id": self.client_id,
                         "client_secret": self.client_secret,
-                        "refresh_token": self.refresh_token
-                    }
+                        "refresh_token": self.refresh_token,
+                    },
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -44,6 +45,7 @@ class MercadoLibreAPIClient:
                 # Guardar cuando expira (generalmente 6 horas)
                 expires_in = data.get("expires_in", 21600)
                 from datetime import timedelta
+
                 self.token_expires_at = datetime.now() + timedelta(seconds=expires_in - 300)  # 5 min de margen
 
                 # Actualizar refresh token si viene uno nuevo
@@ -70,8 +72,7 @@ class MercadoLibreAPIClient:
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
-                    f"{self.base_url}/items/{item_id}",
-                    headers={"Authorization": f"Bearer {token}"}
+                    f"{self.base_url}/items/{item_id}", headers={"Authorization": f"Bearer {token}"}
                 )
 
                 if response.status_code == 404:
@@ -105,14 +106,14 @@ class MercadoLibreAPIClient:
             # ML permite hasta 20 items por request
             batch_size = 20
             for i in range(0, len(item_ids), batch_size):
-                batch = item_ids[i:i + batch_size]
+                batch = item_ids[i : i + batch_size]
                 ids_param = ",".join(batch)
 
                 async with httpx.AsyncClient(timeout=15.0) as client:
                     response = await client.get(
                         f"{self.base_url}/items",
                         params={"ids": ids_param},
-                        headers={"Authorization": f"Bearer {token}"}
+                        headers={"Authorization": f"Bearer {token}"},
                     )
                     response.raise_for_status()
 
@@ -149,7 +150,7 @@ class MercadoLibreAPIClient:
                 response = await client.get(
                     f"{self.base_url}/users/{user_id}/items/search",
                     params={"limit": limit, "offset": 0},
-                    headers={"Authorization": f"Bearer {token}"}
+                    headers={"Authorization": f"Bearer {token}"},
                 )
                 response.raise_for_status()
                 data = response.json()

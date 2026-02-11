@@ -6,6 +6,7 @@ Ejecutar:
     python -m app.scripts.sync_fiscal_classes
     python -m app.scripts.sync_fiscal_classes --fc-id 1
 """
+
 import sys
 from pathlib import Path
 
@@ -18,10 +19,7 @@ from app.core.database import SessionLocal
 from app.models.tb_fiscal_class import TBFiscalClass
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # URL del gbp-parser
@@ -38,12 +36,10 @@ def fetch_fiscal_classes_from_erp(fc_id: int = None):
     Returns:
         Lista de registros
     """
-    params = {
-        'strScriptLabel': 'scriptFiscalClass'
-    }
+    params = {"strScriptLabel": "scriptFiscalClass"}
 
     if fc_id:
-        params['fcID'] = fc_id
+        params["fcID"] = fc_id
 
     logger.info(f"Consultando ERP con params: {params}")
 
@@ -92,7 +88,7 @@ def sync_fiscal_classes(fc_id: int = None):
 
         # Procesar registros
         for record in registros_erp:
-            fc_id_val = record.get('fc_id')
+            fc_id_val = record.get("fc_id")
 
             if not fc_id_val:
                 logger.warning(f"Registro sin fc_id: {record}")
@@ -100,17 +96,15 @@ def sync_fiscal_classes(fc_id: int = None):
 
             # Preparar datos (columnas lowercase, .get() con camelCase del ERP)
             datos = {
-                'fc_id': fc_id_val,
-                'fc_desc': record.get('fc_desc'),
-                'fc_kindof': record.get('fc_KindOf'),
-                'country_id': record.get('country_id'),
-                'fc_legaltaxid': record.get('fc_LegalTaxId'),
+                "fc_id": fc_id_val,
+                "fc_desc": record.get("fc_desc"),
+                "fc_kindof": record.get("fc_KindOf"),
+                "country_id": record.get("country_id"),
+                "fc_legaltaxid": record.get("fc_LegalTaxId"),
             }
 
             # Verificar si existe
-            existente = db_local.query(TBFiscalClass).filter(
-                TBFiscalClass.fc_id == fc_id_val
-            ).first()
+            existente = db_local.query(TBFiscalClass).filter(TBFiscalClass.fc_id == fc_id_val).first()
 
             if existente:
                 for key, value in datos.items():
@@ -145,12 +139,8 @@ def sync_fiscal_classes(fc_id: int = None):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description='Sincronizar clases fiscales desde ERP')
-    parser.add_argument(
-        '--fc-id',
-        type=int,
-        help='ID de clase fiscal específica'
-    )
+    parser = argparse.ArgumentParser(description="Sincronizar clases fiscales desde ERP")
+    parser.add_argument("--fc-id", type=int, help="ID de clase fiscal específica")
 
     args = parser.parse_args()
 

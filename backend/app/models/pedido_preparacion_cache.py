@@ -2,6 +2,7 @@
 Modelo para cache de pedidos en preparación.
 Se actualiza cada 5 minutos desde la query 67 del ERP via gbp-parser.
 """
+
 from sqlalchemy import Column, Integer, String, Numeric, DateTime
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -20,6 +21,7 @@ class PedidoPreparacionCache(Base):
     - ML_logistic_type (Turbo si MLshipping_method_id=515282, sino ml_logistic_type)
     - PreparaPaquete (COUNT de ML_pack_id)
     """
+
     __tablename__ = "pedido_preparacion_cache"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

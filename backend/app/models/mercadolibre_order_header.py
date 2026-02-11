@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, N
 from sqlalchemy.sql import func
 from app.core.database import Base
 
+
 class MercadoLibreOrderHeader(Base):
     """
     Modelo para tbMercadoLibre_ordersHeader del ERP
@@ -9,6 +10,7 @@ class MercadoLibreOrderHeader(Base):
 
     IMPORTANTE: Los nombres de columnas están en minúsculas en PostgreSQL
     """
+
     __tablename__ = "tb_mercadolibre_orders_header"
 
     # IDs principales

@@ -31,7 +31,9 @@ def get_pares_marca_cat_usuario_ventas(db: Session, usuario: Usuario) -> Optiona
     pares = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id == usuario.id).all()
     return {(m.upper(), c.upper()) for m, c in pares} if pares else set()
 
+
 router = APIRouter()
+
 
 # Schemas
 class VentaMLResponse(BaseModel):
@@ -72,16 +74,15 @@ class MetricasDiariasResponse(BaseModel):
 
 class SyncVentasRequest(BaseModel):
     from_date: str  # YYYY-MM-DD
-    to_date: str    # YYYY-MM-DD
+    to_date: str  # YYYY-MM-DD
 
 
 # Endpoints
 
+
 @router.post("/ventas-ml/sync")
 async def sync_ventas_ml(
-    request: SyncVentasRequest,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    request: SyncVentasRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
     Sincroniza ventas desde el endpoint externo e inserta en la base de datos
@@ -89,11 +90,7 @@ async def sync_ventas_ml(
     try:
         # Llamar al endpoint externo
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptDashboard",
-            "fromDate": request.from_date,
-            "toDate": request.to_date
-        }
+        params = {"strScriptLabel": "scriptDashboard", "fromDate": request.from_date, "toDate": request.to_date}
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, params=params)
@@ -111,9 +108,9 @@ async def sync_ventas_ml(
         for venta_json in ventas_data:
             try:
                 # Verificar si ya existe
-                venta_existente = db.query(VentaML).filter(
-                    VentaML.id_operacion == venta_json.get("ID_de_Operación")
-                ).first()
+                venta_existente = (
+                    db.query(VentaML).filter(VentaML.id_operacion == venta_json.get("ID_de_Operación")).first()
+                )
 
                 if venta_existente:
                     ventas_actualizadas += 1
@@ -144,7 +141,7 @@ async def sync_ventas_ml(
                     ml_price_free_shipping=venta_json.get("mlp_price4FreeShipping"),
                     ml_base_cost=venta_json.get("ML_base_cost"),
                     ml_pack_id=venta_json.get("ML_pack_id"),
-                    price_list=venta_json.get("priceList")
+                    price_list=venta_json.get("priceList"),
                 )
 
                 db.add(venta)
@@ -163,7 +160,7 @@ async def sync_ventas_ml(
             "ventas_insertadas": ventas_insertadas,
             "ventas_actualizadas": ventas_actualizadas,
             "ventas_errores": ventas_errores,
-            "total_procesadas": len(ventas_data)
+            "total_procesadas": len(ventas_data),
         }
 
     except httpx.HTTPError as e:
@@ -182,7 +179,7 @@ async def get_ventas_ml(
     limit: int = Query(1000, le=5000, description="Límite de resultados"),
     offset: int = Query(0, description="Offset para paginación"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene ventas de MercadoLibre con filtros opcionales
@@ -217,17 +214,17 @@ async def get_ventas_stats(
     from_date: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     to_date: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene estadísticas agregadas de ventas
     """
     query = db.query(
-        func.count(VentaML.id_venta).label('total_ventas'),
-        func.sum(VentaML.cantidad).label('total_unidades'),
-        func.sum(VentaML.monto_total).label('monto_total'),
-        func.sum(VentaML.ml_shipment_cost_seller).label('costo_envios'),
-        func.count(func.distinct(VentaML.item_id)).label('productos_unicos')
+        func.count(VentaML.id_venta).label("total_ventas"),
+        func.sum(VentaML.cantidad).label("total_unidades"),
+        func.sum(VentaML.monto_total).label("monto_total"),
+        func.sum(VentaML.ml_shipment_cost_seller).label("costo_envios"),
+        func.count(func.distinct(VentaML.item_id)).label("productos_unicos"),
     )
 
     # Aplicar filtros de fecha
@@ -243,10 +240,7 @@ async def get_ventas_stats(
     result = query.first()
 
     # Estadísticas por tipo de logística
-    logistica_query = db.query(
-        VentaML.ml_logistic_type,
-        func.count(VentaML.id_venta).label('cantidad')
-    )
+    logistica_query = db.query(VentaML.ml_logistic_type, func.count(VentaML.id_venta).label("cantidad"))
 
     if from_date:
         logistica_query = logistica_query.filter(VentaML.fecha >= datetime.fromisoformat(from_date))
@@ -261,10 +255,7 @@ async def get_ventas_stats(
         "monto_total": float(result.monto_total or 0),
         "costo_envios": float(result.costo_envios or 0),
         "productos_unicos": result.productos_unicos or 0,
-        "por_logistica": {
-            item.ml_logistic_type: item.cantidad
-            for item in logistica_stats if item.ml_logistic_type
-        }
+        "por_logistica": {item.ml_logistic_type: item.cantidad for item in logistica_stats if item.ml_logistic_type},
     }
 
 
@@ -274,7 +265,7 @@ async def get_top_productos(
     to_date: Optional[str] = Query(None),
     limit: int = Query(10, le=100),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene los productos más vendidos
@@ -283,9 +274,9 @@ async def get_top_productos(
         VentaML.item_id,
         VentaML.descripcion,
         VentaML.marca,
-        func.count(VentaML.id_venta).label('total_ventas'),
-        func.sum(VentaML.cantidad).label('unidades_vendidas'),
-        func.sum(VentaML.monto_total).label('monto_total')
+        func.count(VentaML.id_venta).label("total_ventas"),
+        func.sum(VentaML.cantidad).label("unidades_vendidas"),
+        func.sum(VentaML.monto_total).label("monto_total"),
     ).filter(VentaML.item_id.isnot(None))
 
     if from_date:
@@ -293,13 +284,12 @@ async def get_top_productos(
     if to_date:
         query = query.filter(VentaML.fecha < datetime.fromisoformat(to_date) + timedelta(days=1))
 
-    top_productos = query.group_by(
-        VentaML.item_id,
-        VentaML.descripcion,
-        VentaML.marca
-    ).order_by(
-        desc('unidades_vendidas')
-    ).limit(limit).all()
+    top_productos = (
+        query.group_by(VentaML.item_id, VentaML.descripcion, VentaML.marca)
+        .order_by(desc("unidades_vendidas"))
+        .limit(limit)
+        .all()
+    )
 
     return [
         {
@@ -308,7 +298,7 @@ async def get_top_productos(
             "marca": p.marca,
             "total_ventas": p.total_ventas,
             "unidades_vendidas": p.unidades_vendidas,
-            "monto_total": float(p.monto_total or 0)
+            "monto_total": float(p.monto_total or 0),
         }
         for p in top_productos
     ]
@@ -319,16 +309,16 @@ async def get_ventas_por_marca(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene ventas agrupadas por marca
     """
     query = db.query(
         VentaML.marca,
-        func.count(VentaML.id_venta).label('total_ventas'),
-        func.sum(VentaML.cantidad).label('unidades_vendidas'),
-        func.sum(VentaML.monto_total).label('monto_total')
+        func.count(VentaML.id_venta).label("total_ventas"),
+        func.sum(VentaML.cantidad).label("unidades_vendidas"),
+        func.sum(VentaML.monto_total).label("monto_total"),
     ).filter(VentaML.marca.isnot(None))
 
     if from_date:
@@ -336,14 +326,14 @@ async def get_ventas_por_marca(
     if to_date:
         query = query.filter(VentaML.fecha < datetime.fromisoformat(to_date) + timedelta(days=1))
 
-    por_marca = query.group_by(VentaML.marca).order_by(desc('monto_total')).all()
+    por_marca = query.group_by(VentaML.marca).order_by(desc("monto_total")).all()
 
     return [
         {
             "marca": m.marca,
             "total_ventas": m.total_ventas,
             "unidades_vendidas": m.unidades_vendidas,
-            "monto_total": float(m.monto_total or 0)
+            "monto_total": float(m.monto_total or 0),
         }
         for m in por_marca
     ]
@@ -373,7 +363,7 @@ async def get_ventas_detalladas(
     item_id: Optional[int] = Query(None, description="ID de item específico"),
     dias: Optional[int] = Query(30, description="Últimos N días (si no se especifica from_date/to_date)"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene ventas detalladas por producto con información completa del ERP.
@@ -400,17 +390,17 @@ async def get_ventas_detalladas(
         VentaML.codigo_item,
         VentaML.marca,
         VentaML.descripcion,
-        func.sum(VentaML.cantidad).label('cantidad_total'),
-        func.sum(VentaML.monto_total).label('monto_total'),
+        func.sum(VentaML.cantidad).label("cantidad_total"),
+        func.sum(VentaML.monto_total).label("monto_total"),
         VentaML.costo_sin_iva,
         VentaML.iva,
-        VentaML.subcat_id
+        VentaML.subcat_id,
     ).filter(
         and_(
             VentaML.fecha >= fecha_desde,
             VentaML.fecha < fecha_hasta,
             VentaML.item_id.isnot(None),
-            VentaML.item_id != 460  # Excluir item_id 460 como en la query original
+            VentaML.item_id != 460,  # Excluir item_id 460 como en la query original
         )
     )
 
@@ -419,15 +409,19 @@ async def get_ventas_detalladas(
         query = query.filter(VentaML.item_id == item_id)
 
     # Agrupar y ordenar por cantidad vendida descendente
-    ventas_agrupadas = query.group_by(
-        VentaML.item_id,
-        VentaML.codigo_item,
-        VentaML.marca,
-        VentaML.descripcion,
-        VentaML.costo_sin_iva,
-        VentaML.iva,
-        VentaML.subcat_id
-    ).order_by(desc('cantidad_total')).all()
+    ventas_agrupadas = (
+        query.group_by(
+            VentaML.item_id,
+            VentaML.codigo_item,
+            VentaML.marca,
+            VentaML.descripcion,
+            VentaML.costo_sin_iva,
+            VentaML.iva,
+            VentaML.subcat_id,
+        )
+        .order_by(desc("cantidad_total"))
+        .all()
+    )
 
     # Construir respuesta con datos adicionales
     resultados = []
@@ -439,31 +433,39 @@ async def get_ventas_detalladas(
         ufc = None
 
         # Obtener precio de envío gratis (ml_price_free_shipping)
-        envio_query = db.query(VentaML.ml_price_free_shipping).filter(
-            VentaML.item_id == venta.item_id
-        ).order_by(desc(VentaML.fecha)).first()
+        envio_query = (
+            db.query(VentaML.ml_price_free_shipping)
+            .filter(VentaML.item_id == venta.item_id)
+            .order_by(desc(VentaML.fecha))
+            .first()
+        )
         envio = envio_query[0] if envio_query else None
 
         # Obtener último precio de venta
-        upv_query = db.query(VentaML.monto_unitario).filter(
-            VentaML.item_id == venta.item_id
-        ).order_by(desc(VentaML.fecha)).first()
+        upv_query = (
+            db.query(VentaML.monto_unitario)
+            .filter(VentaML.item_id == venta.item_id)
+            .order_by(desc(VentaML.fecha))
+            .first()
+        )
         upv = upv_query[0] if upv_query else None
 
-        resultados.append({
-            "codigo_item": venta.codigo_item,
-            "marca": venta.marca,
-            "descripcion": venta.descripcion,
-            "cantidad": int(venta.cantidad_total or 0),
-            "monto_total": venta.monto_total or Decimal(0),
-            "costo_sin_iva": venta.costo_sin_iva,
-            "iva": venta.iva,
-            "subcat_id": venta.subcat_id,
-            "proveedor": proveedor,
-            "ufc": ufc,
-            "envio": envio,
-            "upv": upv
-        })
+        resultados.append(
+            {
+                "codigo_item": venta.codigo_item,
+                "marca": venta.marca,
+                "descripcion": venta.descripcion,
+                "cantidad": int(venta.cantidad_total or 0),
+                "monto_total": venta.monto_total or Decimal(0),
+                "costo_sin_iva": venta.costo_sin_iva,
+                "iva": venta.iva,
+                "subcat_id": venta.subcat_id,
+                "proveedor": proveedor,
+                "ufc": ufc,
+                "envio": envio,
+                "upv": upv,
+            }
+        )
 
     return resultados
 
@@ -513,13 +515,15 @@ async def get_operaciones_con_metricas(
     codigo: Optional[str] = Query(None, description="Filtrar por código de producto"),
     marcas: Optional[str] = Query(None, description="Filtrar por marcas (separadas por coma)"),
     categorias: Optional[str] = Query(None, description="Filtrar por categorías (separadas por coma)"),
-    tiendas_oficiales: Optional[str] = Query(None, description="Filtrar por tiendas oficiales (IDs separados por coma)"),
+    tiendas_oficiales: Optional[str] = Query(
+        None, description="Filtrar por tiendas oficiales (IDs separados por coma)"
+    ),
     pm_ids: Optional[str] = Query(None, description="IDs de PMs separados por coma (solo admin)"),
     search: Optional[str] = Query(None, description="Buscar en código o descripción"),
     limit: int = Query(1000, le=50000, description="Límite de resultados"),
     offset: int = Query(0, description="Offset para paginación"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Obtiene operaciones de ML con todas las métricas calculadas (comisión, markup, etc.)
@@ -530,18 +534,18 @@ async def get_operaciones_con_metricas(
     # Obtener pares marca+categoría del usuario para filtrar
     # Si pm_ids está presente (usuario admin seleccionó PMs), usar esos en lugar del usuario actual
     if pm_ids:
-        pm_ids_list = [int(id.strip()) for id in pm_ids.split(',') if id.strip().isdigit()]
+        pm_ids_list = [int(id.strip()) for id in pm_ids.split(",") if id.strip().isdigit()]
         if pm_ids_list:
-            pares_pms = db.query(MarcaPM.marca, MarcaPM.categoria).filter(
-                MarcaPM.usuario_id.in_(pm_ids_list)
-            ).distinct().all()
+            pares_pms = (
+                db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids_list)).distinct().all()
+            )
             pares_usuario = {(m.upper(), c.upper()) for m, c in pares_pms} if pares_pms else set()
         else:
             pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
     else:
         pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
 
-    to_date_full = to_date + ' 23:59:59'
+    to_date_full = to_date + " 23:59:59"
 
     query_str = """
     WITH sales_data AS (
@@ -727,40 +731,40 @@ async def get_operaciones_con_metricas(
     ORDER BY fecha_venta DESC, id_operacion
     LIMIT %(limit)s OFFSET %(offset)s
     """
-    
+
     # Construir filtros dinámicos usando placeholders seguros
     tienda_oficial_filter = ""
     store_ids_param = None
     if tiendas_oficiales:
-        store_ids = [int(id.strip()) for id in tiendas_oficiales.split(',') if id.strip().isdigit()]
+        store_ids = [int(id.strip()) for id in tiendas_oficiales.split(",") if id.strip().isdigit()]
         if store_ids:
             store_ids_param = store_ids
             tienda_oficial_filter = "AND tmlip.mlp_official_store_id = ANY(%(store_ids)s)"
-    
+
     ml_id_filter = ""
     if ml_id:
         ml_id_filter = "AND tmloh.ml_id = %(ml_id)s"
-    
+
     codigo_filter = ""
     if codigo:
         codigo_filter = "AND (ti.item_code ILIKE %(codigo)s OR pe.codigo ILIKE %(codigo)s)"
-    
+
     marca_filter = ""
     marcas_param = None
     if marcas:
-        marcas_list = [m.strip() for m in marcas.split(',') if m.strip()]
+        marcas_list = [m.strip() for m in marcas.split(",") if m.strip()]
         if marcas_list:
             marcas_param = marcas_list
             marca_filter = "AND (tb.brand_desc = ANY(%(marcas)s) OR pe.marca = ANY(%(marcas)s))"
-    
+
     categoria_filter = ""
     categorias_param = None
     if categorias:
-        categorias_list = [c.strip() for c in categorias.split(',') if c.strip()]
+        categorias_list = [c.strip() for c in categorias.split(",") if c.strip()]
         if categorias_list:
             categorias_param = categorias_list
             categoria_filter = "AND (tc.cat_desc = ANY(%(categorias)s) OR pe.categoria = ANY(%(categorias)s))"
-    
+
     search_filter = ""
     if search:
         search_filter = """AND (
@@ -769,36 +773,31 @@ async def get_operaciones_con_metricas(
             OR ti.item_desc ILIKE %(search_pattern)s
             OR pe.descripcion ILIKE %(search_pattern)s
         )"""
-    
+
     query_str = query_str.format(
         tienda_oficial_filter=tienda_oficial_filter,
         ml_id_filter=ml_id_filter,
         codigo_filter=codigo_filter,
         marca_filter=marca_filter,
         categoria_filter=categoria_filter,
-        search_filter=search_filter
+        search_filter=search_filter,
     )
 
     # Preparar parámetros
-    params = {
-        'from_date': from_date,
-        'to_date': to_date_full,
-        'limit': limit,
-        'offset': offset
-    }
-    
+    params = {"from_date": from_date, "to_date": to_date_full, "limit": limit, "offset": offset}
+
     if ml_id:
-        params['ml_id'] = ml_id
+        params["ml_id"] = ml_id
     if codigo:
-        params['codigo'] = f'%{codigo}%'
+        params["codigo"] = f"%{codigo}%"
     if search:
-        params['search_pattern'] = f'%{search}%'
+        params["search_pattern"] = f"%{search}%"
     if store_ids_param:
-        params['store_ids'] = store_ids_param
+        params["store_ids"] = store_ids_param
     if marcas_param:
-        params['marcas'] = marcas_param
+        params["marcas"] = marcas_param
     if categorias_param:
-        params['categorias'] = categorias_param
+        params["categorias"] = categorias_param
 
     # Ejecutar via raw connection (psycopg2) que soporta %(param)s nativo
     # Obtener la conexión raw de psycopg2
@@ -809,7 +808,8 @@ async def get_operaciones_con_metricas(
     # Convertir resultado a formato compatible
     columns = [desc[0] for desc in cursor.description]
     from collections import namedtuple
-    Row = namedtuple('Row', columns)
+
+    Row = namedtuple("Row", columns)
     rows = [Row(*row) for row in cursor.fetchall()]
     cursor.close()
 
@@ -821,8 +821,8 @@ async def get_operaciones_con_metricas(
         if pares_usuario is not None:
             if len(pares_usuario) == 0:
                 continue  # Sin pares asignados, no ve nada
-            marca_upper = (row.marca or '').upper()
-            cat_upper = (row.categoria or '').upper()
+            marca_upper = (row.marca or "").upper()
+            cat_upper = (row.categoria or "").upper()
             if (marca_upper, cat_upper) not in pares_usuario:
                 continue
 
@@ -840,51 +840,60 @@ async def get_operaciones_con_metricas(
             costo_unitario_sin_iva=float(row.costo_sin_iva or 0),
             costo_envio_ml=costo_envio_producto,
             count_per_pack=1,
-            subcat_id=row.subcat_id if hasattr(row, 'subcat_id') else None,
+            subcat_id=row.subcat_id if hasattr(row, "subcat_id") else None,
             pricelist_id=row.pricelist_id,
             fecha_venta=row.fecha_venta,
             comision_base_porcentaje=float(row.comision_base_porcentaje or 12.0),
-            db_session=db
+            db_session=db,
         )
 
         # Mapeo de pricelist_id a nombre
         pricelist_names = {
-            4: "Clásica", 12: "Clásica",
-            17: "3 Cuotas", 18: "3 Cuotas",
-            14: "6 Cuotas", 19: "6 Cuotas",
-            13: "9 Cuotas", 20: "9 Cuotas",
-            23: "12 Cuotas", 21: "12 Cuotas"
+            4: "Clásica",
+            12: "Clásica",
+            17: "3 Cuotas",
+            18: "3 Cuotas",
+            14: "6 Cuotas",
+            19: "6 Cuotas",
+            13: "9 Cuotas",
+            20: "9 Cuotas",
+            23: "12 Cuotas",
+            21: "12 Cuotas",
         }
-        tipo_publicacion = pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}") if row.pricelist_id else None
+        tipo_publicacion = (
+            pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}") if row.pricelist_id else None
+        )
 
         # Costo total
         costo_total = float(row.costo_sin_iva or 0) * float(row.cantidad or 1)
 
-        operaciones.append({
-            "id_operacion": row.id_operacion,
-            "ml_id": row.ml_id,
-            "pack_id": row.pack_id,
-            "fecha_venta": row.fecha_venta,
-            "item_id": row.item_id,
-            "codigo": row.codigo,
-            "descripcion": row.descripcion,
-            "categoria": row.categoria,
-            "subcategoria": row.subcategoria,
-            "marca": row.marca,
-            "cantidad": Decimal(str(row.cantidad or 0)),
-            "monto_unitario": Decimal(str(row.monto_unitario or 0)),
-            "monto_total": Decimal(str(row.monto_total or 0)),
-            "iva": Decimal(str(row.iva or 0)),
-            "pricelist_id": row.pricelist_id,
-            "tipo_publicacion": tipo_publicacion,
-            "costo_sin_iva": Decimal(str(row.costo_sin_iva or 0)),
-            "costo_total": Decimal(str(costo_total)),
-            "comision_porcentaje": Decimal(str(row.comision_base_porcentaje or 0)),
-            "comision_pesos": Decimal(str(metricas['comision_ml'])),
-            "costo_envio": Decimal(str(metricas['costo_envio'])),
-            "monto_limpio": Decimal(str(metricas['monto_limpio'])),
-            "markup_porcentaje": Decimal(str(metricas['markup_porcentaje']))
-        })
+        operaciones.append(
+            {
+                "id_operacion": row.id_operacion,
+                "ml_id": row.ml_id,
+                "pack_id": row.pack_id,
+                "fecha_venta": row.fecha_venta,
+                "item_id": row.item_id,
+                "codigo": row.codigo,
+                "descripcion": row.descripcion,
+                "categoria": row.categoria,
+                "subcategoria": row.subcategoria,
+                "marca": row.marca,
+                "cantidad": Decimal(str(row.cantidad or 0)),
+                "monto_unitario": Decimal(str(row.monto_unitario or 0)),
+                "monto_total": Decimal(str(row.monto_total or 0)),
+                "iva": Decimal(str(row.iva or 0)),
+                "pricelist_id": row.pricelist_id,
+                "tipo_publicacion": tipo_publicacion,
+                "costo_sin_iva": Decimal(str(row.costo_sin_iva or 0)),
+                "costo_total": Decimal(str(costo_total)),
+                "comision_porcentaje": Decimal(str(row.comision_base_porcentaje or 0)),
+                "comision_pesos": Decimal(str(metricas["comision_ml"])),
+                "costo_envio": Decimal(str(metricas["costo_envio"])),
+                "monto_limpio": Decimal(str(metricas["monto_limpio"])),
+                "markup_porcentaje": Decimal(str(metricas["markup_porcentaje"])),
+            }
+        )
 
     return operaciones
 
@@ -898,25 +907,25 @@ async def exportar_operaciones(
     tiendas_oficiales: Optional[str] = Query(None),
     pm_ids: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Exporta TODAS las operaciones filtradas a Excel (sin límite de paginación).
     """
     # Copiar lógica de get_operaciones_con_metricas pero sin límite
     if pm_ids:
-        pm_ids_list = [int(id.strip()) for id in pm_ids.split(',') if id.strip().isdigit()]
+        pm_ids_list = [int(id.strip()) for id in pm_ids.split(",") if id.strip().isdigit()]
         if pm_ids_list:
-            pares_pms = db.query(MarcaPM.marca, MarcaPM.categoria).filter(
-                MarcaPM.usuario_id.in_(pm_ids_list)
-            ).distinct().all()
+            pares_pms = (
+                db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids_list)).distinct().all()
+            )
             pares_usuario = {(m.upper(), c.upper()) for m, c in pares_pms} if pares_pms else set()
         else:
             pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
     else:
         pares_usuario = get_pares_marca_cat_usuario_ventas(db, current_user)
 
-    to_date_full = to_date + ' 23:59:59'
+    to_date_full = to_date + " 23:59:59"
 
     # Reutilizar el query SQL (copiado desde get_operaciones_con_metricas)
     query_str = """
@@ -1061,7 +1070,7 @@ async def exportar_operaciones(
     tienda_oficial_filter = ""
     store_ids_param = None
     if tiendas_oficiales:
-        store_ids = [int(id.strip()) for id in tiendas_oficiales.split(',') if id.strip().isdigit()]
+        store_ids = [int(id.strip()) for id in tiendas_oficiales.split(",") if id.strip().isdigit()]
         if store_ids:
             store_ids_param = store_ids
             tienda_oficial_filter = "AND tmlip.mlp_official_store_id = ANY(%(store_ids)s)"
@@ -1069,7 +1078,7 @@ async def exportar_operaciones(
     marca_filter = ""
     marcas_param = None
     if marcas:
-        marcas_list = [m.strip() for m in marcas.split(',') if m.strip()]
+        marcas_list = [m.strip() for m in marcas.split(",") if m.strip()]
         if marcas_list:
             marcas_param = marcas_list
             marca_filter = "AND (tb.brand_desc = ANY(%(marcas)s) OR pe.marca = ANY(%(marcas)s))"
@@ -1077,29 +1086,24 @@ async def exportar_operaciones(
     categoria_filter = ""
     categorias_param = None
     if categorias:
-        categorias_list = [c.strip() for c in categorias.split(',') if c.strip()]
+        categorias_list = [c.strip() for c in categorias.split(",") if c.strip()]
         if categorias_list:
             categorias_param = categorias_list
             categoria_filter = "AND (tc.cat_desc = ANY(%(categorias)s) OR pe.categoria = ANY(%(categorias)s))"
 
     query_str = query_str.format(
-        tienda_oficial_filter=tienda_oficial_filter,
-        marca_filter=marca_filter,
-        categoria_filter=categoria_filter
+        tienda_oficial_filter=tienda_oficial_filter, marca_filter=marca_filter, categoria_filter=categoria_filter
     )
 
-    params = {
-        'from_date': from_date,
-        'to_date': to_date_full
-    }
-    
+    params = {"from_date": from_date, "to_date": to_date_full}
+
     # Agregar parámetros de filtros solo si existen
     if store_ids_param:
-        params['store_ids'] = store_ids_param
+        params["store_ids"] = store_ids_param
     if marcas_param:
-        params['marcas'] = marcas_param
+        params["marcas"] = marcas_param
     if categorias_param:
-        params['categorias'] = categorias_param
+        params["categorias"] = categorias_param
 
     # Ejecutar query
     raw_connection = db.connection().connection
@@ -1108,7 +1112,8 @@ async def exportar_operaciones(
 
     columns = [desc[0] for desc in cursor.description]
     from collections import namedtuple
-    Row = namedtuple('Row', columns)
+
+    Row = namedtuple("Row", columns)
     rows = [Row(*row) for row in cursor.fetchall()]
     cursor.close()
 
@@ -1118,8 +1123,8 @@ async def exportar_operaciones(
         if pares_usuario is not None:
             if len(pares_usuario) == 0:
                 continue
-            marca_upper = (row.marca or '').upper()
-            cat_upper = (row.categoria or '').upper()
+            marca_upper = (row.marca or "").upper()
+            cat_upper = (row.categoria or "").upper()
             if (marca_upper, cat_upper) not in pares_usuario:
                 continue
 
@@ -1134,70 +1139,94 @@ async def exportar_operaciones(
             costo_unitario_sin_iva=float(row.costo_sin_iva or 0),
             costo_envio_ml=costo_envio_producto,
             count_per_pack=1,
-            subcat_id=row.subcat_id if hasattr(row, 'subcat_id') else None,
+            subcat_id=row.subcat_id if hasattr(row, "subcat_id") else None,
             pricelist_id=row.pricelist_id,
             fecha_venta=row.fecha_venta,
             comision_base_porcentaje=float(row.comision_base_porcentaje or 12.0),
-            db_session=db
+            db_session=db,
         )
 
         pricelist_names = {
-            4: "Clásica", 12: "Clásica",
-            17: "3 Cuotas", 18: "3 Cuotas",
-            14: "6 Cuotas", 19: "6 Cuotas",
-            13: "9 Cuotas", 20: "9 Cuotas",
-            23: "12 Cuotas", 21: "12 Cuotas"
+            4: "Clásica",
+            12: "Clásica",
+            17: "3 Cuotas",
+            18: "3 Cuotas",
+            14: "6 Cuotas",
+            19: "6 Cuotas",
+            13: "9 Cuotas",
+            20: "9 Cuotas",
+            23: "12 Cuotas",
+            21: "12 Cuotas",
         }
-        tipo_publicacion = pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}") if row.pricelist_id else None
+        tipo_publicacion = (
+            pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}") if row.pricelist_id else None
+        )
 
         costo_total = float(row.costo_sin_iva or 0) * float(row.cantidad or 1)
 
-        operaciones.append({
-            "id_operacion": row.id_operacion,
-            "fecha": row.fecha_venta,
-            "marca": row.marca,
-            "categoria": row.categoria,
-            "subcategoria": row.subcategoria,
-            "codigo_item": row.codigo,
-            "descripcion": row.descripcion,
-            "cantidad": row.cantidad,
-            "monto_unitario": row.monto_unitario,
-            "monto_total": row.monto_total,
-            "pricelist_id": row.pricelist_id,
-            "tipo_publicacion": tipo_publicacion,
-            "costo_sin_iva": row.costo_sin_iva,
-            "costo_total": costo_total,
-            "comision_porcentaje": row.comision_base_porcentaje,
-            "comision_pesos": metricas['comision_ml'],
-            "costo_envio": metricas['costo_envio'],
-            "monto_limpio": metricas['monto_limpio'],
-            "markup_porcentaje": metricas['markup_porcentaje']
-        })
-    
+        operaciones.append(
+            {
+                "id_operacion": row.id_operacion,
+                "fecha": row.fecha_venta,
+                "marca": row.marca,
+                "categoria": row.categoria,
+                "subcategoria": row.subcategoria,
+                "codigo_item": row.codigo,
+                "descripcion": row.descripcion,
+                "cantidad": row.cantidad,
+                "monto_unitario": row.monto_unitario,
+                "monto_total": row.monto_total,
+                "pricelist_id": row.pricelist_id,
+                "tipo_publicacion": tipo_publicacion,
+                "costo_sin_iva": row.costo_sin_iva,
+                "costo_total": costo_total,
+                "comision_porcentaje": row.comision_base_porcentaje,
+                "comision_pesos": metricas["comision_ml"],
+                "costo_envio": metricas["costo_envio"],
+                "monto_limpio": metricas["monto_limpio"],
+                "markup_porcentaje": metricas["markup_porcentaje"],
+            }
+        )
+
     # Crear Excel
     wb = Workbook()
     ws = wb.active
     ws.title = "Operaciones ML"
-    
+
     # Estilos
     header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     header_alignment = Alignment(horizontal="center", vertical="center")
-    
+
     # Headers
     headers = [
-        "ID Operación", "Fecha", "Marca", "Categoría", "Subcategoría",
-        "Código", "Descripción", "Cant", "Monto Unit", "Monto Total",
-        "Pricelist", "Tipo Pub", "Costo s/IVA", "Costo Total", 
-        "Comisión %", "Comisión $", "Costo Envío", "Monto Limpio", "Markup %"
+        "ID Operación",
+        "Fecha",
+        "Marca",
+        "Categoría",
+        "Subcategoría",
+        "Código",
+        "Descripción",
+        "Cant",
+        "Monto Unit",
+        "Monto Total",
+        "Pricelist",
+        "Tipo Pub",
+        "Costo s/IVA",
+        "Costo Total",
+        "Comisión %",
+        "Comisión $",
+        "Costo Envío",
+        "Monto Limpio",
+        "Markup %",
     ]
-    
+
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col_num, value=header)
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = header_alignment
-    
+
     # Data
     for row_num, op in enumerate(operaciones, 2):
         ws.cell(row=row_num, column=1, value=op["id_operacion"])
@@ -1219,21 +1248,21 @@ async def exportar_operaciones(
         ws.cell(row=row_num, column=17, value=float(op["costo_envio"]))
         ws.cell(row=row_num, column=18, value=float(op["monto_limpio"]))
         ws.cell(row=row_num, column=19, value=float(op["markup_porcentaje"]))
-    
+
     # Ajustar anchos de columna
     column_widths = [12, 20, 15, 20, 20, 15, 40, 8, 12, 12, 10, 12, 12, 12, 10, 12, 12, 12, 10]
     for i, width in enumerate(column_widths, 1):
         ws.column_dimensions[chr(64 + i)].width = width
-    
+
     # Guardar en memoria
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
-    
+
     filename = f"operaciones_ml_{from_date}_{to_date}.xlsx"
-    
+
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

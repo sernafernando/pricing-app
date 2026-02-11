@@ -8,70 +8,56 @@ from app.models.usuario import Usuario, RolUsuario
 
 security = HTTPBearer()
 
+
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
+    credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)
 ) -> Usuario:
     """Obtiene el usuario actual desde el token JWT"""
     token = credentials.credentials
     payload = decode_token(token)
-    
+
     if payload is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido o expirado"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado")
+
     username: str = payload.get("sub")
     if username is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+
     # Buscar por username (nuevo) o email (backward compatibility)
-    usuario = db.query(Usuario).filter(
-        (Usuario.username == username) | (Usuario.email == username)
-    ).first()
-    
+    usuario = db.query(Usuario).filter((Usuario.username == username) | (Usuario.email == username)).first()
+
     if usuario is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario no encontrado"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
+
     if not usuario.activo:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario inactivo"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario inactivo")
+
     return usuario
+
 
 def require_role(allowed_roles: list[RolUsuario]):
     """Decorator para requerir roles específicos"""
+
     async def role_checker(current_user: Usuario = Depends(get_current_user)) -> Usuario:
         if current_user.rol not in allowed_roles:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permisos para realizar esta acción"
+                status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permisos para realizar esta acción"
             )
         return current_user
+
     return role_checker
+
 
 # Dependencias específicas por rol
 async def get_current_admin(current_user: Usuario = Depends(get_current_user)) -> Usuario:
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo administradores pueden realizar esta acción"
+            status_code=status.HTTP_403_FORBIDDEN, detail="Solo administradores pueden realizar esta acción"
         )
     return current_user
 
+
 async def get_current_pricing_manager(current_user: Usuario = Depends(get_current_user)) -> Usuario:
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.PRICING_MANAGER]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Necesitas permisos de pricing manager"
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Necesitas permisos de pricing manager")
     return current_user

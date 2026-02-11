@@ -1,6 +1,7 @@
 """
 Modelo para roles dinámicos del sistema.
 """
+
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -12,6 +13,7 @@ class Rol(Base):
     Roles del sistema.
     Reemplaza el enum RolUsuario con roles dinámicos almacenados en DB.
     """
+
     __tablename__ = "roles"
 
     id = Column(Integer, primary_key=True, index=True)

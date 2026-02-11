@@ -13,6 +13,7 @@ import uuid
 
 router = APIRouter()
 
+
 # Schemas
 class CommercialTransactionResponse(BaseModel):
     ct_transaction: int
@@ -29,16 +30,17 @@ class CommercialTransactionResponse(BaseModel):
 
 class SyncCommercialTransactionsRequest(BaseModel):
     from_date: str  # YYYY-MM-DD
-    to_date: str    # YYYY-MM-DD
+    to_date: str  # YYYY-MM-DD
 
 
 # Endpoints
+
 
 @router.post("/commercial-transactions/sync")
 async def sync_commercial_transactions(
     request: SyncCommercialTransactionsRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Sincroniza transacciones comerciales desde el endpoint externo del ERP
@@ -46,11 +48,7 @@ async def sync_commercial_transactions(
     try:
         # Llamar al endpoint externo
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptCommercial",
-            "fromDate": request.from_date,
-            "toDate": request.to_date
-        }
+        params = {"strScriptLabel": "scriptCommercial", "fromDate": request.from_date, "toDate": request.to_date}
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(url, params=params)
@@ -67,7 +65,7 @@ async def sync_commercial_transactions(
                 "message": "No hay datos disponibles para este período",
                 "transacciones_insertadas": 0,
                 "transacciones_actualizadas": 0,
-                "transacciones_errores": 0
+                "transacciones_errores": 0,
             }
 
         # Insertar o actualizar transacciones
@@ -83,9 +81,11 @@ async def sync_commercial_transactions(
                     continue
 
                 # Verificar si ya existe
-                trans_existente = db.query(CommercialTransaction).filter(
-                    CommercialTransaction.ct_transaction == ct_transaction
-                ).first()
+                trans_existente = (
+                    db.query(CommercialTransaction)
+                    .filter(CommercialTransaction.ct_transaction == ct_transaction)
+                    .first()
+                )
 
                 # Procesar el GUID
                 guid_str = trans_json.get("ct_guid")
@@ -112,10 +112,10 @@ async def sync_commercial_transactions(
                     for key, value in trans_json.items():
                         if hasattr(trans_existente, key):
                             # Manejar fechas
-                            if 'date' in key.lower() or 'Date' in key:
+                            if "date" in key.lower() or "Date" in key:
                                 value = parse_date(value)
                             # Manejar GUID
-                            elif key == 'ct_guid' and value:
+                            elif key == "ct_guid" and value:
                                 value = guid_value
                             setattr(trans_existente, key, value)
 
@@ -226,7 +226,7 @@ async def sync_commercial_transactions(
                         ct_guid=guid_value,
                         ct_transaction4ThirdSales=trans_json.get("ct_transaction4ThirdSales"),
                         ct_documentNumber=trans_json.get("ct_documentNumber"),
-                        ct_note=trans_json.get("ct_note")
+                        ct_note=trans_json.get("ct_note"),
                     )
 
                     db.add(trans)
@@ -250,7 +250,7 @@ async def sync_commercial_transactions(
             "transacciones_insertadas": transacciones_insertadas,
             "transacciones_actualizadas": transacciones_actualizadas,
             "transacciones_errores": transacciones_errores,
-            "total_procesadas": len(transactions_data)
+            "total_procesadas": len(transactions_data),
         }
 
     except httpx.HTTPError as e:
@@ -269,7 +269,7 @@ async def get_commercial_transactions(
     limit: int = Query(1000, le=5000),
     offset: int = Query(0),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene transacciones comerciales con filtros
@@ -299,15 +299,15 @@ async def get_commercial_transactions_stats(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Obtiene estadísticas de transacciones comerciales
     """
     query = db.query(
-        func.count(CommercialTransaction.ct_transaction).label('total_transacciones'),
-        func.sum(CommercialTransaction.ct_total).label('monto_total'),
-        func.count(func.distinct(CommercialTransaction.cust_id)).label('clientes_unicos')
+        func.count(CommercialTransaction.ct_transaction).label("total_transacciones"),
+        func.sum(CommercialTransaction.ct_total).label("monto_total"),
+        func.count(func.distinct(CommercialTransaction.cust_id)).label("clientes_unicos"),
     )
 
     if from_date:
@@ -322,14 +322,16 @@ async def get_commercial_transactions_stats(
     # Estadísticas por tipo de documento
     tipo_query = db.query(
         CommercialTransaction.ct_kindOf,
-        func.count(CommercialTransaction.ct_transaction).label('cantidad'),
-        func.sum(CommercialTransaction.ct_total).label('monto')
+        func.count(CommercialTransaction.ct_transaction).label("cantidad"),
+        func.sum(CommercialTransaction.ct_total).label("monto"),
     )
 
     if from_date:
         tipo_query = tipo_query.filter(CommercialTransaction.ct_date >= datetime.fromisoformat(from_date))
     if to_date:
-        tipo_query = tipo_query.filter(CommercialTransaction.ct_date < datetime.fromisoformat(to_date) + timedelta(days=1))
+        tipo_query = tipo_query.filter(
+            CommercialTransaction.ct_date < datetime.fromisoformat(to_date) + timedelta(days=1)
+        )
 
     por_tipo = tipo_query.group_by(CommercialTransaction.ct_kindOf).all()
 
@@ -338,10 +340,8 @@ async def get_commercial_transactions_stats(
         "monto_total": float(result.monto_total or 0),
         "clientes_unicos": result.clientes_unicos or 0,
         "por_tipo": {
-            item.ct_kindOf: {
-                "cantidad": item.cantidad,
-                "monto": float(item.monto or 0)
-            }
-            for item in por_tipo if item.ct_kindOf
-        }
+            item.ct_kindOf: {"cantidad": item.cantidad, "monto": float(item.monto or 0)}
+            for item in por_tipo
+            if item.ct_kindOf
+        },
     }

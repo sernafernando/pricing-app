@@ -1,6 +1,7 @@
 """
 Modelo para tbItemAssociation - Asociaciones de items
 """
+
 from sqlalchemy import Column, Integer, Numeric, Boolean, DateTime
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -8,6 +9,7 @@ from app.core.database import Base
 
 class TbItemAssociation(Base):
     """Tabla de asociaciones de items del ERP"""
+
     __tablename__ = "tb_item_association"
 
     # Primary Keys

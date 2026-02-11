@@ -15,6 +15,7 @@ Cada asignación rastrea:
   y medir tiempo de resolución real (métricas de productividad)
 - Origen: manual vs automático (para futuro)
 """
+
 import uuid
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -33,30 +34,25 @@ class Asignacion(Base):
         subtipo = 'Clásica'   (lista de precio faltante)
         estado_hash = sha256 de listas_sin_mla al momento de asignar
     """
+
     __tablename__ = "asignaciones"
 
     id = Column(Integer, primary_key=True, index=True)
-    tracking_id = Column(
-        UUID(as_uuid=True),
-        default=uuid.uuid4,
-        unique=True,
-        nullable=False,
-        index=True
-    )
+    tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False, index=True)
 
     # Qué se asigna (genérico)
-    tipo = Column(String(50), nullable=False, index=True)           # 'item_sin_mla', 'comparacion_listas', etc.
-    referencia_id = Column(Integer, nullable=False, index=True)     # item_id, mla_id numérico, etc.
-    subtipo = Column(String(100), nullable=True, index=True)        # 'Clásica', '3 Cuotas', etc.
+    tipo = Column(String(50), nullable=False, index=True)  # 'item_sin_mla', 'comparacion_listas', etc.
+    referencia_id = Column(Integer, nullable=False, index=True)  # item_id, mla_id numérico, etc.
+    subtipo = Column(String(100), nullable=True, index=True)  # 'Clásica', '3 Cuotas', etc.
 
     # A quién se asigna
-    usuario_id = Column(Integer, ForeignKey('usuarios.id'), nullable=False, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
 
     # Quién creó la asignación (auditoría)
-    asignado_por_id = Column(Integer, ForeignKey('usuarios.id'), nullable=False, index=True)
+    asignado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
 
     # Estado
-    estado = Column(String(20), nullable=False, default='pendiente', index=True)  # pendiente / completado / cancelado
+    estado = Column(String(20), nullable=False, default="pendiente", index=True)  # pendiente / completado / cancelado
 
     # Fingerprint del estado al momento de la asignación
     # Para items_sin_mla: sha256(sorted(listas_sin_mla)) — si el hash cambia,
@@ -67,7 +63,7 @@ class Asignacion(Base):
     metadata_asignacion = Column(JSONB, nullable=True)  # {'listas_faltantes': [...], 'listas_con_mla': [...]}
 
     # Origen (para escalabilidad automática)
-    origen = Column(String(20), nullable=False, default='manual')  # manual / automatico
+    origen = Column(String(20), nullable=False, default="manual")  # manual / automatico
 
     # Timestamps
     fecha_asignacion = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -82,12 +78,12 @@ class Asignacion(Base):
 
     # Indexes compuestos para queries frecuentes
     __table_args__ = (
-        Index('idx_asignacion_tipo_ref', 'tipo', 'referencia_id'),
-        Index('idx_asignacion_tipo_ref_subtipo', 'tipo', 'referencia_id', 'subtipo'),
-        Index('idx_asignacion_usuario_estado', 'usuario_id', 'estado'),
-        Index('idx_asignacion_tipo_estado', 'tipo', 'estado'),
-        Index('idx_asignacion_asignado_por', 'asignado_por_id'),
-        Index('idx_asignacion_estado_hash', 'estado_hash'),
+        Index("idx_asignacion_tipo_ref", "tipo", "referencia_id"),
+        Index("idx_asignacion_tipo_ref_subtipo", "tipo", "referencia_id", "subtipo"),
+        Index("idx_asignacion_usuario_estado", "usuario_id", "estado"),
+        Index("idx_asignacion_tipo_estado", "tipo", "estado"),
+        Index("idx_asignacion_asignado_por", "asignado_por_id"),
+        Index("idx_asignacion_estado_hash", "estado_hash"),
     )
 
     def __repr__(self) -> str:

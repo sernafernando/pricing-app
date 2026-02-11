@@ -13,6 +13,7 @@ Tablas sincronizadas:
 Ejecutar:
     python -m app.scripts.sync_erp_master_tables_full
 """
+
 import sys
 import os
 
@@ -53,7 +54,7 @@ def parse_date(date_str):
 
 def to_int(value):
     """Convertir a entero"""
-    if value is None or value == '':
+    if value is None or value == "":
         return None
     try:
         return int(value)
@@ -63,7 +64,7 @@ def to_int(value):
 
 def to_decimal(value):
     """Convertir a decimal"""
-    if value is None or value == '':
+    if value is None or value == "":
         return None
     try:
         return float(value)
@@ -77,9 +78,7 @@ async def sync_brands(db: Session):
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.get(GBP_PARSER_URL, params={
-                "strScriptLabel": "scriptBrand"
-            })
+            response = await client.get(GBP_PARSER_URL, params={"strScriptLabel": "scriptBrand"})
             response.raise_for_status()
             data = response.json()
 
@@ -100,10 +99,7 @@ async def sync_brands(db: Session):
             bra_id = to_int(row.get("bra_id"))
             brand_desc = row.get("brand_desc")
 
-            existente = db.query(TBBrand).filter(
-                TBBrand.comp_id == comp_id,
-                TBBrand.brand_id == brand_id
-            ).first()
+            existente = db.query(TBBrand).filter(TBBrand.comp_id == comp_id, TBBrand.brand_id == brand_id).first()
 
             if existente:
                 if existente.brand_desc != brand_desc or existente.bra_id != bra_id:
@@ -111,12 +107,7 @@ async def sync_brands(db: Session):
                     existente.bra_id = bra_id
                     actualizados += 1
             else:
-                nueva = TBBrand(
-                    comp_id=comp_id,
-                    brand_id=brand_id,
-                    bra_id=bra_id,
-                    brand_desc=brand_desc
-                )
+                nueva = TBBrand(comp_id=comp_id, brand_id=brand_id, bra_id=bra_id, brand_desc=brand_desc)
                 db.add(nueva)
                 nuevos += 1
 
@@ -136,9 +127,7 @@ async def sync_categories(db: Session):
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.get(GBP_PARSER_URL, params={
-                "strScriptLabel": "scriptCategory"
-            })
+            response = await client.get(GBP_PARSER_URL, params={"strScriptLabel": "scriptCategory"})
             response.raise_for_status()
             data = response.json()
 
@@ -158,21 +147,14 @@ async def sync_categories(db: Session):
             cat_id = to_int(row.get("cat_id"))
             cat_desc = row.get("cat_desc")
 
-            existente = db.query(TBCategory).filter(
-                TBCategory.comp_id == comp_id,
-                TBCategory.cat_id == cat_id
-            ).first()
+            existente = db.query(TBCategory).filter(TBCategory.comp_id == comp_id, TBCategory.cat_id == cat_id).first()
 
             if existente:
                 if existente.cat_desc != cat_desc:
                     existente.cat_desc = cat_desc
                     actualizados += 1
             else:
-                nueva = TBCategory(
-                    comp_id=comp_id,
-                    cat_id=cat_id,
-                    cat_desc=cat_desc
-                )
+                nueva = TBCategory(comp_id=comp_id, cat_id=cat_id, cat_desc=cat_desc)
                 db.add(nueva)
                 nuevos += 1
 
@@ -192,9 +174,7 @@ async def sync_subcategories(db: Session):
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.get(GBP_PARSER_URL, params={
-                "strScriptLabel": "scriptSubCategory"
-            })
+            response = await client.get(GBP_PARSER_URL, params={"strScriptLabel": "scriptSubCategory"})
             response.raise_for_status()
             data = response.json()
 
@@ -215,23 +195,22 @@ async def sync_subcategories(db: Session):
             subcat_id = to_int(row.get("subcat_id"))
             subcat_desc = row.get("subcat_desc")
 
-            existente = db.query(TBSubCategory).filter(
-                TBSubCategory.comp_id == comp_id,
-                TBSubCategory.cat_id == cat_id,
-                TBSubCategory.subcat_id == subcat_id
-            ).first()
+            existente = (
+                db.query(TBSubCategory)
+                .filter(
+                    TBSubCategory.comp_id == comp_id,
+                    TBSubCategory.cat_id == cat_id,
+                    TBSubCategory.subcat_id == subcat_id,
+                )
+                .first()
+            )
 
             if existente:
                 if existente.subcat_desc != subcat_desc:
                     existente.subcat_desc = subcat_desc
                     actualizados += 1
             else:
-                nueva = TBSubCategory(
-                    comp_id=comp_id,
-                    cat_id=cat_id,
-                    subcat_id=subcat_id,
-                    subcat_desc=subcat_desc
-                )
+                nueva = TBSubCategory(comp_id=comp_id, cat_id=cat_id, subcat_id=subcat_id, subcat_desc=subcat_desc)
                 db.add(nueva)
                 nuevos += 1
 
@@ -251,9 +230,7 @@ async def sync_tax_names(db: Session):
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.get(GBP_PARSER_URL, params={
-                "strScriptLabel": "scriptTaxName"
-            })
+            response = await client.get(GBP_PARSER_URL, params={"strScriptLabel": "scriptTaxName"})
             response.raise_for_status()
             data = response.json()
 
@@ -274,10 +251,7 @@ async def sync_tax_names(db: Session):
             tax_desc = row.get("tax_desc")
             tax_percentage = to_decimal(row.get("tax_percentage"))
 
-            existente = db.query(TBTaxName).filter(
-                TBTaxName.comp_id == comp_id,
-                TBTaxName.tax_id == tax_id
-            ).first()
+            existente = db.query(TBTaxName).filter(TBTaxName.comp_id == comp_id, TBTaxName.tax_id == tax_id).first()
 
             if existente:
                 if existente.tax_desc != tax_desc or existente.tax_percentage != tax_percentage:
@@ -285,12 +259,7 @@ async def sync_tax_names(db: Session):
                     existente.tax_percentage = tax_percentage
                     actualizados += 1
             else:
-                nuevo = TBTaxName(
-                    comp_id=comp_id,
-                    tax_id=tax_id,
-                    tax_desc=tax_desc,
-                    tax_percentage=tax_percentage
-                )
+                nuevo = TBTaxName(comp_id=comp_id, tax_id=tax_id, tax_desc=tax_desc, tax_percentage=tax_percentage)
                 db.add(nuevo)
                 nuevos += 1
 
@@ -313,9 +282,7 @@ async def sync_items_full(db: Session):
     try:
         # Sin parámetro lastUpdate para traer TODOS
         async with httpx.AsyncClient(timeout=600.0) as client:  # 10 min timeout
-            response = await client.get(GBP_PARSER_URL, params={
-                "strScriptLabel": "scriptItem"
-            })
+            response = await client.get(GBP_PARSER_URL, params={"strScriptLabel": "scriptItem"})
             response.raise_for_status()
             data = response.json()
 
@@ -345,17 +312,16 @@ async def sync_items_full(db: Session):
             item_LastUpdate = parse_date(row.get("item_LastUpdate"))
             item_lastUpdate_byProcess = parse_date(row.get("item_lastUpdate_byProcess"))
 
-            existente = db.query(TBItem).filter(
-                TBItem.comp_id == comp_id,
-                TBItem.item_id == item_id
-            ).first()
+            existente = db.query(TBItem).filter(TBItem.comp_id == comp_id, TBItem.item_id == item_id).first()
 
             if existente:
-                if (existente.item_code != item_code or
-                    existente.item_desc != item_desc or
-                    existente.cat_id != cat_id or
-                    existente.subcat_id != subcat_id or
-                    existente.brand_id != brand_id):
+                if (
+                    existente.item_code != item_code
+                    or existente.item_desc != item_desc
+                    or existente.cat_id != cat_id
+                    or existente.subcat_id != subcat_id
+                    or existente.brand_id != brand_id
+                ):
                     existente.item_code = item_code
                     existente.item_desc = item_desc
                     existente.cat_id = cat_id
@@ -377,7 +343,7 @@ async def sync_items_full(db: Session):
                     item_liquidation=item_liquidation,
                     item_cd=item_cd,
                     item_LastUpdate=item_LastUpdate,
-                    item_lastUpdate_byProcess=item_lastUpdate_byProcess
+                    item_lastUpdate_byProcess=item_lastUpdate_byProcess,
                 )
                 db.add(nuevo)
                 nuevos += 1
@@ -385,7 +351,7 @@ async def sync_items_full(db: Session):
             # Commit cada 500 registros
             if (i + 1) % 500 == 0:
                 db.commit()
-                print(f"{i+1}...", end=" ", flush=True)
+                print(f"{i + 1}...", end=" ", flush=True)
 
         db.commit()
         print(f"✓ ({nuevos} nuevos, {actualizados} actualizados)")
@@ -395,6 +361,7 @@ async def sync_items_full(db: Session):
         print(f"❌ Error: {str(e)}")
         db.rollback()
         import traceback
+
         traceback.print_exc()
         return {"nuevos": 0, "actualizados": 0, "error": str(e)}
 
@@ -408,9 +375,7 @@ async def sync_item_taxes_full(db: Session):
     try:
         # Sin parámetro para traer TODOS
         async with httpx.AsyncClient(timeout=600.0) as client:  # 10 min timeout
-            response = await client.get(GBP_PARSER_URL, params={
-                "strScriptLabel": "scriptItemTaxes"
-            })
+            response = await client.get(GBP_PARSER_URL, params={"strScriptLabel": "scriptItemTaxes"})
             response.raise_for_status()
             data = response.json()
 
@@ -433,30 +398,25 @@ async def sync_item_taxes_full(db: Session):
             tax_id = to_int(row.get("tax_id"))
             tax_class = to_int(row.get("tax_class"))
 
-            existente = db.query(TBItemTaxes).filter(
-                TBItemTaxes.comp_id == comp_id,
-                TBItemTaxes.item_id == item_id,
-                TBItemTaxes.tax_id == tax_id
-            ).first()
+            existente = (
+                db.query(TBItemTaxes)
+                .filter(TBItemTaxes.comp_id == comp_id, TBItemTaxes.item_id == item_id, TBItemTaxes.tax_id == tax_id)
+                .first()
+            )
 
             if existente:
                 if existente.tax_class != tax_class:
                     existente.tax_class = tax_class
                     actualizados += 1
             else:
-                nuevo = TBItemTaxes(
-                    comp_id=comp_id,
-                    item_id=item_id,
-                    tax_id=tax_id,
-                    tax_class=tax_class
-                )
+                nuevo = TBItemTaxes(comp_id=comp_id, item_id=item_id, tax_id=tax_id, tax_class=tax_class)
                 db.add(nuevo)
                 nuevos += 1
 
             # Commit cada 500 registros
             if (i + 1) % 500 == 0:
                 db.commit()
-                print(f"{i+1}...", end=" ", flush=True)
+                print(f"{i + 1}...", end=" ", flush=True)
 
         db.commit()
         print(f"✓ ({nuevos} nuevos, {actualizados} actualizados)")
@@ -466,6 +426,7 @@ async def sync_item_taxes_full(db: Session):
         print(f"❌ Error: {str(e)}")
         db.rollback()
         import traceback
+
         traceback.print_exc()
         return {"nuevos": 0, "actualizados": 0, "error": str(e)}
 
@@ -498,6 +459,7 @@ async def main_async():
     except Exception as e:
         print(f"\n❌ Error durante la sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         db.rollback()
         sys.exit(1)

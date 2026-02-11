@@ -11,12 +11,14 @@ from passlib.context import CryptContext
 router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+
 class UsuarioCreate(BaseModel):
     username: str
     email: Optional[EmailStr] = None
     nombre: str
     password: str
     rol: str = "AUDITOR"
+
 
 class UsuarioUpdate(BaseModel):
     username: Optional[str] = None
@@ -25,8 +27,10 @@ class UsuarioUpdate(BaseModel):
     activo: Optional[bool] = None
     rol: Optional[str] = None
 
+
 class PasswordUpdate(BaseModel):
     nueva_password: str
+
 
 class UsuarioResponse(BaseModel):
     id: int
@@ -35,9 +39,9 @@ class UsuarioResponse(BaseModel):
     nombre: str
     rol: str  # Se llena desde rol_codigo property del modelo
     activo: bool
-    
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     @staticmethod
     def model_validate(obj):
         """Custom validation para usar rol_codigo cuando rol es None"""
@@ -47,32 +51,29 @@ class UsuarioResponse(BaseModel):
             "email": obj.email,
             "nombre": obj.nombre,
             "rol": obj.rol_codigo,  # Usar property rol_codigo en lugar del enum
-            "activo": obj.activo
+            "activo": obj.activo,
         }
         return UsuarioResponse(**data)
 
+
 @router.get("/usuarios", response_model=List[UsuarioResponse])
-async def listar_usuarios(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def listar_usuarios(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los usuarios (solo admin)"""
     if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")
-    
+
     usuarios = db.query(Usuario).all()
     return [UsuarioResponse.model_validate(u) for u in usuarios]
 
+
 @router.post("/usuarios", response_model=UsuarioResponse)
 async def crear_usuario(
-    usuario: UsuarioCreate,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    usuario: UsuarioCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Crea un nuevo usuario (solo admin)"""
     if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")
-    
+
     # Verificar si el username ya existe
     existe_username = db.query(Usuario).filter(Usuario.username == usuario.username).first()
     if existe_username:
@@ -98,42 +99,43 @@ async def crear_usuario(
         rol=None,  # Deprecado, usar rol_id
         rol_id=rol_obj.id,
         auth_provider="local",
-        activo=True
+        activo=True,
     )
-    
+
     db.add(nuevo_usuario)
     db.commit()
     db.refresh(nuevo_usuario)
-    
+
     return UsuarioResponse.model_validate(nuevo_usuario)
+
 
 @router.patch("/usuarios/{usuario_id}", response_model=UsuarioResponse)
 async def actualizar_usuario(
     usuario_id: int,
     datos: UsuarioUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """Actualiza un usuario (solo admin)"""
     if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")
-    
+
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not usuario:
         raise HTTPException(404, "Usuario no encontrado")
-    
+
     # PROTECCIÓN: Solo superadmin puede modificar a otro superadmin
     if usuario.rol_codigo == "SUPERADMIN" and current_user.rol_codigo != "SUPERADMIN":
         raise HTTPException(403, "No puedes modificar un superadministrador")
-    
+
     # No permitir desactivarse a sí mismo
     if usuario.id == current_user.id and datos.activo == False:
         raise HTTPException(400, "No puedes desactivarte a ti mismo")
-    
+
     # No permitir quitarse el rol de superadmin a sí mismo
     if usuario.id == current_user.id and usuario.rol_codigo == "SUPERADMIN" and datos.rol and datos.rol != "SUPERADMIN":
         raise HTTPException(400, "No puedes quitarte el rol de superadmin")
-    
+
     if datos.activo is not None:
         usuario.activo = datos.activo
 
@@ -147,10 +149,7 @@ async def actualizar_usuario(
 
     if datos.username is not None:
         # Verificar que el username no esté en uso por otro usuario
-        existing = db.query(Usuario).filter(
-            Usuario.username == datos.username,
-            Usuario.id != usuario_id
-        ).first()
+        existing = db.query(Usuario).filter(Usuario.username == datos.username, Usuario.id != usuario_id).first()
         if existing:
             raise HTTPException(400, "El username ya está en uso")
         usuario.username = datos.username
@@ -158,28 +157,26 @@ async def actualizar_usuario(
     if datos.email is not None:
         # Verificar que el email no esté en uso por otro usuario (si se proporciona)
         if datos.email:
-            existing = db.query(Usuario).filter(
-                Usuario.email == datos.email,
-                Usuario.id != usuario_id
-            ).first()
+            existing = db.query(Usuario).filter(Usuario.email == datos.email, Usuario.id != usuario_id).first()
             if existing:
                 raise HTTPException(400, "El email ya está en uso")
         usuario.email = datos.email
 
     if datos.nombre is not None:
         usuario.nombre = datos.nombre
-    
+
     db.commit()
     db.refresh(usuario)
-    
+
     return UsuarioResponse.model_validate(usuario)
+
 
 @router.patch("/usuarios/{usuario_id}/password")
 async def cambiar_password_usuario(
     usuario_id: int,
     datos: PasswordUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """Cambia el password de un usuario (solo admin)"""
     if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
@@ -203,11 +200,10 @@ async def cambiar_password_usuario(
 
     return {"mensaje": "Password actualizado correctamente"}
 
+
 @router.delete("/usuarios/{usuario_id}")
 async def eliminar_usuario(
-    usuario_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    usuario_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina un usuario (solo admin)"""
     if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:

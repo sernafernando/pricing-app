@@ -1,6 +1,7 @@
 """
 Modelo para tbDocumentFile - Tipos de Documento (versión reducida)
 """
+
 from sqlalchemy import Column, Integer, String, Boolean, DateTime
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -8,6 +9,7 @@ from app.core.database import Base
 
 class TBDocumentFile(Base):
     """Tabla de tipos de documento del ERP"""
+
     __tablename__ = "tb_document_file"
 
     # Primary Keys

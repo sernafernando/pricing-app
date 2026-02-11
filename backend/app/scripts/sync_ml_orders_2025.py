@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_ml_orders_2025
 """
+
 import sys
 import os
 
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 
+
 async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
     """
     Sincroniza órdenes de MercadoLibre de un mes específico
@@ -30,11 +32,7 @@ async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
     try:
         # Llamar al endpoint externo
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptMLOrdersHeader",
-            "fromDate": from_date,
-            "toDate": to_date
-        }
+        params = {"strScriptLabel": "scriptMLOrdersHeader", "fromDate": from_date, "toDate": to_date}
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.get(url, params=params)
@@ -81,12 +79,12 @@ async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
             if isinstance(value, (int, float)):
                 return bool(value)
             if isinstance(value, str):
-                return value.lower() in ('true', '1', 'yes', 't')
+                return value.lower() in ("true", "1", "yes", "t")
             return False
 
         def to_decimal(value):
             """Convierte a decimal, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return float(value)
@@ -95,7 +93,7 @@ async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
 
         def to_int(value):
             """Convierte a entero, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return int(value)
@@ -104,7 +102,7 @@ async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
 
         def to_string(value):
             """Convierte a string, retorna None si es None"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             return str(value)
 
@@ -118,9 +116,9 @@ async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
                     continue
 
                 # Verificar si ya existe
-                order_existente = db.query(MercadoLibreOrderHeader).filter(
-                    MercadoLibreOrderHeader.mlo_id == mlo_id
-                ).first()
+                order_existente = (
+                    db.query(MercadoLibreOrderHeader).filter(MercadoLibreOrderHeader.mlo_id == mlo_id).first()
+                )
 
                 if order_existente:
                     orders_actualizadas += 1
@@ -180,11 +178,15 @@ async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
                     mluser_last_name=order_json.get("MLUser_last_name"),
                     mlo_ismshops=to_bool(order_json.get("mlo_ismshops")),
                     mlo_cd=parse_date(order_json.get("mlo_cd")),
-                    mlo_me1_deliverystatus=str(order_json.get("mlo_ME1_deliveryStatus")) if order_json.get("mlo_ME1_deliveryStatus") is not None else None,
+                    mlo_me1_deliverystatus=str(order_json.get("mlo_ME1_deliveryStatus"))
+                    if order_json.get("mlo_ME1_deliveryStatus") is not None
+                    else None,
                     mlo_me1_deliverytracking=order_json.get("mlo_ME1_deliveryTracking"),
                     mlo_mustprintlabel=to_bool(order_json.get("mlo_mustPrintLabel")),
                     mlo_ismshops_invited=to_bool(order_json.get("mlo_ismshops_invited")),
-                    mlo_orderswithdiscountcouponincludeinpricev2=to_bool(order_json.get("mlo_OrdersWithDiscountCouponIncludeInPriceV2"))
+                    mlo_orderswithdiscountcouponincludeinpricev2=to_bool(
+                        order_json.get("mlo_OrdersWithDiscountCouponIncludeInPriceV2")
+                    ),
                 )
 
                 db.add(order)
@@ -204,7 +206,9 @@ async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
         # Commit final
         db.commit()
 
-        print(f"   ✅ Insertadas: {orders_insertadas} | Actualizadas: {orders_actualizadas} | Errores: {orders_errores}")
+        print(
+            f"   ✅ Insertadas: {orders_insertadas} | Actualizadas: {orders_actualizadas} | Errores: {orders_errores}"
+        )
         return orders_insertadas, orders_actualizadas, orders_errores
 
     except httpx.HTTPError as e:
@@ -214,6 +218,7 @@ async def sync_ml_orders_mes(db: Session, from_date: str, to_date: str):
         db.rollback()
         print(f"   ❌ Error en sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0, 0, 0
 
@@ -243,11 +248,13 @@ async def main():
                 if mes == hoy.month:
                     ultimo_dia = hoy + timedelta(days=1)
 
-                meses_a_sincronizar.append({
-                    'from': primer_dia.strftime('%Y-%m-%d'),
-                    'to': ultimo_dia.strftime('%Y-%m-%d'),
-                    'nombre': primer_dia.strftime('%B %Y')
-                })
+                meses_a_sincronizar.append(
+                    {
+                        "from": primer_dia.strftime("%Y-%m-%d"),
+                        "to": ultimo_dia.strftime("%Y-%m-%d"),
+                        "nombre": primer_dia.strftime("%B %Y"),
+                    }
+                )
 
         print(f"📊 Se sincronizarán {len(meses_a_sincronizar)} meses\n")
 
@@ -257,11 +264,7 @@ async def main():
 
         for i, mes in enumerate(meses_a_sincronizar, 1):
             print(f"\n[{i}/{len(meses_a_sincronizar)}] {mes['nombre']}")
-            insertadas, actualizadas, errores = await sync_ml_orders_mes(
-                db,
-                mes['from'],
-                mes['to']
-            )
+            insertadas, actualizadas, errores = await sync_ml_orders_mes(db, mes["from"], mes["to"])
 
             total_insertadas += insertadas
             total_actualizadas += actualizadas
@@ -283,6 +286,7 @@ async def main():
     except Exception as e:
         print(f"\n❌ Error general: {str(e)}")
         import traceback
+
         traceback.print_exc()
     finally:
         db.close()

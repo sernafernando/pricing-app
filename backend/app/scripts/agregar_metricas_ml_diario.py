@@ -6,6 +6,7 @@ Diseñado para ejecutarse cada 30 minutos como backup del incremental
 Ejecutar:
     python app/scripts/agregar_metricas_ml_diario.py
 """
+
 import sys
 from pathlib import Path
 
@@ -14,7 +15,8 @@ backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from dotenv import load_dotenv
-env_path = backend_dir / '.env'
+
+env_path = backend_dir / ".env"
 load_dotenv(dotenv_path=env_path)
 
 from datetime import datetime, date, timedelta
@@ -57,6 +59,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Error crítico: {str(e)}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     finally:

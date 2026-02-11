@@ -10,6 +10,7 @@ class ZonaReparto(Base):
     Modelo para zonas de reparto (polígonos GeoJSON).
     Usadas para asignación automática de envíos Turbo.
     """
+
     __tablename__ = "zonas_reparto"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -17,9 +18,9 @@ class ZonaReparto(Base):
     poligono = Column(JSONB, nullable=False)  # GeoJSON del polígono
     color = Column(String(7), nullable=False)  # Hex color (ej: #FF5733)
     activa = Column(Boolean, default=True, nullable=False, index=True)
-    creado_por = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
-    tipo_generacion = Column(String(20), default='manual', nullable=False, index=True)  # 'manual' o 'automatica'
-    
+    creado_por = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    tipo_generacion = Column(String(20), default="manual", nullable=False, index=True)  # 'manual' o 'automatica'
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

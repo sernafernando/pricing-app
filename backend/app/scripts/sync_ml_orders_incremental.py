@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_ml_orders_incremental
 """
+
 import sys
 import os
 
@@ -20,9 +21,11 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import SessionLocal
+
 # Importar todos los modelos para evitar problemas de dependencias circulares
 import app.models  # noqa
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
+
 
 async def sync_ml_orders_incremental(db: Session):
     """
@@ -44,10 +47,7 @@ async def sync_ml_orders_incremental(db: Session):
     try:
         # Llamar al endpoint externo usando mloId
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptMLOrdersHeader",
-            "mloId": ultimo_mlo
-        }
+        params = {"strScriptLabel": "scriptMLOrdersHeader", "mloId": ultimo_mlo}
 
         print(f"📅 Consultando API desde mlo_id > {ultimo_mlo}...")
 
@@ -100,12 +100,12 @@ async def sync_ml_orders_incremental(db: Session):
             if isinstance(value, (int, float)):
                 return bool(value)
             if isinstance(value, str):
-                return value.lower() in ('true', '1', 'yes', 't')
+                return value.lower() in ("true", "1", "yes", "t")
             return False
 
         def to_decimal(value):
             """Convierte a decimal, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return float(value)
@@ -114,7 +114,7 @@ async def sync_ml_orders_incremental(db: Session):
 
         def to_int(value):
             """Convierte a entero, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return int(value)
@@ -123,7 +123,7 @@ async def sync_ml_orders_incremental(db: Session):
 
         def to_string(value):
             """Convierte a string, retorna None si es None"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             return str(value)
 
@@ -185,11 +185,15 @@ async def sync_ml_orders_incremental(db: Session):
                     mluser_last_name=order_json.get("MLUser_last_name"),
                     mlo_ismshops=to_bool(order_json.get("mlo_ismshops")),
                     mlo_cd=parse_date(order_json.get("mlo_cd")),
-                    mlo_me1_deliverystatus=str(order_json.get("mlo_ME1_deliveryStatus")) if order_json.get("mlo_ME1_deliveryStatus") is not None else None,
+                    mlo_me1_deliverystatus=str(order_json.get("mlo_ME1_deliveryStatus"))
+                    if order_json.get("mlo_ME1_deliveryStatus") is not None
+                    else None,
                     mlo_me1_deliverytracking=order_json.get("mlo_ME1_deliveryTracking"),
                     mlo_mustprintlabel=to_bool(order_json.get("mlo_mustPrintLabel")),
                     mlo_ismshops_invited=to_bool(order_json.get("mlo_ismshops_invited")),
-                    mlo_orderswithdiscountcouponincludeinpricev2=to_bool(order_json.get("mlo_OrdersWithDiscountCouponIncludeInPriceV2"))
+                    mlo_orderswithdiscountcouponincludeinpricev2=to_bool(
+                        order_json.get("mlo_OrdersWithDiscountCouponIncludeInPriceV2")
+                    ),
                 )
 
                 db.add(order)
@@ -225,6 +229,7 @@ async def sync_ml_orders_incremental(db: Session):
         db.rollback()
         print(f"❌ Error en sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0, 0, 0
 

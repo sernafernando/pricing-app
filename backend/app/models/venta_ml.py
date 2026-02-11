@@ -2,12 +2,13 @@ from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Numeric, S
 from sqlalchemy.sql import func
 from app.core.database import Base
 
+
 class VentaML(Base):
     __tablename__ = "ventas_ml"
 
     id_venta = Column(BigInteger, primary_key=True, index=True)
     id_operacion = Column(BigInteger, unique=True, nullable=False, index=True)
-    item_id = Column(Integer, ForeignKey('productos_erp.item_id'), index=True)
+    item_id = Column(Integer, ForeignKey("productos_erp.item_id"), index=True)
     fecha = Column(DateTime, nullable=False, index=True)
     marca = Column(String(100), index=True)
     categoria = Column(String(100), index=True)
@@ -94,7 +95,7 @@ class ProductosPerformance(Base):
     __tablename__ = "productos_performance"
 
     id = Column(Integer, primary_key=True, index=True)
-    item_id = Column(Integer, ForeignKey('productos_erp.item_id'), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("productos_erp.item_id"), nullable=False, index=True)
     fecha_desde = Column(DateTime, nullable=False)
     fecha_hasta = Column(DateTime, nullable=False)
 

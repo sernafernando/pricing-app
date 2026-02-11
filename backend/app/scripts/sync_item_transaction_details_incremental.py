@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_item_transaction_details_incremental
 """
+
 import sys
 import os
 
@@ -19,10 +20,12 @@ import httpx
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import SessionLocal
+
 # Importar todos los modelos para evitar problemas de dependencias circulares
 import app.models  # noqa
 from app.models.item_transaction import ItemTransaction
 from app.models.item_transaction_detail import ItemTransactionDetail
+
 
 async def sync_details_incremental(db: Session):
     """
@@ -63,7 +66,7 @@ async def sync_details_incremental(db: Session):
         params = {
             "strScriptLabel": "scriptItemTransactionDetails",
             "fromItTransaction": from_it,
-            "toItTransaction": to_it
+            "toItTransaction": to_it,
         }
 
         print("📅 Consultando API...")
@@ -94,7 +97,7 @@ async def sync_details_incremental(db: Session):
 
         def to_int(value):
             """Convierte a entero, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return int(value)
@@ -117,7 +120,7 @@ async def sync_details_incremental(db: Session):
                     itm_transaction=itm_transaction,
                     itm_desc=detail_json.get("itm_desc"),
                     itm_desc1=detail_json.get("itm_desc1"),
-                    itm_desc2=detail_json.get("itm_desc2")
+                    itm_desc2=detail_json.get("itm_desc2"),
                 )
 
                 db.add(detail)
@@ -154,6 +157,7 @@ async def sync_details_incremental(db: Session):
         db.rollback()
         print(f"❌ Error en sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0, 0, 0
 

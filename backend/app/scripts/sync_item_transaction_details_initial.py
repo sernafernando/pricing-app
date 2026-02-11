@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_item_transaction_details_initial
 """
+
 import sys
 import os
 
@@ -22,6 +23,7 @@ from app.core.database import SessionLocal
 from app.models.item_transaction import ItemTransaction
 from app.models.item_transaction_detail import ItemTransactionDetail
 
+
 async def sync_details_lote(db: Session, from_it: int, to_it: int):
     """
     Sincroniza item transaction details de un lote específico
@@ -34,7 +36,7 @@ async def sync_details_lote(db: Session, from_it: int, to_it: int):
         params = {
             "strScriptLabel": "scriptItemTransactionDetails",
             "fromItTransaction": from_it,
-            "toItTransaction": to_it
+            "toItTransaction": to_it,
         }
 
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -64,7 +66,7 @@ async def sync_details_lote(db: Session, from_it: int, to_it: int):
 
         def to_int(value):
             """Convierte a entero, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return int(value)
@@ -79,9 +81,11 @@ async def sync_details_lote(db: Session, from_it: int, to_it: int):
                     continue
 
                 # Verificar si ya existe
-                detail_existente = db.query(ItemTransactionDetail).filter(
-                    ItemTransactionDetail.itm_transaction == itm_transaction
-                ).first()
+                detail_existente = (
+                    db.query(ItemTransactionDetail)
+                    .filter(ItemTransactionDetail.itm_transaction == itm_transaction)
+                    .first()
+                )
 
                 if detail_existente:
                     details_actualizados += 1
@@ -96,7 +100,7 @@ async def sync_details_lote(db: Session, from_it: int, to_it: int):
                     itm_transaction=itm_transaction,
                     itm_desc=detail_json.get("itm_desc"),
                     itm_desc1=detail_json.get("itm_desc1"),
-                    itm_desc2=detail_json.get("itm_desc2")
+                    itm_desc2=detail_json.get("itm_desc2"),
                 )
 
                 db.add(detail)
@@ -116,7 +120,9 @@ async def sync_details_lote(db: Session, from_it: int, to_it: int):
         # Commit final
         db.commit()
 
-        print(f"   ✅ Insertados: {details_insertados} | Duplicados: {details_actualizados} | Errores: {details_errores}")
+        print(
+            f"   ✅ Insertados: {details_insertados} | Duplicados: {details_actualizados} | Errores: {details_errores}"
+        )
         return details_insertados, details_actualizados, details_errores
 
     except httpx.HTTPError as e:
@@ -126,6 +132,7 @@ async def sync_details_lote(db: Session, from_it: int, to_it: int):
         db.rollback()
         print(f"   ❌ Error en sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0, 0, 0
 
@@ -172,11 +179,7 @@ async def main():
 
             print(f"\n[Lote {batch_num}/{num_batches}] it_transaction {current_from} - {current_to}")
 
-            insertados, actualizados, errores = await sync_details_lote(
-                db,
-                current_from,
-                current_to
-            )
+            insertados, actualizados, errores = await sync_details_lote(db, current_from, current_to)
 
             total_insertados += insertados
             total_actualizados += actualizados
@@ -202,6 +205,7 @@ async def main():
     except Exception as e:
         print(f"\n❌ Error general: {str(e)}")
         import traceback
+
         traceback.print_exc()
     finally:
         db.close()

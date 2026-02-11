@@ -1,6 +1,7 @@
 """
 Endpoints para estados de pedidos (tb_sale_order_status)
 """
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -16,6 +17,7 @@ router = APIRouter()
 
 class SaleOrderStatusResponse(BaseModel):
     """Schema para respuesta de estado de pedido"""
+
     ssos_id: int
     ssos_name: str
     ssos_description: str | None
@@ -23,23 +25,21 @@ class SaleOrderStatusResponse(BaseModel):
     ssos_category: str | None
     ssos_color: str | None
     ssos_order: int | None
-    
+
     class Config:
         from_attributes = True
 
 
 @router.get("/sale-order-status", response_model=List[SaleOrderStatusResponse])
 async def obtener_estados_pedido(
-    db: Session = Depends(get_db),
-    only_active: bool = True,
-    current_user = Depends(get_current_user)
+    db: Session = Depends(get_db), only_active: bool = True, current_user=Depends(get_current_user)
 ):
     """
     Obtiene todos los estados de pedidos (ssos_id).
-    
+
     Parámetros:
     - only_active: Solo estados activos (default: true)
-    
+
     Retorna lista de estados con:
     - ssos_id: ID del estado
     - ssos_name: Nombre del estado
@@ -48,30 +48,23 @@ async def obtener_estados_pedido(
     - ssos_order: Orden de visualización
     """
     query = db.query(SaleOrderStatus)
-    
+
     if only_active:
         # Considerar NULL como activo (default en la migración)
-        query = query.filter(
-            or_(
-                SaleOrderStatus.ssos_is_active == True,
-                SaleOrderStatus.ssos_is_active.is_(None)
-            )
-        )
-    
+        query = query.filter(or_(SaleOrderStatus.ssos_is_active == True, SaleOrderStatus.ssos_is_active.is_(None)))
+
     query = query.order_by(SaleOrderStatus.ssos_order)
-    
+
     return query.all()
 
 
 @router.get("/sale-order-status/by-category/{category}", response_model=List[SaleOrderStatusResponse])
 async def obtener_estados_por_categoria(
-    category: str,
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    category: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)
 ):
     """
     Obtiene estados de pedidos filtrados por categoría.
-    
+
     Categorías disponibles:
     - pendiente: Estados pendientes (ej: 20 ForPreparation)
     - en_proceso: Estados en proceso (ej: 10 En Area Comercial)
@@ -79,9 +72,11 @@ async def obtener_estados_por_categoria(
     - cancelado: Estados cancelados
     - rma: Estados de RMA
     """
-    estados = db.query(SaleOrderStatus).filter(
-        SaleOrderStatus.ssos_category == category,
-        SaleOrderStatus.ssos_is_active == True
-    ).order_by(SaleOrderStatus.ssos_order).all()
-    
+    estados = (
+        db.query(SaleOrderStatus)
+        .filter(SaleOrderStatus.ssos_category == category, SaleOrderStatus.ssos_is_active == True)
+        .order_by(SaleOrderStatus.ssos_order)
+        .all()
+    )
+
     return estados

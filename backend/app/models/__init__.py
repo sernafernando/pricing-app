@@ -97,5 +97,5 @@ __all__ = [
     "AlertaUsuarioDestinatario",
     "AlertaUsuarioEstado",
     "ConfiguracionAlerta",
-    "Asignacion"
+    "Asignacion",
 ]

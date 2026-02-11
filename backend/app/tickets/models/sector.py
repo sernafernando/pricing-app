@@ -7,18 +7,19 @@ from app.core.database import Base
 class Sector(Base):
     """
     Representa un sector o área de la empresa que maneja tickets.
-    
+
     Ejemplos:
     - Pricing: Maneja solicitudes de cambio de precio, activación de rebates
     - Soporte: Maneja bugs, feature requests, consultas técnicas
     - Ventas: Maneja consultas comerciales, cotizaciones
-    
+
     Cada sector puede tener:
     - Su propio workflow de estados
     - Reglas de asignación específicas
     - Configuración de notificaciones
     - SLA específico
     """
+
     __tablename__ = "tickets_sectores"
 
     id = Column(Integer, primary_key=True, index=True)

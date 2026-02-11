@@ -13,6 +13,7 @@ Opciones:
     --grupo-id <id>   Recalcular solo un grupo específico
     --desde <fecha>   Fecha desde en formato YYYY-MM-DD (por defecto, toma fecha_desde de cada offset)
 """
+
 import sys
 from pathlib import Path
 
@@ -21,7 +22,8 @@ backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from dotenv import load_dotenv
-env_path = backend_dir / '.env'
+
+env_path = backend_dir / ".env"
 load_dotenv(dotenv_path=env_path)
 
 import argparse
@@ -40,6 +42,7 @@ from app.models.cur_exch_history import CurExchHistory
 def obtener_cotizacion_actual(db):
     """Obtiene la cotización USD/ARS más reciente (primero tipo_cambio, fallback CurExchHistory)"""
     from app.models.tipo_cambio import TipoCambio
+
     # Primero intentar con tipo_cambio
     tc = db.query(TipoCambio).filter(TipoCambio.moneda == "USD").order_by(TipoCambio.fecha.desc()).first()
     if tc and tc.venta:
@@ -70,7 +73,9 @@ def construir_condicion_filtros(filtros, tabla_alias="m"):
             params[f"filtro_categoria_{i}"] = filtro.categoria
         if filtro.subcategoria_id:
             # Para subcategoría necesitamos hacer join con productos_erp
-            subcondiciones.append(f"{tabla_alias}.item_id IN (SELECT item_id FROM productos_erp WHERE subcategoria_id = :filtro_subcat_{i})")
+            subcondiciones.append(
+                f"{tabla_alias}.item_id IN (SELECT item_id FROM productos_erp WHERE subcategoria_id = :filtro_subcat_{i})"
+            )
             params[f"filtro_subcat_{i}"] = filtro.subcategoria_id
         if filtro.item_id:
             subcondiciones.append(f"{tabla_alias}.item_id = :filtro_item_{i}")
@@ -107,21 +112,21 @@ def calcular_monto_offset(offset, cantidad, costo, cotizacion):
     """
     cot = cotizacion if cotizacion and cotizacion > 0 else 1000.0
 
-    if offset.tipo_offset == 'monto_fijo':
+    if offset.tipo_offset == "monto_fijo":
         monto = float(offset.monto or 0)
-        if offset.moneda == 'USD':
+        if offset.moneda == "USD":
             return monto * cot, monto
         else:
             return monto, monto / cot if cot > 0 else 0
 
-    elif offset.tipo_offset == 'monto_por_unidad':
+    elif offset.tipo_offset == "monto_por_unidad":
         monto_por_u = float(offset.monto or 0)
-        if offset.moneda == 'USD':
+        if offset.moneda == "USD":
             return monto_por_u * cantidad * cot, monto_por_u * cantidad
         else:
             return monto_por_u * cantidad, monto_por_u * cantidad / cot if cot > 0 else 0
 
-    elif offset.tipo_offset == 'porcentaje_costo':
+    elif offset.tipo_offset == "porcentaje_costo":
         porcentaje = float(offset.porcentaje or 0)
         monto_ars = costo * (porcentaje / 100)
         return monto_ars, monto_ars / cot if cot > 0 else 0
@@ -143,26 +148,20 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
         return {"error": f"Grupo {grupo_id} no encontrado"}
 
     if verbose:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Procesando grupo: {grupo.nombre} (ID: {grupo_id})")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
     # Eliminar consumos existentes del grupo
-    eliminados = db.query(OffsetGrupoConsumo).filter(
-        OffsetGrupoConsumo.grupo_id == grupo_id
-    ).delete()
+    eliminados = db.query(OffsetGrupoConsumo).filter(OffsetGrupoConsumo.grupo_id == grupo_id).delete()
     if verbose:
         print(f"  - Consumos anteriores eliminados: {eliminados}")
 
     # Obtener offsets del grupo
-    offsets_grupo = db.query(OffsetGanancia).filter(
-        OffsetGanancia.grupo_id == grupo_id
-    ).all()
+    offsets_grupo = db.query(OffsetGanancia).filter(OffsetGanancia.grupo_id == grupo_id).all()
 
     # Obtener filtros del grupo
-    filtros_grupo = db.query(OffsetGrupoFiltro).filter(
-        OffsetGrupoFiltro.grupo_id == grupo_id
-    ).all()
+    filtros_grupo = db.query(OffsetGrupoFiltro).filter(OffsetGrupoFiltro.grupo_id == grupo_id).all()
 
     if not offsets_grupo and not filtros_grupo:
         if verbose:
@@ -200,8 +199,8 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
 
     consumos_creados = 0
     total_unidades = 0
-    total_monto_ars = Decimal('0')
-    total_monto_usd = Decimal('0')
+    total_monto_ars = Decimal("0")
+    total_monto_usd = Decimal("0")
 
     # Construir condición de filtros si hay filtros de grupo
     condicion_filtros, params_filtros = construir_condicion_filtros(filtros_grupo, "m")
@@ -248,10 +247,7 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
             for venta in ventas_ml:
                 # Encontrar el offset aplicable
                 # Primero buscar por item_id directo
-                offset_aplicable = next(
-                    (o for o in offsets_grupo if o.item_id == venta.item_id),
-                    None
-                )
+                offset_aplicable = next((o for o in offsets_grupo if o.item_id == venta.item_id), None)
 
                 # Si no hay match directo, verificar si matchea algún filtro
                 if not offset_aplicable and filtros_grupo:
@@ -271,14 +267,14 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 consumo = OffsetGrupoConsumo(
                     grupo_id=grupo_id,
                     id_operacion=venta.id_operacion,
-                    tipo_venta='ml',
+                    tipo_venta="ml",
                     fecha_venta=venta.fecha_venta,
                     item_id=venta.item_id,
                     cantidad=venta.cantidad,
                     offset_id=offset_aplicable.id,
                     monto_offset_aplicado=monto_offset_ars,
                     monto_offset_usd=monto_offset_usd,
-                    cotizacion_dolar=cot
+                    cotizacion_dolar=cot,
                 )
                 db.add(consumo)
                 consumos_creados += 1
@@ -331,10 +327,7 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 print(f"  - Ventas fuera ML encontradas: {len(ventas_fuera)}")
 
             for venta in ventas_fuera:
-                offset_aplicable = next(
-                    (o for o in offsets_grupo if o.item_id == venta.item_id),
-                    None
-                )
+                offset_aplicable = next((o for o in offsets_grupo if o.item_id == venta.item_id), None)
 
                 if not offset_aplicable and filtros_grupo:
                     for filtro in filtros_grupo:
@@ -353,14 +346,14 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 consumo = OffsetGrupoConsumo(
                     grupo_id=grupo_id,
                     venta_fuera_id=venta.id,
-                    tipo_venta='fuera_ml',
+                    tipo_venta="fuera_ml",
                     fecha_venta=venta.fecha_venta,
                     item_id=venta.item_id,
                     cantidad=cantidad,
                     offset_id=offset_aplicable.id,
                     monto_offset_aplicado=monto_offset_ars,
                     monto_offset_usd=monto_offset_usd,
-                    cotizacion_dolar=cot
+                    cotizacion_dolar=cot,
                 )
                 db.add(consumo)
                 consumos_creados += 1
@@ -413,10 +406,7 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 print(f"  - Ventas Tienda Nube encontradas: {len(ventas_tn)}")
 
             for venta in ventas_tn:
-                offset_aplicable = next(
-                    (o for o in offsets_grupo if o.item_id == venta.item_id),
-                    None
-                )
+                offset_aplicable = next((o for o in offsets_grupo if o.item_id == venta.item_id), None)
 
                 if not offset_aplicable and filtros_grupo:
                     for filtro in filtros_grupo:
@@ -435,14 +425,14 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 consumo = OffsetGrupoConsumo(
                     grupo_id=grupo_id,
                     venta_fuera_id=venta.id,  # Reutilizamos este campo para TN
-                    tipo_venta='tienda_nube',
+                    tipo_venta="tienda_nube",
                     fecha_venta=venta.fecha_venta,
                     item_id=venta.item_id,
                     cantidad=cantidad,
                     offset_id=offset_aplicable.id,
                     monto_offset_aplicado=monto_offset_ars,
                     monto_offset_usd=monto_offset_usd,
-                    cotizacion_dolar=cot
+                    cotizacion_dolar=cot,
                 )
                 db.add(consumo)
                 consumos_creados += 1
@@ -455,42 +445,40 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 print(f"  - Advertencia ventas Tienda Nube: {e}")
 
     # Actualizar o crear resumen
-    resumen = db.query(OffsetGrupoResumen).filter(
-        OffsetGrupoResumen.grupo_id == grupo_id
-    ).first()
+    resumen = db.query(OffsetGrupoResumen).filter(OffsetGrupoResumen.grupo_id == grupo_id).first()
 
     # Verificar si se alcanzó algún límite
-    offset_con_limite = next(
-        (o for o in offsets_grupo if o.max_unidades or o.max_monto_usd),
-        None
-    )
+    offset_con_limite = next((o for o in offsets_grupo if o.max_unidades or o.max_monto_usd), None)
 
     limite_alcanzado = None
     fecha_limite_alcanzado = None
 
     if offset_con_limite:
         if offset_con_limite.max_unidades and total_unidades >= offset_con_limite.max_unidades:
-            limite_alcanzado = 'unidades'
+            limite_alcanzado = "unidades"
         elif offset_con_limite.max_monto_usd and float(total_monto_usd) >= offset_con_limite.max_monto_usd:
-            limite_alcanzado = 'monto'
+            limite_alcanzado = "monto"
 
         # Si se alcanzó límite, buscar cuándo
         if limite_alcanzado:
             # Obtener último consumo que alcanzó el límite
-            consumos_ordenados = db.query(OffsetGrupoConsumo).filter(
-                OffsetGrupoConsumo.grupo_id == grupo_id
-            ).order_by(OffsetGrupoConsumo.fecha_venta).all()
+            consumos_ordenados = (
+                db.query(OffsetGrupoConsumo)
+                .filter(OffsetGrupoConsumo.grupo_id == grupo_id)
+                .order_by(OffsetGrupoConsumo.fecha_venta)
+                .all()
+            )
 
             acum_unidades = 0
-            acum_monto_usd = Decimal('0')
+            acum_monto_usd = Decimal("0")
             for c in consumos_ordenados:
                 acum_unidades += c.cantidad
-                acum_monto_usd += c.monto_offset_usd or Decimal('0')
+                acum_monto_usd += c.monto_offset_usd or Decimal("0")
 
-                if limite_alcanzado == 'unidades' and acum_unidades >= offset_con_limite.max_unidades:
+                if limite_alcanzado == "unidades" and acum_unidades >= offset_con_limite.max_unidades:
                     fecha_limite_alcanzado = c.fecha_venta
                     break
-                if limite_alcanzado == 'monto' and float(acum_monto_usd) >= offset_con_limite.max_monto_usd:
+                if limite_alcanzado == "monto" and float(acum_monto_usd) >= offset_con_limite.max_monto_usd:
                     fecha_limite_alcanzado = c.fecha_venta
                     break
 
@@ -509,7 +497,7 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
             total_monto_usd=total_monto_usd,
             cantidad_ventas=consumos_creados,
             limite_alcanzado=limite_alcanzado,
-            fecha_limite_alcanzado=fecha_limite_alcanzado
+            fecha_limite_alcanzado=fecha_limite_alcanzado,
         )
         db.add(resumen)
 
@@ -532,14 +520,14 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
         "total_monto_ars": float(total_monto_ars),
         "total_monto_usd": float(total_monto_usd),
         "limite_alcanzado": limite_alcanzado,
-        "fecha_limite_alcanzado": fecha_limite_alcanzado
+        "fecha_limite_alcanzado": fecha_limite_alcanzado,
     }
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Recalcular consumo de grupos de offsets')
-    parser.add_argument('--grupo-id', type=int, help='ID de grupo específico a recalcular')
-    parser.add_argument('--quiet', action='store_true', help='Modo silencioso')
+    parser = argparse.ArgumentParser(description="Recalcular consumo de grupos de offsets")
+    parser.add_argument("--grupo-id", type=int, help="ID de grupo específico a recalcular")
+    parser.add_argument("--quiet", action="store_true", help="Modo silencioso")
     args = parser.parse_args()
 
     verbose = not args.quiet
@@ -570,19 +558,21 @@ def main():
             from sqlalchemy.orm import aliased
 
             # Grupos con offsets con límites
-            grupos_con_limites = db.query(OffsetGrupo).join(
-                OffsetGanancia, OffsetGrupo.id == OffsetGanancia.grupo_id
-            ).filter(
-                or_(
-                    OffsetGanancia.max_unidades.isnot(None),
-                    OffsetGanancia.max_monto_usd.isnot(None)
-                )
-            ).distinct().all()
+            grupos_con_limites = (
+                db.query(OffsetGrupo)
+                .join(OffsetGanancia, OffsetGrupo.id == OffsetGanancia.grupo_id)
+                .filter(or_(OffsetGanancia.max_unidades.isnot(None), OffsetGanancia.max_monto_usd.isnot(None)))
+                .distinct()
+                .all()
+            )
 
             # Grupos con filtros
-            grupos_con_filtros = db.query(OffsetGrupo).join(
-                OffsetGrupoFiltro, OffsetGrupo.id == OffsetGrupoFiltro.grupo_id
-            ).distinct().all()
+            grupos_con_filtros = (
+                db.query(OffsetGrupo)
+                .join(OffsetGrupoFiltro, OffsetGrupo.id == OffsetGrupoFiltro.grupo_id)
+                .distinct()
+                .all()
+            )
 
             # Combinar y eliminar duplicados
             grupos_ids_procesados = set()
@@ -611,6 +601,7 @@ def main():
     except Exception as e:
         print(f"\nError: {e}")
         import traceback
+
         traceback.print_exc()
         db.rollback()
         return 1

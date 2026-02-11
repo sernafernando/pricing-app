@@ -7,18 +7,19 @@ from app.core.database import Base
 class Workflow(Base):
     """
     Define un flujo de trabajo (workflow) con sus estados y transiciones.
-    
+
     Cada sector puede tener múltiples workflows, pero uno es el default.
     Permite modelar procesos diferentes dentro del mismo sector.
-    
+
     Ejemplo Pricing:
     - Workflow "Cambio de Precio": Solicitado → Revisión → Aprobado → Aplicado
     - Workflow "Rebate": Solicitado → Aprobado → Activo
     """
+
     __tablename__ = "tickets_workflows"
 
     id = Column(Integer, primary_key=True, index=True)
-    sector_id = Column(Integer, ForeignKey('tickets_sectores.id'), nullable=False)
+    sector_id = Column(Integer, ForeignKey("tickets_sectores.id"), nullable=False)
     nombre = Column(String(100), nullable=False)
     descripcion = Column(Text)
     es_default = Column(Boolean, default=False)
@@ -26,7 +27,9 @@ class Workflow(Base):
 
     # Relaciones
     sector = relationship("Sector", back_populates="workflows")
-    estados = relationship("EstadoTicket", back_populates="workflow", cascade="all, delete-orphan", order_by="EstadoTicket.orden")
+    estados = relationship(
+        "EstadoTicket", back_populates="workflow", cascade="all, delete-orphan", order_by="EstadoTicket.orden"
+    )
     transiciones = relationship("TransicionEstado", back_populates="workflow", cascade="all, delete-orphan")
     tipos_ticket = relationship("TipoTicket", back_populates="workflow")
 
@@ -37,15 +40,16 @@ class Workflow(Base):
 class EstadoTicket(Base):
     """
     Representa un estado dentro de un workflow.
-    
+
     Ejemplos:
     - Abierto, En Revisión, Aprobado, Rechazado, Aplicado
     - Reportado, En Investigación, En Desarrollo, Testing, Resuelto
     """
+
     __tablename__ = "tickets_estados"
 
     id = Column(Integer, primary_key=True, index=True)
-    workflow_id = Column(Integer, ForeignKey('tickets_workflows.id'), nullable=False)
+    workflow_id = Column(Integer, ForeignKey("tickets_workflows.id"), nullable=False)
     codigo = Column(String(50), nullable=False)  # abierto, en_revision, aprobado
     nombre = Column(String(100), nullable=False)  # "Abierto", "En Revisión", "Aprobado"
     descripcion = Column(Text)
@@ -67,8 +71,12 @@ class EstadoTicket(Base):
     # Relaciones
     workflow = relationship("Workflow", back_populates="estados")
     tickets = relationship("Ticket", back_populates="estado")
-    transiciones_origen = relationship("TransicionEstado", foreign_keys="TransicionEstado.estado_origen_id", back_populates="estado_origen")
-    transiciones_destino = relationship("TransicionEstado", foreign_keys="TransicionEstado.estado_destino_id", back_populates="estado_destino")
+    transiciones_origen = relationship(
+        "TransicionEstado", foreign_keys="TransicionEstado.estado_origen_id", back_populates="estado_origen"
+    )
+    transiciones_destino = relationship(
+        "TransicionEstado", foreign_keys="TransicionEstado.estado_destino_id", back_populates="estado_destino"
+    )
 
     def __repr__(self):
         return f"<EstadoTicket {self.codigo}: {self.nombre}>"
@@ -77,23 +85,24 @@ class EstadoTicket(Base):
 class TransicionEstado(Base):
     """
     Define una transición permitida entre dos estados.
-    
+
     Controla:
     - Quién puede hacer la transición (permisos)
     - Qué validaciones debe pasar
     - Qué acciones ejecutar al hacer la transición
-    
+
     Ejemplo:
     - De "En Revisión" a "Aprobado" requiere permiso "tickets.pricing.aprobar"
     - De "Aprobado" a "Aplicado" ejecuta callback para cambiar el precio
     """
+
     __tablename__ = "tickets_transiciones"
 
     id = Column(Integer, primary_key=True, index=True)
-    workflow_id = Column(Integer, ForeignKey('tickets_workflows.id'), nullable=False)
-    estado_origen_id = Column(Integer, ForeignKey('tickets_estados.id'), nullable=False)
-    estado_destino_id = Column(Integer, ForeignKey('tickets_estados.id'), nullable=False)
-    
+    workflow_id = Column(Integer, ForeignKey("tickets_workflows.id"), nullable=False)
+    estado_origen_id = Column(Integer, ForeignKey("tickets_estados.id"), nullable=False)
+    estado_destino_id = Column(Integer, ForeignKey("tickets_estados.id"), nullable=False)
+
     nombre = Column(String(100))  # "Aprobar", "Rechazar", "Aplicar Cambio"
     descripcion = Column(Text)
 
@@ -132,7 +141,9 @@ class TransicionEstado(Base):
     # Relaciones
     workflow = relationship("Workflow", back_populates="transiciones")
     estado_origen = relationship("EstadoTicket", foreign_keys=[estado_origen_id], back_populates="transiciones_origen")
-    estado_destino = relationship("EstadoTicket", foreign_keys=[estado_destino_id], back_populates="transiciones_destino")
+    estado_destino = relationship(
+        "EstadoTicket", foreign_keys=[estado_destino_id], back_populates="transiciones_destino"
+    )
 
     def __repr__(self):
         origen = self.estado_origen.nombre if self.estado_origen else "?"

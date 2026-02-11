@@ -3,6 +3,7 @@ Sistema de Permisos Híbrido
 - Roles base con permisos por defecto
 - Overrides por usuario (agregar o quitar permisos específicos)
 """
+
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -12,6 +13,7 @@ import enum
 
 class CategoriaPermiso(str, enum.Enum):
     """Categorías de permisos para organización en el panel"""
+
     PRODUCTOS = "productos"
     VENTAS_ML = "ventas_ml"
     VENTAS_FUERA = "ventas_fuera"
@@ -28,6 +30,7 @@ class Permiso(Base):
     Catálogo de permisos disponibles en el sistema.
     Cada permiso representa una acción o acceso específico.
     """
+
     __tablename__ = "permisos"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -54,21 +57,22 @@ class RolPermisoBase(Base):
     Permisos por defecto de cada rol.
     Define qué permisos tiene un rol de forma predeterminada.
     """
+
     __tablename__ = "roles_permisos_base"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Nuevo: FK a tabla roles
-    rol_id = Column(Integer, ForeignKey('roles.id', ondelete='CASCADE'), nullable=False, index=True)
+    rol_id = Column(Integer, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    permiso_id = Column(Integer, ForeignKey('permisos.id', ondelete='CASCADE'), nullable=False)
+    permiso_id = Column(Integer, ForeignKey("permisos.id", ondelete="CASCADE"), nullable=False)
 
     # Relaciones
     rol_obj = relationship("Rol", back_populates="permisos_base")
     permiso = relationship("Permiso")
 
     class Meta:
-        unique_together = ('rol_id', 'permiso_id')
+        unique_together = ("rol_id", "permiso_id")
 
     def __repr__(self):
         return f"<RolPermisoBase(rol_id={self.rol_id}, permiso_id={self.permiso_id})>"
@@ -80,17 +84,18 @@ class UsuarioPermisoOverride(Base):
     Permite agregar o quitar permisos específicos a un usuario,
     independientemente de su rol base.
     """
+
     __tablename__ = "usuarios_permisos_override"
 
     id = Column(Integer, primary_key=True, index=True)
-    usuario_id = Column(Integer, ForeignKey('usuarios.id', ondelete='CASCADE'), nullable=False, index=True)
-    permiso_id = Column(Integer, ForeignKey('permisos.id', ondelete='CASCADE'), nullable=False)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False, index=True)
+    permiso_id = Column(Integer, ForeignKey("permisos.id", ondelete="CASCADE"), nullable=False)
 
     # True = agregar permiso, False = quitar permiso
     concedido = Column(Boolean, nullable=False)
 
     # Auditoría
-    otorgado_por_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
+    otorgado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     motivo = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -100,7 +105,7 @@ class UsuarioPermisoOverride(Base):
     otorgado_por = relationship("Usuario", foreign_keys=[otorgado_por_id])
 
     class Meta:
-        unique_together = ('usuario_id', 'permiso_id')
+        unique_together = ("usuario_id", "permiso_id")
 
     def __repr__(self):
         accion = "+" if self.concedido else "-"
@@ -120,14 +125,14 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver productos",
         "descripcion": "Acceso a la lista de productos y sus detalles",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 1
+        "orden": 1,
     },
     {
         "codigo": "productos.ver_tienda",
         "nombre": "Ver tienda",
         "descripcion": "Acceso a la vista de tienda de productos",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 2
+        "orden": 2,
     },
     {
         "codigo": "productos.gestionar_markups_tienda",
@@ -135,35 +140,35 @@ PERMISOS_SISTEMA = [
         "descripcion": "Configurar y modificar markups en la vista de tienda",
         "categoria": CategoriaPermiso.PRODUCTOS,
         "orden": 3,
-        "es_critico": True
+        "es_critico": True,
     },
     {
         "codigo": "productos.editar_precios",
         "nombre": "Editar precios",
         "descripcion": "Modificar precios clásica, cuotas y web transferencia",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 4
+        "orden": 4,
     },
     {
         "codigo": "productos.editar_rebate",
         "nombre": "Gestionar Rebate",
         "descripcion": "Activar/desactivar rebate y modificar porcentaje",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 5
+        "orden": 5,
     },
     {
         "codigo": "productos.editar_web_transferencia",
         "nombre": "Gestionar Web Transferencia",
         "descripcion": "Activar/desactivar web transferencia y modificar porcentaje",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 6
+        "orden": 6,
     },
     {
         "codigo": "productos.editar_out_of_cards",
         "nombre": "Marcar Out of Cards",
         "descripcion": "Marcar/desmarcar productos como out of cards",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 7
+        "orden": 7,
     },
     {
         "codigo": "productos.banear",
@@ -171,30 +176,29 @@ PERMISOS_SISTEMA = [
         "descripcion": "Agregar productos a la banlist",
         "categoria": CategoriaPermiso.PRODUCTOS,
         "orden": 8,
-        "es_critico": True
+        "es_critico": True,
     },
     {
         "codigo": "productos.exportar",
         "nombre": "Exportar productos",
         "descripcion": "Exportar listado de productos a Excel",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 9
+        "orden": 9,
     },
     {
         "codigo": "productos.ver_costos",
         "nombre": "Ver costos",
         "descripcion": "Ver columnas de costo en productos",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 10
+        "orden": 10,
     },
     {
         "codigo": "productos.ver_auditoria",
         "nombre": "Ver auditoría de productos",
         "descripcion": "Ver historial de cambios por producto",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 11
+        "orden": 11,
     },
-
     # =========================================================================
     # VENTAS ML
     # =========================================================================
@@ -203,30 +207,29 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver dashboard ML",
         "descripcion": "Acceso al dashboard de métricas de MercadoLibre",
         "categoria": CategoriaPermiso.VENTAS_ML,
-        "orden": 10
+        "orden": 10,
     },
     {
         "codigo": "ventas_ml.ver_operaciones",
         "nombre": "Ver operaciones ML",
         "descripcion": "Ver detalle de operaciones de venta ML",
         "categoria": CategoriaPermiso.VENTAS_ML,
-        "orden": 11
+        "orden": 11,
     },
     {
         "codigo": "ventas_ml.ver_rentabilidad",
         "nombre": "Ver rentabilidad ML",
         "descripcion": "Acceso a la pestaña de rentabilidad ML",
         "categoria": CategoriaPermiso.VENTAS_ML,
-        "orden": 12
+        "orden": 12,
     },
     {
         "codigo": "ventas_ml.ver_todas_marcas",
         "nombre": "Ver todas las marcas ML",
         "descripcion": "Ver datos de todas las marcas (no solo las asignadas)",
         "categoria": CategoriaPermiso.VENTAS_ML,
-        "orden": 13
+        "orden": 13,
     },
-
     # =========================================================================
     # VENTAS FUERA ML
     # =========================================================================
@@ -235,44 +238,43 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver dashboard Fuera ML",
         "descripcion": "Acceso al dashboard de ventas por fuera de ML",
         "categoria": CategoriaPermiso.VENTAS_FUERA,
-        "orden": 20
+        "orden": 20,
     },
     {
         "codigo": "ventas_fuera.ver_operaciones",
         "nombre": "Ver operaciones Fuera ML",
         "descripcion": "Ver detalle de operaciones fuera de ML",
         "categoria": CategoriaPermiso.VENTAS_FUERA,
-        "orden": 21
+        "orden": 21,
     },
     {
         "codigo": "ventas_fuera.ver_rentabilidad",
         "nombre": "Ver rentabilidad Fuera ML",
         "descripcion": "Acceso a la pestaña de rentabilidad fuera de ML",
         "categoria": CategoriaPermiso.VENTAS_FUERA,
-        "orden": 22
+        "orden": 22,
     },
     {
         "codigo": "ventas_fuera.editar_overrides",
         "nombre": "Editar datos de ventas Fuera ML",
         "descripcion": "Modificar cliente, marca, categoría y otros campos de operaciones",
         "categoria": CategoriaPermiso.VENTAS_FUERA,
-        "orden": 23
+        "orden": 23,
     },
     {
         "codigo": "ventas_fuera.editar_costos",
         "nombre": "Editar costos Fuera ML",
         "descripcion": "Modificar costos de operaciones fuera de ML",
         "categoria": CategoriaPermiso.VENTAS_FUERA,
-        "orden": 24
+        "orden": 24,
     },
     {
         "codigo": "ventas_fuera.ver_admin",
         "nombre": "Acceso admin Fuera ML",
         "descripcion": "Acceso a la pestaña de administración fuera de ML",
         "categoria": CategoriaPermiso.VENTAS_FUERA,
-        "orden": 25
+        "orden": 25,
     },
-
     # =========================================================================
     # VENTAS TIENDA NUBE
     # =========================================================================
@@ -281,37 +283,36 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver dashboard Tienda Nube",
         "descripcion": "Acceso al dashboard de ventas Tienda Nube",
         "categoria": CategoriaPermiso.VENTAS_TN,
-        "orden": 30
+        "orden": 30,
     },
     {
         "codigo": "ventas_tn.ver_operaciones",
         "nombre": "Ver operaciones Tienda Nube",
         "descripcion": "Ver detalle de operaciones Tienda Nube",
         "categoria": CategoriaPermiso.VENTAS_TN,
-        "orden": 31
+        "orden": 31,
     },
     {
         "codigo": "ventas_tn.ver_rentabilidad",
         "nombre": "Ver rentabilidad Tienda Nube",
         "descripcion": "Acceso a la pestaña de rentabilidad Tienda Nube",
         "categoria": CategoriaPermiso.VENTAS_TN,
-        "orden": 32
+        "orden": 32,
     },
     {
         "codigo": "ventas_tn.editar_overrides",
         "nombre": "Editar datos de ventas TN",
         "descripcion": "Modificar cliente, marca, categoría y otros campos de operaciones TN",
         "categoria": CategoriaPermiso.VENTAS_TN,
-        "orden": 33
+        "orden": 33,
     },
     {
         "codigo": "ventas_tn.ver_admin",
         "nombre": "Acceso admin Tienda Nube",
         "descripcion": "Acceso a la pestaña de administración Tienda Nube",
         "categoria": CategoriaPermiso.VENTAS_TN,
-        "orden": 34
+        "orden": 34,
     },
-
     # =========================================================================
     # REPORTES
     # =========================================================================
@@ -320,30 +321,29 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver auditoría general",
         "descripcion": "Acceso a /ultimos-cambios con historial de modificaciones",
         "categoria": CategoriaPermiso.REPORTES,
-        "orden": 40
+        "orden": 40,
     },
     {
         "codigo": "reportes.ver_notificaciones",
         "nombre": "Ver notificaciones",
         "descripcion": "Acceso a las notificaciones del sistema",
         "categoria": CategoriaPermiso.REPORTES,
-        "orden": 41
+        "orden": 41,
     },
     {
         "codigo": "reportes.ver_calculadora",
         "nombre": "Usar calculadora",
         "descripcion": "Acceso a la calculadora de pricing",
         "categoria": CategoriaPermiso.REPORTES,
-        "orden": 42
+        "orden": 42,
     },
     {
         "codigo": "reportes.exportar",
         "nombre": "Exportar reportes",
         "descripcion": "Exportar datos de reportes a Excel",
         "categoria": CategoriaPermiso.REPORTES,
-        "orden": 43
+        "orden": 43,
     },
-
     # =========================================================================
     # ADMINISTRACIÓN
     # =========================================================================
@@ -352,7 +352,7 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver panel de administración",
         "descripcion": "Acceso al panel de administración",
         "categoria": CategoriaPermiso.ADMINISTRACION,
-        "orden": 50
+        "orden": 50,
     },
     {
         "codigo": "admin.gestionar_usuarios",
@@ -360,7 +360,7 @@ PERMISOS_SISTEMA = [
         "descripcion": "Crear, editar y desactivar usuarios",
         "categoria": CategoriaPermiso.ADMINISTRACION,
         "orden": 51,
-        "es_critico": True
+        "es_critico": True,
     },
     {
         "codigo": "admin.gestionar_permisos",
@@ -368,21 +368,21 @@ PERMISOS_SISTEMA = [
         "descripcion": "Modificar permisos de usuarios",
         "categoria": CategoriaPermiso.ADMINISTRACION,
         "orden": 52,
-        "es_critico": True
+        "es_critico": True,
     },
     {
         "codigo": "admin.gestionar_pms",
         "nombre": "Gestionar Product Managers",
         "descripcion": "Asignar marcas a Product Managers",
         "categoria": CategoriaPermiso.ADMINISTRACION,
-        "orden": 53
+        "orden": 53,
     },
     {
         "codigo": "admin.sincronizar",
         "nombre": "Ejecutar sincronizaciones",
         "descripcion": "Ejecutar sincronización de datos externos",
         "categoria": CategoriaPermiso.ADMINISTRACION,
-        "orden": 54
+        "orden": 54,
     },
     {
         "codigo": "admin.limpieza_masiva",
@@ -390,63 +390,63 @@ PERMISOS_SISTEMA = [
         "descripcion": "Ejecutar limpieza masiva de rebate/web transferencia",
         "categoria": CategoriaPermiso.ADMINISTRACION,
         "orden": 55,
-        "es_critico": True
+        "es_critico": True,
     },
     {
         "codigo": "admin.gestionar_banlist",
         "nombre": "Gestionar banlist",
         "descripcion": "Agregar y quitar items de la banlist",
         "categoria": CategoriaPermiso.ADMINISTRACION,
-        "orden": 56
+        "orden": 56,
     },
     {
         "codigo": "admin.gestionar_mla_banlist",
         "nombre": "Gestionar MLA banlist",
         "descripcion": "Agregar y quitar MLAs de la banlist",
         "categoria": CategoriaPermiso.ADMINISTRACION,
-        "orden": 57
+        "orden": 57,
     },
     {
         "codigo": "admin.gestionar_produccion_banlist",
         "nombre": "Gestionar banlist de producción",
         "descripcion": "Agregar y quitar items del banlist de Producción - Preparación",
         "categoria": CategoriaPermiso.ADMINISTRACION,
-        "orden": 58
+        "orden": 58,
     },
     {
         "codigo": "admin.ver_items_sin_mla",
         "nombre": "Ver items sin MLA",
         "descripcion": "Ver listado de items que no tienen MLA asociado",
         "categoria": CategoriaPermiso.ADMINISTRACION,
-        "orden": 59
+        "orden": 59,
     },
     {
         "codigo": "admin.gestionar_items_sin_mla_banlist",
         "nombre": "Gestionar banlist de items sin MLA",
         "descripcion": "Agregar y quitar items de la banlist de items sin MLA",
         "categoria": CategoriaPermiso.ADMINISTRACION,
-        "orden": 60
+        "orden": 60,
     },
     {
         "codigo": "admin.ver_comparacion_listas_ml",
         "nombre": "Ver comparación listas vs ML",
         "descripcion": "Ver comparación entre listas de precios y publicaciones ML",
         "categoria": CategoriaPermiso.ADMINISTRACION,
-        "orden": 61
+        "orden": 61,
     },
     {
         "codigo": "admin.gestionar_comparacion_banlist",
         "nombre": "Gestionar banlist de comparación",
         "descripcion": "Agregar y quitar items de la banlist de comparación de listas",
         "categoria": CategoriaPermiso.ADMINISTRACION,
-        "orden": 62
+        "orden": 62,
     },
     {
         "codigo": "admin.asignar_items_sin_mla",
         "nombre": "Asignarse items sin MLA",
         "descripcion": "Auto-asignarse items sin MLA para trabajar en sus publicaciones faltantes",
         "categoria": CategoriaPermiso.ADMINISTRACION,
-        "orden": 63
+        "orden": 63,
     },
     {
         "codigo": "admin.gestionar_asignaciones",
@@ -454,16 +454,15 @@ PERMISOS_SISTEMA = [
         "descripcion": "Asignar/desasignar items sin MLA a cualquier usuario (no solo a uno mismo)",
         "categoria": CategoriaPermiso.ADMINISTRACION,
         "orden": 64,
-        "es_critico": True
+        "es_critico": True,
     },
     {
         "codigo": "produccion.marcar_prearmado",
         "nombre": "Marcar productos pre-armados",
         "descripcion": "Marcar/desmarcar productos que están siendo pre-armados en producción",
         "categoria": CategoriaPermiso.PRODUCTOS,
-        "orden": 65
+        "orden": 65,
     },
-
     # =========================================================================
     # CONFIGURACIÓN
     # =========================================================================
@@ -472,7 +471,7 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver comisiones",
         "descripcion": "Ver configuración de comisiones ML",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 70
+        "orden": 70,
     },
     {
         "codigo": "config.editar_comisiones",
@@ -480,14 +479,14 @@ PERMISOS_SISTEMA = [
         "descripcion": "Crear nuevas versiones de comisiones",
         "categoria": CategoriaPermiso.CONFIGURACION,
         "orden": 71,
-        "es_critico": True
+        "es_critico": True,
     },
     {
         "codigo": "config.ver_constantes",
         "nombre": "Ver constantes de pricing",
         "descripcion": "Ver configuración de constantes (tiers, varios, etc.)",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 72
+        "orden": 72,
     },
     {
         "codigo": "config.editar_constantes",
@@ -495,16 +494,15 @@ PERMISOS_SISTEMA = [
         "descripcion": "Crear nuevas versiones de constantes",
         "categoria": CategoriaPermiso.CONFIGURACION,
         "orden": 73,
-        "es_critico": True
+        "es_critico": True,
     },
     {
         "codigo": "config.ver_tipo_cambio",
         "nombre": "Ver tipo de cambio",
         "descripcion": "Ver cotización actual del dólar",
         "categoria": CategoriaPermiso.CONFIGURACION,
-        "orden": 74
+        "orden": 74,
     },
-
     # =========================================================================
     # CLIENTES
     # =========================================================================
@@ -513,16 +511,15 @@ PERMISOS_SISTEMA = [
         "nombre": "Ver clientes",
         "descripcion": "Acceso a la lista de clientes y sus detalles",
         "categoria": CategoriaPermiso.CLIENTES,
-        "orden": 80
+        "orden": 80,
     },
     {
         "codigo": "clientes.exportar",
         "nombre": "Exportar clientes",
         "descripcion": "Exportar datos de clientes a CSV",
         "categoria": CategoriaPermiso.CLIENTES,
-        "orden": 81
+        "orden": 81,
     },
-
     # =========================================================================
     # ALERTAS
     # =========================================================================
@@ -532,7 +529,7 @@ PERMISOS_SISTEMA = [
         "descripcion": "Crear, editar, activar/desactivar y eliminar alertas del sistema",
         "categoria": CategoriaPermiso.ALERTAS,
         "orden": 90,
-        "es_critico": True
+        "es_critico": True,
     },
     {
         "codigo": "alertas.configurar",
@@ -540,7 +537,7 @@ PERMISOS_SISTEMA = [
         "descripcion": "Modificar configuración global de alertas (máximo visibles, etc.)",
         "categoria": CategoriaPermiso.ALERTAS,
         "orden": 91,
-        "es_critico": True
+        "es_critico": True,
     },
 ]
 

@@ -28,6 +28,7 @@ from pydantic import BaseModel
 # Error codes — machine-readable, stable contract for frontend/integrations
 # ---------------------------------------------------------------------------
 
+
 class ErrorCode:
     """Centralized error codes. Add new ones here, never inline magic strings."""
 
@@ -58,6 +59,7 @@ class ErrorCode:
 # Response model — used in OpenAPI docs
 # ---------------------------------------------------------------------------
 
+
 class ErrorDetail(BaseModel):
     code: str
     message: str
@@ -65,21 +67,25 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     """Standard error envelope. All API errors follow this shape."""
+
     error: ErrorDetail
 
-    model_config = {"json_schema_extra": {
-        "example": {
-            "error": {
-                "code": "NOT_FOUND",
-                "message": "Producto no encontrado",
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Producto no encontrado",
+                }
             }
         }
-    }}
+    }
 
 
 # ---------------------------------------------------------------------------
 # Helper to raise consistent errors
 # ---------------------------------------------------------------------------
+
 
 def api_error(
     status_code: int,
@@ -100,6 +106,7 @@ def api_error(
 # ---------------------------------------------------------------------------
 # Global exception handler — register in main.py
 # ---------------------------------------------------------------------------
+
 
 def http_exception_handler(_request, exc: HTTPException) -> JSONResponse:
     """

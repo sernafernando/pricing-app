@@ -1,6 +1,7 @@
 """
 Endpoints para sincronizar tablas maestras del ERP desde Cloudflare Worker
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -31,7 +32,7 @@ router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"], dependencies=[Depends(
 @router.post("/brands")
 async def sync_brands(
     brand_id: Optional[int] = Query(None, description="ID de marca específica a sincronizar"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Sincroniza marcas desde el ERP a PostgreSQL
@@ -51,10 +52,7 @@ async def sync_brands(
             brand_id_val = brand_data["brand_id"]
 
             # Verificar si existe
-            existente = db.query(TBBrand).filter(
-                TBBrand.comp_id == comp_id,
-                TBBrand.brand_id == brand_id_val
-            ).first()
+            existente = db.query(TBBrand).filter(TBBrand.comp_id == comp_id, TBBrand.brand_id == brand_id_val).first()
 
             if existente:
                 existente.brand_desc = brand_data["brand_desc"]
@@ -65,7 +63,7 @@ async def sync_brands(
                     comp_id=comp_id,
                     brand_id=brand_id_val,
                     bra_id=brand_data.get("bra_id"),
-                    brand_desc=brand_data["brand_desc"]
+                    brand_desc=brand_data["brand_desc"],
                 )
                 db.add(nueva)
                 insertados += 1
@@ -77,7 +75,7 @@ async def sync_brands(
             "message": "Marcas sincronizadas correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -88,7 +86,7 @@ async def sync_brands(
 @router.post("/categories")
 async def sync_categories(
     cat_id: Optional[int] = Query(None, description="ID de categoría específica a sincronizar"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Sincroniza categorías desde el ERP a PostgreSQL
@@ -108,20 +106,15 @@ async def sync_categories(
             cat_id_val = cat_data["cat_id"]
 
             # Verificar si existe
-            existente = db.query(TBCategory).filter(
-                TBCategory.comp_id == comp_id,
-                TBCategory.cat_id == cat_id_val
-            ).first()
+            existente = (
+                db.query(TBCategory).filter(TBCategory.comp_id == comp_id, TBCategory.cat_id == cat_id_val).first()
+            )
 
             if existente:
                 existente.cat_desc = cat_data["cat_desc"]
                 actualizados += 1
             else:
-                nueva = TBCategory(
-                    comp_id=comp_id,
-                    cat_id=cat_id_val,
-                    cat_desc=cat_data["cat_desc"]
-                )
+                nueva = TBCategory(comp_id=comp_id, cat_id=cat_id_val, cat_desc=cat_data["cat_desc"])
                 db.add(nueva)
                 insertados += 1
 
@@ -132,7 +125,7 @@ async def sync_categories(
             "message": "Categorías sincronizadas correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -144,7 +137,7 @@ async def sync_categories(
 async def sync_subcategories(
     cat_id: Optional[int] = Query(None, description="ID de categoría"),
     subcat_id: Optional[int] = Query(None, description="ID de subcategoría específica"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Sincroniza subcategorías desde el ERP a PostgreSQL
@@ -154,10 +147,7 @@ async def sync_subcategories(
     """
     try:
         # Obtener datos del worker
-        subcategories = await erp_worker_client.get_subcategories(
-            cat_id=cat_id,
-            subcat_id=subcat_id
-        )
+        subcategories = await erp_worker_client.get_subcategories(cat_id=cat_id, subcat_id=subcat_id)
 
         insertados = 0
         actualizados = 0
@@ -168,21 +158,22 @@ async def sync_subcategories(
             subcat_id_val = subcat_data["subcat_id"]
 
             # Verificar si existe
-            existente = db.query(TBSubCategory).filter(
-                TBSubCategory.comp_id == comp_id,
-                TBSubCategory.cat_id == cat_id_val,
-                TBSubCategory.subcat_id == subcat_id_val
-            ).first()
+            existente = (
+                db.query(TBSubCategory)
+                .filter(
+                    TBSubCategory.comp_id == comp_id,
+                    TBSubCategory.cat_id == cat_id_val,
+                    TBSubCategory.subcat_id == subcat_id_val,
+                )
+                .first()
+            )
 
             if existente:
                 existente.subcat_desc = subcat_data["subcat_desc"]
                 actualizados += 1
             else:
                 nueva = TBSubCategory(
-                    comp_id=comp_id,
-                    cat_id=cat_id_val,
-                    subcat_id=subcat_id_val,
-                    subcat_desc=subcat_data["subcat_desc"]
+                    comp_id=comp_id, cat_id=cat_id_val, subcat_id=subcat_id_val, subcat_desc=subcat_data["subcat_desc"]
                 )
                 db.add(nueva)
                 insertados += 1
@@ -194,7 +185,7 @@ async def sync_subcategories(
             "message": "Subcategorías sincronizadas correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -210,7 +201,7 @@ async def sync_items(
     item_id: Optional[int] = Query(None, description="ID de item específico"),
     item_code: Optional[str] = Query(None, description="Código de item"),
     last_update: Optional[date] = Query(None, description="Solo items actualizados después de esta fecha"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Sincroniza items desde el ERP a PostgreSQL
@@ -226,7 +217,7 @@ async def sync_items(
             subcat_id=subcat_id,
             item_id=item_id,
             item_code=item_code,
-            last_update=last_update
+            last_update=last_update,
         )
 
         insertados = 0
@@ -237,10 +228,7 @@ async def sync_items(
             item_id_val = item_data["item_id"]
 
             # Verificar si existe
-            existente = db.query(TBItem).filter(
-                TBItem.comp_id == comp_id,
-                TBItem.item_id == item_id_val
-            ).first()
+            existente = db.query(TBItem).filter(TBItem.comp_id == comp_id, TBItem.item_id == item_id_val).first()
 
             # Convertir fechas de string a datetime
             item_cd = None
@@ -271,7 +259,7 @@ async def sync_items(
                     brand_id=item_data.get("brand_id"),
                     item_liquidation=item_data.get("item_liquidation"),
                     item_cd=item_cd,
-                    item_LastUpdate=item_lastupdate
+                    item_LastUpdate=item_lastupdate,
                 )
                 db.add(nuevo)
                 insertados += 1
@@ -287,7 +275,7 @@ async def sync_items(
             "message": "Items sincronizados correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -297,8 +285,7 @@ async def sync_items(
 
 @router.post("/tax-names")
 async def sync_tax_names(
-    tax_id: Optional[int] = Query(None, description="ID de impuesto específico"),
-    db: Session = Depends(get_db)
+    tax_id: Optional[int] = Query(None, description="ID de impuesto específico"), db: Session = Depends(get_db)
 ):
     """
     Sincroniza nombres de impuestos desde el ERP a PostgreSQL
@@ -318,10 +305,7 @@ async def sync_tax_names(
             tax_id_val = tax_data["tax_id"]
 
             # Verificar si existe
-            existente = db.query(TBTaxName).filter(
-                TBTaxName.comp_id == comp_id,
-                TBTaxName.tax_id == tax_id_val
-            ).first()
+            existente = db.query(TBTaxName).filter(TBTaxName.comp_id == comp_id, TBTaxName.tax_id == tax_id_val).first()
 
             if existente:
                 existente.tax_desc = tax_data["tax_desc"]
@@ -332,7 +316,7 @@ async def sync_tax_names(
                     comp_id=comp_id,
                     tax_id=tax_id_val,
                     tax_desc=tax_data["tax_desc"],
-                    tax_percentage=tax_data.get("tax_percentage")
+                    tax_percentage=tax_data.get("tax_percentage"),
                 )
                 db.add(nuevo)
                 insertados += 1
@@ -344,7 +328,7 @@ async def sync_tax_names(
             "message": "Impuestos sincronizados correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -356,7 +340,7 @@ async def sync_tax_names(
 async def sync_item_taxes(
     tax_id: Optional[int] = Query(None, description="ID de impuesto"),
     item_id: Optional[int] = Query(None, description="ID de item"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Sincroniza impuestos por item desde el ERP a PostgreSQL
@@ -366,10 +350,7 @@ async def sync_item_taxes(
     """
     try:
         # Obtener datos del worker
-        item_taxes = await erp_worker_client.get_item_taxes(
-            tax_id=tax_id,
-            item_id=item_id
-        )
+        item_taxes = await erp_worker_client.get_item_taxes(tax_id=tax_id, item_id=item_id)
 
         insertados = 0
         actualizados = 0
@@ -380,21 +361,20 @@ async def sync_item_taxes(
             tax_id_val = item_tax_data["tax_id"]
 
             # Verificar si existe
-            existente = db.query(TBItemTaxes).filter(
-                TBItemTaxes.comp_id == comp_id,
-                TBItemTaxes.item_id == item_id_val,
-                TBItemTaxes.tax_id == tax_id_val
-            ).first()
+            existente = (
+                db.query(TBItemTaxes)
+                .filter(
+                    TBItemTaxes.comp_id == comp_id, TBItemTaxes.item_id == item_id_val, TBItemTaxes.tax_id == tax_id_val
+                )
+                .first()
+            )
 
             if existente:
                 existente.tax_class = item_tax_data.get("tax_class")
                 actualizados += 1
             else:
                 nuevo = TBItemTaxes(
-                    comp_id=comp_id,
-                    item_id=item_id_val,
-                    tax_id=tax_id_val,
-                    tax_class=item_tax_data.get("tax_class")
+                    comp_id=comp_id, item_id=item_id_val, tax_id=tax_id_val, tax_class=item_tax_data.get("tax_class")
                 )
                 db.add(nuevo)
                 insertados += 1
@@ -410,7 +390,7 @@ async def sync_item_taxes(
             "message": "Impuestos de items sincronizados correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -421,7 +401,7 @@ async def sync_item_taxes(
 @router.post("/suppliers")
 async def sync_suppliers(
     supp_id: Optional[int] = Query(None, description="ID de proveedor específico a sincronizar"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Sincroniza proveedores desde el ERP a PostgreSQL
@@ -441,10 +421,9 @@ async def sync_suppliers(
             supp_id_val = supp_data["supp_id"]
 
             # Verificar si existe
-            existente = db.query(TBSupplier).filter(
-                TBSupplier.comp_id == comp_id,
-                TBSupplier.supp_id == supp_id_val
-            ).first()
+            existente = (
+                db.query(TBSupplier).filter(TBSupplier.comp_id == comp_id, TBSupplier.supp_id == supp_id_val).first()
+            )
 
             if existente:
                 existente.supp_name = supp_data["supp_name"]
@@ -455,7 +434,7 @@ async def sync_suppliers(
                     comp_id=comp_id,
                     supp_id=supp_id_val,
                     supp_name=supp_data["supp_name"],
-                    supp_tax_number=supp_data.get("supp_taxNumber")
+                    supp_tax_number=supp_data.get("supp_taxNumber"),
                 )
                 db.add(nuevo)
                 insertados += 1
@@ -467,7 +446,7 @@ async def sync_suppliers(
             "message": "Proveedores sincronizados correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -480,7 +459,7 @@ async def sync_customers(
     cust_id: Optional[int] = Query(None, description="ID de cliente específico"),
     from_cust_id: Optional[int] = Query(None, description="ID de cliente desde (para paginación)"),
     to_cust_id: Optional[int] = Query(None, description="ID de cliente hasta (para paginación)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Sincroniza clientes desde el ERP a PostgreSQL
@@ -492,9 +471,7 @@ async def sync_customers(
     try:
         # Si no hay parámetros, calcular desde el último cust_id
         if not cust_id and not from_cust_id:
-            last_record = db.query(TBCustomer).order_by(
-                TBCustomer.cust_id.desc()
-            ).first()
+            last_record = db.query(TBCustomer).order_by(TBCustomer.cust_id.desc()).first()
             from_cust_id = (last_record.cust_id + 1) if last_record else 1
 
         if not to_cust_id and not cust_id:
@@ -502,40 +479,36 @@ async def sync_customers(
 
         # Obtener datos del worker
         customers = await erp_worker_client.get_customers(
-            cust_id=cust_id,
-            from_cust_id=from_cust_id,
-            to_cust_id=to_cust_id
+            cust_id=cust_id, from_cust_id=from_cust_id, to_cust_id=to_cust_id
         )
 
         insertados = 0
         actualizados = 0
 
         # Obtener IDs existentes para este batch
-        cust_ids = [c.get('cust_id') for c in customers if c.get('cust_id')]
-        existing = db.query(TBCustomer.cust_id).filter(
-            TBCustomer.cust_id.in_(cust_ids)
-        ).all()
+        cust_ids = [c.get("cust_id") for c in customers if c.get("cust_id")]
+        existing = db.query(TBCustomer.cust_id).filter(TBCustomer.cust_id.in_(cust_ids)).all()
         ids_existentes = {id[0] for id in existing}
 
         for cust_data in customers:
-            cust_id_val = cust_data.get('cust_id')
+            cust_id_val = cust_data.get("cust_id")
             if not cust_id_val:
                 continue
 
-            comp_id = cust_data.get('comp_id', 1)
+            comp_id = cust_data.get("comp_id", 1)
 
             # Parsear fechas
             cust_cd = None
-            if cust_data.get('cust_cd'):
+            if cust_data.get("cust_cd"):
                 try:
-                    cust_cd = datetime.fromisoformat(str(cust_data['cust_cd']).replace('Z', '+00:00'))
+                    cust_cd = datetime.fromisoformat(str(cust_data["cust_cd"]).replace("Z", "+00:00"))
                 except:
                     pass
 
             cust_lastupdate = None
-            if cust_data.get('cust_LastUpdate'):
+            if cust_data.get("cust_LastUpdate"):
                 try:
-                    cust_lastupdate = datetime.fromisoformat(str(cust_data['cust_LastUpdate']).replace('Z', '+00:00'))
+                    cust_lastupdate = datetime.fromisoformat(str(cust_data["cust_LastUpdate"]).replace("Z", "+00:00"))
                 except:
                     pass
 
@@ -546,43 +519,42 @@ async def sync_customers(
                 if isinstance(value, bool):
                     return value
                 if isinstance(value, str):
-                    return value.lower() in ('true', '1', 'yes')
+                    return value.lower() in ("true", "1", "yes")
                 return bool(value)
 
             # Preparar datos
             datos = {
-                'comp_id': comp_id,
-                'cust_id': cust_id_val,
-                'bra_id': cust_data.get('bra_id'),
-                'cust_name': cust_data.get('cust_name'),
-                'cust_name1': cust_data.get('cust_name1'),
-                'fc_id': cust_data.get('fc_id'),
-                'cust_taxnumber': cust_data.get('cust_taxNumber'),
-                'tnt_id': cust_data.get('tnt_id'),
-                'cust_address': cust_data.get('cust_address'),
-                'cust_city': cust_data.get('cust_city'),
-                'cust_zip': cust_data.get('cust_zip'),
-                'country_id': cust_data.get('country_id'),
-                'state_id': cust_data.get('state_id'),
-                'cust_phone1': cust_data.get('cust_phone1'),
-                'cust_cellphone': cust_data.get('cust_cellPhone'),
-                'cust_email': cust_data.get('cust_email'),
-                'sm_id': cust_data.get('sm_id'),
-                'sm_id_2': cust_data.get('sm_id_2'),
-                'cust_inactive': parse_bool(cust_data.get('cust_inactive')),
-                'prli_id': cust_data.get('prli_id'),
-                'cust_mercadolibrenickname': cust_data.get('cust_MercadoLibreNickName'),
-                'cust_mercadolibreid': cust_data.get('cust_MercadoLibreID'),
-                'cust_cd': cust_cd,
-                'cust_lastupdate': cust_lastupdate,
+                "comp_id": comp_id,
+                "cust_id": cust_id_val,
+                "bra_id": cust_data.get("bra_id"),
+                "cust_name": cust_data.get("cust_name"),
+                "cust_name1": cust_data.get("cust_name1"),
+                "fc_id": cust_data.get("fc_id"),
+                "cust_taxnumber": cust_data.get("cust_taxNumber"),
+                "tnt_id": cust_data.get("tnt_id"),
+                "cust_address": cust_data.get("cust_address"),
+                "cust_city": cust_data.get("cust_city"),
+                "cust_zip": cust_data.get("cust_zip"),
+                "country_id": cust_data.get("country_id"),
+                "state_id": cust_data.get("state_id"),
+                "cust_phone1": cust_data.get("cust_phone1"),
+                "cust_cellphone": cust_data.get("cust_cellPhone"),
+                "cust_email": cust_data.get("cust_email"),
+                "sm_id": cust_data.get("sm_id"),
+                "sm_id_2": cust_data.get("sm_id_2"),
+                "cust_inactive": parse_bool(cust_data.get("cust_inactive")),
+                "prli_id": cust_data.get("prli_id"),
+                "cust_mercadolibrenickname": cust_data.get("cust_MercadoLibreNickName"),
+                "cust_mercadolibreid": cust_data.get("cust_MercadoLibreID"),
+                "cust_cd": cust_cd,
+                "cust_lastupdate": cust_lastupdate,
             }
 
             if cust_id_val in ids_existentes:
                 # Actualizar
-                db.query(TBCustomer).filter(
-                    TBCustomer.comp_id == comp_id,
-                    TBCustomer.cust_id == cust_id_val
-                ).update(datos)
+                db.query(TBCustomer).filter(TBCustomer.comp_id == comp_id, TBCustomer.cust_id == cust_id_val).update(
+                    datos
+                )
                 actualizados += 1
             else:
                 # Insertar
@@ -602,10 +574,7 @@ async def sync_customers(
             "insertados": insertados,
             "actualizados": actualizados,
             "total": insertados + actualizados,
-            "rango": {
-                "from": from_cust_id or cust_id,
-                "to": to_cust_id or cust_id
-            }
+            "rango": {"from": from_cust_id or cust_id, "to": to_cust_id or cust_id},
         }
 
     except Exception as e:
@@ -615,8 +584,7 @@ async def sync_customers(
 
 @router.post("/branches")
 async def sync_branches(
-    bra_id: Optional[int] = Query(None, description="ID de sucursal específica"),
-    db: Session = Depends(get_db)
+    bra_id: Optional[int] = Query(None, description="ID de sucursal específica"), db: Session = Depends(get_db)
 ):
     """
     Sincroniza sucursales desde el ERP a PostgreSQL
@@ -631,11 +599,11 @@ async def sync_branches(
         actualizados = 0
 
         for bra_data in branches:
-            bra_id_val = bra_data.get('bra_id')
+            bra_id_val = bra_data.get("bra_id")
             if not bra_id_val:
                 continue
 
-            comp_id = bra_data.get('comp_id', 1)
+            comp_id = bra_data.get("comp_id", 1)
 
             # Parsear booleanos
             def parse_bool(value):
@@ -644,26 +612,23 @@ async def sync_branches(
                 if isinstance(value, bool):
                     return value
                 if isinstance(value, str):
-                    return value.lower() in ('true', '1', 'yes')
+                    return value.lower() in ("true", "1", "yes")
                 return bool(value)
 
             # Verificar si existe
-            existente = db.query(TBBranch).filter(
-                TBBranch.comp_id == comp_id,
-                TBBranch.bra_id == bra_id_val
-            ).first()
+            existente = db.query(TBBranch).filter(TBBranch.comp_id == comp_id, TBBranch.bra_id == bra_id_val).first()
 
             datos = {
-                'comp_id': comp_id,
-                'bra_id': bra_id_val,
-                'bra_desc': bra_data.get('bra_desc'),
-                'bra_maindesc': bra_data.get('bra_MainDesc'),
-                'country_id': bra_data.get('country_id'),
-                'state_id': bra_data.get('state_id'),
-                'bra_address': bra_data.get('bra_address'),
-                'bra_phone': bra_data.get('bra_phone'),
-                'bra_taxnumber': bra_data.get('bra_taxNumber'),
-                'bra_disabled': parse_bool(bra_data.get('bra_disabled')),
+                "comp_id": comp_id,
+                "bra_id": bra_id_val,
+                "bra_desc": bra_data.get("bra_desc"),
+                "bra_maindesc": bra_data.get("bra_MainDesc"),
+                "country_id": bra_data.get("country_id"),
+                "state_id": bra_data.get("state_id"),
+                "bra_address": bra_data.get("bra_address"),
+                "bra_phone": bra_data.get("bra_phone"),
+                "bra_taxnumber": bra_data.get("bra_taxNumber"),
+                "bra_disabled": parse_bool(bra_data.get("bra_disabled")),
             }
 
             if existente:
@@ -682,7 +647,7 @@ async def sync_branches(
             "message": "Sucursales sincronizadas correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -695,7 +660,7 @@ async def sync_salesmen(
     sm_id: Optional[int] = Query(None, description="ID de vendedor específico"),
     from_sm_id: Optional[int] = Query(None, description="ID de vendedor desde (para paginación)"),
     to_sm_id: Optional[int] = Query(None, description="ID de vendedor hasta (para paginación)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Sincroniza vendedores desde el ERP a PostgreSQL
@@ -705,28 +670,22 @@ async def sync_salesmen(
     - Si no se proporcionan filtros, sincroniza todos
     """
     try:
-        salesmen = await erp_worker_client.get_salesmen(
-            sm_id=sm_id,
-            from_sm_id=from_sm_id,
-            to_sm_id=to_sm_id
-        )
+        salesmen = await erp_worker_client.get_salesmen(sm_id=sm_id, from_sm_id=from_sm_id, to_sm_id=to_sm_id)
 
         insertados = 0
         actualizados = 0
 
         # Obtener IDs existentes para este batch
-        sm_ids = [s.get('sm_id') for s in salesmen if s.get('sm_id')]
-        existing = db.query(TBSalesman.sm_id).filter(
-            TBSalesman.sm_id.in_(sm_ids)
-        ).all()
+        sm_ids = [s.get("sm_id") for s in salesmen if s.get("sm_id")]
+        existing = db.query(TBSalesman.sm_id).filter(TBSalesman.sm_id.in_(sm_ids)).all()
         ids_existentes = {id[0] for id in existing}
 
         for sm_data in salesmen:
-            sm_id_val = sm_data.get('sm_id')
+            sm_id_val = sm_data.get("sm_id")
             if not sm_id_val:
                 continue
 
-            comp_id = sm_data.get('comp_id', 1)
+            comp_id = sm_data.get("comp_id", 1)
 
             # Parsear booleanos
             def parse_bool(value):
@@ -735,27 +694,24 @@ async def sync_salesmen(
                 if isinstance(value, bool):
                     return value
                 if isinstance(value, str):
-                    return value.lower() in ('true', '1', 'yes')
+                    return value.lower() in ("true", "1", "yes")
                 return bool(value)
 
             # Preparar datos (columnas lowercase, .get() con camelCase del ERP)
             datos = {
-                'comp_id': comp_id,
-                'sm_id': sm_id_val,
-                'sm_name': sm_data.get('sm_name'),
-                'sm_email': sm_data.get('sm_email'),
-                'bra_id': sm_data.get('bra_id'),
-                'sm_commission_bysale': sm_data.get('sm_commission_bySale'),
-                'sm_commission_byreceive': sm_data.get('sm_commission_byReceive'),
-                'sm_disabled': parse_bool(sm_data.get('sm_disabled')),
+                "comp_id": comp_id,
+                "sm_id": sm_id_val,
+                "sm_name": sm_data.get("sm_name"),
+                "sm_email": sm_data.get("sm_email"),
+                "bra_id": sm_data.get("bra_id"),
+                "sm_commission_bysale": sm_data.get("sm_commission_bySale"),
+                "sm_commission_byreceive": sm_data.get("sm_commission_byReceive"),
+                "sm_disabled": parse_bool(sm_data.get("sm_disabled")),
             }
 
             if sm_id_val in ids_existentes:
                 # Actualizar
-                db.query(TBSalesman).filter(
-                    TBSalesman.comp_id == comp_id,
-                    TBSalesman.sm_id == sm_id_val
-                ).update(datos)
+                db.query(TBSalesman).filter(TBSalesman.comp_id == comp_id, TBSalesman.sm_id == sm_id_val).update(datos)
                 actualizados += 1
             else:
                 # Insertar
@@ -770,7 +726,7 @@ async def sync_salesmen(
             "message": "Vendedores sincronizados correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -782,7 +738,7 @@ async def sync_salesmen(
 async def sync_document_files(
     df_id: Optional[int] = Query(None, description="ID de documento específico"),
     bra_id: Optional[int] = Query(None, description="ID de sucursal"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Sincroniza tipos de documento desde el ERP a PostgreSQL
@@ -792,21 +748,18 @@ async def sync_document_files(
     - Si no se proporcionan filtros, sincroniza todos
     """
     try:
-        documents = await erp_worker_client.get_document_files(
-            df_id=df_id,
-            bra_id=bra_id
-        )
+        documents = await erp_worker_client.get_document_files(df_id=df_id, bra_id=bra_id)
 
         insertados = 0
         actualizados = 0
 
         for doc_data in documents:
-            df_id_val = doc_data.get('df_id')
-            bra_id_val = doc_data.get('bra_id')
+            df_id_val = doc_data.get("df_id")
+            bra_id_val = doc_data.get("bra_id")
             if not df_id_val or not bra_id_val:
                 continue
 
-            comp_id = doc_data.get('comp_id', 1)
+            comp_id = doc_data.get("comp_id", 1)
 
             # Parsear booleanos
             def parse_bool(value):
@@ -815,27 +768,31 @@ async def sync_document_files(
                 if isinstance(value, bool):
                     return value
                 if isinstance(value, str):
-                    return value.lower() in ('true', '1', 'yes')
+                    return value.lower() in ("true", "1", "yes")
                 return bool(value)
 
             # Verificar si existe (PK compuesta: comp_id, bra_id, df_id)
-            existente = db.query(TBDocumentFile).filter(
-                TBDocumentFile.comp_id == comp_id,
-                TBDocumentFile.bra_id == bra_id_val,
-                TBDocumentFile.df_id == df_id_val
-            ).first()
+            existente = (
+                db.query(TBDocumentFile)
+                .filter(
+                    TBDocumentFile.comp_id == comp_id,
+                    TBDocumentFile.bra_id == bra_id_val,
+                    TBDocumentFile.df_id == df_id_val,
+                )
+                .first()
+            )
 
             # Preparar datos (columnas lowercase, .get() con camelCase del ERP)
             datos = {
-                'comp_id': comp_id,
-                'bra_id': bra_id_val,
-                'df_id': df_id_val,
-                'df_desc': doc_data.get('df_desc'),
-                'df_pointofsale': doc_data.get('df_pointOfSale'),
-                'df_number': doc_data.get('df_number'),
-                'df_tonumber': doc_data.get('df_toNumber'),
-                'df_disabled': parse_bool(doc_data.get('df_Disabled')),
-                'df_iselectronicinvoice': parse_bool(doc_data.get('df_isElectronicInvoice')),
+                "comp_id": comp_id,
+                "bra_id": bra_id_val,
+                "df_id": df_id_val,
+                "df_desc": doc_data.get("df_desc"),
+                "df_pointofsale": doc_data.get("df_pointOfSale"),
+                "df_number": doc_data.get("df_number"),
+                "df_tonumber": doc_data.get("df_toNumber"),
+                "df_disabled": parse_bool(doc_data.get("df_Disabled")),
+                "df_iselectronicinvoice": parse_bool(doc_data.get("df_isElectronicInvoice")),
             }
 
             if existente:
@@ -854,7 +811,7 @@ async def sync_document_files(
             "message": "Tipos de documento sincronizados correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -864,8 +821,7 @@ async def sync_document_files(
 
 @router.post("/fiscal-classes")
 async def sync_fiscal_classes(
-    fc_id: Optional[int] = Query(None, description="ID de clase fiscal específica"),
-    db: Session = Depends(get_db)
+    fc_id: Optional[int] = Query(None, description="ID de clase fiscal específica"), db: Session = Depends(get_db)
 ):
     """
     Sincroniza clases fiscales desde el ERP a PostgreSQL
@@ -880,22 +836,20 @@ async def sync_fiscal_classes(
         actualizados = 0
 
         for fc_data in fiscal_classes:
-            fc_id_val = fc_data.get('fc_id')
+            fc_id_val = fc_data.get("fc_id")
             if not fc_id_val:
                 continue
 
             # Verificar si existe
-            existente = db.query(TBFiscalClass).filter(
-                TBFiscalClass.fc_id == fc_id_val
-            ).first()
+            existente = db.query(TBFiscalClass).filter(TBFiscalClass.fc_id == fc_id_val).first()
 
             # Preparar datos (columnas lowercase, .get() con camelCase del ERP)
             datos = {
-                'fc_id': fc_id_val,
-                'fc_desc': fc_data.get('fc_desc'),
-                'fc_kindof': fc_data.get('fc_KindOf'),
-                'country_id': fc_data.get('country_id'),
-                'fc_legaltaxid': fc_data.get('fc_LegalTaxId'),
+                "fc_id": fc_id_val,
+                "fc_desc": fc_data.get("fc_desc"),
+                "fc_kindof": fc_data.get("fc_KindOf"),
+                "country_id": fc_data.get("country_id"),
+                "fc_legaltaxid": fc_data.get("fc_LegalTaxId"),
             }
 
             if existente:
@@ -914,7 +868,7 @@ async def sync_fiscal_classes(
             "message": "Clases fiscales sincronizadas correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -924,8 +878,7 @@ async def sync_fiscal_classes(
 
 @router.post("/tax-number-types")
 async def sync_tax_number_types(
-    tnt_id: Optional[int] = Query(None, description="ID de tipo específico"),
-    db: Session = Depends(get_db)
+    tnt_id: Optional[int] = Query(None, description="ID de tipo específico"), db: Session = Depends(get_db)
 ):
     """
     Sincroniza tipos de número de impuesto desde el ERP a PostgreSQL
@@ -940,20 +893,18 @@ async def sync_tax_number_types(
         actualizados = 0
 
         for tnt_data in tax_number_types:
-            tnt_id_val = tnt_data.get('tnt_id')
+            tnt_id_val = tnt_data.get("tnt_id")
             if not tnt_id_val:
                 continue
 
             # Verificar si existe
-            existente = db.query(TBTaxNumberType).filter(
-                TBTaxNumberType.tnt_id == tnt_id_val
-            ).first()
+            existente = db.query(TBTaxNumberType).filter(TBTaxNumberType.tnt_id == tnt_id_val).first()
 
             # Preparar datos
             datos = {
-                'tnt_id': tnt_id_val,
-                'tnt_desc': tnt_data.get('tnt_desc'),
-                'tnt_afip': tnt_data.get('tnt_afip'),
+                "tnt_id": tnt_id_val,
+                "tnt_desc": tnt_data.get("tnt_desc"),
+                "tnt_afip": tnt_data.get("tnt_afip"),
             }
 
             if existente:
@@ -972,7 +923,7 @@ async def sync_tax_number_types(
             "message": "Tipos de número de impuesto sincronizados correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -984,7 +935,7 @@ async def sync_tax_number_types(
 async def sync_states(
     country_id: Optional[int] = Query(54, description="ID de país (default 54 = Argentina)"),
     state_id: Optional[int] = Query(None, description="ID de estado específico"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Sincroniza estados/provincias desde el ERP a PostgreSQL
@@ -993,38 +944,34 @@ async def sync_states(
     - Si se proporciona state_id, sincroniza solo ese estado
     """
     try:
-        states = await erp_worker_client.get_states(
-            country_id=country_id,
-            state_id=state_id
-        )
+        states = await erp_worker_client.get_states(country_id=country_id, state_id=state_id)
 
         insertados = 0
         actualizados = 0
 
         for state_data in states:
-            country_id_val = state_data.get('country_id')
-            state_id_val = state_data.get('state_id')
+            country_id_val = state_data.get("country_id")
+            state_id_val = state_data.get("state_id")
             if not country_id_val or not state_id_val:
                 continue
 
             # Verificar si existe (PK compuesta: country_id, state_id)
-            existente = db.query(TBState).filter(
-                TBState.country_id == country_id_val,
-                TBState.state_id == state_id_val
-            ).first()
+            existente = (
+                db.query(TBState).filter(TBState.country_id == country_id_val, TBState.state_id == state_id_val).first()
+            )
 
             # Preparar datos (columnas lowercase, .get() con camelCase del ERP)
             datos = {
-                'country_id': country_id_val,
-                'state_id': state_id_val,
-                'state_desc': state_data.get('state_desc'),
-                'state_afip': state_data.get('state_afip'),
-                'state_jurisdiccion': state_data.get('state_jurisdiccion'),
-                'state_arba_cot': state_data.get('state_arba_cot'),
-                'state_visatodopago': state_data.get('state_VISATodoPago'),
-                'country_visatodopago': state_data.get('country_VISATodopago'),
-                'mlstatedescription': state_data.get('MLStateDescription'),
-                'state_enviopackid': state_data.get('state_EnvioPackID'),
+                "country_id": country_id_val,
+                "state_id": state_id_val,
+                "state_desc": state_data.get("state_desc"),
+                "state_afip": state_data.get("state_afip"),
+                "state_jurisdiccion": state_data.get("state_jurisdiccion"),
+                "state_arba_cot": state_data.get("state_arba_cot"),
+                "state_visatodopago": state_data.get("state_VISATodoPago"),
+                "country_visatodopago": state_data.get("country_VISATodopago"),
+                "mlstatedescription": state_data.get("MLStateDescription"),
+                "state_enviopackid": state_data.get("state_EnvioPackID"),
             }
 
             if existente:
@@ -1043,7 +990,7 @@ async def sync_states(
             "message": "Estados/provincias sincronizados correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
-            "total": insertados + actualizados
+            "total": insertados + actualizados,
         }
 
     except Exception as e:
@@ -1052,9 +999,7 @@ async def sync_states(
 
 
 @router.post("/all")
-async def sync_all(
-    db: Session = Depends(get_db)
-):
+async def sync_all(db: Session = Depends(get_db)):
     """
     Sincroniza todas las tablas maestras del ERP en orden
 
@@ -1092,9 +1037,7 @@ async def sync_all(
 
         # 6. Items
         items_result = await sync_items(
-            brand_id=None, cat_id=None, subcat_id=None,
-            item_id=None, item_code=None, last_update=None,
-            db=db
+            brand_id=None, cat_id=None, subcat_id=None, item_id=None, item_code=None, last_update=None, db=db
         )
         results["items"] = items_result
 
@@ -1102,17 +1045,13 @@ async def sync_all(
         item_taxes_result = await sync_item_taxes(tax_id=None, item_id=None, db=db)
         results["item_taxes"] = item_taxes_result
 
-        return {
-            "success": True,
-            "message": "Sincronización completa exitosa",
-            "results": results
-        }
+        return {"success": True, "message": "Sincronización completa exitosa", "results": results}
 
     except Exception as e:
         import traceback
+
         error_traceback = traceback.format_exc()
         print(f"Error en sync_all: {error_traceback}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Error durante la sincronización completa: {str(e)}\n{error_traceback}"
+            status_code=500, detail=f"Error durante la sincronización completa: {str(e)}\n{error_traceback}"
         )

@@ -3,7 +3,7 @@ from app.tickets.schemas.sector_schemas import (
     SectorCreate,
     SectorUpdate,
     SectorResponse,
-    SectorConfiguracion
+    SectorConfiguracion,
 )
 from app.tickets.schemas.workflow_schemas import (
     EstadoTicketBase,
@@ -14,7 +14,7 @@ from app.tickets.schemas.workflow_schemas import (
     TransicionEstadoResponse,
     WorkflowBase,
     WorkflowCreate,
-    WorkflowResponse
+    WorkflowResponse,
 )
 from app.tickets.schemas.ticket_schemas import (
     TicketBase,
@@ -23,7 +23,7 @@ from app.tickets.schemas.ticket_schemas import (
     TicketResponse,
     TicketListResponse,
     ComentarioCreate,
-    ComentarioResponse
+    ComentarioResponse,
 )
 
 __all__ = [

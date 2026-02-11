@@ -14,6 +14,7 @@ Tablas sincronizadas:
 Ejecutar:
     python -m app.scripts.sync_master_tables_small
 """
+
 import sys
 import os
 from pathlib import Path
@@ -25,7 +26,8 @@ if __name__ == "__main__":
 
     # Cargar variables de entorno desde .env
     from dotenv import load_dotenv
-    env_path = Path(backend_path) / '.env'
+
+    env_path = Path(backend_path) / ".env"
     load_dotenv(dotenv_path=env_path)
 
 from datetime import datetime
@@ -45,67 +47,34 @@ def main():
     Ejecuta sincronización de todas las tablas maestras pequeñas.
     """
     timestamp_inicio = datetime.now()
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print(f"🔄 Inicio sincronización tablas maestras: {timestamp_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
-    print("="*60)
+    print("=" * 60)
 
-    resultados = {
-        "exitosos": [],
-        "errores": []
-    }
+    resultados = {"exitosos": [], "errores": []}
 
     # Lista de sincronizaciones a ejecutar
     sincronizaciones = [
-        {
-            "nombre": "Sucursales (Branches)",
-            "emoji": "🏢",
-            "funcion": sync_branches,
-            "args": {}
-        },
-        {
-            "nombre": "Vendedores (Salesmen)",
-            "emoji": "👔",
-            "funcion": sync_salesmen,
-            "args": {}
-        },
-        {
-            "nombre": "Estados/Provincias (States)",
-            "emoji": "🗺️",
-            "funcion": sync_states,
-            "args": {}
-        },
-        {
-            "nombre": "Tipos de Documento (Document Files)",
-            "emoji": "📄",
-            "funcion": sync_document_files,
-            "args": {}
-        },
-        {
-            "nombre": "Clases Fiscales (Fiscal Classes)",
-            "emoji": "💼",
-            "funcion": sync_fiscal_classes,
-            "args": {}
-        },
+        {"nombre": "Sucursales (Branches)", "emoji": "🏢", "funcion": sync_branches, "args": {}},
+        {"nombre": "Vendedores (Salesmen)", "emoji": "👔", "funcion": sync_salesmen, "args": {}},
+        {"nombre": "Estados/Provincias (States)", "emoji": "🗺️", "funcion": sync_states, "args": {}},
+        {"nombre": "Tipos de Documento (Document Files)", "emoji": "📄", "funcion": sync_document_files, "args": {}},
+        {"nombre": "Clases Fiscales (Fiscal Classes)", "emoji": "💼", "funcion": sync_fiscal_classes, "args": {}},
         {
             "nombre": "Tipos de Número Impositivo (Tax Number Types)",
             "emoji": "🔢",
             "funcion": sync_tax_number_types,
-            "args": {}
+            "args": {},
         },
-        {
-            "nombre": "Asociaciones de Items",
-            "emoji": "🔗",
-            "funcion": sync_item_associations,
-            "args": {}
-        }
+        {"nombre": "Asociaciones de Items", "emoji": "🔗", "funcion": sync_item_associations, "args": {}},
     ]
-    
+
     for i, sync in enumerate(sincronizaciones, 1):
         try:
             print(f"\n{sync['emoji']} [{i}/{len(sincronizaciones)}] Sincronizando {sync['nombre']}...")
 
             # Ejecutar la función standalone
-            result = sync['funcion'](**sync['args'])
+            result = sync["funcion"](**sync["args"])
 
             print(f"✅ {sync['nombre']} completado")
 
@@ -113,7 +82,7 @@ def main():
             if isinstance(result, tuple):
                 resultados["exitosos"].append(f"{sync['nombre']}: {result[0]} nuevos, {result[1]} actualizados")
             else:
-                resultados["exitosos"].append(sync['nombre'])
+                resultados["exitosos"].append(sync["nombre"])
 
         except Exception as e:
             error_msg = f"{sync['nombre']}: {str(e)}"
@@ -124,27 +93,27 @@ def main():
     timestamp_fin = datetime.now()
     duracion = (timestamp_fin - timestamp_inicio).total_seconds()
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print(f"✨ Sincronización completada: {timestamp_fin.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"⏱️  Duración: {duracion:.2f} segundos")
-    print("="*60)
+    print("=" * 60)
 
     print("\n📊 Resumen:")
     print(f"   ✅ Exitosos: {len(resultados['exitosos'])}")
     print(f"   ❌ Errores: {len(resultados['errores'])}")
 
-    if resultados['exitosos']:
+    if resultados["exitosos"]:
         print("\n✅ Completados exitosamente:")
-        for msg in resultados['exitosos']:
+        for msg in resultados["exitosos"]:
             print(f"   • {msg}")
 
-    if resultados['errores']:
+    if resultados["errores"]:
         print("\n⚠️  Errores encontrados:")
-        for error in resultados['errores']:
+        for error in resultados["errores"]:
             print(f"   • {error}")
 
     # Exit code
-    if resultados['errores']:
+    if resultados["errores"]:
         return 1
     return 0
 
@@ -162,5 +131,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n\n❌ Error crítico: {str(e)}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

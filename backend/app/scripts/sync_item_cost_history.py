@@ -2,6 +2,7 @@
 Script para sincronizar el historial de costos de items desde el ERP.
 Usa el Cloudflare Worker para obtener los datos.
 """
+
 import sys
 from pathlib import Path
 
@@ -17,10 +18,7 @@ from app.core.database import SessionLocal
 from app.models.item_cost_list_history import ItemCostListHistory
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # URL del Cloudflare Worker
@@ -39,15 +37,13 @@ def fetch_cost_history_from_erp(fecha_desde: datetime = None, iclh_id: int = Non
         Lista de registros
     """
     # Construir parámetros para el worker
-    params = {
-        'strScriptLabel': 'scriptItemCostListHistory'
-    }
+    params = {"strScriptLabel": "scriptItemCostListHistory"}
 
     if fecha_desde:
-        params['fromDate'] = fecha_desde.isoformat()
+        params["fromDate"] = fecha_desde.isoformat()
 
     if iclh_id:
-        params['iclhID'] = iclh_id
+        params["iclhID"] = iclh_id
 
     logger.info(f"Consultando ERP Worker con params: {params}")
 
@@ -70,11 +66,7 @@ def fetch_cost_history_from_erp(fecha_desde: datetime = None, iclh_id: int = Non
         raise
 
 
-def sync_item_cost_history(
-    fecha_desde: datetime = None,
-    batch_size: int = 5000,
-    test_mode: bool = False
-):
+def sync_item_cost_history(fecha_desde: datetime = None, batch_size: int = 5000, test_mode: bool = False):
     """
     Sincroniza el historial de costos desde el ERP.
 
@@ -93,9 +85,7 @@ def sync_item_cost_history(
         # Si no hay fecha_desde, obtener el último registro que tenemos
         last_iclh_id = None
         if not fecha_desde:
-            last_record = db_local.query(ItemCostListHistory).order_by(
-                ItemCostListHistory.iclh_id.desc()
-            ).first()
+            last_record = db_local.query(ItemCostListHistory).order_by(ItemCostListHistory.iclh_id.desc()).first()
 
             if last_record:
                 last_iclh_id = last_record.iclh_id
@@ -110,10 +100,7 @@ def sync_item_cost_history(
             logger.info(f"\n--- Batch {batch_num} ---")
 
             # Obtener registros del ERP
-            registros_erp = fetch_cost_history_from_erp(
-                fecha_desde=fecha_desde,
-                iclh_id=last_iclh_id
-            )
+            registros_erp = fetch_cost_history_from_erp(fecha_desde=fecha_desde, iclh_id=last_iclh_id)
 
             logger.info(f"Recibidos {len(registros_erp)} registros del ERP")
 
@@ -122,10 +109,12 @@ def sync_item_cost_history(
                 break
 
             # Obtener IDs existentes en este batch
-            iclh_ids = [r.get('iclh_id') or r.get('iclhID') for r in registros_erp if r.get('iclh_id') or r.get('iclhID')]
-            existing = db_local.query(ItemCostListHistory.iclh_id).filter(
-                ItemCostListHistory.iclh_id.in_(iclh_ids)
-            ).all()
+            iclh_ids = [
+                r.get("iclh_id") or r.get("iclhID") for r in registros_erp if r.get("iclh_id") or r.get("iclhID")
+            ]
+            existing = (
+                db_local.query(ItemCostListHistory.iclh_id).filter(ItemCostListHistory.iclh_id.in_(iclh_ids)).all()
+            )
             ids_existentes = {id[0] for id in existing}
 
             # Procesar registros
@@ -134,7 +123,7 @@ def sync_item_cost_history(
 
             for record in registros_erp:
                 # El worker puede devolver iclh_id o iclhID
-                iclh_id = record.get('iclh_id') or record.get('iclhID')
+                iclh_id = record.get("iclh_id") or record.get("iclhID")
 
                 if not iclh_id:
                     logger.warning(f"Registro sin iclh_id: {record}")
@@ -142,42 +131,42 @@ def sync_item_cost_history(
 
                 # Parsear fecha
                 iclh_cd = None
-                if record.get('iclh_cd'):
+                if record.get("iclh_cd"):
                     try:
-                        iclh_cd = datetime.fromisoformat(record['iclh_cd'].replace('Z', '+00:00'))
+                        iclh_cd = datetime.fromisoformat(record["iclh_cd"].replace("Z", "+00:00"))
                     except:
                         pass
 
                 # Verificar si existe
                 if iclh_id in ids_existentes:
                     # Actualizar
-                    db_local.query(ItemCostListHistory).filter(
-                        ItemCostListHistory.iclh_id == iclh_id
-                    ).update({
-                        'comp_id': record.get('comp_id'),
-                        'coslis_id': record.get('coslis_id'),
-                        'item_id': record.get('item_id'),
-                        'iclh_lote': record.get('iclh_lote'),
-                        'iclh_price': record.get('iclh_price'),
-                        'iclh_price_aw': record.get('iclh_price_aw'),
-                        'curr_id': record.get('curr_id'),
-                        'iclh_cd': iclh_cd,
-                        'user_id_lastupdate': record.get('user_id_lastUpdate')
-                    })
+                    db_local.query(ItemCostListHistory).filter(ItemCostListHistory.iclh_id == iclh_id).update(
+                        {
+                            "comp_id": record.get("comp_id"),
+                            "coslis_id": record.get("coslis_id"),
+                            "item_id": record.get("item_id"),
+                            "iclh_lote": record.get("iclh_lote"),
+                            "iclh_price": record.get("iclh_price"),
+                            "iclh_price_aw": record.get("iclh_price_aw"),
+                            "curr_id": record.get("curr_id"),
+                            "iclh_cd": iclh_cd,
+                            "user_id_lastupdate": record.get("user_id_lastUpdate"),
+                        }
+                    )
                     actualizados += 1
                 else:
                     # Insertar nuevo
                     nuevo_registro = ItemCostListHistory(
                         iclh_id=iclh_id,
-                        comp_id=record.get('comp_id'),
-                        coslis_id=record.get('coslis_id'),
-                        item_id=record.get('item_id'),
-                        iclh_lote=record.get('iclh_lote'),
-                        iclh_price=record.get('iclh_price'),
-                        iclh_price_aw=record.get('iclh_price_aw'),
-                        curr_id=record.get('curr_id'),
+                        comp_id=record.get("comp_id"),
+                        coslis_id=record.get("coslis_id"),
+                        item_id=record.get("item_id"),
+                        iclh_lote=record.get("iclh_lote"),
+                        iclh_price=record.get("iclh_price"),
+                        iclh_price_aw=record.get("iclh_price_aw"),
+                        curr_id=record.get("curr_id"),
                         iclh_cd=iclh_cd,
-                        user_id_lastupdate=record.get('user_id_lastUpdate')
+                        user_id_lastupdate=record.get("user_id_lastUpdate"),
                     )
                     db_local.add(nuevo_registro)
                     nuevos += 1
@@ -241,9 +230,7 @@ async def sync_item_cost_history_incremental(db: Session):
 
     try:
         # Obtener el último registro que tenemos
-        last_record = db.query(ItemCostListHistory).order_by(
-            ItemCostListHistory.iclh_id.desc()
-        ).first()
+        last_record = db.query(ItemCostListHistory).order_by(ItemCostListHistory.iclh_id.desc()).first()
 
         last_iclh_id = last_record.iclh_id if last_record else None
 
@@ -270,10 +257,10 @@ async def sync_item_cost_history_incremental(db: Session):
                 break
 
             # Obtener IDs existentes en este batch
-            iclh_ids = [r.get('iclh_id') or r.get('iclhID') for r in registros_erp if r.get('iclh_id') or r.get('iclhID')]
-            existing = db.query(ItemCostListHistory.iclh_id).filter(
-                ItemCostListHistory.iclh_id.in_(iclh_ids)
-            ).all()
+            iclh_ids = [
+                r.get("iclh_id") or r.get("iclhID") for r in registros_erp if r.get("iclh_id") or r.get("iclhID")
+            ]
+            existing = db.query(ItemCostListHistory.iclh_id).filter(ItemCostListHistory.iclh_id.in_(iclh_ids)).all()
             ids_existentes = {id[0] for id in existing}
 
             # Procesar registros
@@ -281,49 +268,49 @@ async def sync_item_cost_history_incremental(db: Session):
             actualizados = 0
 
             for record in registros_erp:
-                iclh_id = record.get('iclh_id') or record.get('iclhID')
+                iclh_id = record.get("iclh_id") or record.get("iclhID")
 
                 if not iclh_id:
                     continue
 
                 # Parsear fecha
                 iclh_cd = None
-                if record.get('iclh_cd'):
+                if record.get("iclh_cd"):
                     try:
-                        iclh_cd = datetime.fromisoformat(record['iclh_cd'].replace('Z', '+00:00'))
+                        iclh_cd = datetime.fromisoformat(record["iclh_cd"].replace("Z", "+00:00"))
                     except:
                         pass
 
                 # Verificar si existe
                 if iclh_id in ids_existentes:
                     # Actualizar
-                    db.query(ItemCostListHistory).filter(
-                        ItemCostListHistory.iclh_id == iclh_id
-                    ).update({
-                        'comp_id': record.get('comp_id'),
-                        'coslis_id': record.get('coslis_id'),
-                        'item_id': record.get('item_id'),
-                        'iclh_lote': record.get('iclh_lote'),
-                        'iclh_price': record.get('iclh_price'),
-                        'iclh_price_aw': record.get('iclh_price_aw'),
-                        'curr_id': record.get('curr_id'),
-                        'iclh_cd': iclh_cd,
-                        'user_id_lastupdate': record.get('user_id_lastUpdate')
-                    })
+                    db.query(ItemCostListHistory).filter(ItemCostListHistory.iclh_id == iclh_id).update(
+                        {
+                            "comp_id": record.get("comp_id"),
+                            "coslis_id": record.get("coslis_id"),
+                            "item_id": record.get("item_id"),
+                            "iclh_lote": record.get("iclh_lote"),
+                            "iclh_price": record.get("iclh_price"),
+                            "iclh_price_aw": record.get("iclh_price_aw"),
+                            "curr_id": record.get("curr_id"),
+                            "iclh_cd": iclh_cd,
+                            "user_id_lastupdate": record.get("user_id_lastUpdate"),
+                        }
+                    )
                     actualizados += 1
                 else:
                     # Insertar nuevo
                     nuevo_registro = ItemCostListHistory(
                         iclh_id=iclh_id,
-                        comp_id=record.get('comp_id'),
-                        coslis_id=record.get('coslis_id'),
-                        item_id=record.get('item_id'),
-                        iclh_lote=record.get('iclh_lote'),
-                        iclh_price=record.get('iclh_price'),
-                        iclh_price_aw=record.get('iclh_price_aw'),
-                        curr_id=record.get('curr_id'),
+                        comp_id=record.get("comp_id"),
+                        coslis_id=record.get("coslis_id"),
+                        item_id=record.get("item_id"),
+                        iclh_lote=record.get("iclh_lote"),
+                        iclh_price=record.get("iclh_price"),
+                        iclh_price_aw=record.get("iclh_price_aw"),
+                        curr_id=record.get("curr_id"),
                         iclh_cd=iclh_cd,
-                        user_id_lastupdate=record.get('user_id_lastUpdate')
+                        user_id_lastupdate=record.get("user_id_lastUpdate"),
                     )
                     db.add(nuevo_registro)
                     nuevos += 1
@@ -361,32 +348,15 @@ async def sync_item_cost_history_incremental(db: Session):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description='Sincronizar historial de costos desde ERP')
-    parser.add_argument(
-        '--fecha-desde',
-        type=str,
-        help='Fecha desde (formato: YYYY-MM-DD)'
-    )
-    parser.add_argument(
-        '--batch-size',
-        type=int,
-        default=5000,
-        help='Cantidad de registros por batch'
-    )
-    parser.add_argument(
-        '--test',
-        action='store_true',
-        help='Modo test: solo un batch'
-    )
+    parser = argparse.ArgumentParser(description="Sincronizar historial de costos desde ERP")
+    parser.add_argument("--fecha-desde", type=str, help="Fecha desde (formato: YYYY-MM-DD)")
+    parser.add_argument("--batch-size", type=int, default=5000, help="Cantidad de registros por batch")
+    parser.add_argument("--test", action="store_true", help="Modo test: solo un batch")
 
     args = parser.parse_args()
 
     fecha_desde = None
     if args.fecha_desde:
-        fecha_desde = datetime.strptime(args.fecha_desde, '%Y-%m-%d')
+        fecha_desde = datetime.strptime(args.fecha_desde, "%Y-%m-%d")
 
-    sync_item_cost_history(
-        fecha_desde=fecha_desde,
-        batch_size=args.batch_size,
-        test_mode=args.test
-    )
+    sync_item_cost_history(fecha_desde=fecha_desde, batch_size=args.batch_size, test_mode=args.test)

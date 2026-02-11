@@ -4,6 +4,7 @@ Contiene todos los cálculos de markup, costos, etc.
 Se actualiza mediante un script de agregación que lee de tb_item_transactions + tb_commercial_transactions
 Filtra por df_id 113, 114 (facturas de Tienda Nube)
 """
+
 from sqlalchemy import Column, Integer, BigInteger, String, Numeric, DateTime, Date, Boolean, Text
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -20,6 +21,7 @@ class VentaTiendaNubeMetrica(Base):
     4. Ganancia = monto - costo - comisión
     5. Markup = (monto / (costo + comisión)) - 1
     """
+
     __tablename__ = "ventas_tienda_nube_metricas"
 
     # Primary Key

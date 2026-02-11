@@ -7,15 +7,14 @@ class TiendaNubeOrder(Base):
     Modelo para tb_tiendanube_orders
     Órdenes de TiendaNube sincronizadas desde el ERP
     """
+
     __tablename__ = "tb_tiendanube_orders"
-    __table_args__ = (
-        PrimaryKeyConstraint('comp_id', 'tno_id'),
-    )
+    __table_args__ = (PrimaryKeyConstraint("comp_id", "tno_id"),)
 
     # Primary Key
     comp_id = Column(Integer, nullable=False, index=True)
     tno_id = Column(BigInteger, nullable=False, index=True)
-    
+
     # Campos principales
     tno_cd = Column(DateTime)
     tn_id = Column(Integer)  # ID de la tienda en TiendaNube
@@ -25,7 +24,7 @@ class TiendaNubeOrder(Base):
     soh_id = Column(BigInteger, index=True)  # Relación con sale_order_header
     cust_id = Column(Integer)
     tno_iscancelled = Column(Boolean)
-    
+
     # Timestamps
     created_at = Column(DateTime)
     updated_at = Column(DateTime)

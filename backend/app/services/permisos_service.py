@@ -2,6 +2,7 @@
 Servicio de verificación de permisos.
 Implementa el sistema híbrido: rol base + overrides por usuario.
 """
+
 from typing import List, Optional, Set
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -36,9 +37,7 @@ class PermisosService:
             permisos_rol = self._obtener_permisos_rol_por_codigo(usuario.rol.value if usuario.rol else "VENTAS")
 
         # Obtener overrides del usuario
-        overrides = self.db.query(UsuarioPermisoOverride).filter(
-            UsuarioPermisoOverride.usuario_id == usuario.id
-        ).all()
+        overrides = self.db.query(UsuarioPermisoOverride).filter(UsuarioPermisoOverride.usuario_id == usuario.id).all()
 
         # Aplicar overrides
         permisos_finales = set(permisos_rol)
@@ -59,11 +58,12 @@ class PermisosService:
         if cache_key in self._cache_permisos_rol:
             return self._cache_permisos_rol[cache_key]
 
-        permisos = self.db.query(Permiso.codigo).join(
-            RolPermisoBase, RolPermisoBase.permiso_id == Permiso.id
-        ).filter(
-            RolPermisoBase.rol_id == rol_id
-        ).all()
+        permisos = (
+            self.db.query(Permiso.codigo)
+            .join(RolPermisoBase, RolPermisoBase.permiso_id == Permiso.id)
+            .filter(RolPermisoBase.rol_id == rol_id)
+            .all()
+        )
 
         codigos = [p.codigo for p in permisos]
         self._cache_permisos_rol[cache_key] = codigos
@@ -124,7 +124,7 @@ class PermisosService:
         permiso_codigo: str,
         concedido: bool,
         otorgado_por_id: Optional[int] = None,
-        motivo: Optional[str] = None
+        motivo: Optional[str] = None,
     ) -> UsuarioPermisoOverride:
         """
         Agrega o actualiza un override de permiso para un usuario.
@@ -145,12 +145,13 @@ class PermisosService:
             raise ValueError(f"Permiso '{permiso_codigo}' no existe")
 
         # Buscar override existente
-        override = self.db.query(UsuarioPermisoOverride).filter(
-            and_(
-                UsuarioPermisoOverride.usuario_id == usuario_id,
-                UsuarioPermisoOverride.permiso_id == permiso.id
+        override = (
+            self.db.query(UsuarioPermisoOverride)
+            .filter(
+                and_(UsuarioPermisoOverride.usuario_id == usuario_id, UsuarioPermisoOverride.permiso_id == permiso.id)
             )
-        ).first()
+            .first()
+        )
 
         if override:
             # Actualizar existente
@@ -164,7 +165,7 @@ class PermisosService:
                 permiso_id=permiso.id,
                 concedido=concedido,
                 otorgado_por_id=otorgado_por_id,
-                motivo=motivo
+                motivo=motivo,
             )
             self.db.add(override)
 
@@ -182,34 +183,36 @@ class PermisosService:
         if not permiso:
             return False
 
-        resultado = self.db.query(UsuarioPermisoOverride).filter(
-            and_(
-                UsuarioPermisoOverride.usuario_id == usuario_id,
-                UsuarioPermisoOverride.permiso_id == permiso.id
+        resultado = (
+            self.db.query(UsuarioPermisoOverride)
+            .filter(
+                and_(UsuarioPermisoOverride.usuario_id == usuario_id, UsuarioPermisoOverride.permiso_id == permiso.id)
             )
-        ).delete()
+            .delete()
+        )
 
         self.db.commit()
         return resultado > 0
 
     def obtener_overrides_usuario(self, usuario_id: int) -> List[dict]:
         """Obtiene todos los overrides de un usuario con detalle"""
-        overrides = self.db.query(
-            UsuarioPermisoOverride,
-            Permiso
-        ).join(
-            Permiso, UsuarioPermisoOverride.permiso_id == Permiso.id
-        ).filter(
-            UsuarioPermisoOverride.usuario_id == usuario_id
-        ).all()
+        overrides = (
+            self.db.query(UsuarioPermisoOverride, Permiso)
+            .join(Permiso, UsuarioPermisoOverride.permiso_id == Permiso.id)
+            .filter(UsuarioPermisoOverride.usuario_id == usuario_id)
+            .all()
+        )
 
-        return [{
-            'permiso_codigo': permiso.codigo,
-            'permiso_nombre': permiso.nombre,
-            'concedido': override.concedido,
-            'motivo': override.motivo,
-            'created_at': override.created_at.isoformat() if override.created_at else None
-        } for override, permiso in overrides]
+        return [
+            {
+                "permiso_codigo": permiso.codigo,
+                "permiso_nombre": permiso.nombre,
+                "concedido": override.concedido,
+                "motivo": override.motivo,
+                "created_at": override.created_at.isoformat() if override.created_at else None,
+            }
+            for override, permiso in overrides
+        ]
 
     def obtener_catalogo_permisos(self) -> List[dict]:
         """Obtiene el catálogo completo de permisos agrupado por categoría"""
@@ -217,15 +220,12 @@ class PermisosService:
 
         resultado = {}
         for p in permisos:
-            categoria = p.categoria.value if hasattr(p.categoria, 'value') else p.categoria
+            categoria = p.categoria.value if hasattr(p.categoria, "value") else p.categoria
             if categoria not in resultado:
                 resultado[categoria] = []
-            resultado[categoria].append({
-                'codigo': p.codigo,
-                'nombre': p.nombre,
-                'descripcion': p.descripcion,
-                'es_critico': p.es_critico
-            })
+            resultado[categoria].append(
+                {"codigo": p.codigo, "nombre": p.nombre, "descripcion": p.descripcion, "es_critico": p.es_critico}
+            )
 
         return resultado
 
@@ -241,16 +241,19 @@ class PermisosService:
         else:
             permisos_rol = set(self._obtener_permisos_rol_por_codigo(usuario.rol.value if usuario.rol else "VENTAS"))
 
-        overrides = {o.permiso.codigo: o.concedido
-                     for o in self.db.query(UsuarioPermisoOverride).join(Permiso).filter(
-                         UsuarioPermisoOverride.usuario_id == usuario.id
-                     ).all()}
+        overrides = {
+            o.permiso.codigo: o.concedido
+            for o in self.db.query(UsuarioPermisoOverride)
+            .join(Permiso)
+            .filter(UsuarioPermisoOverride.usuario_id == usuario.id)
+            .all()
+        }
 
         catalogo = self.db.query(Permiso).order_by(Permiso.orden).all()
 
         resultado = {}
         for p in catalogo:
-            categoria = p.categoria.value if hasattr(p.categoria, 'value') else p.categoria
+            categoria = p.categoria.value if hasattr(p.categoria, "value") else p.categoria
             if categoria not in resultado:
                 resultado[categoria] = []
 
@@ -262,24 +265,26 @@ class PermisosService:
             # SUPERADMIN siempre tiene todos los permisos efectivos
             if es_superadmin:
                 efectivo = True
-                origen = 'superadmin'
+                origen = "superadmin"
             elif override is not None:
                 efectivo = override
-                origen = 'override_agregado' if override else 'override_quitado'
+                origen = "override_agregado" if override else "override_quitado"
             else:
                 efectivo = tiene_por_rol
-                origen = 'rol' if tiene_por_rol else 'sin_permiso'
+                origen = "rol" if tiene_por_rol else "sin_permiso"
 
-            resultado[categoria].append({
-                'codigo': p.codigo,
-                'nombre': p.nombre,
-                'descripcion': p.descripcion,
-                'es_critico': p.es_critico,
-                'tiene_por_rol': tiene_por_rol,
-                'override': override,
-                'efectivo': efectivo,
-                'origen': origen
-            })
+            resultado[categoria].append(
+                {
+                    "codigo": p.codigo,
+                    "nombre": p.nombre,
+                    "descripcion": p.descripcion,
+                    "es_critico": p.es_critico,
+                    "tiene_por_rol": tiene_por_rol,
+                    "override": override,
+                    "efectivo": efectivo,
+                    "origen": origen,
+                }
+            )
 
         return resultado
 

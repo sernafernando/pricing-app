@@ -2,6 +2,7 @@
 Modelos para overrides manuales de datos en ventas
 Estos datos NO se sobreescriben cuando se recalculan las métricas
 """
+
 from sqlalchemy import Column, Integer, BigInteger, String, DateTime, ForeignKey, Numeric, Text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -10,6 +11,7 @@ from app.core.database import Base
 
 class VentaTiendaNubeOverride(Base):
     """Override manual de datos para ventas de Tienda Nube"""
+
     __tablename__ = "ventas_tienda_nube_override"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -31,7 +33,7 @@ class VentaTiendaNubeOverride(Base):
     costo_unitario = Column(Numeric(18, 6), nullable=True)
 
     # Auditoría
-    usuario_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -44,6 +46,7 @@ class VentaTiendaNubeOverride(Base):
 
 class VentaFueraMLOverride(Base):
     """Override manual de datos para ventas fuera de ML"""
+
     __tablename__ = "ventas_fuera_ml_override"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -65,7 +68,7 @@ class VentaFueraMLOverride(Base):
     costo_unitario = Column(Numeric(18, 6), nullable=True)
 
     # Auditoría
-    usuario_id = Column(Integer, ForeignKey('usuarios.id'), nullable=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

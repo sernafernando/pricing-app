@@ -1,6 +1,7 @@
 """
 Endpoints para gestión de markups de tienda
 """
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/markups-tienda", tags=["markups-tienda"])
 # =============================================================================
 # SCHEMAS
 # =============================================================================
+
 
 class MarkupBrandCreate(BaseModel):
     comp_id: int
@@ -52,6 +54,7 @@ class MarkupBrandResponse(BaseModel):
 
 class BrandWithMarkup(BaseModel):
     """Marca con información de markup si existe"""
+
     comp_id: int
     brand_id: int
     brand_desc: str
@@ -89,21 +92,21 @@ class MarkupProductoResponse(BaseModel):
 # ENDPOINTS
 # =============================================================================
 
+
 @router.get("/brands", response_model=List[BrandWithMarkup])
 async def listar_brands_con_markups(
     busqueda: Optional[str] = None,
     solo_con_markup: bool = False,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Lista todas las marcas con sus markups asignados (si tienen).
     Permite búsqueda por nombre de marca.
     """
-    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+    if not verificar_permiso(db, current_user, "productos.gestionar_markups_tienda"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar markups de tienda"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
         )
 
     # Query base para obtener marcas de tb_brand
@@ -113,7 +116,8 @@ async def listar_brands_con_markups(
         where_clause = "AND LOWER(b.brand_desc) LIKE LOWER(:busqueda)"
         params["busqueda"] = f"%{busqueda}%"
 
-    query = db.execute(text(f"""
+    query = db.execute(
+        text(f"""
         SELECT DISTINCT
             b.comp_id,
             b.brand_id,
@@ -127,7 +131,9 @@ async def listar_brands_con_markups(
         WHERE 1=1
         {where_clause}
         ORDER BY b.brand_desc
-    """), params)
+    """),
+        params,
+    )
 
     results = []
     for row in query:
@@ -135,15 +141,17 @@ async def listar_brands_con_markups(
         if solo_con_markup and row.markup_id is None:
             continue
 
-        results.append(BrandWithMarkup(
-            comp_id=row.comp_id,
-            brand_id=row.brand_id,
-            brand_desc=row.brand_desc,
-            markup_id=row.markup_id,
-            markup_porcentaje=row.markup_porcentaje,
-            markup_activo=row.markup_activo,
-            markup_notas=row.markup_notas
-        ))
+        results.append(
+            BrandWithMarkup(
+                comp_id=row.comp_id,
+                brand_id=row.brand_id,
+                brand_desc=row.brand_desc,
+                markup_id=row.markup_id,
+                markup_porcentaje=row.markup_porcentaje,
+                markup_activo=row.markup_activo,
+                markup_notas=row.markup_notas,
+            )
+        )
 
     return results
 
@@ -154,22 +162,22 @@ async def crear_o_actualizar_markup_brand(
     brand_id: int,
     data: MarkupBrandCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Crea o actualiza el markup para una marca específica.
     """
-    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+    if not verificar_permiso(db, current_user, "productos.gestionar_markups_tienda"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar markups de tienda"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
         )
 
     # Verificar si ya existe un markup para esta marca
-    existing = db.query(MarkupTiendaBrand).filter(
-        MarkupTiendaBrand.comp_id == comp_id,
-        MarkupTiendaBrand.brand_id == brand_id
-    ).first()
+    existing = (
+        db.query(MarkupTiendaBrand)
+        .filter(MarkupTiendaBrand.comp_id == comp_id, MarkupTiendaBrand.brand_id == brand_id)
+        .first()
+    )
 
     if existing:
         # Actualizar existente
@@ -190,7 +198,7 @@ async def crear_o_actualizar_markup_brand(
             markup_porcentaje=data.markup_porcentaje,
             activo=data.activo,
             notas=data.notas,
-            created_by_id=current_user.id
+            created_by_id=current_user.id,
         )
         db.add(nuevo_markup)
         db.commit()
@@ -200,30 +208,24 @@ async def crear_o_actualizar_markup_brand(
 
 @router.delete("/brands/{comp_id}/{brand_id}/markup")
 async def eliminar_markup_brand(
-    comp_id: int,
-    brand_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    comp_id: int, brand_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Elimina el markup de una marca específica.
     """
-    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+    if not verificar_permiso(db, current_user, "productos.gestionar_markups_tienda"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar markups de tienda"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
         )
 
-    markup = db.query(MarkupTiendaBrand).filter(
-        MarkupTiendaBrand.comp_id == comp_id,
-        MarkupTiendaBrand.brand_id == brand_id
-    ).first()
+    markup = (
+        db.query(MarkupTiendaBrand)
+        .filter(MarkupTiendaBrand.comp_id == comp_id, MarkupTiendaBrand.brand_id == brand_id)
+        .first()
+    )
 
     if not markup:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Markup no encontrado"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Markup no encontrado")
 
     db.delete(markup)
     db.commit()
@@ -233,34 +235,28 @@ async def eliminar_markup_brand(
 
 @router.get("/stats")
 async def obtener_estadisticas_markups(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Obtiene estadísticas de los markups configurados.
     """
-    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+    if not verificar_permiso(db, current_user, "productos.gestionar_markups_tienda"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar markups de tienda"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
         )
 
     total_marcas = db.execute(text("SELECT COUNT(DISTINCT brand_id) FROM tb_brand")).scalar()
-    total_con_markup = db.query(func.count(MarkupTiendaBrand.id)).filter(
-        MarkupTiendaBrand.activo == True
-    ).scalar()
-    total_inactivos = db.query(func.count(MarkupTiendaBrand.id)).filter(
-        MarkupTiendaBrand.activo == False
-    ).scalar()
+    total_con_markup = db.query(func.count(MarkupTiendaBrand.id)).filter(MarkupTiendaBrand.activo == True).scalar()
+    total_inactivos = db.query(func.count(MarkupTiendaBrand.id)).filter(MarkupTiendaBrand.activo == False).scalar()
 
-    markup_promedio = db.query(func.avg(MarkupTiendaBrand.markup_porcentaje)).filter(
-        MarkupTiendaBrand.activo == True
-    ).scalar()
+    markup_promedio = (
+        db.query(func.avg(MarkupTiendaBrand.markup_porcentaje)).filter(MarkupTiendaBrand.activo == True).scalar()
+    )
 
     # Estadísticas de productos
-    total_productos_con_markup = db.query(func.count(MarkupTiendaProducto.id)).filter(
-        MarkupTiendaProducto.activo == True
-    ).scalar()
+    total_productos_con_markup = (
+        db.query(func.count(MarkupTiendaProducto.id)).filter(MarkupTiendaProducto.activo == True).scalar()
+    )
 
     return {
         "total_marcas": total_marcas,
@@ -268,7 +264,7 @@ async def obtener_estadisticas_markups(
         "total_sin_markup": total_marcas - total_con_markup - total_inactivos,
         "total_inactivos": total_inactivos,
         "markup_promedio": round(float(markup_promedio or 0), 2),
-        "total_productos_con_markup": total_productos_con_markup
+        "total_productos_con_markup": total_productos_con_markup,
     }
 
 
@@ -276,23 +272,23 @@ async def obtener_estadisticas_markups(
 # ENDPOINTS PRODUCTOS INDIVIDUALES
 # =============================================================================
 
+
 @router.get("/productos", response_model=List[MarkupProductoResponse])
-async def listar_productos_con_markup(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def listar_productos_con_markup(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Lista todos los productos con markups individuales configurados.
     """
-    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+    if not verificar_permiso(db, current_user, "productos.gestionar_markups_tienda"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar markups de tienda"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
         )
 
-    productos = db.query(MarkupTiendaProducto).filter(
-        MarkupTiendaProducto.activo == True
-    ).order_by(MarkupTiendaProducto.codigo).all()
+    productos = (
+        db.query(MarkupTiendaProducto)
+        .filter(MarkupTiendaProducto.activo == True)
+        .order_by(MarkupTiendaProducto.codigo)
+        .all()
+    )
 
     return [
         MarkupProductoResponse(
@@ -304,7 +300,7 @@ async def listar_productos_con_markup(
             markup_porcentaje=p.markup_porcentaje,
             activo=p.activo,
             notas=p.notas,
-            markup_id=p.id  # Para compatibilidad con el frontend
+            markup_id=p.id,  # Para compatibilidad con el frontend
         )
         for p in productos
     ]
@@ -315,21 +311,18 @@ async def crear_o_actualizar_markup_producto(
     item_id: int,
     data: MarkupProductoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Crea o actualiza el markup para un producto específico.
     """
-    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+    if not verificar_permiso(db, current_user, "productos.gestionar_markups_tienda"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar markups de tienda"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
         )
 
     # Verificar si ya existe un markup para este producto
-    existing = db.query(MarkupTiendaProducto).filter(
-        MarkupTiendaProducto.item_id == item_id
-    ).first()
+    existing = db.query(MarkupTiendaProducto).filter(MarkupTiendaProducto.item_id == item_id).first()
 
     if existing:
         # Actualizar existente
@@ -351,7 +344,7 @@ async def crear_o_actualizar_markup_producto(
             markup_porcentaje=existing.markup_porcentaje,
             activo=existing.activo,
             notas=existing.notas,
-            markup_id=existing.id
+            markup_id=existing.id,
         )
     else:
         # Crear nuevo
@@ -363,7 +356,7 @@ async def crear_o_actualizar_markup_producto(
             markup_porcentaje=data.markup_porcentaje,
             activo=data.activo,
             notas=data.notas,
-            created_by_id=current_user.id
+            created_by_id=current_user.id,
         )
         db.add(nuevo_markup)
         db.commit()
@@ -377,34 +370,26 @@ async def crear_o_actualizar_markup_producto(
             markup_porcentaje=nuevo_markup.markup_porcentaje,
             activo=nuevo_markup.activo,
             notas=nuevo_markup.notas,
-            markup_id=nuevo_markup.id
+            markup_id=nuevo_markup.id,
         )
 
 
 @router.delete("/productos/{item_id}/markup")
 async def eliminar_markup_producto(
-    item_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Elimina el markup de un producto específico.
     """
-    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+    if not verificar_permiso(db, current_user, "productos.gestionar_markups_tienda"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar markups de tienda"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
         )
 
-    markup = db.query(MarkupTiendaProducto).filter(
-        MarkupTiendaProducto.item_id == item_id
-    ).first()
+    markup = db.query(MarkupTiendaProducto).filter(MarkupTiendaProducto.item_id == item_id).first()
 
     if not markup:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Markup no encontrado"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Markup no encontrado")
 
     db.delete(markup)
     db.commit()
@@ -416,22 +401,19 @@ async def eliminar_markup_producto(
 # ENDPOINTS CONFIGURACIÓN TIENDA
 # =============================================================================
 
+
 class ConfigUpdate(BaseModel):
     valor: float
 
 
 @router.get("/config")
-async def obtener_config_tienda(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def obtener_config_tienda(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene toda la configuración de tienda.
     """
-    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+    if not verificar_permiso(db, current_user, "productos.gestionar_markups_tienda"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar markups de tienda"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
         )
 
     configs = db.query(TiendaConfig).all()
@@ -440,17 +422,14 @@ async def obtener_config_tienda(
 
 @router.get("/config/{clave}")
 async def obtener_config_valor(
-    clave: str,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    clave: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Obtiene un valor de configuración específico.
     """
-    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+    if not verificar_permiso(db, current_user, "productos.gestionar_markups_tienda"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar markups de tienda"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
         )
 
     config = db.query(TiendaConfig).filter(TiendaConfig.clave == clave).first()
@@ -461,18 +440,14 @@ async def obtener_config_valor(
 
 @router.put("/config/{clave}")
 async def actualizar_config_valor(
-    clave: str,
-    data: ConfigUpdate,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    clave: str, data: ConfigUpdate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Actualiza o crea un valor de configuración.
     """
-    if not verificar_permiso(db, current_user, 'productos.gestionar_markups_tienda'):
+    if not verificar_permiso(db, current_user, "productos.gestionar_markups_tienda"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para gestionar markups de tienda"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
         )
 
     config = db.query(TiendaConfig).filter(TiendaConfig.clave == clave).first()
@@ -480,11 +455,7 @@ async def actualizar_config_valor(
         config.valor = data.valor
         config.updated_by_id = current_user.id
     else:
-        config = TiendaConfig(
-            clave=clave,
-            valor=data.valor,
-            updated_by_id=current_user.id
-        )
+        config = TiendaConfig(clave=clave, valor=data.valor, updated_by_id=current_user.id)
         db.add(config)
 
     db.commit()

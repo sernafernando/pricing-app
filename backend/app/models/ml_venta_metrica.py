@@ -3,6 +3,7 @@ Modelo para métricas precalculadas de ventas ML
 Contiene todos los cálculos de markup, costos, comisiones, etc.
 Se actualiza mediante un script de agregación que lee de ml_orders + commercial_transactions
 """
+
 from sqlalchemy import Column, Integer, BigInteger, String, Numeric, DateTime, Date, Text
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -22,6 +23,7 @@ class MLVentaMetrica(Base):
     7. Ganancia = monto limpio - costo sin IVA
     8. Markup = (ganancia / costo sin IVA) * 100
     """
+
     __tablename__ = "ml_ventas_metricas"
 
     # Primary Key

@@ -2,6 +2,7 @@
 Endpoints para gestionar vendedores excluidos de los reportes de ventas por fuera de ML
 Solo accesible por administradores
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -20,6 +21,7 @@ router = APIRouter()
 # ============================================================================
 # Schemas
 # ============================================================================
+
 
 class VendedorExcluidoCreate(BaseModel):
     sm_id: int
@@ -48,24 +50,20 @@ class VendedorDisponible(BaseModel):
 # Helpers
 # ============================================================================
 
+
 def verificar_admin(current_user: Usuario):
     """Verifica que el usuario sea admin o superadmin"""
-    if current_user.rol not in ['ADMIN', 'SUPERADMIN']:
-        raise HTTPException(
-            status_code=403,
-            detail="Solo los administradores pueden gestionar vendedores excluidos"
-        )
+    if current_user.rol not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="Solo los administradores pueden gestionar vendedores excluidos")
 
 
 # ============================================================================
 # Endpoints
 # ============================================================================
 
+
 @router.get("/vendedores-excluidos", response_model=List[VendedorExcluidoResponse])
-async def listar_vendedores_excluidos(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def listar_vendedores_excluidos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los vendedores excluidos"""
     verificar_admin(current_user)
 
@@ -77,7 +75,7 @@ async def listar_vendedores_excluidos(
 async def listar_vendedores_disponibles(
     buscar: Optional[str] = Query(None, description="Buscar por nombre"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """Lista vendedores disponibles del ERP para excluir.
     Incluye vendedores activos y también los que aparecen en ventas por fuera de ML.
@@ -98,7 +96,7 @@ async def listar_vendedores_disponibles(
     params = {}
     if buscar:
         query += " AND sm_name ILIKE :buscar"
-        params['buscar'] = f"%{buscar}%"
+        params["buscar"] = f"%{buscar}%"
 
     query += " ORDER BY sm_name LIMIT 100"
 
@@ -109,7 +107,7 @@ async def listar_vendedores_disponibles(
             sm_id=r.sm_id,
             sm_name=r.sm_name or f"Vendedor {r.sm_id}",
             bra_id=r.bra_id,
-            ya_excluido=r.sm_id in excluidos_ids
+            ya_excluido=r.sm_id in excluidos_ids,
         )
         for r in result
     ]
@@ -117,40 +115,27 @@ async def listar_vendedores_disponibles(
 
 @router.post("/vendedores-excluidos", response_model=VendedorExcluidoResponse)
 async def agregar_vendedor_excluido(
-    vendedor: VendedorExcluidoCreate,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    vendedor: VendedorExcluidoCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Agrega un vendedor a la lista de excluidos"""
     verificar_admin(current_user)
 
     # Verificar que no esté ya excluido
-    existente = db.query(VendedorExcluido).filter(
-        VendedorExcluido.sm_id == vendedor.sm_id
-    ).first()
+    existente = db.query(VendedorExcluido).filter(VendedorExcluido.sm_id == vendedor.sm_id).first()
 
     if existente:
-        raise HTTPException(
-            status_code=400,
-            detail="Este vendedor ya está en la lista de excluidos"
-        )
+        raise HTTPException(status_code=400, detail="Este vendedor ya está en la lista de excluidos")
 
     # Si no viene el nombre, buscarlo en el ERP
     sm_name = vendedor.sm_name
     if not sm_name:
         result = db.execute(
-            text("SELECT sm_name FROM tb_salesman WHERE sm_id = :sm_id"),
-            {"sm_id": vendedor.sm_id}
+            text("SELECT sm_name FROM tb_salesman WHERE sm_id = :sm_id"), {"sm_id": vendedor.sm_id}
         ).fetchone()
         if result:
             sm_name = result.sm_name
 
-    nuevo = VendedorExcluido(
-        sm_id=vendedor.sm_id,
-        sm_name=sm_name,
-        motivo=vendedor.motivo,
-        creado_por=current_user.id
-    )
+    nuevo = VendedorExcluido(sm_id=vendedor.sm_id, sm_name=sm_name, motivo=vendedor.motivo, creado_por=current_user.id)
 
     db.add(nuevo)
     db.commit()
@@ -161,22 +146,15 @@ async def agregar_vendedor_excluido(
 
 @router.delete("/vendedores-excluidos/{sm_id}")
 async def eliminar_vendedor_excluido(
-    sm_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    sm_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina un vendedor de la lista de excluidos"""
     verificar_admin(current_user)
 
-    vendedor = db.query(VendedorExcluido).filter(
-        VendedorExcluido.sm_id == sm_id
-    ).first()
+    vendedor = db.query(VendedorExcluido).filter(VendedorExcluido.sm_id == sm_id).first()
 
     if not vendedor:
-        raise HTTPException(
-            status_code=404,
-            detail="Vendedor no encontrado en la lista de excluidos"
-        )
+        raise HTTPException(status_code=404, detail="Vendedor no encontrado en la lista de excluidos")
 
     db.delete(vendedor)
     db.commit()
@@ -185,10 +163,7 @@ async def eliminar_vendedor_excluido(
 
 
 @router.get("/vendedores-excluidos/ids")
-async def obtener_ids_excluidos(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def obtener_ids_excluidos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene solo los IDs de vendedores excluidos (para uso interno)"""
     vendedores = db.query(VendedorExcluido.sm_id).all()
     return [v.sm_id for v in vendedores]

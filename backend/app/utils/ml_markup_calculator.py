@@ -5,6 +5,7 @@ Replica la lógica exacta de st_app.py para garantizar consistencia
 Uso:
     from app.utils.ml_markup_calculator import calcular_markup_ml, calcular_limpio_ml
 """
+
 from typing import Optional
 
 
@@ -19,7 +20,7 @@ def calcular_limpio_ml(
     ml_logistic_type: Optional[str] = None,
     gasto_envio_flex: float = 0,
     ganancia_flex: float = 0,
-    usar_flex: bool = False
+    usar_flex: bool = False,
 ) -> float:
     """
     Calcula el monto limpio según la lógica del dashboard (st_app.py líneas 625-642)
@@ -54,14 +55,14 @@ def calcular_limpio_ml(
 
     # Aplicar lógica de envío según tipo
     if monto_unitario >= min_free:
-        if ml_logistic_type == 'self_service' and usar_flex:
+        if ml_logistic_type == "self_service" and usar_flex:
             # Flex con envío gratis
             return monto_sin_iva - gasto_envio_flex / count_per_pack - comision_pesos
         else:
             # Envío gratis normal
             return monto_sin_iva - costo_envio_prorrateado - comision_pesos
     else:
-        if ml_logistic_type == 'self_service' and usar_flex:
+        if ml_logistic_type == "self_service" and usar_flex:
             # Flex sin envío gratis
             return monto_sin_iva + ganancia_flex / count_per_pack - comision_pesos
         else:
@@ -69,10 +70,7 @@ def calcular_limpio_ml(
             return monto_sin_iva - comision_pesos
 
 
-def calcular_markup_ml(
-    monto_limpio: float,
-    costo_total_sin_iva: float
-) -> Optional[float]:
+def calcular_markup_ml(monto_limpio: float, costo_total_sin_iva: float) -> Optional[float]:
     """
     Calcula el markup según la lógica del dashboard (st_app.py líneas 655-659)
 
@@ -98,7 +96,7 @@ def calcular_metricas_ml_completas(
     comision_pesos: float,
     costo_envio_total: Optional[float] = None,
     count_per_pack: int = 1,
-    **kwargs
+    **kwargs,
 ) -> dict:
     """
     Calcula todas las métricas ML de una vez
@@ -125,15 +123,15 @@ def calcular_metricas_ml_completas(
         comision_pesos=comision_pesos,
         costo_envio_total=costo_envio_total,
         count_per_pack=count_per_pack,
-        **kwargs
+        **kwargs,
     )
 
     ganancia = monto_limpio - costo_total_sin_iva
     markup_porcentaje = calcular_markup_ml(monto_limpio, costo_total_sin_iva)
 
     return {
-        'monto_limpio': monto_limpio,
-        'costo_total_sin_iva': costo_total_sin_iva,
-        'ganancia': ganancia,
-        'markup_porcentaje': markup_porcentaje
+        "monto_limpio": monto_limpio,
+        "costo_total_sin_iva": costo_total_sin_iva,
+        "ganancia": ganancia,
+        "markup_porcentaje": markup_porcentaje,
     }

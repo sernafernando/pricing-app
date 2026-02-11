@@ -2,6 +2,7 @@
 Endpoints para métricas de rentabilidad de ventas por fuera de MercadoLibre
 Replica la funcionalidad de rentabilidad.py pero usando datos del ERP directamente
 """
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text, or_, func
@@ -24,8 +25,10 @@ router = APIRouter()
 # Schemas
 # ============================================================================
 
+
 class DesgloseMarca(BaseModel):
     """Desglose por marca dentro de una card"""
+
     marca: str
     monto_venta: float
     ganancia: float
@@ -34,6 +37,7 @@ class DesgloseMarca(BaseModel):
 
 class DesgloseOffset(BaseModel):
     """Desglose de un offset aplicado"""
+
     descripcion: str
     nivel: str  # marca, categoria, subcategoria, producto, grupo
     nombre_nivel: str
@@ -43,6 +47,7 @@ class DesgloseOffset(BaseModel):
 
 class CardRentabilidadFuera(BaseModel):
     """Card de rentabilidad para ventas fuera de ML"""
+
     nombre: str
     tipo: str  # marca, categoria, subcategoria, producto
     identificador: Optional[str] = None
@@ -74,6 +79,7 @@ class RentabilidadFueraResponse(BaseModel):
 
 class ProductoBusquedaFuera(BaseModel):
     """Producto encontrado en búsqueda"""
+
     item_id: int
     codigo: str
     descripcion: str
@@ -94,8 +100,42 @@ SD_TODOS = SD_VENTAS + SD_DEVOLUCIONES
 # Sucursal 45 (Grupo Gauss): 105, 106, 109, 111, 115, 116, 117, 118, 124
 # Facturas en dólares: 103, 122, 124, 125, 126, 127
 # Excluimos: 107, 110 (Remitos), 112 (Recibos), 113, 114 (TN), 129-132 (MercadoLibre)
-DF_PERMITIDOS = [1, 2, 3, 4, 5, 6, 63, 85, 86, 87, 65, 67, 68, 69, 70, 71, 72, 73, 74, 81,
-                 103, 105, 106, 109, 111, 115, 116, 117, 118, 122, 124, 125, 126, 127]
+DF_PERMITIDOS = [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    63,
+    85,
+    86,
+    87,
+    65,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    81,
+    103,
+    105,
+    106,
+    109,
+    111,
+    115,
+    116,
+    117,
+    118,
+    122,
+    124,
+    125,
+    126,
+    127,
+]
 
 # Exclusiones
 CLIENTES_EXCLUIDOS = [11, 3900]
@@ -118,14 +158,15 @@ def get_vendedores_excluidos_str(db) -> str:
     todos_excluidos = excluidos_ids.union(set(VENDEDORES_EXCLUIDOS_DEFAULT))
 
     if not todos_excluidos:
-        return '0'
+        return "0"
 
-    return ','.join(map(str, sorted(todos_excluidos)))
+    return ",".join(map(str, sorted(todos_excluidos)))
 
 
 # ============================================================================
 # Query base - Usa tabla de métricas pre-calculadas
 # ============================================================================
+
 
 def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_excluidos_str: str = "10,11,12") -> str:
     """
@@ -134,15 +175,15 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
     grupo_by puede ser: 'marca', 'categoria', 'subcategoria', 'producto'
     """
 
-    if grupo_by == 'marca':
+    if grupo_by == "marca":
         select_campos = "marca as nombre, marca as identificador"
         group_by = "marca"
         where_not_null = "marca IS NOT NULL"
-    elif grupo_by == 'categoria':
+    elif grupo_by == "categoria":
         select_campos = "categoria as nombre, categoria as identificador"
         group_by = "categoria"
         where_not_null = "categoria IS NOT NULL"
-    elif grupo_by == 'subcategoria':
+    elif grupo_by == "subcategoria":
         select_campos = "subcategoria as nombre, subcategoria as identificador"
         group_by = "subcategoria"
         where_not_null = "subcategoria IS NOT NULL"
@@ -173,6 +214,7 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
 # Endpoints
 # ============================================================================
 
+
 @router.get("/rentabilidad-fuera", response_model=RentabilidadFueraResponse)
 async def obtener_rentabilidad_fuera(
     fecha_desde: date = Query(..., description="Fecha inicio del período"),
@@ -184,17 +226,17 @@ async def obtener_rentabilidad_fuera(
     subcategorias: Optional[str] = Query(None, description="Subcategorías separadas por |"),
     productos: Optional[str] = Query(None, description="Item IDs separados por |"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Obtiene métricas de rentabilidad para ventas fuera de ML agrupadas según los filtros.
     Los límites de offsets son ACUMULATIVOS con ventas ML.
     """
     # Parsear filtros (usar | como separador para evitar conflictos con comas en nombres)
-    lista_marcas = [m.strip() for m in marcas.split('|')] if marcas else []
-    lista_categorias = [c.strip() for c in categorias.split('|')] if categorias else []
-    lista_subcategorias = [s.strip() for s in subcategorias.split('|')] if subcategorias else []
-    lista_productos = [int(p.strip()) for p in productos.split('|') if p.strip().isdigit()] if productos else []
+    lista_marcas = [m.strip() for m in marcas.split("|")] if marcas else []
+    lista_categorias = [c.strip() for c in categorias.split("|")] if categorias else []
+    lista_subcategorias = [s.strip() for s in subcategorias.split("|")] if subcategorias else []
+    lista_productos = [int(p.strip()) for p in productos.split("|") if p.strip().isdigit()] if productos else []
 
     # Determinar nivel de agrupación
     if lista_productos:
@@ -216,34 +258,31 @@ async def obtener_rentabilidad_fuera(
 
     # Construir filtros SQL
     filtros_extra = ""
-    params = {
-        "from_date": fecha_desde.isoformat(),
-        "to_date": (fecha_hasta + timedelta(days=1)).isoformat()
-    }
+    params = {"from_date": fecha_desde.isoformat(), "to_date": (fecha_hasta + timedelta(days=1)).isoformat()}
 
     if sucursal:
-        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        sucursales = [s.strip() for s in sucursal.split(",") if s.strip()]
         if sucursales:
             filtros_extra += " AND sucursal = ANY(:sucursales)"
-            params['sucursales'] = sucursales
+            params["sucursales"] = sucursales
     if vendedor:
-        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        vendedores = [v.strip() for v in vendedor.split(",") if v.strip()]
         if vendedores:
             filtros_extra += " AND vendedor = ANY(:vendedores)"
-            params['vendedores'] = vendedores
+            params["vendedores"] = vendedores
 
     if lista_productos:
         filtros_extra += " AND item_id = ANY(:productos)"
-        params['productos'] = lista_productos
+        params["productos"] = lista_productos
     if lista_marcas:
         filtros_extra += " AND marca = ANY(:marcas)"
-        params['marcas'] = lista_marcas
+        params["marcas"] = lista_marcas
     if lista_categorias:
         filtros_extra += " AND categoria = ANY(:categorias)"
-        params['categorias'] = lista_categorias
+        params["categorias"] = lista_categorias
     if lista_subcategorias:
         filtros_extra += " AND subcategoria = ANY(:subcategorias)"
-        params['subcategorias'] = lista_subcategorias
+        params["subcategorias"] = lista_subcategorias
 
     # Obtener vendedores excluidos dinámicamente
     vendedores_excluidos = get_vendedores_excluidos_str(db)
@@ -254,22 +293,21 @@ async def obtener_rentabilidad_fuera(
     resultados = result.fetchall()
 
     # Obtener offsets vigentes (solo los que aplican a fuera de ML)
-    offsets = db.query(OffsetGanancia).filter(
-        OffsetGanancia.fecha_desde <= fecha_hasta,
-        or_(
-            OffsetGanancia.fecha_hasta.is_(None),
-            OffsetGanancia.fecha_hasta >= fecha_desde
-        ),
-        OffsetGanancia.aplica_fuera == True
-    ).all()
+    offsets = (
+        db.query(OffsetGanancia)
+        .filter(
+            OffsetGanancia.fecha_desde <= fecha_hasta,
+            or_(OffsetGanancia.fecha_hasta.is_(None), OffsetGanancia.fecha_hasta >= fecha_desde),
+            OffsetGanancia.aplica_fuera == True,
+        )
+        .all()
+    )
 
     # Obtener filtros de grupo para todos los grupos con offsets
     grupo_ids = list(set(o.grupo_id for o in offsets if o.grupo_id))
     filtros_por_grupo = {}  # grupo_id -> [filtros]
     if grupo_ids:
-        filtros_grupo = db.query(OffsetGrupoFiltro).filter(
-            OffsetGrupoFiltro.grupo_id.in_(grupo_ids)
-        ).all()
+        filtros_grupo = db.query(OffsetGrupoFiltro).filter(OffsetGrupoFiltro.grupo_id.in_(grupo_ids)).all()
         for filtro in filtros_grupo:
             if filtro.grupo_id not in filtros_por_grupo:
                 filtros_por_grupo[filtro.grupo_id] = []
@@ -284,21 +322,25 @@ async def obtener_rentabilidad_fuera(
         Calcula unidades y monto para un grupo en un rango de fechas.
         ACUMULATIVO: suma tanto ventas ML como fuera de ML.
         """
-        consumo = db.query(
-            func.sum(OffsetGrupoConsumo.cantidad).label('total_unidades'),
-            func.sum(OffsetGrupoConsumo.monto_offset_aplicado).label('total_monto_ars'),
-            func.sum(OffsetGrupoConsumo.monto_offset_usd).label('total_monto_usd')
-        ).filter(
-            OffsetGrupoConsumo.grupo_id == grupo_id,
-            OffsetGrupoConsumo.fecha_venta >= desde_dt,
-            OffsetGrupoConsumo.fecha_venta < hasta_dt
-            # NO filtramos por tipo_venta, así suma ML + fuera_ml
-        ).first()
+        consumo = (
+            db.query(
+                func.sum(OffsetGrupoConsumo.cantidad).label("total_unidades"),
+                func.sum(OffsetGrupoConsumo.monto_offset_aplicado).label("total_monto_ars"),
+                func.sum(OffsetGrupoConsumo.monto_offset_usd).label("total_monto_usd"),
+            )
+            .filter(
+                OffsetGrupoConsumo.grupo_id == grupo_id,
+                OffsetGrupoConsumo.fecha_venta >= desde_dt,
+                OffsetGrupoConsumo.fecha_venta < hasta_dt,
+                # NO filtramos por tipo_venta, así suma ML + fuera_ml
+            )
+            .first()
+        )
 
         return (
             int(consumo.total_unidades or 0),
             float(consumo.total_monto_ars or 0),
-            float(consumo.total_monto_usd or 0)
+            float(consumo.total_monto_usd or 0),
         )
 
     def calcular_consumo_individual_acumulado(offset_id, desde_dt, hasta_dt):
@@ -306,21 +348,25 @@ async def obtener_rentabilidad_fuera(
         Calcula unidades y monto para un offset individual en un rango de fechas.
         ACUMULATIVO: suma tanto ventas ML como fuera de ML.
         """
-        consumo = db.query(
-            func.sum(OffsetIndividualConsumo.cantidad).label('total_unidades'),
-            func.sum(OffsetIndividualConsumo.monto_offset_aplicado).label('total_monto_ars'),
-            func.sum(OffsetIndividualConsumo.monto_offset_usd).label('total_monto_usd')
-        ).filter(
-            OffsetIndividualConsumo.offset_id == offset_id,
-            OffsetIndividualConsumo.fecha_venta >= desde_dt,
-            OffsetIndividualConsumo.fecha_venta < hasta_dt
-            # NO filtramos por tipo_venta, así suma ML + fuera_ml
-        ).first()
+        consumo = (
+            db.query(
+                func.sum(OffsetIndividualConsumo.cantidad).label("total_unidades"),
+                func.sum(OffsetIndividualConsumo.monto_offset_aplicado).label("total_monto_ars"),
+                func.sum(OffsetIndividualConsumo.monto_offset_usd).label("total_monto_usd"),
+            )
+            .filter(
+                OffsetIndividualConsumo.offset_id == offset_id,
+                OffsetIndividualConsumo.fecha_venta >= desde_dt,
+                OffsetIndividualConsumo.fecha_venta < hasta_dt,
+                # NO filtramos por tipo_venta, así suma ML + fuera_ml
+            )
+            .first()
+        )
 
         return (
             int(consumo.total_unidades or 0),
             float(consumo.total_monto_ars or 0),
-            float(consumo.total_monto_usd or 0)
+            float(consumo.total_monto_usd or 0),
         )
 
     # ========================================================================
@@ -336,9 +382,7 @@ async def obtener_rentabilidad_fuera(
             tc = float(offset.tipo_cambio) if offset.tipo_cambio else 1.0
             offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
 
-            resumen = db.query(OffsetGrupoResumen).filter(
-                OffsetGrupoResumen.grupo_id == offset.grupo_id
-            ).first()
+            resumen = db.query(OffsetGrupoResumen).filter(OffsetGrupoResumen.grupo_id == offset.grupo_id).first()
 
             if resumen:
                 float(resumen.total_monto_usd or 0)
@@ -377,9 +421,9 @@ async def obtener_rentabilidad_fuera(
                     if offset.max_unidades is not None:
                         unidades_disponibles = offset.max_unidades - consumo_previo_unidades
                         if periodo_unidades >= unidades_disponibles:
-                            if offset.tipo_offset == 'monto_por_unidad':
+                            if offset.tipo_offset == "monto_por_unidad":
                                 monto_base = float(offset.monto or 0)
-                                if offset.moneda == 'USD' and offset.tipo_cambio:
+                                if offset.moneda == "USD" and offset.tipo_cambio:
                                     monto_base *= float(offset.tipo_cambio)
                                 grupo_offset_total = monto_base * max(0, unidades_disponibles)
                             limite_aplicado = True
@@ -391,24 +435,24 @@ async def obtener_rentabilidad_fuera(
                             limite_aplicado = True
 
                 offsets_grupo_calculados[offset.grupo_id] = {
-                    'offset_total': grupo_offset_total,
-                    'descripcion': offset.descripcion or f"Grupo {offset.grupo_id}",
-                    'limite_aplicado': limite_aplicado,
-                    'limite_agotado_previo': limite_agotado_previo,
-                    'max_unidades': offset.max_unidades,
-                    'max_monto_usd': offset.max_monto_usd,
-                    'consumo_previo_offset': consumo_previo_offset
+                    "offset_total": grupo_offset_total,
+                    "descripcion": offset.descripcion or f"Grupo {offset.grupo_id}",
+                    "limite_aplicado": limite_aplicado,
+                    "limite_agotado_previo": limite_agotado_previo,
+                    "max_unidades": offset.max_unidades,
+                    "max_monto_usd": offset.max_monto_usd,
+                    "consumo_previo_offset": consumo_previo_offset,
                 }
             else:
                 offsets_grupo_calculados[offset.grupo_id] = {
-                    'offset_total': 0.0,
-                    'descripcion': offset.descripcion or f"Grupo {offset.grupo_id}",
-                    'limite_aplicado': False,
-                    'limite_agotado_previo': False,
-                    'max_unidades': offset.max_unidades,
-                    'max_monto_usd': offset.max_monto_usd,
-                    'consumo_previo_offset': 0.0,
-                    'sin_recalcular': True
+                    "offset_total": 0.0,
+                    "descripcion": offset.descripcion or f"Grupo {offset.grupo_id}",
+                    "limite_aplicado": False,
+                    "limite_agotado_previo": False,
+                    "max_unidades": offset.max_unidades,
+                    "max_monto_usd": offset.max_monto_usd,
+                    "consumo_previo_offset": 0.0,
+                    "sin_recalcular": True,
                 }
 
     # ========================================================================
@@ -425,9 +469,7 @@ async def obtener_rentabilidad_fuera(
         tc = float(offset.tipo_cambio) if offset.tipo_cambio else 1.0
         offset_inicio_dt = datetime.combine(offset.fecha_desde, datetime.min.time())
 
-        resumen = db.query(OffsetIndividualResumen).filter(
-            OffsetIndividualResumen.offset_id == offset.id
-        ).first()
+        resumen = db.query(OffsetIndividualResumen).filter(OffsetIndividualResumen.offset_id == offset.id).first()
 
         if resumen:
             float(resumen.total_monto_usd or 0)
@@ -464,9 +506,9 @@ async def obtener_rentabilidad_fuera(
                 if offset.max_unidades is not None:
                     unidades_disponibles = offset.max_unidades - consumo_previo_unidades
                     if periodo_unidades >= unidades_disponibles:
-                        if offset.tipo_offset == 'monto_por_unidad':
+                        if offset.tipo_offset == "monto_por_unidad":
                             monto_base = float(offset.monto or 0)
-                            if offset.moneda == 'USD' and offset.tipo_cambio:
+                            if offset.moneda == "USD" and offset.tipo_cambio:
                                 monto_base *= float(offset.tipo_cambio)
                             offset_total = monto_base * max(0, unidades_disponibles)
                         limite_aplicado = True
@@ -478,24 +520,24 @@ async def obtener_rentabilidad_fuera(
                         limite_aplicado = True
 
             offsets_individuales_calculados[offset.id] = {
-                'offset_total': offset_total,
-                'descripcion': offset.descripcion or f"Offset {offset.id}",
-                'limite_aplicado': limite_aplicado,
-                'limite_agotado_previo': limite_agotado_previo,
-                'max_unidades': offset.max_unidades,
-                'max_monto_usd': float(offset.max_monto_usd) if offset.max_monto_usd else None,
-                'consumo_previo_offset': consumo_previo_offset
+                "offset_total": offset_total,
+                "descripcion": offset.descripcion or f"Offset {offset.id}",
+                "limite_aplicado": limite_aplicado,
+                "limite_agotado_previo": limite_agotado_previo,
+                "max_unidades": offset.max_unidades,
+                "max_monto_usd": float(offset.max_monto_usd) if offset.max_monto_usd else None,
+                "consumo_previo_offset": consumo_previo_offset,
             }
         else:
             offsets_individuales_calculados[offset.id] = {
-                'offset_total': 0.0,
-                'descripcion': offset.descripcion or f"Offset {offset.id}",
-                'limite_aplicado': False,
-                'limite_agotado_previo': False,
-                'max_unidades': offset.max_unidades,
-                'max_monto_usd': float(offset.max_monto_usd) if offset.max_monto_usd else None,
-                'consumo_previo_offset': 0.0,
-                'sin_recalcular': True
+                "offset_total": 0.0,
+                "descripcion": offset.descripcion or f"Offset {offset.id}",
+                "limite_aplicado": False,
+                "limite_agotado_previo": False,
+                "max_unidades": offset.max_unidades,
+                "max_monto_usd": float(offset.max_monto_usd) if offset.max_monto_usd else None,
+                "consumo_previo_offset": 0.0,
+                "sin_recalcular": True,
             }
 
     # ========================================================================
@@ -504,15 +546,15 @@ async def obtener_rentabilidad_fuera(
 
     def calcular_valor_offset(offset, cantidad_vendida, costo_total):
         """Calcula el valor del offset según su tipo"""
-        tipo = offset.tipo_offset or 'monto_fijo'
-        if tipo == 'monto_fijo':
+        tipo = offset.tipo_offset or "monto_fijo"
+        if tipo == "monto_fijo":
             return float(offset.monto or 0)
-        elif tipo == 'monto_por_unidad':
+        elif tipo == "monto_por_unidad":
             monto_base = float(offset.monto or 0)
-            if offset.moneda == 'USD' and offset.tipo_cambio:
+            if offset.moneda == "USD" and offset.tipo_cambio:
                 monto_base *= float(offset.tipo_cambio)
             return monto_base * cantidad_vendida
-        elif tipo == 'porcentaje_costo':
+        elif tipo == "porcentaje_costo":
             return (float(offset.porcentaje or 0) / 100) * costo_total
         return float(offset.monto or 0)
 
@@ -520,7 +562,7 @@ async def obtener_rentabilidad_fuera(
         """
         Obtiene cantidad y costo de ventas FUERA de ML para un offset,
         considerando su fecha_desde. Usa tabla de métricas pre-calculada.
-        
+
         Args:
             offset: Objeto OffsetGanancia
             filtro_sql_extra: SQL WHERE clause adicional con placeholders
@@ -541,10 +583,7 @@ async def obtener_rentabilidad_fuera(
             {filtro_sql_extra}
         """
 
-        params = {
-            "periodo_inicio": periodo_inicio.date().isoformat(),
-            "periodo_fin": fecha_hasta_dt.date().isoformat()
-        }
+        params = {"periodo_inicio": periodo_inicio.date().isoformat(), "periodo_fin": fecha_hasta_dt.date().isoformat()}
         if filtro_params:
             params.update(filtro_params)
 
@@ -593,20 +632,22 @@ async def obtener_rentabilidad_fuera(
                     grupo_info = offsets_grupo_calculados[offset.grupo_id]
 
                     limite_texto = ""
-                    if grupo_info['limite_aplicado']:
-                        if grupo_info.get('max_monto_usd'):
+                    if grupo_info["limite_aplicado"]:
+                        if grupo_info.get("max_monto_usd"):
                             limite_texto = f" (máx USD {grupo_info['max_monto_usd']:,.0f})"
-                        elif grupo_info.get('max_unidades'):
+                        elif grupo_info.get("max_unidades"):
                             limite_texto = f" (máx {grupo_info['max_unidades']} un.)"
 
-                    desglose.append(DesgloseOffset(
-                        descripcion=f"{grupo_info['descripcion']}{limite_texto}",
-                        nivel="grupo",
-                        nombre_nivel=f"Grupo {offset.grupo_id}",
-                        tipo_offset=offset.tipo_offset or 'monto_fijo',
-                        monto=grupo_info['offset_total']
-                    ))
-                    offset_total += grupo_info['offset_total']
+                    desglose.append(
+                        DesgloseOffset(
+                            descripcion=f"{grupo_info['descripcion']}{limite_texto}",
+                            nivel="grupo",
+                            nombre_nivel=f"Grupo {offset.grupo_id}",
+                            tipo_offset=offset.tipo_offset or "monto_fijo",
+                            monto=grupo_info["offset_total"],
+                        )
+                    )
+                    offset_total += grupo_info["offset_total"]
                 continue
 
             # Offsets individuales con límites pre-calculados
@@ -623,46 +664,53 @@ async def obtener_rentabilidad_fuera(
 
                 if aplica_a_card:
                     limite_texto = ""
-                    if offset_info['limite_aplicado']:
-                        if offset_info.get('max_monto_usd'):
+                    if offset_info["limite_aplicado"]:
+                        if offset_info.get("max_monto_usd"):
                             limite_texto = f" (máx USD {offset_info['max_monto_usd']:,.0f})"
-                        elif offset_info.get('max_unidades'):
+                        elif offset_info.get("max_unidades"):
                             limite_texto = f" (máx {offset_info['max_unidades']} un.)"
 
-                    desglose.append(DesgloseOffset(
-                        descripcion=f"{offset_info['descripcion']}{limite_texto}",
-                        nivel=nivel_offset,
-                        nombre_nivel=nombre_nivel,
-                        tipo_offset=offset.tipo_offset or 'monto_fijo',
-                        monto=offset_info['offset_total']
-                    ))
-                    offset_total += offset_info['offset_total']
+                    desglose.append(
+                        DesgloseOffset(
+                            descripcion=f"{offset_info['descripcion']}{limite_texto}",
+                            nivel=nivel_offset,
+                            nombre_nivel=nombre_nivel,
+                            tipo_offset=offset.tipo_offset or "monto_fijo",
+                            monto=offset_info["offset_total"],
+                        )
+                    )
+                    offset_total += offset_info["offset_total"]
                 continue
 
             # Offsets sin grupo y sin límites - usar fecha de inicio del offset
-            if nivel == "marca" and offset.marca == card_nombre and not offset.categoria and not offset.subcategoria_id and not offset.item_id:
+            if (
+                nivel == "marca"
+                and offset.marca == card_nombre
+                and not offset.categoria
+                and not offset.subcategoria_id
+                and not offset.item_id
+            ):
                 cant, costo = obtener_ventas_periodo_offset_fuera(
-                    offset,
-                    " AND marca = :filter_marca",
-                    {"filter_marca": card_nombre}
+                    offset, " AND marca = :filter_marca", {"filter_marca": card_nombre}
                 )
                 if cant > 0:
                     valor_offset = calcular_valor_offset(offset, cant, costo)
                     aplica = True
-            elif nivel == "categoria" and offset.categoria == card_nombre and not offset.subcategoria_id and not offset.item_id:
+            elif (
+                nivel == "categoria"
+                and offset.categoria == card_nombre
+                and not offset.subcategoria_id
+                and not offset.item_id
+            ):
                 cant, costo = obtener_ventas_periodo_offset_fuera(
-                    offset,
-                    " AND categoria = :filter_categoria",
-                    {"filter_categoria": card_nombre}
+                    offset, " AND categoria = :filter_categoria", {"filter_categoria": card_nombre}
                 )
                 if cant > 0:
                     valor_offset = calcular_valor_offset(offset, cant, costo)
                     aplica = True
             elif nivel == "producto" and offset.item_id and str(offset.item_id) == str(card_identificador):
                 cant, costo = obtener_ventas_periodo_offset_fuera(
-                    offset,
-                    " AND item_id = :filter_item_id",
-                    {"filter_item_id": offset.item_id}
+                    offset, " AND item_id = :filter_item_id", {"filter_item_id": offset.item_id}
                 )
                 if cant > 0:
                     valor_offset = calcular_valor_offset(offset, cant, costo)
@@ -670,13 +718,15 @@ async def obtener_rentabilidad_fuera(
 
             if aplica and valor_offset > 0:
                 offset_total += valor_offset
-                desglose.append(DesgloseOffset(
-                    descripcion=offset.descripcion or f"Offset {offset.id}",
-                    nivel=nivel_offset,
-                    nombre_nivel=nombre_nivel,
-                    tipo_offset=offset.tipo_offset or 'monto_fijo',
-                    monto=valor_offset
-                ))
+                desglose.append(
+                    DesgloseOffset(
+                        descripcion=offset.descripcion or f"Offset {offset.id}",
+                        nivel=nivel_offset,
+                        nombre_nivel=nombre_nivel,
+                        tipo_offset=offset.tipo_offset or "monto_fijo",
+                        monto=valor_offset,
+                    )
+                )
 
         return offset_total, desglose if desglose else None
 
@@ -697,10 +747,7 @@ async def obtener_rentabilidad_fuera(
 
         # Calcular offsets con desglose
         offset_aplicable, desglose_offsets = calcular_offsets_para_card(
-            r.nombre,
-            r.identificador,
-            cantidad_vendida,
-            costo_total_item
+            r.nombre, r.identificador, cantidad_vendida, costo_total_item
         )
 
         monto_con_costo = float(r.monto_con_costo or 0)
@@ -712,20 +759,22 @@ async def obtener_rentabilidad_fuera(
         ganancia_con_offset = ganancia_con_costo + offset_aplicable
         markup_con_offset = ((ganancia_con_offset / costo_con_costo) * 100) if costo_con_costo > 0 else 0
 
-        cards.append(CardRentabilidadFuera(
-            nombre=r.nombre or "Sin nombre",
-            tipo=nivel,
-            identificador=str(r.identificador) if r.identificador else None,
-            total_ventas=r.total_ventas,
-            monto_venta=monto_con_costo,
-            costo_total=costo_con_costo,
-            ganancia=ganancia_con_costo,
-            markup_promedio=markup_promedio,
-            offset_total=offset_aplicable,
-            ganancia_con_offset=ganancia_con_offset,
-            markup_con_offset=markup_con_offset,
-            desglose_offsets=desglose_offsets
-        ))
+        cards.append(
+            CardRentabilidadFuera(
+                nombre=r.nombre or "Sin nombre",
+                tipo=nivel,
+                identificador=str(r.identificador) if r.identificador else None,
+                total_ventas=r.total_ventas,
+                monto_venta=monto_con_costo,
+                costo_total=costo_con_costo,
+                ganancia=ganancia_con_costo,
+                markup_promedio=markup_promedio,
+                offset_total=offset_aplicable,
+                ganancia_con_offset=ganancia_con_offset,
+                markup_con_offset=markup_con_offset,
+                desglose_offsets=desglose_offsets,
+            )
+        )
 
         total_ventas += r.total_ventas
         total_monto_venta += monto_con_costo
@@ -747,7 +796,7 @@ async def obtener_rentabilidad_fuera(
                 nivel=d.nivel,
                 nombre_nivel=d.nombre_nivel,
                 tipo_offset=d.tipo_offset,
-                monto=0
+                monto=0,
             )
         desglose_totales_agrupado[key].monto += d.monto
 
@@ -767,7 +816,7 @@ async def obtener_rentabilidad_fuera(
         offset_total=total_offset,
         ganancia_con_offset=total_ganancia_con_offset,
         markup_con_offset=total_markup_con_offset,
-        desglose_offsets=list(desglose_totales_agrupado.values()) if desglose_totales_agrupado else None
+        desglose_offsets=list(desglose_totales_agrupado.values()) if desglose_totales_agrupado else None,
     )
 
     return RentabilidadFueraResponse(
@@ -780,8 +829,8 @@ async def obtener_rentabilidad_fuera(
             "categorias": lista_categorias,
             "subcategorias": lista_subcategorias,
             "productos": lista_productos,
-            "nivel_agrupacion": nivel
-        }
+            "nivel_agrupacion": nivel,
+        },
     )
 
 
@@ -793,7 +842,7 @@ async def buscar_productos_fuera(
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
     vendedor: Optional[str] = Query(None, description="Filtrar por vendedor"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Busca productos por código o descripción que tengan ventas en el período.
@@ -805,19 +854,19 @@ async def buscar_productos_fuera(
     params = {
         "from_date": fecha_desde.isoformat(),
         "to_date": (fecha_hasta + timedelta(days=1)).isoformat(),
-        "search": search_term
+        "search": search_term,
     }
 
     if sucursal:
-        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        sucursales = [s.strip() for s in sucursal.split(",") if s.strip()]
         if sucursales:
             filtros_extra += " AND sucursal = ANY(:sucursales)"
-            params['sucursales'] = sucursales
+            params["sucursales"] = sucursales
     if vendedor:
-        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        vendedores = [v.strip() for v in vendedor.split(",") if v.strip()]
         if vendedores:
             filtros_extra += " AND vendedor = ANY(:vendedores)"
-            params['vendedores'] = vendedores
+            params["vendedores"] = vendedores
 
     query = f"""
     SELECT DISTINCT
@@ -841,9 +890,10 @@ async def buscar_productos_fuera(
             codigo=r.codigo or "",
             descripcion=r.descripcion or "",
             marca=r.marca,
-            categoria=r.categoria
+            categoria=r.categoria,
         )
-        for r in result if r.item_id
+        for r in result
+        if r.item_id
     ]
 
 
@@ -857,43 +907,40 @@ async def obtener_filtros_disponibles_fuera(
     categorias: Optional[str] = Query(None),
     subcategorias: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Obtiene los valores disponibles para los filtros basado en los datos del período.
     Usa tabla de métricas pre-calculada.
     """
-    lista_marcas = [m.strip() for m in marcas.split(',')] if marcas else []
-    lista_categorias = [c.strip() for c in categorias.split(',')] if categorias else []
-    lista_subcategorias = [s.strip() for s in subcategorias.split(',')] if subcategorias else []
+    lista_marcas = [m.strip() for m in marcas.split(",")] if marcas else []
+    lista_categorias = [c.strip() for c in categorias.split(",")] if categorias else []
+    lista_subcategorias = [s.strip() for s in subcategorias.split(",")] if subcategorias else []
 
-    params = {
-        "from_date": fecha_desde.isoformat(),
-        "to_date": (fecha_hasta + timedelta(days=1)).isoformat()
-    }
+    params = {"from_date": fecha_desde.isoformat(), "to_date": (fecha_hasta + timedelta(days=1)).isoformat()}
 
     base_where = "WHERE fecha_venta BETWEEN :from_date AND :to_date"
     filtros_extra = ""
-    
+
     if sucursal:
-        sucursales = [s.strip() for s in sucursal.split(',') if s.strip()]
+        sucursales = [s.strip() for s in sucursal.split(",") if s.strip()]
         if sucursales:
             filtros_extra += " AND sucursal = ANY(:sucursales)"
-            params['sucursales'] = sucursales
+            params["sucursales"] = sucursales
     if vendedor:
-        vendedores = [v.strip() for v in vendedor.split(',') if v.strip()]
+        vendedores = [v.strip() for v in vendedor.split(",") if v.strip()]
         if vendedores:
             filtros_extra += " AND vendedor = ANY(:vendedores)"
-            params['vendedores'] = vendedores
+            params["vendedores"] = vendedores
 
     # Marcas
     marcas_where = base_where
     if lista_categorias:
         marcas_where += " AND categoria = ANY(:cat_m)"
-        params['cat_m'] = lista_categorias
+        params["cat_m"] = lista_categorias
     if lista_subcategorias:
         marcas_where += " AND subcategoria = ANY(:subcat_m)"
-        params['subcat_m'] = lista_subcategorias
+        params["subcat_m"] = lista_subcategorias
 
     marcas_query = f"""
     SELECT DISTINCT marca
@@ -908,10 +955,10 @@ async def obtener_filtros_disponibles_fuera(
     cats_where = base_where
     if lista_marcas:
         cats_where += " AND marca = ANY(:marca_c)"
-        params['marca_c'] = lista_marcas
+        params["marca_c"] = lista_marcas
     if lista_subcategorias:
         cats_where += " AND subcategoria = ANY(:subcat_c)"
-        params['subcat_c'] = lista_subcategorias
+        params["subcat_c"] = lista_subcategorias
 
     cats_query = f"""
     SELECT DISTINCT categoria
@@ -926,10 +973,10 @@ async def obtener_filtros_disponibles_fuera(
     subcats_where = base_where
     if lista_marcas:
         subcats_where += " AND marca = ANY(:marca_s)"
-        params['marca_s'] = lista_marcas
+        params["marca_s"] = lista_marcas
     if lista_categorias:
         subcats_where += " AND categoria = ANY(:cat_s)"
-        params['cat_s'] = lista_categorias
+        params["cat_s"] = lista_categorias
 
     subcats_query = f"""
     SELECT DISTINCT subcategoria
@@ -943,5 +990,5 @@ async def obtener_filtros_disponibles_fuera(
     return {
         "marcas": [m[0] for m in marcas_result if m[0]],
         "categorias": [c[0] for c in cats_result if c[0]],
-        "subcategorias": [s[0] for s in subcats_result if s[0]]
+        "subcategorias": [s[0] for s in subcats_result if s[0]],
     }

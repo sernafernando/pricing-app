@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_commercial_transactions_incremental
 """
+
 import sys
 import os
 
@@ -20,10 +21,12 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import SessionLocal
+
 # Importar todos los modelos para evitar problemas de dependencias circulares
 import app.models  # noqa
 from app.models.commercial_transaction import CommercialTransaction
 import uuid
+
 
 async def sync_transacciones_incrementales(db: Session, batch_size: int = 1000):
     """
@@ -46,16 +49,12 @@ async def sync_transacciones_incrementales(db: Session, batch_size: int = 1000):
         # El endpoint necesita fechas, pero usaremos un rango amplio
         # y filtraremos por ct_transaction en el código
         hoy = datetime.now()
-        desde = hoy.replace(day=1).strftime('%Y-%m-%d')  # Primer día del mes actual
-        hasta = hoy.strftime('%Y-%m-%d')
+        desde = hoy.replace(day=1).strftime("%Y-%m-%d")  # Primer día del mes actual
+        hasta = hoy.strftime("%Y-%m-%d")
 
         # Llamar al endpoint externo
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptCommercial",
-            "fromDate": desde,
-            "toDate": hasta
-        }
+        params = {"strScriptLabel": "scriptCommercial", "fromDate": desde, "toDate": hasta}
 
         print(f"📅 Consultando API desde {desde} hasta {hasta}...")
 
@@ -75,8 +74,7 @@ async def sync_transacciones_incrementales(db: Session, batch_size: int = 1000):
 
         # Filtrar solo transacciones nuevas (ct_transaction > ultimo_ct)
         transacciones_nuevas = [
-            t for t in transacciones_data
-            if t.get("ct_transaction") and t.get("ct_transaction") > ultimo_ct
+            t for t in transacciones_data if t.get("ct_transaction") and t.get("ct_transaction") > ultimo_ct
         ]
 
         if not transacciones_nuevas:
@@ -84,7 +82,9 @@ async def sync_transacciones_incrementales(db: Session, batch_size: int = 1000):
             return 0, 0, 0
 
         print(f"   Encontradas {len(transacciones_nuevas)} transacciones nuevas")
-        print(f"   Rango: {min(t.get('ct_transaction') for t in transacciones_nuevas)} - {max(t.get('ct_transaction') for t in transacciones_nuevas)}\n")
+        print(
+            f"   Rango: {min(t.get('ct_transaction') for t in transacciones_nuevas)} - {max(t.get('ct_transaction') for t in transacciones_nuevas)}\n"
+        )
 
         # Insertar transacciones nuevas
         transacciones_insertadas = 0
@@ -218,7 +218,7 @@ async def sync_transacciones_incrementales(db: Session, batch_size: int = 1000):
                     ct_guid=guid_value,
                     ct_transaction4ThirdSales=trans_json.get("ct_transaction4ThirdSales"),
                     ct_documentNumber=trans_json.get("ct_documentNumber"),
-                    ct_note=trans_json.get("ct_note")
+                    ct_note=trans_json.get("ct_note"),
                 )
 
                 db.add(trans)

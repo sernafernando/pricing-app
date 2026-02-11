@@ -3,6 +3,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.core.database import Base
 
+
 class ItemTransaction(Base):
     """
     Modelo para tbItemTransactions del ERP
@@ -10,6 +11,7 @@ class ItemTransaction(Base):
 
     IMPORTANTE: Los nombres de columnas están en minúsculas en PostgreSQL
     """
+
     __tablename__ = "tb_item_transactions"
 
     # IDs principales

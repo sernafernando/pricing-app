@@ -7,6 +7,7 @@ Ejecutar:
     python -m app.scripts.sync_document_files --df-id 1
     python -m app.scripts.sync_document_files --bra-id 1
 """
+
 import sys
 from pathlib import Path
 
@@ -19,20 +20,14 @@ from app.core.database import SessionLocal
 from app.models.tb_document_file import TBDocumentFile
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # URL del gbp-parser
 WORKER_URL = "http://localhost:8002/api/gbp-parser"
 
 
-def fetch_document_files_from_erp(
-    df_id: int = None,
-    bra_id: int = None
-):
+def fetch_document_files_from_erp(df_id: int = None, bra_id: int = None):
     """
     Obtiene tipos de documento desde el ERP vía gbp-parser.
 
@@ -43,14 +38,12 @@ def fetch_document_files_from_erp(
     Returns:
         Lista de registros
     """
-    params = {
-        'strScriptLabel': 'scriptDocumentFile'
-    }
+    params = {"strScriptLabel": "scriptDocumentFile"}
 
     if df_id:
-        params['dfID'] = df_id
+        params["dfID"] = df_id
     if bra_id:
-        params['braID'] = bra_id
+        params["braID"] = bra_id
 
     logger.info(f"Consultando ERP con params: {params}")
 
@@ -78,14 +71,11 @@ def parse_bool(value):
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.lower() in ('true', '1', 'yes')
+        return value.lower() in ("true", "1", "yes")
     return bool(value)
 
 
-def sync_document_files(
-    df_id: int = None,
-    bra_id: int = None
-):
+def sync_document_files(df_id: int = None, bra_id: int = None):
     """
     Sincroniza tipos de documento desde el ERP.
 
@@ -104,10 +94,7 @@ def sync_document_files(
         total_actualizados = 0
 
         # Obtener registros del ERP
-        registros_erp = fetch_document_files_from_erp(
-            df_id=df_id,
-            bra_id=bra_id
-        )
+        registros_erp = fetch_document_files_from_erp(df_id=df_id, bra_id=bra_id)
 
         logger.info(f"Recibidos {len(registros_erp)} registros del ERP")
 
@@ -117,34 +104,38 @@ def sync_document_files(
 
         # Procesar registros
         for record in registros_erp:
-            df_id_val = record.get('df_id')
-            bra_id_val = record.get('bra_id')
+            df_id_val = record.get("df_id")
+            bra_id_val = record.get("bra_id")
 
             if not df_id_val or not bra_id_val:
                 logger.warning(f"Registro sin df_id o bra_id: {record}")
                 continue
 
-            comp_id = record.get('comp_id', 1)
+            comp_id = record.get("comp_id", 1)
 
             # Preparar datos (columnas lowercase, .get() con camelCase del ERP)
             datos = {
-                'comp_id': comp_id,
-                'bra_id': bra_id_val,
-                'df_id': df_id_val,
-                'df_desc': record.get('df_desc'),
-                'df_pointofsale': record.get('df_pointOfSale'),
-                'df_number': record.get('df_number'),
-                'df_tonumber': record.get('df_toNumber'),
-                'df_disabled': parse_bool(record.get('df_Disabled')),
-                'df_iselectronicinvoice': parse_bool(record.get('df_isElectronicInvoice')),
+                "comp_id": comp_id,
+                "bra_id": bra_id_val,
+                "df_id": df_id_val,
+                "df_desc": record.get("df_desc"),
+                "df_pointofsale": record.get("df_pointOfSale"),
+                "df_number": record.get("df_number"),
+                "df_tonumber": record.get("df_toNumber"),
+                "df_disabled": parse_bool(record.get("df_Disabled")),
+                "df_iselectronicinvoice": parse_bool(record.get("df_isElectronicInvoice")),
             }
 
             # Verificar si existe (PK compuesta: comp_id, bra_id, df_id)
-            existente = db_local.query(TBDocumentFile).filter(
-                TBDocumentFile.comp_id == comp_id,
-                TBDocumentFile.bra_id == bra_id_val,
-                TBDocumentFile.df_id == df_id_val
-            ).first()
+            existente = (
+                db_local.query(TBDocumentFile)
+                .filter(
+                    TBDocumentFile.comp_id == comp_id,
+                    TBDocumentFile.bra_id == bra_id_val,
+                    TBDocumentFile.df_id == df_id_val,
+                )
+                .first()
+            )
 
             if existente:
                 for key, value in datos.items():
@@ -179,21 +170,10 @@ def sync_document_files(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description='Sincronizar tipos de documento desde ERP')
-    parser.add_argument(
-        '--df-id',
-        type=int,
-        help='ID de documento específico'
-    )
-    parser.add_argument(
-        '--bra-id',
-        type=int,
-        help='ID de sucursal'
-    )
+    parser = argparse.ArgumentParser(description="Sincronizar tipos de documento desde ERP")
+    parser.add_argument("--df-id", type=int, help="ID de documento específico")
+    parser.add_argument("--bra-id", type=int, help="ID de sucursal")
 
     args = parser.parse_args()
 
-    sync_document_files(
-        df_id=args.df_id,
-        bra_id=args.bra_id
-    )
+    sync_document_files(df_id=args.df_id, bra_id=args.bra_id)

@@ -3,6 +3,7 @@ Endpoint para gestión de pedidos en preparación.
 Lee datos de la tabla cache pedido_preparacion_cache que se actualiza cada 5 min
 desde la query 67 del ERP via gbp-parser.
 """
+
 from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -21,7 +22,7 @@ from app.api.deps import get_current_user
 router = APIRouter()
 
 # Timezone de Argentina
-ARGENTINA_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
+ARGENTINA_TZ = pytz.timezone("America/Argentina/Buenos_Aires")
 
 
 def convert_to_argentina_tz(utc_dt):
@@ -37,6 +38,7 @@ def convert_to_argentina_tz(utc_dt):
 # Schemas
 class ResumenProductoResponse(BaseModel):
     """Resumen de producto en preparación"""
+
     id: int
     item_id: Optional[int]
     item_code: Optional[str]
@@ -53,6 +55,7 @@ class ResumenProductoResponse(BaseModel):
 
 class EstadisticasResponse(BaseModel):
     """Estadísticas de pedidos en preparación"""
+
     total_items: int
     total_unidades: float
     total_paquetes: int
@@ -62,6 +65,7 @@ class EstadisticasResponse(BaseModel):
 
 class SyncResponse(BaseModel):
     """Respuesta de sincronización"""
+
     status: str
     message: str
     count: int
@@ -70,6 +74,7 @@ class SyncResponse(BaseModel):
 
 class ComponenteProductoResponse(BaseModel):
     """Componente de un producto de producción"""
+
     item_id: int
     item_code: str
     item_desc: str
@@ -79,7 +84,7 @@ class ComponenteProductoResponse(BaseModel):
 
 
 # Patrones para vista Producción (hardcodeados)
-PRODUCCION_PATRONES = ['Notebook%', 'NB%', 'NB %', 'PC ARMADA%', 'AIO%', 'AIO %']
+PRODUCCION_PATRONES = ["Notebook%", "NB%", "NB %", "PC ARMADA%", "AIO%", "AIO %"]
 
 
 @router.get("/pedidos-preparacion/resumen", response_model=List[ResumenProductoResponse])
@@ -90,7 +95,7 @@ async def obtener_resumen(
     search: Optional[str] = Query(None, description="Buscar por código o descripción"),
     vista_produccion: bool = Query(False, description="Filtrar vista Producción (EAN con guión + Notebooks/PC/AIO)"),
     limit: int = Query(500, ge=1, le=2000),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
 ):
     """
     Obtiene el resumen de pedidos en preparación desde la tabla cache.
@@ -100,11 +105,12 @@ async def obtener_resumen(
     # Filtro vista Producción: EAN con "-" Y (Notebook OR NB OR PC ARMADA OR AIO)
     if vista_produccion:
         from sqlalchemy import or_
+
         query = query.filter(
-            PedidoPreparacionCache.item_code.like('%-%'),
-            or_(*[PedidoPreparacionCache.item_desc.ilike(p) for p in PRODUCCION_PATRONES])
+            PedidoPreparacionCache.item_code.like("%-%"),
+            or_(*[PedidoPreparacionCache.item_desc.ilike(p) for p in PRODUCCION_PATRONES]),
         )
-        
+
         # Excluir items del banlist de producción
         banlist_items = db.query(ProduccionBanlist.item_id).all()
         if banlist_items:
@@ -119,15 +125,15 @@ async def obtener_resumen(
     if search:
         search_filter = f"%{search}%"
         query = query.filter(
-            (PedidoPreparacionCache.item_code.ilike(search_filter)) |
-            (PedidoPreparacionCache.item_desc.ilike(search_filter))
+            (PedidoPreparacionCache.item_code.ilike(search_filter))
+            | (PedidoPreparacionCache.item_desc.ilike(search_filter))
         )
 
     # Ordenar por cantidad descendente
     query = query.order_by(PedidoPreparacionCache.cantidad.desc())
 
     results = query.offset(offset).limit(limit).all()
-    
+
     # Obtener lista de items pre-armados con cantidades
     prearmados = db.query(ProduccionPrearmado).all()
     prearmados_dict = {p.item_id: p.cantidad for p in prearmados}
@@ -143,17 +149,14 @@ async def obtener_resumen(
             prepara_paquete=r.prepara_paquete or 0,
             updated_at=convert_to_argentina_tz(r.updated_at),
             esta_prearmado=r.item_id in prearmados_dict if r.item_id else False,
-            cantidad_prearmada=prearmados_dict.get(r.item_id, 0) if r.item_id else 0
+            cantidad_prearmada=prearmados_dict.get(r.item_id, 0) if r.item_id else 0,
         )
         for r in results
     ]
 
 
 @router.get("/pedidos-preparacion/estadisticas", response_model=EstadisticasResponse)
-async def obtener_estadisticas(
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-):
+async def obtener_estadisticas(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Obtiene estadísticas de pedidos en preparación.
     """
@@ -167,14 +170,16 @@ async def obtener_estadisticas(
     total_paquetes = db.query(func.sum(PedidoPreparacionCache.prepara_paquete)).scalar() or 0
 
     # Por tipo de envío
-    por_tipo = db.query(
-        PedidoPreparacionCache.ml_logistic_type.label('tipo'),
-        func.count(PedidoPreparacionCache.id).label('items'),
-        func.sum(PedidoPreparacionCache.cantidad).label('unidades'),
-        func.sum(PedidoPreparacionCache.prepara_paquete).label('paquetes')
-    ).group_by(
-        PedidoPreparacionCache.ml_logistic_type
-    ).all()
+    por_tipo = (
+        db.query(
+            PedidoPreparacionCache.ml_logistic_type.label("tipo"),
+            func.count(PedidoPreparacionCache.id).label("items"),
+            func.sum(PedidoPreparacionCache.cantidad).label("unidades"),
+            func.sum(PedidoPreparacionCache.prepara_paquete).label("paquetes"),
+        )
+        .group_by(PedidoPreparacionCache.ml_logistic_type)
+        .all()
+    )
 
     # Última actualización (convertir a timezone Argentina)
     ultima_actualizacion = db.query(func.max(PedidoPreparacionCache.updated_at)).scalar()
@@ -186,37 +191,30 @@ async def obtener_estadisticas(
         total_paquetes=int(total_paquetes) if total_paquetes else 0,
         por_tipo_envio=[
             {
-                "tipo": t.tipo or 'N/A',
+                "tipo": t.tipo or "N/A",
                 "items": t.items,
                 "unidades": float(t.unidades) if t.unidades else 0,
-                "paquetes": int(t.paquetes) if t.paquetes else 0
+                "paquetes": int(t.paquetes) if t.paquetes else 0,
             }
             for t in por_tipo
         ],
-        ultima_actualizacion=ultima_actualizacion
+        ultima_actualizacion=ultima_actualizacion,
     )
 
 
 @router.get("/pedidos-preparacion/tipos-envio")
-async def obtener_tipos_envio(
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-):
+async def obtener_tipos_envio(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """
     Obtiene los tipos de envío disponibles.
     """
-    tipos = db.query(
-        PedidoPreparacionCache.ml_logistic_type
-    ).distinct().all()
+    tipos = db.query(PedidoPreparacionCache.ml_logistic_type).distinct().all()
 
     return [t.ml_logistic_type for t in tipos if t.ml_logistic_type]
 
 
 @router.post("/pedidos-preparacion/sync", response_model=SyncResponse)
 async def sincronizar_pedidos(
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
     Fuerza una sincronización manual de pedidos en preparación.
@@ -231,49 +229,40 @@ async def sincronizar_pedidos(
             status=result.get("status", "unknown"),
             message=result.get("message", "Sincronización completada"),
             count=result.get("count", 0),
-            timestamp=result.get("timestamp", datetime.now().isoformat())
+            timestamp=result.get("timestamp", datetime.now().isoformat()),
         )
     except Exception as e:
-        return SyncResponse(
-            status="error",
-            message=str(e),
-            count=0,
-            timestamp=datetime.now().isoformat()
-        )
+        return SyncResponse(status="error", message=str(e), count=0, timestamp=datetime.now().isoformat())
 
 
 @router.get("/pedidos-preparacion/componentes/{item_id}", response_model=List[ComponenteProductoResponse])
 async def obtener_componentes(
-    item_id: int,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    item_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
 ):
     """
     Obtiene los componentes de un producto de producción desde tb_item_association.
-    
+
     Retorna los items asociados (item_id_1) con sus cantidades.
     """
     # Obtener asociaciones
-    asociaciones = db.query(TbItemAssociation).filter(
-        TbItemAssociation.item_id == item_id
-    ).all()
-    
+    asociaciones = db.query(TbItemAssociation).filter(TbItemAssociation.item_id == item_id).all()
+
     if not asociaciones:
         return []
-    
+
     # Obtener detalles de los items asociados
     componentes = []
     for asoc in asociaciones:
-        producto = db.query(ProductoERP).filter(
-            ProductoERP.item_id == asoc.item_id_1
-        ).first()
-        
+        producto = db.query(ProductoERP).filter(ProductoERP.item_id == asoc.item_id_1).first()
+
         if producto:
-            componentes.append(ComponenteProductoResponse(
-                item_id=producto.item_id,
-                item_code=producto.item_code or "",
-                item_desc=producto.item_desc or "",
-                cantidad=float(asoc.iasso_qty) if asoc.iasso_qty else 0.0
-            ))
-    
+            componentes.append(
+                ComponenteProductoResponse(
+                    item_id=producto.item_id,
+                    item_code=producto.item_code or "",
+                    item_desc=producto.item_desc or "",
+                    cantidad=float(asoc.iasso_qty) if asoc.iasso_qty else 0.0,
+                )
+            )
+
     return componentes

@@ -7,10 +7,9 @@ class SaleOrderHeaderHistory(Base):
     Modelo para tbSaleOrderHeaderHistory del ERP
     Historial de cambios en cabecera de órdenes de venta
     """
+
     __tablename__ = "tb_sale_order_header_history"
-    __table_args__ = (
-        PrimaryKeyConstraint('comp_id', 'bra_id', 'soh_id', 'sohh_id'),
-    )
+    __table_args__ = (PrimaryKeyConstraint("comp_id", "bra_id", "soh_id", "sohh_id"),)
 
     # Composite Primary Key
     comp_id = Column(Integer, nullable=False, index=True)

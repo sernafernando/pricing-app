@@ -8,6 +8,7 @@ import enum
 
 class PrioridadTicket(str, enum.Enum):
     """Niveles de prioridad para tickets"""
+
     BAJA = "baja"
     MEDIA = "media"
     ALTA = "alta"
@@ -17,17 +18,18 @@ class PrioridadTicket(str, enum.Enum):
 class Ticket(Base):
     """
     Modelo principal de ticket.
-    
+
     Combina campos estructurados (core) con campos dinámicos (metadata JSONB)
     para máxima flexibilidad sin sacrificar performance en queries comunes.
-    
+
     Los campos core son:
     - Información básica: título, descripción, prioridad
     - Referencias: sector, tipo, estado, usuario creador
     - Timestamps: created_at, updated_at
-    
+
     Los campos custom por tipo de ticket van en metadata (JSONB).
     """
+
     __tablename__ = "tickets"
 
     # Campos core (columnas estructuradas para performance)
@@ -37,10 +39,10 @@ class Ticket(Base):
     prioridad = Column(SQLEnum(PrioridadTicket), default=PrioridadTicket.MEDIA, nullable=False)
 
     # Referencias
-    sector_id = Column(Integer, ForeignKey('tickets_sectores.id'), nullable=False, index=True)
-    tipo_ticket_id = Column(Integer, ForeignKey('tickets_tipos.id'), nullable=False)
-    estado_id = Column(Integer, ForeignKey('tickets_estados.id'), nullable=False, index=True)
-    creador_id = Column(Integer, ForeignKey('usuarios.id'), nullable=False)
+    sector_id = Column(Integer, ForeignKey("tickets_sectores.id"), nullable=False, index=True)
+    tipo_ticket_id = Column(Integer, ForeignKey("tickets_tipos.id"), nullable=False)
+    estado_id = Column(Integer, ForeignKey("tickets_estados.id"), nullable=False, index=True)
+    creador_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
 
     # Campos dinámicos (JSONB para flexibilidad)
     metadata = Column(JSONB, nullable=False, default=dict)
@@ -76,10 +78,14 @@ class Ticket(Base):
     tipo_ticket = relationship("TipoTicket", back_populates="tickets")
     estado = relationship("EstadoTicket", back_populates="tickets")
     creador = relationship("Usuario", foreign_keys=[creador_id])
-    
-    asignaciones = relationship("AsignacionTicket", back_populates="ticket", order_by="AsignacionTicket.fecha_asignacion.desc()")
+
+    asignaciones = relationship(
+        "AsignacionTicket", back_populates="ticket", order_by="AsignacionTicket.fecha_asignacion.desc()"
+    )
     historial = relationship("HistorialTicket", back_populates="ticket", order_by="HistorialTicket.fecha.desc()")
-    comentarios = relationship("ComentarioTicket", back_populates="ticket", order_by="ComentarioTicket.created_at.asc()")
+    comentarios = relationship(
+        "ComentarioTicket", back_populates="ticket", order_by="ComentarioTicket.created_at.asc()"
+    )
 
     @property
     def asignacion_actual(self):

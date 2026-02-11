@@ -14,6 +14,7 @@ Tracking de productividad:
 - Cuando el hash actual difiere del hash al asignar → el item fue resuelto
 - Se mide fecha_asignacion → fecha_resolucion para métricas de performance
 """
+
 import hashlib
 import uuid
 from datetime import datetime, UTC
@@ -35,8 +36,10 @@ router = APIRouter()
 # Schemas
 # =============================================================================
 
+
 class AsignarItemRequest(BaseModel):
     """Asignar listas específicas de un item a un usuario."""
+
     item_id: int
     listas: List[str]  # ['Clásica', '3 Cuotas', ...]
     usuario_id: Optional[int] = None  # None = auto-asignarse
@@ -44,46 +47,54 @@ class AsignarItemRequest(BaseModel):
     # Snapshot de todas las listas faltantes (para metadata, no para hash)
     listas_sin_mla: Optional[List[str]] = None
 
-    model_config = ConfigDict(json_schema_extra={
-        "example": {
-            "item_id": 12345,
-            "listas": ["Clásica", "3 Cuotas"],
-            "listas_sin_mla": ["Clásica", "3 Cuotas", "6 Cuotas"],
-            "notas": "Producto nuevo, prioridad alta"
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "item_id": 12345,
+                "listas": ["Clásica", "3 Cuotas"],
+                "listas_sin_mla": ["Clásica", "3 Cuotas", "6 Cuotas"],
+                "notas": "Producto nuevo, prioridad alta",
+            }
         }
-    })
+    )
 
 
 class AsignarMasivoRequest(BaseModel):
     """Asignar múltiples items de una vez (multi-selección)."""
+
     items: List[dict]  # [{'item_id': 123, 'listas': ['Clásica'], 'listas_sin_mla': [...]}, ...]
     usuario_id: Optional[int] = None
     notas: Optional[str] = None
 
-    model_config = ConfigDict(json_schema_extra={
-        "example": {
-            "items": [
-                {"item_id": 123, "listas": ["Clásica"], "listas_sin_mla": ["Clásica", "3 Cuotas"]},
-                {"item_id": 456, "listas": ["6 Cuotas"], "listas_sin_mla": ["6 Cuotas"]}
-            ],
-            "notas": "Lote asignado masivamente"
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "items": [
+                    {"item_id": 123, "listas": ["Clásica"], "listas_sin_mla": ["Clásica", "3 Cuotas"]},
+                    {"item_id": 456, "listas": ["6 Cuotas"], "listas_sin_mla": ["6 Cuotas"]},
+                ],
+                "notas": "Lote asignado masivamente",
+            }
         }
-    })
+    )
 
 
 class DesasignarRequest(BaseModel):
     """Desasignar una o más asignaciones."""
+
     asignacion_ids: List[int]
 
 
 class ReasignarRequest(BaseModel):
     """Reasignar asignaciones a otro usuario."""
+
     asignacion_ids: List[int]
     usuario_id: int  # Nuevo usuario destino
 
 
 class AsignacionResponse(BaseModel):
     """Respuesta con datos de una asignación."""
+
     id: int
     tracking_id: str
     tipo: str
@@ -105,6 +116,7 @@ class AsignacionResponse(BaseModel):
 
 class VerificarHashResponse(BaseModel):
     """Resultado de verificación de hash de estado."""
+
     asignacion_id: int
     item_id: int
     subtipo: str
@@ -121,6 +133,7 @@ class VerificarHashResponse(BaseModel):
 # Helpers
 # =============================================================================
 
+
 def _verificar_permiso_asignacion(db: Session, current_user: Usuario, usuario_destino_id: Optional[int] = None) -> None:
     """
     Verifica permisos de asignación:
@@ -136,7 +149,9 @@ def _verificar_permiso_asignacion(db: Session, current_user: Usuario, usuario_de
             raise HTTPException(status_code=403, detail="No tenés permiso para asignarte items sin MLA")
     else:
         if not verificar_permiso(db, current_user, "admin.gestionar_asignaciones"):
-            raise HTTPException(status_code=403, detail="No tenés permiso para gestionar asignaciones de otros usuarios")
+            raise HTTPException(
+                status_code=403, detail="No tenés permiso para gestionar asignaciones de otros usuarios"
+            )
 
 
 def _generar_estado_hash(item_id: int, lista: str, existe_mla: bool = False) -> str:
@@ -156,9 +171,7 @@ def _generar_estado_hash(item_id: int, lista: str, existe_mla: bool = False) -> 
 
 
 def _build_asignacion_response(
-    asignacion: Asignacion,
-    usuario_asignado: Usuario,
-    usuario_creador: Usuario
+    asignacion: Asignacion, usuario_asignado: Usuario, usuario_creador: Usuario
 ) -> AsignacionResponse:
     """Construye la respuesta de asignación con datos de ambos usuarios."""
     return AsignacionResponse(
@@ -184,11 +197,10 @@ def _build_asignacion_response(
 # Endpoints
 # =============================================================================
 
+
 @router.post("/asignar", response_model=List[AsignacionResponse])
 async def asignar_item(
-    request: AsignarItemRequest,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    request: AsignarItemRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> List[AsignacionResponse]:
     """
     Asigna listas específicas de un item a un usuario.
@@ -211,14 +223,18 @@ async def asignar_item(
 
     for lista in request.listas:
         # Verificar si ya existe una asignación PENDIENTE para este item+lista
-        existente = db.query(Asignacion).filter(
-            and_(
-                Asignacion.tipo == 'item_sin_mla',
-                Asignacion.referencia_id == request.item_id,
-                Asignacion.subtipo == lista,
-                Asignacion.estado == 'pendiente'
+        existente = (
+            db.query(Asignacion)
+            .filter(
+                and_(
+                    Asignacion.tipo == "item_sin_mla",
+                    Asignacion.referencia_id == request.item_id,
+                    Asignacion.subtipo == lista,
+                    Asignacion.estado == "pendiente",
+                )
             )
-        ).first()
+            .first()
+        )
 
         if existente:
             duplicadas.append(lista)
@@ -229,18 +245,18 @@ async def asignar_item(
 
         nueva = Asignacion(
             tracking_id=uuid.uuid4(),
-            tipo='item_sin_mla',
+            tipo="item_sin_mla",
             referencia_id=request.item_id,
             subtipo=lista,
             usuario_id=usuario_destino_id,
             asignado_por_id=current_user.id,
-            estado='pendiente',
+            estado="pendiente",
             estado_hash=estado_hash,
-            origen='manual',
+            origen="manual",
             notas=request.notas,
             metadata_asignacion={
-                'listas_faltantes': request.listas_sin_mla or [],
-                'listas_asignadas': request.listas,
+                "listas_faltantes": request.listas_sin_mla or [],
+                "listas_asignadas": request.listas,
             },
         )
         db.add(nueva)
@@ -248,8 +264,7 @@ async def asignar_item(
 
     if not creadas and duplicadas:
         raise HTTPException(
-            status_code=400,
-            detail=f"Las listas ya están asignadas (pendientes): {', '.join(duplicadas)}"
+            status_code=400, detail=f"Las listas ya están asignadas (pendientes): {', '.join(duplicadas)}"
         )
 
     db.commit()
@@ -265,9 +280,7 @@ async def asignar_item(
 
 @router.post("/asignar-masivo", response_model=List[AsignacionResponse])
 async def asignar_masivo(
-    request: AsignarMasivoRequest,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    request: AsignarMasivoRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> List[AsignacionResponse]:
     """
     Asigna múltiples items de una vez (multi-selección del frontend).
@@ -283,9 +296,9 @@ async def asignar_masivo(
     creadas = []
 
     for item_data in request.items:
-        item_id = item_data.get('item_id')
-        listas = item_data.get('listas', [])
-        listas_sin_mla = item_data.get('listas_sin_mla', [])
+        item_id = item_data.get("item_id")
+        listas = item_data.get("listas", [])
+        listas_sin_mla = item_data.get("listas_sin_mla", [])
 
         if not item_id or not listas:
             continue
@@ -293,32 +306,36 @@ async def asignar_masivo(
         for lista in listas:
             # Hash POR ASIGNACIÓN individual: item + lista específica
             estado_hash = _generar_estado_hash(item_id, lista, existe_mla=False)
-            existente = db.query(Asignacion).filter(
-                and_(
-                    Asignacion.tipo == 'item_sin_mla',
-                    Asignacion.referencia_id == item_id,
-                    Asignacion.subtipo == lista,
-                    Asignacion.estado == 'pendiente'
+            existente = (
+                db.query(Asignacion)
+                .filter(
+                    and_(
+                        Asignacion.tipo == "item_sin_mla",
+                        Asignacion.referencia_id == item_id,
+                        Asignacion.subtipo == lista,
+                        Asignacion.estado == "pendiente",
+                    )
                 )
-            ).first()
+                .first()
+            )
 
             if existente:
                 continue
 
             nueva = Asignacion(
                 tracking_id=uuid.uuid4(),
-                tipo='item_sin_mla',
+                tipo="item_sin_mla",
                 referencia_id=item_id,
                 subtipo=lista,
                 usuario_id=usuario_destino_id,
                 asignado_por_id=current_user.id,
-                estado='pendiente',
+                estado="pendiente",
                 estado_hash=estado_hash,
-                origen='manual',
+                origen="manual",
                 notas=request.notas,
                 metadata_asignacion={
-                    'listas_faltantes': listas_sin_mla,
-                    'listas_asignadas': listas,
+                    "listas_faltantes": listas_sin_mla,
+                    "listas_asignadas": listas,
                 },
             )
             db.add(nueva)
@@ -336,9 +353,7 @@ async def asignar_masivo(
 
 @router.post("/desasignar")
 async def desasignar(
-    request: DesasignarRequest,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    request: DesasignarRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> dict:
     """
     Desasigna (cancela) una o más asignaciones.
@@ -349,12 +364,9 @@ async def desasignar(
     canceladas = 0
 
     for asignacion_id in request.asignacion_ids:
-        asignacion = db.query(Asignacion).filter(
-            and_(
-                Asignacion.id == asignacion_id,
-                Asignacion.estado == 'pendiente'
-            )
-        ).first()
+        asignacion = (
+            db.query(Asignacion).filter(and_(Asignacion.id == asignacion_id, Asignacion.estado == "pendiente")).first()
+        )
 
         if not asignacion:
             continue
@@ -362,24 +374,18 @@ async def desasignar(
         # Verificar permisos según dueño
         _verificar_permiso_asignacion(db, current_user, asignacion.usuario_id)
 
-        asignacion.estado = 'cancelado'
+        asignacion.estado = "cancelado"
         asignacion.fecha_resolucion = datetime.now(UTC)
         canceladas += 1
 
     db.commit()
 
-    return {
-        "success": True,
-        "message": f"{canceladas} asignación(es) cancelada(s)",
-        "canceladas": canceladas
-    }
+    return {"success": True, "message": f"{canceladas} asignación(es) cancelada(s)", "canceladas": canceladas}
 
 
 @router.post("/reasignar", response_model=List[AsignacionResponse])
 async def reasignar(
-    request: ReasignarRequest,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    request: ReasignarRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> List[AsignacionResponse]:
     """
     Reasigna asignaciones pendientes a otro usuario.
@@ -401,18 +407,15 @@ async def reasignar(
     nuevas = []
 
     for asignacion_id in request.asignacion_ids:
-        original = db.query(Asignacion).filter(
-            and_(
-                Asignacion.id == asignacion_id,
-                Asignacion.estado == 'pendiente'
-            )
-        ).first()
+        original = (
+            db.query(Asignacion).filter(and_(Asignacion.id == asignacion_id, Asignacion.estado == "pendiente")).first()
+        )
 
         if not original:
             continue
 
         # Cancelar la original
-        original.estado = 'cancelado'
+        original.estado = "cancelado"
         original.fecha_resolucion = datetime.now(UTC)
 
         # Crear nueva para el destino (preserva hash y metadata)
@@ -423,9 +426,9 @@ async def reasignar(
             subtipo=original.subtipo,
             usuario_id=request.usuario_id,
             asignado_por_id=current_user.id,
-            estado='pendiente',
+            estado="pendiente",
             estado_hash=original.estado_hash,
-            origen='manual',
+            origen="manual",
             metadata_asignacion=original.metadata_asignacion,
             notas=f"Reasignado de {current_user.nombre}. {original.notas or ''}".strip(),
         )
@@ -444,14 +447,16 @@ async def reasignar(
 
 @router.get("/items-sin-mla", response_model=List[AsignacionResponse])
 async def get_asignaciones_items_sin_mla(
-    estado: Optional[str] = Query('pendiente', description="Filtrar por estado: pendiente, completado, cancelado, todos"),
+    estado: Optional[str] = Query(
+        "pendiente", description="Filtrar por estado: pendiente, completado, cancelado, todos"
+    ),
     usuario_id: Optional[int] = Query(None, description="Filtrar por usuario asignado"),
     asignado_por_id: Optional[int] = Query(None, description="Filtrar por usuario que creó la asignación"),
     item_id: Optional[int] = Query(None, description="Filtrar por item_id específico"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (ISO format)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (ISO format)"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ) -> List[AsignacionResponse]:
     """
     Obtiene asignaciones de items sin MLA con filtros opcionales.
@@ -462,18 +467,17 @@ async def get_asignaciones_items_sin_mla(
     if not verificar_permiso(db, current_user, "admin.ver_items_sin_mla"):
         raise HTTPException(status_code=403, detail="No tenés permiso para ver items sin MLA")
 
-    UsuarioAsignado = aliased(Usuario, name='usuario_asignado')
-    UsuarioCreador = aliased(Usuario, name='usuario_creador')
+    UsuarioAsignado = aliased(Usuario, name="usuario_asignado")
+    UsuarioCreador = aliased(Usuario, name="usuario_creador")
 
-    query = db.query(Asignacion, UsuarioAsignado, UsuarioCreador).join(
-        UsuarioAsignado, UsuarioAsignado.id == Asignacion.usuario_id
-    ).join(
-        UsuarioCreador, UsuarioCreador.id == Asignacion.asignado_por_id
-    ).filter(
-        Asignacion.tipo == 'item_sin_mla'
+    query = (
+        db.query(Asignacion, UsuarioAsignado, UsuarioCreador)
+        .join(UsuarioAsignado, UsuarioAsignado.id == Asignacion.usuario_id)
+        .join(UsuarioCreador, UsuarioCreador.id == Asignacion.asignado_por_id)
+        .filter(Asignacion.tipo == "item_sin_mla")
     )
 
-    if estado and estado != 'todos':
+    if estado and estado != "todos":
         query = query.filter(Asignacion.estado == estado)
 
     if usuario_id:
@@ -499,30 +503,29 @@ async def get_asignaciones_items_sin_mla(
 @router.get("/mis-asignaciones", response_model=List[AsignacionResponse])
 async def get_mis_asignaciones(
     tipo: Optional[str] = Query(None, description="Filtrar por tipo: item_sin_mla, etc."),
-    estado: Optional[str] = Query('pendiente', description="Filtrar por estado"),
+    estado: Optional[str] = Query("pendiente", description="Filtrar por estado"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ) -> List[AsignacionResponse]:
     """
     Obtiene las asignaciones del usuario actual.
     Endpoint genérico que sirve para todos los tipos de asignación.
     Pensado para el futuro menú de asignaciones en la TopBar.
     """
-    UsuarioAsignado = aliased(Usuario, name='usuario_asignado')
-    UsuarioCreador = aliased(Usuario, name='usuario_creador')
+    UsuarioAsignado = aliased(Usuario, name="usuario_asignado")
+    UsuarioCreador = aliased(Usuario, name="usuario_creador")
 
-    query = db.query(Asignacion, UsuarioAsignado, UsuarioCreador).join(
-        UsuarioAsignado, UsuarioAsignado.id == Asignacion.usuario_id
-    ).join(
-        UsuarioCreador, UsuarioCreador.id == Asignacion.asignado_por_id
-    ).filter(
-        Asignacion.usuario_id == current_user.id
+    query = (
+        db.query(Asignacion, UsuarioAsignado, UsuarioCreador)
+        .join(UsuarioAsignado, UsuarioAsignado.id == Asignacion.usuario_id)
+        .join(UsuarioCreador, UsuarioCreador.id == Asignacion.asignado_por_id)
+        .filter(Asignacion.usuario_id == current_user.id)
     )
 
     if tipo:
         query = query.filter(Asignacion.tipo == tipo)
 
-    if estado and estado != 'todos':
+    if estado and estado != "todos":
         query = query.filter(Asignacion.estado == estado)
 
     resultados = query.order_by(Asignacion.fecha_asignacion.desc()).all()
@@ -532,8 +535,7 @@ async def get_mis_asignaciones(
 
 @router.get("/usuarios-asignables")
 async def get_usuarios_asignables(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ) -> List[dict]:
     """
     Obtiene la lista de usuarios activos que pueden recibir asignaciones.
@@ -558,7 +560,7 @@ async def get_usuarios_asignables(
 async def verificar_estado_asignaciones(
     asignacion_ids: Optional[List[int]] = None,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ) -> List[VerificarHashResponse]:
     """
     Verifica si el estado de las asignaciones pendientes cambió desde que se asignaron.
@@ -575,21 +577,14 @@ async def verificar_estado_asignaciones(
     - Velocidad de trabajo
     """
     from app.services.permisos_service import verificar_permiso
-    from app.api.endpoints.items_sin_mla import (
-        LISTAS_PRECIOS, LISTAS_WEB_A_PVP
-    )
+    from app.api.endpoints.items_sin_mla import LISTAS_PRECIOS, LISTAS_WEB_A_PVP
     from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
     if not verificar_permiso(db, current_user, "admin.ver_items_sin_mla"):
         raise HTTPException(status_code=403, detail="No tenés permiso")
 
     # Obtener asignaciones pendientes
-    query = db.query(Asignacion).filter(
-        and_(
-            Asignacion.tipo == 'item_sin_mla',
-            Asignacion.estado == 'pendiente'
-        )
-    )
+    query = db.query(Asignacion).filter(and_(Asignacion.tipo == "item_sin_mla", Asignacion.estado == "pendiente"))
 
     if asignacion_ids:
         query = query.filter(Asignacion.id.in_(asignacion_ids))
@@ -607,12 +602,17 @@ async def verificar_estado_asignaciones(
             continue
 
         # Verificar si la lista ESPECÍFICA asignada ya tiene MLA
-        listas_con_mla = db.query(MercadoLibreItemPublicado.prli_id).distinct().filter(
-            and_(
-                MercadoLibreItemPublicado.item_id == item_id,
-                MercadoLibreItemPublicado.prli_id.in_(listas_relevantes)
+        listas_con_mla = (
+            db.query(MercadoLibreItemPublicado.prli_id)
+            .distinct()
+            .filter(
+                and_(
+                    MercadoLibreItemPublicado.item_id == item_id,
+                    MercadoLibreItemPublicado.prli_id.in_(listas_relevantes),
+                )
             )
-        ).all()
+            .all()
+        )
 
         listas_con_mla_ids = set([l[0] for l in listas_con_mla if l[0] is not None])
 
@@ -638,23 +638,25 @@ async def verificar_estado_asignaciones(
 
         if resuelta:
             # Marcar como completada automáticamente
-            asignacion.estado = 'completado'
+            asignacion.estado = "completado"
             asignacion.fecha_resolucion = datetime.now(UTC)
 
             # Calcular tiempo de resolución
             delta = asignacion.fecha_resolucion - asignacion.fecha_asignacion
             tiempo_horas = round(delta.total_seconds() / 3600, 2)
 
-        resultados.append(VerificarHashResponse(
-            asignacion_id=asignacion.id,
-            item_id=item_id,
-            subtipo=lista_asignada,
-            hash_original=asignacion.estado_hash,
-            hash_actual=hash_actual,
-            cambio_detectado=cambio_detectado,
-            resuelta=resuelta,
-            tiempo_resolucion_horas=tiempo_horas,
-        ))
+        resultados.append(
+            VerificarHashResponse(
+                asignacion_id=asignacion.id,
+                item_id=item_id,
+                subtipo=lista_asignada,
+                hash_original=asignacion.estado_hash,
+                hash_actual=hash_actual,
+                cambio_detectado=cambio_detectado,
+                resuelta=resuelta,
+                tiempo_resolucion_horas=tiempo_horas,
+            )
+        )
 
     # Commit todas las resoluciones de una vez
     db.commit()

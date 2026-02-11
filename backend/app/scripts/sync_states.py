@@ -7,6 +7,7 @@ Ejecutar:
     python -m app.scripts.sync_states --country-id 54
     python -m app.scripts.sync_states --state-id 54020
 """
+
 import sys
 from pathlib import Path
 
@@ -19,10 +20,7 @@ from app.core.database import SessionLocal
 from app.models.tb_state import TBState
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # URL del gbp-parser
@@ -40,14 +38,12 @@ def fetch_states_from_erp(country_id: int = None, state_id: int = None):
     Returns:
         Lista de registros
     """
-    params = {
-        'strScriptLabel': 'scriptState'
-    }
+    params = {"strScriptLabel": "scriptState"}
 
     if country_id:
-        params['countryID'] = country_id
+        params["countryID"] = country_id
     if state_id:
-        params['stateID'] = state_id
+        params["stateID"] = state_id
 
     logger.info(f"Consultando ERP con params: {params}")
 
@@ -97,8 +93,8 @@ def sync_states(country_id: int = 54, state_id: int = None):
 
         # Procesar registros
         for record in registros_erp:
-            country_id_val = record.get('country_id')
-            state_id_val = record.get('state_id')
+            country_id_val = record.get("country_id")
+            state_id_val = record.get("state_id")
 
             if not country_id_val or not state_id_val:
                 logger.warning(f"Registro sin country_id o state_id: {record}")
@@ -106,23 +102,24 @@ def sync_states(country_id: int = 54, state_id: int = None):
 
             # Preparar datos (columnas lowercase, .get() con camelCase del ERP)
             datos = {
-                'country_id': country_id_val,
-                'state_id': state_id_val,
-                'state_desc': record.get('state_desc'),
-                'state_afip': record.get('state_afip'),
-                'state_jurisdiccion': record.get('state_jurisdiccion'),
-                'state_arba_cot': record.get('state_arba_cot'),
-                'state_visatodopago': record.get('state_VISATodoPago'),
-                'country_visatodopago': record.get('country_VISATodopago'),
-                'mlstatedescription': record.get('MLStateDescription'),
-                'state_enviopackid': record.get('state_EnvioPackID'),
+                "country_id": country_id_val,
+                "state_id": state_id_val,
+                "state_desc": record.get("state_desc"),
+                "state_afip": record.get("state_afip"),
+                "state_jurisdiccion": record.get("state_jurisdiccion"),
+                "state_arba_cot": record.get("state_arba_cot"),
+                "state_visatodopago": record.get("state_VISATodoPago"),
+                "country_visatodopago": record.get("country_VISATodopago"),
+                "mlstatedescription": record.get("MLStateDescription"),
+                "state_enviopackid": record.get("state_EnvioPackID"),
             }
 
             # Verificar si existe (PK compuesta: country_id, state_id)
-            existente = db_local.query(TBState).filter(
-                TBState.country_id == country_id_val,
-                TBState.state_id == state_id_val
-            ).first()
+            existente = (
+                db_local.query(TBState)
+                .filter(TBState.country_id == country_id_val, TBState.state_id == state_id_val)
+                .first()
+            )
 
             if existente:
                 for key, value in datos.items():
@@ -157,18 +154,9 @@ def sync_states(country_id: int = 54, state_id: int = None):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description='Sincronizar estados/provincias desde ERP')
-    parser.add_argument(
-        '--country-id',
-        type=int,
-        default=54,
-        help='ID de país (default 54 = Argentina)'
-    )
-    parser.add_argument(
-        '--state-id',
-        type=int,
-        help='ID de estado específico'
-    )
+    parser = argparse.ArgumentParser(description="Sincronizar estados/provincias desde ERP")
+    parser.add_argument("--country-id", type=int, default=54, help="ID de país (default 54 = Argentina)")
+    parser.add_argument("--state-id", type=int, help="ID de estado específico")
 
     args = parser.parse_args()
 

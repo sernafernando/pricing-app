@@ -1,6 +1,7 @@
 """
 Modelo para tbsysTaxNumberTypes - Tipos de Número de Impuesto (versión reducida)
 """
+
 from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -8,6 +9,7 @@ from app.core.database import Base
 
 class TBTaxNumberType(Base):
     """Tabla de tipos de número de impuesto del ERP"""
+
     __tablename__ = "tb_tax_number_type"
 
     # Primary Key

@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_ml_orders_shipping_2025
 """
+
 import sys
 import os
 
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 
+
 async def sync_ml_orders_shipping_mes(db: Session, from_date: str, to_date: str):
     """
     Sincroniza envíos de órdenes de MercadoLibre de un mes específico
@@ -30,11 +32,7 @@ async def sync_ml_orders_shipping_mes(db: Session, from_date: str, to_date: str)
     try:
         # Llamar al endpoint externo
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptMLOrdersShipping",
-            "fromDate": from_date,
-            "toDate": to_date
-        }
+        params = {"strScriptLabel": "scriptMLOrdersShipping", "fromDate": from_date, "toDate": to_date}
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.get(url, params=params)
@@ -74,7 +72,7 @@ async def sync_ml_orders_shipping_mes(db: Session, from_date: str, to_date: str)
 
         def to_decimal(value):
             """Convierte a decimal, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return float(value)
@@ -83,7 +81,7 @@ async def sync_ml_orders_shipping_mes(db: Session, from_date: str, to_date: str)
 
         def to_int(value):
             """Convierte a entero, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return int(value)
@@ -92,7 +90,7 @@ async def sync_ml_orders_shipping_mes(db: Session, from_date: str, to_date: str)
 
         def to_string(value):
             """Convierte a string, retorna None si es None o vacío"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             return str(value).strip()
 
@@ -106,9 +104,9 @@ async def sync_ml_orders_shipping_mes(db: Session, from_date: str, to_date: str)
                     continue
 
                 # Verificar si ya existe
-                shipping_existente = db.query(MercadoLibreOrderShipping).filter(
-                    MercadoLibreOrderShipping.mlm_id == mlm_id
-                ).first()
+                shipping_existente = (
+                    db.query(MercadoLibreOrderShipping).filter(MercadoLibreOrderShipping.mlm_id == mlm_id).first()
+                )
 
                 if shipping_existente:
                     shipping_actualizados += 1
@@ -156,10 +154,12 @@ async def sync_ml_orders_shipping_mes(db: Session, from_date: str, to_date: str)
                     ml_date_first_printed=parse_date(shipping_json.get("ML_date_first_printed")),
                     ml_base_cost=to_decimal(shipping_json.get("ML_base_cost")),
                     ml_estimated_delivery_time_date=parse_date(shipping_json.get("ML_estimated_delivery_time_date")),
-                    ml_estimated_delivery_time_shipping=to_int(shipping_json.get("ML_estimated_delivery_time_shipping")),
+                    ml_estimated_delivery_time_shipping=to_int(
+                        shipping_json.get("ML_estimated_delivery_time_shipping")
+                    ),
                     mlos_lastupdate=parse_date(shipping_json.get("mlos_lastUpdate")),
                     mlshippmentcolectadaytime=parse_date(shipping_json.get("MLShippmentColectaDayTime")),
-                    mlturbo=to_string(shipping_json.get("MLturbo"))
+                    mlturbo=to_string(shipping_json.get("MLturbo")),
                 )
 
                 db.add(shipping)
@@ -179,7 +179,9 @@ async def sync_ml_orders_shipping_mes(db: Session, from_date: str, to_date: str)
         # Commit final
         db.commit()
 
-        print(f"   ✅ Insertados: {shipping_insertados} | Actualizados: {shipping_actualizados} | Errores: {shipping_errores}")
+        print(
+            f"   ✅ Insertados: {shipping_insertados} | Actualizados: {shipping_actualizados} | Errores: {shipping_errores}"
+        )
         return shipping_insertados, shipping_actualizados, shipping_errores
 
     except httpx.HTTPError as e:
@@ -189,6 +191,7 @@ async def sync_ml_orders_shipping_mes(db: Session, from_date: str, to_date: str)
         db.rollback()
         print(f"   ❌ Error en sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0, 0, 0
 
@@ -218,11 +221,13 @@ async def main():
                 if mes == hoy.month:
                     ultimo_dia = hoy + timedelta(days=1)
 
-                meses_a_sincronizar.append({
-                    'from': primer_dia.strftime('%Y-%m-%d'),
-                    'to': ultimo_dia.strftime('%Y-%m-%d'),
-                    'nombre': primer_dia.strftime('%B %Y')
-                })
+                meses_a_sincronizar.append(
+                    {
+                        "from": primer_dia.strftime("%Y-%m-%d"),
+                        "to": ultimo_dia.strftime("%Y-%m-%d"),
+                        "nombre": primer_dia.strftime("%B %Y"),
+                    }
+                )
 
         print(f"📊 Se sincronizarán {len(meses_a_sincronizar)} meses\n")
 
@@ -232,11 +237,7 @@ async def main():
 
         for i, mes in enumerate(meses_a_sincronizar, 1):
             print(f"\n[{i}/{len(meses_a_sincronizar)}] {mes['nombre']}")
-            insertados, actualizados, errores = await sync_ml_orders_shipping_mes(
-                db,
-                mes['from'],
-                mes['to']
-            )
+            insertados, actualizados, errores = await sync_ml_orders_shipping_mes(db, mes["from"], mes["to"])
 
             total_insertados += insertados
             total_actualizados += actualizados
@@ -258,6 +259,7 @@ async def main():
     except Exception as e:
         print(f"\n❌ Error general: {str(e)}")
         import traceback
+
         traceback.print_exc()
     finally:
         db.close()

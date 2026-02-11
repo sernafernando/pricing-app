@@ -2,11 +2,13 @@ from sqlalchemy import Column, Integer, String, Numeric, DateTime, Boolean
 from sqlalchemy.sql import func
 from app.core.database import Base
 
+
 class TiendaNubeProducto(Base):
     """
     Modelo para productos y variantes de Tienda Nube
     Almacena información de precios para comparar con pricing ML
     """
+
     __tablename__ = "tienda_nube_productos"
 
     id = Column(Integer, primary_key=True, index=True)

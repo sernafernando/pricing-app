@@ -3,6 +3,7 @@ Modelo para métricas precalculadas de ventas fuera de MercadoLibre
 Contiene todos los cálculos de markup, costos, etc.
 Se actualiza mediante un script de agregación que lee de tb_item_transactions + tb_commercial_transactions
 """
+
 from sqlalchemy import Column, Integer, BigInteger, String, Numeric, DateTime, Date, Boolean, Text
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -18,6 +19,7 @@ class VentaFueraMLMetrica(Base):
     3. Ganancia = monto - costo
     4. Markup = (monto / costo) - 1 (sin comisión porque es venta directa)
     """
+
     __tablename__ = "ventas_fuera_ml_metricas"
 
     # Primary Key

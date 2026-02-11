@@ -2,11 +2,13 @@ from sqlalchemy import Column, Integer, BigInteger, String, Numeric, DateTime, T
 from sqlalchemy.sql import func
 from app.core.database import Base
 
+
 class MLPublicationSnapshot(Base):
     """
     Modelo para guardar snapshots de publicaciones de MercadoLibre
     Permite comparar las campañas/listas actuales con las que tiene ML
     """
+
     __tablename__ = "ml_publication_snapshots"
 
     id = Column(Integer, primary_key=True, index=True)

@@ -1,6 +1,7 @@
 """
 Modelo para tbsysFiscalClass - Clases Fiscales (versión reducida)
 """
+
 from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -8,6 +9,7 @@ from app.core.database import Base
 
 class TBFiscalClass(Base):
     """Tabla de clases fiscales del ERP"""
+
     __tablename__ = "tb_fiscal_class"
 
     # Primary Key

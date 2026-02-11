@@ -1,4 +1,15 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Numeric, BigInteger, ForeignKey, Enum as SQLEnum
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    Text,
+    Numeric,
+    BigInteger,
+    ForeignKey,
+    Enum as SQLEnum,
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -7,26 +18,28 @@ import enum
 
 class SeveridadNotificacion(str, enum.Enum):
     """Severidad/prioridad de una notificación"""
-    INFO = "INFO"           # Normal, informativa
-    WARNING = "WARNING"     # Advertencia, requiere atención
-    CRITICAL = "CRITICAL"   # Crítica, requiere acción inmediata
-    URGENT = "URGENT"       # Urgente, impacto alto en negocio
+
+    INFO = "INFO"  # Normal, informativa
+    WARNING = "WARNING"  # Advertencia, requiere atención
+    CRITICAL = "CRITICAL"  # Crítica, requiere acción inmediata
+    URGENT = "URGENT"  # Urgente, impacto alto en negocio
 
 
 class EstadoNotificacion(str, enum.Enum):
     """Estado de gestión de una notificación"""
-    PENDIENTE = "PENDIENTE"     # Creada, esperando revisión
-    REVISADA = "REVISADA"       # Revisada por usuario, puede estar leída o no
-    DESCARTADA = "DESCARTADA"   # Descartada, no requiere acción (no volver a mostrar)
-    EN_GESTION = "EN_GESTION"   # Se está trabajando en resolverla
-    RESUELTA = "RESUELTA"       # Resuelta, problema solucionado
+
+    PENDIENTE = "PENDIENTE"  # Creada, esperando revisión
+    REVISADA = "REVISADA"  # Revisada por usuario, puede estar leída o no
+    DESCARTADA = "DESCARTADA"  # Descartada, no requiere acción (no volver a mostrar)
+    EN_GESTION = "EN_GESTION"  # Se está trabajando en resolverla
+    RESUELTA = "RESUELTA"  # Resuelta, problema solucionado
 
 
 class Notificacion(Base):
     __tablename__ = "notificaciones"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey('usuarios.id', ondelete='CASCADE'), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=True, index=True)
     tipo = Column(String(50), nullable=False, index=True)  # markup_bajo, stock_bajo, precio_desactualizado, etc.
     item_id = Column(Integer, nullable=True, index=True)
     id_operacion = Column(BigInteger, nullable=True)  # ID de operación ML
@@ -35,7 +48,7 @@ class Notificacion(Base):
     codigo_producto = Column(String(100), nullable=True)
     descripcion_producto = Column(String(500), nullable=True)
     mensaje = Column(Text, nullable=False)
-    
+
     # Sistema de prioridad y gestión
     severidad = Column(SQLEnum(SeveridadNotificacion), default=SeveridadNotificacion.INFO, nullable=False, index=True)
     estado = Column(SQLEnum(EstadoNotificacion), default=EstadoNotificacion.PENDIENTE, nullable=False, index=True)
@@ -66,37 +79,37 @@ class Notificacion(Base):
     leida = Column(Boolean, default=False, nullable=False, index=True)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     fecha_lectura = Column(DateTime(timezone=True), nullable=True)
-    
+
     # Fechas de gestión
     fecha_revision = Column(DateTime(timezone=True), nullable=True)
     fecha_descarte = Column(DateTime(timezone=True), nullable=True)
     fecha_resolucion = Column(DateTime(timezone=True), nullable=True)
-    
+
     # Notas del usuario sobre la gestión
     notas_revision = Column(Text, nullable=True)
 
     # Relaciones
     usuario = relationship("Usuario", backref="notificaciones")
-    
+
     @property
     def diferencia_markup(self) -> float:
         """Calcula la diferencia entre markup real y objetivo"""
         if self.markup_real is not None and self.markup_objetivo is not None:
             return float(self.markup_real - self.markup_objetivo)
         return 0.0
-    
+
     @property
     def diferencia_markup_porcentual(self) -> float:
         """Calcula la diferencia porcentual respecto al objetivo"""
         if self.markup_objetivo and self.markup_objetivo != 0:
             return (float(self.markup_real - self.markup_objetivo) / float(self.markup_objetivo)) * 100
         return 0.0
-    
+
     @property
     def es_critica(self) -> bool:
         """Verifica si la notificación es crítica"""
         return self.severidad in [SeveridadNotificacion.CRITICAL, SeveridadNotificacion.URGENT]
-    
+
     @property
     def requiere_atencion(self) -> bool:
         """Verifica si requiere atención (no descartada ni resuelta)"""
