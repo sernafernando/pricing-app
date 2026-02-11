@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../services/api';
 import styles from './CuentasCorrientes.module.css';
 
@@ -28,13 +28,17 @@ const TABS = {
 export default function CuentasCorrientes() {
   const [tab, setTab] = useState('proveedores');
   const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState(null);
   const [buscar, setBuscar] = useState('');
   const [buscarInput, setBuscarInput] = useState('');
   const [sucursales, setSucursales] = useState([]);
   const [sucursalSeleccionada, setSucursalSeleccionada] = useState('');
   const [exportando, setExportando] = useState(false);
+
+  // Track si ya se hizo sync para cada tab (para no martillar el ERP)
+  const syncDone = useRef({ proveedores: false, clientes: false });
 
   const config = TABS[tab];
 
@@ -51,6 +55,7 @@ export default function CuentasCorrientes() {
     cargarSucursales();
   }, []);
 
+  // Leer datos locales (solo tabla, sin ERP)
   const cargarDatos = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -73,9 +78,45 @@ export default function CuentasCorrientes() {
     }
   }, [buscar, sucursalSeleccionada, config.endpoint]);
 
+  // Sincronizar con ERP (POST) y luego recargar datos locales
+  const sincronizarERP = useCallback(async () => {
+    setSyncing(true);
+    setError(null);
+    try {
+      await api.post(`/cuentas-corrientes/sync?tipo=${tab}`);
+      syncDone.current[tab] = true;
+    } catch (err) {
+      console.error('Error sincronizando con ERP:', err);
+      const msg =
+        err.response?.data?.error?.message ||
+        'Error al sincronizar con el ERP';
+      setError(msg);
+    } finally {
+      setSyncing(false);
+    }
+  }, [tab]);
+
+  // Al montar o cambiar de tab: sync automático (una vez) + cargar datos
+  useEffect(() => {
+    const init = async () => {
+      if (!syncDone.current[tab]) {
+        await sincronizarERP();
+      }
+      await cargarDatos();
+    };
+    init();
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cuando cambian filtros, solo leer tabla local
   useEffect(() => {
     cargarDatos();
   }, [cargarDatos]);
+
+  // Botón "Actualizar": forzar sync con ERP + recargar
+  const handleActualizar = async () => {
+    await sincronizarERP();
+    await cargarDatos();
+  };
 
   const handleCambiarTab = (nuevoTab) => {
     if (nuevoTab === tab) return;
@@ -148,6 +189,7 @@ export default function CuentasCorrientes() {
 
   const totales = calcularTotales();
   const hayFiltrosActivos = buscar || sucursalSeleccionada;
+  const isBusy = loading || syncing;
 
   return (
     <div className={styles.container}>
@@ -188,16 +230,16 @@ export default function CuentasCorrientes() {
             </button>
           )}
           <button
-            onClick={cargarDatos}
+            onClick={handleActualizar}
             className="btn-tesla outline-subtle-primary sm"
-            disabled={loading}
+            disabled={isBusy}
           >
-            {loading ? 'Cargando...' : 'Actualizar'}
+            {syncing ? 'Sincronizando ERP...' : 'Actualizar'}
           </button>
           <button
             onClick={exportarExcel}
             className="btn-tesla outline-subtle-success sm"
-            disabled={exportando || loading || data.length === 0}
+            disabled={exportando || isBusy || data.length === 0}
           >
             {exportando ? 'Exportando...' : 'Exportar Excel'}
           </button>
@@ -219,8 +261,12 @@ export default function CuentasCorrientes() {
 
       {error && <div className={styles.errorBanner}>{error}</div>}
 
-      {loading ? (
-        <div className={styles.loading}>Consultando ERP, puede demorar unos segundos...</div>
+      {isBusy ? (
+        <div className={styles.loading}>
+          {syncing
+            ? 'Sincronizando con el ERP, puede demorar unos segundos...'
+            : 'Cargando datos...'}
+        </div>
       ) : (
         <>
           <div className={styles.statsCard}>
