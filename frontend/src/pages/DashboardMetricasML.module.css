@@ -1080,6 +1080,15 @@
   color: #ef4444;
 }
 
+.logisticaOffset {
+  color: #d97706;
+  font-weight: 600;
+}
+
+.offsetFlexValue {
+  color: #d97706;
+}
+
 /* Responsive para KPIs */
 @media (max-width: 1024px) {
   .kpisContainer {

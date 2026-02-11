@@ -161,6 +161,7 @@ class MetricasGeneralesResponse(BaseModel):
     cantidad_unidades: int  # Cantidad de unidades vendidas
     total_comisiones: Decimal  # Total pagado en comisiones ML
     total_envios: Decimal  # Total pagado en envíos
+    total_offset_flex: Decimal = Decimal("0")  # Total offset Flex aplicado
 
 
 class VentaPorMarcaResponse(BaseModel):
@@ -192,6 +193,7 @@ class VentaPorLogisticaResponse(BaseModel):
     tipo_logistica: str
     total_ventas: Decimal
     total_envios: Decimal
+    total_offset_flex: Decimal = Decimal("0")
     cantidad_operaciones: int
 
 
@@ -248,6 +250,7 @@ async def get_metricas_generales(
         func.sum(MLVentaMetrica.cantidad).label("cantidad_unidades"),
         func.sum(MLVentaMetrica.comision_ml).label("total_comisiones"),
         func.sum(MLVentaMetrica.costo_envio_ml).label("total_envios"),
+        func.coalesce(func.sum(MLVentaMetrica.offset_flex), 0).label("total_offset_flex"),
     )
 
     # Filtrar por marcas del PM (o por pm_ids si se especificó)
@@ -269,6 +272,7 @@ async def get_metricas_generales(
             cantidad_unidades=0,
             total_comisiones=Decimal("0"),
             total_envios=Decimal("0"),
+            total_offset_flex=Decimal("0"),
         )
 
     # Calcular markup sobre totales
@@ -290,6 +294,7 @@ async def get_metricas_generales(
         cantidad_unidades=int(result.cantidad_unidades or 0),
         total_comisiones=result.total_comisiones or Decimal("0"),
         total_envios=result.total_envios or Decimal("0"),
+        total_offset_flex=result.total_offset_flex or Decimal("0"),
     )
 
 
@@ -406,6 +411,7 @@ async def get_ventas_por_logistica(
         MLVentaMetrica.tipo_logistica,
         func.sum(MLVentaMetrica.monto_total).label("total_ventas"),
         func.sum(MLVentaMetrica.costo_envio_ml).label("total_envios"),
+        func.coalesce(func.sum(MLVentaMetrica.offset_flex), 0).label("total_offset_flex"),
         func.count(MLVentaMetrica.id).label("cantidad_operaciones"),
     ).filter(MLVentaMetrica.tipo_logistica.isnot(None))
 
@@ -421,6 +427,7 @@ async def get_ventas_por_logistica(
             tipo_logistica=r.tipo_logistica,
             total_ventas=r.total_ventas or Decimal("0"),
             total_envios=r.total_envios or Decimal("0"),
+            total_offset_flex=r.total_offset_flex or Decimal("0"),
             cantidad_operaciones=r.cantidad_operaciones or 0,
         )
         for r in resultados

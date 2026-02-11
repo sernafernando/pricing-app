@@ -988,6 +988,14 @@ export default function DashboardMetricasML() {
                 {formatearPorcentaje((metricasGenerales.total_envios / (metricasGenerales.total_ventas_ml || 1)) * 100)}
               </span>
             </div>
+            {parseFloat(metricasGenerales.total_offset_flex || 0) > 0 && (
+              <div className={styles.metricMini}>
+                <span className={styles.metricMiniLabel}>Offset Flex</span>
+                <span className={`${styles.metricMiniValue} ${styles.offsetFlexValue}`}>
+                  {formatearMoneda(metricasGenerales.total_offset_flex)}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Gráfico de barras - Ventas por día */}
@@ -1120,6 +1128,9 @@ export default function DashboardMetricasML() {
                       <div className={styles.logisticaMeta}>
                         <span>{item.cantidad_operaciones} ops</span>
                         <span className={styles.logisticaEnvio}>Envío: {formatearMoneda(item.total_envios)}</span>
+                        {parseFloat(item.total_offset_flex || 0) > 0 && (
+                          <span className={styles.logisticaOffset}>Offset: {formatearMoneda(item.total_offset_flex)}</span>
+                        )}
                       </div>
                     </div>
                   </div>

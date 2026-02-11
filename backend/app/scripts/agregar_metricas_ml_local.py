@@ -307,6 +307,7 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
         "monto_limpio": metricas["monto_limpio"],
         "ganancia": metricas["ganancia"],
         "markup_porcentaje": metricas["markup_porcentaje"],
+        "offset_flex": metricas["offset_flex"],
     }
 
 
@@ -615,6 +616,7 @@ def process_and_insert(db: Session, rows):
                 if comision_porcentaje is not None
                 else None,  # Agregar comisión %
                 "prli_id": row.pricelist_id,  # Agregar prli_id para referencia
+                "offset_flex": Decimal(str(metricas["offset_flex"])),
             }
 
             if existente:

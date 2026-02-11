@@ -328,6 +328,7 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
         "monto_limpio": metricas["monto_limpio"],
         "ganancia": metricas["ganancia"],
         "markup_porcentaje": metricas["markup_porcentaje"],
+        "offset_flex": metricas["offset_flex"],
     }
 
 
@@ -981,6 +982,7 @@ def process_and_insert(db: Session, rows):
                 "markup_porcentaje": Decimal(str(metricas["markup_porcentaje"])),
                 "mla_id": str(row.mlp_id) if hasattr(row, "mlp_id") and row.mlp_id else None,
                 "mlp_official_store_id": row.mlp_official_store_id if hasattr(row, "mlp_official_store_id") else None,
+                "offset_flex": Decimal(str(metricas["offset_flex"])),
             }
 
             if existente:

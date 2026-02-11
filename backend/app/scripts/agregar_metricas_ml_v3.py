@@ -252,6 +252,7 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
                 existente.costo_total = Decimal(str(round(costo_total_sin_iva, 2)))
                 existente.ganancia = Decimal(str(round(ganancia, 2)))
                 existente.markup_porcentaje = Decimal(str(round(markup_porcentaje, 2)))
+                existente.offset_flex = Decimal(str(round(metricas["offset_flex"], 2)))
                 existente.prli_id = int(row.get("priceList")) if pd.notna(row.get("priceList")) else None
                 existente.mla_id = row.get("ML_id")
 
@@ -288,6 +289,7 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
                     costo_total=Decimal(str(round(costo_total_sin_iva, 2))),
                     ganancia=Decimal(str(round(ganancia, 2))),
                     markup_porcentaje=Decimal(str(round(markup_porcentaje, 2))),
+                    offset_flex=Decimal(str(round(metricas["offset_flex"], 2))),
                     prli_id=int(row.get("priceList")) if pd.notna(row.get("priceList")) else None,
                     mla_id=row.get("ML_id"),
                 )
