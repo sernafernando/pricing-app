@@ -97,7 +97,8 @@ async def listar_cuentas_corrientes_proveedores(
 
         if db.query(CuentaCorrienteProveedor).count() == 0:
             raise api_error(
-                502, ErrorCode.INTERNAL_ERROR,
+                502,
+                ErrorCode.INTERNAL_ERROR,
                 f"Error al consultar ERP y no hay datos previos: {str(e)}",
             )
         logger.warning("Devolviendo datos previos de CC proveedores")
@@ -168,7 +169,8 @@ async def listar_cuentas_corrientes_clientes(
 
         if db.query(CuentaCorrienteCliente).count() == 0:
             raise api_error(
-                502, ErrorCode.INTERNAL_ERROR,
+                502,
+                ErrorCode.INTERNAL_ERROR,
                 f"Error al consultar ERP y no hay datos previos: {str(e)}",
             )
         logger.warning("Devolviendo datos previos de CC clientes")
