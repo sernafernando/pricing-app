@@ -9,9 +9,7 @@ export default function TabRentabilidad({
   fechaDesde, 
   fechaHasta, 
   tiendasOficiales = [], 
-  pmsSeleccionados = [],
-  marcasSeleccionadas: marcasExternas = [],
-  categoriasSeleccionadas: categoriasExternas = []
+  pmsSeleccionados = []
 }) {
   const [loading, setLoading] = useState(false);
   const [rentabilidad, setRentabilidad] = useState(null);

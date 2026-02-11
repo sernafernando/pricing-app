@@ -156,13 +156,11 @@ export default function ModalEditarCosto({
 
     const tc = parseFloat(tipoCambio) || 1;
     let costoTotalARS = 0;
-    let hayUSD = false;
 
     for (const p of productos) {
       if (p.costo_unitario && p.costo_unitario > 0) {
         const costoProducto = p.costo_unitario * p.cantidad;
         if (p.moneda_costo === 'USD') {
-          hayUSD = true;
           costoTotalARS += costoProducto * tc;
         } else {
           costoTotalARS += costoProducto;

@@ -7,7 +7,7 @@ import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css';
 import styles from './GestionZonas.module.css';
 import api from '../../services/api';
 
-export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
+export default function GestionZonas({ zonas, onZonaCreada }) {
   const [nombre, setNombre] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [color, setColor] = useState('#3388ff');
@@ -23,7 +23,7 @@ export default function GestionZonas({ zonas, onZonaCreada, onZonaEliminada }) {
       try {
         const response = await api.get('/turbo/motoqueros');
         setMotoqueros(response.data);
-      } catch (error) {
+      } catch {
         // Error silencioso: si falla, el botón auto-generar quedará deshabilitado
       }
     };

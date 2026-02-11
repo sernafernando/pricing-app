@@ -320,7 +320,6 @@ export default function PricingModal({ producto, onClose, onSave }) {
               {/* Rebate Meli */}
               {participaRebate && (() => {
                 const precioConRebate = resultado.clasica.precio / (1 - porcentajeRebate / 100);  // ← CAMBIAR * por /
-                const comisionRebate = resultado.clasica.comision_total / (1 - porcentajeRebate / 100);
                 const limpioRebate = resultado.clasica.limpio / (1 - porcentajeRebate / 100);
                 const markupRebate = ((limpioRebate / resultado.clasica.costo_ars) - 1) * 100;
               
@@ -421,7 +420,6 @@ export default function PricingModal({ producto, onClose, onSave }) {
               {/* Rebate Meli para modo precio manual */}
               {participaRebate && (() => {
                 const precioConRebate = resultado.precioManual / (1 - porcentajeRebate / 100);  // ← CAMBIAR * por /
-                const comisionRebate = resultado.clasica.comision_total / (1 - porcentajeRebate / 100);
                 const limpioRebate = resultado.clasica.limpio / (1 - porcentajeRebate / 100);
                 const markupRebate = ((limpioRebate / resultado.clasica.costo_ars) - 1) * 100;
               

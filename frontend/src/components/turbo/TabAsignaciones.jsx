@@ -46,7 +46,7 @@ export default function TabAsignaciones() {
     try {
       const { data: response } = await api.get('/turbo/motoqueros');
       setMotoqueros(response.filter(m => m.activo));
-    } catch (error) {
+    } catch {
       alert('Error al cargar motoqueros');
     }
   };

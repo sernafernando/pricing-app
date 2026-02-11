@@ -10,7 +10,6 @@ export default function Admin() {
   const [tabActiva, setTabActiva] = useState('general');
   const [sincronizando, setSincronizando] = useState(false);
   const [logSync, setLogSync] = useState([]);
-  const [comisiones, setComisiones] = useState([]);
   const [tipoCambio, setTipoCambio] = useState(null);
 
   // Modal de confirmación de limpieza
@@ -84,15 +83,6 @@ export default function Admin() {
       agregarLog(`❌ Error: ${error.message}`);
     } finally {
       setSincronizando(false);
-    }
-  };
-
-  const sincronizarPreciosML = async () => {
-    try {
-      const response = await api.post('/sync-ml/precios', {});
-      alert('Sincronización iniciada: ' + JSON.stringify(response.data));
-    } catch (error) {
-      alert('Error al sincronizar: ' + error.message);
     }
   };
 

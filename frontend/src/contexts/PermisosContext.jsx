@@ -3,6 +3,7 @@ import api from '../services/api';
 
 const PermisosContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const usePermisos = () => {
   const context = useContext(PermisosContext);
   if (!context) {

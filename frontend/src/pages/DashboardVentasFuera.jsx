@@ -158,7 +158,7 @@ export default function DashboardVentasFuera() {
         setSucursalesDisponibles(statsRes.data.sucursales_disponibles || []);
         setVendedoresDisponibles(statsRes.data.vendedores_disponibles || []);
       }
-    } catch (error) {
+    } catch {
       alert('Error al cargar el dashboard');
     } finally {
       setLoading(false);
@@ -198,7 +198,7 @@ export default function DashboardVentasFuera() {
 
       // Invalidar cache para que se recargue con datos frescos
       pagination.invalidateCache();
-    } catch (error) {
+    } catch {
       alert('Error al guardar cambios');
     }
   }, [pagination]);
