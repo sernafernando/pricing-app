@@ -7,7 +7,7 @@ license: Apache-2.0
 metadata:
   author: prowler-cloud
   version: "1.0"
-  scope: [root, sdk, api]
+  scope: [root, backend]
   auto_invoke: "Writing Python tests with pytest"
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash, WebFetch, WebSearch, Task
 ---

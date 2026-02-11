@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --dry-run    Show what would change without modifying files"
-            echo "  --scope      Only sync specific scope (root, ui, api, sdk)"
+            echo "  --scope      Only sync specific scope (root, backend, frontend, ui, api, sdk)"
             exit 0
             ;;
         *)
@@ -45,16 +45,57 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Map scope to AGENTS.md path
+# Map scope to target docs path.
+# Prefer AGENTS.md when present; fallback to CLAUDE.md in this repo.
+# Legacy aliases (ui/api/sdk) are supported for compatibility.
 get_agents_path() {
     local scope="$1"
     case "$scope" in
-        root)     echo "$REPO_ROOT/AGENTS.md" ;;
-        backend)  echo "$REPO_ROOT/backend/AGENTS.md" ;;
-        frontend) echo "$REPO_ROOT/frontend/AGENTS.md" ;;
-        # Legacy Prowler scopes (if copying skills from Prowler)
-        ui)       echo "$REPO_ROOT/frontend/AGENTS.md" ;;
-        api)      echo "$REPO_ROOT/backend/AGENTS.md" ;;
+        root)
+            echo "$REPO_ROOT/AGENTS.md"
+            ;;
+        backend)
+            if [ -f "$REPO_ROOT/backend/AGENTS.md" ]; then
+                echo "$REPO_ROOT/backend/AGENTS.md"
+            else
+                echo "$REPO_ROOT/backend/CLAUDE.md"
+            fi
+            ;;
+        frontend)
+            if [ -f "$REPO_ROOT/frontend/AGENTS.md" ]; then
+                echo "$REPO_ROOT/frontend/AGENTS.md"
+            else
+                echo "$REPO_ROOT/frontend/CLAUDE.md"
+            fi
+            ;;
+        # Legacy aliases used by older repos/tests
+        ui)
+            if [ -f "$REPO_ROOT/ui/AGENTS.md" ]; then
+                echo "$REPO_ROOT/ui/AGENTS.md"
+            elif [ -f "$REPO_ROOT/frontend/AGENTS.md" ]; then
+                echo "$REPO_ROOT/frontend/AGENTS.md"
+            else
+                echo "$REPO_ROOT/frontend/CLAUDE.md"
+            fi
+            ;;
+        api)
+            if [ -f "$REPO_ROOT/api/AGENTS.md" ]; then
+                echo "$REPO_ROOT/api/AGENTS.md"
+            elif [ -f "$REPO_ROOT/backend/AGENTS.md" ]; then
+                echo "$REPO_ROOT/backend/AGENTS.md"
+            else
+                echo "$REPO_ROOT/backend/CLAUDE.md"
+            fi
+            ;;
+        sdk)
+            if [ -f "$REPO_ROOT/prowler/AGENTS.md" ]; then
+                echo "$REPO_ROOT/prowler/AGENTS.md"
+            elif [ -f "$REPO_ROOT/sdk/AGENTS.md" ]; then
+                echo "$REPO_ROOT/sdk/AGENTS.md"
+            else
+                echo ""
+            fi
+            ;;
         *)        echo "" ;;
     esac
 }
@@ -161,8 +202,11 @@ echo -e "${BLUE}Skill Sync - Updating AGENTS.md Auto-invoke sections${NC}"
 echo "========================================================"
 echo ""
 
-# Collect skills by scope
-declare -A SCOPE_SKILLS  # scope -> "skill1:action1|skill2:action2|..."
+# Collect skills by target file.
+# FILE_SKILLS maps absolute target file -> "skill1:action1|skill2:action2|..."
+# FILE_SCOPES maps absolute target file -> "scope1,scope2,..." (for logging)
+declare -A FILE_SKILLS
+declare -A FILE_SCOPES
 
 # Deterministic iteration order (stable diffs)
 # Note: macOS ships BSD find; avoid GNU-only flags.
@@ -192,40 +236,42 @@ while IFS= read -r skill_file; do
         # Filter by scope if specified
         [ -n "$FILTER_SCOPE" ] && [ "$scope" != "$FILTER_SCOPE" ] && continue
 
-        # Append to scope's skill list
-        if [ -z "${SCOPE_SKILLS[$scope]}" ]; then
-            SCOPE_SKILLS[$scope]="$skill_name:$auto_invoke"
+        agents_path=$(get_agents_path "$scope")
+        if [ -z "$agents_path" ] || [ ! -f "$agents_path" ]; then
+            echo -e "${YELLOW}Warning: No AGENTS.md found for scope '$scope'${NC}"
+            continue
+        fi
+
+        # Append to target file's skill list
+        if [ -z "${FILE_SKILLS[$agents_path]}" ]; then
+            FILE_SKILLS[$agents_path]="$skill_name:$auto_invoke"
         else
-            SCOPE_SKILLS[$scope]="${SCOPE_SKILLS[$scope]}|$skill_name:$auto_invoke"
+            FILE_SKILLS[$agents_path]="${FILE_SKILLS[$agents_path]}|$skill_name:$auto_invoke"
+        fi
+
+        # Track contributing scopes for logging
+        if [ -z "${FILE_SCOPES[$agents_path]}" ]; then
+            FILE_SCOPES[$agents_path]="$scope"
+        else
+            case ",${FILE_SCOPES[$agents_path]}," in
+                *",$scope,"*) ;;
+                *) FILE_SCOPES[$agents_path]="${FILE_SCOPES[$agents_path]},$scope" ;;
+            esac
         fi
     done
 done < <(find "$SKILLS_DIR" -mindepth 2 -maxdepth 2 -name SKILL.md -print | sort)
 
-# Generate Auto-invoke section for each scope
-# Deterministic scope order (stable diffs)
-scopes_sorted=()
-while IFS= read -r scope; do
-    scopes_sorted+=("$scope")
-done < <(printf "%s\n" "${!SCOPE_SKILLS[@]}" | sort)
+# Generate Auto-invoke section for each target file.
+# Deterministic file order (stable diffs)
+files_sorted=()
+while IFS= read -r file_path; do
+    files_sorted+=("$file_path")
+done < <(printf "%s\n" "${!FILE_SKILLS[@]}" | sort)
 
-# Track processed AGENTS.md files to avoid duplicates
-declare -A processed_files
-
-for scope in "${scopes_sorted[@]}"; do
-    agents_path=$(get_agents_path "$scope")
-    
-    if [ -z "$agents_path" ] || [ ! -f "$agents_path" ]; then
-        echo -e "${YELLOW}Warning: No AGENTS.md found for scope '$scope'${NC}"
-        continue
-    fi
-    
-    # Skip if already processed this file
-    if [[ -n "${processed_files["$agents_path"]:-}" ]]; then
-        continue
-    fi
-    processed_files["$agents_path"]=1
-
-    echo -e "${BLUE}Processing: $scope -> $(basename "$(dirname "$agents_path")")/AGENTS.md${NC}"
+for agents_path in "${files_sorted[@]}"; do
+    scopes_for_file="${FILE_SCOPES[$agents_path]}"
+    display_path="${agents_path#$REPO_ROOT/}"
+    echo -e "${BLUE}Processing: $scopes_for_file -> $display_path${NC}"
 
     # Build the Auto-invoke table
     auto_invoke_section="### Auto-invoke Skills
@@ -238,7 +284,7 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
     # Expand into sortable rows: "action<TAB>skill"
     rows=()
 
-    IFS='|' read -ra skill_entries <<< "${SCOPE_SKILLS[$scope]}"
+    IFS='|' read -ra skill_entries <<< "${FILE_SKILLS[$agents_path]}"
     for entry in "${skill_entries[@]}"; do
         skill_name="${entry%%:*}"
         actions_raw="${entry#*:}"
@@ -257,7 +303,7 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
         [ -z "$action" ] && continue
         auto_invoke_section="$auto_invoke_section
 | $action | \`$skill_name\` |"
-    done < <(printf "%s\n" "${rows[@]}" | LC_ALL=C sort -t $'\t' -k1,1 -k2,2)
+    done < <(printf "%s\n" "${rows[@]}" | LC_ALL=C sort -u -t $'\t' -k1,1 -k2,2)
 
     if $DRY_RUN; then
         echo -e "${YELLOW}[DRY RUN] Would update $agents_path with:${NC}"
@@ -303,6 +349,12 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
                 }
                 { print }
             ' "$agents_path" > "$agents_path.tmp"
+
+            # Fallback: if no Skills Reference block exists, append section at EOF.
+            if ! grep -q "### Auto-invoke Skills" "$agents_path.tmp"; then
+                printf "\n%s\n" "$auto_invoke_section" >> "$agents_path.tmp"
+            fi
+
             mv "$agents_path.tmp" "$agents_path"
             echo -e "${GREEN}  ✓ Inserted Auto-invoke section${NC}"
         fi

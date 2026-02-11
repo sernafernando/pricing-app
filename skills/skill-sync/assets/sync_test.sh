@@ -475,9 +475,9 @@ test_update_replaces_existing_section() {
     # First run creates section
     run_sync > /dev/null
 
-    # Modify a skill's auto_invoke (portable: BSD/GNU sed)
-    # macOS/BSD sed needs -i '' (separate arg). GNU sed accepts it too.
-    sed -i '' 's/Testing UI components/Modified UI action/' "$TEST_DIR/skills/mock-ui-skill/SKILL.md"
+    # Modify a skill's auto_invoke (portable on GNU/BSD sed)
+    sed -i.bak 's/Testing UI components/Modified UI action/' "$TEST_DIR/skills/mock-ui-skill/SKILL.md"
+    rm -f "$TEST_DIR/skills/mock-ui-skill/SKILL.md.bak"
 
     # Second run should replace
     run_sync > /dev/null

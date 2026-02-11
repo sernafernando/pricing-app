@@ -1,5 +1,7 @@
 # Pricing App Frontend - AI Agent Ruleset
 
+> Precedence: If any rule here conflicts with root `AGENTS.md`, follow `AGENTS.md`.
+
 > **Skills Reference**: For detailed patterns, use these skills:
 > - [`pricing-app-frontend`](../skills/pricing-app-frontend/SKILL.md) - React + Zustand + CSS Modules + Tesla Design
 > - [`react-19`](../skills/react-19/SKILL.md) - React 19 patterns, React Compiler
@@ -12,20 +14,28 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 
 | Action | Skill |
 |--------|-------|
+| Adding new backend endpoint behavior | `pricing-app-testing-ci` |
+| Changing frontend critical user flows | `pricing-app-testing-ci` |
 | Checking user permissions in backend | `pricing-app-permissions` |
 | Creating custom hooks | `pricing-app-frontend` |
 | Creating design tokens | `pricing-app-design` |
 | Creating/modifying React components | `pricing-app-frontend` |
+| Fixing production bugs that require regression tests | `pricing-app-testing-ci` |
 | Implementing dark mode | `pricing-app-frontend` |
 | Implementing dark mode theming | `pricing-app-design` |
 | Implementing permission checks | `pricing-app-permissions` |
 | Managing user permission overrides | `pricing-app-permissions` |
+| Refactoring auth or pricing logic | `pricing-app-testing-ci` |
+| Setting up or modifying CI pipelines | `pricing-app-testing-ci` |
 | Styling with CSS Modules or Tesla Design | `pricing-app-frontend` |
 | Styling with Tesla Design System | `pricing-app-design` |
 | Using CSS composition | `pricing-app-design` |
 | Using PermisosContext | `pricing-app-permissions` |
 | Using PermisosContext or ThemeContext | `pricing-app-frontend` |
+| Using Zustand stores | `zustand-5` |
 | Working with Zustand store | `pricing-app-frontend` |
+| Writing React components | `react-19` |
+| Writing TypeScript types/interfaces | `typescript` |
 
 ---
 

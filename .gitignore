@@ -70,3 +70,7 @@ nul
 AGENTS.md
 .gga
 gmaps
+
+# Backup files
+*.backup*
+.backup*
