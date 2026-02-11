@@ -13,6 +13,7 @@ export default function TabRentabilidad({
 }) {
   const [loading, setLoading] = useState(false);
   const [rentabilidad, setRentabilidad] = useState(null);
+  const [incluirOffsetFlex, setIncluirOffsetFlex] = useState(false);
   const [filtrosDisponibles, setFiltrosDisponibles] = useState({
     marcas: [],
     categorias: [],
@@ -220,6 +221,14 @@ export default function TabRentabilidad({
     if (markup < 3) return '#f59e0b';
     if (markup < 6) return '#eab308';
     return '#22c55e';
+  };
+
+  // Recalcula ganancia_con_offset y markup_con_offset sumando offset_flex si el check está activo
+  const ajustarConFlex = (card) => {
+    const flexExtra = (incluirOffsetFlex && card.offset_flex_total > 0) ? card.offset_flex_total : 0;
+    const ganancia = card.ganancia_con_offset + flexExtra;
+    const markup = card.costo_total > 0 ? (ganancia / card.costo_total) * 100 : 0;
+    return { ganancia, markup };
   };
 
   // Función para hacer drill-down al hacer click en una card
@@ -629,30 +638,39 @@ export default function TabRentabilidad({
               </div>
               {rentabilidad.totales.offset_flex_total > 0 && (
                 <div className={styles.totalItem}>
-                  <span className={styles.totalLabel}>Offset Flex</span>
-                  <span className={styles.totalValor} style={{ color: '#d97706' }}>
+                  <label className={styles.offsetFlexToggle}>
+                    <input
+                      type="checkbox"
+                      checked={incluirOffsetFlex}
+                      onChange={(e) => setIncluirOffsetFlex(e.target.checked)}
+                    />
+                    <span className={styles.totalLabel}>Offset Flex</span>
+                  </label>
+                  <span className={styles.totalValor} style={{ color: '#d97706', opacity: incluirOffsetFlex ? 1 : 0.5 }}>
                     {formatMoney(rentabilidad.totales.offset_flex_total)}
                   </span>
                 </div>
               )}
-              {rentabilidad.totales.offset_total > 0 && (
+              {(rentabilidad.totales.offset_total > 0 || (incluirOffsetFlex && rentabilidad.totales.offset_flex_total > 0)) && (
                 <>
-                  <div className={styles.totalItem}>
-                    <span className={styles.totalLabel}>+ Offsets</span>
-                    <span className={styles.totalValor} style={{ color: '#3b82f6' }}>
-                      {formatMoney(rentabilidad.totales.offset_total)}
-                    </span>
-                  </div>
+                  {rentabilidad.totales.offset_total > 0 && (
+                    <div className={styles.totalItem}>
+                      <span className={styles.totalLabel}>+ Offsets</span>
+                      <span className={styles.totalValor} style={{ color: '#3b82f6' }}>
+                        {formatMoney(rentabilidad.totales.offset_total)}
+                      </span>
+                    </div>
+                  )}
                   <div className={styles.totalItem}>
                     <span className={styles.totalLabel}>Ganancia c/Offset</span>
-                    <span className={styles.totalValor} style={{ color: rentabilidad.totales.ganancia_con_offset >= 0 ? '#22c55e' : '#ef4444' }}>
-                      {formatMoney(rentabilidad.totales.ganancia_con_offset)}
+                    <span className={styles.totalValor} style={{ color: ajustarConFlex(rentabilidad.totales).ganancia >= 0 ? '#22c55e' : '#ef4444' }}>
+                      {formatMoney(ajustarConFlex(rentabilidad.totales).ganancia)}
                     </span>
                   </div>
                   <div className={styles.totalItem}>
                     <span className={styles.totalLabel}>Markup c/Offset</span>
-                    <span className={styles.totalValor} style={{ color: getMarkupColor(rentabilidad.totales.markup_con_offset) }}>
-                      {formatPercent(rentabilidad.totales.markup_con_offset)}
+                    <span className={styles.totalValor} style={{ color: getMarkupColor(ajustarConFlex(rentabilidad.totales).markup) }}>
+                      {formatPercent(ajustarConFlex(rentabilidad.totales).markup)}
                     </span>
                   </div>
                 </>
@@ -720,20 +738,22 @@ export default function TabRentabilidad({
                   </div>
                   {card.offset_flex_total > 0 && (
                     <div className={styles.cardMetrica}>
-                      <span>Offset Flex:</span>
-                      <span style={{ color: '#d97706' }}>{formatMoney(card.offset_flex_total)}</span>
+                      <span style={{ color: '#d97706', opacity: incluirOffsetFlex ? 1 : 0.5 }}>Offset Flex:</span>
+                      <span style={{ color: '#d97706', opacity: incluirOffsetFlex ? 1 : 0.5 }}>{formatMoney(card.offset_flex_total)}</span>
                     </div>
                   )}
-                  {card.offset_total > 0 && (
+                  {(card.offset_total > 0 || (incluirOffsetFlex && card.offset_flex_total > 0)) && (
                     <>
-                      <div className={styles.cardMetricaOffset}>
-                        <span>+ Offset:</span>
-                        <span style={{ color: '#3b82f6' }}>{formatMoney(card.offset_total)}</span>
-                      </div>
+                      {card.offset_total > 0 && (
+                        <div className={styles.cardMetricaOffset}>
+                          <span>+ Offset:</span>
+                          <span style={{ color: '#3b82f6' }}>{formatMoney(card.offset_total)}</span>
+                        </div>
+                      )}
                       <div className={styles.cardMetricaOffset}>
                         <span>Markup c/Off:</span>
-                        <span style={{ color: getMarkupColor(card.markup_con_offset) }}>
-                          {formatPercent(card.markup_con_offset)}
+                        <span style={{ color: getMarkupColor(ajustarConFlex(card).markup) }}>
+                          {formatPercent(ajustarConFlex(card).markup)}
                         </span>
                       </div>
                       {/* Desglose de offsets */}

@@ -168,6 +168,24 @@
   font-weight: 600;
 }
 
+/* Toggle checkbox para Offset Flex */
+.offsetFlexToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  opacity: 0.7;
+  text-transform: uppercase;
+}
+
+.offsetFlexToggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: #d97706;
+  cursor: pointer;
+}
+
 /* Desglose de offsets en totales */
 .totalDesgloseOffsets {
   margin-top: 1rem;
