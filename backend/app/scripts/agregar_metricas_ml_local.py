@@ -141,7 +141,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
                 (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
             ) as cambio_momento,
 
-            COALESCE(tmlos.mllogistic_type, tmlos.ml_logistic_type) as tipo_logistica,
+            COALESCE(tmlos.ml_logistic_type, tmlos.mllogistic_type) as tipo_logistica,
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
             tmloh.mlshippingid as shipping_id,
