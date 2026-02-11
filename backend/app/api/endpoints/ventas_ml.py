@@ -503,6 +503,7 @@ class OperacionConMetricasResponse(BaseModel):
     costo_envio: Decimal
     monto_limpio: Decimal
     markup_porcentaje: Decimal
+    offset_flex: Decimal = Decimal("0")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -660,7 +661,10 @@ async def get_operaciones_con_metricas(
                 tmloh.prli_id,  -- HISTÓRICO: guardado al momento de la venta
                 tsoh.prli_id,   -- FALLBACK 1: Sale Order (puede ser NULL)
                 CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END  -- FALLBACK 2: publicación actual
-            ) as pricelist_id
+            ) as pricelist_id,
+
+            -- Tipo de logística del envío (self_service = Flex, fulfillment = Full, etc.)
+            tmlos.mllogistic_type as ml_logistic_type
 
         FROM tb_mercadolibre_orders_detail tmlod
 
@@ -845,6 +849,7 @@ async def get_operaciones_con_metricas(
             fecha_venta=row.fecha_venta,
             comision_base_porcentaje=float(row.comision_base_porcentaje or 12.0),
             db_session=db,
+            ml_logistic_type=row.ml_logistic_type if hasattr(row, "ml_logistic_type") else None,
         )
 
         # Mapeo de pricelist_id a nombre
@@ -892,6 +897,7 @@ async def get_operaciones_con_metricas(
                 "costo_envio": Decimal(str(metricas["costo_envio"])),
                 "monto_limpio": Decimal(str(metricas["monto_limpio"])),
                 "markup_porcentaje": Decimal(str(metricas["markup_porcentaje"])),
+                "offset_flex": Decimal(str(metricas["offset_flex"])),
             }
         )
 
@@ -1025,7 +1031,10 @@ async def exportar_operaciones(
                 tmloh.prli_id,
                 tsoh.prli_id,
                 CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END
-            ) as pricelist_id
+            ) as pricelist_id,
+
+            -- Tipo de logística del envío (self_service = Flex, fulfillment = Full, etc.)
+            tmlos.mllogistic_type as ml_logistic_type
 
         FROM tb_mercadolibre_orders_detail tmlod
         LEFT JOIN tb_mercadolibre_orders_header tmloh
@@ -1144,6 +1153,7 @@ async def exportar_operaciones(
             fecha_venta=row.fecha_venta,
             comision_base_porcentaje=float(row.comision_base_porcentaje or 12.0),
             db_session=db,
+            ml_logistic_type=row.ml_logistic_type if hasattr(row, "ml_logistic_type") else None,
         )
 
         pricelist_names = {
@@ -1185,6 +1195,7 @@ async def exportar_operaciones(
                 "costo_envio": metricas["costo_envio"],
                 "monto_limpio": metricas["monto_limpio"],
                 "markup_porcentaje": metricas["markup_porcentaje"],
+                "offset_flex": metricas["offset_flex"],
             }
         )
 
@@ -1218,6 +1229,7 @@ async def exportar_operaciones(
         "Comisión $",
         "Costo Envío",
         "Monto Limpio",
+        "Offset Flex",
         "Markup %",
     ]
 
@@ -1247,10 +1259,11 @@ async def exportar_operaciones(
         ws.cell(row=row_num, column=16, value=float(op["comision_pesos"]))
         ws.cell(row=row_num, column=17, value=float(op["costo_envio"]))
         ws.cell(row=row_num, column=18, value=float(op["monto_limpio"]))
-        ws.cell(row=row_num, column=19, value=float(op["markup_porcentaje"]))
+        ws.cell(row=row_num, column=19, value=float(op["offset_flex"]))
+        ws.cell(row=row_num, column=20, value=float(op["markup_porcentaje"]))
 
     # Ajustar anchos de columna
-    column_widths = [12, 20, 15, 20, 20, 15, 40, 8, 12, 12, 10, 12, 12, 12, 10, 12, 12, 12, 10]
+    column_widths = [12, 20, 15, 20, 20, 15, 40, 8, 12, 12, 10, 12, 12, 12, 10, 12, 12, 12, 12, 10]
     for i, width in enumerate(column_widths, 1):
         ws.column_dimensions[chr(64 + i)].width = width
 

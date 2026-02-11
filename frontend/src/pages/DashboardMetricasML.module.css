@@ -597,6 +597,12 @@
   font-weight: 700;
 }
 
+.offsetFlex {
+  color: #d97706;
+  font-weight: 600;
+  text-align: right;
+}
+
 /* Alerts estilo Bootstrap */
 .alertDanger {
   background-color: #f8d7da !important;

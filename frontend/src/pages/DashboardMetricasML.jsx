@@ -832,6 +832,7 @@ export default function DashboardMetricasML() {
                   <th>Comisión $</th>
                   <th>Envío s/IVA</th>
                   <th>Limpio</th>
+                  <th>Offset Flex</th>
                   <th>Markup%</th>
                   <th>Lista</th>
                 </tr>
@@ -854,6 +855,9 @@ export default function DashboardMetricasML() {
                     <td className={styles.monto}>{formatearMoneda(op.comision_pesos)}</td>
                     <td className={styles.monto}>{formatearMoneda(op.costo_envio)}</td>
                     <td className={styles.monto}>{formatearMoneda(op.monto_limpio)}</td>
+                    <td className={styles.offsetFlex}>
+                      {parseFloat(op.offset_flex || 0) > 0 ? formatearMoneda(op.offset_flex) : '—'}
+                    </td>
                     <td className={`${styles.centrado} ${parseFloat(op.markup_porcentaje) < 0 ? styles.negativo : ''}`}>
                       {formatearPorcentaje(op.markup_porcentaje)}
                     </td>
