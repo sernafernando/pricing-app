@@ -47,6 +47,7 @@ from app.api.endpoints import (
     pedidos_export_local,
     sale_order_status,
     asignaciones,
+    cuentas_corrientes,
 )
 from app.routers import alertas
 from app.core.config import settings
@@ -124,6 +125,7 @@ app.include_router(produccion_banlist.router, prefix="/api", tags=["produccion-b
 app.include_router(turbo_routing.router, prefix="/api", tags=["turbo-routing"])
 app.include_router(alertas.router, prefix="/api", tags=["alertas"])
 app.include_router(asignaciones.router, prefix="/api/asignaciones", tags=["asignaciones"])
+app.include_router(cuentas_corrientes.router, prefix="/api", tags=["cuentas-corrientes"])
 
 
 @app.get("/")

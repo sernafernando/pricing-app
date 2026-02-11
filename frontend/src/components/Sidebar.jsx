@@ -90,6 +90,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Tienda Nube', path: '/dashboard-tienda-nube', permiso: 'ventas_tn.ver_dashboard' },
         { label: 'Cálculos', path: '/calculos', permiso: 'reportes.ver_calculadora' },
         { label: 'Últimos Cambios', path: '/ultimos-cambios', permiso: 'productos.ver_auditoria' },
+        { label: 'Cuentas Corrientes', path: '/cuentas-corrientes', permiso: 'reportes.ver_cuentas_corrientes' },
       ],
     },
     {
