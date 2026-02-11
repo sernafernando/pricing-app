@@ -1,12 +1,14 @@
 """
 Modelo para tbItem - Items/Productos
 """
+
 from sqlalchemy import Column, Integer, String, DateTime
 from app.core.database import Base
 
 
 class TBItem(Base):
     """Tabla principal de items del ERP"""
+
     __tablename__ = "tb_item"
 
     comp_id = Column(Integer, primary_key=True)

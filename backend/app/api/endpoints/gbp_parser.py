@@ -1,13 +1,13 @@
 """
 Endpoint para parsear respuestas SOAP del ERP (reemplazo del worker de Cloudflare)
 """
+
 from fastapi import APIRouter, HTTPException, Request, Depends
-from typing import Optional, Dict, Any
+from typing import Any
 import httpx
 import re
 import json
 import os
-from pydantic import BaseModel
 from app.api.deps import get_user_or_localhost
 
 router = APIRouter()
@@ -39,13 +39,40 @@ SCRIPT_CONFIG = {
     "scriptMLOrdersHeader": ["fromDate", "toDate", "mloId"],
     "scriptMLOrdersDetail": ["fromDate", "toDate", "mlodId"],
     "scriptMLOrdersShipping": ["fromDate", "toDate", "mlmId", "mloId", "MLshippingID"],
-    "scriptMLItemsPublicados": ["fromDate", "toDate", "mlpId", "mlpIdFrom", "mlpIdTo", "itemID", "mlaID", "updateFrom", "updateTo"],
+    "scriptMLItemsPublicados": [
+        "fromDate",
+        "toDate",
+        "mlpId",
+        "mlpIdFrom",
+        "mlpIdTo",
+        "itemID",
+        "mlaID",
+        "updateFrom",
+        "updateTo",
+    ],
     "scriptItemCostListHistory": ["fromDate", "toDate", "iclhID"],
     "scriptItemCostList": ["fromDate", "toDate", "coslisID"],
-    "scriptCurExchHistory": ["fromDate", "toDate","cehID"],
+    "scriptCurExchHistory": ["fromDate", "toDate", "cehID"],
     "scriptSaleOrderHeader": ["fromDate", "toDate", "sohID", "braID", "updateFromDate", "updateToDate"],
-    "scriptSaleOrderDetail": ["fromDate", "toDate", "sohID", "sohID2", "sodID", "braID", "updateFromDate", "updateToDate"],
-    "scriptSaleOrderHeaderHistory": ["fromDate", "toDate", "sohID", "sohhID", "braID", "updateFromDate", "updateToDate"],
+    "scriptSaleOrderDetail": [
+        "fromDate",
+        "toDate",
+        "sohID",
+        "sohID2",
+        "sodID",
+        "braID",
+        "updateFromDate",
+        "updateToDate",
+    ],
+    "scriptSaleOrderHeaderHistory": [
+        "fromDate",
+        "toDate",
+        "sohID",
+        "sohhID",
+        "braID",
+        "updateFromDate",
+        "updateToDate",
+    ],
     "scriptSaleOrderDetailHistory": ["fromDate", "toDate", "sohID", "sohhID", "sodID", "braID"],
     "scriptVentasFueraOM": ["fromDate", "toDate", "braID"],
     "scriptBrand": ["brandID"],
@@ -55,7 +82,17 @@ SCRIPT_CONFIG = {
     "scriptTaxName": ["taxID"],
     "scriptItemTaxes": ["taxID", "itemID"],
     "scriptSupplier": ["suppID", "cuit"],
-    "scriptItemSerials": ["fromDate", "toDate", "isID", "isIDfrom", "isIDto", "itemID", "isSerial", "ctTransaction", "itTransaction"],
+    "scriptItemSerials": [
+        "fromDate",
+        "toDate",
+        "isID",
+        "isIDfrom",
+        "isIDto",
+        "itemID",
+        "isSerial",
+        "ctTransaction",
+        "itTransaction",
+    ],
     "scriptCustomer": ["custID", "fromCustID", "toCustID", "lastUpdate"],
     "scriptBranch": ["braID", "frombraID", "tobraID"],
     "scriptSalesman": ["smID", "fromSmID", "toSmID"],
@@ -66,7 +103,7 @@ SCRIPT_CONFIG = {
     "scriptItemAssociation": ["itemAID", "itemAID4update", "itemID", "item1ID"],
     "scriptTiendaNubeOrders": ["fromDate", "toDate", "tnoID", "tnoIDfrom", "tnoIDto"],
     "scriptEnvios": ["fromDate", "toDate"],
-    "scriptSaleOrderTimes": ["fromDate", "toDate", "sohID", "braID", "sotID"]
+    "scriptSaleOrderTimes": ["fromDate", "toDate", "sohID", "braID", "sotID"],
 }
 
 # Configuración de operaciones
@@ -77,14 +114,14 @@ OPERATION_CONFIG = {
         "template": """<ItemStorage_funGetXMLData xmlns="http://microsoft.com/webservices/">
             <intStor_id>{intStor_id}</intStor_id>
             <intItem_id>{intItem_id}</intItem_id>
-        </ItemStorage_funGetXMLData>"""
+        </ItemStorage_funGetXMLData>""",
     },
     "wsExportDataById": {
         "soapAction": "http://microsoft.com/webservices/wsExportDataById",
         "params": ["intExpgr_id"],
         "template": """<wsExportDataById xmlns="http://microsoft.com/webservices/">
             <intExpgr_id>{intExpgr_id}</intExpgr_id>
-        </wsExportDataById>"""
+        </wsExportDataById>""",
     },
     "wsGBPScriptExecute4Dataset": {
         "soapAction": "http://microsoft.com/webservices/wsGBPScriptExecute4Dataset",
@@ -92,14 +129,14 @@ OPERATION_CONFIG = {
         "template": """<wsGBPScriptExecute4Dataset xmlns="http://microsoft.com/webservices/">
             <strScriptLabel>{strScriptLabel}</strScriptLabel>
             <strJSonParameters>{strJSonParameters}</strJSonParameters>
-        </wsGBPScriptExecute4Dataset>"""
+        </wsGBPScriptExecute4Dataset>""",
     },
     "wsItem_funGetXMLDataById": {
         "soapAction": "http://microsoft.com/webservices/wsItem_funGetXMLDataById",
         "params": ["intItemID"],
         "template": """<wsItem_funGetXMLDataById xmlns="http://microsoft.com/webservices/">
             <intItemID>{intItemID}</intItemID>
-        </wsItem_funGetXMLDataById>"""
+        </wsItem_funGetXMLDataById>""",
     },
     "ws_GetItemAssociationOrComposition": {
         "soapAction": "http://microsoft.com/webservices/ws_GetItemAssociationOrComposition",
@@ -107,7 +144,7 @@ OPERATION_CONFIG = {
         "template": """<ws_GetItemAssociationOrComposition xmlns="http://microsoft.com/webservices/">
             <intItemID>{intItemID}</intItemID>
             <bolIsAssociation>{bolIsAssociation}</bolIsAssociation>
-        </ws_GetItemAssociationOrComposition>"""
+        </ws_GetItemAssociationOrComposition>""",
     },
     "PriceListItems_funGetXMLData": {
         "soapAction": "http://microsoft.com/webservices/PriceListItems_funGetXMLData",
@@ -115,39 +152,39 @@ OPERATION_CONFIG = {
         "template": """<PriceListItems_funGetXMLData xmlns="http://microsoft.com/webservices/">
             <pPriceList>{pPriceList}</pPriceList>
             <pItem>{pItem}</pItem>
-        </PriceListItems_funGetXMLData>"""
+        </PriceListItems_funGetXMLData>""",
     },
     "ItemBasicData_funGetXMLData": {
         "soapAction": "http://microsoft.com/webservices/ItemBasicData_funGetXMLData",
         "params": ["bitOnlyNewOrUpdated"],
         "template": """<ItemBasicData_funGetXMLData xmlns="http://microsoft.com/webservices/">
             <bitOnlyNewOrUpdated>{bitOnlyNewOrUpdated}</bitOnlyNewOrUpdated>
-        </ItemBasicData_funGetXMLData>"""
+        </ItemBasicData_funGetXMLData>""",
     },
     "Item_funGetXMLData": {
         "soapAction": "http://microsoft.com/webservices/Item_funGetXMLData",
         "params": [],
-        "template": """<Item_funGetXMLData xmlns="http://microsoft.com/webservices/" />"""
+        "template": """<Item_funGetXMLData xmlns="http://microsoft.com/webservices/" />""",
     },
     "ws_GetLatestItemsUpdated": {
         "soapAction": "http://microsoft.com/webservices/ws_GetLatestItemsUpdated",
         "params": ["intLastUpdateID"],
         "template": """<ws_GetLatestItemsUpdated xmlns="http://microsoft.com/webservices/">
             <intLastUpdateID>{intLastUpdateID}</intLastUpdateID>
-        </ws_GetLatestItemsUpdated>"""
+        </ws_GetLatestItemsUpdated>""",
     },
     "Category_funGetXMLData": {
         "soapAction": "http://microsoft.com/webservices/Category_funGetXMLData",
         "params": [],
-        "template": """<Category_funGetXMLData xmlns="http://microsoft.com/webservices/" />"""
+        "template": """<Category_funGetXMLData xmlns="http://microsoft.com/webservices/" />""",
     },
     "SubCategory_funGetXMLData": {
         "soapAction": "http://microsoft.com/webservices/SubCategory_funGetXMLData",
         "params": ["pCategory"],
         "template": """<SubCategory_funGetXMLData xmlns="http://microsoft.com/webservices/">
             <pCategory>{pCategory}</pCategory>
-        </SubCategory_funGetXMLData>"""
-    }
+        </SubCategory_funGetXMLData>""",
+    },
 }
 
 
@@ -177,13 +214,10 @@ async def authenticate_user() -> str:
         response = await client.post(
             SOAP_URL,
             content=xml_payload,
-            headers={
-                "Content-Type": "text/xml; charset=utf-8",
-                "SOAPAction": soap_action
-            }
+            headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": soap_action},
         )
 
-    match = re.search(r'<AuthenticateUserResult>(.*?)</AuthenticateUserResult>', response.text)
+    match = re.search(r"<AuthenticateUserResult>(.*?)</AuthenticateUserResult>", response.text)
     if not match:
         raise HTTPException(status_code=500, detail="No se pudo obtener token del ERP")
 
@@ -216,10 +250,7 @@ async def call_soap_service(soap_body: str, soap_action: str, token: str) -> str
         response = await client.post(
             SOAP_URL,
             content=xml_payload,
-            headers={
-                "Content-Type": "text/xml; charset=utf-8",
-                "SOAPAction": soap_action
-            }
+            headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": soap_action},
         )
 
     return response.text
@@ -228,34 +259,34 @@ async def call_soap_service(soap_body: str, soap_action: str, token: str) -> str
 def parse_soap_response(xml_content: str) -> Any:
     """Parsea la respuesta SOAP y extrae los datos"""
     # Buscar el tag Result
-    match = re.search(r'<\w*:?\s*\w+Result[^>]*>([\s\S]*?)</\w*:?\s*\w+Result>', xml_content)
+    match = re.search(r"<\w*:?\s*\w+Result[^>]*>([\s\S]*?)</\w*:?\s*\w+Result>", xml_content)
     if not match:
         return [{"error": "No se encontró el tag result"}]
 
     # Decodificar entidades HTML
     inner_xml = match.group(1)
-    inner_xml = inner_xml.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
-    inner_xml = inner_xml.replace('&quot;', '"').replace('&apos;', "'")
+    inner_xml = inner_xml.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+    inner_xml = inner_xml.replace("&quot;", '"').replace("&apos;", "'")
 
     # Remover CDATA
-    inner_xml = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', inner_xml, flags=re.DOTALL)
+    inner_xml = re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", inner_xml, flags=re.DOTALL)
 
     # Buscar tablas
-    tables = re.findall(r'<Table[\s\S]*?</Table>', inner_xml)
+    tables = re.findall(r"<Table[\s\S]*?</Table>", inner_xml)
 
     if tables:
         rows = []
         for table_xml in tables:
             row = {}
             # Extraer tags
-            tag_matches = re.findall(r'<([^>/\s]+)>([^<]*)</\1>', table_xml)
+            tag_matches = re.findall(r"<([^>/\s]+)>([^<]*)</\1>", table_xml)
             for tag_name, tag_value in tag_matches:
                 value = tag_value.strip()
 
                 # Intentar parsear JSON
                 if value and len(value) > 1:
                     first, last = value[0], value[-1]
-                    if (first == '{' and last == '}') or (first == '[' and last == ']'):
+                    if (first == "{" and last == "}") or (first == "[" and last == "]"):
                         try:
                             value = json.loads(value)
                         except (json.JSONDecodeError, ValueError):
@@ -274,7 +305,7 @@ def parse_soap_response(xml_content: str) -> Any:
         return rows
     else:
         # Buscar JSON directo
-        json_match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', inner_xml)
+        json_match = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", inner_xml)
         if json_match:
             try:
                 return json.loads(json_match.group(1))
@@ -285,7 +316,7 @@ def parse_soap_response(xml_content: str) -> Any:
 
 
 @router.api_route("/gbp-parser", methods=["GET", "POST"])
-async def gbp_parser(request: Request, _user = Depends(get_user_or_localhost)):
+async def gbp_parser(request: Request, _user=Depends(get_user_or_localhost)):
     """
     Endpoint para parsear respuestas SOAP del ERP.
     Reemplaza el worker de Cloudflare.
@@ -333,10 +364,7 @@ async def gbp_parser(request: Request, _user = Depends(get_user_or_localhost)):
 
             conf = OPERATION_CONFIG["wsGBPScriptExecute4Dataset"]
             soap_action = conf["soapAction"]
-            soap_body = conf["template"].format(
-                strScriptLabel=strScriptLabel,
-                strJSonParameters=json_params
-            )
+            soap_body = conf["template"].format(strScriptLabel=strScriptLabel, strJSonParameters=json_params)
 
         elif opName:
             conf = OPERATION_CONFIG.get(opName)
@@ -355,7 +383,9 @@ async def gbp_parser(request: Request, _user = Depends(get_user_or_localhost)):
             soap_body = conf["template"].format(**params)
 
         else:
-            raise HTTPException(status_code=400, detail="Faltan parámetros válidos (intExpgr_id, strScriptLabel o opName)")
+            raise HTTPException(
+                status_code=400, detail="Faltan parámetros válidos (intExpgr_id, strScriptLabel o opName)"
+            )
 
         # Obtener o crear token
         token = _token_cache.get("token")

@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_ml_orders_detail_2025
 """
+
 import sys
 import os
 
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
 
+
 async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
     """
     Sincroniza detalles de órdenes de MercadoLibre de un mes específico
@@ -30,11 +32,7 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
     try:
         # Llamar al endpoint externo
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptMLOrdersDetail",
-            "fromDate": from_date,
-            "toDate": to_date
-        }
+        params = {"strScriptLabel": "scriptMLOrdersDetail", "fromDate": from_date, "toDate": to_date}
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.get(url, params=params)
@@ -42,12 +40,12 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
             details_data = response.json()
 
         if not isinstance(details_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(details_data) == 1 and "Column1" in details_data[0]:
-            print(f"   ⚠️  No hay datos disponibles para este período")
+            print("   ⚠️  No hay datos disponibles para este período")
             return 0, 0, 0
 
         print(f"   Procesando {len(details_data)} detalles...")
@@ -81,12 +79,12 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
             if isinstance(value, (int, float)):
                 return bool(value)
             if isinstance(value, str):
-                return value.lower() in ('true', '1', 'yes', 't')
+                return value.lower() in ("true", "1", "yes", "t")
             return False
 
         def to_decimal(value):
             """Convierte a decimal, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return float(value)
@@ -95,7 +93,7 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
 
         def to_int(value):
             """Convierte a entero, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return int(value)
@@ -104,7 +102,7 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
 
         def to_string(value):
             """Convierte a string, retorna None si es None"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             return str(value)
 
@@ -113,14 +111,14 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
                 # Verificar que tenga mlod_id
                 mlod_id = detail_json.get("mlod_id")
                 if mlod_id is None:
-                    print(f"   ⚠️  Detalle sin mlod_id, omitiendo...")
+                    print("   ⚠️  Detalle sin mlod_id, omitiendo...")
                     details_errores += 1
                     continue
 
                 # Verificar si ya existe
-                detail_existente = db.query(MercadoLibreOrderDetail).filter(
-                    MercadoLibreOrderDetail.mlod_id == mlod_id
-                ).first()
+                detail_existente = (
+                    db.query(MercadoLibreOrderDetail).filter(MercadoLibreOrderDetail.mlod_id == mlod_id).first()
+                )
 
                 if detail_existente:
                     details_actualizados += 1
@@ -144,7 +142,7 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
                     mlo_sale_fee_amount=to_decimal(detail_json.get("mlo_sale_fee_amount")),
                     mlo_title=detail_json.get("mlo_title"),
                     mlvariationid=to_string(detail_json.get("MLVariationID")),
-                    mlod_lastupdate=parse_date(detail_json.get("mlod_lastUpdate"))
+                    mlod_lastupdate=parse_date(detail_json.get("mlod_lastUpdate")),
                 )
 
                 db.add(detail)
@@ -164,7 +162,9 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
         # Commit final
         db.commit()
 
-        print(f"   ✅ Insertados: {details_insertados} | Actualizados: {details_actualizados} | Errores: {details_errores}")
+        print(
+            f"   ✅ Insertados: {details_insertados} | Actualizados: {details_actualizados} | Errores: {details_errores}"
+        )
         return details_insertados, details_actualizados, details_errores
 
     except httpx.HTTPError as e:
@@ -174,6 +174,7 @@ async def sync_ml_orders_detail_mes(db: Session, from_date: str, to_date: str):
         db.rollback()
         print(f"   ❌ Error en sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0, 0, 0
 
@@ -203,11 +204,13 @@ async def main():
                 if mes == hoy.month:
                     ultimo_dia = hoy + timedelta(days=1)
 
-                meses_a_sincronizar.append({
-                    'from': primer_dia.strftime('%Y-%m-%d'),
-                    'to': ultimo_dia.strftime('%Y-%m-%d'),
-                    'nombre': primer_dia.strftime('%B %Y')
-                })
+                meses_a_sincronizar.append(
+                    {
+                        "from": primer_dia.strftime("%Y-%m-%d"),
+                        "to": ultimo_dia.strftime("%Y-%m-%d"),
+                        "nombre": primer_dia.strftime("%B %Y"),
+                    }
+                )
 
         print(f"📊 Se sincronizarán {len(meses_a_sincronizar)} meses\n")
 
@@ -217,11 +220,7 @@ async def main():
 
         for i, mes in enumerate(meses_a_sincronizar, 1):
             print(f"\n[{i}/{len(meses_a_sincronizar)}] {mes['nombre']}")
-            insertados, actualizados, errores = await sync_ml_orders_detail_mes(
-                db,
-                mes['from'],
-                mes['to']
-            )
+            insertados, actualizados, errores = await sync_ml_orders_detail_mes(db, mes["from"], mes["to"])
 
             total_insertados += insertados
             total_actualizados += actualizados
@@ -243,6 +242,7 @@ async def main():
     except Exception as e:
         print(f"\n❌ Error general: {str(e)}")
         import traceback
+
         traceback.print_exc()
     finally:
         db.close()

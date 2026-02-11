@@ -12,10 +12,12 @@ import re
 
 router = APIRouter()
 
+
 class ProductoBanlistCreate(BaseModel):
     item_ids: Optional[str] = None  # IDs separados por comas/espacios/saltos
     eans: Optional[str] = None  # EANs separados por comas/espacios/saltos
     motivo: Optional[str] = None
+
 
 class ProductoBanlistResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -30,11 +32,9 @@ class ProductoBanlistResponse(BaseModel):
     activo: bool
     usuario_nombre: Optional[str]
 
+
 @router.get("/producto-banlist", response_model=List[ProductoBanlistResponse])
-async def listar_banlist(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def listar_banlist(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los productos baneados"""
     productos = db.query(ProductoBanlist).filter(ProductoBanlist.activo == True).all()
 
@@ -54,25 +54,26 @@ async def listar_banlist(
             if usuario:
                 usuario_nombre = usuario.nombre
 
-        resultado.append({
-            "id": prod.id,
-            "item_id": prod.item_id,
-            "ean": prod.ean,
-            "codigo": producto_erp.codigo if producto_erp else None,
-            "descripcion": producto_erp.descripcion if producto_erp else None,
-            "motivo": prod.motivo,
-            "fecha_creacion": prod.fecha_creacion,
-            "activo": prod.activo,
-            "usuario_nombre": usuario_nombre
-        })
+        resultado.append(
+            {
+                "id": prod.id,
+                "item_id": prod.item_id,
+                "ean": prod.ean,
+                "codigo": producto_erp.codigo if producto_erp else None,
+                "descripcion": producto_erp.descripcion if producto_erp else None,
+                "motivo": prod.motivo,
+                "fecha_creacion": prod.fecha_creacion,
+                "activo": prod.activo,
+                "usuario_nombre": usuario_nombre,
+            }
+        )
 
     return resultado
 
+
 @router.post("/producto-banlist")
 async def agregar_a_banlist(
-    datos: ProductoBanlistCreate,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    datos: ProductoBanlistCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Agrega uno o múltiples productos a la banlist por item_id o EAN"""
 
@@ -82,7 +83,7 @@ async def agregar_a_banlist(
 
     # Procesar item_ids
     if datos.item_ids:
-        ids_input = re.split(r'[,\s\n]+', datos.item_ids)
+        ids_input = re.split(r"[,\s\n]+", datos.item_ids)
 
         for id_input in ids_input:
             if not id_input.strip():
@@ -101,9 +102,7 @@ async def agregar_a_banlist(
                 continue
 
             # Verificar si ya existe en banlist (activo o inactivo)
-            existe = db.query(ProductoBanlist).filter(
-                ProductoBanlist.item_id == item_id
-            ).first()
+            existe = db.query(ProductoBanlist).filter(ProductoBanlist.item_id == item_id).first()
 
             if existe:
                 if existe.activo:
@@ -114,21 +113,22 @@ async def agregar_a_banlist(
                     existe.activo = True
                     existe.motivo = datos.motivo
                     existe.usuario_id = current_user.id
-                    agregados.append(f"Item ID {item_id} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''} (reactivado)")
+                    agregados.append(
+                        f"Item ID {item_id} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''} (reactivado)"
+                    )
             else:
                 # Crear nuevo registro
                 nuevo_prod = ProductoBanlist(
-                    item_id=item_id,
-                    motivo=datos.motivo,
-                    activo=True,
-                    usuario_id=current_user.id
+                    item_id=item_id, motivo=datos.motivo, activo=True, usuario_id=current_user.id
                 )
                 db.add(nuevo_prod)
-                agregados.append(f"Item ID {item_id} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''}")
+                agregados.append(
+                    f"Item ID {item_id} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''}"
+                )
 
     # Procesar EANs
     if datos.eans:
-        eans_input = re.split(r'[,\s\n]+', datos.eans)
+        eans_input = re.split(r"[,\s\n]+", datos.eans)
 
         for ean_input in eans_input:
             ean = ean_input.strip()
@@ -142,9 +142,7 @@ async def agregar_a_banlist(
                 continue
 
             # Verificar si ya existe en banlist (activo o inactivo)
-            existe = db.query(ProductoBanlist).filter(
-                ProductoBanlist.ean == ean
-            ).first()
+            existe = db.query(ProductoBanlist).filter(ProductoBanlist.ean == ean).first()
 
             if existe:
                 if existe.activo:
@@ -155,15 +153,12 @@ async def agregar_a_banlist(
                     existe.activo = True
                     existe.motivo = datos.motivo
                     existe.usuario_id = current_user.id
-                    agregados.append(f"EAN {ean} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''} (reactivado)")
+                    agregados.append(
+                        f"EAN {ean} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''} (reactivado)"
+                    )
             else:
                 # Crear nuevo registro
-                nuevo_prod = ProductoBanlist(
-                    ean=ean,
-                    motivo=datos.motivo,
-                    activo=True,
-                    usuario_id=current_user.id
-                )
+                nuevo_prod = ProductoBanlist(ean=ean, motivo=datos.motivo, activo=True, usuario_id=current_user.id)
                 db.add(nuevo_prod)
                 agregados.append(f"EAN {ean} - {producto_erp.descripcion[:50] if producto_erp.descripcion else ''}")
 
@@ -174,14 +169,13 @@ async def agregar_a_banlist(
         "agregados": agregados,
         "duplicados": duplicados,
         "no_encontrados": no_encontrados,
-        "total_agregados": len(agregados)
+        "total_agregados": len(agregados),
     }
+
 
 @router.delete("/producto-banlist/{producto_id}")
 async def eliminar_de_banlist(
-    producto_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    producto_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina un producto de la banlist (solo admin/superadmin)"""
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:

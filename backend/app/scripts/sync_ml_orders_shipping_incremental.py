@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_ml_orders_shipping_incremental
 """
+
 import sys
 import os
 
@@ -20,16 +21,18 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import SessionLocal
+
 # Importar todos los modelos para evitar problemas de dependencias circulares
 import app.models  # noqa
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
+
 
 async def sync_ml_orders_shipping_incremental(db: Session):
     """
     Sincroniza envíos de órdenes de MercadoLibre de forma incremental
     Solo trae los envíos nuevos desde el último mlm_id
     """
-    print(f"\n📦 Sincronizando envíos ML incrementales...")
+    print("\n📦 Sincronizando envíos ML incrementales...")
 
     try:
         # Obtener el último mlm_id sincronizado
@@ -44,12 +47,9 @@ async def sync_ml_orders_shipping_incremental(db: Session):
 
         # Llamar al endpoint externo
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptMLOrdersShipping",
-            "mlmId": ultimo_mlm_id
-        }
+        params = {"strScriptLabel": "scriptMLOrdersShipping", "mlmId": ultimo_mlm_id}
 
-        print(f"   Consultando API...")
+        print("   Consultando API...")
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.get(url, params=params)
@@ -57,16 +57,16 @@ async def sync_ml_orders_shipping_incremental(db: Session):
             shipping_data = response.json()
 
         if not isinstance(shipping_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(shipping_data) == 1 and "Column1" in shipping_data[0]:
-            print(f"   ⚠️  No hay datos disponibles")
+            print("   ⚠️  No hay datos disponibles")
             return 0, 0, 0
 
         if not shipping_data or len(shipping_data) == 0:
-            print(f"✅ No hay envíos nuevos para sincronizar.")
+            print("✅ No hay envíos nuevos para sincronizar.")
             return 0, 0, 0
 
         print(f"   Procesando {len(shipping_data)} envíos nuevos...")
@@ -93,7 +93,7 @@ async def sync_ml_orders_shipping_incremental(db: Session):
 
         def to_decimal(value):
             """Convierte a decimal, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return float(value)
@@ -102,7 +102,7 @@ async def sync_ml_orders_shipping_incremental(db: Session):
 
         def to_int(value):
             """Convierte a entero, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return int(value)
@@ -111,7 +111,7 @@ async def sync_ml_orders_shipping_incremental(db: Session):
 
         def to_string(value):
             """Convierte a string, retorna None si es None o vacío"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             return str(value).strip()
 
@@ -120,14 +120,14 @@ async def sync_ml_orders_shipping_incremental(db: Session):
                 # Verificar que tenga mlm_id
                 mlm_id = shipping_json.get("mlm_id")
                 if mlm_id is None:
-                    print(f"   ⚠️  Envío sin mlm_id, omitiendo...")
+                    print("   ⚠️  Envío sin mlm_id, omitiendo...")
                     shipping_errores += 1
                     continue
 
                 # Verificar si ya existe
-                shipping_existente = db.query(MercadoLibreOrderShipping).filter(
-                    MercadoLibreOrderShipping.mlm_id == mlm_id
-                ).first()
+                shipping_existente = (
+                    db.query(MercadoLibreOrderShipping).filter(MercadoLibreOrderShipping.mlm_id == mlm_id).first()
+                )
 
                 if shipping_existente:
                     shipping_actualizados += 1
@@ -175,10 +175,12 @@ async def sync_ml_orders_shipping_incremental(db: Session):
                     ml_date_first_printed=parse_date(shipping_json.get("ML_date_first_printed")),
                     ml_base_cost=to_decimal(shipping_json.get("ML_base_cost")),
                     ml_estimated_delivery_time_date=parse_date(shipping_json.get("ML_estimated_delivery_time_date")),
-                    ml_estimated_delivery_time_shipping=to_int(shipping_json.get("ML_estimated_delivery_time_shipping")),
+                    ml_estimated_delivery_time_shipping=to_int(
+                        shipping_json.get("ML_estimated_delivery_time_shipping")
+                    ),
                     mlos_lastupdate=parse_date(shipping_json.get("mlos_lastUpdate")),
                     mlshippmentcolectadaytime=parse_date(shipping_json.get("MLShippmentColectaDayTime")),
-                    mlturbo=to_string(shipping_json.get("MLturbo"))
+                    mlturbo=to_string(shipping_json.get("MLturbo")),
                 )
 
                 db.add(shipping)
@@ -201,7 +203,9 @@ async def sync_ml_orders_shipping_incremental(db: Session):
         # Obtener nuevo máximo
         nuevo_max = db.query(func.max(MercadoLibreOrderShipping.mlm_id)).scalar()
 
-        print(f"\n   ✅ Insertados: {shipping_insertados} | Duplicados: {shipping_actualizados} | Errores: {shipping_errores}")
+        print(
+            f"\n   ✅ Insertados: {shipping_insertados} | Duplicados: {shipping_actualizados} | Errores: {shipping_errores}"
+        )
         print(f"   Nuevo mlm_id máximo: {nuevo_max}")
 
         return shipping_insertados, shipping_actualizados, shipping_errores
@@ -213,6 +217,7 @@ async def sync_ml_orders_shipping_incremental(db: Session):
         db.rollback()
         print(f"   ❌ Error en sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0, 0, 0
 
@@ -246,6 +251,7 @@ async def main():
     except Exception as e:
         print(f"\n❌ Error general: {str(e)}")
         import traceback
+
         traceback.print_exc()
     finally:
         db.close()

@@ -1,6 +1,7 @@
 """
 Cliente para consumir los endpoints del Cloudflare Worker del ERP
 """
+
 import httpx
 from typing import Optional, List, Dict, Any
 from datetime import date
@@ -30,10 +31,7 @@ class ERPWorkerClient:
             query_params.update(params)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/consulta",
-                params=query_params
-            )
+            response = await client.get(f"{self.base_url}/consulta", params=query_params)
             response.raise_for_status()
             return response.json()
 
@@ -70,9 +68,7 @@ class ERPWorkerClient:
         return await self._fetch("scriptCategory", params)
 
     async def get_subcategories(
-        self,
-        cat_id: Optional[int] = None,
-        subcat_id: Optional[int] = None
+        self, cat_id: Optional[int] = None, subcat_id: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Obtiene subcategorías del ERP
@@ -99,7 +95,7 @@ class ERPWorkerClient:
         subcat_id: Optional[int] = None,
         item_id: Optional[int] = None,
         item_code: Optional[str] = None,
-        last_update: Optional[date] = None
+        last_update: Optional[date] = None,
     ) -> List[Dict[str, Any]]:
         """
         Obtiene items del ERP
@@ -147,11 +143,7 @@ class ERPWorkerClient:
 
         return await self._fetch("scriptTaxName", params)
 
-    async def get_item_taxes(
-        self,
-        tax_id: Optional[int] = None,
-        item_id: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+    async def get_item_taxes(self, tax_id: Optional[int] = None, item_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Obtiene impuestos por item del ERP
 
@@ -187,10 +179,7 @@ class ERPWorkerClient:
         return await self._fetch("scriptSupplier", params)
 
     async def get_customers(
-        self,
-        cust_id: Optional[int] = None,
-        from_cust_id: Optional[int] = None,
-        to_cust_id: Optional[int] = None
+        self, cust_id: Optional[int] = None, from_cust_id: Optional[int] = None, to_cust_id: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Obtiene clientes del ERP
@@ -213,10 +202,7 @@ class ERPWorkerClient:
 
         return await self._fetch("scriptCustomer", params)
 
-    async def get_branches(
-        self,
-        bra_id: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+    async def get_branches(self, bra_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Obtiene sucursales del ERP
 
@@ -233,10 +219,7 @@ class ERPWorkerClient:
         return await self._fetch("scriptBranch", params)
 
     async def get_salesmen(
-        self,
-        sm_id: Optional[int] = None,
-        from_sm_id: Optional[int] = None,
-        to_sm_id: Optional[int] = None
+        self, sm_id: Optional[int] = None, from_sm_id: Optional[int] = None, to_sm_id: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Obtiene vendedores del ERP
@@ -260,9 +243,7 @@ class ERPWorkerClient:
         return await self._fetch("scriptSalesman", params)
 
     async def get_document_files(
-        self,
-        df_id: Optional[int] = None,
-        bra_id: Optional[int] = None
+        self, df_id: Optional[int] = None, bra_id: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Obtiene tipos de documento del ERP
@@ -282,10 +263,7 @@ class ERPWorkerClient:
 
         return await self._fetch("scriptDocumentFile", params)
 
-    async def get_fiscal_classes(
-        self,
-        fc_id: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+    async def get_fiscal_classes(self, fc_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Obtiene clases fiscales del ERP
 
@@ -301,10 +279,7 @@ class ERPWorkerClient:
 
         return await self._fetch("scriptFiscalClass", params)
 
-    async def get_tax_number_types(
-        self,
-        tnt_id: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+    async def get_tax_number_types(self, tnt_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Obtiene tipos de número de impuesto del ERP
 
@@ -321,9 +296,7 @@ class ERPWorkerClient:
         return await self._fetch("scriptTaxNumberType", params)
 
     async def get_states(
-        self,
-        country_id: Optional[int] = None,
-        state_id: Optional[int] = None
+        self, country_id: Optional[int] = None, state_id: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Obtiene estados/provincias del ERP

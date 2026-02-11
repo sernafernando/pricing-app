@@ -7,7 +7,8 @@ sys.path.append(str(backend_path))
 
 # Cargar variables de entorno desde .env ANTES de importar settings
 from dotenv import load_dotenv
-env_path = backend_path / '.env'
+
+env_path = backend_path / ".env"
 load_dotenv(dotenv_path=env_path)
 
 import psycopg2
@@ -42,42 +43,46 @@ VARIOS_DEFAULT = {"impuestos": 0.03, "financiero": 0.02, "logistica": 0.01}
 
 for row in cursor.fetchall():
     pricing_id, item_id, precio, costo, moneda, subcat_id, iva, envio = row
-    
+
     try:
         costo_ars = costo if moneda == "ARS" else costo * tc_usd
-        
+
         # Obtener comisión
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT clg.comision_porcentaje 
             FROM comisiones_lista_grupo clg
             JOIN subcategorias_grupos sg ON sg.grupo_id = clg.grupo_id
             WHERE clg.pricelist_id = 4 AND sg.subcat_id = %s
-        """, (subcat_id,))
-        
+        """,
+            (subcat_id,),
+        )
+
         comision_result = cursor.fetchone()
         if not comision_result:
             continue
-            
+
         comision_base = comision_result[0]
-        
+
         # Calcular comisión total
         comision_ml = precio * comision_base
         iva_comision = comision_ml * iva
         varios = precio * sum(VARIOS_DEFAULT.values())
         comision_total = comision_ml + iva_comision + varios
-        
+
         # Calcular limpio
         iva_precio = precio * iva / (1 + iva)
         limpio = precio - iva_precio - envio - comision_total
-        
+
         # Calcular markup
         markup = ((limpio - costo_ars) / costo_ars) * 100 if costo_ars > 0 else 0
-        
+
         # Actualizar
-        cursor.execute("UPDATE productos_pricing SET markup_calculado = %s WHERE id = %s", 
-                      (round(markup, 2), pricing_id))
+        cursor.execute(
+            "UPDATE productos_pricing SET markup_calculado = %s WHERE id = %s", (round(markup, 2), pricing_id)
+        )
         actualizados += 1
-        
+
     except Exception as e:
         print(f"Error en item_id {item_id}: {e}")
         conn.rollback()

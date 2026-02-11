@@ -1,6 +1,7 @@
 """
 Endpoints para gestión de permisos
 """
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -9,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
-from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
+from app.models.permiso import Permiso, RolPermisoBase
 from app.services.permisos_service import PermisosService, verificar_permiso
 
 router = APIRouter(prefix="/permisos", tags=["permisos"])
@@ -18,6 +19,7 @@ router = APIRouter(prefix="/permisos", tags=["permisos"])
 # =============================================================================
 # SCHEMAS
 # =============================================================================
+
 
 class PermisoResponse(BaseModel):
     codigo: str
@@ -66,11 +68,9 @@ class PermisosUsuarioResponse(BaseModel):
 # ENDPOINTS
 # =============================================================================
 
+
 @router.get("/catalogo")
-async def obtener_catalogo(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def obtener_catalogo(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene el catálogo completo de permisos agrupado por categoría.
     Útil para el panel de administración.
@@ -80,10 +80,7 @@ async def obtener_catalogo(
 
 
 @router.get("/mis-permisos")
-async def obtener_mis_permisos(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def obtener_mis_permisos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene los permisos del usuario actual.
     Devuelve lista de códigos de permisos que el usuario tiene.
@@ -94,24 +91,21 @@ async def obtener_mis_permisos(
         "usuario_id": current_user.id,
         "rol": current_user.rol_codigo,
         "rol_id": current_user.rol_id,
-        "permisos": list(permisos)
+        "permisos": list(permisos),
     }
 
 
 @router.get("/usuario/{usuario_id}")
 async def obtener_permisos_usuario(
-    usuario_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    usuario_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Obtiene los permisos de un usuario específico con detalle.
     Requiere permiso admin.gestionar_permisos.
     """
-    if not verificar_permiso(db, current_user, 'admin.gestionar_permisos'):
+    if not verificar_permiso(db, current_user, "admin.gestionar_permisos"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para ver permisos de otros usuarios"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para ver permisos de otros usuarios"
         )
 
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
@@ -128,21 +122,18 @@ async def obtener_permisos_usuario(
         "rol": usuario.rol_codigo,
         "rol_id": usuario.rol_id,
         "permisos": list(permisos),
-        "permisos_detallados": permisos_detallados
+        "permisos_detallados": permisos_detallados,
     }
 
 
 @router.get("/usuario/{usuario_id}/overrides")
 async def obtener_overrides_usuario(
-    usuario_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    usuario_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene solo los overrides de un usuario"""
-    if not verificar_permiso(db, current_user, 'admin.gestionar_permisos'):
+    if not verificar_permiso(db, current_user, "admin.gestionar_permisos"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para ver permisos de otros usuarios"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para ver permisos de otros usuarios"
         )
 
     service = PermisosService(db)
@@ -151,18 +142,13 @@ async def obtener_overrides_usuario(
 
 @router.post("/override")
 async def crear_override(
-    request: OverrideRequest,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    request: OverrideRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Crea o actualiza un override de permiso para un usuario.
     """
-    if not verificar_permiso(db, current_user, 'admin.gestionar_permisos'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para modificar permisos"
-        )
+    if not verificar_permiso(db, current_user, "admin.gestionar_permisos"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para modificar permisos")
 
     # Verificar que el usuario objetivo existe
     usuario_objetivo = db.query(Usuario).filter(Usuario.id == request.usuario_id).first()
@@ -172,24 +158,23 @@ async def crear_override(
     # No permitir modificar permisos de SUPERADMIN si no eres SUPERADMIN
     if usuario_objetivo.es_superadmin and not current_user.es_superadmin:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No puedes modificar permisos de un SUPERADMIN"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No puedes modificar permisos de un SUPERADMIN"
         )
 
     service = PermisosService(db)
     try:
-        override = service.agregar_override(
+        service.agregar_override(
             usuario_id=request.usuario_id,
             permiso_codigo=request.permiso_codigo,
             concedido=request.concedido,
             otorgado_por_id=current_user.id,
-            motivo=request.motivo
+            motivo=request.motivo,
         )
         return {
             "success": True,
             "message": f"Override {'agregado' if request.concedido else 'quitado'} correctamente",
             "permiso": request.permiso_codigo,
-            "concedido": request.concedido
+            "concedido": request.concedido,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -200,16 +185,13 @@ async def eliminar_override(
     usuario_id: int,
     permiso_codigo: str,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Elimina un override, volviendo el permiso a su estado base por rol.
     """
-    if not verificar_permiso(db, current_user, 'admin.gestionar_permisos'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para modificar permisos"
-        )
+    if not verificar_permiso(db, current_user, "admin.gestionar_permisos"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para modificar permisos")
 
     # Verificar que el usuario objetivo existe
     usuario_objetivo = db.query(Usuario).filter(Usuario.id == usuario_id).first()
@@ -219,8 +201,7 @@ async def eliminar_override(
     # No permitir modificar permisos de SUPERADMIN si no eres SUPERADMIN
     if usuario_objetivo.es_superadmin and not current_user.es_superadmin:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No puedes modificar permisos de un SUPERADMIN"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No puedes modificar permisos de un SUPERADMIN"
         )
 
     service = PermisosService(db)
@@ -234,26 +215,19 @@ async def eliminar_override(
 
 @router.get("/verificar/{permiso_codigo}")
 async def verificar_mi_permiso(
-    permiso_codigo: str,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    permiso_codigo: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Verifica si el usuario actual tiene un permiso específico.
     Útil para el frontend.
     """
     tiene = verificar_permiso(db, current_user, permiso_codigo)
-    return {
-        "permiso": permiso_codigo,
-        "tiene": tiene
-    }
+    return {"permiso": permiso_codigo, "tiene": tiene}
 
 
 @router.post("/verificar-multiples")
 async def verificar_multiples_permisos(
-    permisos: List[str],
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    permisos: List[str], db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """
     Verifica múltiples permisos de una vez.
@@ -262,25 +236,19 @@ async def verificar_multiples_permisos(
     service = PermisosService(db)
     permisos_usuario = service.obtener_permisos_usuario(current_user)
 
-    return {
-        permiso: permiso in permisos_usuario
-        for permiso in permisos
-    }
+    return {permiso: permiso in permisos_usuario for permiso in permisos}
 
 
 @router.get("/roles/{rol_codigo}/permisos")
 async def obtener_permisos_rol(
-    rol_codigo: str,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    rol_codigo: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene los permisos base de un rol por código"""
     from app.models.rol import Rol
 
-    if not verificar_permiso(db, current_user, 'admin.gestionar_permisos'):
+    if not verificar_permiso(db, current_user, "admin.gestionar_permisos"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para ver permisos de roles"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para ver permisos de roles"
         )
 
     # Buscar rol por código
@@ -288,22 +256,19 @@ async def obtener_permisos_rol(
     if not rol:
         raise HTTPException(status_code=404, detail="Rol no encontrado")
 
-    permisos = db.query(Permiso).join(
-        RolPermisoBase, RolPermisoBase.permiso_id == Permiso.id
-    ).filter(
-        RolPermisoBase.rol_id == rol.id
-    ).order_by(Permiso.orden).all()
+    permisos = (
+        db.query(Permiso)
+        .join(RolPermisoBase, RolPermisoBase.permiso_id == Permiso.id)
+        .filter(RolPermisoBase.rol_id == rol.id)
+        .order_by(Permiso.orden)
+        .all()
+    )
 
     return {
         "rol": rol_codigo,
         "rol_id": rol.id,
         "permisos": [
-            {
-                "codigo": p.codigo,
-                "nombre": p.nombre,
-                "descripcion": p.descripcion,
-                "es_critico": p.es_critico
-            }
+            {"codigo": p.codigo, "nombre": p.nombre, "descripcion": p.descripcion, "es_critico": p.es_critico}
             for p in permisos
-        ]
+        ],
     }

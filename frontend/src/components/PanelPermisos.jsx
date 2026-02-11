@@ -19,7 +19,7 @@ export default function PanelPermisos() {
   const [roles, setRoles] = useState([]);
   const [usuarioSeleccionado, setUsuarioSeleccionado] = useState(null);
   const [permisosUsuario, setPermisosUsuario] = useState(null);
-  const [catalogo, setCatalogo] = useState({});
+  const [, setCatalogo] = useState({});
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState(null);

@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_item_transactions_agosto_2025
 """
+
 import sys
 import os
 
@@ -22,22 +23,19 @@ from app.core.database import SessionLocal
 from app.models.item_transaction import ItemTransaction
 import uuid
 
+
 async def sync_item_transactions_agosto(db: Session):
     """
     Sincroniza item transactions de agosto 2025
     """
-    print(f"\n📅 Sincronizando item transactions de agosto 2025...")
-    print(f"   Desde: 2025-08-01")
-    print(f"   Hasta: 2025-08-31\n")
+    print("\n📅 Sincronizando item transactions de agosto 2025...")
+    print("   Desde: 2025-08-01")
+    print("   Hasta: 2025-08-31\n")
 
     try:
         # Llamar al endpoint externo
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptItemTransaction",
-            "fromDate": "2025-08-01",
-            "toDate": "2025-08-31"
-        }
+        params = {"strScriptLabel": "scriptItemTransaction", "fromDate": "2025-08-01", "toDate": "2025-08-31"}
 
         async with httpx.AsyncClient(timeout=180.0) as client:  # 3 minutos de timeout
             response = await client.get(url, params=params)
@@ -45,12 +43,12 @@ async def sync_item_transactions_agosto(db: Session):
             items_data = response.json()
 
         if not isinstance(items_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(items_data) == 1 and "Column1" in items_data[0]:
-            print(f"   ⚠️  No hay datos disponibles para agosto 2025")
+            print("   ⚠️  No hay datos disponibles para agosto 2025")
             return 0, 0, 0
 
         print(f"   Procesando {len(items_data)} item transactions...")
@@ -79,12 +77,12 @@ async def sync_item_transactions_agosto(db: Session):
             if isinstance(value, (int, float)):
                 return bool(value)
             if isinstance(value, str):
-                return value.lower() in ('true', '1', 'yes', 't')
+                return value.lower() in ("true", "1", "yes", "t")
             return False
 
         def to_decimal(value):
             """Convierte a decimal, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return float(value)
@@ -93,7 +91,7 @@ async def sync_item_transactions_agosto(db: Session):
 
         def to_int(value):
             """Convierte a entero, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return int(value)
@@ -105,14 +103,14 @@ async def sync_item_transactions_agosto(db: Session):
                 # Verificar que tenga it_transaction
                 it_transaction = item_json.get("it_transaction")
                 if it_transaction is None:
-                    print(f"   ⚠️  Item sin it_transaction, omitiendo...")
+                    print("   ⚠️  Item sin it_transaction, omitiendo...")
                     items_errores += 1
                     continue
 
                 # Verificar si ya existe
-                item_existente = db.query(ItemTransaction).filter(
-                    ItemTransaction.it_transaction == it_transaction
-                ).first()
+                item_existente = (
+                    db.query(ItemTransaction).filter(ItemTransaction.it_transaction == it_transaction).first()
+                )
 
                 if item_existente:
                     items_actualizados += 1
@@ -185,7 +183,9 @@ async def sync_item_transactions_agosto(db: Session):
                     it_packinginvoiceselectedguid=guid_value,
                     it_transaction_original=to_int(item_json.get("it_transaction_original")),
                     it_transaction_nostockdiscount=to_int(item_json.get("it_transaction_NoStockDiscount")),
-                    it_salescurrid4exchangetobranchcurrency=to_int(item_json.get("it_SalesCurrId4exchangeToBranchCurrency")),
+                    it_salescurrid4exchangetobranchcurrency=to_int(
+                        item_json.get("it_SalesCurrId4exchangeToBranchCurrency")
+                    ),
                     it_allusetag1=item_json.get("it_AllUseTag1"),
                     it_allusetag2=item_json.get("it_AllUseTag2"),
                     it_allusetag3=item_json.get("it_AllUseTag3"),
@@ -217,7 +217,9 @@ async def sync_item_transactions_agosto(db: Session):
                     it_surcharge3=to_decimal(item_json.get("it_surcharge3")),
                     it_surcharge4=to_decimal(item_json.get("it_surcharge4")),
                     stor_id_related4branchtransfer=to_int(item_json.get("stor_id_related4BranchTransfer")),
-                    it_transaction_related4branchtransfer=to_int(item_json.get("it_transaction_related4BranchTransfer")),
+                    it_transaction_related4branchtransfer=to_int(
+                        item_json.get("it_transaction_related4BranchTransfer")
+                    ),
                     it_pod_id=to_int(item_json.get("it_pod_id")),
                     pubh_id=to_int(item_json.get("pubh_id")),
                     it_ewaddress=item_json.get("it_EWAddress"),
@@ -242,9 +244,11 @@ async def sync_item_transactions_agosto(db: Session):
                     it_disableprintinemission=to_bool(item_json.get("it_disablePrintInEmmition")),
                     it_packinginvoiceqtyinvoiced=to_decimal(item_json.get("it_packingInvoiceQTYInvoiced")),
                     wscup_id=to_int(item_json.get("wscup_id")),
-                    it_isinbranchtransfertotalizerstorage=to_bool(item_json.get("it_isInBranchTransferTotalizerStorage")),
+                    it_isinbranchtransfertotalizerstorage=to_bool(
+                        item_json.get("it_isInBranchTransferTotalizerStorage")
+                    ),
                     tis_itemdiscountplan=to_decimal(item_json.get("tis_itemDiscountPlan")),
-                    it_itemdiscount=to_decimal(item_json.get("it_itemDiscount"))
+                    it_itemdiscount=to_decimal(item_json.get("it_itemDiscount")),
                 )
 
                 db.add(item)
@@ -274,6 +278,7 @@ async def sync_item_transactions_agosto(db: Session):
         db.rollback()
         print(f"   ❌ Error en sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0, 0, 0
 

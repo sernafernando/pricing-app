@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_commercial_transactions_2025
 """
+
 import sys
 import os
 
@@ -23,6 +24,7 @@ from app.core.database import SessionLocal
 from app.models.commercial_transaction import CommercialTransaction
 import uuid
 
+
 async def sync_transacciones_mes(db: Session, from_date: str, to_date: str):
     """
     Sincroniza transacciones comerciales de un mes específico
@@ -32,11 +34,7 @@ async def sync_transacciones_mes(db: Session, from_date: str, to_date: str):
     try:
         # Llamar al endpoint externo
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptCommercial",
-            "fromDate": from_date,
-            "toDate": to_date
-        }
+        params = {"strScriptLabel": "scriptCommercial", "fromDate": from_date, "toDate": to_date}
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.get(url, params=params)
@@ -44,12 +42,12 @@ async def sync_transacciones_mes(db: Session, from_date: str, to_date: str):
             transacciones_data = response.json()
 
         if not isinstance(transacciones_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(transacciones_data) == 1 and "Column1" in transacciones_data[0]:
-            print(f"   ⚠️  No hay datos disponibles para este período")
+            print("   ⚠️  No hay datos disponibles para este período")
             return 0, 0, 0
 
         print(f"   Procesando {len(transacciones_data)} transacciones...")
@@ -64,14 +62,16 @@ async def sync_transacciones_mes(db: Session, from_date: str, to_date: str):
                 # Verificar que tenga ct_transaction
                 ct_transaction = trans_json.get("ct_transaction")
                 if ct_transaction is None:
-                    print(f"   ⚠️  Transacción sin ct_transaction, omitiendo...")
+                    print("   ⚠️  Transacción sin ct_transaction, omitiendo...")
                     transacciones_errores += 1
                     continue
 
                 # Verificar si ya existe
-                trans_existente = db.query(CommercialTransaction).filter(
-                    CommercialTransaction.ct_transaction == ct_transaction
-                ).first()
+                trans_existente = (
+                    db.query(CommercialTransaction)
+                    .filter(CommercialTransaction.ct_transaction == ct_transaction)
+                    .first()
+                )
 
                 # Procesar el GUID
                 guid_str = trans_json.get("ct_guid")
@@ -202,7 +202,7 @@ async def sync_transacciones_mes(db: Session, from_date: str, to_date: str):
                     ct_guid=guid_value,
                     ct_transaction4ThirdSales=trans_json.get("ct_transaction4ThirdSales"),
                     ct_documentNumber=trans_json.get("ct_documentNumber"),
-                    ct_note=trans_json.get("ct_note")
+                    ct_note=trans_json.get("ct_note"),
                 )
 
                 db.add(trans)
@@ -222,7 +222,9 @@ async def sync_transacciones_mes(db: Session, from_date: str, to_date: str):
         # Commit final
         db.commit()
 
-        print(f"   ✅ Insertadas: {transacciones_insertadas} | Actualizadas: {transacciones_actualizadas} | Errores: {transacciones_errores}")
+        print(
+            f"   ✅ Insertadas: {transacciones_insertadas} | Actualizadas: {transacciones_actualizadas} | Errores: {transacciones_errores}"
+        )
         return transacciones_insertadas, transacciones_actualizadas, transacciones_errores
 
     except httpx.HTTPError as e:
@@ -264,11 +266,13 @@ async def main():
                 if mes == hoy.month:
                     ultimo_dia = hoy + timedelta(days=1)
 
-                meses_a_sincronizar.append({
-                    'from': primer_dia.strftime('%Y-%m-%d'),
-                    'to': ultimo_dia.strftime('%Y-%m-%d'),
-                    'nombre': primer_dia.strftime('%B %Y')
-                })
+                meses_a_sincronizar.append(
+                    {
+                        "from": primer_dia.strftime("%Y-%m-%d"),
+                        "to": ultimo_dia.strftime("%Y-%m-%d"),
+                        "nombre": primer_dia.strftime("%B %Y"),
+                    }
+                )
 
         print(f"📊 Se sincronizarán {len(meses_a_sincronizar)} meses\n")
 
@@ -280,11 +284,7 @@ async def main():
         # Sincronizar mes por mes
         for i, mes in enumerate(meses_a_sincronizar, 1):
             print(f"\n[{i}/{len(meses_a_sincronizar)}] {mes['nombre']}")
-            insertadas, actualizadas, errores = await sync_transacciones_mes(
-                db,
-                mes['from'],
-                mes['to']
-            )
+            insertadas, actualizadas, errores = await sync_transacciones_mes(db, mes["from"], mes["to"])
 
             total_insertadas += insertadas
             total_actualizadas += actualizadas

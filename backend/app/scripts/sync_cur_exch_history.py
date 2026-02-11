@@ -6,6 +6,7 @@ Ejecutar:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_cur_exch_history
 """
+
 import sys
 from pathlib import Path
 
@@ -14,7 +15,8 @@ sys.path.insert(0, str(backend_dir))
 
 # Cargar .env
 from dotenv import load_dotenv
-env_path = backend_dir / '.env'
+
+env_path = backend_dir / ".env"
 load_dotenv(dotenv_path=env_path)
 
 import requests
@@ -36,9 +38,9 @@ def fetch_exch_history_from_erp(from_date: date = None, to_date: date = None):
         to_date = date.today() + timedelta(days=1)
 
     params = {
-        'strScriptLabel': 'scriptCurExchHistory',
-        'fromDate': from_date.isoformat(),
-        'toDate': to_date.isoformat()
+        "strScriptLabel": "scriptCurExchHistory",
+        "fromDate": from_date.isoformat(),
+        "toDate": to_date.isoformat(),
     }
 
     print(f"📥 Descargando tipos de cambio desde {from_date} hasta {to_date}...")
@@ -71,38 +73,36 @@ def sync_exch_history(db: Session, data: list):
 
     for record in data:
         try:
-            ceh_id = record.get('ceh_id')
+            ceh_id = record.get("ceh_id")
 
             # Buscar registro existente
-            existente = db.query(CurExchHistory).filter(
-                CurExchHistory.ceh_id == ceh_id
-            ).first()
+            existente = db.query(CurExchHistory).filter(CurExchHistory.ceh_id == ceh_id).first()
 
             # Convertir fecha
             ceh_cd = None
-            if record.get('ceh_cd'):
+            if record.get("ceh_cd"):
                 try:
-                    ceh_cd = datetime.fromisoformat(record['ceh_cd'].replace('T', ' '))
+                    ceh_cd = datetime.fromisoformat(record["ceh_cd"].replace("T", " "))
                 except:
                     pass
 
             if existente:
                 # Actualizar
-                existente.comp_id = record.get('comp_id')
-                existente.curr_id_1 = record.get('curr_id_1')
-                existente.curr_id_2 = record.get('curr_id_2')
+                existente.comp_id = record.get("comp_id")
+                existente.curr_id_1 = record.get("curr_id_1")
+                existente.curr_id_2 = record.get("curr_id_2")
                 existente.ceh_cd = ceh_cd
-                existente.ceh_exchange = record.get('ceh_exchange')
+                existente.ceh_exchange = record.get("ceh_exchange")
                 actualizados += 1
             else:
                 # Insertar nuevo
                 nuevo = CurExchHistory(
                     ceh_id=ceh_id,
-                    comp_id=record.get('comp_id'),
-                    curr_id_1=record.get('curr_id_1'),
-                    curr_id_2=record.get('curr_id_2'),
+                    comp_id=record.get("comp_id"),
+                    curr_id_1=record.get("curr_id_1"),
+                    curr_id_2=record.get("curr_id_2"),
                     ceh_cd=ceh_cd,
-                    ceh_exchange=record.get('ceh_exchange')
+                    ceh_exchange=record.get("ceh_exchange"),
                 )
                 db.add(nuevo)
                 insertados += 1
@@ -149,6 +149,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Error crítico: {str(e)}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     finally:

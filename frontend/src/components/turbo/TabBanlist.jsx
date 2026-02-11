@@ -19,7 +19,7 @@ export default function TabBanlist() {
       const { data } = await api.get('/turbo/banlist');
       setBanlist(data.items || []);
       setTotal(data.total || 0);
-    } catch (error) {
+    } catch {
       alert('Error cargando banlist');
     } finally {
       setLoading(false);
@@ -73,7 +73,7 @@ export default function TabBanlist() {
       
       alert(`✅ Envío ${mlshippingid} removido de banlist`);
       fetchBanlist();
-    } catch (error) {
+    } catch {
       alert('❌ Error removiendo de banlist');
     }
   };

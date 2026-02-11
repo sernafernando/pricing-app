@@ -2,7 +2,8 @@
 Modelo para trackear el consumo de grupos de offsets.
 Registra cada venta que consume un offset de grupo con límite.
 """
-from sqlalchemy import Column, Integer, BigInteger, String, Float, DateTime, Date, ForeignKey, Numeric
+
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, ForeignKey, Numeric
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -14,16 +15,19 @@ class OffsetGrupoConsumo(Base):
     Cada vez que una venta consume un offset de un grupo con límite,
     se registra aquí para poder calcular el consumo acumulado.
     """
+
     __tablename__ = "offset_grupo_consumo"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Referencia al grupo
-    grupo_id = Column(Integer, ForeignKey('offset_grupos.id'), index=True, nullable=False)
+    grupo_id = Column(Integer, ForeignKey("offset_grupos.id"), index=True, nullable=False)
 
     # Referencia a la venta (puede ser ML o fuera de ML)
     id_operacion = Column(BigInteger, index=True, nullable=True)  # Para ventas ML (ml_ventas_metricas.id_operacion)
-    venta_fuera_id = Column(Integer, index=True, nullable=True)  # Para ventas fuera ML (sin FK porque tabla puede no existir)
+    venta_fuera_id = Column(
+        Integer, index=True, nullable=True
+    )  # Para ventas fuera ML (sin FK porque tabla puede no existir)
 
     # Tipo de venta
     tipo_venta = Column(String(20), nullable=False)  # 'ml' o 'fuera_ml'
@@ -34,13 +38,13 @@ class OffsetGrupoConsumo(Base):
     cantidad = Column(Integer, nullable=False)
 
     # Offset aplicado
-    offset_id = Column(Integer, ForeignKey('offsets_ganancia.id'), index=True, nullable=False)
+    offset_id = Column(Integer, ForeignKey("offsets_ganancia.id"), index=True, nullable=False)
     monto_offset_aplicado = Column(Numeric(18, 2), nullable=False)  # Monto del offset aplicado en ARS
     monto_offset_usd = Column(Numeric(18, 2), nullable=True)  # Monto en USD (si aplica)
 
     # Cotización usada
     cotizacion_dolar = Column(Numeric(10, 4), nullable=True)
-    
+
     # Tienda oficial (para calcular offsets por tienda)
     tienda_oficial = Column(String(20), index=True, nullable=True)  # ID de tienda oficial ML
 
@@ -58,12 +62,13 @@ class OffsetGrupoResumen(Base):
     Se actualiza cada vez que se agrega un consumo.
     Permite consultas rápidas del estado del grupo.
     """
+
     __tablename__ = "offset_grupo_resumen"
 
     id = Column(Integer, primary_key=True, index=True)
 
     # Referencia al grupo
-    grupo_id = Column(Integer, ForeignKey('offset_grupos.id'), unique=True, index=True, nullable=False)
+    grupo_id = Column(Integer, ForeignKey("offset_grupos.id"), unique=True, index=True, nullable=False)
 
     # Totales acumulados (desde fecha_desde del offset hasta hoy)
     total_unidades = Column(Integer, default=0)

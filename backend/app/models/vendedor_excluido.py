@@ -1,6 +1,7 @@
 """
 Modelo para vendedores excluidos de los reportes de ventas fuera de ML
 """
+
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -8,6 +9,7 @@ from app.core.database import Base
 
 class VendedorExcluido(Base):
     """Vendedores que se excluyen de los reportes de ventas por fuera de ML"""
+
     __tablename__ = "vendedores_excluidos"
 
     id = Column(Integer, primary_key=True, index=True)

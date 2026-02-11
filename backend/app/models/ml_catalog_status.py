@@ -2,8 +2,10 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, Numeric, Uniq
 from sqlalchemy.sql import func
 from app.core.database import Base
 
+
 class MLCatalogStatus(Base):
     """Estado de competencia en catálogos de MercadoLibre"""
+
     __tablename__ = "ml_catalog_status"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -20,9 +22,7 @@ class MLCatalogStatus(Base):
     fecha_consulta = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
-    __table_args__ = (
-        UniqueConstraint('mla', 'fecha_consulta', name='uq_mla_fecha'),
-    )
+    __table_args__ = (UniqueConstraint("mla", "fecha_consulta", name="uq_mla_fecha"),)
 
     def __repr__(self):
         return f"<MLCatalogStatus(mla={self.mla}, status={self.status}, price_to_win={self.price_to_win})>"

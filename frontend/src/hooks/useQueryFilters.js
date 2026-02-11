@@ -1,5 +1,5 @@
 import { useSearchParams } from 'react-router-dom';
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 
 /**
  * Hook para manejar filtros via query params

@@ -7,10 +7,9 @@ class SaleOrderDetailHistory(Base):
     Modelo para tbSaleOrderDetailHistory del ERP
     Historial de cambios en detalle de órdenes de venta (líneas/items)
     """
+
     __tablename__ = "tb_sale_order_detail_history"
-    __table_args__ = (
-        PrimaryKeyConstraint('comp_id', 'bra_id', 'soh_id', 'sohh_id', 'sod_id'),
-    )
+    __table_args__ = (PrimaryKeyConstraint("comp_id", "bra_id", "soh_id", "sohh_id", "sod_id"),)
 
     # Composite Primary Key
     comp_id = Column(Integer, nullable=False, index=True)

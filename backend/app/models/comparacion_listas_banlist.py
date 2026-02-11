@@ -10,13 +10,14 @@ class ComparacionListasBanlist(Base):
     comparación de listas (errores ya revisados / falsos positivos).
     Se clave en mla_id porque la comparación opera a nivel publicación.
     """
+
     __tablename__ = "comparacion_listas_banlist"
 
     id = Column(Integer, primary_key=True, index=True)
     mla_id = Column(String(50), unique=True, index=True, nullable=False)
     motivo = Column(Text, nullable=True)
 
-    usuario_id = Column(Integer, ForeignKey('usuarios.id'), nullable=False)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relación con usuario

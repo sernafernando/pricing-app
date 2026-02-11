@@ -1,6 +1,7 @@
 """
 Modelo para tbsysState - Estados/Provincias
 """
+
 from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -8,6 +9,7 @@ from app.core.database import Base
 
 class TBState(Base):
     """Tabla de estados/provincias del ERP"""
+
     __tablename__ = "tb_state"
 
     # Primary Keys

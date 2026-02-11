@@ -6,6 +6,7 @@ Obtiene valores de pricing_constants automáticamente
 Uso:
     from app.utils.ml_commission_calculator import calcular_comision_ml
 """
+
 from datetime import datetime
 from typing import Optional
 from sqlalchemy.orm import Session
@@ -17,7 +18,7 @@ def calcular_comision_ml(
     iva_porcentaje: float,
     fecha_venta: datetime,
     comision_base_porcentaje: float,
-    db_session: Optional[Session] = None
+    db_session: Optional[Session] = None,
 ) -> float:
     """
     Calcula la comisión ML EXACTAMENTE como st_app.py
@@ -43,9 +44,13 @@ def calcular_comision_ml(
     # Obtener constantes de pricing
     if db_session:
         from app.models.pricing_constants import PricingConstants
-        constants = db_session.query(PricingConstants).filter(
-            PricingConstants.fecha_desde <= fecha_venta.date()
-        ).order_by(PricingConstants.fecha_desde.desc()).first()
+
+        constants = (
+            db_session.query(PricingConstants)
+            .filter(PricingConstants.fecha_desde <= fecha_venta.date())
+            .order_by(PricingConstants.fecha_desde.desc())
+            .first()
+        )
 
         if constants:
             monto_tier1 = float(constants.monto_tier1)

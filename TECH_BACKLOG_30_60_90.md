@@ -266,55 +266,17 @@ This board is optimized for AI agents. Each card has explicit scope, constraints
 
 ### To Do
 
-#### T01 - Baseline CI pipeline
-- Goal: create minimal CI for backend/frontend quality gates.
-- AI input prompt:
-  - "Create `.github/workflows/ci.yml` with backend lint + smoke and frontend lint. Keep jobs independent and fail fast."
-- Files expected:
-  - `.github/workflows/ci.yml`
-  - Optional: `backend/tests/smoke/test_health.py`
-- Done when:
-  - Workflow triggers on `pull_request`.
-  - Backend lint and frontend lint both run.
-  - Health endpoint smoke test runs.
+#### ~~T01 - Baseline CI pipeline~~ ✅ moved to Done
 
-#### T02 - CORS hardening
-- Goal: remove wildcard CORS in production path.
-- AI input prompt:
-  - "Refactor CORS config in `backend/app/main.py` to use environment-based allowed origins from settings."
-- Files expected:
-  - `backend/app/main.py`
-  - `backend/app/core/config.py`
-  - `backend/.env.example`
-- Done when:
-  - No `allow_origins=["*"]` in production branch.
-  - Origins configurable via environment variable.
+#### ~~T02 - CORS hardening~~ ✅ moved to Done
 
-#### T03 - Critical flow tests
-- Goal: lock high-risk regressions with automated tests.
-- AI input prompt:
-  - "Add integration tests for login, token refresh, one pricing update endpoint, and one ML sync endpoint."
-- Files expected:
-  - `backend/tests/integration/test_auth_flows.py`
-  - `backend/tests/integration/test_pricing_flow.py`
-  - `backend/tests/integration/test_sync_ml_flow.py`
-- Done when:
-  - At least 3 critical tests pass in CI.
-  - Tests fail on auth/pricing/sync regressions.
+#### ~~T03 - Critical flow tests~~ ✅ moved to Done
 
 ### In Progress
 
-#### T05 - Structured lifecycle logging
-- Goal: replace startup/background `print` statements with structured logger.
-- AI input prompt:
-  - "Replace print-based logs in app startup/background tasks with Python logging using levels and consistent message format."
-- Files expected:
-  - `backend/app/main.py`
-- Done when:
-  - No raw `print` in startup/shutdown/background task path.
-  - Logs include level and timestamp.
+(none)
 
-### Next Up
+### Backlog (remaining from 30-day plan)
 
 #### T06 - Migration policy unification (Alembic-first)
 - Goal: define single source of truth for DB schema changes.
@@ -369,6 +331,40 @@ This board is optimized for AI agents. Each card has explicit scope, constraints
 
 ### Done
 
+- **T04 - Standardize error responses** (2026-02-11)
+  - Created `backend/app/core/exceptions.py` with `ErrorCode` constants, `ErrorResponse` model, `api_error()` helper, and global `http_exception_handler`.
+  - Error contract: `{"error": {"code": "MACHINE_READABLE", "message": "Human-readable"}}` — all API errors follow this shape.
+  - Migrated auth.py (11 exceptions) and deps.py (14 exceptions) to use `api_error()` with specific codes.
+  - Global handler normalizes legacy `HTTPException(400, "string")` calls in pricing/sync to the same shape — zero risk of breaking existing endpoints.
+  - Added `ErrorResponse` model to OpenAPI docs for `/auth/login`, `/auth/me`, `/auth/refresh`.
+  - Created `tests/integration/test_error_contract.py` — 8 tests verifying error shape for auth, pricing, and sync error scenarios.
+  - All 32 tests pass (3 smoke + 21 integration + 8 error contract).
+- **T03 - Critical flow tests** (2026-02-11)
+  - Created `backend/tests/conftest.py` with shared fixtures: in-memory SQLite, PG type adapters (JSONB→JSON, UUID→String), transactional rollback per test, user/role/auth factories.
+  - Created `backend/tests/integration/test_auth_flows.py` — 13 tests covering JWT-01 to JWT-08: login success/failure, access token on /me, missing/garbage token, refresh success, refresh invalid, wrong token type, disabled user refresh.
+  - Created `backend/tests/integration/test_pricing_flow.py` — 5 tests: auth guard on 4 pricing endpoints + 404 on non-existent product.
+  - Created `backend/tests/integration/test_sync_ml_flow.py` — 3 tests: auth guard on sync endpoints + authenticated pricelist fetch.
+  - All 24 tests (3 smoke + 21 integration) pass locally in ~3.5s.
+  - CI workflow updated to run `tests/` (smoke + integration) in one step.
+- **T01 - Baseline CI pipeline** (2026-02-11)
+  - Created `.github/workflows/ci.yml` with 3 independent jobs: `backend-lint`, `backend-smoke`, `frontend-lint`.
+  - Backend lint uses `ruff check` + `ruff format --check` (no config needed, zero-config linter).
+  - Backend smoke: installs deps + `pytest httpx`, runs `tests/smoke/` with test env vars (SQLite, dummy secrets).
+  - Frontend lint: `npm ci` + `npm run lint` (ESLint 9 already configured).
+  - Created `backend/tests/smoke/test_health.py` — tests root, health, and OpenAPI schema endpoints.
+  - All 3 smoke tests pass locally. Concurrency group cancels stale runs.
+  - Triggers on `pull_request` and `push` to main/master.
+- **T02 - CORS hardening** (2026-02-11)
+  - Added `CORS_ALLOWED_ORIGINS` setting to `backend/app/core/config.py` (comma-separated string).
+  - Property `cors_origins` resolves by env: development defaults to `["*"]`, production defaults to `[]` (fail-safe).
+  - `main.py` now uses `settings.cors_origins` instead of hardcoded `["*"]`.
+  - CORS origins logged at startup for observability.
+  - To configure: set `CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com` in `.env`.
+- **T05 - Structured lifecycle logging** (2026-02-11)
+  - Created `backend/app/core/logging.py` with centralized config (level by env, consistent format).
+  - Replaced all 4 `print()` calls in `backend/app/main.py` with structured `logger.info()`/`logger.error()`.
+  - Added `exc_info=True` on error paths for full traceback in logs.
+  - Output format: `2026-02-11 10:00:00 | INFO     | app.main | Pricing API started (version=1.0.0)`
 - Initial health-check completed.
 - 30/60/90 backlog documented in this file.
 

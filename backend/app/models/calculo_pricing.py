@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
 from app.core.database import Base
 
+
 class CalculoPricing(Base):
     __tablename__ = "calculos_pricing"
 

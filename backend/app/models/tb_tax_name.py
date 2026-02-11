@@ -1,12 +1,14 @@
 """
 Modelo para tbTaxName - Nombres de impuestos
 """
+
 from sqlalchemy import Column, Integer, String, Numeric
 from app.core.database import Base
 
 
 class TBTaxName(Base):
     """Tabla de nombres de impuestos"""
+
     __tablename__ = "tb_tax_name"
 
     comp_id = Column(Integer, primary_key=True)

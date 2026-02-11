@@ -1,12 +1,14 @@
 """
 Modelo para tbSubCategory - Subcategorías
 """
+
 from sqlalchemy import Column, Integer, String
 from app.core.database import Base
 
 
 class TBSubCategory(Base):
     """Tabla de subcategorías del ERP"""
+
     __tablename__ = "tb_subcategory"
 
     comp_id = Column(Integer, primary_key=True)

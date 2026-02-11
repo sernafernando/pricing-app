@@ -55,7 +55,7 @@ export default function TurboRouting() {
         params: { incluir_asignados: incluirAsignados }
       });
       setEnvios(response.data);
-    } catch (error) {
+    } catch {
       alert('Error al cargar envíos pendientes');
     }
   }, [incluirAsignados]);
@@ -64,7 +64,7 @@ export default function TurboRouting() {
     try {
       const response = await api.get('/turbo/motoqueros');
       setMotoqueros(response.data);
-    } catch (error) {
+    } catch {
       alert('Error al cargar motoqueros');
     }
   }, []);
@@ -77,7 +77,7 @@ export default function TurboRouting() {
       ]);
       setEstadisticas(statsRes.data);
       setResumen(resumenRes.data);
-    } catch (error) {
+    } catch {
       alert('Error al cargar estadísticas');
     }
   }, []);
@@ -88,7 +88,7 @@ export default function TurboRouting() {
         params: { solo_activas: false } // Mostrar TODAS las zonas (activas e inactivas)
       });
       setZonas(response.data);
-    } catch (error) {
+    } catch {
       alert('Error al cargar zonas');
     }
   }, []);
@@ -99,7 +99,7 @@ export default function TurboRouting() {
         params: { incluir_asignados: true }
       });
       setEnvios(response.data);
-    } catch (error) {
+    } catch {
       alert('Error al cargar envíos para mapa');
     }
   }, []);
@@ -395,7 +395,7 @@ export default function TurboRouting() {
                 await api.post('/turbo/cache/invalidar', {});
                 alert('✅ Cache invalidado');
                 await loadData();
-              } catch (error) {
+              } catch {
                 alert('Error al invalidar cache');
               }
             }}

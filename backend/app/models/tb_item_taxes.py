@@ -1,12 +1,14 @@
 """
 Modelo para tbItemTaxes - Impuestos por item
 """
+
 from sqlalchemy import Column, Integer, String
 from app.core.database import Base
 
 
 class TBItemTaxes(Base):
     """Tabla de impuestos por item"""
+
     __tablename__ = "tb_item_taxes"
 
     comp_id = Column(Integer, primary_key=True)

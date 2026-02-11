@@ -6,6 +6,7 @@ Ejecutar:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.recovery_sync
 """
+
 import sys
 import os
 from pathlib import Path
@@ -17,7 +18,8 @@ if __name__ == "__main__":
 
     # Cargar variables de entorno desde .env ANTES de importar settings
     from dotenv import load_dotenv
-    env_path = Path(backend_path) / '.env'
+
+    env_path = Path(backend_path) / ".env"
     load_dotenv(dotenv_path=env_path)
 
 import asyncio
@@ -56,98 +58,52 @@ async def run_recovery():
 
     sincronizaciones = [
         # 1. Tablas maestras ERP
-        {
-            "nombre": "Tablas Maestras ERP",
-            "emoji": "📋",
-            "funcion": sync_erp_master_tables,
-            "skip_db": True
-        },
+        {"nombre": "Tablas Maestras ERP", "emoji": "📋", "funcion": sync_erp_master_tables, "skip_db": True},
         # 2. Commercial Transactions (ventas)
         {
             "nombre": "Commercial Transactions (Ventas)",
             "emoji": "💵",
             "funcion": sync_transacciones_incrementales,
-            "args_batch": True
+            "args_batch": True,
         },
         # 3. Item Transactions
-        {
-            "nombre": "Item Transactions",
-            "emoji": "📦",
-            "funcion": sync_item_transactions_incremental
-        },
+        {"nombre": "Item Transactions", "emoji": "📦", "funcion": sync_item_transactions_incremental},
         # 4. Item Transaction Details
-        {
-            "nombre": "Item Transaction Details",
-            "emoji": "📋",
-            "funcion": sync_details_incremental
-        },
+        {"nombre": "Item Transaction Details", "emoji": "📋", "funcion": sync_details_incremental},
         # 5. Item Cost List
-        {
-            "nombre": "Item Cost List",
-            "emoji": "💰",
-            "funcion": sync_item_cost_list_incremental
-        },
+        {"nombre": "Item Cost List", "emoji": "💰", "funcion": sync_item_cost_list_incremental},
         # 6. Item Cost History
-        {
-            "nombre": "Item Cost History",
-            "emoji": "📊",
-            "funcion": sync_item_cost_history_incremental
-        },
+        {"nombre": "Item Cost History", "emoji": "📊", "funcion": sync_item_cost_history_incremental},
         # 7. ML Orders
-        {
-            "nombre": "ML Orders",
-            "emoji": "🛒",
-            "funcion": sync_ml_orders_incremental
-        },
+        {"nombre": "ML Orders", "emoji": "🛒", "funcion": sync_ml_orders_incremental},
         # 8. ML Orders Detail
-        {
-            "nombre": "ML Orders Detail",
-            "emoji": "📄",
-            "funcion": sync_ml_orders_detail_incremental
-        },
+        {"nombre": "ML Orders Detail", "emoji": "📄", "funcion": sync_ml_orders_detail_incremental},
         # 9. ML Orders Shipping
-        {
-            "nombre": "ML Orders Shipping",
-            "emoji": "🚚",
-            "funcion": sync_ml_orders_shipping_incremental
-        },
+        {"nombre": "ML Orders Shipping", "emoji": "🚚", "funcion": sync_ml_orders_shipping_incremental},
         # 10. ML Items Publicados FULL (todas las activas)
-        {
-            "nombre": "ML Items Publicados (FULL)",
-            "emoji": "📢",
-            "funcion": sync_items_publicados_full
-        },
+        {"nombre": "ML Items Publicados (FULL)", "emoji": "📢", "funcion": sync_items_publicados_full},
         # 11. ML Items Publicados Incremental
-        {
-            "nombre": "ML Items Publicados (Incremental)",
-            "emoji": "📢",
-            "funcion": sync_items_publicados_incremental
-        },
+        {"nombre": "ML Items Publicados (Incremental)", "emoji": "📢", "funcion": sync_items_publicados_incremental},
         # 12. Customers
-        {
-            "nombre": "Customers",
-            "emoji": "👥",
-            "funcion": sync_customers_incremental,
-            "args_batch": True
-        },
+        {"nombre": "Customers", "emoji": "👥", "funcion": sync_customers_incremental, "args_batch": True},
     ]
 
     for i, sync in enumerate(sincronizaciones, 1):
-        skip_db = sync.get('skip_db', False)
+        skip_db = sync.get("skip_db", False)
         db = None if skip_db else SessionLocal()
 
         try:
             print(f"\n{sync['emoji']} [{i}/{len(sincronizaciones)}] {sync['nombre']}...")
 
             if skip_db:
-                result = await sync['funcion']()
-            elif sync.get('args_batch'):
-                result = await sync['funcion'](db, batch_size=1000)
+                result = await sync["funcion"]()
+            elif sync.get("args_batch"):
+                result = await sync["funcion"](db, batch_size=1000)
             else:
-                result = await sync['funcion'](db)
+                result = await sync["funcion"](db)
 
             print(f"   ✅ Completado: {result}")
-            resultados["exitosos"].append(sync['nombre'])
+            resultados["exitosos"].append(sync["nombre"])
 
         except Exception as e:
             print(f"   ❌ Error: {str(e)}")
@@ -163,13 +119,13 @@ async def run_recovery():
     print("\n" + "=" * 70)
     print("RESUMEN DE RECUPERACIÓN")
     print("=" * 70)
-    print(f"Duración: {duracion:.0f} segundos ({duracion/60:.1f} minutos)")
+    print(f"Duración: {duracion:.0f} segundos ({duracion / 60:.1f} minutos)")
     print(f"✅ Exitosos: {len(resultados['exitosos'])}")
     print(f"❌ Errores: {len(resultados['errores'])}")
 
-    if resultados['errores']:
+    if resultados["errores"]:
         print("\n⚠️  Errores:")
-        for error in resultados['errores']:
+        for error in resultados["errores"]:
             print(f"   • {error}")
 
     print("=" * 70)

@@ -6,16 +6,17 @@ Replica la lógica del query SQL Server del ERP
 Ejecutar:
     # Últimas 2 horas
     python -m app.scripts.agregar_metricas_ml_local --hours 2
-    
+
     # Últimos 30 minutos
     python -m app.scripts.agregar_metricas_ml_local --minutes 30
-    
+
     # Últimos 7 días
     python -m app.scripts.agregar_metricas_ml_local --days 7
-    
+
     # Rango específico
     python -m app.scripts.agregar_metricas_ml_local --from-date 2025-10-22 --to-date 2025-11-21
 """
+
 import sys
 from pathlib import Path
 
@@ -24,7 +25,8 @@ backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from dotenv import load_dotenv
-env_path = backend_dir / '.env'
+
+env_path = backend_dir / ".env"
 load_dotenv(dotenv_path=env_path)
 
 import argparse
@@ -47,7 +49,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
     Replica la query del ERP pero usando tablas tb_* locales
     """
 
-    print(f"\n🔍 Consultando tablas locales PostgreSQL...")
+    print("\n🔍 Consultando tablas locales PostgreSQL...")
     print(f"   Rango: {from_date} a {to_date}")
 
     # Query complejo que replica la lógica del ERP
@@ -257,10 +259,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
     ORDER BY fecha_venta, id_operacion
     """)
 
-    result = db.execute(query, {
-        'from_date': from_date,
-        'to_date': to_date
-    })
+    result = db.execute(query, {"from_date": from_date, "to_date": to_date})
 
     rows = result.fetchall()
     print(f"  ✓ Obtenidos {len(rows)} registros de tablas locales")
@@ -297,16 +296,16 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
         pricelist_id=row.pricelist_id,
         fecha_venta=row.fecha_venta,
         comision_base_porcentaje=comision_porcentaje,
-        db_session=db_session  # Pasar sesión para obtener pricing_constants
+        db_session=db_session,  # Pasar sesión para obtener pricing_constants
     )
 
     return {
-        'costo_total_sin_iva': metricas['costo_total_sin_iva'],
-        'comision_ml': metricas['comision_ml'],  # Ahora viene del helper
-        'costo_envio': metricas['costo_envio'],
-        'monto_limpio': metricas['monto_limpio'],
-        'ganancia': metricas['ganancia'],
-        'markup_porcentaje': metricas['markup_porcentaje']
+        "costo_total_sin_iva": metricas["costo_total_sin_iva"],
+        "comision_ml": metricas["comision_ml"],  # Ahora viene del helper
+        "costo_envio": metricas["costo_envio"],
+        "monto_limpio": metricas["monto_limpio"],
+        "ganancia": metricas["ganancia"],
+        "markup_porcentaje": metricas["markup_porcentaje"],
     }
 
 
@@ -320,15 +319,13 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
 
     # Buscar el pricing del producto para obtener el markup_calculado como referencia
     try:
-        producto_pricing = db.query(ProductoPricing).filter(
-            ProductoPricing.item_id == row.item_id
-        ).first()
+        producto_pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == row.item_id).first()
 
         if not producto_pricing or producto_pricing.markup_calculado is None:
             return False
 
         markup_calculado = float(producto_pricing.markup_calculado)
-        markup_real = float(metricas['markup_porcentaje'])
+        markup_real = float(metricas["markup_porcentaje"])
 
         # Solo notificar si:
         # 1. El markup real es NEGATIVO (venta en pérdida)
@@ -338,29 +335,29 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
 
         if markup_real < 0 and markup_real < markup_calculado and diferencia > 0.5:
             # Obtener TODOS los usuarios activos para notificar
-            usuarios_notificar = db.query(Usuario).filter(
-                Usuario.activo == True
-            ).all()
+            usuarios_notificar = db.query(Usuario).filter(Usuario.activo == True).all()
 
             if not usuarios_notificar:
                 return False
 
             mensaje = (
-                f"⚠️ Markup: {markup_real:.2f}% (esperado {markup_calculado:.2f}%) - "
-                f"${float(row.monto_total):,.2f}"
+                f"⚠️ Markup: {markup_real:.2f}% (esperado {markup_calculado:.2f}%) - ${float(row.monto_total):,.2f}"
             )
 
             notificaciones_creadas = 0
             for usuario in usuarios_notificar:
                 # Verificar si ya existe una notificación para esta operación y usuario
-                existe_notif = db.query(Notificacion).filter(
-                    Notificacion.id_operacion == row.id_operacion,
-                    Notificacion.tipo == 'markup_bajo',
-                    Notificacion.user_id == usuario.id
-                ).first()
+                existe_notif = (
+                    db.query(Notificacion)
+                    .filter(
+                        Notificacion.id_operacion == row.id_operacion,
+                        Notificacion.tipo == "markup_bajo",
+                        Notificacion.user_id == usuario.id,
+                    )
+                    .first()
+                )
 
                 if not existe_notif:
-
                     # Determinar si el costo está en USD (curr_id = 2)
                     es_usd = row.moneda_costo is not None and int(row.moneda_costo) == 2
 
@@ -373,23 +370,28 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                     costo_actual = None
                     tc_actual = None
                     try:
-                        producto_actual = db.query(ProductoERP).filter(
-                            ProductoERP.item_id == row.item_id
-                        ).first()
+                        producto_actual = db.query(ProductoERP).filter(ProductoERP.item_id == row.item_id).first()
                         if producto_actual and producto_actual.costo is not None:
                             # Convertir a ARS si está en USD (usar moneda de la query)
                             if es_usd:
                                 # Usar tabla tipo_cambio (TC actual)
                                 from app.models.tipo_cambio import TipoCambio
-                                tc = db.query(TipoCambio).filter(
-                                    TipoCambio.moneda == "USD"
-                                ).order_by(TipoCambio.fecha.desc()).first()
+
+                                tc = (
+                                    db.query(TipoCambio)
+                                    .filter(TipoCambio.moneda == "USD")
+                                    .order_by(TipoCambio.fecha.desc())
+                                    .first()
+                                )
                                 if tc and tc.venta:
                                     tc_actual = float(tc.venta)
                                 else:
                                     # Fallback a tb_cur_exch_history
                                     from sqlalchemy import text
-                                    tc_query = text("SELECT ceh_exchange FROM tb_cur_exch_history ORDER BY ceh_cd DESC LIMIT 1")
+
+                                    tc_query = text(
+                                        "SELECT ceh_exchange FROM tb_cur_exch_history ORDER BY ceh_cd DESC LIMIT 1"
+                                    )
                                     tc_result = db.execute(tc_query).fetchone()
                                     tc_actual = float(tc_result[0]) if tc_result else 1.0
                                 costo_actual = float(producto_actual.costo) * tc_actual
@@ -408,7 +410,9 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
 
                     # USAR LA COMISIÓN QUE VIENE DE LA QUERY (ya calculada históricamente)
                     # La query SQL ya busca la comisión vigente en la fecha de venta
-                    comision_porcentaje = float(row.comision_base_porcentaje) if row.comision_base_porcentaje is not None else None
+                    comision_porcentaje = (
+                        float(row.comision_base_porcentaje) if row.comision_base_porcentaje is not None else None
+                    )
 
                     # Obtener nombre de pricelist para tipo_publicacion
                     tipo_publicacion = None
@@ -423,29 +427,34 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                             13: "9 Cuotas",
                             20: "9 Cuotas",
                             23: "12 Cuotas",
-                            21: "12 Cuotas"
+                            21: "12 Cuotas",
                         }
                         tipo_publicacion = pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}")
 
                     # Obtener PM asignado a la marca+categoría del producto
                     from app.models.marca_pm import MarcaPM
+
                     pm_nombre = None
 
                     # Intentar con marca+categoría de tb_brand/tb_category primero
                     if row.marca and row.categoria:
-                        marca_pm = db.query(MarcaPM).filter(
-                            MarcaPM.marca == row.marca,
-                            MarcaPM.categoria == row.categoria
-                        ).first()
+                        marca_pm = (
+                            db.query(MarcaPM)
+                            .filter(MarcaPM.marca == row.marca, MarcaPM.categoria == row.categoria)
+                            .first()
+                        )
                         if marca_pm and marca_pm.usuario:
                             pm_nombre = marca_pm.usuario.nombre
 
                     # Si no encontró PM, intentar con marca+categoría de productos_erp como fallback
                     if not pm_nombre and producto_actual and producto_actual.marca and producto_actual.categoria:
-                        marca_pm = db.query(MarcaPM).filter(
-                            MarcaPM.marca == producto_actual.marca,
-                            MarcaPM.categoria == producto_actual.categoria
-                        ).first()
+                        marca_pm = (
+                            db.query(MarcaPM)
+                            .filter(
+                                MarcaPM.marca == producto_actual.marca, MarcaPM.categoria == producto_actual.categoria
+                            )
+                            .first()
+                        )
                         if marca_pm and marca_pm.usuario:
                             pm_nombre = marca_pm.usuario.nombre
 
@@ -476,7 +485,7 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
 
                     notificacion = Notificacion(
                         user_id=usuario.id,
-                        tipo='markup_bajo',
+                        tipo="markup_bajo",
                         item_id=row.item_id,
                         id_operacion=row.id_operacion,
                         ml_id=row.ml_id,
@@ -490,18 +499,24 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                         fecha_venta=row.fecha_venta,
                         # Campos adicionales
                         pm=pm_nombre,
-                        costo_operacion=Decimal(str(costo_total_operacion)) if costo_total_operacion is not None else None,
+                        costo_operacion=Decimal(str(costo_total_operacion))
+                        if costo_total_operacion is not None
+                        else None,
                         costo_actual=Decimal(str(costo_actual)) if costo_actual is not None else None,
                         tipo_cambio_operacion=Decimal(str(tc_operacion)) if tc_operacion is not None else None,
                         tipo_cambio_actual=Decimal(str(tc_actual)) if tc_actual is not None else None,
-                        precio_venta_unitario=Decimal(str(row.monto_unitario)) if row.monto_unitario is not None else None,
+                        precio_venta_unitario=Decimal(str(row.monto_unitario))
+                        if row.monto_unitario is not None
+                        else None,
                         precio_publicacion=Decimal(str(precio_lista_ml)) if precio_lista_ml is not None else None,
                         tipo_publicacion=tipo_publicacion,
-                        comision_ml=Decimal(str(comision_porcentaje)) if comision_porcentaje is not None else None,  # Guardar el % para mostrar
+                        comision_ml=Decimal(str(comision_porcentaje))
+                        if comision_porcentaje is not None
+                        else None,  # Guardar el % para mostrar
                         iva_porcentaje=Decimal(str(row.iva)) if row.iva is not None else None,
                         cantidad=int(row.cantidad) if row.cantidad else None,
-                        costo_envio=Decimal(str(metricas['costo_envio'])) if metricas.get('costo_envio') else None,
-                        leida=False
+                        costo_envio=Decimal(str(metricas["costo_envio"])) if metricas.get("costo_envio") else None,
+                        leida=False,
                     )
                     db.add(notificacion)
                     notificaciones_creadas += 1
@@ -541,9 +556,7 @@ def process_and_insert(db: Session, rows):
     for row in rows:
         try:
             # Verificar si ya existe
-            existente = db.query(MLVentaMetrica).filter(
-                MLVentaMetrica.id_operacion == row.id_operacion
-            ).first()
+            existente = db.query(MLVentaMetrica).filter(MLVentaMetrica.id_operacion == row.id_operacion).first()
 
             # Calcular métricas adicionales
             count_per_pack = pack_counts.get(row.pack_id, 1)
@@ -562,47 +575,51 @@ def process_and_insert(db: Session, rows):
                     13: "9 Cuotas",
                     20: "9 Cuotas",
                     23: "12 Cuotas",
-                    21: "12 Cuotas"
+                    21: "12 Cuotas",
                 }
                 tipo_lista_nombre = pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}")
 
             # Obtener comisión porcentaje (ya viene calculada históricamente de la query)
-            comision_porcentaje = float(row.comision_base_porcentaje) if row.comision_base_porcentaje is not None else None
+            comision_porcentaje = (
+                float(row.comision_base_porcentaje) if row.comision_base_porcentaje is not None else None
+            )
 
             # Preparar datos
             data = {
-                'id_operacion': row.id_operacion,
-                'ml_order_id': str(row.ml_id) if row.ml_id else None,
-                'pack_id': row.pack_id,
-                'item_id': row.item_id,
-                'codigo': row.codigo,
-                'descripcion': row.descripcion,
-                'marca': row.marca,
-                'categoria': row.categoria,
-                'subcategoria': row.subcategoria,
-                'fecha_venta': row.fecha_venta,
-                'fecha_calculo': fecha_calculo,
-                'cantidad': row.cantidad,
-                'monto_unitario': Decimal(str(row.monto_unitario)) if row.monto_unitario else Decimal('0'),
-                'monto_total': Decimal(str(row.monto_total)) if row.monto_total else Decimal('0'),
-                'costo_unitario_sin_iva': Decimal(str(row.costo_sin_iva)) if row.costo_sin_iva else Decimal('0'),
-                'costo_total_sin_iva': Decimal(str(metricas['costo_total_sin_iva'])),
-                'comision_ml': Decimal(str(metricas['comision_ml'])),
-                'costo_envio_ml': Decimal(str(metricas['costo_envio'])),
-                'tipo_logistica': row.tipo_logistica,
-                'monto_limpio': Decimal(str(metricas['monto_limpio'])),
-                'ganancia': Decimal(str(metricas['ganancia'])),
-                'markup_porcentaje': Decimal(str(metricas['markup_porcentaje'])),
-                'mla_id': str(row.mlp_id) if hasattr(row, 'mlp_id') and row.mlp_id else None,
-                'tipo_lista': tipo_lista_nombre,  # Agregar nombre de lista
-                'porcentaje_comision_ml': Decimal(str(comision_porcentaje)) if comision_porcentaje is not None else None,  # Agregar comisión %
-                'prli_id': row.pricelist_id  # Agregar prli_id para referencia
+                "id_operacion": row.id_operacion,
+                "ml_order_id": str(row.ml_id) if row.ml_id else None,
+                "pack_id": row.pack_id,
+                "item_id": row.item_id,
+                "codigo": row.codigo,
+                "descripcion": row.descripcion,
+                "marca": row.marca,
+                "categoria": row.categoria,
+                "subcategoria": row.subcategoria,
+                "fecha_venta": row.fecha_venta,
+                "fecha_calculo": fecha_calculo,
+                "cantidad": row.cantidad,
+                "monto_unitario": Decimal(str(row.monto_unitario)) if row.monto_unitario else Decimal("0"),
+                "monto_total": Decimal(str(row.monto_total)) if row.monto_total else Decimal("0"),
+                "costo_unitario_sin_iva": Decimal(str(row.costo_sin_iva)) if row.costo_sin_iva else Decimal("0"),
+                "costo_total_sin_iva": Decimal(str(metricas["costo_total_sin_iva"])),
+                "comision_ml": Decimal(str(metricas["comision_ml"])),
+                "costo_envio_ml": Decimal(str(metricas["costo_envio"])),
+                "tipo_logistica": row.tipo_logistica,
+                "monto_limpio": Decimal(str(metricas["monto_limpio"])),
+                "ganancia": Decimal(str(metricas["ganancia"])),
+                "markup_porcentaje": Decimal(str(metricas["markup_porcentaje"])),
+                "mla_id": str(row.mlp_id) if hasattr(row, "mlp_id") and row.mlp_id else None,
+                "tipo_lista": tipo_lista_nombre,  # Agregar nombre de lista
+                "porcentaje_comision_ml": Decimal(str(comision_porcentaje))
+                if comision_porcentaje is not None
+                else None,  # Agregar comisión %
+                "prli_id": row.pricelist_id,  # Agregar prli_id para referencia
             }
 
             if existente:
                 # Actualizar
                 for key, value in data.items():
-                    if key != 'id_operacion':  # No actualizar PK
+                    if key != "id_operacion":  # No actualizar PK
                         setattr(existente, key, value)
                 total_actualizados += 1
             else:
@@ -621,7 +638,9 @@ def process_and_insert(db: Session, rows):
             # Commit cada 100 registros
             if (total_insertados + total_actualizados) % 100 == 0:
                 db.commit()
-                print(f"  📊 Progreso: {total_insertados + total_actualizados}/{len(rows)} | Notificaciones: {total_notificaciones}")
+                print(
+                    f"  📊 Progreso: {total_insertados + total_actualizados}/{len(rows)} | Notificaciones: {total_notificaciones}"
+                )
 
         except Exception as e:
             total_errores += 1
@@ -637,23 +656,23 @@ def process_and_insert(db: Session, rows):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Agregar métricas ML desde tablas locales',
-        epilog='Ejemplos:\n'
-               '  python -m app.scripts.agregar_metricas_ml_local --minutes 30\n'
-               '  python -m app.scripts.agregar_metricas_ml_local --hours 2\n'
-               '  python -m app.scripts.agregar_metricas_ml_local --days 7\n'
-               '  python -m app.scripts.agregar_metricas_ml_local --from-date 2026-01-01 --to-date 2026-01-15',
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description="Agregar métricas ML desde tablas locales",
+        epilog="Ejemplos:\n"
+        "  python -m app.scripts.agregar_metricas_ml_local --minutes 30\n"
+        "  python -m app.scripts.agregar_metricas_ml_local --hours 2\n"
+        "  python -m app.scripts.agregar_metricas_ml_local --days 7\n"
+        "  python -m app.scripts.agregar_metricas_ml_local --from-date 2026-01-01 --to-date 2026-01-15",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    
+
     # Grupo mutuamente excluyente: --minutes/--hours/--days O (--from-date + --to-date)
     date_group = parser.add_mutually_exclusive_group(required=True)
-    date_group.add_argument('--minutes', type=int, help='Últimos N minutos')
-    date_group.add_argument('--hours', type=int, help='Últimas N horas')
-    date_group.add_argument('--days', type=int, help='Últimos N días')
-    date_group.add_argument('--from-date', help='Fecha desde (YYYY-MM-DD)')
-    
-    parser.add_argument('--to-date', help='Fecha hasta (YYYY-MM-DD, requerido con --from-date)')
+    date_group.add_argument("--minutes", type=int, help="Últimos N minutos")
+    date_group.add_argument("--hours", type=int, help="Últimas N horas")
+    date_group.add_argument("--days", type=int, help="Últimos N días")
+    date_group.add_argument("--from-date", help="Fecha desde (YYYY-MM-DD)")
+
+    parser.add_argument("--to-date", help="Fecha hasta (YYYY-MM-DD, requerido con --from-date)")
 
     args = parser.parse_args()
 
@@ -690,8 +709,8 @@ def main():
             print(f"📅 Modo --days: Últimos {args.days} días")
         else:
             # Modo --from-date --to-date
-            from_date = datetime.strptime(args.from_date, '%Y-%m-%d').date()
-            to_date = datetime.strptime(args.to_date, '%Y-%m-%d').date()
+            from_date = datetime.strptime(args.from_date, "%Y-%m-%d").date()
+            to_date = datetime.strptime(args.to_date, "%Y-%m-%d").date()
             to_date = to_date + timedelta(days=1)  # +1 para incluir el día final completo
             print(f"📅 Modo rango: {args.from_date} a {args.to_date}")
     except ValueError as e:
@@ -725,6 +744,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Error crítico: {str(e)}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     finally:

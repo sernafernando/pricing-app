@@ -6,6 +6,7 @@ Ejecutar:
     python -m app.scripts.sync_tax_number_types
     python -m app.scripts.sync_tax_number_types --tnt-id 1
 """
+
 import sys
 from pathlib import Path
 
@@ -18,10 +19,7 @@ from app.core.database import SessionLocal
 from app.models.tb_tax_number_type import TBTaxNumberType
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # URL del gbp-parser
@@ -38,12 +36,10 @@ def fetch_tax_number_types_from_erp(tnt_id: int = None):
     Returns:
         Lista de registros
     """
-    params = {
-        'strScriptLabel': 'scriptTaxNumberType'
-    }
+    params = {"strScriptLabel": "scriptTaxNumberType"}
 
     if tnt_id:
-        params['tntID'] = tnt_id
+        params["tntID"] = tnt_id
 
     logger.info(f"Consultando ERP con params: {params}")
 
@@ -92,7 +88,7 @@ def sync_tax_number_types(tnt_id: int = None):
 
         # Procesar registros
         for record in registros_erp:
-            tnt_id_val = record.get('tnt_id')
+            tnt_id_val = record.get("tnt_id")
 
             if not tnt_id_val:
                 logger.warning(f"Registro sin tnt_id: {record}")
@@ -100,15 +96,13 @@ def sync_tax_number_types(tnt_id: int = None):
 
             # Preparar datos
             datos = {
-                'tnt_id': tnt_id_val,
-                'tnt_desc': record.get('tnt_desc'),
-                'tnt_afip': record.get('tnt_afip'),
+                "tnt_id": tnt_id_val,
+                "tnt_desc": record.get("tnt_desc"),
+                "tnt_afip": record.get("tnt_afip"),
             }
 
             # Verificar si existe
-            existente = db_local.query(TBTaxNumberType).filter(
-                TBTaxNumberType.tnt_id == tnt_id_val
-            ).first()
+            existente = db_local.query(TBTaxNumberType).filter(TBTaxNumberType.tnt_id == tnt_id_val).first()
 
             if existente:
                 for key, value in datos.items():
@@ -143,12 +137,8 @@ def sync_tax_number_types(tnt_id: int = None):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description='Sincronizar tipos de número de impuesto desde ERP')
-    parser.add_argument(
-        '--tnt-id',
-        type=int,
-        help='ID de tipo específico'
-    )
+    parser = argparse.ArgumentParser(description="Sincronizar tipos de número de impuesto desde ERP")
+    parser.add_argument("--tnt-id", type=int, help="ID de tipo específico")
 
     args = parser.parse_args()
 

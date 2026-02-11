@@ -1,16 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
-from typing import List, Optional 
+from typing import List, Optional
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
-from app.models.auditoria_precio import AuditoriaPrecio
 from app.models.auditoria import Auditoria, TipoAccion
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 router = APIRouter()
+
 
 class AuditoriaResponse(BaseModel):
     id: int
@@ -25,53 +24,50 @@ class AuditoriaResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 @router.get("/productos/{producto_id}/auditoria", response_model=List[AuditoriaResponse])
 async def obtener_auditoria_producto(
-    producto_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    producto_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el historial de cambios de un producto"""
 
     # Buscar auditorías de este producto en la tabla general
-    auditorias = db.query(Auditoria).filter(
-        Auditoria.item_id == producto_id
-    ).order_by(Auditoria.fecha.desc()).all()
+    auditorias = db.query(Auditoria).filter(Auditoria.item_id == producto_id).order_by(Auditoria.fecha.desc()).all()
 
     resultado = []
     for aud in auditorias:
-        resultado.append({
-            "id": aud.id,
-            "item_id": aud.item_id,
-            "usuario_nombre": aud.usuario.nombre,
-            "usuario_email": aud.usuario.email,
-            "tipo_accion": aud.tipo_accion,
-            "valores_anteriores": aud.valores_anteriores,
-            "valores_nuevos": aud.valores_nuevos,
-            "fecha_cambio": aud.fecha,
-            "comentario": aud.comentario
-        })
+        resultado.append(
+            {
+                "id": aud.id,
+                "item_id": aud.item_id,
+                "usuario_nombre": aud.usuario.nombre,
+                "usuario_email": aud.usuario.email,
+                "tipo_accion": aud.tipo_accion,
+                "valores_anteriores": aud.valores_anteriores,
+                "valores_nuevos": aud.valores_nuevos,
+                "fecha_cambio": aud.fecha,
+                "comentario": aud.comentario,
+            }
+        )
 
     return resultado
 
+
 @router.get("/auditoria/ultimos-cambios", response_model=List[dict])
 async def obtener_ultimos_cambios(
-    limit: int = 50,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    limit: int = 50, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene los últimos N cambios de todos los productos"""
 
     from app.models.producto import ProductoERP
 
-    auditorias = db.query(
-        Auditoria,
-        ProductoERP
-    ).outerjoin(
-        ProductoERP, Auditoria.item_id == ProductoERP.item_id
-    ).order_by(
-        Auditoria.fecha.desc()
-    ).limit(limit).all()
+    auditorias = (
+        db.query(Auditoria, ProductoERP)
+        .outerjoin(ProductoERP, Auditoria.item_id == ProductoERP.item_id)
+        .order_by(Auditoria.fecha.desc())
+        .limit(limit)
+        .all()
+    )
 
     resultado = []
     for aud, producto in auditorias:
@@ -85,25 +81,22 @@ async def obtener_ultimos_cambios(
             "valores_nuevos": aud.valores_nuevos,
             "es_masivo": aud.es_masivo,
             "productos_afectados": aud.productos_afectados,
-            "comentario": aud.comentario
+            "comentario": aud.comentario,
         }
 
         # Si hay producto asociado, agregar sus datos
         if producto:
-            registro.update({
-                "item_id": producto.item_id,
-                "codigo": producto.codigo,
-                "descripcion": producto.descripcion,
-                "marca": producto.marca
-            })
+            registro.update(
+                {
+                    "item_id": producto.item_id,
+                    "codigo": producto.codigo,
+                    "descripcion": producto.descripcion,
+                    "marca": producto.marca,
+                }
+            )
         else:
             # Para cambios masivos
-            registro.update({
-                "item_id": None,
-                "codigo": None,
-                "descripcion": "Modificación masiva",
-                "marca": None
-            })
+            registro.update({"item_id": None, "codigo": None, "descripcion": "Modificación masiva", "marca": None})
 
         resultado.append(registro)
 
@@ -125,11 +118,13 @@ class AuditoriaGeneralResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class AuditoriaListResponse(BaseModel):
     total: int
     page: int
     page_size: int
     registros: List[AuditoriaGeneralResponse]
+
 
 @router.get("/auditoria", response_model=AuditoriaListResponse)
 async def listar_auditoria_general(
@@ -142,49 +137,47 @@ async def listar_auditoria_general(
     item_id: Optional[int] = None,
     es_masivo: Optional[bool] = None,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """Lista registros de auditoría general con filtros"""
-    
-    query = db.query(Auditoria, Usuario).join(
-        Usuario, Auditoria.usuario_id == Usuario.id
-    )
-    
+
+    query = db.query(Auditoria, Usuario).join(Usuario, Auditoria.usuario_id == Usuario.id)
+
     if usuarios:
-        usuarios_ids = [int(u) for u in usuarios.split(',')]
+        usuarios_ids = [int(u) for u in usuarios.split(",")]
         query = query.filter(Auditoria.usuario_id.in_(usuarios_ids))
-    
+
     if tipos_accion:
-        tipos_list = tipos_accion.split(',')
+        tipos_list = tipos_accion.split(",")
         query = query.filter(Auditoria.tipo_accion.in_(tipos_list))
-    
+
     if fecha_desde:
         try:
-            fecha_desde_dt = datetime.strptime(fecha_desde, '%Y-%m-%d %H:%M:%S')
+            fecha_desde_dt = datetime.strptime(fecha_desde, "%Y-%m-%d %H:%M:%S")
         except ValueError:
-            fecha_desde_dt = datetime.strptime(fecha_desde, '%Y-%m-%d')
+            fecha_desde_dt = datetime.strptime(fecha_desde, "%Y-%m-%d")
         query = query.filter(Auditoria.fecha >= fecha_desde_dt)
-    
+
     if fecha_hasta:
         try:
-            fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d %H:%M:%S')
+            fecha_hasta_dt = datetime.strptime(fecha_hasta, "%Y-%m-%d %H:%M:%S")
         except ValueError:
-            fecha_hasta_dt = datetime.strptime(fecha_hasta, '%Y-%m-%d')
+            fecha_hasta_dt = datetime.strptime(fecha_hasta, "%Y-%m-%d")
             fecha_hasta_dt = fecha_hasta_dt.replace(hour=23, minute=59, second=59)
         query = query.filter(Auditoria.fecha <= fecha_hasta_dt)
-    
+
     if item_id:
         query = query.filter(Auditoria.item_id == item_id)
-    
+
     if es_masivo is not None:
         query = query.filter(Auditoria.es_masivo == es_masivo)
-    
+
     query = query.order_by(Auditoria.fecha.desc())
-    
+
     total = query.count()
     offset = (page - 1) * page_size
     results = query.offset(offset).limit(page_size).all()
-    
+
     registros = [
         AuditoriaGeneralResponse(
             id=auditoria.id,
@@ -197,41 +190,23 @@ async def listar_auditoria_general(
             es_masivo=auditoria.es_masivo,
             productos_afectados=auditoria.productos_afectados,
             comentario=auditoria.comentario,
-            fecha=auditoria.fecha
+            fecha=auditoria.fecha,
         )
         for auditoria, usuario in results
     ]
-    
-    return AuditoriaListResponse(
-        total=total,
-        page=page,
-        page_size=page_size,
-        registros=registros
-    )
+
+    return AuditoriaListResponse(total=total, page=page, page_size=page_size, registros=registros)
+
 
 @router.get("/auditoria/tipos-accion")
-async def listar_tipos_accion(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def listar_tipos_accion(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los tipos de acción disponibles"""
-    return {
-        "tipos": [tipo.value for tipo in TipoAccion]
-    }
+    return {"tipos": [tipo.value for tipo in TipoAccion]}
+
 
 @router.get("/auditoria/usuarios")
-async def listar_usuarios_auditoria(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def listar_usuarios_auditoria(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista usuarios que han realizado modificaciones"""
-    usuarios = db.query(Usuario).join(
-        Auditoria, Usuario.id == Auditoria.usuario_id
-    ).distinct().all()
-    
-    return {
-        "usuarios": [
-            {"id": u.id, "nombre": u.nombre, "email": u.email}
-            for u in usuarios
-        ]
-    }
+    usuarios = db.query(Usuario).join(Auditoria, Usuario.id == Auditoria.usuario_id).distinct().all()
+
+    return {"usuarios": [{"id": u.id, "nombre": u.nombre, "email": u.email} for u in usuarios]}

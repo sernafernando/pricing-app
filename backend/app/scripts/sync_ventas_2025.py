@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_ventas_2025
 """
+
 import sys
 import os
 
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.venta_ml import VentaML
 
+
 async def sync_ventas_mes(db: Session, from_date: str, to_date: str):
     """
     Sincroniza ventas de un mes específico
@@ -31,11 +33,7 @@ async def sync_ventas_mes(db: Session, from_date: str, to_date: str):
     try:
         # Llamar al endpoint externo
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptDashboard",
-            "fromDate": from_date,
-            "toDate": to_date
-        }
+        params = {"strScriptLabel": "scriptDashboard", "fromDate": from_date, "toDate": to_date}
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(url, params=params)
@@ -43,12 +41,12 @@ async def sync_ventas_mes(db: Session, from_date: str, to_date: str):
             ventas_data = response.json()
 
         if not isinstance(ventas_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error (ej: {"Column1": "-9"})
         if len(ventas_data) == 1 and "Column1" in ventas_data[0]:
-            print(f"   ⚠️  No hay datos disponibles para este período")
+            print("   ⚠️  No hay datos disponibles para este período")
             return 0, 0, 0
 
         print(f"   Procesando {len(ventas_data)} ventas...")
@@ -63,14 +61,12 @@ async def sync_ventas_mes(db: Session, from_date: str, to_date: str):
                 # Verificar que tenga ID_de_Operación
                 id_operacion = venta_json.get("ID_de_Operación")
                 if id_operacion is None:
-                    print(f"   ⚠️  Venta sin ID_de_Operación, omitiendo...")
+                    print("   ⚠️  Venta sin ID_de_Operación, omitiendo...")
                     ventas_errores += 1
                     continue
 
                 # Verificar si ya existe
-                venta_existente = db.query(VentaML).filter(
-                    VentaML.id_operacion == id_operacion
-                ).first()
+                venta_existente = db.query(VentaML).filter(VentaML.id_operacion == id_operacion).first()
 
                 if venta_existente:
                     ventas_duplicadas += 1
@@ -101,7 +97,7 @@ async def sync_ventas_mes(db: Session, from_date: str, to_date: str):
                     ml_price_free_shipping=venta_json.get("mlp_price4FreeShipping"),
                     ml_base_cost=venta_json.get("ML_base_cost"),
                     ml_pack_id=venta_json.get("ML_pack_id"),
-                    price_list=venta_json.get("priceList")
+                    price_list=venta_json.get("priceList"),
                 )
 
                 db.add(venta)
@@ -162,11 +158,13 @@ async def main():
                 if mes == hoy.month:
                     ultimo_dia = hoy + timedelta(days=1)
 
-                meses_a_sincronizar.append({
-                    'from': primer_dia.strftime('%Y-%m-%d'),
-                    'to': ultimo_dia.strftime('%Y-%m-%d'),
-                    'nombre': primer_dia.strftime('%B %Y')
-                })
+                meses_a_sincronizar.append(
+                    {
+                        "from": primer_dia.strftime("%Y-%m-%d"),
+                        "to": ultimo_dia.strftime("%Y-%m-%d"),
+                        "nombre": primer_dia.strftime("%B %Y"),
+                    }
+                )
 
         print(f"📊 Se sincronizarán {len(meses_a_sincronizar)} meses\n")
 
@@ -178,11 +176,7 @@ async def main():
         # Sincronizar mes por mes
         for i, mes in enumerate(meses_a_sincronizar, 1):
             print(f"\n[{i}/{len(meses_a_sincronizar)}] {mes['nombre']}")
-            insertadas, duplicadas, errores = await sync_ventas_mes(
-                db,
-                mes['from'],
-                mes['to']
-            )
+            insertadas, duplicadas, errores = await sync_ventas_mes(db, mes["from"], mes["to"])
 
             total_insertadas += insertadas
             total_duplicadas += duplicadas

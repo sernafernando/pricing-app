@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../hooks/usePermisos';
-import { useAuthStore } from '../store/authStore';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import './ItemsSinMLA.css';
 
@@ -92,8 +91,8 @@ const ItemsSinMLA = () => {
   // Estado para comparación de listas
   const [itemsComparacion, setItemsComparacion] = useState([]);
   const [loadingComparacion, setLoadingComparacion] = useState(false);
-  const [busquedaComparacion, setBusquedaComparacion] = useState('');
-  const [marcaComparacion, setMarcaComparacion] = useState('');
+  const [busquedaComparacion] = useState('');
+  const [marcaComparacion] = useState('');
 
   // Estado para multi-selección en comparación
   const [comparacionSeleccionados, setComparacionSeleccionados] = useState(new Set());
@@ -670,10 +669,6 @@ const ItemsSinMLA = () => {
       console.error('Error al desbanear item:', error);
       alert('Error al desbanear item');
     }
-  };
-
-  const aplicarFiltros = () => {
-    cargarItemsSinMLA();
   };
 
   const limpiarFiltros = () => {

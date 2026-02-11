@@ -16,6 +16,7 @@ Ejecutar:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_sale_order_times
 """
+
 import sys
 from pathlib import Path
 
@@ -24,7 +25,8 @@ sys.path.insert(0, str(backend_dir))
 
 # Cargar .env
 from dotenv import load_dotenv
-env_path = backend_dir / '.env'
+
+env_path = backend_dir / ".env"
 load_dotenv(dotenv_path=env_path)
 
 import requests
@@ -35,10 +37,7 @@ from app.core.database import SessionLocal
 from app.models.sale_order_times import SaleOrderTimes
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -54,9 +53,9 @@ def fetch_sale_order_times_from_erp(from_date: date = None, to_date: date = None
         to_date = date.today() + timedelta(days=1)
 
     params = {
-        'strScriptLabel': 'scriptSaleOrderTimes',
-        'fromDate': from_date.isoformat(),
-        'toDate': to_date.isoformat()
+        "strScriptLabel": "scriptSaleOrderTimes",
+        "fromDate": from_date.isoformat(),
+        "toDate": to_date.isoformat(),
     }
 
     logger.info(f"📥 Descargando transacciones de órdenes desde {from_date} hasta {to_date}...")
@@ -89,30 +88,34 @@ def sync_sale_order_times(db: Session, data: list):
 
     for record in data:
         try:
-            comp_id = record.get('comp_id')
-            bra_id = record.get('bra_id')
-            soh_id = record.get('soh_id')
-            sot_id = record.get('sot_id')
+            comp_id = record.get("comp_id")
+            bra_id = record.get("bra_id")
+            soh_id = record.get("soh_id")
+            sot_id = record.get("sot_id")
 
             # Buscar registro existente por clave compuesta
-            existente = db.query(SaleOrderTimes).filter(
-                and_(
-                    SaleOrderTimes.comp_id == comp_id,
-                    SaleOrderTimes.bra_id == bra_id,
-                    SaleOrderTimes.soh_id == soh_id,
-                    SaleOrderTimes.sot_id == sot_id
+            existente = (
+                db.query(SaleOrderTimes)
+                .filter(
+                    and_(
+                        SaleOrderTimes.comp_id == comp_id,
+                        SaleOrderTimes.bra_id == bra_id,
+                        SaleOrderTimes.soh_id == soh_id,
+                        SaleOrderTimes.sot_id == sot_id,
+                    )
                 )
-            ).first()
+                .first()
+            )
 
             # Preparar datos
             datos = {
-                'comp_id': comp_id,
-                'bra_id': bra_id,
-                'soh_id': soh_id,
-                'sot_id': sot_id,
-                'sot_cd': record.get('sot_cd'),
-                'ssot_id': record.get('ssot_id'),
-                'user_id': record.get('user_id')
+                "comp_id": comp_id,
+                "bra_id": bra_id,
+                "soh_id": soh_id,
+                "sot_id": sot_id,
+                "sot_cd": record.get("sot_cd"),
+                "ssot_id": record.get("ssot_id"),
+                "user_id": record.get("user_id"),
             }
 
             if existente:
@@ -138,7 +141,7 @@ def sync_sale_order_times(db: Session, data: list):
     # Commit final
     db.commit()
 
-    logger.info(f"\n✅ Sincronización completada:")
+    logger.info("\n✅ Sincronización completada:")
     logger.info(f"  - Insertados: {insertados}")
     logger.info(f"  - Actualizados: {actualizados}")
     logger.info(f"  - Errores: {errores}")
@@ -147,9 +150,9 @@ def sync_sale_order_times(db: Session, data: list):
 
 
 if __name__ == "__main__":
-    logger.info("\n" + "="*70)
+    logger.info("\n" + "=" * 70)
     logger.info("SINCRONIZAR TRANSACCIONES DE ÓRDENES DE VENTA (tbSaleOrderTimes)")
-    logger.info("="*70 + "\n")
+    logger.info("=" * 70 + "\n")
 
     db = SessionLocal()
 
@@ -168,6 +171,6 @@ if __name__ == "__main__":
     finally:
         db.close()
 
-    logger.info("\n" + "="*70)
+    logger.info("\n" + "=" * 70)
     logger.info("PROCESO FINALIZADO")
-    logger.info("="*70 + "\n")
+    logger.info("=" * 70 + "\n")

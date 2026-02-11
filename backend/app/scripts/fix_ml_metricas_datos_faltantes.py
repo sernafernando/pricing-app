@@ -6,6 +6,7 @@ usando datos de productos_erp como fallback.
 Ejecutar:
     python app/scripts/fix_ml_metricas_datos_faltantes.py
 """
+
 import sys
 from pathlib import Path
 
@@ -14,7 +15,8 @@ backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from dotenv import load_dotenv
-env_path = backend_dir / '.env'
+
+env_path = backend_dir / ".env"
 load_dotenv(dotenv_path=env_path)
 
 from sqlalchemy import text
@@ -144,6 +146,7 @@ def main():
     except Exception as e:
         print(f"\nError: {str(e)}")
         import traceback
+
         traceback.print_exc()
         db.rollback()
     finally:

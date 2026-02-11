@@ -10,6 +10,7 @@ class RolUsuario(str, enum.Enum):
     DEPRECADO: Usar tabla roles en su lugar.
     Se mantiene temporalmente para compatibilidad con código existente.
     """
+
     SUPERADMIN = "SUPERADMIN"
     ADMIN = "ADMIN"
     GERENTE = "GERENTE"
@@ -35,7 +36,7 @@ class Usuario(Base):
     rol = Column(SQLEnum(RolUsuario), nullable=True)
 
     # Nuevo: FK a tabla roles
-    rol_id = Column(Integer, ForeignKey('roles.id'), nullable=True, index=True)
+    rol_id = Column(Integer, ForeignKey("roles.id"), nullable=True, index=True)
 
     auth_provider = Column(SQLEnum(AuthProvider), default=AuthProvider.LOCAL)
 

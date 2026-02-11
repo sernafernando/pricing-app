@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import styles from './Clientes.module.css';
@@ -16,10 +16,9 @@ export default function Clientes() {
   const [condicionesFiscales, setCondicionesFiscales] = useState([]);
   const [sucursales, setSucursales] = useState([]);
   const [vendedores, setVendedores] = useState([]);
-  const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
 
   // Usar query params para todos los filtros
-  const { getFilter, updateFilters, searchParams } = useQueryFilters({
+  const { getFilter, updateFilters } = useQueryFilters({
     search: '',
     page: 1,
     page_size: 50,
@@ -68,8 +67,6 @@ export default function Clientes() {
   const [camposSeleccionados, setCamposSeleccionados] = useState([]);
   const [exportando, setExportando] = useState(false);
 
-  // useMemo para evitar loops infinitos
-  const searchKey = useMemo(() => searchInput, [searchInput]);
   const debouncedSearch = useDebounce(searchInput, 500);
 
   // Cargar filtros iniciales
@@ -243,10 +240,6 @@ export default function Clientes() {
   const setFiltroConML = (value) => updateFilters({ con_ml: value, page: 1 });
   const setFiltroConEmail = (value) => updateFilters({ con_email: value, page: 1 });
   const setFiltroConTelefono = (value) => updateFilters({ con_telefono: value, page: 1 });
-  const setFiltroFechaDesde = (value) => updateFilters({ fecha_desde: value });
-  const setFiltroFechaHasta = (value) => updateFilters({ fecha_hasta: value });
-  const setFiltroCustIdDesde = (value) => updateFilters({ cust_id_desde: value });
-  const setFiltroCustIdHasta = (value) => updateFilters({ cust_id_hasta: value });
 
   const limpiarFiltros = () => {
     updateFilters({

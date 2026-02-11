@@ -3,16 +3,18 @@ import sys
 import requests
 from datetime import datetime
 
-sys.path.append('/var/www/html/pricing-app/backend')
+sys.path.append("/var/www/html/pricing-app/backend")
 
 BASE_URL = "http://localhost:8002/api"
+
 
 def log(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
+
 def sync_all():
     log("=== INICIO SINCRONIZACIÓN COMPLETA ===")
-    
+
     # 1. Tipo de cambio
     log("Sincronizando tipo de cambio...")
     try:
@@ -20,7 +22,7 @@ def sync_all():
         log(f"Tipo cambio: {r.json()}")
     except Exception as e:
         log(f"Error tipo cambio: {e}")
-    
+
     # 2. ERP
     log("Sincronizando productos ERP...")
     try:
@@ -28,7 +30,7 @@ def sync_all():
         log(f"ERP: {r.json()}")
     except Exception as e:
         log(f"Error ERP: {e}")
-    
+
     # 3. Publicaciones ML
     log("Sincronizando publicaciones ML...")
     try:
@@ -36,7 +38,7 @@ def sync_all():
         log(f"ML: {r.json()}")
     except Exception as e:
         log(f"Error ML: {e}")
-    
+
     # 4. Ofertas Sheets
     log("Sincronizando ofertas...")
     try:
@@ -44,7 +46,7 @@ def sync_all():
         log(f"Sheets: {r.json()}")
     except Exception as e:
         log(f"Error Sheets: {e}")
-    
+
     # 5. Recalcular markups
     log("Recalculando markups...")
     try:
@@ -52,8 +54,9 @@ def sync_all():
         log(f"Markups: {r.json()}")
     except Exception as e:
         log(f"Error markups: {e}")
-    
+
     log("=== FIN SINCRONIZACIÓN COMPLETA ===")
+
 
 if __name__ == "__main__":
     sync_all()

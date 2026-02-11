@@ -7,7 +7,6 @@ import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
 import ExportModal from '../components/ExportModal';
-import xlsIcon from '../assets/xls.svg';
 import CalcularWebModal from '../components/CalcularWebModal';
 import CalcularPVPModal from '../components/CalcularPVPModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
@@ -62,8 +61,6 @@ export default function Productos() {
   const [marcas, setMarcas] = useState([]);
   const [marcasSeleccionadas, setMarcasSeleccionadas] = useState([]);
   const [busquedaMarca, setBusquedaMarca] = useState('');
-  const [ordenColumna, setOrdenColumna] = useState(null);
-  const [ordenDireccion, setOrdenDireccion] = useState('asc');
   const [ordenColumnas, setOrdenColumnas] = useState([]);
   const [subcategorias, setSubcategorias] = useState([]);
   const [subcategoriasSeleccionadas, setSubcategoriasSeleccionadas] = useState([]);
@@ -399,7 +396,7 @@ export default function Productos() {
           ]);
           setMarcasPorPM(marcasRes.data.marcas);
           setSubcategoriasPorPM(subcatsRes.data.subcategorias.map(s => s.id));
-        } catch (error) {
+        } catch {
           setMarcasPorPM([]);
           setSubcategoriasPorPM([]);
         }
@@ -457,7 +454,7 @@ export default function Productos() {
       // Cargar estadísticas dinámicas según filtros aplicados
       const statsRes = await productosAPI.statsDinamicos(params);
       setStats(statsRes.data);
-    } catch (error) {
+    } catch {
       // Error silencioso, no afecta funcionalidad principal
     }
   };
@@ -555,7 +552,7 @@ export default function Productos() {
         if (accion === 1) {
           navigator.clipboard.writeText(itemCode).then(() => {
             showToast(`✅ Código copiado: ${itemCode}`);
-          }).catch(err => {
+          }).catch(() => {
             showToast('❌ Error al copiar al portapapeles', 'error');
             
           });
@@ -566,7 +563,7 @@ export default function Productos() {
           const url = `https://listado.mercadolibre.com.ar/${itemCode}_OrderId_PRICE_NoIndex_True`;
           navigator.clipboard.writeText(url).then(() => {
             showToast(`✅ Enlace 1 copiado: ${itemCode}`);
-          }).catch(err => {
+          }).catch(() => {
             showToast('❌ Error al copiar al portapapeles', 'error');
             
           });
@@ -577,7 +574,7 @@ export default function Productos() {
           const url = `https://www.mercadolibre.com.ar/publicaciones/listado/promos?filters=official_store-57997&page=1&search=${itemCode}&sort=lowest_price`;
           navigator.clipboard.writeText(url).then(() => {
             showToast(`✅ Enlace 2 copiado: ${itemCode}`);
-          }).catch(err => {
+          }).catch(() => {
             showToast('❌ Error al copiar al portapapeles', 'error');
             
           });
@@ -712,7 +709,7 @@ export default function Productos() {
 
       const response = await productosAPI.marcas(params);
       setMarcas(response.data.marcas);
-    } catch (error) {
+    } catch {
       showToast('Error al cargar marcas', 'error');
     }
   };
@@ -757,8 +754,7 @@ export default function Productos() {
       ));
 
       setEditandoWebTransf(null);
-    } catch (error) {
-      
+    } catch {
       showToast('Error al guardar', 'error');
     }
   };
@@ -854,7 +850,7 @@ export default function Productos() {
       setTotalProductos(productosRes.data.total || productosRes.data.productos.length);
       setProductos(productosRes.data.productos);
 
-    } catch (error) {
+    } catch {
       showToast('Error al cargar productos', 'error');
     } finally {
       setLoading(false);
@@ -899,7 +895,7 @@ export default function Productos() {
 
       const response = await productosAPI.subcategorias(params);
       setSubcategorias(response.data.categorias);
-    } catch (error) {
+    } catch {
       showToast('Error al cargar subcategorías', 'error');
     }
   };
@@ -944,8 +940,7 @@ export default function Productos() {
       );
       setAuditoriaData(response.data);
       setAuditoriaVisible(true);
-    } catch (error) {
-      
+    } catch {
       showToast('Error al cargar el historial', 'error');
     }
   };
@@ -982,7 +977,7 @@ export default function Productos() {
       );
       
       return response.data;
-    } catch (error) {
+    } catch {
       // Si hay error al calcular markup, NO bloquear el guardado
       // pero mostrar un toast de advertencia
       showToast('No se pudo validar el markup. Revisa la consola.', 'error');
@@ -1019,9 +1014,7 @@ export default function Productos() {
       
       // Recargar stats para reflejar cambios en contadores
       cargarStats();
-    } catch (error) {
-      
-      
+    } catch {
       showToast('Error al cambiar el color', 'error');
     }
   };
@@ -1322,8 +1315,7 @@ export default function Productos() {
 
       limpiarSeleccion();
       cargarStats();
-    } catch (error) {
-      
+    } catch {
       showToast('Error al actualizar colores en lote', 'error');
     }
   };
@@ -1553,7 +1545,7 @@ export default function Productos() {
 
       setEditandoPrecio(null);
       cargarStats();
-    } catch (error) {
+    } catch {
       showToast('Error al guardar precio', 'error');
     }
   };
@@ -1591,8 +1583,7 @@ export default function Productos() {
       ));
 
       setEditandoRebate(null);
-    } catch (error) {
-      
+    } catch {
       showToast('Error al guardar rebate', 'error');
     }
   };
@@ -1611,7 +1602,7 @@ export default function Productos() {
     try {
       const response = await api.get('/auditoria/usuarios');
       setUsuarios(response.data.usuarios);
-    } catch (error) {
+    } catch {
       showToast('Error al cargar usuarios', 'error');
     }
   };
@@ -1620,7 +1611,7 @@ export default function Productos() {
     try {
       const response = await api.get('/auditoria/tipos-accion');
       setTiposAccion(response.data.tipos);
-    } catch (error) {
+    } catch {
       showToast('Error al cargar tipos de acción', 'error');
     }
   };
@@ -1629,7 +1620,7 @@ export default function Productos() {
     try {
       const response = await api.get('/usuarios/pms?solo_con_marcas=true');
       setPms(response.data);
-    } catch (error) {
+    } catch {
       showToast('Error al cargar PMs', 'error');
     }
   };
@@ -2116,9 +2107,8 @@ export default function Productos() {
       
       // Recargar stats para reflejar cambios en contadores
       cargarStats();
-    } catch (error) {
-      
-      
+    } catch {
+      // silenced
     }
   };
 
@@ -2195,7 +2185,7 @@ export default function Productos() {
         // Recargar stats para reflejar cambios en contadores
         cargarStats();
       }
-    } catch (error) {
+    } catch {
       showToast('Error al cambiar rebate', 'error');
     }
   };
@@ -2224,7 +2214,7 @@ export default function Productos() {
       
       // Recargar stats para reflejar cambios en contadores
       cargarStats();
-    } catch (error) {
+    } catch {
       showToast('Error al cambiar Web/Transferencia', 'error');
     }
   };
@@ -2308,7 +2298,7 @@ export default function Productos() {
 
       // Recargar stats para reflejar cambios en contadores
       cargarStats();
-    } catch (error) {
+    } catch {
       showToast('Error al cambiar Out of Cards', 'error');
     }
   };

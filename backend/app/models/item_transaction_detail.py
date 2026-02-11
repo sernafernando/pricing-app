@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, BigInteger, Text, DateTime
 from sqlalchemy.sql import func
 from app.core.database import Base
 
+
 class ItemTransactionDetail(Base):
     """
     Modelo para tbItemTransactionDetails del ERP
@@ -9,6 +10,7 @@ class ItemTransactionDetail(Base):
 
     IMPORTANTE: Los nombres de columnas están en minúsculas en PostgreSQL
     """
+
     __tablename__ = "tb_item_transaction_details"
 
     # IDs principales

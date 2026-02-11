@@ -1,6 +1,7 @@
 """
 Servicio para gestión de roles del sistema.
 """
+
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -30,13 +31,7 @@ class RolesService:
         """Obtiene un rol por código"""
         return self.db.query(Rol).filter(Rol.codigo == codigo).first()
 
-    def crear_rol(
-        self,
-        codigo: str,
-        nombre: str,
-        descripcion: Optional[str] = None,
-        orden: int = 0
-    ) -> Rol:
+    def crear_rol(self, codigo: str, nombre: str, descripcion: Optional[str] = None, orden: int = 0) -> Rol:
         """
         Crea un nuevo rol.
 
@@ -48,12 +43,7 @@ class RolesService:
             raise ValueError(f"Ya existe un rol con código '{codigo}'")
 
         rol = Rol(
-            codigo=codigo.upper(),
-            nombre=nombre,
-            descripcion=descripcion,
-            orden=orden,
-            es_sistema=False,
-            activo=True
+            codigo=codigo.upper(), nombre=nombre, descripcion=descripcion, orden=orden, es_sistema=False, activo=True
         )
         self.db.add(rol)
         self.db.commit()
@@ -66,7 +56,7 @@ class RolesService:
         nombre: Optional[str] = None,
         descripcion: Optional[str] = None,
         orden: Optional[int] = None,
-        activo: Optional[bool] = None
+        activo: Optional[bool] = None,
     ) -> Optional[Rol]:
         """
         Actualiza un rol existente.
@@ -107,18 +97,16 @@ class RolesService:
         # Verificar si hay usuarios con este rol
         usuarios_con_rol = self.db.query(Usuario).filter(Usuario.rol_id == rol_id).count()
         if usuarios_con_rol > 0:
-            raise ValueError(f"No se puede eliminar el rol '{rol.codigo}' porque tiene {usuarios_con_rol} usuarios asignados")
+            raise ValueError(
+                f"No se puede eliminar el rol '{rol.codigo}' porque tiene {usuarios_con_rol} usuarios asignados"
+            )
 
         self.db.delete(rol)
         self.db.commit()
         return True
 
     def clonar_rol(
-        self,
-        rol_origen_id: int,
-        nuevo_codigo: str,
-        nuevo_nombre: str,
-        descripcion: Optional[str] = None
+        self, rol_origen_id: int, nuevo_codigo: str, nuevo_nombre: str, descripcion: Optional[str] = None
     ) -> Rol:
         """
         Clona un rol existente con sus permisos.
@@ -132,19 +120,14 @@ class RolesService:
             codigo=nuevo_codigo,
             nombre=nuevo_nombre,
             descripcion=descripcion or f"Clonado de {rol_origen.nombre}",
-            orden=rol_origen.orden + 1
+            orden=rol_origen.orden + 1,
         )
 
         # Copiar permisos
-        permisos_origen = self.db.query(RolPermisoBase).filter(
-            RolPermisoBase.rol_id == rol_origen_id
-        ).all()
+        permisos_origen = self.db.query(RolPermisoBase).filter(RolPermisoBase.rol_id == rol_origen_id).all()
 
         for permiso_base in permisos_origen:
-            nuevo_permiso = RolPermisoBase(
-                rol_id=nuevo_rol.id,
-                permiso_id=permiso_base.permiso_id
-            )
+            nuevo_permiso = RolPermisoBase(rol_id=nuevo_rol.id, permiso_id=permiso_base.permiso_id)
             self.db.add(nuevo_permiso)
 
         self.db.commit()
@@ -156,29 +139,35 @@ class RolesService:
 
     def obtener_permisos_rol(self, rol_id: int) -> List[str]:
         """Obtiene los códigos de permisos de un rol"""
-        permisos = self.db.query(Permiso.codigo).join(
-            RolPermisoBase, RolPermisoBase.permiso_id == Permiso.id
-        ).filter(
-            RolPermisoBase.rol_id == rol_id
-        ).all()
+        permisos = (
+            self.db.query(Permiso.codigo)
+            .join(RolPermisoBase, RolPermisoBase.permiso_id == Permiso.id)
+            .filter(RolPermisoBase.rol_id == rol_id)
+            .all()
+        )
 
         return [p.codigo for p in permisos]
 
     def obtener_permisos_rol_detallados(self, rol_id: int) -> List[dict]:
         """Obtiene los permisos de un rol con detalles"""
-        permisos = self.db.query(Permiso).join(
-            RolPermisoBase, RolPermisoBase.permiso_id == Permiso.id
-        ).filter(
-            RolPermisoBase.rol_id == rol_id
-        ).order_by(Permiso.orden).all()
+        permisos = (
+            self.db.query(Permiso)
+            .join(RolPermisoBase, RolPermisoBase.permiso_id == Permiso.id)
+            .filter(RolPermisoBase.rol_id == rol_id)
+            .order_by(Permiso.orden)
+            .all()
+        )
 
-        return [{
-            'codigo': p.codigo,
-            'nombre': p.nombre,
-            'descripcion': p.descripcion,
-            'categoria': p.categoria,
-            'es_critico': p.es_critico
-        } for p in permisos]
+        return [
+            {
+                "codigo": p.codigo,
+                "nombre": p.nombre,
+                "descripcion": p.descripcion,
+                "categoria": p.categoria,
+                "es_critico": p.es_critico,
+            }
+            for p in permisos
+        ]
 
     def set_permisos_rol(self, rol_id: int, permisos_codigos: List[str]) -> int:
         """
@@ -221,9 +210,11 @@ class RolesService:
             raise ValueError(f"No existe el permiso '{permiso_codigo}'")
 
         # Verificar si ya existe
-        existente = self.db.query(RolPermisoBase).filter(
-            and_(RolPermisoBase.rol_id == rol_id, RolPermisoBase.permiso_id == permiso.id)
-        ).first()
+        existente = (
+            self.db.query(RolPermisoBase)
+            .filter(and_(RolPermisoBase.rol_id == rol_id, RolPermisoBase.permiso_id == permiso.id))
+            .first()
+        )
 
         if existente:
             return False
@@ -239,9 +230,11 @@ class RolesService:
         if not permiso:
             return False
 
-        resultado = self.db.query(RolPermisoBase).filter(
-            and_(RolPermisoBase.rol_id == rol_id, RolPermisoBase.permiso_id == permiso.id)
-        ).delete()
+        resultado = (
+            self.db.query(RolPermisoBase)
+            .filter(and_(RolPermisoBase.rol_id == rol_id, RolPermisoBase.permiso_id == permiso.id))
+            .delete()
+        )
 
         self.db.commit()
         return resultado > 0
@@ -267,12 +260,7 @@ class RolesService:
     def obtener_usuarios_rol(self, rol_id: int) -> List[dict]:
         """Obtiene los usuarios que tienen un rol específico"""
         usuarios = self.db.query(Usuario).filter(Usuario.rol_id == rol_id).all()
-        return [{
-            'id': u.id,
-            'email': u.email,
-            'nombre': u.nombre,
-            'activo': u.activo
-        } for u in usuarios]
+        return [{"id": u.id, "email": u.email, "nombre": u.nombre, "activo": u.activo} for u in usuarios]
 
     def contar_usuarios_rol(self, rol_id: int) -> int:
         """Cuenta cuántos usuarios tienen un rol específico"""

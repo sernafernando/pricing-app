@@ -7,25 +7,28 @@ from app.core.database import Base
 class TipoTicket(Base):
     """
     Define los diferentes tipos de tickets que puede haber en un sector.
-    
+
     Ejemplos Sector Pricing:
     - Solicitud Cambio de Precio
     - Activación de Rebate
     - Consulta de Pricing
-    
+
     Ejemplos Sector Soporte:
     - Bug
     - Feature Request
     - Consulta Técnica
-    
+
     Cada tipo puede tener campos custom específicos definidos en schema_campos.
     """
+
     __tablename__ = "tickets_tipos"
 
     id = Column(Integer, primary_key=True, index=True)
-    sector_id = Column(Integer, ForeignKey('tickets_sectores.id'), nullable=False)
-    workflow_id = Column(Integer, ForeignKey('tickets_workflows.id'), nullable=True)  # Si null, usa workflow default del sector
-    
+    sector_id = Column(Integer, ForeignKey("tickets_sectores.id"), nullable=False)
+    workflow_id = Column(
+        Integer, ForeignKey("tickets_workflows.id"), nullable=True
+    )  # Si null, usa workflow default del sector
+
     codigo = Column(String(50), nullable=False)  # cambio_precio, bug, consulta
     nombre = Column(String(100), nullable=False)  # "Solicitud Cambio de Precio"
     descripcion = Column(Text)

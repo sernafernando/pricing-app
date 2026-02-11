@@ -2,6 +2,13 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './TabRentabilidad.module.css';
 
+// Map apiBasePath to default channel selection
+const CHANNEL_DEFAULTS = {
+  '/rentabilidad':             { aplica_ml: true,  aplica_fuera: false, aplica_tienda_nube: false },
+  '/rentabilidad-fuera':       { aplica_ml: false, aplica_fuera: true,  aplica_tienda_nube: false },
+  '/rentabilidad-tienda-nube': { aplica_ml: false, aplica_fuera: false, aplica_tienda_nube: true  },
+};
+
 export default function ModalOffset({
   mostrar,
   onClose,
@@ -9,8 +16,9 @@ export default function ModalOffset({
   filtrosDisponibles,
   fechaDesde,
   fechaHasta,
-  apiBasePath = '/rentabilidad' // Para buscar productos
+  apiBasePath = '/rentabilidad'
 }) {
+  const channelDefaults = CHANNEL_DEFAULTS[apiBasePath] || CHANNEL_DEFAULTS['/rentabilidad'];
   const [offsets, setOffsets] = useState([]);
   const [grupos, setGrupos] = useState([]);
   const [tipoCambioHoy, setTipoCambioHoy] = useState(null);
@@ -53,14 +61,12 @@ export default function ModalOffset({
     tipo_cambio: '',
     porcentaje: '',
     descripcion: '',
-    fecha_desde: '',
-    fecha_hasta: '',
+    fecha_desde: fechaDesde || '',
+    fecha_hasta: fechaHasta || '',
     grupo_id: '',
     max_unidades: '',
     max_monto_usd: '',
-    aplica_ml: true,
-    aplica_fuera: true,
-    aplica_tienda_nube: true
+    ...channelDefaults
   });
 
   useEffect(() => {
@@ -68,8 +74,15 @@ export default function ModalOffset({
       cargarOffsets();
       cargarGrupos();
       cargarOpcionesFiltro();
+      // Sync parent dates and channel into form when modal opens
+      setNuevoOffset(prev => ({
+        ...prev,
+        fecha_desde: prev.fecha_desde || fechaDesde || '',
+        fecha_hasta: prev.fecha_hasta || fechaHasta || '',
+        ...channelDefaults
+      }));
     }
-  }, [mostrar]);
+  }, [mostrar]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cargarOpcionesFiltro = async () => {
     try {
@@ -192,7 +205,7 @@ export default function ModalOffset({
     if (busquedaFiltroProducto.length < 2) return;
     setBuscandoFiltroProducto(true);
     try {
-      const response = await api.get('/buscar-productos-erp', {
+      const response = await api.get(`${apiBasePath}/buscar-productos`, {
         params: { q: busquedaFiltroProducto }
       });
       setProductosFiltroEncontrados(response.data);
@@ -213,8 +226,7 @@ export default function ModalOffset({
     if (busquedaOffsetProducto.length < 2) return;
     setBuscandoProductosOffset(true);
     try {
-      // Usar endpoint genérico que busca en todos los productos del ERP
-      const response = await api.get('/buscar-productos-erp', {
+      const response = await api.get(`${apiBasePath}/buscar-productos`, {
         params: { q: busquedaOffsetProducto }
       });
       setProductosOffsetEncontrados(response.data);
@@ -246,14 +258,12 @@ export default function ModalOffset({
       tipo_cambio: tipoCambioHoy ? tipoCambioHoy.toString() : '',
       porcentaje: '',
       descripcion: '',
-      fecha_desde: '',
-      fecha_hasta: '',
+      fecha_desde: fechaDesde || '',
+      fecha_hasta: fechaHasta || '',
       grupo_id: '',
       max_unidades: '',
       max_monto_usd: '',
-      aplica_ml: true,
-      aplica_fuera: true,
-      aplica_tienda_nube: true
+      ...channelDefaults
     });
     setProductosOffsetSeleccionados([]);
     setProductosOffsetEncontrados([]);
@@ -264,16 +274,6 @@ export default function ModalOffset({
     setNuevoFiltro({ marca: '', categoria: '', subcategoria_id: '', item_id: '' });
     setBusquedaFiltroProducto('');
     setProductosFiltroEncontrados([]);
-  };
-
-  const formatMoney = (valor) => {
-    if (valor === null || valor === undefined) return '$0';
-    return new Intl.NumberFormat('es-AR', {
-      style: 'currency',
-      currency: 'ARS',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(valor);
   };
 
   const formatFecha = (fecha) => {

@@ -7,10 +7,9 @@ class SaleOrderHeader(Base):
     Modelo para tbSaleOrderHeader del ERP
     Cabecera de órdenes de venta
     """
+
     __tablename__ = "tb_sale_order_header"
-    __table_args__ = (
-        PrimaryKeyConstraint('comp_id', 'bra_id', 'soh_id'),
-    )
+    __table_args__ = (PrimaryKeyConstraint("comp_id", "bra_id", "soh_id"),)
 
     # Composite Primary Key
     comp_id = Column(Integer, nullable=False, index=True)
@@ -94,12 +93,12 @@ class SaleOrderHeader(Base):
     soh_isemailenvied = Column(Boolean)
     soh_deliverylabel = Column(String(255))
     ct_transaction_preinvoice = Column(BigInteger)
-    
+
     # Campos personalizados para gestión de envíos
     codigo_envio_interno = Column(String(100), index=True)  # Para QR en etiquetas
     export_id = Column(Integer, index=True)  # ID de export del ERP (ej: 80 para pedidos pendientes)
     export_activo = Column(Boolean, default=True)  # True = activo en el export, False = archivado
-    
+
     # Campos enriquecidos desde TiendaNube API
     tiendanube_number = Column(String(50), index=True)  # Número de orden TN (NRO-XXXXX)
     tiendanube_shipping_phone = Column(String(50))  # Teléfono del destinatario
@@ -108,7 +107,7 @@ class SaleOrderHeader(Base):
     tiendanube_shipping_province = Column(String(100))  # Provincia
     tiendanube_shipping_zipcode = Column(String(20))  # Código postal
     tiendanube_recipient_name = Column(String(200))  # Nombre del destinatario
-    
+
     # Campos de override manual de dirección de envío (prioridad para visualización)
     override_shipping_address = Column(Text)  # Dirección sobrescrita manualmente
     override_shipping_city = Column(String(255))  # Ciudad sobrescrita

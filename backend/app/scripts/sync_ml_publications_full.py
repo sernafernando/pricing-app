@@ -20,7 +20,8 @@ if __name__ == "__main__":
     if str(backend_path) not in sys.path:
         sys.path.insert(0, str(backend_path))
     from dotenv import load_dotenv
-    env_path = backend_path / '.env'
+
+    env_path = backend_path / ".env"
     load_dotenv(dotenv_path=env_path)
 
 import asyncio
@@ -50,7 +51,7 @@ async def refresh_access_token(http_client: httpx.AsyncClient):
         "grant_type": "refresh_token",
         "client_id": settings.ML_CLIENT_ID,
         "client_secret": settings.ML_CLIENT_SECRET,
-        "refresh_token": REFRESH_TOKEN
+        "refresh_token": REFRESH_TOKEN,
     }
 
     response = await http_client.post(url, data=data)
@@ -61,7 +62,7 @@ async def refresh_access_token(http_client: httpx.AsyncClient):
     if tokens.get("refresh_token"):
         REFRESH_TOKEN = tokens.get("refresh_token")
 
-    print(f"✓ Token refrescado exitosamente")
+    print("✓ Token refrescado exitosamente")
     return ACCESS_TOKEN
 
 
@@ -151,7 +152,7 @@ def crear_snapshot(mla_id, item, campaign, seller_sku, item_id):
         installments_campaign=campaign,
         seller_sku=seller_sku,
         item_id=item_id,
-        snapshot_date=datetime.now()
+        snapshot_date=datetime.now(),
     )
 
 
@@ -161,9 +162,12 @@ async def obtener_todos_mla_ids(db: Session) -> list:
     """
     print("Obteniendo TODOS los MLA IDs...")
 
-    mla_ids = db.query(MercadoLibreItemPublicado.mlp_publicationID).filter(
-        MercadoLibreItemPublicado.mlp_publicationID.isnot(None)
-    ).distinct().all()
+    mla_ids = (
+        db.query(MercadoLibreItemPublicado.mlp_publicationID)
+        .filter(MercadoLibreItemPublicado.mlp_publicationID.isnot(None))
+        .distinct()
+        .all()
+    )
 
     ids = [row[0] for row in mla_ids if row[0]]
     print(f"✓ Encontradas {len(ids)} publicaciones TOTALES para sincronizar")
@@ -178,12 +182,11 @@ def precargar_snapshots_hoy(db: Session, today) -> dict:
     """
     print("Precargando snapshots existentes del día...")
 
-    snapshots = db.query(
-        MLPublicationSnapshot.mla_id,
-        MLPublicationSnapshot.id
-    ).filter(
-        func.date(MLPublicationSnapshot.snapshot_date) == today
-    ).all()
+    snapshots = (
+        db.query(MLPublicationSnapshot.mla_id, MLPublicationSnapshot.id)
+        .filter(func.date(MLPublicationSnapshot.snapshot_date) == today)
+        .all()
+    )
 
     cache = {row[0]: row[1] for row in snapshots}
     print(f"✓ {len(cache)} snapshots existentes en cache")
@@ -191,8 +194,14 @@ def precargar_snapshots_hoy(db: Session, today) -> dict:
     return cache
 
 
-async def procesar_batch(ids_batch: list, db: Session, batch_num: int, total_batches: int,
-                         http_client: httpx.AsyncClient, snapshots_cache: dict):
+async def procesar_batch(
+    ids_batch: list,
+    db: Session,
+    batch_num: int,
+    total_batches: int,
+    http_client: httpx.AsyncClient,
+    snapshots_cache: dict,
+):
     """
     Procesa un batch de MLA IDs.
     Estrategia: commit por chunk de 20 → si falla, fallback a individual.
@@ -204,7 +213,7 @@ async def procesar_batch(ids_batch: list, db: Session, batch_num: int, total_bat
     errores_detalle = []
 
     for i in range(0, len(ids_batch), chunk_size):
-        chunk = ids_batch[i:i + chunk_size]
+        chunk = ids_batch[i : i + chunk_size]
         ids_str = ",".join(chunk)
 
         # Llamada a la API
@@ -351,8 +360,7 @@ async def sync_ml_publications_full(db: Session = None):
                 print(f"📦 Batch {batch_num + 1}/{total_batches} ({len(batch_ids)} publicaciones)...")
 
                 saved, updated, errors, errores_detalle = await procesar_batch(
-                    batch_ids, db, batch_num + 1, total_batches,
-                    http_client, snapshots_cache
+                    batch_ids, db, batch_num + 1, total_batches, http_client, snapshots_cache
                 )
 
                 total_saved += saved

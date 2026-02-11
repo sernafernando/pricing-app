@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.fix_optval_statusId
 """
+
 import sys
 import os
 
@@ -25,17 +26,18 @@ from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
 API_URL = "http://localhost:8002/api/gbp-parser"
 
+
 def convertir_a_entero(valor, default=None):
     """Convierte a entero, truncando decimales"""
     try:
-        if valor is None or valor == '' or valor == ' ':
+        if valor is None or valor == "" or valor == " ":
             return default
         if isinstance(valor, bool):
             return default
         if isinstance(valor, (int, float)):
             return int(float(valor))
-        valor_str = str(valor).strip().replace(',', '')
-        if valor_str == '':
+        valor_str = str(valor).strip().replace(",", "")
+        if valor_str == "":
             return default
         return int(float(valor_str))
     except:
@@ -48,9 +50,9 @@ async def fix_optval_statusId(db: Session):
     """
 
     # Contar cuántos registros tienen optval_statusId = None
-    registros_null = db.query(MercadoLibreItemPublicado).filter(
-        MercadoLibreItemPublicado.optval_statusId.is_(None)
-    ).count()
+    registros_null = (
+        db.query(MercadoLibreItemPublicado).filter(MercadoLibreItemPublicado.optval_statusId.is_(None)).count()
+    )
 
     print(f"📊 Registros con optval_statusId = None: {registros_null}")
 
@@ -58,7 +60,7 @@ async def fix_optval_statusId(db: Session):
         print("✅ No hay registros para actualizar")
         return 0
 
-    print(f"🔄 Actualizando registros...\n")
+    print("🔄 Actualizando registros...\n")
 
     actualizados = 0
     errores = 0
@@ -66,16 +68,12 @@ async def fix_optval_statusId(db: Session):
     try:
         # Traer todos los items de los últimos 90 días del ERP
         hoy = datetime.now()
-        desde = (hoy - timedelta(days=90)).strftime('%Y-%m-%d')
-        hasta = hoy.strftime('%Y-%m-%d')
+        desde = (hoy - timedelta(days=90)).strftime("%Y-%m-%d")
+        hasta = hoy.strftime("%Y-%m-%d")
 
-        params = {
-            "strScriptLabel": "scriptMLItemsPublicados",
-            "fromDate": desde,
-            "toDate": hasta
-        }
+        params = {"strScriptLabel": "scriptMLItemsPublicados", "fromDate": desde, "toDate": hasta}
 
-        print(f"📡 Consultando API del ERP (últimos 90 días)...")
+        print("📡 Consultando API del ERP (últimos 90 días)...")
 
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.get(API_URL, params=params)
@@ -87,17 +85,17 @@ async def fix_optval_statusId(db: Session):
         # Crear diccionario mlp_id -> optval_statusId
         status_map = {}
         for item in items_erp:
-            mlp_id = convertir_a_entero(item.get('mlp_id'))
-            optval_statusId = convertir_a_entero(item.get('optval_statusId'))
+            mlp_id = convertir_a_entero(item.get("mlp_id"))
+            optval_statusId = convertir_a_entero(item.get("optval_statusId"))
             if mlp_id and optval_statusId:
                 status_map[mlp_id] = optval_statusId
 
         print(f"   Mapeados {len(status_map)} items con status\n")
 
         # Actualizar registros en BD
-        registros_a_actualizar = db.query(MercadoLibreItemPublicado).filter(
-            MercadoLibreItemPublicado.optval_statusId.is_(None)
-        ).all()
+        registros_a_actualizar = (
+            db.query(MercadoLibreItemPublicado).filter(MercadoLibreItemPublicado.optval_statusId.is_(None)).all()
+        )
 
         print(f"🔧 Actualizando {len(registros_a_actualizar)} registros...")
 
@@ -122,15 +120,15 @@ async def fix_optval_statusId(db: Session):
         db.commit()
 
         # Verificar cuántos quedan con None
-        registros_null_final = db.query(MercadoLibreItemPublicado).filter(
-            MercadoLibreItemPublicado.optval_statusId.is_(None)
-        ).count()
+        registros_null_final = (
+            db.query(MercadoLibreItemPublicado).filter(MercadoLibreItemPublicado.optval_statusId.is_(None)).count()
+        )
 
-        print(f"\n✅ Actualización completada!")
+        print("\n✅ Actualización completada!")
         print(f"   Actualizados: {actualizados}")
         print(f"   Errores: {errores}")
         print(f"   Registros con None restantes: {registros_null_final}")
-        print(f"   (Los registros con None restantes son items antiguos no disponibles en los últimos 90 días)")
+        print("   (Los registros con None restantes son items antiguos no disponibles en los últimos 90 días)")
 
         return actualizados
 

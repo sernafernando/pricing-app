@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_ml_items_publicados_2025
 """
+
 import sys
 import os
 
@@ -19,16 +20,18 @@ import httpx
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
+
 # Importar todos los modelos para evitar problemas de dependencias circulares
 import app.models  # noqa
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
 API_URL = "http://localhost:8002/api/gbp-parser"
 
+
 def convertir_a_numero(valor, default=None):
     """Convierte string a número, maneja decimales y nulos"""
     try:
-        if valor is None or valor == '' or valor == ' ':
+        if valor is None or valor == "" or valor == " ":
             return default
         if isinstance(valor, bool):
             # Si es boolean, convertir a 0 o devolver default
@@ -36,12 +39,13 @@ def convertir_a_numero(valor, default=None):
         if isinstance(valor, (int, float)):
             return valor
         # Limpiar y convertir
-        valor_str = str(valor).strip().replace(',', '')
-        if valor_str == '':
+        valor_str = str(valor).strip().replace(",", "")
+        if valor_str == "":
             return default
         return float(valor_str)
     except:
         return default
+
 
 def convertir_a_entero(valor, default=None):
     """Convierte a entero, truncando decimales"""
@@ -53,21 +57,23 @@ def convertir_a_entero(valor, default=None):
     except:
         return default
 
+
 def convertir_a_boolean(valor):
     """Convierte varios formatos a boolean"""
     if isinstance(valor, bool):
         return valor
-    if valor is None or valor == '':
+    if valor is None or valor == "":
         return False
     if isinstance(valor, str):
-        return valor.lower() in ('true', '1', 't', 'yes', 'y')
+        return valor.lower() in ("true", "1", "t", "yes", "y")
     if isinstance(valor, (int, float)):
         return valor != 0
     return bool(valor)
 
+
 def convertir_fecha(valor):
     """Convierte string a datetime"""
-    if not valor or valor == '' or valor == ' ':
+    if not valor or valor == "" or valor == " ":
         return None
     try:
         if isinstance(valor, datetime):
@@ -77,9 +83,10 @@ def convertir_fecha(valor):
     except:
         try:
             # Intentar otros formatos
-            return datetime.fromisoformat(valor.replace('Z', '+00:00'))
+            return datetime.fromisoformat(valor.replace("Z", "+00:00"))
         except:
             return None
+
 
 async def sync_items_publicados_mes(db: Session, from_date: str, to_date: str):
     """
@@ -87,11 +94,7 @@ async def sync_items_publicados_mes(db: Session, from_date: str, to_date: str):
     """
     print(f"\n📅 Sincronizando items publicados desde {from_date} hasta {to_date}...")
 
-    params = {
-        "strScriptLabel": "scriptMLItemsPublicados",
-        "fromDate": from_date,
-        "toDate": to_date
-    }
+    params = {"strScriptLabel": "scriptMLItemsPublicados", "fromDate": from_date, "toDate": to_date}
 
     try:
         async with httpx.AsyncClient(timeout=180.0) as client:
@@ -111,134 +114,129 @@ async def sync_items_publicados_mes(db: Session, from_date: str, to_date: str):
 
         for i, item_data in enumerate(data, 1):
             try:
-                mlp_id = convertir_a_entero(item_data.get('mlp_id'))
+                mlp_id = convertir_a_entero(item_data.get("mlp_id"))
                 if not mlp_id:
                     continue
 
                 # Buscar si existe
-                item_existente = db.query(MercadoLibreItemPublicado).filter(
-                    MercadoLibreItemPublicado.mlp_id == mlp_id
-                ).first()
+                item_existente = (
+                    db.query(MercadoLibreItemPublicado).filter(MercadoLibreItemPublicado.mlp_id == mlp_id).first()
+                )
 
                 # Preparar datos
                 item_dict = {
-                    'mlp_id': mlp_id,
-                    'comp_id': convertir_a_entero(item_data.get('comp_id')),
-                    'bra_id': convertir_a_entero(item_data.get('bra_id')),
-                    'stor_id': convertir_a_entero(item_data.get('stor_id')),
-                    'prli_id': convertir_a_entero(item_data.get('prli_id')),
-                    'item_id': convertir_a_entero(item_data.get('item_id')),
-                    'user_id': convertir_a_entero(item_data.get('user_id')),
-                    'mls_id': convertir_a_entero(item_data.get('mls_id')),
-                    'mlipc_id': convertir_a_entero(item_data.get('mlipc_id')),
-                    'st_id': convertir_a_entero(item_data.get('st_id')),
-                    'disc_id': convertir_a_entero(item_data.get('disc_id')),
-                    'dl_id': convertir_a_entero(item_data.get('dl_id')),
-                    'mlmp_id': convertir_a_entero(item_data.get('mlmp_id')),
-
+                    "mlp_id": mlp_id,
+                    "comp_id": convertir_a_entero(item_data.get("comp_id")),
+                    "bra_id": convertir_a_entero(item_data.get("bra_id")),
+                    "stor_id": convertir_a_entero(item_data.get("stor_id")),
+                    "prli_id": convertir_a_entero(item_data.get("prli_id")),
+                    "item_id": convertir_a_entero(item_data.get("item_id")),
+                    "user_id": convertir_a_entero(item_data.get("user_id")),
+                    "mls_id": convertir_a_entero(item_data.get("mls_id")),
+                    "mlipc_id": convertir_a_entero(item_data.get("mlipc_id")),
+                    "st_id": convertir_a_entero(item_data.get("st_id")),
+                    "disc_id": convertir_a_entero(item_data.get("disc_id")),
+                    "dl_id": convertir_a_entero(item_data.get("dl_id")),
+                    "mlmp_id": convertir_a_entero(item_data.get("mlmp_id")),
                     # Datos de publicación
-                    'mlp_publicationID': item_data.get('mlp_publicationID'),
-                    'mlp_itemTitle': item_data.get('mlp_itemTitle'),
-                    'mlp_itemSubTitle': item_data.get('mlp_itemSubTitle'),
-                    'mlp_subTitle': item_data.get('mlp_subTitle'),
-                    'mlp_itemDesc': item_data.get('mlp_itemDesc'),
-                    'mlp_itemHTML': item_data.get('mlp_itemHTML'),
-                    'mlp_itemHTML2': item_data.get('mlp_itemHTML2'),
-                    'mlp_itemHTML3': item_data.get('mlp_itemHTML3'),
-                    'mlp_family_name': item_data.get('mlp_family_name'),
-                    'mlp_userProductID': item_data.get('mlp_userProductID'),
-
+                    "mlp_publicationID": item_data.get("mlp_publicationID"),
+                    "mlp_itemTitle": item_data.get("mlp_itemTitle"),
+                    "mlp_itemSubTitle": item_data.get("mlp_itemSubTitle"),
+                    "mlp_subTitle": item_data.get("mlp_subTitle"),
+                    "mlp_itemDesc": item_data.get("mlp_itemDesc"),
+                    "mlp_itemHTML": item_data.get("mlp_itemHTML"),
+                    "mlp_itemHTML2": item_data.get("mlp_itemHTML2"),
+                    "mlp_itemHTML3": item_data.get("mlp_itemHTML3"),
+                    "mlp_family_name": item_data.get("mlp_family_name"),
+                    "mlp_userProductID": item_data.get("mlp_userProductID"),
                     # Precios
-                    'mlp_price': convertir_a_numero(item_data.get('mlp_price')),
-                    'curr_id': convertir_a_entero(item_data.get('curr_id')),
-                    'mlp_lastPublicatedPrice': convertir_a_numero(item_data.get('mlp_lastPublicatedPrice')),
-                    'mlp_lastPublicatedCurrID': convertir_a_entero(item_data.get('mlp_lastPublicatedCurrID')),
-                    'mlp_lastPublicatedExchange': convertir_a_numero(item_data.get('mlp_lastPublicatedExchange')),
-                    'mlp_price4FreeShipping': convertir_a_numero(item_data.get('mlp_price4FreeShipping')),
-                    'mlp_price4AdditionalCost': convertir_a_numero(item_data.get('mlp_price4AdditionalCost')),
-                    'mlp_lastPriceInformedByML': convertir_a_numero(item_data.get('mlp_lastPriceInformedByML')),
-                    'mlp_Price2WinLastPrice': convertir_a_numero(item_data.get('mlp_Price2WinLastPrice')),
-
+                    "mlp_price": convertir_a_numero(item_data.get("mlp_price")),
+                    "curr_id": convertir_a_entero(item_data.get("curr_id")),
+                    "mlp_lastPublicatedPrice": convertir_a_numero(item_data.get("mlp_lastPublicatedPrice")),
+                    "mlp_lastPublicatedCurrID": convertir_a_entero(item_data.get("mlp_lastPublicatedCurrID")),
+                    "mlp_lastPublicatedExchange": convertir_a_numero(item_data.get("mlp_lastPublicatedExchange")),
+                    "mlp_price4FreeShipping": convertir_a_numero(item_data.get("mlp_price4FreeShipping")),
+                    "mlp_price4AdditionalCost": convertir_a_numero(item_data.get("mlp_price4AdditionalCost")),
+                    "mlp_lastPriceInformedByML": convertir_a_numero(item_data.get("mlp_lastPriceInformedByML")),
+                    "mlp_Price2WinLastPrice": convertir_a_numero(item_data.get("mlp_Price2WinLastPrice")),
                     # Cantidades
-                    'mlp_initQty': convertir_a_entero(item_data.get('mlp_initQty')),
-                    'mlp_minQty4Pause': convertir_a_entero(item_data.get('mlp_minQty4Pause')),
-                    'mlp_sold_quantity': convertir_a_entero(item_data.get('mlp_sold_quantity')),
-                    'mlp_lastPublicatedAvailableQTY': convertir_a_entero(item_data.get('mlp_lastPublicatedAvailableQTY')),
-
+                    "mlp_initQty": convertir_a_entero(item_data.get("mlp_initQty")),
+                    "mlp_minQty4Pause": convertir_a_entero(item_data.get("mlp_minQty4Pause")),
+                    "mlp_sold_quantity": convertir_a_entero(item_data.get("mlp_sold_quantity")),
+                    "mlp_lastPublicatedAvailableQTY": convertir_a_entero(
+                        item_data.get("mlp_lastPublicatedAvailableQTY")
+                    ),
                     # Estados
-                    'optval_statusId': convertir_a_entero(item_data.get('optval_statusId')),
-                    'mlp_Active': convertir_a_boolean(item_data.get('mlp_Active')),
-                    'mlp_4Revision': convertir_a_boolean(item_data.get('mlp_4Revision')),
-                    'mlp_revisionMessage': item_data.get('mlp_revisionMessage'),
-                    'mlp_lastStatusID': convertir_a_entero(item_data.get('mlp_lastStatusID')),
-                    'mlp_variationError': item_data.get('mlp_variationError'),
-                    'health': convertir_a_numero(item_data.get('health')),
-
+                    "optval_statusId": convertir_a_entero(item_data.get("optval_statusId")),
+                    "mlp_Active": convertir_a_boolean(item_data.get("mlp_Active")),
+                    "mlp_4Revision": convertir_a_boolean(item_data.get("mlp_4Revision")),
+                    "mlp_revisionMessage": item_data.get("mlp_revisionMessage"),
+                    "mlp_lastStatusID": convertir_a_entero(item_data.get("mlp_lastStatusID")),
+                    "mlp_variationError": item_data.get("mlp_variationError"),
+                    "health": convertir_a_numero(item_data.get("health")),
                     # Tipo de publicación
-                    'mlp_listing_type_id': item_data.get('mlp_listing_type_id'),
-                    'mlp_buying_mode': item_data.get('mlp_buying_mode'),
-                    'mlp_isFixedPrice': convertir_a_boolean(item_data.get('mlp_isFixedPrice')),
-
+                    "mlp_listing_type_id": item_data.get("mlp_listing_type_id"),
+                    "mlp_buying_mode": item_data.get("mlp_buying_mode"),
+                    "mlp_isFixedPrice": convertir_a_boolean(item_data.get("mlp_isFixedPrice")),
                     # Comisiones
-                    'mlp_listing_fee_amount': convertir_a_numero(item_data.get('mlp_listing_fee_amount')),
-                    'mlp_sale_fee_amount': convertir_a_numero(item_data.get('mlp_sale_fee_amount')),
-
+                    "mlp_listing_fee_amount": convertir_a_numero(item_data.get("mlp_listing_fee_amount")),
+                    "mlp_sale_fee_amount": convertir_a_numero(item_data.get("mlp_sale_fee_amount")),
                     # URLs
-                    'mlp_permalink': item_data.get('mlp_permalink'),
-                    'mlp_thumbnail': item_data.get('mlp_thumbnail'),
-                    'mlp_video_id': item_data.get('mlp_video_id'),
-
+                    "mlp_permalink": item_data.get("mlp_permalink"),
+                    "mlp_thumbnail": item_data.get("mlp_thumbnail"),
+                    "mlp_video_id": item_data.get("mlp_video_id"),
                     # Fechas
-                    'mlp_inicDate': convertir_fecha(item_data.get('mlp_inicDate')),
-                    'mlp_endDate': convertir_fecha(item_data.get('mlp_endDate')),
-                    'mlp_lastUpdate': convertir_fecha(item_data.get('mlp_lastUpdate')),
-                    'mlp_start_time': convertir_fecha(item_data.get('mlp_start_time')),
-                    'mlp_stop_time': convertir_fecha(item_data.get('mlp_stop_time')),
-                    'mlp_creationDate': convertir_fecha(item_data.get('mlp_creationDate')),
-                    'dateof_lastUpdate': convertir_fecha(item_data.get('dateof_lastUpdate')),
-                    'dateof_lastUpdateFromMeLi': convertir_fecha(item_data.get('dateof_lastUpdateFromMeLi')),
-                    'mlp_lastUpdateFromERP': convertir_fecha(item_data.get('mlp_lastUpdateFromERP')),
-                    'userid_lastUpdate': convertir_a_entero(item_data.get('userid_lastUpdate')),
-
+                    "mlp_inicDate": convertir_fecha(item_data.get("mlp_inicDate")),
+                    "mlp_endDate": convertir_fecha(item_data.get("mlp_endDate")),
+                    "mlp_lastUpdate": convertir_fecha(item_data.get("mlp_lastUpdate")),
+                    "mlp_start_time": convertir_fecha(item_data.get("mlp_start_time")),
+                    "mlp_stop_time": convertir_fecha(item_data.get("mlp_stop_time")),
+                    "mlp_creationDate": convertir_fecha(item_data.get("mlp_creationDate")),
+                    "dateof_lastUpdate": convertir_fecha(item_data.get("dateof_lastUpdate")),
+                    "dateof_lastUpdateFromMeLi": convertir_fecha(item_data.get("dateof_lastUpdateFromMeLi")),
+                    "mlp_lastUpdateFromERP": convertir_fecha(item_data.get("mlp_lastUpdateFromERP")),
+                    "userid_lastUpdate": convertir_a_entero(item_data.get("userid_lastUpdate")),
                     # Envíos
-                    'mlp_accepts_mercadopago': convertir_a_boolean(item_data.get('mlp_accepts_mercadopago')),
-                    'mlp_local_pick_up': convertir_a_boolean(item_data.get('mlp_local_pick_up')),
-                    'mlp_free_shipping': convertir_a_boolean(item_data.get('mlp_free_shipping')),
-                    'mlp_free_method': item_data.get('mlp_free_method'),
-                    'mlp_free_shippingMShops': convertir_a_boolean(item_data.get('mlp_free_shippingMShops')),
-                    'mlp_free_shippingMShops_Coeficient': convertir_a_numero(item_data.get('mlp_free_shippingMShops_Coeficient')),
-
+                    "mlp_accepts_mercadopago": convertir_a_boolean(item_data.get("mlp_accepts_mercadopago")),
+                    "mlp_local_pick_up": convertir_a_boolean(item_data.get("mlp_local_pick_up")),
+                    "mlp_free_shipping": convertir_a_boolean(item_data.get("mlp_free_shipping")),
+                    "mlp_free_method": item_data.get("mlp_free_method"),
+                    "mlp_free_shippingMShops": convertir_a_boolean(item_data.get("mlp_free_shippingMShops")),
+                    "mlp_free_shippingMShops_Coeficient": convertir_a_numero(
+                        item_data.get("mlp_free_shippingMShops_Coeficient")
+                    ),
                     # Categoría
-                    'mlp_publicationCategoryID': item_data.get('mlp_publicationCategoryID'),
-
+                    "mlp_publicationCategoryID": item_data.get("mlp_publicationCategoryID"),
                     # Garantía
-                    'mlp_warranty': item_data.get('mlp_warranty'),
-                    'mlp_warranty_type': item_data.get('mlp_warranty_type'),
-                    'mlp_warranty_time': item_data.get('mlp_warranty_time'),
-                    'mlp_warranty_time_value': convertir_a_entero(item_data.get('mlp_warranty_time_value')),
-
+                    "mlp_warranty": item_data.get("mlp_warranty"),
+                    "mlp_warranty_type": item_data.get("mlp_warranty_type"),
+                    "mlp_warranty_time": item_data.get("mlp_warranty_time"),
+                    "mlp_warranty_time_value": convertir_a_entero(item_data.get("mlp_warranty_time_value")),
                     # Catálogo
-                    'mlp_catalog_product_id': item_data.get('mlp_catalog_product_id'),
-                    'mlp_catalog_listing': convertir_a_boolean(item_data.get('mlp_catalog_listing')),
-                    'mlp_catalog_isAvailable': convertir_a_boolean(item_data.get('mlp_catalog_isAvailable')),
-                    'mlp_catalog_boost': convertir_a_numero(item_data.get('mlp_catalog_boost')),
-
+                    "mlp_catalog_product_id": item_data.get("mlp_catalog_product_id"),
+                    "mlp_catalog_listing": convertir_a_boolean(item_data.get("mlp_catalog_listing")),
+                    "mlp_catalog_isAvailable": convertir_a_boolean(item_data.get("mlp_catalog_isAvailable")),
+                    "mlp_catalog_boost": convertir_a_numero(item_data.get("mlp_catalog_boost")),
                     # Ahora programas
-                    'mlp_ahora3': convertir_a_boolean(item_data.get('mlp_ahora3')),
-                    'mlp_ahora6': convertir_a_boolean(item_data.get('mlp_ahora6')),
-                    'mlp_ahora12': convertir_a_boolean(item_data.get('mlp_ahora12')),
-                    'mlp_ahora18': convertir_a_boolean(item_data.get('mlp_ahora18')),
-                    'mlp_ahora24': convertir_a_boolean(item_data.get('mlp_ahora24')),
-                    'mlp_ahora30': convertir_a_boolean(item_data.get('mlp_ahora30')),
-
+                    "mlp_ahora3": convertir_a_boolean(item_data.get("mlp_ahora3")),
+                    "mlp_ahora6": convertir_a_boolean(item_data.get("mlp_ahora6")),
+                    "mlp_ahora12": convertir_a_boolean(item_data.get("mlp_ahora12")),
+                    "mlp_ahora18": convertir_a_boolean(item_data.get("mlp_ahora18")),
+                    "mlp_ahora24": convertir_a_boolean(item_data.get("mlp_ahora24")),
+                    "mlp_ahora30": convertir_a_boolean(item_data.get("mlp_ahora30")),
                     # Fulfillment
-                    'mlp_is4FulFillment': convertir_a_boolean(item_data.get('mlp_is4FulFillment')),
-                    'mlp_is4FullAndFlex': convertir_a_boolean(item_data.get('mlp_is4FullAndFlex')),
-
+                    "mlp_is4FulFillment": convertir_a_boolean(item_data.get("mlp_is4FulFillment")),
+                    "mlp_is4FullAndFlex": convertir_a_boolean(item_data.get("mlp_is4FullAndFlex")),
                     # Estadísticas
-                    'mlp_statistics_MinPrice4Category': convertir_a_numero(item_data.get('mlp_statistics_MinPrice4Category')),
-                    'mlp_statistics_MaxPrice4Category': convertir_a_numero(item_data.get('mlp_statistics_MaxPrice4Category')),
-                    'mlp_statistics_AvgPrice4Category': convertir_a_numero(item_data.get('mlp_statistics_AvgPrice4Category')),
+                    "mlp_statistics_MinPrice4Category": convertir_a_numero(
+                        item_data.get("mlp_statistics_MinPrice4Category")
+                    ),
+                    "mlp_statistics_MaxPrice4Category": convertir_a_numero(
+                        item_data.get("mlp_statistics_MaxPrice4Category")
+                    ),
+                    "mlp_statistics_AvgPrice4Category": convertir_a_numero(
+                        item_data.get("mlp_statistics_AvgPrice4Category")
+                    ),
                 }
 
                 if not item_existente:
@@ -249,7 +247,7 @@ async def sync_items_publicados_mes(db: Session, from_date: str, to_date: str):
                 else:
                     # Actualizar existente
                     for key, value in item_dict.items():
-                        if key != 'mlp_id':  # No actualizar la PK
+                        if key != "mlp_id":  # No actualizar la PK
                             setattr(item_existente, key, value)
                     actualizados += 1
 
@@ -275,7 +273,9 @@ async def sync_items_publicados_mes(db: Session, from_date: str, to_date: str):
             print(f"   ❌ Error en commit final: {str(e)}")
             db.rollback()
 
-        print(f"   ✅ Periodo completado - Insertados: {insertados} | Actualizados: {actualizados} | Errores: {errores}")
+        print(
+            f"   ✅ Periodo completado - Insertados: {insertados} | Actualizados: {actualizados} | Errores: {errores}"
+        )
 
         return insertados, actualizados
 
@@ -307,8 +307,8 @@ def generar_meses_historicos():
             else:
                 ultimo_dia = datetime(año, mes + 1, 1) - timedelta(days=1)
 
-            from_date = primer_dia.strftime('%Y-%m-%d')
-            to_date = ultimo_dia.strftime('%Y-%m-%d')
+            from_date = primer_dia.strftime("%Y-%m-%d")
+            to_date = ultimo_dia.strftime("%Y-%m-%d")
 
             meses.append((from_date, to_date))
 
@@ -319,10 +319,10 @@ async def main():
     """
     Sincroniza todos los items publicados de ML históricos desde 2020
     """
-    print("="*60)
+    print("=" * 60)
     print("📦 Sincronización HISTÓRICA de Items Publicados ML")
     print("📅 Desde 2020 hasta hoy")
-    print("="*60)
+    print("=" * 60)
 
     db = SessionLocal()
 
@@ -351,18 +351,20 @@ async def main():
             if i % 12 == 0:
                 duracion = (datetime.now() - timestamp_inicio).total_seconds()
                 progreso = (i / len(meses)) * 100
-                print(f"\n📊 PROGRESO: {progreso:.1f}% | Duración: {duracion:.0f}s | Insertados: {total_insertados} | Actualizados: {total_actualizados}")
+                print(
+                    f"\n📊 PROGRESO: {progreso:.1f}% | Duración: {duracion:.0f}s | Insertados: {total_insertados} | Actualizados: {total_actualizados}"
+                )
 
         timestamp_fin = datetime.now()
         duracion_total = (timestamp_fin - timestamp_inicio).total_seconds()
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("✨ RESUMEN FINAL")
-        print("="*60)
+        print("=" * 60)
         print(f"Total insertados: {total_insertados}")
         print(f"Total actualizados: {total_actualizados}")
-        print(f"Duración total: {duracion_total:.0f} segundos ({duracion_total/60:.1f} minutos)")
-        print("="*60)
+        print(f"Duración total: {duracion_total:.0f} segundos ({duracion_total / 60:.1f} minutos)")
+        print("=" * 60)
 
     finally:
         db.close()

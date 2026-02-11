@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Any
 
 class EstadoTicketBase(BaseModel):
     """Schema base para EstadoTicket"""
+
     codigo: str = Field(..., min_length=2, max_length=50)
     nombre: str = Field(..., min_length=2, max_length=100)
     descripcion: Optional[str] = None
@@ -16,11 +17,13 @@ class EstadoTicketBase(BaseModel):
 
 class EstadoTicketCreate(EstadoTicketBase):
     """Schema para crear un EstadoTicket"""
+
     workflow_id: int
 
 
 class EstadoTicketUpdate(BaseModel):
     """Schema para actualizar un EstadoTicket"""
+
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
     orden: Optional[int] = None
@@ -32,14 +35,16 @@ class EstadoTicketUpdate(BaseModel):
 
 class EstadoTicketResponse(EstadoTicketBase):
     """Schema de respuesta para EstadoTicket"""
+
     id: int
     workflow_id: int
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class TransicionEstadoBase(BaseModel):
     """Schema base para TransicionEstado"""
+
     nombre: Optional[str] = Field(default=None, max_length=100)
     descripcion: Optional[str] = None
     requiere_permiso: Optional[str] = Field(default=None, description="Código de permiso requerido")
@@ -51,6 +56,7 @@ class TransicionEstadoBase(BaseModel):
 
 class TransicionEstadoCreate(TransicionEstadoBase):
     """Schema para crear una TransicionEstado"""
+
     workflow_id: int
     estado_origen_id: int
     estado_destino_id: int
@@ -58,6 +64,7 @@ class TransicionEstadoCreate(TransicionEstadoBase):
 
 class TransicionEstadoUpdate(BaseModel):
     """Schema para actualizar una TransicionEstado"""
+
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
     requiere_permiso: Optional[str] = None
@@ -69,18 +76,20 @@ class TransicionEstadoUpdate(BaseModel):
 
 class TransicionEstadoResponse(TransicionEstadoBase):
     """Schema de respuesta para TransicionEstado"""
+
     id: int
     workflow_id: int
     estado_origen_id: int
     estado_destino_id: int
     estado_origen: Optional[EstadoTicketResponse] = None
     estado_destino: Optional[EstadoTicketResponse] = None
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class WorkflowBase(BaseModel):
     """Schema base para Workflow"""
+
     nombre: str = Field(..., min_length=3, max_length=100)
     descripcion: Optional[str] = None
     es_default: bool = Field(default=False, description="Workflow por defecto para el sector")
@@ -89,11 +98,13 @@ class WorkflowBase(BaseModel):
 
 class WorkflowCreate(WorkflowBase):
     """Schema para crear un Workflow"""
+
     sector_id: int
 
 
 class WorkflowUpdate(BaseModel):
     """Schema para actualizar un Workflow"""
+
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
     es_default: Optional[bool] = None
@@ -102,9 +113,10 @@ class WorkflowUpdate(BaseModel):
 
 class WorkflowResponse(WorkflowBase):
     """Schema de respuesta para Workflow"""
+
     id: int
     sector_id: int
     estados: List[EstadoTicketResponse] = Field(default_factory=list)
     transiciones: List[TransicionEstadoResponse] = Field(default_factory=list)
-    
+
     model_config = ConfigDict(from_attributes=True)

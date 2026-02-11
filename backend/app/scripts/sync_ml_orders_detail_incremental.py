@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_ml_orders_detail_incremental
 """
+
 import sys
 import os
 
@@ -20,9 +21,11 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import SessionLocal
+
 # Importar todos los modelos para evitar problemas de dependencias circulares
 import app.models  # noqa
 from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
+
 
 async def sync_ml_orders_detail_incremental(db: Session):
     """
@@ -39,15 +42,12 @@ async def sync_ml_orders_detail_incremental(db: Session):
         return 0, 0, 0
 
     print(f"📊 Último mlod_id en BD: {ultimo_mlod}")
-    print(f"🔄 Buscando detalles nuevos...\n")
+    print("🔄 Buscando detalles nuevos...\n")
 
     try:
         # Llamar al endpoint externo usando mlodId
         url = "http://localhost:8002/api/gbp-parser"
-        params = {
-            "strScriptLabel": "scriptMLOrdersDetail",
-            "mlodId": ultimo_mlod
-        }
+        params = {"strScriptLabel": "scriptMLOrdersDetail", "mlodId": ultimo_mlod}
 
         print(f"📅 Consultando API desde mlod_id > {ultimo_mlod}...")
 
@@ -57,20 +57,22 @@ async def sync_ml_orders_detail_incremental(db: Session):
             details_data = response.json()
 
         if not isinstance(details_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(details_data) == 1 and "Column1" in details_data[0]:
-            print(f"   ⚠️  No hay datos disponibles")
+            print("   ⚠️  No hay datos disponibles")
             return 0, 0, 0
 
         if not details_data or len(details_data) == 0:
-            print(f"✅ No hay detalles nuevos. Base de datos actualizada.")
+            print("✅ No hay detalles nuevos. Base de datos actualizada.")
             return 0, 0, 0
 
         print(f"   Encontrados {len(details_data)} detalles nuevos")
-        print(f"   Rango: {min(d.get('mlod_id') for d in details_data)} - {max(d.get('mlod_id') for d in details_data)}\n")
+        print(
+            f"   Rango: {min(d.get('mlod_id') for d in details_data)} - {max(d.get('mlod_id') for d in details_data)}\n"
+        )
 
         # Insertar detalles nuevos
         details_insertados = 0
@@ -100,12 +102,12 @@ async def sync_ml_orders_detail_incremental(db: Session):
             if isinstance(value, (int, float)):
                 return bool(value)
             if isinstance(value, str):
-                return value.lower() in ('true', '1', 'yes', 't')
+                return value.lower() in ("true", "1", "yes", "t")
             return False
 
         def to_decimal(value):
             """Convierte a decimal, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return float(value)
@@ -114,7 +116,7 @@ async def sync_ml_orders_detail_incremental(db: Session):
 
         def to_int(value):
             """Convierte a entero, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return int(value)
@@ -123,7 +125,7 @@ async def sync_ml_orders_detail_incremental(db: Session):
 
         def to_string(value):
             """Convierte a string, retorna None si es None"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             return str(value)
 
@@ -149,7 +151,7 @@ async def sync_ml_orders_detail_incremental(db: Session):
                     mlo_sale_fee_amount=to_decimal(detail_json.get("mlo_sale_fee_amount")),
                     mlo_title=detail_json.get("mlo_title"),
                     mlvariationid=to_string(detail_json.get("MLVariationID")),
-                    mlod_lastupdate=parse_date(detail_json.get("mlod_lastUpdate"))
+                    mlod_lastupdate=parse_date(detail_json.get("mlod_lastUpdate")),
                 )
 
                 db.add(detail)
@@ -171,7 +173,7 @@ async def sync_ml_orders_detail_incremental(db: Session):
         # Obtener nuevo máximo
         nuevo_max = db.query(func.max(MercadoLibreOrderDetail.mlod_id)).scalar()
 
-        print(f"\n✅ Sincronización completada!")
+        print("\n✅ Sincronización completada!")
         print(f"   Insertados: {details_insertados}")
         print(f"   Errores: {details_errores}")
         print(f"   Nuevo mlod_id máximo: {nuevo_max}")
@@ -185,6 +187,7 @@ async def sync_ml_orders_detail_incremental(db: Session):
         db.rollback()
         print(f"❌ Error en sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0, 0, 0
 

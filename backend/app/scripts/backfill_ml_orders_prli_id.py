@@ -12,6 +12,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.backfill_ml_orders_prli_id
 """
+
 import sys
 import os
 
@@ -30,23 +31,23 @@ def backfill_prli_id_from_snapshots(db: Session, limit: int = 1000):
     """
     Backfill prli_id usando snapshots de publicaciones.
     """
-    
-    print(f"📊 Buscando órdenes sin prli_id...")
-    
+
+    print("📊 Buscando órdenes sin prli_id...")
+
     # Contar órdenes sin prli_id
     count_query = text("""
         SELECT COUNT(*) 
         FROM tb_mercadolibre_orders_header 
         WHERE prli_id IS NULL
     """)
-    
+
     total_sin_prli = db.execute(count_query).scalar()
     print(f"   Encontradas {total_sin_prli} órdenes sin prli_id\n")
-    
+
     if total_sin_prli == 0:
         print("✅ Todas las órdenes ya tienen prli_id")
         return 0
-    
+
     # Query para actualizar usando snapshots
     update_query = text("""
         WITH snapshot_lookup AS (
@@ -90,29 +91,30 @@ def backfill_prli_id_from_snapshots(db: Session, limit: int = 1000):
             AND tmloh.prli_id IS NULL
             AND (sl.snapshot_prli_id IS NOT NULL OR cpl.current_prli_id IS NOT NULL)
     """)
-    
+
     try:
-        print(f"🔄 Ejecutando backfill...")
+        print("🔄 Ejecutando backfill...")
         result = db.execute(update_query)
         db.commit()
-        
+
         rows_updated = result.rowcount
-        print(f"✅ Backfill completado!")
+        print("✅ Backfill completado!")
         print(f"   Órdenes actualizadas: {rows_updated}")
         print(f"   Órdenes pendientes: {total_sin_prli - rows_updated}")
-        
+
         if total_sin_prli - rows_updated > 0:
-            print(f"\n⚠️  Algunas órdenes no pudieron ser actualizadas:")
-            print(f"   - No tienen snapshots cercanos")
-            print(f"   - No tienen publicación en items_publicados")
-            print(f"   Estas órdenes quedarán con prli_id = NULL")
-        
+            print("\n⚠️  Algunas órdenes no pudieron ser actualizadas:")
+            print("   - No tienen snapshots cercanos")
+            print("   - No tienen publicación en items_publicados")
+            print("   Estas órdenes quedarán con prli_id = NULL")
+
         return rows_updated
-        
+
     except Exception as e:
         db.rollback()
         print(f"❌ Error en backfill: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0
 
@@ -128,23 +130,23 @@ def main():
     print("   Puede no ser 100% preciso para órdenes antiguas.")
     print("=" * 60)
     print()
-    
+
     respuesta = input("¿Continuar? (s/N): ")
-    if respuesta.lower() not in ['s', 'si', 'yes', 'y']:
+    if respuesta.lower() not in ["s", "si", "yes", "y"]:
         print("❌ Operación cancelada")
         return
-    
+
     db = SessionLocal()
-    
+
     try:
         rows_updated = backfill_prli_id_from_snapshots(db)
         print("=" * 60)
-        
+
         if rows_updated > 0:
             print("\n💡 Próximo paso:")
             print("   Regenerar métricas ML para que usen el prli_id actualizado:")
             print("   python -m app.scripts.agregar_metricas_ml_local --from-date 2025-01-01")
-        
+
     except Exception as e:
         print(f"\n❌ Error general: {str(e)}")
     finally:

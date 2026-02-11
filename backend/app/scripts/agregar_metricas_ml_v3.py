@@ -6,6 +6,7 @@ Procesa los datos y los inserta en ml_ventas_metricas
 Ejecutar:
     python app/scripts/agregar_metricas_ml_v3.py --from-date 2025-01-01 --to-date 2025-11-14
 """
+
 import sys
 from pathlib import Path
 
@@ -27,7 +28,7 @@ from app.models.ml_venta_metrica import MLVentaMetrica
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
 # Load environment variables from .env file in backend directory
-env_path = backend_dir / '.env'
+env_path = backend_dir / ".env"
 load_dotenv(dotenv_path=env_path)
 
 # SQL Server connection
@@ -40,17 +41,13 @@ SQL_SERVER_PASSWORD = os.getenv("SQL_SERVER_PASSWORD")
 def get_sql_server_connection():
     """Conectar a SQL Server"""
     return pymssql.connect(
-        server=SQL_SERVER_HOST,
-        database=SQL_SERVER_DB,
-        user=SQL_SERVER_USER,
-        password=SQL_SERVER_PASSWORD,
-        timeout=120
+        server=SQL_SERVER_HOST, database=SQL_SERVER_DB, user=SQL_SERVER_USER, password=SQL_SERVER_PASSWORD, timeout=120
     )
 
 
 def fetch_data_from_sql_server(from_date: date, to_date: date) -> pd.DataFrame:
     """Ejecuta el query de scriptDashboard en SQL Server"""
-    print(f"\n🔍 Consultando SQL Server...")
+    print("\n🔍 Consultando SQL Server...")
     print(f"   Rango: {from_date} a {to_date}")
 
     conn = get_sql_server_connection()
@@ -153,7 +150,7 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
 
     # Calcular contar_si (items por MLShippingID / pack)
     # Esto es equivalente a lo que hace st_app
-    df['contar_si'] = df.groupby('MLShippingID')['MLShippingID'].transform('count')
+    df["contar_si"] = df.groupby("MLShippingID")["MLShippingID"].transform("count")
 
     total_insertados = 0
     total_actualizados = 0
@@ -162,76 +159,80 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
     for idx, row in df.iterrows():
         try:
             # Verificar si ya existe
-            existente = db.query(MLVentaMetrica).filter(
-                MLVentaMetrica.id_operacion == row['ID_de_Operación']
-            ).first()
+            existente = db.query(MLVentaMetrica).filter(MLVentaMetrica.id_operacion == row["ID_de_Operación"]).first()
 
             # Extraer datos
-            fecha_venta = pd.to_datetime(row['Fecha'])
-            cantidad = int(row.get('Cantidad', 1))
-            monto_unitario = float(row.get('Monto_Unitario', 0))
-            monto_total = float(row.get('Monto_Total', 0))
+            fecha_venta = pd.to_datetime(row["Fecha"])
+            cantidad = int(row.get("Cantidad", 1))
+            monto_unitario = float(row.get("Monto_Unitario", 0))
+            monto_total = float(row.get("Monto_Total", 0))
 
             # Costo
-            costo_sin_iva = float(row.get('Costo_sin_IVA', 0)) if pd.notna(row.get('Costo_sin_IVA')) else 0.0
+            costo_sin_iva = float(row.get("Costo_sin_IVA", 0)) if pd.notna(row.get("Costo_sin_IVA")) else 0.0
             costo_total_sin_iva = costo_sin_iva * cantidad
-            moneda_costo = row.get('Moneda_Costo', 'ARS')
+            moneda_costo = row.get("Moneda_Costo", "ARS")
 
             # Costo de envío
-            costo_envio_ml = float(row.get('Costo_Envío', 0)) if pd.notna(row.get('Costo_Envío')) else 0.0
+            costo_envio_ml = float(row.get("Costo_Envío", 0)) if pd.notna(row.get("Costo_Envío")) else 0.0
 
             # Tipo de logística
-            tipo_logistica = row.get('ML_logistic_type', 'unknown')
+            tipo_logistica = row.get("ML_logistic_type", "unknown")
 
             # IVA
-            iva_percentage = float(row.get('IVA', 21)) if pd.notna(row.get('IVA')) else 21.0
+            iva_percentage = float(row.get("IVA", 21)) if pd.notna(row.get("IVA")) else 21.0
             iva_multiplier = 1 + (iva_percentage / 100)
 
             # Datos para calcular comisión dinámicamente
-            subcat_id = int(row.get('subcat_id')) if pd.notna(row.get('subcat_id')) else None
-            pricelist_id = int(row.get('priceList')) if pd.notna(row.get('priceList')) else None
-            comision_base_porcentaje = float(row.get('Comisión_base_%', 15.5)) if pd.notna(row.get('Comisión_base_%')) else 15.5
+            subcat_id = int(row.get("subcat_id")) if pd.notna(row.get("subcat_id")) else None
+            pricelist_id = int(row.get("priceList")) if pd.notna(row.get("priceList")) else None
+            comision_base_porcentaje = (
+                float(row.get("Comisión_base_%", 15.5)) if pd.notna(row.get("Comisión_base_%")) else 15.5
+            )
 
             # Usar helper centralizado para calcular métricas
-            contar_si = row.get('contar_si', 1)
+            contar_si = row.get("contar_si", 1)
             metricas = calcular_metricas_ml(
                 monto_unitario=monto_unitario,
                 cantidad=cantidad,
                 iva_porcentaje=iva_percentage,
                 costo_unitario_sin_iva=costo_sin_iva,
-                costo_envio_ml=costo_envio_ml if pd.notna(row.get('MLShippingID')) else None,
+                costo_envio_ml=costo_envio_ml if pd.notna(row.get("MLShippingID")) else None,
                 count_per_pack=contar_si,
                 # Calcular comisión dinámicamente
                 subcat_id=subcat_id,
                 pricelist_id=pricelist_id,
                 fecha_venta=fecha_venta,
                 comision_base_porcentaje=comision_base_porcentaje,
-                db_session=db
+                db_session=db,
             )
 
-            monto_limpio = metricas['monto_limpio']
-            ganancia = metricas['ganancia']
-            markup_porcentaje = metricas['markup_porcentaje']
-            costo_envio_prorrateado = metricas['costo_envio']
-            comision_ml = metricas['comision_ml']  # Comisión calculada por el helper
+            monto_limpio = metricas["monto_limpio"]
+            ganancia = metricas["ganancia"]
+            markup_porcentaje = metricas["markup_porcentaje"]
+            costo_envio_prorrateado = metricas["costo_envio"]
+            comision_ml = metricas["comision_ml"]  # Comisión calculada por el helper
             monto_total_sin_iva = monto_total / iva_multiplier
 
             # Porcentaje de comisión
             porcentaje_comision_ml = (comision_ml / monto_total_sin_iva * 100) if monto_total_sin_iva > 0 else 0.0
 
             # Cotización dólar
-            cotizacion_dolar = float(row.get('Cambio_al_Momento', 0)) if pd.notna(row.get('Cambio_al_Momento')) else 0.0
+            cotizacion_dolar = float(row.get("Cambio_al_Momento", 0)) if pd.notna(row.get("Cambio_al_Momento")) else 0.0
 
             if existente:
                 # Actualizar
-                existente.ml_order_id = row.get('ML_id')
-                existente.pack_id = int(row.get('ML_pack_id')) if pd.notna(row.get('ML_pack_id')) and str(row.get('ML_pack_id')).replace('.','').isdigit() else None
-                existente.item_id = int(row.get('item_id')) if pd.notna(row.get('item_id')) else None
-                existente.codigo = row.get('Código_Item')
-                existente.descripcion = row.get('Descripción')
-                existente.marca = row.get('Marca')
-                existente.categoria = row.get('Categoría')
-                existente.subcategoria = row.get('SubCategoría')
+                existente.ml_order_id = row.get("ML_id")
+                existente.pack_id = (
+                    int(row.get("ML_pack_id"))
+                    if pd.notna(row.get("ML_pack_id")) and str(row.get("ML_pack_id")).replace(".", "").isdigit()
+                    else None
+                )
+                existente.item_id = int(row.get("item_id")) if pd.notna(row.get("item_id")) else None
+                existente.codigo = row.get("Código_Item")
+                existente.descripcion = row.get("Descripción")
+                existente.marca = row.get("Marca")
+                existente.categoria = row.get("Categoría")
+                existente.subcategoria = row.get("SubCategoría")
                 existente.fecha_venta = fecha_venta
                 existente.fecha_calculo = date.today()
                 existente.cantidad = cantidad
@@ -241,7 +242,7 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
                 existente.costo_unitario_sin_iva = Decimal(str(round(costo_sin_iva, 6)))
                 existente.costo_total_sin_iva = Decimal(str(round(costo_total_sin_iva, 2)))
                 existente.moneda_costo = moneda_costo
-                existente.tipo_lista = row.get('priceList')
+                existente.tipo_lista = row.get("priceList")
                 existente.porcentaje_comision_ml = Decimal(str(round(porcentaje_comision_ml, 2)))
                 existente.comision_ml = Decimal(str(round(comision_ml, 2)))
                 existente.costo_envio_ml = Decimal(str(round(costo_envio_ml, 2)))
@@ -250,22 +251,24 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
                 existente.costo_total = Decimal(str(round(costo_total_sin_iva, 2)))
                 existente.ganancia = Decimal(str(round(ganancia, 2)))
                 existente.markup_porcentaje = Decimal(str(round(markup_porcentaje, 2)))
-                existente.prli_id = int(row.get('priceList')) if pd.notna(row.get('priceList')) else None
-                existente.mla_id = row.get('ML_id')
+                existente.prli_id = int(row.get("priceList")) if pd.notna(row.get("priceList")) else None
+                existente.mla_id = row.get("ML_id")
 
                 total_actualizados += 1
             else:
                 # Crear nuevo
                 metrica = MLVentaMetrica(
-                    id_operacion=row['ID_de_Operación'],
-                    ml_order_id=row.get('ML_id'),
-                    pack_id=int(row.get('ML_pack_id')) if pd.notna(row.get('ML_pack_id')) and str(row.get('ML_pack_id')).replace('.','').isdigit() else None,
-                    item_id=int(row.get('item_id')) if pd.notna(row.get('item_id')) else None,
-                    codigo=row.get('Código_Item'),
-                    descripcion=row.get('Descripción'),
-                    marca=row.get('Marca'),
-                    categoria=row.get('Categoría'),
-                    subcategoria=row.get('SubCategoría'),
+                    id_operacion=row["ID_de_Operación"],
+                    ml_order_id=row.get("ML_id"),
+                    pack_id=int(row.get("ML_pack_id"))
+                    if pd.notna(row.get("ML_pack_id")) and str(row.get("ML_pack_id")).replace(".", "").isdigit()
+                    else None,
+                    item_id=int(row.get("item_id")) if pd.notna(row.get("item_id")) else None,
+                    codigo=row.get("Código_Item"),
+                    descripcion=row.get("Descripción"),
+                    marca=row.get("Marca"),
+                    categoria=row.get("Categoría"),
+                    subcategoria=row.get("SubCategoría"),
                     fecha_venta=fecha_venta,
                     fecha_calculo=date.today(),
                     cantidad=cantidad,
@@ -275,7 +278,7 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
                     costo_unitario_sin_iva=Decimal(str(round(costo_sin_iva, 6))),
                     costo_total_sin_iva=Decimal(str(round(costo_total_sin_iva, 2))),
                     moneda_costo=moneda_costo,
-                    tipo_lista=row.get('priceList'),
+                    tipo_lista=row.get("priceList"),
                     porcentaje_comision_ml=Decimal(str(round(porcentaje_comision_ml, 2))),
                     comision_ml=Decimal(str(round(comision_ml, 2))),
                     costo_envio_ml=Decimal(str(round(costo_envio_ml, 2))),
@@ -284,8 +287,8 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
                     costo_total=Decimal(str(round(costo_total_sin_iva, 2))),
                     ganancia=Decimal(str(round(ganancia, 2))),
                     markup_porcentaje=Decimal(str(round(markup_porcentaje, 2))),
-                    prli_id=int(row.get('priceList')) if pd.notna(row.get('priceList')) else None,
-                    mla_id=row.get('ML_id')
+                    prli_id=int(row.get("priceList")) if pd.notna(row.get("priceList")) else None,
+                    mla_id=row.get("ML_id"),
                 )
                 db.add(metrica)
                 total_insertados += 1
@@ -293,7 +296,9 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
             # Commit cada 100 registros
             if (total_insertados + total_actualizados) % 100 == 0:
                 db.commit()
-                print(f"  Procesados: {total_insertados + total_actualizados} | Nuevos: {total_insertados} | Actualizados: {total_actualizados}")
+                print(
+                    f"  Procesados: {total_insertados + total_actualizados} | Nuevos: {total_insertados} | Actualizados: {total_actualizados}"
+                )
 
         except Exception as e:
             print(f"  ❌ Error procesando registro {idx}: {str(e)}")
@@ -308,9 +313,9 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
         db.rollback()
 
     print()
-    print(f"{'='*60}")
-    print(f"✅ COMPLETADO")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
+    print("✅ COMPLETADO")
+    print(f"{'=' * 60}")
     print(f"Insertados: {total_insertados}")
     print(f"Actualizados: {total_actualizados}")
     print(f"Errores: {total_errores}")
@@ -318,19 +323,19 @@ def process_and_insert(db: Session, df: pd.DataFrame, min_free: float = 33000):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--from-date', required=True, help='Fecha desde (YYYY-MM-DD)')
-    parser.add_argument('--to-date', required=True, help='Fecha hasta (YYYY-MM-DD)')
+    parser.add_argument("--from-date", required=True, help="Fecha desde (YYYY-MM-DD)")
+    parser.add_argument("--to-date", required=True, help="Fecha hasta (YYYY-MM-DD)")
     args = parser.parse_args()
 
-    from_date = datetime.strptime(args.from_date, '%Y-%m-%d').date()
-    to_date = datetime.strptime(args.to_date, '%Y-%m-%d').date()
+    from_date = datetime.strptime(args.from_date, "%Y-%m-%d").date()
+    to_date = datetime.strptime(args.to_date, "%Y-%m-%d").date()
 
     # Agregar 1 día para incluir todo el día to_date
     to_date_inclusive = to_date + timedelta(days=1)
 
-    print(f"\n{'='*60}")
-    print(f"AGREGACIÓN DE MÉTRICAS ML (v3 - SQL Server directo)")
-    print(f"{'='*60}")
+    print(f"\n{'=' * 60}")
+    print("AGREGACIÓN DE MÉTRICAS ML (v3 - SQL Server directo)")
+    print(f"{'=' * 60}")
     print(f"Rango: {from_date} a {to_date} (inclusive)")
     print()
 

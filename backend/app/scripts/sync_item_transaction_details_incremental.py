@@ -6,6 +6,7 @@ Ejecutar desde el directorio backend:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.sync_item_transaction_details_incremental
 """
+
 import sys
 import os
 
@@ -19,10 +20,12 @@ import httpx
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import SessionLocal
+
 # Importar todos los modelos para evitar problemas de dependencias circulares
 import app.models  # noqa
 from app.models.item_transaction import ItemTransaction
 from app.models.item_transaction_detail import ItemTransactionDetail
+
 
 async def sync_details_incremental(db: Session):
     """
@@ -46,7 +49,7 @@ async def sync_details_incremental(db: Session):
         return 0, 0, 0
 
     if ultimo_it_con_detalles >= max_it_transaction:
-        print(f"✅ No hay item transactions nuevos para sincronizar.")
+        print("✅ No hay item transactions nuevos para sincronizar.")
         print(f"   Último it_transaction con detalles: {ultimo_it_con_detalles}")
         print(f"   Último it_transaction disponible: {max_it_transaction}")
         return 0, 0, 0
@@ -63,10 +66,10 @@ async def sync_details_incremental(db: Session):
         params = {
             "strScriptLabel": "scriptItemTransactionDetails",
             "fromItTransaction": from_it,
-            "toItTransaction": to_it
+            "toItTransaction": to_it,
         }
 
-        print(f"📅 Consultando API...")
+        print("📅 Consultando API...")
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.get(url, params=params)
@@ -74,16 +77,16 @@ async def sync_details_incremental(db: Session):
             details_data = response.json()
 
         if not isinstance(details_data, list):
-            print(f"❌ Respuesta inválida del endpoint externo")
+            print("❌ Respuesta inválida del endpoint externo")
             return 0, 0, 0
 
         # Verificar si el API devuelve error
         if len(details_data) == 1 and "Column1" in details_data[0]:
-            print(f"   ⚠️  No hay datos disponibles")
+            print("   ⚠️  No hay datos disponibles")
             return 0, 0, 0
 
         if not details_data or len(details_data) == 0:
-            print(f"✅ No hay detalles nuevos para sincronizar.")
+            print("✅ No hay detalles nuevos para sincronizar.")
             return 0, 0, 0
 
         print(f"   Encontrados {len(details_data)} detalles nuevos\n")
@@ -94,7 +97,7 @@ async def sync_details_incremental(db: Session):
 
         def to_int(value):
             """Convierte a entero, retorna None si no es válido"""
-            if value is None or value == '':
+            if value is None or value == "":
                 return None
             try:
                 return int(value)
@@ -117,7 +120,7 @@ async def sync_details_incremental(db: Session):
                     itm_transaction=itm_transaction,
                     itm_desc=detail_json.get("itm_desc"),
                     itm_desc1=detail_json.get("itm_desc1"),
-                    itm_desc2=detail_json.get("itm_desc2")
+                    itm_desc2=detail_json.get("itm_desc2"),
                 )
 
                 db.add(detail)
@@ -140,7 +143,7 @@ async def sync_details_incremental(db: Session):
         # Obtener nuevo máximo
         nuevo_max = db.query(func.max(ItemTransactionDetail.it_transaction)).scalar()
 
-        print(f"\n✅ Sincronización completada!")
+        print("\n✅ Sincronización completada!")
         print(f"   Insertados: {details_insertados}")
         print(f"   Errores: {details_errores}")
         print(f"   Nuevo it_transaction máximo con detalles: {nuevo_max}")
@@ -154,6 +157,7 @@ async def sync_details_incremental(db: Session):
         db.rollback()
         print(f"❌ Error en sincronización: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 0, 0, 0
 

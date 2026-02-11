@@ -3,7 +3,6 @@ import api from '../services/api';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
 import TabRentabilidadTiendaNube from '../components/TabRentabilidadTiendaNube';
 import EditableCell from '../components/EditableCell';
-import { useAuthStore } from '../store/authStore';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 
 // Helper para obtener fechas por defecto
@@ -19,9 +18,6 @@ const getDefaultFechaHasta = () => {
 };
 
 export default function DashboardTiendaNube() {
-  const user = useAuthStore((state) => state.user);
-  const esAdmin = user?.rol === 'ADMIN' || user?.rol === 'SUPERADMIN';
-
   const [loading, setLoading] = useState(true);
   const [filtroRapidoActivo, setFiltroRapidoActivo] = useState('mesActual');
   const [mostrarDropdownFecha, setMostrarDropdownFecha] = useState(false);
@@ -69,7 +65,7 @@ export default function DashboardTiendaNube() {
   const [stats, setStats] = useState(null);
   const [ventasPorMarca, setVentasPorMarca] = useState([]);
   const [topProductos, setTopProductos] = useState([]);
-  const [sucursalesDisponibles, setSucursalesDisponibles] = useState([]);
+  const [, setSucursalesDisponibles] = useState([]);
   const [vendedoresDisponibles, setVendedoresDisponibles] = useState([]);
 
   // Datos de operaciones detalladas
@@ -118,7 +114,7 @@ export default function DashboardTiendaNube() {
         setSucursalesDisponibles(statsRes.data.sucursales_disponibles || []);
         setVendedoresDisponibles(statsRes.data.vendedores_disponibles || []);
       }
-    } catch (error) {
+    } catch {
       alert('Error al cargar el dashboard');
     } finally {
       setLoading(false);
@@ -160,7 +156,7 @@ export default function DashboardTiendaNube() {
         setComisionEfectivo(constantesRes.data.comision_tienda_nube || 1.0);
         setComisionTarjeta(constantesRes.data.comision_tienda_nube_tarjeta || 3.0);
       }
-    } catch (error) {
+    } catch {
       alert('Error al cargar las operaciones');
     } finally {
       setLoading(false);
@@ -188,7 +184,7 @@ export default function DashboardTiendaNube() {
 
       // Actualizar estado local
       setMetodosPago(prev => ({ ...prev, [itTransaction]: nuevoMetodo }));
-    } catch (error) {
+    } catch {
       alert('Error al guardar el método de pago');
     }
   };
@@ -202,7 +198,7 @@ export default function DashboardTiendaNube() {
         it_transaction: itTransaction,
         [campo]: valor
       });
-    } catch (error) {
+    } catch {
       alert('Error al guardar cambios');
     }
   }, []);
@@ -345,18 +341,6 @@ export default function DashboardTiendaNube() {
 
   const limpiarVendedores = () => {
     updateFilters({ vendedores: '' });
-  };
-
-  const toggleSucursal = (sucursal) => {
-    const nuevasSeleccionadas = sucursalesSeleccionadas.includes(sucursal)
-      ? sucursalesSeleccionadas.filter(s => s !== sucursal)
-      : [...sucursalesSeleccionadas, sucursal];
-    
-    updateFilters({ sucursales: nuevasSeleccionadas.join(',') || '' });
-  };
-
-  const limpiarSucursales = () => {
-    updateFilters({ sucursales: '' });
   };
 
   // Filtrar operaciones por búsqueda

@@ -10,7 +10,8 @@ from pathlib import Path
 if __name__ == "__main__":
     backend_path = Path(__file__).resolve().parent.parent.parent
     from dotenv import load_dotenv
-    env_path = backend_path / '.env'
+
+    env_path = backend_path / ".env"
     load_dotenv(dotenv_path=env_path)
 
 import asyncio
@@ -38,7 +39,7 @@ async def refresh_access_token():
         "grant_type": "refresh_token",
         "client_id": settings.ML_CLIENT_ID,
         "client_secret": settings.ML_CLIENT_SECRET,
-        "refresh_token": REFRESH_TOKEN
+        "refresh_token": REFRESH_TOKEN,
     }
 
     async with httpx.AsyncClient() as client:
@@ -50,7 +51,7 @@ async def refresh_access_token():
         if tokens.get("refresh_token"):
             REFRESH_TOKEN = tokens.get("refresh_token")
 
-        print(f"✓ Token refrescado exitosamente")
+        print("✓ Token refrescado exitosamente")
         return ACCESS_TOKEN
 
 
@@ -116,7 +117,7 @@ async def traer_detalles_batch(ids: list, db: Session):
     print(f"Procesando {len(ids)} publicaciones en batches de {chunk_size}...")
 
     for i in range(0, len(ids), chunk_size):
-        chunk = ids[i:i + chunk_size]
+        chunk = ids[i : i + chunk_size]
         ids_str = ",".join(chunk)
 
         try:
@@ -175,7 +176,7 @@ async def traer_detalles_batch(ids: list, db: Session):
                     installments_campaign=campaign,
                     seller_sku=seller_sku,
                     item_id=item_id,
-                    snapshot_date=datetime.now()
+                    snapshot_date=datetime.now(),
                 )
 
                 db.add(snapshot)
@@ -186,7 +187,7 @@ async def traer_detalles_batch(ids: list, db: Session):
             print(f"  Procesados {min(i + chunk_size, len(ids))}/{len(ids)} - Guardados: {total_saved}")
 
         except Exception as e:
-            print(f"  Error en batch {i//chunk_size + 1}: {str(e)}")
+            print(f"  Error en batch {i // chunk_size + 1}: {str(e)}")
             db.rollback()
             continue
 
@@ -221,9 +222,7 @@ async def sync_ml_publications(db: Session = None):
         # 2. Limpiar snapshots antiguos del mismo día (opcional)
         # Puedes comentar esto si quieres mantener múltiples snapshots por día
         today = datetime.now().date()
-        deleted = db.query(MLPublicationSnapshot).filter(
-            MLPublicationSnapshot.snapshot_date >= today
-        ).delete()
+        deleted = db.query(MLPublicationSnapshot).filter(MLPublicationSnapshot.snapshot_date >= today).delete()
         db.commit()
         if deleted > 0:
             print(f"Eliminados {deleted} snapshots anteriores del día de hoy")

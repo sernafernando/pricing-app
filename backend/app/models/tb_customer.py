@@ -1,6 +1,7 @@
 """
 Modelo para tbCustomer - Clientes (versión reducida)
 """
+
 from sqlalchemy import Column, Integer, String, Boolean, DateTime
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -8,6 +9,7 @@ from app.core.database import Base
 
 class TBCustomer(Base):
     """Tabla de clientes del ERP"""
+
     __tablename__ = "tb_customer"
 
     # Primary Keys

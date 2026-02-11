@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, Numeric, DateTime, PrimaryKeyConstraint
+from sqlalchemy import Column, Integer, Numeric, DateTime, PrimaryKeyConstraint
 from app.core.database import Base
 
 
@@ -7,10 +7,9 @@ class ItemCostList(Base):
     Modelo para tbItemCostList del ERP
     Lista de costos actual de items
     """
+
     __tablename__ = "tb_item_cost_list"
-    __table_args__ = (
-        PrimaryKeyConstraint('comp_id', 'coslis_id', 'item_id'),
-    )
+    __table_args__ = (PrimaryKeyConstraint("comp_id", "coslis_id", "item_id"),)
 
     # Composite Primary Key
     comp_id = Column(Integer, nullable=False)

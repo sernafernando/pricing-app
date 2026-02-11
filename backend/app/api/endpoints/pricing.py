@@ -8,7 +8,6 @@ from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.models.usuario import Usuario
-from app.models.configuracion import Configuracion
 from app.services.pricing_calculator import (
     calcular_precio_producto,
     calcular_comision_ml_total,
@@ -18,13 +17,15 @@ from app.services.pricing_calculator import (
     obtener_tipo_cambio_actual,
     obtener_grupo_subcategoria,
     obtener_comision_base,
-    precio_por_markup_goalseek
 )
 
 
 router = APIRouter()
 
-def calcular_markup_rebate(db: Session, producto: ProductoERP, pricing: ProductoPricing, tipo_cambio=None) -> Optional[float]:
+
+def calcular_markup_rebate(
+    db: Session, producto: ProductoERP, pricing: ProductoPricing, tipo_cambio=None
+) -> Optional[float]:
     """Calcula el markup de rebate para un producto"""
     if not pricing or not pricing.participa_rebate or not pricing.precio_lista_ml or not producto.costo:
         return None
@@ -38,19 +39,14 @@ def calcular_markup_rebate(db: Session, producto: ProductoERP, pricing: Producto
         comision_base_rebate = obtener_comision_base(db, 4, grupo_id_rebate)
 
         if comision_base_rebate and precio_rebate > 0:
-            comisiones_rebate = calcular_comision_ml_total(
-                precio_rebate,
-                comision_base_rebate,
-                producto.iva,
-                db=db
-            )
+            comisiones_rebate = calcular_comision_ml_total(precio_rebate, comision_base_rebate, producto.iva, db=db)
             limpio_rebate = calcular_limpio(
                 precio_rebate,
                 producto.iva,
                 producto.envio or 0,
                 comisiones_rebate["comision_total"],
                 db=db,
-                grupo_id=grupo_id_rebate
+                grupo_id=grupo_id_rebate,
             )
             markup_rebate_val = calcular_markup(limpio_rebate, costo_rebate) * 100
             return markup_rebate_val
@@ -79,12 +75,17 @@ def calcular_markup_oferta(db: Session, producto: ProductoERP, tipo_cambio=None)
         mejor_pub = None
 
         for pub in pubs:
-            oferta = db.query(OfertaML).filter(
-                OfertaML.mla == pub.mla,
-                OfertaML.fecha_desde <= hoy,
-                OfertaML.fecha_hasta >= hoy,
-                OfertaML.pvp_seller.isnot(None)
-            ).order_by(OfertaML.fecha_desde.desc()).first()
+            oferta = (
+                db.query(OfertaML)
+                .filter(
+                    OfertaML.mla == pub.mla,
+                    OfertaML.fecha_desde <= hoy,
+                    OfertaML.fecha_hasta >= hoy,
+                    OfertaML.pvp_seller.isnot(None),
+                )
+                .order_by(OfertaML.fecha_desde.desc())
+                .first()
+            )
 
             if oferta:
                 if not mejor_oferta:
@@ -101,10 +102,7 @@ def calcular_markup_oferta(db: Session, producto: ProductoERP, tipo_cambio=None)
 
                 if comision_base_oferta:
                     comisiones_oferta = calcular_comision_ml_total(
-                        mejor_oferta_pvp,
-                        comision_base_oferta,
-                        producto.iva,
-                        db=db
+                        mejor_oferta_pvp, comision_base_oferta, producto.iva, db=db
                     )
                     limpio_oferta = calcular_limpio(
                         mejor_oferta_pvp,
@@ -112,7 +110,7 @@ def calcular_markup_oferta(db: Session, producto: ProductoERP, tipo_cambio=None)
                         producto.envio or 0,
                         comisiones_oferta["comision_total"],
                         db=db,
-                        grupo_id=grupo_id_oferta
+                        grupo_id=grupo_id_oferta,
                     )
                     markup_oferta_val = calcular_markup(limpio_oferta, costo_oferta) * 100
                     return markup_oferta_val
@@ -125,8 +123,10 @@ def calcular_markup_oferta(db: Session, producto: ProductoERP, tipo_cambio=None)
 def obtener_markup_adicional_cuotas(db: Session) -> float:
     """Obtiene el valor de markup adicional para cuotas desde pricing_constants"""
     from app.services.pricing_calculator import obtener_constantes_pricing
+
     constantes = obtener_constantes_pricing(db)
     return constantes.get("markup_adicional_cuotas", 4.0)
+
 
 class CalcularPorMarkupRequest(BaseModel):
     item_id: int
@@ -134,32 +134,30 @@ class CalcularPorMarkupRequest(BaseModel):
     markup_objetivo: float
     adicional_markup: Optional[float] = 4.0
 
+
 class CalcularPorPrecioRequest(BaseModel):
     item_id: int
     pricelist_id: int
     precio_manual: float
 
+
 @router.post("/precios/calcular-por-markup")
 async def calcular_por_markup(
-    request: CalcularPorMarkupRequest,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    request: CalcularPorMarkupRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Dado un markup objetivo, calcula el precio necesario"""
-    
-    producto = db.query(ProductoERP).filter(
-        ProductoERP.item_id == request.item_id
-    ).first()
-    
+
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == request.item_id).first()
+
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
-    
+
     tipo_cambio = None
     if producto.moneda_costo == "USD":
         tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
         if not tipo_cambio:
             raise HTTPException(400, "No hay tipo de cambio disponible")
-    
+
     resultado = calcular_precio_producto(
         db=db,
         costo=producto.costo,
@@ -170,22 +168,19 @@ async def calcular_por_markup(
         pricelist_id=request.pricelist_id,
         markup_objetivo=request.markup_objetivo,
         tipo_cambio=tipo_cambio,
-        adicional_markup=request.adicional_markup
+        adicional_markup=request.adicional_markup,
     )
-    
+
     if "error" in resultado:
         raise HTTPException(400, resultado["error"])
-    
+
     return {
         "modo": "por_markup",
         "item_id": request.item_id,
-        "producto": {
-            "descripcion": producto.descripcion,
-            "marca": producto.marca,
-            "categoria": producto.categoria
-        },
-        **resultado
+        "producto": {"descripcion": producto.descripcion, "marca": producto.marca, "categoria": producto.categoria},
+        **resultado,
     }
+
 
 @router.get("/precios/calcular-markup")
 async def calcular_markup_get(
@@ -194,7 +189,7 @@ async def calcular_markup_get(
     item_code: Optional[str] = None,
     pricelist_id: int = 4,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Endpoint GET para calcular markup dado un precio.
@@ -227,7 +222,9 @@ async def calcular_markup_get(
         raise HTTPException(400, f"No hay comisión configurada para lista {pricelist_id}")
 
     comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, db=db)
-    limpio = calcular_limpio(precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
+    limpio = calcular_limpio(
+        precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id
+    )
     markup_resultante = calcular_markup(limpio, costo_ars)
 
     return {
@@ -240,69 +237,51 @@ async def calcular_markup_get(
         "comision_base_pct": comision_base,
         "comision_total": round(comisiones["comision_total"], 2),
         "limpio": round(limpio, 2),
-        "markup": round(markup_resultante * 100, 2)
+        "markup": round(markup_resultante * 100, 2),
     }
 
 
 @router.post("/precios/calcular-por-precio")
 async def calcular_por_precio(
-    request: CalcularPorPrecioRequest,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    request: CalcularPorPrecioRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Dado un precio manual, calcula qué markup resulta"""
-    
-    producto = db.query(ProductoERP).filter(
-        ProductoERP.item_id == request.item_id
-    ).first()
-    
+
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == request.item_id).first()
+
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
-    
+
     # Obtener TC si es necesario
     tipo_cambio = None
     if producto.moneda_costo == "USD":
         tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
         if not tipo_cambio:
             raise HTTPException(400, "No hay tipo de cambio disponible")
-    
+
     # Convertir costo a pesos
     costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
-    
+
     # Obtener grupo y comisión
     grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
     comision_base = obtener_comision_base(db, request.pricelist_id, grupo_id)
-    
+
     if comision_base is None:
         raise HTTPException(400, f"No hay comisión configurada para lista {request.pricelist_id} y grupo {grupo_id}")
-    
+
     # Calcular comisiones y markup con el precio dado
-    comisiones = calcular_comision_ml_total(
-        request.precio_manual,
-        comision_base,
-        producto.iva,
-        db=db
-    )
+    comisiones = calcular_comision_ml_total(request.precio_manual, comision_base, producto.iva, db=db)
 
     limpio = calcular_limpio(
-        request.precio_manual,
-        producto.iva,
-        producto.envio or 0,
-        comisiones["comision_total"],
-        db=db,
-        grupo_id=grupo_id
+        request.precio_manual, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id
     )
 
     markup_resultante = calcular_markup(limpio, costo_ars)
-    
+
     return {
         "modo": "por_precio",
         "item_id": request.item_id,
-        "producto": {
-            "descripcion": producto.descripcion,
-            "marca": producto.marca,
-            "categoria": producto.categoria
-        },
+        "producto": {"descripcion": producto.descripcion, "marca": producto.marca, "categoria": producto.categoria},
         "precio_manual": request.precio_manual,
         "costo_ars": round(costo_ars, 2),
         "tipo_cambio": tipo_cambio,
@@ -313,8 +292,9 @@ async def calcular_por_precio(
         "tier": round(comisiones["tier"], 2),
         "comision_varios": round(comisiones["comision_varios"], 2),
         "limpio": round(limpio, 2),
-        "markup_resultante": round(markup_resultante * 100, 2)
+        "markup_resultante": round(markup_resultante * 100, 2),
     }
+
 
 class SetPrecioRequest(BaseModel):
     item_id: int
@@ -328,24 +308,19 @@ class SetPrecioRequest(BaseModel):
     precio_9_cuotas: Optional[float] = None
     precio_12_cuotas: Optional[float] = None
 
+
 @router.post("/precios/set")
 async def setear_precio(
-    request: SetPrecioRequest,
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    request: SetPrecioRequest, db: Session = Depends(get_db), current_user=Depends(get_current_user)
 ):
     """Setea el precio de lista ML para un producto"""
 
-    producto = db.query(ProductoERP).filter(
-        ProductoERP.item_id == request.item_id
-    ).first()
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == request.item_id).first()
 
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
-    pricing = db.query(ProductoPricing).filter(
-        ProductoPricing.item_id == request.item_id
-    ).first()
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == request.item_id).first()
 
     # Calcular markup
     tipo_cambio = None
@@ -359,16 +334,23 @@ async def setear_precio(
     markup_calculado = None
     if comision_base:
         comisiones = calcular_comision_ml_total(request.precio_lista_ml, comision_base, producto.iva, db=db)
-        limpio = calcular_limpio(request.precio_lista_ml, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
+        limpio = calcular_limpio(
+            request.precio_lista_ml,
+            producto.iva,
+            producto.envio or 0,
+            comisiones["comision_total"],
+            db=db,
+            grupo_id=grupo_id,
+        )
         markup = calcular_markup(limpio, costo_ars)
         markup_calculado = round(markup * 100, 2)
 
     # Si no se proporcionaron precios de cuotas, calcularlos automáticamente
     precios_cuotas_calculados = {
-        'precio_3_cuotas': request.precio_3_cuotas,
-        'precio_6_cuotas': request.precio_6_cuotas,
-        'precio_9_cuotas': request.precio_9_cuotas,
-        'precio_12_cuotas': request.precio_12_cuotas
+        "precio_3_cuotas": request.precio_3_cuotas,
+        "precio_6_cuotas": request.precio_6_cuotas,
+        "precio_9_cuotas": request.precio_9_cuotas,
+        "precio_12_cuotas": request.precio_12_cuotas,
     }
 
     # Si al menos uno es None, calcular todos automáticamente
@@ -379,10 +361,10 @@ async def setear_precio(
 
             # IDs de pricelists para cuotas
             cuotas_config = {
-                'precio_3_cuotas': 17,   # Lista ML PREMIUM 3C
-                'precio_6_cuotas': 14,   # Lista ML PREMIUM 6C
-                'precio_9_cuotas': 13,   # Lista ML PREMIUM 9C
-                'precio_12_cuotas': 23   # Lista ML PREMIUM 12C
+                "precio_3_cuotas": 17,  # Lista ML PREMIUM 3C
+                "precio_6_cuotas": 14,  # Lista ML PREMIUM 6C
+                "precio_9_cuotas": 13,  # Lista ML PREMIUM 9C
+                "precio_12_cuotas": 23,  # Lista ML PREMIUM 12C
             }
 
             # Obtener markup adicional: primero del producto, si no de configuración global
@@ -404,7 +386,7 @@ async def setear_precio(
                         pricelist_id=pricelist_id,
                         markup_objetivo=markup_calculado,
                         tipo_cambio=tipo_cambio,
-                        adicional_markup=markup_adicional
+                        adicional_markup=markup_adicional,
                     )
 
                     if "error" not in resultado:
@@ -420,23 +402,23 @@ async def setear_precio(
 
     if pricing:
         if pricing.precio_lista_ml != request.precio_lista_ml:
-                auditoria = AuditoriaPrecio(
-                    producto_id=pricing.id,
-                    usuario_id=current_user.id,
-                    precio_anterior=pricing.precio_lista_ml,
-                    precio_contado_anterior=None,  # Por ahora no usamos contado aquí
-                    precio_nuevo=request.precio_lista_ml,
-                    precio_contado_nuevo=None,
-                    comentario=request.motivo
-                )
-                db.add(auditoria)
-            
+            auditoria = AuditoriaPrecio(
+                producto_id=pricing.id,
+                usuario_id=current_user.id,
+                precio_anterior=pricing.precio_lista_ml,
+                precio_contado_anterior=None,  # Por ahora no usamos contado aquí
+                precio_nuevo=request.precio_lista_ml,
+                precio_contado_nuevo=None,
+                comentario=request.motivo,
+            )
+            db.add(auditoria)
+
         historial = HistorialPrecio(
             producto_pricing_id=pricing.id,
             precio_anterior=pricing.precio_lista_ml,
             precio_nuevo=request.precio_lista_ml,
             usuario_id=current_user.id,
-            motivo=request.motivo
+            motivo=request.motivo,
         )
         db.add(historial)
 
@@ -448,10 +430,10 @@ async def setear_precio(
         pricing.participa_rebate = request.participa_rebate
         pricing.porcentaje_rebate = request.porcentaje_rebate
         # Actualizar precios con cuotas (usar los calculados si no se proporcionaron)
-        pricing.precio_3_cuotas = precios_cuotas_calculados['precio_3_cuotas']
-        pricing.precio_6_cuotas = precios_cuotas_calculados['precio_6_cuotas']
-        pricing.precio_9_cuotas = precios_cuotas_calculados['precio_9_cuotas']
-        pricing.precio_12_cuotas = precios_cuotas_calculados['precio_12_cuotas']
+        pricing.precio_3_cuotas = precios_cuotas_calculados["precio_3_cuotas"]
+        pricing.precio_6_cuotas = precios_cuotas_calculados["precio_6_cuotas"]
+        pricing.precio_9_cuotas = precios_cuotas_calculados["precio_9_cuotas"]
+        pricing.precio_12_cuotas = precios_cuotas_calculados["precio_12_cuotas"]
 
         # Calcular y actualizar markup_rebate y markup_oferta
         pricing.markup_rebate = calcular_markup_rebate(db, producto, pricing, tipo_cambio)
@@ -465,10 +447,10 @@ async def setear_precio(
             motivo_cambio=request.motivo,
             participa_rebate=request.participa_rebate,
             porcentaje_rebate=request.porcentaje_rebate,
-            precio_3_cuotas=precios_cuotas_calculados['precio_3_cuotas'],
-            precio_6_cuotas=precios_cuotas_calculados['precio_6_cuotas'],
-            precio_9_cuotas=precios_cuotas_calculados['precio_9_cuotas'],
-            precio_12_cuotas=precios_cuotas_calculados['precio_12_cuotas']
+            precio_3_cuotas=precios_cuotas_calculados["precio_3_cuotas"],
+            precio_6_cuotas=precios_cuotas_calculados["precio_6_cuotas"],
+            precio_9_cuotas=precios_cuotas_calculados["precio_9_cuotas"],
+            precio_12_cuotas=precios_cuotas_calculados["precio_12_cuotas"],
         )
         db.add(pricing)
         db.flush()  # Para obtener el ID antes de calcular markups
@@ -484,28 +466,28 @@ async def setear_precio(
         "item_id": request.item_id,
         "precio_lista_ml": request.precio_lista_ml,
         "markup": markup_calculado,
-        "actualizado": pricing.fecha_modificacion
+        "actualizado": pricing.fecha_modificacion,
     }
+
 
 @router.get("/precios/historial/{item_id}")
 async def obtener_historial(
-    item_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el histórico de cambios de precio"""
-    
-    pricing = db.query(ProductoPricing).filter(
-        ProductoPricing.item_id == item_id
-    ).first()
-    
+
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+
     if not pricing:
         return {"historial": []}
-    
-    historial = db.query(HistorialPrecio).filter(
-        HistorialPrecio.producto_pricing_id == pricing.id
-    ).order_by(HistorialPrecio.timestamp.desc()).all()
-    
+
+    historial = (
+        db.query(HistorialPrecio)
+        .filter(HistorialPrecio.producto_pricing_id == pricing.id)
+        .order_by(HistorialPrecio.timestamp.desc())
+        .all()
+    )
+
     return {
         "item_id": item_id,
         "precio_actual": pricing.precio_lista_ml,
@@ -514,48 +496,48 @@ async def obtener_historial(
                 "precio_anterior": h.precio_anterior,
                 "precio_nuevo": h.precio_nuevo,
                 "timestamp": h.timestamp,
-                "motivo": h.motivo
+                "motivo": h.motivo,
             }
             for h in historial
-        ]
+        ],
     }
+
 
 class CalcularPreciosCompletosRequest(BaseModel):
     item_id: int
     markup_objetivo: float
     adicional_cuotas: Optional[float] = 4.0
     # Mapeo de cuotas a pricelist_id
-    pricelist_clasica: int = 4      # Lista para clásica
-    pricelist_3_cuotas: int = 17    # Lista ML PREMIUM 3C
-    pricelist_6_cuotas: int = 14    # Lista ML PREMIUM 6C
-    pricelist_9_cuotas: int = 13    # Lista ML PREMIUM 9C
-    pricelist_12_cuotas: int = 23   # Lista ML PREMIUM 12C
+    pricelist_clasica: int = 4  # Lista para clásica
+    pricelist_3_cuotas: int = 17  # Lista ML PREMIUM 3C
+    pricelist_6_cuotas: int = 14  # Lista ML PREMIUM 6C
+    pricelist_9_cuotas: int = 13  # Lista ML PREMIUM 9C
+    pricelist_12_cuotas: int = 23  # Lista ML PREMIUM 12C
+
 
 @router.post("/precios/calcular-completo")
 async def calcular_precios_completos(
     request: CalcularPreciosCompletosRequest,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Calcula precio clásica + todos los precios en cuotas
     Clásica usa markup objetivo directo
     Cuotas usan markup objetivo + adicional
     """
-    
-    producto = db.query(ProductoERP).filter(
-        ProductoERP.item_id == request.item_id
-    ).first()
-    
+
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == request.item_id).first()
+
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
-    
+
     tipo_cambio = None
     if producto.moneda_costo == "USD":
         tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
         if not tipo_cambio:
             raise HTTPException(400, "No hay tipo de cambio disponible")
-    
+
     resultado = {
         "item_id": request.item_id,
         "producto": {
@@ -563,12 +545,12 @@ async def calcular_precios_completos(
             "marca": producto.marca,
             "categoria": producto.categoria,
             "costo": producto.costo,
-            "moneda_costo": producto.moneda_costo
+            "moneda_costo": producto.moneda_costo,
         },
         "markup_objetivo": request.markup_objetivo,
         "adicional_cuotas": request.adicional_cuotas,
     }
-    
+
     # CLÁSICA - sin adicional
     clasica = calcular_precio_producto(
         db=db,
@@ -580,24 +562,24 @@ async def calcular_precios_completos(
         pricelist_id=request.pricelist_clasica,
         markup_objetivo=request.markup_objetivo,
         tipo_cambio=tipo_cambio,
-        adicional_markup=0  # SIN adicional para clásica
+        adicional_markup=0,  # SIN adicional para clásica
     )
-    
+
     if "error" in clasica:
         raise HTTPException(400, clasica["error"])
-    
+
     resultado["clasica"] = clasica
-    
+
     # CUOTAS - con adicional
     cuotas_config = {
         "3_cuotas": request.pricelist_3_cuotas,
         "6_cuotas": request.pricelist_6_cuotas,
         "9_cuotas": request.pricelist_9_cuotas,
-        "12_cuotas": request.pricelist_12_cuotas
+        "12_cuotas": request.pricelist_12_cuotas,
     }
-    
+
     resultado["cuotas"] = {}
-    
+
     for nombre_cuota, pricelist_id in cuotas_config.items():
         calculo = calcular_precio_producto(
             db=db,
@@ -609,13 +591,14 @@ async def calcular_precios_completos(
             pricelist_id=pricelist_id,
             markup_objetivo=request.markup_objetivo,
             tipo_cambio=tipo_cambio,
-            adicional_markup=request.adicional_cuotas  # CON adicional para cuotas
+            adicional_markup=request.adicional_cuotas,  # CON adicional para cuotas
         )
-        
+
         if "error" not in calculo:
             resultado["cuotas"][nombre_cuota] = calculo
-    
+
     return resultado
+
 
 @router.post("/precios/set-rapido")
 async def setear_precio_rapido(
@@ -624,14 +607,14 @@ async def setear_precio_rapido(
     recalcular_cuotas: bool = Query(True, description="Si True, recalcula precios de cuotas automáticamente"),
     lista_tipo: str = Query("web", regex="^(web|pvp)$", description="Tipo de lista: web o pvp"),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user=Depends(get_current_user),
 ):
     """Setea precio clásica (web o pvp) y calcula markup al instante. Si precio=0, borra todos los precios del producto."""
 
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
         raise HTTPException(404, "Producto no encontrado")
-    
+
     # Si precio es 0, borrar precios según lista_tipo
     if precio == 0:
         pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
@@ -658,28 +641,23 @@ async def setear_precio_rapido(
                 pricing.markup_rebate = None
                 pricing.markup_oferta = None
                 mensaje = "Precios Web borrados"
-            
+
             pricing.usuario_id = current_user.id
             pricing.fecha_modificacion = datetime.now()
-            
+
             db.commit()
-            
-            return {
-                "message": mensaje,
-                "item_id": item_id,
-                "precios_borrados": True,
-                "lista_tipo": lista_tipo
-            }
+
+            return {"message": mensaje, "item_id": item_id, "precios_borrados": True, "lista_tipo": lista_tipo}
         else:
             raise HTTPException(404, "No hay precios configurados para este producto")
-    
+
     # Continuar con lógica normal si precio > 0
-    
+
     # Obtener TC si es USD
     tipo_cambio = None
     if producto.moneda_costo == "USD":
         tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
-    
+
     # Calcular markup del precio ingresado
     from app.services.pricing_calculator import (
         convertir_a_pesos,
@@ -687,12 +665,12 @@ async def setear_precio_rapido(
         obtener_comision_base,
         calcular_comision_ml_total,
         calcular_limpio,
-        calcular_markup
+        calcular_markup,
     )
-    
+
     costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
     grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
-    
+
     # Seleccionar pricelist según lista_tipo
     pricelist_clasica = 12 if lista_tipo == "pvp" else 4
     comision_base = obtener_comision_base(db, pricelist_clasica, grupo_id)
@@ -701,15 +679,27 @@ async def setear_precio_rapido(
         raise HTTPException(400, "No hay comisión configurada")
 
     comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, db=db)
-    limpio = calcular_limpio(precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
+    limpio = calcular_limpio(
+        precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id
+    )
     markup = calcular_markup(limpio, costo_ars)
 
     # Calcular precios de cuotas si recalcular_cuotas es True
     # Nombres de campos según lista_tipo
     if lista_tipo == "pvp":
-        precios_cuotas = {'precio_pvp_3_cuotas': None, 'precio_pvp_6_cuotas': None, 'precio_pvp_9_cuotas': None, 'precio_pvp_12_cuotas': None}
+        precios_cuotas = {
+            "precio_pvp_3_cuotas": None,
+            "precio_pvp_6_cuotas": None,
+            "precio_pvp_9_cuotas": None,
+            "precio_pvp_12_cuotas": None,
+        }
     else:
-        precios_cuotas = {'precio_3_cuotas': None, 'precio_6_cuotas': None, 'precio_9_cuotas': None, 'precio_12_cuotas': None}
+        precios_cuotas = {
+            "precio_3_cuotas": None,
+            "precio_6_cuotas": None,
+            "precio_9_cuotas": None,
+            "precio_12_cuotas": None,
+        }
 
     # Obtener pricing para verificar configuración custom de cuotas
     pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
@@ -721,17 +711,17 @@ async def setear_precio_rapido(
         # Configuración de cuotas según lista_tipo
         if lista_tipo == "pvp":
             cuotas_config = {
-                'precio_pvp_3_cuotas': 18,
-                'precio_pvp_6_cuotas': 19,
-                'precio_pvp_9_cuotas': 20,
-                'precio_pvp_12_cuotas': 21
+                "precio_pvp_3_cuotas": 18,
+                "precio_pvp_6_cuotas": 19,
+                "precio_pvp_9_cuotas": 20,
+                "precio_pvp_12_cuotas": 21,
             }
         else:
             cuotas_config = {
-                'precio_3_cuotas': 17,
-                'precio_6_cuotas': 14,
-                'precio_9_cuotas': 13,
-                'precio_12_cuotas': 23
+                "precio_3_cuotas": 17,
+                "precio_6_cuotas": 14,
+                "precio_9_cuotas": 13,
+                "precio_12_cuotas": 23,
             }
 
         # Obtener markup adicional: primero del producto, si no de configuración global
@@ -753,7 +743,7 @@ async def setear_precio_rapido(
                     pricelist_id=pricelist_id,
                     markup_objetivo=markup_porcentaje,
                     tipo_cambio=tipo_cambio,
-                    adicional_markup=markup_adicional
+                    adicional_markup=markup_adicional,
                 )
 
                 if "error" not in resultado:
@@ -761,48 +751,46 @@ async def setear_precio_rapido(
                     # Solo guardar si el precio es válido (mayor a 0), el markup puede ser negativo
                     if precio_calculado > 0:
                         precios_cuotas[nombre_campo] = precio_calculado
-            except Exception as e:
+            except Exception:
                 # Si falla el cálculo, continuar con el siguiente
                 pass
 
     # Guardar precio (pricing ya se obtuvo arriba)
     if pricing:
         if pricing.precio_lista_ml != precio:
-                # Registro en tabla vieja
-                auditoria = AuditoriaPrecio(
-                    producto_id=pricing.id,
-                    usuario_id=current_user.id,
-                    precio_anterior=pricing.precio_lista_ml,
-                    precio_contado_anterior=None,
-                    precio_nuevo=precio,
-                    precio_contado_nuevo=None,
-                    comentario="Edición rápida"
-                )
-                db.add(auditoria)
-                
-                # Registro en tabla nueva para filtros
-                from app.services.auditoria_service import registrar_auditoria
-                from app.models.auditoria import TipoAccion
-                
-                registrar_auditoria(
-                    db=db,
-                    usuario_id=current_user.id,
-                    tipo_accion=TipoAccion.MODIFICAR_PRECIO_CLASICA,
-                    item_id=item_id,
-                    valores_anteriores={
-                        "precio_lista_ml": float(pricing.precio_lista_ml) if pricing.precio_lista_ml else None
-                    },
-                    valores_nuevos={
-                        "precio_lista_ml": float(precio)
-                    }
-                )
-                
+            # Registro en tabla vieja
+            auditoria = AuditoriaPrecio(
+                producto_id=pricing.id,
+                usuario_id=current_user.id,
+                precio_anterior=pricing.precio_lista_ml,
+                precio_contado_anterior=None,
+                precio_nuevo=precio,
+                precio_contado_nuevo=None,
+                comentario="Edición rápida",
+            )
+            db.add(auditoria)
+
+            # Registro en tabla nueva para filtros
+            from app.services.auditoria_service import registrar_auditoria
+            from app.models.auditoria import TipoAccion
+
+            registrar_auditoria(
+                db=db,
+                usuario_id=current_user.id,
+                tipo_accion=TipoAccion.MODIFICAR_PRECIO_CLASICA,
+                item_id=item_id,
+                valores_anteriores={
+                    "precio_lista_ml": float(pricing.precio_lista_ml) if pricing.precio_lista_ml else None
+                },
+                valores_nuevos={"precio_lista_ml": float(precio)},
+            )
+
         historial = HistorialPrecio(
             producto_pricing_id=pricing.id,
             precio_anterior=pricing.precio_lista_ml,
             precio_nuevo=precio,
             usuario_id=current_user.id,
-            motivo="Edición rápida"
+            motivo="Edición rápida",
         )
         db.add(historial)
         # Actualizar precio según lista_tipo
@@ -812,22 +800,22 @@ async def setear_precio_rapido(
         else:
             pricing.precio_lista_ml = precio
             pricing.markup_calculado = round(markup * 100, 2)
-        
+
         pricing.usuario_id = current_user.id
         pricing.fecha_modificacion = datetime.now()
-        
+
         # Actualizar precios de cuotas si se recalcularon
         if recalcular_cuotas:
             if lista_tipo == "pvp":
-                pricing.precio_pvp_3_cuotas = precios_cuotas['precio_pvp_3_cuotas']
-                pricing.precio_pvp_6_cuotas = precios_cuotas['precio_pvp_6_cuotas']
-                pricing.precio_pvp_9_cuotas = precios_cuotas['precio_pvp_9_cuotas']
-                pricing.precio_pvp_12_cuotas = precios_cuotas['precio_pvp_12_cuotas']
+                pricing.precio_pvp_3_cuotas = precios_cuotas["precio_pvp_3_cuotas"]
+                pricing.precio_pvp_6_cuotas = precios_cuotas["precio_pvp_6_cuotas"]
+                pricing.precio_pvp_9_cuotas = precios_cuotas["precio_pvp_9_cuotas"]
+                pricing.precio_pvp_12_cuotas = precios_cuotas["precio_pvp_12_cuotas"]
             else:
-                pricing.precio_3_cuotas = precios_cuotas['precio_3_cuotas']
-                pricing.precio_6_cuotas = precios_cuotas['precio_6_cuotas']
-                pricing.precio_9_cuotas = precios_cuotas['precio_9_cuotas']
-                pricing.precio_12_cuotas = precios_cuotas['precio_12_cuotas']
+                pricing.precio_3_cuotas = precios_cuotas["precio_3_cuotas"]
+                pricing.precio_6_cuotas = precios_cuotas["precio_6_cuotas"]
+                pricing.precio_9_cuotas = precios_cuotas["precio_9_cuotas"]
+                pricing.precio_12_cuotas = precios_cuotas["precio_12_cuotas"]
 
         # Calcular y actualizar markup_rebate y markup_oferta (solo para web)
         if lista_tipo == "web":
@@ -842,10 +830,10 @@ async def setear_precio_rapido(
                 markup_pvp=round(markup * 100, 2),
                 usuario_id=current_user.id,
                 motivo_cambio="Edición rápida PVP",
-                precio_pvp_3_cuotas=precios_cuotas['precio_pvp_3_cuotas'] if recalcular_cuotas else None,
-                precio_pvp_6_cuotas=precios_cuotas['precio_pvp_6_cuotas'] if recalcular_cuotas else None,
-                precio_pvp_9_cuotas=precios_cuotas['precio_pvp_9_cuotas'] if recalcular_cuotas else None,
-                precio_pvp_12_cuotas=precios_cuotas['precio_pvp_12_cuotas'] if recalcular_cuotas else None
+                precio_pvp_3_cuotas=precios_cuotas["precio_pvp_3_cuotas"] if recalcular_cuotas else None,
+                precio_pvp_6_cuotas=precios_cuotas["precio_pvp_6_cuotas"] if recalcular_cuotas else None,
+                precio_pvp_9_cuotas=precios_cuotas["precio_pvp_9_cuotas"] if recalcular_cuotas else None,
+                precio_pvp_12_cuotas=precios_cuotas["precio_pvp_12_cuotas"] if recalcular_cuotas else None,
             )
         else:
             pricing = ProductoPricing(
@@ -853,10 +841,10 @@ async def setear_precio_rapido(
                 precio_lista_ml=precio,
                 usuario_id=current_user.id,
                 motivo_cambio="Edición rápida",
-                precio_3_cuotas=precios_cuotas['precio_3_cuotas'] if recalcular_cuotas else None,
-                precio_6_cuotas=precios_cuotas['precio_6_cuotas'] if recalcular_cuotas else None,
-                precio_9_cuotas=precios_cuotas['precio_9_cuotas'] if recalcular_cuotas else None,
-                precio_12_cuotas=precios_cuotas['precio_12_cuotas'] if recalcular_cuotas else None
+                precio_3_cuotas=precios_cuotas["precio_3_cuotas"] if recalcular_cuotas else None,
+                precio_6_cuotas=precios_cuotas["precio_6_cuotas"] if recalcular_cuotas else None,
+                precio_9_cuotas=precios_cuotas["precio_9_cuotas"] if recalcular_cuotas else None,
+                precio_12_cuotas=precios_cuotas["precio_12_cuotas"] if recalcular_cuotas else None,
             )
         db.add(pricing)
         db.flush()
@@ -871,12 +859,11 @@ async def setear_precio_rapido(
 
     if lista_tipo == "web" and pricing.participa_web_transferencia and pricing.porcentaje_markup_web:
         from app.services.pricing_calculator import calcular_precio_web_transferencia
+
         markup_base = markup
         markup_objetivo = markup_base + (float(pricing.porcentaje_markup_web) / 100)
         resultado_web = calcular_precio_web_transferencia(
-            costo_ars=costo_ars,
-            iva=producto.iva,
-            markup_objetivo=markup_objetivo
+            costo_ars=costo_ars, iva=producto.iva, markup_objetivo=markup_objetivo
         )
         pricing.precio_web_transferencia = resultado_web["precio"]
         pricing.markup_web_real = resultado_web["markup_real"]
@@ -896,7 +883,7 @@ async def setear_precio_rapido(
             "precio_pvp": precio,
             "markup_pvp": round(markup * 100, 2),
             "limpio": round(limpio, 2),
-            "costo_ars": round(costo_ars, 2)
+            "costo_ars": round(costo_ars, 2),
         }
     else:
         response = {
@@ -906,37 +893,39 @@ async def setear_precio_rapido(
             "limpio": round(limpio, 2),
             "costo_ars": round(costo_ars, 2),
             "precio_rebate": round(precio_rebate, 2) if precio_rebate else None,
-            "precio_web_transferencia": float(pricing.precio_web_transferencia) if pricing.precio_web_transferencia else None,
-            "markup_web_real": float(pricing.markup_web_real) if pricing.markup_web_real else None
+            "precio_web_transferencia": float(pricing.precio_web_transferencia)
+            if pricing.precio_web_transferencia
+            else None,
+            "markup_web_real": float(pricing.markup_web_real) if pricing.markup_web_real else None,
         }
 
     # Agregar precios de cuotas si se recalcularon
     if recalcular_cuotas:
         if lista_tipo == "pvp":
-            response["precio_pvp_3_cuotas"] = precios_cuotas['precio_pvp_3_cuotas']
-            response["precio_pvp_6_cuotas"] = precios_cuotas['precio_pvp_6_cuotas']
-            response["precio_pvp_9_cuotas"] = precios_cuotas['precio_pvp_9_cuotas']
-            response["precio_pvp_12_cuotas"] = precios_cuotas['precio_pvp_12_cuotas']
+            response["precio_pvp_3_cuotas"] = precios_cuotas["precio_pvp_3_cuotas"]
+            response["precio_pvp_6_cuotas"] = precios_cuotas["precio_pvp_6_cuotas"]
+            response["precio_pvp_9_cuotas"] = precios_cuotas["precio_pvp_9_cuotas"]
+            response["precio_pvp_12_cuotas"] = precios_cuotas["precio_pvp_12_cuotas"]
         else:
-            response["precio_3_cuotas"] = precios_cuotas['precio_3_cuotas']
-            response["precio_6_cuotas"] = precios_cuotas['precio_6_cuotas']
-            response["precio_9_cuotas"] = precios_cuotas['precio_9_cuotas']
-            response["precio_12_cuotas"] = precios_cuotas['precio_12_cuotas']
+            response["precio_3_cuotas"] = precios_cuotas["precio_3_cuotas"]
+            response["precio_6_cuotas"] = precios_cuotas["precio_6_cuotas"]
+            response["precio_9_cuotas"] = precios_cuotas["precio_9_cuotas"]
+            response["precio_12_cuotas"] = precios_cuotas["precio_12_cuotas"]
 
         # Calcular markups de cuotas si los precios fueron calculados
         if lista_tipo == "pvp":
             cuotas_pricelists = [
-                (precios_cuotas['precio_pvp_3_cuotas'], 18, 'markup_pvp_3_cuotas'),
-                (precios_cuotas['precio_pvp_6_cuotas'], 19, 'markup_pvp_6_cuotas'),
-                (precios_cuotas['precio_pvp_9_cuotas'], 20, 'markup_pvp_9_cuotas'),
-                (precios_cuotas['precio_pvp_12_cuotas'], 21, 'markup_pvp_12_cuotas')
+                (precios_cuotas["precio_pvp_3_cuotas"], 18, "markup_pvp_3_cuotas"),
+                (precios_cuotas["precio_pvp_6_cuotas"], 19, "markup_pvp_6_cuotas"),
+                (precios_cuotas["precio_pvp_9_cuotas"], 20, "markup_pvp_9_cuotas"),
+                (precios_cuotas["precio_pvp_12_cuotas"], 21, "markup_pvp_12_cuotas"),
             ]
         else:
             cuotas_pricelists = [
-                (precios_cuotas['precio_3_cuotas'], 17, 'markup_3_cuotas'),
-                (precios_cuotas['precio_6_cuotas'], 14, 'markup_6_cuotas'),
-                (precios_cuotas['precio_9_cuotas'], 13, 'markup_9_cuotas'),
-                (precios_cuotas['precio_12_cuotas'], 23, 'markup_12_cuotas')
+                (precios_cuotas["precio_3_cuotas"], 17, "markup_3_cuotas"),
+                (precios_cuotas["precio_6_cuotas"], 14, "markup_6_cuotas"),
+                (precios_cuotas["precio_9_cuotas"], 13, "markup_9_cuotas"),
+                (precios_cuotas["precio_12_cuotas"], 23, "markup_12_cuotas"),
             ]
 
         for precio_cuota, pricelist_id, nombre_markup in cuotas_pricelists:
@@ -952,10 +941,7 @@ async def setear_precio_rapido(
 
                     if comision_base_cuota:
                         comisiones_cuota = calcular_comision_ml_total(
-                            float(precio_cuota),
-                            comision_base_cuota,
-                            producto.iva,
-                            db=db
+                            float(precio_cuota), comision_base_cuota, producto.iva, db=db
                         )
                         limpio_cuota = calcular_limpio(
                             float(precio_cuota),
@@ -963,7 +949,7 @@ async def setear_precio_rapido(
                             producto.envio or 0,
                             comisiones_cuota["comision_total"],
                             db=db,
-                            grupo_id=grupo_id_cuota
+                            grupo_id=grupo_id_cuota,
                         )
                         markup_calculado = calcular_markup(limpio_cuota, costo_cuota) * 100
                         response[nombre_markup] = round(markup_calculado, 2)
@@ -978,7 +964,7 @@ async def recalcular_cuotas_desde_clasica(
     item_id: int,
     lista_tipo: str = Query("web", regex="^(web|pvp)$", description="Tipo de lista: web o pvp"),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user=Depends(get_current_user),
 ):
     """Recalcula precios de cuotas usando el precio clásica ya guardado.
 
@@ -1022,25 +1008,22 @@ async def recalcular_cuotas_desde_clasica(
         raise HTTPException(400, "No hay comisión configurada")
 
     comisiones = calcular_comision_ml_total(precio_base, comision_base, producto.iva, db=db)
-    limpio = calcular_limpio(precio_base, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
+    limpio = calcular_limpio(
+        precio_base, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id
+    )
     markup = calcular_markup(limpio, costo_ars)
     markup_porcentaje = round(markup * 100, 2)
 
     # Configuración de cuotas según lista_tipo
     if lista_tipo == "pvp":
         cuotas_config = {
-            'precio_pvp_3_cuotas': 18,
-            'precio_pvp_6_cuotas': 19,
-            'precio_pvp_9_cuotas': 20,
-            'precio_pvp_12_cuotas': 21
+            "precio_pvp_3_cuotas": 18,
+            "precio_pvp_6_cuotas": 19,
+            "precio_pvp_9_cuotas": 20,
+            "precio_pvp_12_cuotas": 21,
         }
     else:
-        cuotas_config = {
-            'precio_3_cuotas': 17,
-            'precio_6_cuotas': 14,
-            'precio_9_cuotas': 13,
-            'precio_12_cuotas': 23
-        }
+        cuotas_config = {"precio_3_cuotas": 17, "precio_6_cuotas": 14, "precio_9_cuotas": 13, "precio_12_cuotas": 23}
 
     # Obtener markup adicional: primero del producto, si no de configuración global
     if lista_tipo == "pvp":
@@ -1068,7 +1051,7 @@ async def recalcular_cuotas_desde_clasica(
                 pricelist_id=pricelist_id,
                 markup_objetivo=markup_porcentaje,
                 tipo_cambio=tipo_cambio,
-                adicional_markup=markup_adicional
+                adicional_markup=markup_adicional,
             )
 
             if "error" not in resultado:
@@ -1086,17 +1069,17 @@ async def recalcular_cuotas_desde_clasica(
     markups_cuotas = {}
     if lista_tipo == "pvp":
         cuotas_pricelists_save = [
-            (precios_cuotas.get('precio_pvp_3_cuotas'), 18, 'markup_pvp_3_cuotas'),
-            (precios_cuotas.get('precio_pvp_6_cuotas'), 19, 'markup_pvp_6_cuotas'),
-            (precios_cuotas.get('precio_pvp_9_cuotas'), 20, 'markup_pvp_9_cuotas'),
-            (precios_cuotas.get('precio_pvp_12_cuotas'), 21, 'markup_pvp_12_cuotas')
+            (precios_cuotas.get("precio_pvp_3_cuotas"), 18, "markup_pvp_3_cuotas"),
+            (precios_cuotas.get("precio_pvp_6_cuotas"), 19, "markup_pvp_6_cuotas"),
+            (precios_cuotas.get("precio_pvp_9_cuotas"), 20, "markup_pvp_9_cuotas"),
+            (precios_cuotas.get("precio_pvp_12_cuotas"), 21, "markup_pvp_12_cuotas"),
         ]
     else:
         cuotas_pricelists_save = [
-            (precios_cuotas.get('precio_3_cuotas'), 17, 'markup_3_cuotas'),
-            (precios_cuotas.get('precio_6_cuotas'), 14, 'markup_6_cuotas'),
-            (precios_cuotas.get('precio_9_cuotas'), 13, 'markup_9_cuotas'),
-            (precios_cuotas.get('precio_12_cuotas'), 23, 'markup_12_cuotas')
+            (precios_cuotas.get("precio_3_cuotas"), 17, "markup_3_cuotas"),
+            (precios_cuotas.get("precio_6_cuotas"), 14, "markup_6_cuotas"),
+            (precios_cuotas.get("precio_9_cuotas"), 13, "markup_9_cuotas"),
+            (precios_cuotas.get("precio_12_cuotas"), 23, "markup_12_cuotas"),
         ]
 
     for precio_cuota, pricelist_id, nombre_markup in cuotas_pricelists_save:
@@ -1105,10 +1088,7 @@ async def recalcular_cuotas_desde_clasica(
                 comision_base_cuota = obtener_comision_base(db, pricelist_id, grupo_id)
                 if comision_base_cuota:
                     comisiones_cuota = calcular_comision_ml_total(
-                        float(precio_cuota),
-                        comision_base_cuota,
-                        producto.iva,
-                        db=db
+                        float(precio_cuota), comision_base_cuota, producto.iva, db=db
                     )
                     limpio_cuota = calcular_limpio(
                         float(precio_cuota),
@@ -1116,7 +1096,7 @@ async def recalcular_cuotas_desde_clasica(
                         producto.envio or 0,
                         comisiones_cuota["comision_total"],
                         db=db,
-                        grupo_id=grupo_id
+                        grupo_id=grupo_id,
                     )
                     markup_calculado = calcular_markup(limpio_cuota, costo_ars) * 100
                     markup_redondeado = round(markup_calculado, 2)
@@ -1149,6 +1129,7 @@ async def recalcular_cuotas_desde_clasica(
 
     return response
 
+
 @router.post("/precios/set-cuota")
 async def setear_precio_cuota(
     item_id: int,
@@ -1156,7 +1137,7 @@ async def setear_precio_cuota(
     precio: float = Query(ge=0, le=999999999.99),  # Permitir 0 para borrar precios
     lista_tipo: str = Query("web", regex="^(web|pvp)$", description="Tipo de lista: web o pvp"),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user=Depends(get_current_user),
 ):
     """Setea el precio de un tipo de cuota específico (web o pvp) y calcula su markup. Si precio=0, borra la cuota."""
 
@@ -1190,28 +1171,25 @@ async def setear_precio_cuota(
             pricing.fecha_modificacion = datetime.now()
             db.commit()
             db.refresh(pricing)
-        
-        return {
-            campo_precio: None,
-            campo_markup: None
-        }
+
+        return {campo_precio: None, campo_markup: None}
 
     # Mapeo de tipo_cuota a pricelist_id según lista_tipo
     if lista_tipo == "pvp":
         pricelist_map = {
-            'clasica': 12,  # Clásica PVP
-            '3': 18,        # 3 Cuotas PVP
-            '6': 19,        # 6 Cuotas PVP
-            '9': 20,        # 9 Cuotas PVP
-            '12': 21        # 12 Cuotas PVP
+            "clasica": 12,  # Clásica PVP
+            "3": 18,  # 3 Cuotas PVP
+            "6": 19,  # 6 Cuotas PVP
+            "9": 20,  # 9 Cuotas PVP
+            "12": 21,  # 12 Cuotas PVP
         }
     else:  # web (comportamiento original)
         pricelist_map = {
-            'clasica': 4,   # Clásica Web
-            '3': 17,
-            '6': 14,
-            '9': 13,
-            '12': 23
+            "clasica": 4,  # Clásica Web
+            "3": 17,
+            "6": 14,
+            "9": 13,
+            "12": 23,
         }
     pricelist_id = pricelist_map[tipo_cuota]
 
@@ -1229,7 +1207,9 @@ async def setear_precio_cuota(
         raise HTTPException(400, "No hay comisión configurada")
 
     comisiones = calcular_comision_ml_total(precio, comision_base, producto.iva, db=db)
-    limpio = calcular_limpio(precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id)
+    limpio = calcular_limpio(
+        precio, producto.iva, producto.envio or 0, comisiones["comision_total"], db=db, grupo_id=grupo_id
+    )
     markup = calcular_markup(limpio, costo_ars)
     markup_porcentaje = round(markup * 100, 2)
 
@@ -1248,9 +1228,7 @@ async def setear_precio_cuota(
     else:
         # Crear nuevo registro
         pricing = ProductoPricing(
-            item_id=item_id,
-            usuario_id=current_user.id,
-            motivo_cambio=f"Edición cuota {tipo_cuota}"
+            item_id=item_id, usuario_id=current_user.id, motivo_cambio=f"Edición cuota {tipo_cuota}"
         )
         setattr(pricing, campo_precio, precio)
         db.add(pricing)
@@ -1269,5 +1247,5 @@ async def setear_precio_cuota(
         campo_precio: precio,
         campo_markup: markup_porcentaje,
         "limpio": round(limpio, 2),
-        "costo_ars": round(costo_ars, 2)
+        "costo_ars": round(costo_ars, 2),
     }

@@ -4,6 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class MLWebhookClient:
     """Cliente para el servicio ml-webhook que consulta la API de MercadoLibre"""
 
@@ -28,10 +29,7 @@ class MLWebhookClient:
                 resource = f"/items/{mla_id}/price_to_win?version=v2"
 
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
-                    f"{self.base_url}/api/ml/preview",
-                    params={"resource": resource}
-                )
+                response = await client.get(f"{self.base_url}/api/ml/preview", params={"resource": resource})
 
                 if response.status_code == 404:
                     logger.warning(f"Item {mla_id} no encontrado en ML")
@@ -57,8 +55,7 @@ class MLWebhookClient:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 # Consultar directamente usando el endpoint render que tiene acceso a la API
                 response = await client.get(
-                    f"{self.base_url}/api/ml/render",
-                    params={"resource": f"/items/{mla_id}", "format": "json"}
+                    f"{self.base_url}/api/ml/render", params={"resource": f"/items/{mla_id}", "format": "json"}
                 )
 
                 if response.status_code == 404:
@@ -67,8 +64,7 @@ class MLWebhookClient:
                 # El render devuelve HTML, pero podemos parsear o usar preview + consulta directa
                 # Mejor usamos el preview y complementamos
                 preview_response = await client.get(
-                    f"{self.base_url}/api/ml/preview",
-                    params={"resource": f"/items/{mla_id}"}
+                    f"{self.base_url}/api/ml/preview", params={"resource": f"/items/{mla_id}"}
                 )
 
                 if preview_response.status_code != 200:
@@ -99,10 +95,7 @@ class MLWebhookClient:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 tasks = []
                 for mla_id in mla_ids:
-                    task = client.get(
-                        f"{self.base_url}/api/ml/preview",
-                        params={"resource": f"/items/{mla_id}"}
-                    )
+                    task = client.get(f"{self.base_url}/api/ml/preview", params={"resource": f"/items/{mla_id}"})
                     tasks.append((mla_id, task))
 
                 # Ejecutar todas las requests en paralelo

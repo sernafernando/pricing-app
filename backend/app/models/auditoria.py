@@ -4,6 +4,7 @@ from datetime import datetime
 import enum
 from app.core.database import Base
 
+
 class TipoAccion(str, enum.Enum):
     MODIFICAR_PRECIO_CLASICA = "modificar_precio_clasica"
     MODIFICAR_PRECIO_WEB = "modificar_precio_web"
@@ -15,6 +16,7 @@ class TipoAccion(str, enum.Enum):
     ACTIVAR_WEB_TRANSFERENCIA = "activar_web_transferencia"
     DESACTIVAR_WEB_TRANSFERENCIA = "desactivar_web_transferencia"
     MODIFICACION_MASIVA = "modificacion_masiva"
+
 
 class Auditoria(Base):
     __tablename__ = "auditoria"
@@ -29,6 +31,6 @@ class Auditoria(Base):
     productos_afectados = Column(Integer)  # Cantidad de productos si es masivo
     comentario = Column(String(500))
     fecha = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    
+
     # Relación
     usuario = relationship("Usuario", back_populates="auditorias")

@@ -1,5 +1,4 @@
 from sqlalchemy import Column, Integer, BigInteger, Numeric, DateTime
-from sqlalchemy.sql import func
 from app.core.database import Base
 
 
@@ -8,6 +7,7 @@ class CurExchHistory(Base):
     Modelo para tbCurExchHistory del ERP
     Historial de tipos de cambio entre monedas
     """
+
     __tablename__ = "tb_cur_exch_history"
 
     # Primary Key

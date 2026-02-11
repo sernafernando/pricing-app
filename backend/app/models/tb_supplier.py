@@ -4,6 +4,7 @@ from app.core.database import Base
 
 class TBSupplier(Base):
     """Modelo para la tabla tb_supplier (proveedores del ERP)"""
+
     __tablename__ = "tb_supplier"
 
     comp_id = Column(Integer, primary_key=True)

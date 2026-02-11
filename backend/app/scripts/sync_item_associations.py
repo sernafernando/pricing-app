@@ -8,6 +8,7 @@ Ejecutar:
     python -m app.scripts.sync_item_associations --itema-id 456
     python -m app.scripts.sync_item_associations --from-id 1000
 """
+
 import sys
 from pathlib import Path
 
@@ -22,10 +23,7 @@ from app.core.database import SessionLocal
 from app.models.tb_item_association import TbItemAssociation
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # URL del gbp-parser
@@ -33,10 +31,7 @@ WORKER_URL = "http://localhost:8002/api/gbp-parser"
 
 
 def fetch_item_associations_from_erp(
-    itema_id: int = None,
-    itema_id_4update: int = None,
-    item_id: int = None,
-    item1_id: int = None
+    itema_id: int = None, itema_id_4update: int = None, item_id: int = None, item1_id: int = None
 ):
     """
     Obtiene asociaciones de items desde el ERP vía gbp-parser.
@@ -50,18 +45,16 @@ def fetch_item_associations_from_erp(
     Returns:
         Lista de registros
     """
-    params = {
-        'strScriptLabel': 'scriptItemAssociation'
-    }
+    params = {"strScriptLabel": "scriptItemAssociation"}
 
     if itema_id:
-        params['itemAID'] = itema_id
+        params["itemAID"] = itema_id
     if itema_id_4update:
-        params['itemAID4update'] = itema_id_4update
+        params["itemAID4update"] = itema_id_4update
     if item_id:
-        params['itemID'] = item_id
+        params["itemID"] = item_id
     if item1_id:
-        params['item1ID'] = item1_id
+        params["item1ID"] = item1_id
 
     logger.info(f"Consultando ERP con params: {params}")
 
@@ -89,7 +82,7 @@ def parse_bool(value):
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.lower() in ('true', '1', 'yes')
+        return value.lower() in ("true", "1", "yes")
     return bool(value)
 
 
@@ -104,10 +97,7 @@ def parse_decimal(value):
 
 
 def sync_item_associations(
-    itema_id: int = None,
-    itema_id_4update: int = None,
-    item_id: int = None,
-    item1_id: int = None
+    itema_id: int = None, itema_id_4update: int = None, item_id: int = None, item1_id: int = None
 ):
     """
     Sincroniza asociaciones de items desde el ERP.
@@ -130,10 +120,7 @@ def sync_item_associations(
 
         # Obtener registros del ERP
         registros_erp = fetch_item_associations_from_erp(
-            itema_id=itema_id,
-            itema_id_4update=itema_id_4update,
-            item_id=item_id,
-            item1_id=item1_id
+            itema_id=itema_id, itema_id_4update=itema_id_4update, item_id=item_id, item1_id=item1_id
         )
 
         logger.info(f"Recibidos {len(registros_erp)} registros del ERP")
@@ -143,15 +130,13 @@ def sync_item_associations(
             return (0, 0)
 
         # Obtener IDs existentes
-        itema_ids = [r.get('itema_id') for r in registros_erp if r.get('itema_id')]
-        existing = db_local.query(TbItemAssociation.itema_id).filter(
-            TbItemAssociation.itema_id.in_(itema_ids)
-        ).all()
+        itema_ids = [r.get("itema_id") for r in registros_erp if r.get("itema_id")]
+        existing = db_local.query(TbItemAssociation.itema_id).filter(TbItemAssociation.itema_id.in_(itema_ids)).all()
         ids_existentes = {id[0] for id in existing}
 
         # Procesar registros
         for record in registros_erp:
-            itema_id_val = record.get('itema_id')
+            itema_id_val = record.get("itema_id")
 
             if not itema_id_val:
                 logger.warning(f"Registro sin itema_id: {record}")
@@ -159,21 +144,22 @@ def sync_item_associations(
 
             # Preparar datos
             datos = {
-                'comp_id': record.get('comp_id', 1),
-                'itema_id': itema_id_val,
-                'item_id': record.get('item_id'),
-                'item_id_1': record.get('item_id_1'),
-                'iasso_qty': parse_decimal(record.get('iasso_qty')),
-                'itema_canDeleteInSO': parse_bool(record.get('itema_canDeleteInSO')),
-                'itema_discountPercentage4PriceListSUM': parse_decimal(record.get('itema_discountPercentage4PriceListSUM')),
+                "comp_id": record.get("comp_id", 1),
+                "itema_id": itema_id_val,
+                "item_id": record.get("item_id"),
+                "item_id_1": record.get("item_id_1"),
+                "iasso_qty": parse_decimal(record.get("iasso_qty")),
+                "itema_canDeleteInSO": parse_bool(record.get("itema_canDeleteInSO")),
+                "itema_discountPercentage4PriceListSUM": parse_decimal(
+                    record.get("itema_discountPercentage4PriceListSUM")
+                ),
             }
 
             # Verificar si existe
             if itema_id_val in ids_existentes:
                 # Actualizar
                 db_local.query(TbItemAssociation).filter(
-                    TbItemAssociation.comp_id == datos['comp_id'],
-                    TbItemAssociation.itema_id == itema_id_val
+                    TbItemAssociation.comp_id == datos["comp_id"], TbItemAssociation.itema_id == itema_id_val
                 ).update(datos)
                 total_actualizados += 1
             else:
@@ -230,35 +216,34 @@ async def sync_item_associations_all(db: Session):
         total_actualizados = 0
 
         # Obtener IDs existentes
-        itema_ids = [r.get('itema_id') for r in registros_erp if r.get('itema_id')]
-        existing = db.query(TbItemAssociation.itema_id).filter(
-            TbItemAssociation.itema_id.in_(itema_ids)
-        ).all()
+        itema_ids = [r.get("itema_id") for r in registros_erp if r.get("itema_id")]
+        existing = db.query(TbItemAssociation.itema_id).filter(TbItemAssociation.itema_id.in_(itema_ids)).all()
         ids_existentes = {id[0] for id in existing}
 
         # Procesar registros
         for record in registros_erp:
-            itema_id_val = record.get('itema_id')
+            itema_id_val = record.get("itema_id")
 
             if not itema_id_val:
                 continue
 
             # Preparar datos
             datos = {
-                'comp_id': record.get('comp_id', 1),
-                'itema_id': itema_id_val,
-                'item_id': record.get('item_id'),
-                'item_id_1': record.get('item_id_1'),
-                'iasso_qty': parse_decimal(record.get('iasso_qty')),
-                'itema_canDeleteInSO': parse_bool(record.get('itema_canDeleteInSO')),
-                'itema_discountPercentage4PriceListSUM': parse_decimal(record.get('itema_discountPercentage4PriceListSUM')),
+                "comp_id": record.get("comp_id", 1),
+                "itema_id": itema_id_val,
+                "item_id": record.get("item_id"),
+                "item_id_1": record.get("item_id_1"),
+                "iasso_qty": parse_decimal(record.get("iasso_qty")),
+                "itema_canDeleteInSO": parse_bool(record.get("itema_canDeleteInSO")),
+                "itema_discountPercentage4PriceListSUM": parse_decimal(
+                    record.get("itema_discountPercentage4PriceListSUM")
+                ),
             }
 
             # Verificar si existe
             if itema_id_val in ids_existentes:
                 db.query(TbItemAssociation).filter(
-                    TbItemAssociation.comp_id == datos['comp_id'],
-                    TbItemAssociation.itema_id == itema_id_val
+                    TbItemAssociation.comp_id == datos["comp_id"], TbItemAssociation.itema_id == itema_id_val
                 ).update(datos)
                 total_actualizados += 1
             else:
@@ -293,9 +278,7 @@ async def sync_item_associations_incremental(db: Session):
 
     try:
         # Obtener el último itema_id en la base de datos local
-        last_id_result = db.query(TbItemAssociation.itema_id).order_by(
-            TbItemAssociation.itema_id.desc()
-        ).first()
+        last_id_result = db.query(TbItemAssociation.itema_id).order_by(TbItemAssociation.itema_id.desc()).first()
 
         last_id = last_id_result[0] if last_id_result else 0
         logger.info(f"Último itema_id en BD local: {last_id}")
@@ -313,35 +296,34 @@ async def sync_item_associations_incremental(db: Session):
         total_actualizados = 0
 
         # Obtener IDs existentes (por si hay updates)
-        itema_ids = [r.get('itema_id') for r in registros_erp if r.get('itema_id')]
-        existing = db.query(TbItemAssociation.itema_id).filter(
-            TbItemAssociation.itema_id.in_(itema_ids)
-        ).all()
+        itema_ids = [r.get("itema_id") for r in registros_erp if r.get("itema_id")]
+        existing = db.query(TbItemAssociation.itema_id).filter(TbItemAssociation.itema_id.in_(itema_ids)).all()
         ids_existentes = {id[0] for id in existing}
 
         # Procesar registros
         for record in registros_erp:
-            itema_id_val = record.get('itema_id')
+            itema_id_val = record.get("itema_id")
 
             if not itema_id_val:
                 continue
 
             # Preparar datos
             datos = {
-                'comp_id': record.get('comp_id', 1),
-                'itema_id': itema_id_val,
-                'item_id': record.get('item_id'),
-                'item_id_1': record.get('item_id_1'),
-                'iasso_qty': parse_decimal(record.get('iasso_qty')),
-                'itema_canDeleteInSO': parse_bool(record.get('itema_canDeleteInSO')),
-                'itema_discountPercentage4PriceListSUM': parse_decimal(record.get('itema_discountPercentage4PriceListSUM')),
+                "comp_id": record.get("comp_id", 1),
+                "itema_id": itema_id_val,
+                "item_id": record.get("item_id"),
+                "item_id_1": record.get("item_id_1"),
+                "iasso_qty": parse_decimal(record.get("iasso_qty")),
+                "itema_canDeleteInSO": parse_bool(record.get("itema_canDeleteInSO")),
+                "itema_discountPercentage4PriceListSUM": parse_decimal(
+                    record.get("itema_discountPercentage4PriceListSUM")
+                ),
             }
 
             # Verificar si existe
             if itema_id_val in ids_existentes:
                 db.query(TbItemAssociation).filter(
-                    TbItemAssociation.comp_id == datos['comp_id'],
-                    TbItemAssociation.itema_id == itema_id_val
+                    TbItemAssociation.comp_id == datos["comp_id"], TbItemAssociation.itema_id == itema_id_val
                 ).update(datos)
                 total_actualizados += 1
             else:
@@ -364,33 +346,14 @@ async def sync_item_associations_incremental(db: Session):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description='Sincronizar asociaciones de items desde ERP')
-    parser.add_argument(
-        '--itema-id',
-        type=int,
-        help='ID específico de asociación'
-    )
-    parser.add_argument(
-        '--from-id',
-        type=int,
-        help='ID de asociación desde (incremental)'
-    )
-    parser.add_argument(
-        '--item-id',
-        type=int,
-        help='ID de item principal'
-    )
-    parser.add_argument(
-        '--item1-id',
-        type=int,
-        help='ID de item asociado'
-    )
+    parser = argparse.ArgumentParser(description="Sincronizar asociaciones de items desde ERP")
+    parser.add_argument("--itema-id", type=int, help="ID específico de asociación")
+    parser.add_argument("--from-id", type=int, help="ID de asociación desde (incremental)")
+    parser.add_argument("--item-id", type=int, help="ID de item principal")
+    parser.add_argument("--item1-id", type=int, help="ID de item asociado")
 
     args = parser.parse_args()
 
     sync_item_associations(
-        itema_id=args.itema_id,
-        itema_id_4update=args.from_id,
-        item_id=args.item_id,
-        item1_id=args.item1_id
+        itema_id=args.itema_id, itema_id_4update=args.from_id, item_id=args.item_id, item1_id=args.item1_id
     )

@@ -17,7 +17,7 @@ router = APIRouter()
 async def sync_catalog_status(
     mla_id: str = Query(None, description="Sincronizar solo este MLA"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Sincroniza el estado de competencia en catálogos para publicaciones de ML
@@ -63,7 +63,7 @@ async def sync_catalog_status(
                 competitors_sharing_first_place=ptw_data.get("competitors_sharing_first_place"),
                 winner_mla=ptw_data.get("winner"),
                 winner_price=float(ptw_data.get("winner_price", 0)) if ptw_data.get("winner_price") else None,
-                fecha_consulta=datetime.now()
+                fecha_consulta=datetime.now(),
             )
 
             db.add(catalog_status)
@@ -78,22 +78,22 @@ async def sync_catalog_status(
     return {
         "sincronizadas": sincronizadas,
         "errores": errores[:10],  # Limitar a 10 errores
-        "total_publicaciones": len(publicaciones)
+        "total_publicaciones": len(publicaciones),
     }
 
 
 @router.get("/catalog-status/{mla_id}")
 async def get_catalog_status(
-    mla_id: str,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    mla_id: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el último estado de catálogo de un MLA"""
 
-    status = db.query(MLCatalogStatus)\
-        .filter(MLCatalogStatus.mla == mla_id)\
-        .order_by(MLCatalogStatus.fecha_consulta.desc())\
+    status = (
+        db.query(MLCatalogStatus)
+        .filter(MLCatalogStatus.mla == mla_id)
+        .order_by(MLCatalogStatus.fecha_consulta.desc())
         .first()
+    )
 
     if not status:
         raise HTTPException(status_code=404, detail="No hay datos de catálogo para este MLA")
@@ -106,26 +106,25 @@ async def get_catalog_status(
         "price_to_win": float(status.price_to_win) if status.price_to_win else None,
         "winner_mla": status.winner_mla,
         "winner_price": float(status.winner_price) if status.winner_price else None,
-        "fecha_consulta": status.fecha_consulta.isoformat() if status.fecha_consulta else None
+        "fecha_consulta": status.fecha_consulta.isoformat() if status.fecha_consulta else None,
     }
 
 
 @router.get("/catalog-status")
-async def get_all_catalog_status(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
+async def get_all_catalog_status(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Obtiene el último estado de catálogo de todos los MLAs"""
 
     # Usar la vista para obtener el último estado de cada MLA
     from sqlalchemy import text
 
-    results = db.execute(text("""
+    results = db.execute(
+        text("""
         SELECT mla, catalog_product_id, status, current_price, price_to_win,
                winner_mla, winner_price, fecha_consulta
         FROM v_ml_catalog_status_latest
         ORDER BY fecha_consulta DESC
-    """)).fetchall()
+    """)
+    ).fetchall()
 
     return [
         {
@@ -136,7 +135,7 @@ async def get_all_catalog_status(
             "price_to_win": float(row[4]) if row[4] else None,
             "winner_mla": row[5],
             "winner_price": float(row[6]) if row[6] else None,
-            "fecha_consulta": row[7].isoformat() if row[7] else None
+            "fecha_consulta": row[7].isoformat() if row[7] else None,
         }
         for row in results
     ]
