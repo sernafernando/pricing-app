@@ -988,14 +988,26 @@ export default function DashboardMetricasML() {
                 {formatearPorcentaje((metricasGenerales.total_envios / (metricasGenerales.total_ventas_ml || 1)) * 100)}
               </span>
             </div>
-            {parseFloat(metricasGenerales.total_offset_flex || 0) > 0 && (
-              <div className={styles.metricMini}>
-                <span className={styles.metricMiniLabel}>Offset Flex</span>
-                <span className={`${styles.metricMiniValue} ${styles.offsetFlexValue}`}>
-                  {formatearMoneda(metricasGenerales.total_offset_flex)}
-                </span>
-              </div>
-            )}
+            {parseFloat(metricasGenerales.total_offset_flex || 0) > 0 && (() => {
+              const offsetFlex = parseFloat(metricasGenerales.total_offset_flex);
+              const ganancia = parseFloat(metricasGenerales.total_ganancia || 0);
+              const costo = parseFloat(metricasGenerales.total_costo || 0);
+              const markupActual = parseFloat(metricasGenerales.markup_porcentaje || 0);
+              const markupConFlex = costo > 0 ? ((ganancia + offsetFlex) / costo) * 100 : 0;
+              const varianza = markupConFlex - markupActual;
+              return (
+                <div className={styles.metricMini}>
+                  <span className={styles.metricMiniLabel}>Offset Flex</span>
+                  <span className={`${styles.metricMiniValue} ${styles.offsetFlexValue}`}>
+                    {formatearMoneda(offsetFlex)}
+                  </span>
+                  <span className={styles.metricMiniPercent} style={{ color: '#d97706' }}>
+                    {formatearPorcentaje(markupConFlex)} mkp
+                    <span className={styles.offsetFlexVarianza}> +{varianza.toFixed(2)}%</span>
+                  </span>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Gráfico de barras - Ventas por día */}
