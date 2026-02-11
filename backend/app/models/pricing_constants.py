@@ -21,6 +21,7 @@ class PricingConstants(Base):
         Numeric(5, 2), nullable=False, default=1.0
     )  # Comisión de Tienda Nube efectivo/transferencia
     comision_tienda_nube_tarjeta = Column(Numeric(5, 2), nullable=False, default=3.0)  # Comisión de Tienda Nube tarjeta
+    offset_flex = Column(Numeric(12, 2), nullable=True)  # Monto fijo offset Flex
     fecha_desde = Column(Date, nullable=False)
     fecha_hasta = Column(Date)
     fecha_creacion = Column(DateTime, default=func.now())
