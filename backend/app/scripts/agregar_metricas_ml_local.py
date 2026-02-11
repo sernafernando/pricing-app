@@ -297,6 +297,7 @@ def calcular_metricas_adicionales(row, count_per_pack, db_session):
         fecha_venta=row.fecha_venta,
         comision_base_porcentaje=comision_porcentaje,
         db_session=db_session,  # Pasar sesión para obtener pricing_constants
+        ml_logistic_type=row.tipo_logistica,
     )
 
     return {
