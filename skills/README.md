@@ -64,6 +64,8 @@ Patterns tailored for Pricing App development:
 | `pricing-app-ml-integration` | MercadoLibre API - OAuth, webhooks, item sync |
 | `pricing-app-pricing-logic` | Pricing calculations - markup, fees, tiers, currency |
 | `pricing-app-permissions` | Hybrid permission system - roles + overrides |
+| `pricing-app-auth-security` | JWT, refresh flow, endpoint protection, CORS guardrails |
+| `pricing-app-testing-ci` | Test minimums, CI gates, regression testing strategy |
 
 ### Meta Skills
 

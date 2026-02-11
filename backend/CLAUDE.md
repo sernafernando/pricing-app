@@ -1,5 +1,7 @@
 # Pricing App Backend - AI Agent Ruleset
 
+> Precedence: If any rule here conflicts with root `AGENTS.md`, follow `AGENTS.md`.
+
 > **Skills Reference**: For detailed patterns, use these skills:
 > - [`pricing-app-backend`](../skills/pricing-app-backend/SKILL.md) - FastAPI + SQLAlchemy + Alembic patterns
 > - [`pytest`](../skills/pytest/SKILL.md) - Testing patterns (fixtures, mocking, markers)
@@ -10,7 +12,34 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 
 | Action | Skill |
 |--------|-------|
+| Adding new backend endpoint behavior | `pricing-app-testing-ci` |
+| Adding refresh tokens or token checks | `pricing-app-auth-security` |
+| Calculating product prices | `pricing-app-pricing-logic` |
+| Changing auth on API endpoints | `pricing-app-auth-security` |
+| Changing frontend critical user flows | `pricing-app-testing-ci` |
+| Checking user permissions in backend | `pricing-app-permissions` |
+| Computing ML commissions | `pricing-app-pricing-logic` |
+| Creating Alembic migrations | `pricing-app-backend` |
+| Creating/modifying FastAPI endpoints | `pricing-app-backend` |
+| Creating/modifying SQLAlchemy models | `pricing-app-backend` |
+| Currency conversion (USD/ARS) | `pricing-app-pricing-logic` |
+| Fixing production bugs that require regression tests | `pricing-app-testing-ci` |
+| Implementing ML OAuth flow | `pricing-app-ml-integration` |
+| Implementing permission checks | `pricing-app-permissions` |
+| Managing user permission overrides | `pricing-app-permissions` |
+| Modifying CORS or security settings | `pricing-app-auth-security` |
+| Processing ML webhooks | `pricing-app-ml-integration` |
+| Refactoring JWT/auth flows | `pricing-app-auth-security` |
+| Refactoring auth or pricing logic | `pricing-app-testing-ci` |
+| Reviewing endpoint exposure risks | `pricing-app-auth-security` |
+| Setting up or modifying CI pipelines | `pricing-app-testing-ci` |
+| Syncing items to/from MercadoLibre | `pricing-app-ml-integration` |
+| Using PermisosContext | `pricing-app-permissions` |
+| Working with MercadoLibre API | `pricing-app-ml-integration` |
+| Working with auth/permissions in backend | `pricing-app-backend` |
+| Working with pricing tiers | `pricing-app-pricing-logic` |
 | Writing Python tests with pytest | `pytest` |
+| Writing backend business logic | `pricing-app-backend` |
 
 ---
 
