@@ -105,11 +105,7 @@ def calcular_metricas_ml(
     # TODO: Si en el futuro se necesita aplicar offset_flex solo a ciertos canales,
     # marcas o categorías, agregar filtros aquí.
     offset_flex_total = 0
-    if (
-        offset_flex_valor is not None
-        and ml_logistic_type == "self_service"
-        and monto_unitario < monto_tier3
-    ):
+    if offset_flex_valor is not None and ml_logistic_type == "self_service" and monto_unitario < monto_tier3:
         offset_flex_total = offset_flex_valor * cantidad
 
     # Markup % - Fórmula: (limpio / costo) - 1
