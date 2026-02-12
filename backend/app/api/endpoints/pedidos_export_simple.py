@@ -11,6 +11,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 import logging
 import httpx
+import json
 from pathlib import Path
 from fastapi.responses import Response
 
@@ -22,6 +23,7 @@ from app.models.sale_order_detail import SaleOrderDetail
 from app.models.tb_customer import TBCustomer
 from app.models.tb_item import TBItem
 from app.models.tb_user import TBUser
+from app.models.tienda_nube_order import TiendaNubeOrder
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -609,11 +611,24 @@ async def generar_etiqueta_zpl(
     - tipo_envio_manual: Override manual del tipo de envío (opcional)
     - tipo_domicilio_manual: Override manual del tipo de domicilio (opcional)
     """
-    # Buscar pedido con items
-    pedido = db.query(SaleOrderHeader).filter(SaleOrderHeader.soh_id == soh_id).first()
+    # Buscar pedido con items + datos de TiendaNube
+    resultado = (
+        db.query(SaleOrderHeader, TiendaNubeOrder.tno_json)
+        .outerjoin(
+            TiendaNubeOrder,
+            and_(
+                SaleOrderHeader.soh_id == TiendaNubeOrder.soh_id,
+                SaleOrderHeader.bra_id == TiendaNubeOrder.bra_id,
+            ),
+        )
+        .filter(SaleOrderHeader.soh_id == soh_id)
+        .first()
+    )
 
-    if not pedido:
+    if not resultado:
         raise HTTPException(404, f"Pedido {soh_id} no encontrado")
+
+    pedido, tn_json = resultado
 
     # Obtener items (excluyendo 2953 y 2954)
     items_query = (
@@ -632,14 +647,65 @@ async def generar_etiqueta_zpl(
     cantidad_total = sum(float(i.sod_qty) if i.sod_qty else 0 for i in items_query)
     skus_concatenados = " - ".join([i.item_code for i in items_query if i.item_code]) or "N/A"
 
-    # PRIORIDAD: override > TN > ERP
+    # Parsear datos de TiendaNube desde JSON (mismo approach que /pedidos-local)
+    tn_shipping = {}
+    if tn_json:
+        try:
+            tn_parsed = json.loads(tn_json)
+            shipping_addr = tn_parsed.get("shipping_address", {})
+            if shipping_addr and shipping_addr.get("address"):
+                address_parts = [shipping_addr.get("address", "")]
+                if shipping_addr.get("number"):
+                    address_parts.append(shipping_addr.get("number"))
+                if shipping_addr.get("floor"):
+                    address_parts.append(shipping_addr.get("floor"))
+                locality = shipping_addr.get("locality", "")
+                city = shipping_addr.get("city", "")
+                if locality and locality != city:
+                    address_parts.append(locality)
+                tn_shipping = {
+                    "address": " ".join(filter(None, address_parts)),
+                    "city": city,
+                    "province": shipping_addr.get("province", ""),
+                    "zipcode": shipping_addr.get("zipcode", ""),
+                    "phone": shipping_addr.get("phone", ""),
+                    "recipient": shipping_addr.get("name", ""),
+                }
+        except (json.JSONDecodeError, KeyError, AttributeError) as e:
+            logger.warning(f"Error parsing TN JSON for etiqueta soh_id {soh_id}: {e}")
+
+    # PRIORIDAD: override > TN JSON > TN columnas header > ERP
     direccion = (
-        pedido.override_shipping_address or pedido.tiendanube_shipping_address or pedido.soh_deliveryaddress or "N/A"
+        pedido.override_shipping_address
+        or tn_shipping.get("address")
+        or pedido.tiendanube_shipping_address
+        or pedido.soh_deliveryaddress
+        or "N/A"
     )
-    ciudad = pedido.override_shipping_city or pedido.tiendanube_shipping_city or "N/A"
-    codigo_postal = pedido.override_shipping_zipcode or pedido.tiendanube_shipping_zipcode or "N/A"
-    telefono = pedido.override_shipping_phone or pedido.tiendanube_shipping_phone or "N/A"
-    destinatario = pedido.override_shipping_recipient or pedido.tiendanube_recipient_name or "N/A"
+    ciudad = (
+        pedido.override_shipping_city
+        or tn_shipping.get("city")
+        or pedido.tiendanube_shipping_city
+        or "N/A"
+    )
+    codigo_postal = (
+        pedido.override_shipping_zipcode
+        or tn_shipping.get("zipcode")
+        or pedido.tiendanube_shipping_zipcode
+        or "N/A"
+    )
+    telefono = (
+        pedido.override_shipping_phone
+        or tn_shipping.get("phone")
+        or pedido.tiendanube_shipping_phone
+        or "N/A"
+    )
+    destinatario = (
+        pedido.override_shipping_recipient
+        or tn_shipping.get("recipient")
+        or pedido.tiendanube_recipient_name
+        or "N/A"
+    )
 
     # Tipo de envío
     tipo_envio = tipo_envio_manual
