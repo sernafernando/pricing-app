@@ -9,15 +9,15 @@ from app.core.config import settings
 
 
 class ERPWorkerClient:
-    """Cliente para interactuar con el worker de Cloudflare del ERP"""
+    """Cliente para interactuar con el gbp-parser local del ERP"""
 
     def __init__(self):
-        self.base_url = settings.ERP_BASE_URL
+        self.base_url = settings.GBP_PARSER_URL
         self.timeout = 30.0
 
     async def _fetch(self, script_label: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
-        Ejecuta una consulta al worker del ERP
+        Ejecuta una consulta al gbp-parser local
 
         Args:
             script_label: Nombre del script a ejecutar (ej: scriptBrand)
@@ -31,7 +31,7 @@ class ERPWorkerClient:
             query_params.update(params)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(f"{self.base_url}/consulta", params=query_params)
+            response = await client.get(self.base_url, params=query_params)
             response.raise_for_status()
             return response.json()
 
