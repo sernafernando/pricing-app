@@ -57,7 +57,7 @@ export default function ModalEditarCosto({
 
   const cargarMarkupCosto = async () => {
     try {
-      const response = await api.get('/configuracion/pricing-constants/actual');
+      const response = await api.get('/pricing-constants/actual');
       if (response.data.varios_porcentaje !== undefined) {
         setMarkupCosto(response.data.varios_porcentaje.toString());
         setMarkupCostoOriginal(response.data.varios_porcentaje);
