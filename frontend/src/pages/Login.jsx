@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import logoIcon from '../assets/white-g-logo.png';
 import styles from './Login.module.css';
 
 export default function Login() {
@@ -48,9 +49,9 @@ export default function Login() {
     <div className={styles.container}>
       <div className={styles.card}>
         <div className={styles.logo}>
-          <div className={styles.logoIcon}>💰</div>
+          <img src={logoIcon} alt="Logo empresa" className={styles.logoImg} />
           <h1 className={styles.title}>Pricing App</h1>
-          <p className={styles.subtitle}>Sistema de gestión de precios</p>
+          <p className={styles.subtitle}>Sistema de gestión integral</p>
         </div>
 
         <form onSubmit={handleSubmit} className={styles.form}>
