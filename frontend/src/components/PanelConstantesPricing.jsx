@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
+import { Pencil } from 'lucide-react';
 import api from '../services/api';
 import './PanelConstantesPricing.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 
 export default function PanelConstantesPricing() {
-  const modalNuevaVersion = useModalClickOutside(() => setMostrarFormNuevaVersion(false));
+  const modalNuevaVersion = useModalClickOutside(() => { setMostrarFormNuevaVersion(false); setEditandoId(null); });
   const [constanteActual, setConstanteActual] = useState(null);
   const [versiones, setVersiones] = useState([]);
   const [mostrarFormNuevaVersion, setMostrarFormNuevaVersion] = useState(false);
   const [cargando, setCargando] = useState(false);
+
+  // null = creando nueva versión, número = editando versión existente
+  const [editandoId, setEditandoId] = useState(null);
 
   // Estado para nueva versión
   const [nuevaVersion, setNuevaVersion] = useState({
@@ -42,8 +46,7 @@ export default function PanelConstantesPricing() {
       const todasVersiones = await api.get('/pricing-constants');
       setVersiones(todasVersiones.data);
 
-    } catch (error) {
-      console.error('Error cargando constantes:', error);
+    } catch {
       alert('Error al cargar constantes de pricing');
     } finally {
       setCargando(false);
@@ -73,14 +76,20 @@ export default function PanelConstantesPricing() {
         ...nuevaVersion,
         offset_flex: nuevaVersion.offset_flex === '' ? null : nuevaVersion.offset_flex,
       };
-      await api.post('/pricing-constants', payload);
 
-      alert('Nueva versión de constantes creada correctamente');
+      if (editandoId) {
+        await api.put(`/pricing-constants/${editandoId}`, payload);
+        alert('Constantes actualizadas correctamente');
+      } else {
+        await api.post('/pricing-constants', payload);
+        alert('Nueva versión de constantes creada correctamente');
+      }
+
       setMostrarFormNuevaVersion(false);
+      setEditandoId(null);
       cargarDatos();
     } catch (error) {
-      console.error('Error guardando nueva versión:', error);
-      alert(error.response?.data?.detail || 'Error al guardar nueva versión');
+      alert(error?.response?.data?.detail || 'Error al guardar versión');
     } finally {
       setCargando(false);
     }
@@ -97,8 +106,7 @@ export default function PanelConstantesPricing() {
       alert('Versión eliminada correctamente');
       cargarDatos();
     } catch (error) {
-      console.error('Error eliminando versión:', error);
-      alert(error.response?.data?.detail || 'Error al eliminar versión');
+      alert(error?.response?.data?.detail || 'Error al eliminar versión');
     } finally {
       setCargando(false);
     }
@@ -117,16 +125,18 @@ export default function PanelConstantesPricing() {
             className="btn-secondary"
             onClick={() => {
               copiarDatosActuales();
+              setEditandoId(constanteActual?.id ?? null);
               setMostrarFormNuevaVersion(true);
             }}
             disabled={!constanteActual}
           >
-            ✏️ Editar Valores Actuales
+            <Pencil size={14} /> Editar Valores Actuales
           </button>
           <button
             className="btn-tesla outline-subtle-primary"
             onClick={() => {
               copiarDatosActuales();
+              setEditandoId(null);
               setMostrarFormNuevaVersion(true);
             }}
             disabled={!constanteActual}
@@ -210,7 +220,7 @@ export default function PanelConstantesPricing() {
           onClick={modalNuevaVersion.handleOverlayClick}
         >
           <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h3>Nueva Versión de Constantes</h3>
+            <h3>{editandoId ? 'Editar Constantes Vigentes' : 'Nueva Versión de Constantes'}</h3>
 
             <div className="form-constantes">
               <div className="form-group">
@@ -346,7 +356,7 @@ export default function PanelConstantesPricing() {
             <div className="modal-actions">
               <button
                 className="btn-secondary"
-                onClick={() => setMostrarFormNuevaVersion(false)}
+                onClick={() => { setMostrarFormNuevaVersion(false); setEditandoId(null); }}
               >
                 Cancelar
               </button>

@@ -78,6 +78,7 @@ async def obtener_pricing_constants_actual(
         raise HTTPException(status_code=404, detail="No se encontraron constantes de pricing vigentes")
 
     return {
+        "id": constants.id,
         "monto_tier1": float(constants.monto_tier1),
         "monto_tier2": float(constants.monto_tier2),
         "monto_tier3": float(constants.monto_tier3),
@@ -144,6 +145,51 @@ async def crear_pricing_constants(
     db.refresh(nueva_version)
 
     return {"mensaje": "Constantes de pricing creadas correctamente", "id": nueva_version.id}
+
+
+@router.put("/pricing-constants/{id}")
+async def actualizar_pricing_constants(
+    id: int,
+    data: PricingConstantsCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN])),
+):
+    """Actualiza una versión existente de constantes de pricing"""
+    constants = db.query(PricingConstants).filter(PricingConstants.id == id).first()
+
+    if not constants:
+        raise HTTPException(status_code=404, detail="Constantes no encontradas")
+
+    # Si cambió la fecha_desde, verificar que no colisione con otra versión
+    if data.fecha_desde != constants.fecha_desde:
+        existing = (
+            db.query(PricingConstants)
+            .filter(PricingConstants.fecha_desde == data.fecha_desde, PricingConstants.id != id)
+            .first()
+        )
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ya existe una versión de constantes para la fecha {data.fecha_desde}",
+            )
+
+    constants.monto_tier1 = data.monto_tier1
+    constants.monto_tier2 = data.monto_tier2
+    constants.monto_tier3 = data.monto_tier3
+    constants.comision_tier1 = data.comision_tier1
+    constants.comision_tier2 = data.comision_tier2
+    constants.comision_tier3 = data.comision_tier3
+    constants.varios_porcentaje = data.varios_porcentaje
+    constants.grupo_comision_default = data.grupo_comision_default
+    constants.markup_adicional_cuotas = data.markup_adicional_cuotas
+    constants.comision_tienda_nube = data.comision_tienda_nube
+    constants.comision_tienda_nube_tarjeta = data.comision_tienda_nube_tarjeta
+    constants.offset_flex = data.offset_flex
+
+    db.commit()
+    db.refresh(constants)
+
+    return {"mensaje": "Constantes de pricing actualizadas correctamente", "id": constants.id}
 
 
 @router.delete("/pricing-constants/{id}")
