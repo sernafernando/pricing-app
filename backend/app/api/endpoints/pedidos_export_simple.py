@@ -682,29 +682,13 @@ async def generar_etiqueta_zpl(
         or pedido.soh_deliveryaddress
         or "N/A"
     )
-    ciudad = (
-        pedido.override_shipping_city
-        or tn_shipping.get("city")
-        or pedido.tiendanube_shipping_city
-        or "N/A"
-    )
+    ciudad = pedido.override_shipping_city or tn_shipping.get("city") or pedido.tiendanube_shipping_city or "N/A"
     codigo_postal = (
-        pedido.override_shipping_zipcode
-        or tn_shipping.get("zipcode")
-        or pedido.tiendanube_shipping_zipcode
-        or "N/A"
+        pedido.override_shipping_zipcode or tn_shipping.get("zipcode") or pedido.tiendanube_shipping_zipcode or "N/A"
     )
-    telefono = (
-        pedido.override_shipping_phone
-        or tn_shipping.get("phone")
-        or pedido.tiendanube_shipping_phone
-        or "N/A"
-    )
+    telefono = pedido.override_shipping_phone or tn_shipping.get("phone") or pedido.tiendanube_shipping_phone or "N/A"
     destinatario = (
-        pedido.override_shipping_recipient
-        or tn_shipping.get("recipient")
-        or pedido.tiendanube_recipient_name
-        or "N/A"
+        pedido.override_shipping_recipient or tn_shipping.get("recipient") or pedido.tiendanube_recipient_name or "N/A"
     )
 
     # Tipo de envío
