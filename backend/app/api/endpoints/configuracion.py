@@ -152,7 +152,11 @@ async def eliminar_pricing_constants(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN])),
 ):
-    """Elimina una versión de constantes de pricing"""
+    """Elimina una versión de constantes de pricing.
+
+    Si se elimina la versión vigente, reabre la versión anterior
+    (le quita fecha_hasta) para que no quede un hueco sin constantes.
+    """
     constants = db.query(PricingConstants).filter(PricingConstants.id == id).first()
 
     if not constants:
@@ -162,6 +166,31 @@ async def eliminar_pricing_constants(
     total_versiones = db.query(PricingConstants).count()
     if total_versiones <= 1:
         raise HTTPException(status_code=400, detail="No se puede eliminar la última versión de constantes")
+
+    # Detectar si es la versión vigente (sin fecha_hasta o fecha_hasta >= hoy)
+    hoy = date.today()
+    es_vigente = constants.fecha_hasta is None or constants.fecha_hasta >= hoy
+
+    if es_vigente:
+        # Buscar la versión anterior más reciente para reactivarla
+        version_anterior = (
+            db.query(PricingConstants)
+            .filter(
+                PricingConstants.id != id,
+                PricingConstants.fecha_desde < constants.fecha_desde,
+            )
+            .order_by(PricingConstants.fecha_desde.desc())
+            .first()
+        )
+
+        if not version_anterior:
+            raise HTTPException(
+                status_code=400,
+                detail="No se puede eliminar la versión vigente sin una versión anterior que la reemplace",
+            )
+
+        # Reabrir la versión anterior
+        version_anterior.fecha_hasta = None
 
     db.delete(constants)
     db.commit()

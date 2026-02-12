@@ -101,12 +101,11 @@ def calcular_metricas_ml(
 
     # Offset Flex: se aplica a ventas con logística self_service (Flex)
     # cuando el precio unitario con IVA es MENOR que monto_tier3 (envío gratis).
-    # El offset se suma por unidad vendida.
-    # TODO: Si en el futuro se necesita aplicar offset_flex solo a ciertos canales,
-    # marcas o categorías, agregar filtros aquí.
+    # El offset es un monto fijo POR ENVÍO (no por unidad), ya que Flex cobra
+    # un único costo de envío independientemente de la cantidad de unidades.
     offset_flex_total = 0
     if offset_flex_valor is not None and ml_logistic_type == "self_service" and monto_unitario < monto_tier3:
-        offset_flex_total = offset_flex_valor * cantidad
+        offset_flex_total = offset_flex_valor
 
     # Markup % - Fórmula: (limpio / costo) - 1
     markup_porcentaje = None
