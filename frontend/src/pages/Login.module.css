@@ -1,161 +1,168 @@
+/* ============================================
+   LOGIN PAGE - Cloudflare Design System
+   
+   Estilo minimalista que matchea con el resto
+   de la app (Sidebar, TopBar, Cards).
+   Usa tokens --cf-* para dark/light automático.
+   ============================================ */
+
+/* Full-screen centered container
+   position: fixed takes it out of #root flow entirely,
+   ignoring the 2rem padding from App.css boilerplate. */
 .container {
-  min-height: 100vh;
+  position: fixed;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--gradient-primary);
-  padding: 20px;
+  background: var(--cf-bg-app);
+  padding: var(--spacing-md);
+  box-sizing: border-box;
+  overflow-y: auto;
 }
 
+/* Card - Cloudflare style */
 .card {
-  background: var(--bg-primary);
-  padding: 48px;
-  border-radius: 16px;
-  box-shadow: var(--shadow-lg);
+  background: var(--cf-card-bg);
+  border: 1px solid var(--cf-card-border);
+  border-radius: var(--cf-card-radius);
+  box-shadow: var(--cf-card-shadow);
+  padding: var(--spacing-2xl) var(--spacing-xl);
   width: 100%;
-  max-width: 420px;
+  max-width: 400px;
 }
 
+/* Logo area */
 .logo {
-  text-align: center;
-  margin-bottom: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: var(--spacing-xl);
 }
 
-.logoIcon {
-  width: 64px;
-  height: 64px;
-  background: var(--gradient-primary);
-  border-radius: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  margin-bottom: 16px;
+/* Logo image - same pattern as TopBar
+   Image is 1460x207 (7:1 ratio). At height 40px → ~282px wide.
+   margin: 0 auto forces true horizontal centering. */
+.logoImg {
+  height: 40px;
+  width: auto;
+  display: block;
+  margin: 0 auto var(--spacing-md);
+  transition: opacity var(--duration-200) var(--ease-out);
+}
+
+/* Light mode: invert white logo to black */
+:global([data-theme="light"]) .logoImg {
+  filter: invert(1) brightness(0);
 }
 
 .title {
-  font-size: 28px;
-  font-weight: bold;
-  color: var(--text-primary);
-  margin: 0 0 8px 0;
+  font-size: var(--font-2xl);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  margin: 0 0 var(--spacing-xs) 0;
+  letter-spacing: var(--tracking-tight);
 }
 
 .subtitle {
-  color: var(--text-secondary);
-  font-size: 14px;
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-sm);
+  font-weight: var(--font-normal);
   margin: 0;
 }
 
+/* Form */
 .form {
-  margin-top: 32px;
+  margin-top: var(--spacing-lg);
 }
 
 .formGroup {
-  margin-bottom: 24px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .label {
   display: block;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  margin-bottom: 8px;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-secondary);
+  margin-bottom: var(--spacing-sm);
 }
 
+/* Inputs - Let theme.css globals handle base styling,
+   only add login-specific tweaks */
 .input {
   width: 100%;
-  padding: 12px 16px;
-  font-size: 16px;
-  border: 2px solid var(--border-primary);
-  border-radius: 8px;
-  transition: all 0.2s;
   box-sizing: border-box;
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: var(--font-sm);
+  transition: border-color var(--duration-150) var(--ease-in-out),
+              box-shadow var(--duration-150) var(--ease-in-out);
+}
+
+.input::placeholder {
+  color: var(--cf-text-muted);
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
+/* Error message */
 .error {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: var(--error);
-  padding: 12px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  margin-bottom: 24px;
-  border-left: 4px solid var(--error);
+  background: var(--error-bg);
+  color: var(--error-text);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-lg);
+  border-left: 3px solid var(--error);
 }
 
+/* Submit button - Tesla subtle style */
 .button {
-  width: 100%;
-  padding: 14px;
-  background: var(--gradient-primary);
-  color: var(--text-inverse);
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  composes: btn-tesla outline-subtle-primary lg full from '../styles/buttons-tesla.css';
 }
 
-.button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
-}
-
-.button:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.button:disabled {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
+/* Footer */
 .footer {
-  margin-top: 24px;
+  margin-top: var(--spacing-lg);
   text-align: center;
-  font-size: 14px;
-  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  color: var(--cf-text-muted);
 }
 
-.footer a {
-  color: var(--brand-primary);
-  text-decoration: none;
-  font-weight: 500;
+.footer p {
+  margin: 0;
 }
 
-.footer a:hover {
-  text-decoration: underline;
-}
-
+/* Loading overlay after successful login */
 .loadingOverlay {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 20px;
-  color: var(--text-primary);
+  gap: var(--spacing-md);
+  color: var(--cf-text-primary);
 }
 
 .loadingOverlay p {
-  font-size: 18px;
-  font-weight: 500;
+  font-size: var(--font-base);
+  font-weight: var(--font-normal);
+  color: var(--cf-text-secondary);
   margin: 0;
 }
 
 .spinner {
-  width: 48px;
-  height: 48px;
-  border: 4px solid var(--border-primary);
-  border-top-color: var(--brand-primary);
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--cf-border-default);
+  border-top-color: var(--cf-accent-blue);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -163,5 +170,22 @@
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+@media (max-width: 480px) {
+  .card {
+    padding: var(--spacing-xl) var(--spacing-lg);
+    border: none;
+    box-shadow: none;
+    background: transparent;
+  }
+  
+  .container {
+    align-items: flex-start;
+    padding-top: 15vh;
   }
 }
