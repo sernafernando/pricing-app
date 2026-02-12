@@ -54,6 +54,12 @@ allowed-tools: Read, Edit, Write, Glob, Grep, Bash
 - ALWAYS: Show user feedback on errors
 - NEVER: Fetch without error handling
 
+### Icons & Visual Style
+- ALWAYS: Use **`lucide-react`** for all icons: `import { Package, Check, X } from 'lucide-react'`
+- ALWAYS: Subtle, minimal aesthetic — clean and professional
+- NEVER: Use emoji as icons (📦, ✅, ❌, 💰, ⚡, etc.) — use lucide SVGs instead
+- NEVER: Use `react-icons` for new code — standardized on `lucide-react`
+
 ### Accessibility
 - ALWAYS: Alt text on images: `<img src="logo.png" alt="Company logo" />`
 - ALWAYS: Semantic HTML: `<button>` not `<div onClick>`
