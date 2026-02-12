@@ -54,11 +54,8 @@ class Settings(BaseSettings):
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
 
-    # GBP Parser (internal service) - construido desde ERP_BASE_URL
-    @property
-    def GBP_PARSER_URL(self) -> str:
-        """Construye la URL del gbp-parser desde ERP_BASE_URL"""
-        return f"{self.ERP_BASE_URL}/gbp-parser"
+    # GBP Parser (internal service) - SIEMPRE localhost porque corre en el mismo servidor
+    GBP_PARSER_URL: str = "http://localhost:8002/api/gbp-parser"
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 

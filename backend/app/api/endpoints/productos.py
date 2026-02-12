@@ -7096,10 +7096,9 @@ async def force_sync_producto(
     from app.models.tb_item import TBItem
 
     try:
-        # 1. Obtener datos desde gbp-parser
-        url = f"{settings.ERP_BASE_URL}/gbp-parser"
+        # 1. Obtener datos desde gbp-parser (localhost)
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(url, json={"intExpgr_id": 64})
+            response = await client.post(settings.GBP_PARSER_URL, json={"intExpgr_id": 64})
             response.raise_for_status()
             data = response.json()
 
