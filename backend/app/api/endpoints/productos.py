@@ -4606,9 +4606,7 @@ async def recalcular_cuotas_masivo(
         raise HTTPException(400, "lista_tipo debe ser 'web' o 'pvp'")
 
     # Obtener productos con pricing existente (necesitan precio base para recalcular)
-    query = db.query(ProductoERP, ProductoPricing).join(
-        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
-    )
+    query = db.query(ProductoERP, ProductoPricing).join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
 
     # Solo productos que tengan precio base > 0 según lista_tipo
     if lista_tipo == "pvp":
@@ -4620,9 +4618,7 @@ async def recalcular_cuotas_masivo(
     if request.filtros:
         if request.filtros.get("search"):
             search_term = f"%{request.filtros['search']}%"
-            query = query.filter(
-                (ProductoERP.descripcion.ilike(search_term)) | (ProductoERP.codigo.ilike(search_term))
-            )
+            query = query.filter((ProductoERP.descripcion.ilike(search_term)) | (ProductoERP.codigo.ilike(search_term)))
 
         if request.filtros.get("con_stock") is not None:
             if request.filtros["con_stock"]:
@@ -4673,9 +4669,7 @@ async def recalcular_cuotas_masivo(
             if request.filtros["out_of_cards"]:
                 query = query.filter(ProductoPricing.out_of_cards == True)
             else:
-                query = query.filter(
-                    (ProductoPricing.out_of_cards == False) | (ProductoPricing.out_of_cards.is_(None))
-                )
+                query = query.filter((ProductoPricing.out_of_cards == False) | (ProductoPricing.out_of_cards.is_(None)))
 
         if request.filtros.get("colores"):
             colores_list = request.filtros["colores"].split(",")
@@ -4760,8 +4754,12 @@ async def recalcular_cuotas_masivo(
 
             comisiones = calcular_comision_ml_total(precio_base, comision_base, producto_erp.iva, db=db)
             limpio = calcular_limpio(
-                precio_base, producto_erp.iva, producto_erp.envio or 0, comisiones["comision_total"],
-                db=db, grupo_id=grupo_id,
+                precio_base,
+                producto_erp.iva,
+                producto_erp.envio or 0,
+                comisiones["comision_total"],
+                db=db,
+                grupo_id=grupo_id,
             )
             markup = calcular_markup(limpio, costo_ars)
             markup_porcentaje = round(markup * 100, 2)
@@ -4808,8 +4806,12 @@ async def recalcular_cuotas_masivo(
                                     float(precio_cuota), comision_base_cuota, producto_erp.iva, db=db
                                 )
                                 limpio_cuota = calcular_limpio(
-                                    float(precio_cuota), producto_erp.iva, producto_erp.envio or 0,
-                                    comisiones_cuota["comision_total"], db=db, grupo_id=grupo_id,
+                                    float(precio_cuota),
+                                    producto_erp.iva,
+                                    producto_erp.envio or 0,
+                                    comisiones_cuota["comision_total"],
+                                    db=db,
+                                    grupo_id=grupo_id,
                                 )
                                 markup_cuota = round(calcular_markup(limpio_cuota, costo_ars) * 100, 2)
                                 setattr(producto_pricing, nombre_markup, markup_cuota)
