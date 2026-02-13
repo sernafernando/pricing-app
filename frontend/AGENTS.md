@@ -104,6 +104,21 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 | `🔥` | `<Flame size={16} />` |
 | `📋` | `<ClipboardList size={16} />` |
 
+### Dialogs & User Confirmation
+- ALWAYS: Use custom modal components (Tesla Design `modals-tesla.css`) for confirmations and messages
+- ALWAYS: For destructive actions (delete, overwrite), show a confirmation modal with clear action buttons
+- ALWAYS: For error feedback, use inline messages or toast-style notifications within the UI
+- NEVER: Use `alert()`, `confirm()`, or `prompt()` — they block the thread, look terrible, and break the design system
+- NEVER: Use `window.alert()` or `window.confirm()` — same thing, same problem
+
+**Migration note**: Legacy code still uses `alert()` / `confirm()`. When touching a file, replace them with proper modals:
+
+| Old (native) | New (Tesla Design) |
+|---|---|
+| `alert('Error: ...')` | Inline error message or toast component |
+| `confirm('¿Borrar?')` | Confirmation modal with Cancel/Confirm buttons |
+| `prompt('Ingrese valor')` | Form modal with input field |
+
 ### Accessibility
 - ALWAYS: Alt text on images: `<img src="logo.png" alt="Company logo" />`
 - ALWAYS: Semantic HTML: `<button>` not `<div onClick>`
@@ -256,6 +271,7 @@ export function useDebounce(value, delay = 500) {
 - [ ] Permissions checked where needed
 - [ ] Effects have dependency arrays and cleanup
 - [ ] No emoji used as icons — lucide-react SVGs only
+- [ ] No `alert()` / `confirm()` / `prompt()` — use custom modals
 - [ ] Alt text on images
 - [ ] Semantic HTML (`<button>` not `<div onClick>`)
 
