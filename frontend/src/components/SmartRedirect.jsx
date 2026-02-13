@@ -44,7 +44,6 @@ export default function SmartRedirect() {
   const rutas = [
     { path: '/productos', permiso: 'productos.ver' },
     { path: '/tienda', permiso: 'productos.ver_tienda' },
-    { path: '/dashboard-ventas', permisos: ['ventas_ml.ver_dashboard', 'ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard'] },
     { path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
     { path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },
     { path: '/dashboard-tienda-nube', permiso: 'ventas_tn.ver_dashboard' },
