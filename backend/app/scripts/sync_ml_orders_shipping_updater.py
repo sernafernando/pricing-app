@@ -40,6 +40,7 @@ from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def parse_date(date_str: Optional[str]) -> Optional[datetime]:
     """Parsea una fecha del API externo a datetime."""
     if not date_str:
@@ -149,6 +150,7 @@ def _build_shipping_kwargs(shipping_json: dict) -> dict:
 # Core sync
 # ---------------------------------------------------------------------------
 
+
 async def sync_ml_orders_shipping_updater(
     db: Session,
     from_date: Optional[datetime] = None,
@@ -232,9 +234,7 @@ async def sync_ml_orders_shipping_updater(
 
                 # Buscar existente
                 existente = (
-                    db.query(MercadoLibreOrderShipping)
-                    .filter(MercadoLibreOrderShipping.mlm_id == mlm_id)
-                    .first()
+                    db.query(MercadoLibreOrderShipping).filter(MercadoLibreOrderShipping.mlm_id == mlm_id).first()
                 )
 
                 if existente:
@@ -282,6 +282,7 @@ async def sync_ml_orders_shipping_updater(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def parse_args() -> argparse.Namespace:
     """Parsea argumentos de línea de comandos."""
     parser = argparse.ArgumentParser(
@@ -315,18 +316,12 @@ def resolve_dates(args: argparse.Namespace) -> tuple[Optional[datetime], Optiona
 
     if args.days is not None:
         to_date = datetime.now().replace(hour=23, minute=59, second=59, microsecond=0)
-        from_date = (datetime.now() - timedelta(days=args.days)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        from_date = (datetime.now() - timedelta(days=args.days)).replace(hour=0, minute=0, second=0, microsecond=0)
     else:
         if args.from_date:
-            from_date = datetime.strptime(args.from_date, "%Y-%m-%d").replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
+            from_date = datetime.strptime(args.from_date, "%Y-%m-%d").replace(hour=0, minute=0, second=0, microsecond=0)
         if args.to_date:
-            to_date = datetime.strptime(args.to_date, "%Y-%m-%d").replace(
-                hour=23, minute=59, second=59, microsecond=0
-            )
+            to_date = datetime.strptime(args.to_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=0)
 
     return from_date, to_date
 
