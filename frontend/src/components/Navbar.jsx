@@ -12,7 +12,7 @@ export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
-  const { tienePermiso, tieneAlgunPermiso } = usePermisos();
+  const { tienePermiso } = usePermisos();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(null);
   const [facturadoHoy, setFacturadoHoy] = useState(null);
