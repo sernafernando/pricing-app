@@ -16,7 +16,6 @@ import GestionPM from './pages/GestionPM';
 import GestionAlertas from './pages/GestionAlertas';
 import Banlist from './pages/Banlist';
 import ItemsSinMLA from './pages/ItemsSinMLA';
-import DashboardVentas from './pages/DashboardVentas';
 import DashboardMetricasML from './pages/DashboardMetricasML';
 import DashboardVentasFuera from './pages/DashboardVentasFuera';
 import DashboardTiendaNube from './pages/DashboardTiendaNube';
@@ -126,11 +125,6 @@ function App() {
                 <Route path="/mla-banlist" element={
                   <ProtectedRoute permiso="admin.gestionar_mla_banlist">
                     <Banlist />
-                  </ProtectedRoute>
-                } />
-                <Route path="/dashboard-ventas" element={
-                  <ProtectedRoute permisos={['ventas_ml.ver_dashboard', 'ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard']}>
-                    <DashboardVentas />
                   </ProtectedRoute>
                 } />
                 <Route path="/dashboard-metricas-ml" element={
