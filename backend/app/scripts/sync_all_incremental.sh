@@ -73,10 +73,10 @@ else
     echo "❌ Error en ML Orders Detail"
 fi
 
-# 6. ML Orders Shipping
+# 6. ML Orders Shipping (upsert por lastUpdate)
 echo ""
 echo "🚚 [6/8] Sincronizando ML Orders Shipping..."
-python3 -m app.scripts.sync_ml_orders_shipping_incremental
+python3 -m app.scripts.sync_ml_orders_shipping_updater
 if [ $? -eq 0 ]; then
     echo "✅ ML Orders Shipping completado"
 else

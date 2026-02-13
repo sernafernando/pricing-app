@@ -33,7 +33,7 @@ from app.scripts.sync_item_transactions_incremental import sync_item_transaction
 from app.scripts.sync_item_transaction_details_incremental import sync_details_incremental
 from app.scripts.sync_ml_orders_incremental import sync_ml_orders_incremental
 from app.scripts.sync_ml_orders_detail_incremental import sync_ml_orders_detail_incremental
-from app.scripts.sync_ml_orders_shipping_incremental import sync_ml_orders_shipping_incremental
+from app.scripts.sync_ml_orders_shipping_updater import sync_ml_orders_shipping_updater
 from app.scripts.sync_ml_items_publicados_incremental import sync_items_publicados_incremental
 
 # ML Publications Snapshot removido - se ejecuta en cron separado
@@ -92,7 +92,7 @@ async def ejecutar_todas_sincronizaciones():
         {
             "nombre": "ML Orders Shipping",
             "emoji": "🚚",
-            "funcion": sync_ml_orders_shipping_incremental,
+            "funcion": sync_ml_orders_shipping_updater,
             "args_batch": False,
         },
         {
