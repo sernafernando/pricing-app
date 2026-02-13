@@ -28,7 +28,6 @@ export default function Navbar() {
   const puedeGestionarTurbo = tienePermiso('ordenes.gestionar_turbo_routing');
   const puedeVerTienda = tienePermiso('productos.ver_tienda');
   const puedeVerPreciosListas = tienePermiso('productos.ver');
-  const puedeVerDashboardVentas = tieneAlgunPermiso(['ventas_ml.ver_dashboard', 'ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard']);
   const puedeVerMetricasML = tienePermiso('ventas_ml.ver_dashboard');
   const puedeVerVentasFuera = tienePermiso('ventas_fuera.ver_dashboard');
   const puedeVerTiendaNube = tienePermiso('ventas_tn.ver_dashboard');
@@ -170,14 +169,14 @@ export default function Navbar() {
           )}
 
           {/* Dropdown Reportes (solo si tiene algún permiso de reportes) */}
-          {(puedeVerDashboardVentas || puedeVerMetricasML || puedeVerVentasFuera || puedeVerTiendaNube || puedeVerCalculos || puedeVerHistorial) && (
+          {(puedeVerMetricasML || puedeVerVentasFuera || puedeVerTiendaNube || puedeVerCalculos || puedeVerHistorial) && (
             <div
               className={styles.dropdown}
               onMouseEnter={() => setDropdownOpen('reportes')}
               onMouseLeave={() => setDropdownOpen(null)}
             >
               <div
-                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-ventas', '/dashboard-metricas-ml', '/dashboard-ventas-fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
+                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-metricas-ml', '/dashboard-ventas-fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
                 onClick={() => setDropdownOpen(dropdownOpen === 'reportes' ? null : 'reportes')}
               >
                 Reportes ▾
@@ -187,15 +186,6 @@ export default function Navbar() {
                   className={styles.dropdownMenu}
                   onMouseEnter={() => setDropdownOpen('reportes')}
                 >
-                  {puedeVerDashboardVentas && (
-                    <Link
-                      to="/dashboard-ventas"
-                      className={`${styles.dropdownItem} ${isActive('/dashboard-ventas') ? styles.activeDropdown : ''}`}
-                      onClick={() => setDropdownOpen(null)}
-                    >
-                      Dashboard Ventas
-                    </Link>
-                  )}
                   {puedeVerMetricasML && (
                     <Link
                       to="/dashboard-metricas-ml"
@@ -365,16 +355,6 @@ export default function Navbar() {
               onClick={handleLinkClick}
             >
               Preparación
-            </Link>
-          )}
-
-          {puedeVerDashboardVentas && (
-            <Link
-              to="/dashboard-ventas"
-              className={`${styles.mobileLink} ${isActive('/dashboard-ventas') ? styles.active : ''}`}
-              onClick={handleLinkClick}
-            >
-              Dashboard Ventas
             </Link>
           )}
 
