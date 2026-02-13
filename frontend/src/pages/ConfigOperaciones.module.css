@@ -175,6 +175,31 @@
   width: 80px;
 }
 
+.selectWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.selectWrapper .select {
+  appearance: none;
+  padding-right: 32px;
+  min-width: 200px;
+  cursor: pointer;
+}
+
+.selectWrapper .select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.selectIcon {
+  position: absolute;
+  right: 10px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
 .inputDate {
   padding: 6px 10px;
   border: 1px solid var(--border-primary);

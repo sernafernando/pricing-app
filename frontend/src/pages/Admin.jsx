@@ -5,6 +5,19 @@ import PanelComisiones from '../components/PanelComisiones';
 import PanelConstantesPricing from '../components/PanelConstantesPricing';
 import PanelPermisos from '../components/PanelPermisos';
 import PanelRoles from '../components/PanelRoles';
+import { registrarPagina } from '../registry/tabRegistry';
+
+registrarPagina({
+  pagePath: '/admin',
+  pageLabel: 'Admin',
+  tabs: [
+    { tabKey: 'general', label: 'General' },
+    { tabKey: 'comisiones', label: 'Comisiones' },
+    { tabKey: 'constantes', label: 'Constantes Pricing' },
+    { tabKey: 'permisos', label: 'Usuarios' },
+    { tabKey: 'roles', label: 'Roles' },
+  ],
+});
 
 export default function Admin() {
   const [tabActiva, setTabActiva] = useState('general');

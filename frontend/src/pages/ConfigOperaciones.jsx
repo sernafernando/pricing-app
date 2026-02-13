@@ -1,11 +1,22 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Users, DollarSign, Truck, Plus, ToggleLeft, ToggleRight,
-  Trash2, Save, RefreshCw, Eye, EyeOff, Clock, Hash,
+  Trash2, Save, RefreshCw, Clock, Hash, ChevronDown,
 } from 'lucide-react';
 import api from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
+import { registrarPagina, getPaginas } from '../registry/tabRegistry';
 import styles from './ConfigOperaciones.module.css';
+
+registrarPagina({
+  pagePath: '/config-operaciones',
+  pageLabel: 'Configuración',
+  tabs: [
+    { tabKey: 'operadores', label: 'Operadores' },
+    { tabKey: 'costos', label: 'Costos Envío' },
+    { tabKey: 'logisticas', label: 'Logísticas' },
+  ],
+});
 
 
 // ══════════════════════════════════════════════════════════════════════
@@ -30,11 +41,29 @@ function TabOperadores() {
 
   // Config tabs
   const [configTabs, setConfigTabs] = useState([]);
-  const [tabFormKey, setTabFormKey] = useState('');
-  const [tabFormPage, setTabFormPage] = useState('');
-  const [tabFormLabel, setTabFormLabel] = useState('');
+  const [selectedPagePath, setSelectedPagePath] = useState('');
+  const [selectedTabKey, setSelectedTabKey] = useState('');
   const [tabFormTimeout, setTabFormTimeout] = useState(15);
   const [creatingTab, setCreatingTab] = useState(false);
+
+  // Catálogo dinámico desde el registry
+  const PAGINAS_TABS_MEMO = useMemo(() => getPaginas(), []);
+
+  // Tabs disponibles filtradas (excluye las ya configuradas)
+  const selectedPage = useMemo(
+    () => PAGINAS_TABS_MEMO.find((p) => p.pagePath === selectedPagePath),
+    [PAGINAS_TABS_MEMO, selectedPagePath]
+  );
+
+  const tabsDisponibles = useMemo(() => {
+    if (!selectedPage) return [];
+    const yaConfiguradas = new Set(
+      configTabs
+        .filter((ct) => ct.page_path === selectedPagePath)
+        .map((ct) => ct.tab_key)
+    );
+    return selectedPage.tabs.filter((t) => !yaConfiguradas.has(t.tabKey));
+  }, [selectedPage, selectedPagePath, configTabs]);
 
   const cargarOperadores = useCallback(async () => {
     setLoading(true);
@@ -120,18 +149,23 @@ function TabOperadores() {
 
   const crearConfigTab = async (e) => {
     e.preventDefault();
+    if (!selectedPagePath || !selectedTabKey) return;
+
+    const pagina = PAGINAS_TABS_MEMO.find((p) => p.pagePath === selectedPagePath);
+    const tab = pagina?.tabs.find((t) => t.tabKey === selectedTabKey);
+    if (!pagina || !tab) return;
+
     setCreatingTab(true);
     setError(null);
     try {
       await api.post('/config-operaciones/tabs', {
-        tab_key: tabFormKey,
-        page_path: tabFormPage,
-        label: tabFormLabel,
+        tab_key: selectedTabKey,
+        page_path: selectedPagePath,
+        label: tab.label,
         timeout_minutos: parseInt(tabFormTimeout, 10),
       });
-      setTabFormKey('');
-      setTabFormPage('');
-      setTabFormLabel('');
+      setSelectedPagePath('');
+      setSelectedTabKey('');
       setTabFormTimeout(15);
       await cargarConfigTabs();
     } catch (err) {
@@ -351,43 +385,57 @@ function TabOperadores() {
           El timeout define cuántos minutos de inactividad antes de pedir el PIN de nuevo.
         </p>
 
-        {/* Create form */}
+        {/* Create form — dropdowns en cascada */}
         <form onSubmit={crearConfigTab} className={styles.createForm}>
           <div className={styles.formField}>
-            <label htmlFor="tab-key">Tab Key</label>
-            <input
-              id="tab-key"
-              type="text"
-              value={tabFormKey}
-              onChange={(e) => setTabFormKey(e.target.value)}
-              placeholder="envios-flex"
-              required
-              maxLength={50}
-            />
+            <label htmlFor="tab-page">Página</label>
+            <div className={styles.selectWrapper}>
+              <select
+                id="tab-page"
+                value={selectedPagePath}
+                onChange={(e) => {
+                  setSelectedPagePath(e.target.value);
+                  setSelectedTabKey('');
+                }}
+                className={styles.select}
+                required
+              >
+                <option value="">Seleccionar página...</option>
+                {PAGINAS_TABS_MEMO.map((p) => (
+                  <option key={p.pagePath} value={p.pagePath}>
+                    {p.pageLabel}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={16} className={styles.selectIcon} />
+            </div>
           </div>
           <div className={styles.formField}>
-            <label htmlFor="tab-page">Page Path</label>
-            <input
-              id="tab-page"
-              type="text"
-              value={tabFormPage}
-              onChange={(e) => setTabFormPage(e.target.value)}
-              placeholder="/pedidos-preparacion"
-              required
-              maxLength={100}
-            />
-          </div>
-          <div className={styles.formField}>
-            <label htmlFor="tab-label">Label</label>
-            <input
-              id="tab-label"
-              type="text"
-              value={tabFormLabel}
-              onChange={(e) => setTabFormLabel(e.target.value)}
-              placeholder="Envíos Flex"
-              required
-              maxLength={100}
-            />
+            <label htmlFor="tab-key">Tab</label>
+            <div className={styles.selectWrapper}>
+              <select
+                id="tab-key"
+                value={selectedTabKey}
+                onChange={(e) => setSelectedTabKey(e.target.value)}
+                className={styles.select}
+                required
+                disabled={!selectedPagePath || tabsDisponibles.length === 0}
+              >
+                <option value="">
+                  {!selectedPagePath
+                    ? 'Elegí una página primero...'
+                    : tabsDisponibles.length === 0
+                      ? 'Todas las tabs ya están configuradas'
+                      : 'Seleccionar tab...'}
+                </option>
+                {tabsDisponibles.map((t) => (
+                  <option key={t.tabKey} value={t.tabKey}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={16} className={styles.selectIcon} />
+            </div>
           </div>
           <div className={styles.formField}>
             <label htmlFor="tab-timeout">Timeout (min)</label>
@@ -404,7 +452,7 @@ function TabOperadores() {
           <button
             type="submit"
             className={styles.btnCrear}
-            disabled={creatingTab}
+            disabled={creatingTab || !selectedPagePath || !selectedTabKey}
           >
             <Plus size={16} />
             {creatingTab ? 'Creando...' : 'Agregar'}
@@ -416,9 +464,8 @@ function TabOperadores() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>Tab Key</th>
                 <th>Página</th>
-                <th>Label</th>
+                <th>Tab</th>
                 <th>Timeout</th>
                 <th>Estado</th>
                 <th>Acciones</th>
@@ -427,15 +474,16 @@ function TabOperadores() {
             <tbody>
               {configTabs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className={styles.empty}>
+                  <td colSpan={5} className={styles.empty}>
                     No hay tabs configurados
                   </td>
                 </tr>
               ) : (
-                configTabs.map((tab) => (
+                configTabs.map((tab) => {
+                  const pagina = PAGINAS_TABS_MEMO.find((p) => p.pagePath === tab.page_path);
+                  return (
                   <tr key={tab.id} className={!tab.activo ? styles.rowInactiva : ''}>
-                    <td><code>{tab.tab_key}</code></td>
-                    <td><code>{tab.page_path}</code></td>
+                    <td>{pagina?.pageLabel || tab.page_path}</td>
                     <td>{tab.label}</td>
                     <td>{tab.timeout_minutos} min</td>
                     <td>
@@ -464,7 +512,8 @@ function TabOperadores() {
                       </button>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

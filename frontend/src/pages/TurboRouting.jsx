@@ -6,6 +6,21 @@ import MapaEnvios from '../components/turbo/MapaEnvios';
 import GestionZonas from '../components/turbo/GestionZonas';
 import TabBanlist from '../components/turbo/TabBanlist';
 import TabAsignaciones from '../components/turbo/TabAsignaciones';
+import { registrarPagina } from '../registry/tabRegistry';
+
+registrarPagina({
+  pagePath: '/turbo-routing',
+  pageLabel: 'Turbo Routing',
+  tabs: [
+    { tabKey: 'envios', label: 'Envíos Pendientes' },
+    { tabKey: 'asignaciones', label: 'Asignaciones' },
+    { tabKey: 'motoqueros', label: 'Motoqueros' },
+    { tabKey: 'mapa', label: 'Mapa' },
+    { tabKey: 'zonas', label: 'Zonas' },
+    { tabKey: 'estadisticas', label: 'Estadísticas' },
+    { tabKey: 'banlist', label: 'Banlist' },
+  ],
+});
 
 export default function TurboRouting() {
   const { tienePermiso } = usePermisos();

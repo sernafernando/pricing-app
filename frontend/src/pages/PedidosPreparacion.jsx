@@ -8,6 +8,18 @@ import TabEnviosFlex from '../components/TabEnviosFlex';
 import OperadorPinLock from '../components/OperadorPinLock';
 import useOperador from '../hooks/useOperador';
 import { usePermisos } from '../contexts/PermisosContext';
+import { registrarPagina } from '../registry/tabRegistry';
+
+registrarPagina({
+  pagePath: '/pedidos-preparacion',
+  pageLabel: 'Preparación',
+  tabs: [
+    { tabKey: 'preparacion', label: 'Preparación' },
+    { tabKey: 'export', label: 'Pedidos Pendientes' },
+    { tabKey: 'codigos-postales', label: 'Códigos Postales' },
+    { tabKey: 'envios-flex', label: 'Envíos Flex' },
+  ],
+});
 
 // Componente Card para mostrar producto con sus componentes
 function ProductoCard({ producto, componentes, onLoadComponentes, getBadgeClass }) {
