@@ -131,6 +131,9 @@ export default function Productos() {
   const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
   const [productoInfo, setProductoInfo] = useState(null);
 
+  // Recálculo masivo de cuotas
+  const [recalculandoCuotasMasivo, setRecalculandoCuotasMasivo] = useState(false);
+
   // Toast notification
   const [toast, setToast] = useState(null);
 
@@ -1366,6 +1369,68 @@ export default function Productos() {
       cargarStats();
     } catch (error) {
       showToast(`Error al recalcular cuotas: ${error.response?.data?.detail || error.message}`, 'error');
+    }
+  };
+
+  // Recálculo masivo de cuotas (todas las que matchean filtros)
+  const recalcularCuotasMasivo = async () => {
+    const listaTipo = modoVista === 'pvp' ? 'pvp' : 'web';
+
+    // Construir filtros activos (misma lógica que CalcularPVPModal)
+    const hayFiltros = debouncedSearch || filtroStock !== 'todos' || filtroPrecio !== 'todos' ||
+      marcasSeleccionadas.length > 0 || subcategoriasSeleccionadas.length > 0 ||
+      pmsSeleccionados.length > 0 || filtroRebate || filtroOferta || filtroWebTransf ||
+      filtroTiendaNube || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta ||
+      filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 ||
+      filtroMLA || filtroEstadoMLA || filtroNuevos;
+
+    setRecalculandoCuotasMasivo(true);
+    try {
+      const body = { lista_tipo: listaTipo };
+
+      if (hayFiltros) {
+        body.filtros = {};
+        if (debouncedSearch) body.filtros.search = debouncedSearch;
+        if (filtroStock === 'con_stock') body.filtros.con_stock = true;
+        if (filtroStock === 'sin_stock') body.filtros.con_stock = false;
+        if (filtroPrecio === 'con_precio') body.filtros.con_precio = true;
+        if (filtroPrecio === 'sin_precio') body.filtros.con_precio = false;
+        if (marcasSeleccionadas.length > 0) body.filtros.marcas = marcasSeleccionadas.join(',');
+        if (subcategoriasSeleccionadas.length > 0) body.filtros.subcategorias = subcategoriasSeleccionadas.join(',');
+        if (filtroRebate === 'con_rebate') body.filtros.con_rebate = true;
+        if (filtroRebate === 'sin_rebate') body.filtros.con_rebate = false;
+        if (filtroOferta === 'con_oferta') body.filtros.con_oferta = true;
+        if (filtroOferta === 'sin_oferta') body.filtros.con_oferta = false;
+        if (filtroWebTransf === 'con_web_transf') body.filtros.con_web_transf = true;
+        if (filtroWebTransf === 'sin_web_transf') body.filtros.con_web_transf = false;
+        if (filtroOutOfCards === 'con_out_of_cards') body.filtros.out_of_cards = true;
+        if (filtroOutOfCards === 'sin_out_of_cards') body.filtros.out_of_cards = false;
+        if (filtroMarkupClasica === 'positivo') body.filtros.markup_clasica_positivo = true;
+        if (filtroMarkupClasica === 'negativo') body.filtros.markup_clasica_positivo = false;
+        if (coloresSeleccionados.length > 0) body.filtros.colores = coloresSeleccionados.join(',');
+        if (pmsSeleccionados.length > 0) body.filtros.pms = pmsSeleccionados.join(',');
+        if (filtroMLA === 'con_mla') body.filtros.con_mla = true;
+        if (filtroMLA === 'sin_mla') body.filtros.con_mla = false;
+        if (filtroEstadoMLA === 'activa') body.filtros.estado_mla = 'activa';
+        if (filtroEstadoMLA === 'pausada') body.filtros.estado_mla = 'pausada';
+        if (filtroNuevos === 'ultimos_7_dias') body.filtros.nuevos_ultimos_7_dias = true;
+      }
+
+      const response = await api.post('/productos/recalcular-cuotas-masivo', body);
+
+      const { procesados, errores } = response.data;
+      const mensajeErrores = errores > 0 ? ` (${errores} con errores)` : '';
+      showToast(
+        `Cuotas ${listaTipo.toUpperCase()} recalculadas: ${procesados} productos${mensajeErrores}`,
+        errores > 0 ? 'warning' : 'success'
+      );
+
+      cargarProductos();
+      cargarStats();
+    } catch (error) {
+      showToast(`Error al recalcular cuotas masivamente: ${error.response?.data?.detail || error.message}`, 'error');
+    } finally {
+      setRecalculandoCuotasMasivo(false);
     }
   };
 
@@ -2755,6 +2820,17 @@ export default function Productos() {
             title="Calcular precios PVP masivamente (Ctrl+Shift+P)"
           >
             Calcular PVP
+          </button>
+          )}
+
+          {(modoVista === 'cuotas' || modoVista === 'pvp') && puedeEditarCuotas && (
+          <button
+            onClick={recalcularCuotasMasivo}
+            className="btn-tesla outline-subtle-primary sm"
+            disabled={recalculandoCuotasMasivo}
+            title="Recalcula cuotas desde el precio base existente para todos los productos filtrados"
+          >
+            {recalculandoCuotasMasivo ? 'Recalculando...' : `Recalcular Cuotas ${modoVista === 'pvp' ? 'PVP' : 'Web'}`}
           </button>
           )}
         </div>

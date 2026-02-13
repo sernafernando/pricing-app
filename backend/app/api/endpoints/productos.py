@@ -4573,6 +4573,293 @@ async def calcular_pvp_masivo(
     }
 
 
+class RecalcularCuotasMasivoRequest(BaseModel):
+    lista_tipo: str = "web"  # "web" o "pvp"
+    filtros: dict = None
+
+
+@router.post("/productos/recalcular-cuotas-masivo")
+async def recalcular_cuotas_masivo(
+    request: RecalcularCuotasMasivoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Recalcula cuotas masivamente desde el precio base existente (web o pvp).
+
+    NO modifica el precio clásica/base: solo recalcula y persiste cuotas (3/6/9/12)
+    para cada producto que matchea los filtros y tiene precio base > 0.
+    """
+    from app.services.pricing_calculator import (
+        calcular_precio_producto,
+        obtener_tipo_cambio_actual,
+        convertir_a_pesos,
+        obtener_grupo_subcategoria,
+        obtener_comision_base,
+        calcular_comision_ml_total,
+        calcular_limpio,
+        calcular_markup,
+    )
+    from app.api.endpoints.pricing import obtener_markup_adicional_cuotas
+
+    lista_tipo = request.lista_tipo
+    if lista_tipo not in ("web", "pvp"):
+        raise HTTPException(400, "lista_tipo debe ser 'web' o 'pvp'")
+
+    # Obtener productos con pricing existente (necesitan precio base para recalcular)
+    query = db.query(ProductoERP, ProductoPricing).join(
+        ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
+    )
+
+    # Solo productos que tengan precio base > 0 según lista_tipo
+    if lista_tipo == "pvp":
+        query = query.filter(ProductoPricing.precio_pvp.isnot(None), ProductoPricing.precio_pvp > 0)
+    else:
+        query = query.filter(ProductoPricing.precio_lista_ml.isnot(None), ProductoPricing.precio_lista_ml > 0)
+
+    # Aplicar filtros (misma lógica que calcular-pvp-masivo / calcular-web-masivo)
+    if request.filtros:
+        if request.filtros.get("search"):
+            search_term = f"%{request.filtros['search']}%"
+            query = query.filter(
+                (ProductoERP.descripcion.ilike(search_term)) | (ProductoERP.codigo.ilike(search_term))
+            )
+
+        if request.filtros.get("con_stock") is not None:
+            if request.filtros["con_stock"]:
+                query = query.filter(ProductoERP.stock > 0)
+            else:
+                query = query.filter(ProductoERP.stock <= 0)
+
+        if request.filtros.get("con_precio") is not None:
+            if request.filtros["con_precio"]:
+                query = query.filter(ProductoPricing.precio_lista_ml.isnot(None))
+            else:
+                query = query.filter(ProductoPricing.precio_lista_ml.is_(None))
+
+        if request.filtros.get("marcas"):
+            marcas_list = request.filtros["marcas"].split(",")
+            query = query.filter(ProductoERP.marca.in_(marcas_list))
+
+        if request.filtros.get("subcategorias"):
+            subcats_list = [int(s) for s in request.filtros["subcategorias"].split(",")]
+            query = query.filter(ProductoERP.subcategoria_id.in_(subcats_list))
+
+        if request.filtros.get("con_rebate") is not None:
+            if request.filtros["con_rebate"]:
+                query = query.filter(ProductoPricing.participa_rebate == True)
+            else:
+                query = query.filter(
+                    (ProductoPricing.participa_rebate == False) | (ProductoPricing.participa_rebate.is_(None))
+                )
+
+        if request.filtros.get("con_oferta") is not None:
+            if request.filtros["con_oferta"]:
+                query = query.filter(ProductoPricing.participa_oferta == True)
+            else:
+                query = query.filter(
+                    (ProductoPricing.participa_oferta == False) | (ProductoPricing.participa_oferta.is_(None))
+                )
+
+        if request.filtros.get("con_web_transf") is not None:
+            if request.filtros["con_web_transf"]:
+                query = query.filter(ProductoPricing.participa_web_transferencia == True)
+            else:
+                query = query.filter(
+                    (ProductoPricing.participa_web_transferencia == False)
+                    | (ProductoPricing.participa_web_transferencia.is_(None))
+                )
+
+        if request.filtros.get("out_of_cards") is not None:
+            if request.filtros["out_of_cards"]:
+                query = query.filter(ProductoPricing.out_of_cards == True)
+            else:
+                query = query.filter(
+                    (ProductoPricing.out_of_cards == False) | (ProductoPricing.out_of_cards.is_(None))
+                )
+
+        if request.filtros.get("colores"):
+            colores_list = request.filtros["colores"].split(",")
+            query = query.filter(ProductoPricing.color.in_(colores_list))
+
+        if request.filtros.get("pms"):
+            from app.models.marca_pm import MarcaPM
+
+            pm_ids = [int(pm.strip()) for pm in request.filtros["pms"].split(",")]
+            pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids)).all()
+            if pares_pm:
+                pares_upper = [(m.upper(), c.upper()) for m, c in pares_pm]
+                query = query.filter(
+                    tuple_(func.upper(ProductoERP.marca), func.upper(ProductoERP.categoria)).in_(pares_upper)
+                )
+            else:
+                query = query.filter(ProductoERP.item_id == -1)
+
+        if request.filtros.get("markup_clasica_positivo") is not None:
+            if request.filtros["markup_clasica_positivo"]:
+                query = query.filter(ProductoPricing.markup_calculado > 0)
+            else:
+                query = query.filter(
+                    (ProductoPricing.markup_calculado <= 0) | (ProductoPricing.markup_calculado.is_(None))
+                )
+
+    productos = query.all()
+
+    # Markup adicional global (fallback si el producto no tiene custom)
+    markup_adicional_global = obtener_markup_adicional_cuotas(db)
+
+    # Cache de tipo de cambio
+    tipo_cambio_cache = {}
+    procesados = 0
+    errores = 0
+
+    # Configuración de pricelists según lista_tipo
+    if lista_tipo == "pvp":
+        cuotas_config = {
+            "precio_pvp_3_cuotas": (18, "markup_pvp_3_cuotas"),
+            "precio_pvp_6_cuotas": (19, "markup_pvp_6_cuotas"),
+            "precio_pvp_9_cuotas": (20, "markup_pvp_9_cuotas"),
+            "precio_pvp_12_cuotas": (21, "markup_pvp_12_cuotas"),
+        }
+        pricelist_clasica = 12
+    else:
+        cuotas_config = {
+            "precio_3_cuotas": (17, "markup_3_cuotas"),
+            "precio_6_cuotas": (14, "markup_6_cuotas"),
+            "precio_9_cuotas": (13, "markup_9_cuotas"),
+            "precio_12_cuotas": (23, "markup_12_cuotas"),
+        }
+        pricelist_clasica = 4
+
+    for producto_erp, producto_pricing in productos:
+        try:
+            # Obtener precio base existente
+            if lista_tipo == "pvp":
+                precio_base = float(producto_pricing.precio_pvp)
+            else:
+                precio_base = float(producto_pricing.precio_lista_ml)
+
+            if precio_base <= 0:
+                continue
+
+            # Tipo de cambio
+            tipo_cambio = None
+            if producto_erp.moneda_costo == "USD":
+                if "USD" not in tipo_cambio_cache:
+                    tipo_cambio_cache["USD"] = obtener_tipo_cambio_actual(db, "USD")
+                tipo_cambio = tipo_cambio_cache["USD"]
+                if not tipo_cambio:
+                    continue
+
+            costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
+            grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+
+            # Calcular markup del precio base existente
+            comision_base = obtener_comision_base(db, pricelist_clasica, grupo_id)
+            if not comision_base:
+                continue
+
+            comisiones = calcular_comision_ml_total(precio_base, comision_base, producto_erp.iva, db=db)
+            limpio = calcular_limpio(
+                precio_base, producto_erp.iva, producto_erp.envio or 0, comisiones["comision_total"],
+                db=db, grupo_id=grupo_id,
+            )
+            markup = calcular_markup(limpio, costo_ars)
+            markup_porcentaje = round(markup * 100, 2)
+
+            # Markup adicional: custom del producto > global
+            if lista_tipo == "pvp":
+                markup_adicional = (
+                    float(producto_pricing.markup_adicional_cuotas_pvp_custom)
+                    if producto_pricing.markup_adicional_cuotas_pvp_custom is not None
+                    else markup_adicional_global
+                )
+            else:
+                markup_adicional = (
+                    float(producto_pricing.markup_adicional_cuotas_custom)
+                    if producto_pricing.markup_adicional_cuotas_custom is not None
+                    else markup_adicional_global
+                )
+
+            # Calcular cada cuota
+            for nombre_precio, (pricelist_id, nombre_markup) in cuotas_config.items():
+                try:
+                    resultado = calcular_precio_producto(
+                        db=db,
+                        costo=producto_erp.costo,
+                        moneda_costo=producto_erp.moneda_costo,
+                        iva=producto_erp.iva,
+                        envio=producto_erp.envio or 0,
+                        subcategoria_id=producto_erp.subcategoria_id,
+                        pricelist_id=pricelist_id,
+                        markup_objetivo=markup_porcentaje,
+                        tipo_cambio=tipo_cambio,
+                        adicional_markup=markup_adicional,
+                    )
+
+                    if "error" not in resultado:
+                        precio_cuota = round(resultado["precio"], 2)
+                        setattr(producto_pricing, nombre_precio, precio_cuota if precio_cuota > 0 else None)
+
+                        # Calcular markup de esta cuota
+                        if precio_cuota > 0:
+                            comision_base_cuota = obtener_comision_base(db, pricelist_id, grupo_id)
+                            if comision_base_cuota:
+                                comisiones_cuota = calcular_comision_ml_total(
+                                    float(precio_cuota), comision_base_cuota, producto_erp.iva, db=db
+                                )
+                                limpio_cuota = calcular_limpio(
+                                    float(precio_cuota), producto_erp.iva, producto_erp.envio or 0,
+                                    comisiones_cuota["comision_total"], db=db, grupo_id=grupo_id,
+                                )
+                                markup_cuota = round(calcular_markup(limpio_cuota, costo_ars) * 100, 2)
+                                setattr(producto_pricing, nombre_markup, markup_cuota)
+                            else:
+                                setattr(producto_pricing, nombre_markup, None)
+                        else:
+                            setattr(producto_pricing, nombre_markup, None)
+                    else:
+                        setattr(producto_pricing, nombre_precio, None)
+                        setattr(producto_pricing, nombre_markup, None)
+                except Exception:
+                    setattr(producto_pricing, nombre_precio, None)
+                    setattr(producto_pricing, nombre_markup, None)
+
+            producto_pricing.usuario_id = current_user.id
+            producto_pricing.fecha_modificacion = datetime.now()
+            procesados += 1
+
+        except Exception as e:
+            logger.warning(f"Error recalculando cuotas producto {producto_erp.item_id}: {str(e)}")
+            errores += 1
+            continue
+
+    db.commit()
+
+    # Registrar auditoría masiva
+    from app.services.auditoria_service import registrar_auditoria
+    from app.models.auditoria import TipoAccion
+
+    registrar_auditoria(
+        db=db,
+        usuario_id=current_user.id,
+        tipo_accion=TipoAccion.MODIFICACION_MASIVA,
+        es_masivo=True,
+        productos_afectados=procesados,
+        valores_nuevos={
+            "accion": "recalcular_cuotas_masivo",
+            "lista_tipo": lista_tipo,
+            "filtros": request.filtros,
+        },
+        comentario=f"Recálculo masivo de cuotas {lista_tipo.upper()}",
+    )
+
+    return {
+        "procesados": procesados,
+        "errores": errores,
+        "lista_tipo": lista_tipo,
+    }
+
+
 @router.post("/productos/limpiar-rebate")
 async def limpiar_rebate(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Desactiva rebate en todos los productos"""
