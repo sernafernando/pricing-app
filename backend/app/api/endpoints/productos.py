@@ -4646,11 +4646,14 @@ async def actualizar_color_producto(
     if color not in colores_validos:
         raise HTTPException(status_code=400, detail=f"Color inválido: {color}. Válidos: {colores_validos}")
 
-    # Buscar producto pricing
+    # Buscar producto pricing, crear si no existe
     producto_pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
 
     if not producto_pricing:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
+        producto_pricing = ProductoPricing(item_id=item_id, color_marcado=color)
+        db.add(producto_pricing)
+        db.commit()
+        return {"mensaje": "Color actualizado", "color_anterior": None, "color_nuevo": color}
 
     color_anterior = producto_pricing.color_marcado
     producto_pricing.color_marcado = color
@@ -4676,11 +4679,14 @@ async def actualizar_color_producto_tienda(
     if color not in colores_validos:
         raise HTTPException(status_code=400, detail=f"Color inválido: {color}. Válidos: {colores_validos}")
 
-    # Buscar producto pricing
+    # Buscar producto pricing, crear si no existe
     producto_pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
 
     if not producto_pricing:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
+        producto_pricing = ProductoPricing(item_id=item_id, color_marcado_tienda=color)
+        db.add(producto_pricing)
+        db.commit()
+        return {"mensaje": "Color tienda actualizado", "color_anterior": None, "color_nuevo": color}
 
     color_anterior = producto_pricing.color_marcado_tienda
     producto_pricing.color_marcado_tienda = color
