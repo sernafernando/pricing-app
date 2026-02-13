@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Package, ClipboardList, MapPin, Truck } from 'lucide-react';
 import api from '../services/api';
 import styles from './PedidosPreparacion.module.css';
 import TabPedidosExport from '../components/TabPedidosExport';
+import TabCodigosPostales from '../components/TabCodigosPostales';
+import TabEnviosFlex from '../components/TabEnviosFlex';
+import OperadorPinLock from '../components/OperadorPinLock';
+import useOperador from '../hooks/useOperador';
 import { usePermisos } from '../contexts/PermisosContext';
 
 // Componente Card para mostrar producto con sus componentes
@@ -80,6 +85,7 @@ function ProductoCard({ producto, componentes, onLoadComponentes, getBadgeClass 
 
 export default function PedidosPreparacion() {
   const { tienePermiso } = usePermisos();
+  const operador = useOperador();
   
   const [resumen, setResumen] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
@@ -88,7 +94,7 @@ export default function PedidosPreparacion() {
   const [syncing, setSyncing] = useState(false);
 
   // Tab activa
-  const [tabActiva, setTabActiva] = useState('preparacion'); // 'preparacion' | 'export'
+  const [tabActiva, setTabActiva] = useState('preparacion'); // 'preparacion' | 'export' | 'codigos-postales' | 'envios-flex'
 
   // Filtros
   const [tipoEnvio, setTipoEnvio] = useState('');
@@ -429,13 +435,25 @@ export default function PedidosPreparacion() {
           className={`${styles.tabBtn} ${tabActiva === 'preparacion' ? styles.tabActiva : ''}`}
           onClick={() => setTabActiva('preparacion')}
         >
-          📦 Preparación
+          <Package size={16} /> Preparación
         </button>
         <button
           className={`${styles.tabBtn} ${tabActiva === 'export' ? styles.tabActiva : ''}`}
           onClick={() => setTabActiva('export')}
         >
-          📋 Pedidos Pendientes
+          <ClipboardList size={16} /> Pedidos Pendientes
+        </button>
+        <button
+          className={`${styles.tabBtn} ${tabActiva === 'codigos-postales' ? styles.tabActiva : ''}`}
+          onClick={() => setTabActiva('codigos-postales')}
+        >
+          <MapPin size={16} /> Códigos Postales
+        </button>
+        <button
+          className={`${styles.tabBtn} ${tabActiva === 'envios-flex' ? styles.tabActiva : ''}`}
+          onClick={() => setTabActiva('envios-flex')}
+        >
+          <Truck size={16} /> Envíos Flex
         </button>
       </div>
 
@@ -663,8 +681,18 @@ export default function PedidosPreparacion() {
             <span>Mostrando {resumen.length} productos</span>
           </div>
         </>
-      ) : (
+      ) : tabActiva === 'export' ? (
         <TabPedidosExport />
+      ) : tabActiva === 'codigos-postales' ? (
+        <TabCodigosPostales />
+      ) : (
+        <OperadorPinLock
+          tabKey="envios-flex"
+          pagePath="/pedidos-preparacion"
+          operador={operador}
+        >
+          <TabEnviosFlex operador={operador} />
+        </OperadorPinLock>
       )}
 
       {/* Modal Pre-armado */}

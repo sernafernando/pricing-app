@@ -26,6 +26,7 @@ import PedidosPreparacion from './pages/PedidosPreparacion';
 import Clientes from './pages/Clientes';
 import TurboRouting from './pages/TurboRouting';
 import CuentasCorrientes from './pages/CuentasCorrientes';
+import ConfigOperaciones from './pages/ConfigOperaciones';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
@@ -180,6 +181,11 @@ function App() {
             <Route path="/cuentas-corrientes" element={
               <ProtectedRoute permiso="reportes.ver_cuentas_corrientes">
                 <CuentasCorrientes />
+              </ProtectedRoute>
+            } />
+            <Route path="/config-operaciones" element={
+              <ProtectedRoute permiso="ordenes.ver_preparacion">
+                <ConfigOperaciones />
               </ProtectedRoute>
             } />
           </Route>
