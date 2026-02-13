@@ -36,7 +36,7 @@ from app.scripts.sync_item_transactions_incremental import sync_item_transaction
 from app.scripts.sync_item_transaction_details_incremental import sync_details_incremental
 from app.scripts.sync_ml_orders_incremental import sync_ml_orders_incremental
 from app.scripts.sync_ml_orders_detail_incremental import sync_ml_orders_detail_incremental
-from app.scripts.sync_ml_orders_shipping_incremental import sync_ml_orders_shipping_incremental
+from app.scripts.sync_ml_orders_shipping_updater import sync_ml_orders_shipping_updater
 from app.scripts.sync_ml_items_publicados_incremental import sync_items_publicados_incremental
 from app.scripts.sync_ml_items_publicados_full import sync_items_publicados_full
 from app.scripts.sync_ml_publications_incremental import sync_ml_publications_incremental
@@ -78,8 +78,8 @@ async def run_recovery():
         {"nombre": "ML Orders", "emoji": "🛒", "funcion": sync_ml_orders_incremental},
         # 8. ML Orders Detail
         {"nombre": "ML Orders Detail", "emoji": "📄", "funcion": sync_ml_orders_detail_incremental},
-        # 9. ML Orders Shipping
-        {"nombre": "ML Orders Shipping", "emoji": "🚚", "funcion": sync_ml_orders_shipping_incremental},
+        # 9. ML Orders Shipping (upsert por lastUpdate)
+        {"nombre": "ML Orders Shipping", "emoji": "🚚", "funcion": sync_ml_orders_shipping_updater},
         # 10. ML Items Publicados FULL (todas las activas)
         {"nombre": "ML Items Publicados (FULL)", "emoji": "📢", "funcion": sync_items_publicados_full},
         # 11. ML Items Publicados Incremental
