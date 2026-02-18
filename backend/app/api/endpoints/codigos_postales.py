@@ -93,9 +93,7 @@ def listar_codigos_postales(
     shipping_cps = (
         db.query(
             MercadoLibreOrderShipping.mlzip_code.label("cp"),
-            func.mode().within_group(
-                MercadoLibreOrderShipping.mlcity_name
-            ).label("localidad_frecuente"),
+            func.mode().within_group(MercadoLibreOrderShipping.mlcity_name).label("localidad_frecuente"),
             func.count().label("cantidad_envios"),
         )
         .filter(
@@ -108,20 +106,17 @@ def listar_codigos_postales(
     )
 
     # Join con la tabla de cordones
-    query = (
-        db.query(
-            shipping_cps.c.cp.label("codigo_postal"),
-            func.coalesce(
-                CodigoPostalCordon.localidad,
-                shipping_cps.c.localidad_frecuente,
-            ).label("localidad"),
-            CodigoPostalCordon.cordon,
-            shipping_cps.c.cantidad_envios,
-        )
-        .outerjoin(
-            CodigoPostalCordon,
-            CodigoPostalCordon.codigo_postal == shipping_cps.c.cp,
-        )
+    query = db.query(
+        shipping_cps.c.cp.label("codigo_postal"),
+        func.coalesce(
+            CodigoPostalCordon.localidad,
+            shipping_cps.c.localidad_frecuente,
+        ).label("localidad"),
+        CodigoPostalCordon.cordon,
+        shipping_cps.c.cantidad_envios,
+    ).outerjoin(
+        CodigoPostalCordon,
+        CodigoPostalCordon.codigo_postal == shipping_cps.c.cp,
     )
 
     # Filtros
@@ -136,8 +131,7 @@ def listar_codigos_postales(
     if search:
         search_term = f"%{search}%"
         query = query.filter(
-            (shipping_cps.c.cp.ilike(search_term))
-            | (shipping_cps.c.localidad_frecuente.ilike(search_term))
+            (shipping_cps.c.cp.ilike(search_term)) | (shipping_cps.c.localidad_frecuente.ilike(search_term))
         )
 
     # Ordenar: sin asignar primero, luego por CP
@@ -182,20 +176,14 @@ def actualizar_cordon(
         raise HTTPException(400, f"Cordón inválido. Válidos: {CORDONES_VALIDOS}")
 
     # Buscar o crear registro
-    registro = (
-        db.query(CodigoPostalCordon)
-        .filter(CodigoPostalCordon.codigo_postal == codigo_postal)
-        .first()
-    )
+    registro = db.query(CodigoPostalCordon).filter(CodigoPostalCordon.codigo_postal == codigo_postal).first()
 
     if registro:
         registro.cordon = payload.cordon
     else:
         # Obtener la localidad más frecuente de ML shipping
         localidad = (
-            db.query(
-                func.mode().within_group(MercadoLibreOrderShipping.mlcity_name)
-            )
+            db.query(func.mode().within_group(MercadoLibreOrderShipping.mlcity_name))
             .filter(
                 MercadoLibreOrderShipping.mlzip_code == codigo_postal,
                 MercadoLibreOrderShipping.mlcity_name.isnot(None),
@@ -267,7 +255,9 @@ def importar_xlsx(
         raise HTTPException(400, f"Error leyendo el archivo: {str(e)}")
 
     # Leer header para encontrar las columnas
-    header = [str(cell.value).strip().upper() if cell.value else "" for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+    header = [
+        str(cell.value).strip().upper() if cell.value else "" for cell in next(ws.iter_rows(min_row=1, max_row=1))
+    ]
 
     # Buscar columnas CP y Cordon (flexible)
     cp_col = None
@@ -302,10 +292,7 @@ def importar_xlsx(
     detalle_errores: List[str] = []
 
     # Cargar CPs existentes en memoria para bulk operation
-    existentes = {
-        r.codigo_postal: r
-        for r in db.query(CodigoPostalCordon).all()
-    }
+    existentes = {r.codigo_postal: r for r in db.query(CodigoPostalCordon).all()}
 
     for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
         total_filas += 1
@@ -328,9 +315,7 @@ def importar_xlsx(
 
             if cordon_str and cordon_str not in CORDONES_VALIDOS:
                 errores += 1
-                detalle_errores.append(
-                    f"Fila {row_idx}: Cordón '{cordon_str}' no válido para CP {cp_str}"
-                )
+                detalle_errores.append(f"Fila {row_idx}: Cordón '{cordon_str}' no válido para CP {cp_str}")
                 continue
 
             if cp_str in existentes:
@@ -421,17 +406,11 @@ def _popular_localidades_desde_shipping(db: Session) -> None:
     Para los CPs en cp_cordones que no tienen localidad,
     busca la localidad más frecuente en ML shipping y la asigna.
     """
-    sin_localidad = (
-        db.query(CodigoPostalCordon)
-        .filter(CodigoPostalCordon.localidad.is_(None))
-        .all()
-    )
+    sin_localidad = db.query(CodigoPostalCordon).filter(CodigoPostalCordon.localidad.is_(None)).all()
 
     for registro in sin_localidad:
         localidad = (
-            db.query(
-                func.mode().within_group(MercadoLibreOrderShipping.mlcity_name)
-            )
+            db.query(func.mode().within_group(MercadoLibreOrderShipping.mlcity_name))
             .filter(
                 MercadoLibreOrderShipping.mlzip_code == registro.codigo_postal,
                 MercadoLibreOrderShipping.mlcity_name.isnot(None),

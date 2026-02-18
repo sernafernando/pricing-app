@@ -95,11 +95,7 @@ def crear_logistica(
 ) -> LogisticaResponse:
     """Crea una nueva logística. El nombre debe ser único."""
 
-    existente = (
-        db.query(Logistica)
-        .filter(Logistica.nombre == payload.nombre)
-        .first()
-    )
+    existente = db.query(Logistica).filter(Logistica.nombre == payload.nombre).first()
     if existente:
         raise HTTPException(400, f"Ya existe una logística con el nombre '{payload.nombre}'")
 
@@ -133,11 +129,7 @@ def actualizar_logistica(
 
     if payload.nombre is not None:
         # Verificar unicidad
-        existente = (
-            db.query(Logistica)
-            .filter(Logistica.nombre == payload.nombre, Logistica.id != logistica_id)
-            .first()
-        )
+        existente = db.query(Logistica).filter(Logistica.nombre == payload.nombre, Logistica.id != logistica_id).first()
         if existente:
             raise HTTPException(400, f"Ya existe una logística con el nombre '{payload.nombre}'")
         logistica.nombre = payload.nombre

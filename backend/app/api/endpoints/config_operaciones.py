@@ -231,9 +231,7 @@ def crear_operador(
         )
 
     # Verificar nombre único
-    existente_nombre = (
-        db.query(Operador).filter(Operador.nombre == payload.nombre).first()
-    )
+    existente_nombre = db.query(Operador).filter(Operador.nombre == payload.nombre).first()
     if existente_nombre:
         raise HTTPException(
             status_code=400,
@@ -268,20 +266,14 @@ def actualizar_operador(
         raise HTTPException(404, "Operador no encontrado")
 
     if payload.pin is not None:
-        existente = (
-            db.query(Operador)
-            .filter(Operador.pin == payload.pin, Operador.id != operador_id)
-            .first()
-        )
+        existente = db.query(Operador).filter(Operador.pin == payload.pin, Operador.id != operador_id).first()
         if existente:
             raise HTTPException(400, f"Ya existe un operador con el PIN {payload.pin}")
         operador.pin = payload.pin
 
     if payload.nombre is not None:
         existente_nombre = (
-            db.query(Operador)
-            .filter(Operador.nombre == payload.nombre, Operador.id != operador_id)
-            .first()
+            db.query(Operador).filter(Operador.nombre == payload.nombre, Operador.id != operador_id).first()
         )
         if existente_nombre:
             raise HTTPException(
@@ -335,11 +327,7 @@ def validar_pin(
     Valida un PIN de operador. Usado por el componente PinLock del frontend.
     Solo busca entre operadores activos.
     """
-    operador = (
-        db.query(Operador)
-        .filter(Operador.pin == payload.pin, Operador.activo.is_(True))
-        .first()
-    )
+    operador = db.query(Operador).filter(Operador.pin == payload.pin, Operador.activo.is_(True)).first()
 
     if not operador:
         return ValidarPinResponse(ok=False)
@@ -366,11 +354,7 @@ def listar_config_tabs(
     current_user: Usuario = Depends(get_current_user),
 ) -> List[ConfigTabResponse]:
     """Lista todas las configuraciones de tabs que requieren PIN."""
-    return (
-        db.query(OperadorConfigTab)
-        .order_by(OperadorConfigTab.page_path, OperadorConfigTab.tab_key)
-        .all()
-    )
+    return db.query(OperadorConfigTab).order_by(OperadorConfigTab.page_path, OperadorConfigTab.tab_key).all()
 
 
 @router.post(
@@ -488,11 +472,7 @@ def registrar_actividad(
     El usuario_id se toma del usuario del sistema logueado (sesión JWT).
     """
     # Verificar que el operador existe y está activo
-    operador = (
-        db.query(Operador)
-        .filter(Operador.id == payload.operador_id, Operador.activo.is_(True))
-        .first()
-    )
+    operador = db.query(Operador).filter(Operador.id == payload.operador_id, Operador.activo.is_(True)).first()
     if not operador:
         raise HTTPException(404, "Operador no encontrado o inactivo")
 
