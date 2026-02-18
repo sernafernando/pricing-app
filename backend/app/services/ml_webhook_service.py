@@ -186,6 +186,33 @@ def extraer_estado(data: Dict[str, Any]) -> Dict[str, Any]:
         return {}
 
 
+def extraer_comentario_direccion(data: Dict[str, Any]) -> Optional[str]:
+    """
+    Extrae el comentario del comprador sobre la dirección.
+
+    Args:
+        data: Respuesta JSON de ML Webhook
+
+    Returns:
+        String con comentario o None
+
+    Ejemplo: "Referencia: Puerta negra Entre: Rondeau y Avenida Roca"
+    """
+    try:
+        receiver = data.get("receiver_address", {})
+        comment = receiver.get("comment")
+
+        if comment and isinstance(comment, str):
+            stripped = comment.strip()
+            return stripped if stripped else None
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Error extrayendo comentario dirección: {e}")
+        return None
+
+
 def extraer_tipo_geocoding(data: Dict[str, Any]) -> str:
     """
     Extrae el tipo de geocoding usado por ML.

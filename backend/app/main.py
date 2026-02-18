@@ -48,6 +48,10 @@ from app.api.endpoints import (
     sale_order_status,
     asignaciones,
     cuentas_corrientes,
+    codigos_postales,
+    logisticas,
+    etiquetas_envio,
+    config_operaciones,
 )
 from app.routers import alertas
 from app.core.config import settings
@@ -126,6 +130,10 @@ app.include_router(turbo_routing.router, prefix="/api", tags=["turbo-routing"])
 app.include_router(alertas.router, prefix="/api", tags=["alertas"])
 app.include_router(asignaciones.router, prefix="/api/asignaciones", tags=["asignaciones"])
 app.include_router(cuentas_corrientes.router, prefix="/api", tags=["cuentas-corrientes"])
+app.include_router(codigos_postales.router, prefix="/api", tags=["codigos-postales"])
+app.include_router(logisticas.router, prefix="/api", tags=["logisticas"])
+app.include_router(etiquetas_envio.router, prefix="/api", tags=["etiquetas-envio"])
+app.include_router(config_operaciones.router, prefix="/api", tags=["config-operaciones"])
 
 
 @app.get("/")

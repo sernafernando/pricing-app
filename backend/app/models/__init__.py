@@ -43,6 +43,14 @@ from app.models.alerta import Alerta, AlertaUsuarioDestinatario, AlertaUsuarioEs
 from app.models.asignacion import Asignacion
 from app.models.cuenta_corriente_proveedor import CuentaCorrienteProveedor
 from app.models.cuenta_corriente_cliente import CuentaCorrienteCliente
+from app.models.codigo_postal_cordon import CodigoPostalCordon
+from app.models.logistica import Logistica
+from app.models.etiqueta_envio import EtiquetaEnvio
+from app.models.etiqueta_envio_audit import EtiquetaEnvioAudit
+from app.models.operador import Operador
+from app.models.operador_config_tab import OperadorConfigTab
+from app.models.operador_actividad import OperadorActividad
+from app.models.logistica_costo_cordon import LogisticaCostoCordon
 
 __all__ = [
     "ProductoERP",
@@ -102,4 +110,12 @@ __all__ = [
     "Asignacion",
     "CuentaCorrienteProveedor",
     "CuentaCorrienteCliente",
+    "CodigoPostalCordon",
+    "Logistica",
+    "EtiquetaEnvio",
+    "EtiquetaEnvioAudit",
+    "Operador",
+    "OperadorConfigTab",
+    "OperadorActividad",
+    "LogisticaCostoCordon",
 ]

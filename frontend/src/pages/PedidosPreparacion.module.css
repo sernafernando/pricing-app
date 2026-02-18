@@ -23,6 +23,9 @@
 }
 
 .tabBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 12px 24px;
   border: none;
   background: transparent;
