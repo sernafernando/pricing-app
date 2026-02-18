@@ -1,12 +1,28 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
-  ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X,
+  ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
 } from 'lucide-react';
 import api from '../services/api';
 import styles from './TabEnviosFlex.module.css';
 
 const CORDONES = ['CABA', 'Cordón 1', 'Cordón 2', 'Cordón 3'];
+
+const EXPORT_COLUMNS = {
+  shipping_id: 'Shipping ID',
+  fecha_envio: 'Fecha Envío',
+  destinatario: 'Destinatario',
+  direccion: 'Dirección',
+  cp: 'CP',
+  localidad: 'Localidad',
+  cordon: 'Cordón',
+  logistica: 'Logística',
+  costo_envio: 'Costo Envío',
+  estado_ml: 'Estado ML',
+  estado_erp: 'Estado ERP',
+  pistoleado: 'Pistoleado',
+  caja: 'Caja',
+};
 
 const ML_STATUS_LABELS = {
   ready_to_ship: 'Listo para enviar',
@@ -54,7 +70,8 @@ export default function TabEnviosFlex({ operador = null }) {
   const [error, setError] = useState(null);
 
   // Filtros
-  const [fechaEnvio, setFechaEnvio] = useState(todayStr());
+  const [fechaDesde, setFechaDesde] = useState(todayStr());
+  const [fechaHasta, setFechaHasta] = useState(todayStr());
   const [filtroCordon, setFiltroCordon] = useState('');
   const [filtroLogistica, setFiltroLogistica] = useState('');
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
@@ -90,6 +107,11 @@ export default function TabEnviosFlex({ operador = null }) {
   // Error inline (reemplaza alert())
   const [errorMsg, setErrorMsg] = useState(null);
   const errorTimerRef = useRef(null);
+
+  // Export — array ordenado: el orden de tildado = orden de columnas en el XLSX
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportColumns, setExportColumns] = useState([...Object.keys(EXPORT_COLUMNS)]);
+  const [exporting, setExporting] = useState(false);
 
   // Confirm modal (reemplaza confirm())
   const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, onConfirm, challengeWord?, showComment? }
@@ -148,7 +170,8 @@ export default function TabEnviosFlex({ operador = null }) {
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (fechaEnvio) params.append('fecha_envio', fechaEnvio);
+      if (fechaDesde) params.append('fecha_desde', fechaDesde);
+      if (fechaHasta) params.append('fecha_hasta', fechaHasta);
       if (filtroCordon) params.append('cordon', filtroCordon);
       if (filtroLogistica) params.append('logistica_id', filtroLogistica);
       if (sinLogistica) params.append('sin_logistica', 'true');
@@ -157,7 +180,8 @@ export default function TabEnviosFlex({ operador = null }) {
       if (search) params.append('search', search);
 
       const statsParams = new URLSearchParams();
-      if (fechaEnvio) statsParams.append('fecha_envio', fechaEnvio);
+      if (fechaDesde) statsParams.append('fecha_desde', fechaDesde);
+      if (fechaHasta) statsParams.append('fecha_hasta', fechaHasta);
 
       const [etiqResponse, statsResponse] = await Promise.all([
         api.get(`/etiquetas-envio?${params}`),
@@ -172,7 +196,7 @@ export default function TabEnviosFlex({ operador = null }) {
     } finally {
       setLoading(false);
     }
-  }, [fechaEnvio, filtroCordon, filtroLogistica, sinLogistica, filtroMlStatus, filtroSsosId, search]);
+  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, filtroMlStatus, filtroSsosId, search]);
 
   useEffect(() => {
     cargarLogisticas();
@@ -430,7 +454,8 @@ export default function TabEnviosFlex({ operador = null }) {
       limpiarSeleccion();
       // Refresh stats
       const statsParams = new URLSearchParams();
-      if (fechaEnvio) statsParams.append('fecha_envio', fechaEnvio);
+      if (fechaDesde) statsParams.append('fecha_desde', fechaDesde);
+      if (fechaHasta) statsParams.append('fecha_hasta', fechaHasta);
       const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${statsParams}`);
       setEstadisticas(statsData);
     } catch (err) {
@@ -474,11 +499,59 @@ export default function TabEnviosFlex({ operador = null }) {
       limpiarSeleccion();
       // Refresh stats
       const statsParams = new URLSearchParams();
-      if (fechaEnvio) statsParams.append('fecha_envio', fechaEnvio);
+      if (fechaDesde) statsParams.append('fecha_desde', fechaDesde);
+      if (fechaHasta) statsParams.append('fecha_hasta', fechaHasta);
       const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${statsParams}`);
       setEstadisticas(statsData);
     } catch (err) {
       mostrarError(err);
+    }
+  };
+
+  // ── Export XLSX ─────────────────────────────────────────────
+
+  const toggleExportColumn = (key) => {
+    setExportColumns(prev => {
+      if (prev.includes(key)) {
+        return prev.filter(k => k !== key);
+      }
+      return [...prev, key];
+    });
+  };
+
+  const handleExport = async () => {
+    if (exportColumns.length === 0) return;
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('fecha_desde', fechaDesde || todayStr());
+      params.append('fecha_hasta', fechaHasta || todayStr());
+      params.append('columnas', exportColumns.join(','));
+      if (filtroCordon) params.append('cordon', filtroCordon);
+      if (filtroLogistica) params.append('logistica_id', filtroLogistica);
+      if (sinLogistica) params.append('sin_logistica', 'true');
+      if (filtroMlStatus) params.append('mlstatus', filtroMlStatus);
+      if (search) params.append('search', search);
+
+      const response = await api.get(`/etiquetas-envio/export?${params}`, {
+        responseType: 'blob',
+      });
+
+      // Descargar el archivo
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `envios_flex_${fechaDesde}_${fechaHasta}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      setShowExportModal(false);
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -513,6 +586,14 @@ export default function TabEnviosFlex({ operador = null }) {
                 {estadisticas.sin_cordon}
               </div>
               <div className={styles.statLabel}>Sin cordón</div>
+            </div>
+          )}
+          {estadisticas.costo_total > 0 && (
+            <div className={`${styles.statCard} ${styles.statCardCosto}`}>
+              <div className={styles.statValue}>
+                ${estadisticas.costo_total.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </div>
+              <div className={styles.statLabel}>Costo total</div>
             </div>
           )}
         </div>
@@ -554,9 +635,18 @@ export default function TabEnviosFlex({ operador = null }) {
         <div className={styles.filtros}>
           <input
             type="date"
-            value={fechaEnvio}
-            onChange={(e) => setFechaEnvio(e.target.value)}
+            value={fechaDesde}
+            onChange={(e) => setFechaDesde(e.target.value)}
             className={styles.dateInput}
+            title="Desde"
+          />
+          <span className={styles.dateRangeSep}>—</span>
+          <input
+            type="date"
+            value={fechaHasta}
+            onChange={(e) => setFechaHasta(e.target.value)}
+            className={styles.dateInput}
+            title="Hasta"
           />
 
           <input
@@ -636,6 +726,16 @@ export default function TabEnviosFlex({ operador = null }) {
           </label>
 
           <button
+            onClick={() => setShowExportModal(true)}
+            className={styles.btnExport}
+            disabled={etiquetas.length === 0}
+            aria-label="Exportar a Excel"
+          >
+            <Download size={16} />
+            Exportar
+          </button>
+
+          <button
             onClick={() => setShowLogisticasModal(true)}
             className={styles.btnLogisticas}
             aria-label="Gestionar logísticas"
@@ -707,6 +807,7 @@ export default function TabEnviosFlex({ operador = null }) {
                 <th>Estado ML</th>
                 <th>Fecha Envío</th>
                 <th>Logística</th>
+                <th className={styles.thCosto}>Costo</th>
                 <th>Pistoleado</th>
                 <th>Caja</th>
               </tr>
@@ -714,7 +815,7 @@ export default function TabEnviosFlex({ operador = null }) {
             <tbody>
               {etiquetas.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className={styles.empty}>
+                  <td colSpan={14} className={styles.empty}>
                     No hay etiquetas para la fecha seleccionada
                   </td>
                 </tr>
@@ -827,6 +928,11 @@ export default function TabEnviosFlex({ operador = null }) {
                           <option key={l.id} value={l.id}>{l.nombre}</option>
                         ))}
                       </select>
+                    </td>
+                    <td className={e.costo_envio != null ? styles.cellCosto : styles.cellMuted}>
+                      {e.costo_envio != null
+                        ? `$${e.costo_envio.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                        : '—'}
                     </td>
                     <td className={e.pistoleado_at ? styles.cellSuccess : styles.cellMuted}>
                       {e.pistoleado_at
@@ -1061,6 +1167,85 @@ export default function TabEnviosFlex({ operador = null }) {
                 onClick={() => setShowLogisticasModal(false)}
               >
                 Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Export */}
+      {showExportModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowExportModal(false)}>
+          <div className={styles.modalContent} onClick={(ev) => ev.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Exportar a Excel</h3>
+              <button
+                className={styles.modalClose}
+                onClick={() => setShowExportModal(false)}
+                aria-label="Cerrar modal"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={styles.modalBody}>
+              <p className={styles.exportInfo}>
+                Rango: <strong>{fechaDesde}</strong> — <strong>{fechaHasta}</strong>
+                {' · '}{etiquetas.length} etiquetas en pantalla
+              </p>
+
+              <div className={styles.exportColumnsHeader}>
+                <span className={styles.exportColumnsTitle}>Columnas a incluir</span>
+                <button
+                  className={styles.exportToggleAll}
+                  onClick={() => {
+                    if (exportColumns.length === Object.keys(EXPORT_COLUMNS).length) {
+                      setExportColumns([]);
+                    } else {
+                      setExportColumns([...Object.keys(EXPORT_COLUMNS)]);
+                    }
+                  }}
+                >
+                  {exportColumns.length === Object.keys(EXPORT_COLUMNS).length ? 'Ninguna' : 'Todas'}
+                </button>
+              </div>
+
+              <div className={styles.exportColumnsList}>
+                {Object.entries(EXPORT_COLUMNS).map(([key, label]) => {
+                  const idx = exportColumns.indexOf(key);
+                  const isChecked = idx !== -1;
+                  return (
+                    <label key={key} className={`${styles.exportColumnItem} ${isChecked ? styles.exportColumnActive : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleExportColumn(key)}
+                        className={styles.checkbox}
+                      />
+                      <span>{label}</span>
+                      {isChecked && (
+                        <span className={styles.exportColumnOrder}>({idx + 1})</span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className={styles.modalFooter}>
+              <button
+                className={styles.btnCancelar}
+                onClick={() => setShowExportModal(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                className={styles.btnExportConfirm}
+                onClick={handleExport}
+                disabled={exportColumns.length === 0 || exporting}
+              >
+                <Download size={16} />
+                {exporting ? 'Exportando...' : 'Descargar XLSX'}
               </button>
             </div>
           </div>

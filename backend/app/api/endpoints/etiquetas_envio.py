@@ -16,14 +16,16 @@ El campo "id" del QR = mlshippingid en tb_mercadolibre_orders_shipping.
 """
 
 import re
+import io
 import json
 import zipfile
 from io import BytesIO
 from datetime import date, datetime, UTC
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, String
+from sqlalchemy import func, cast, String, and_, Numeric
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,6 +41,7 @@ from app.models.sale_order_status import SaleOrderStatus
 from app.models.etiqueta_envio_audit import EtiquetaEnvioAudit
 from app.models.operador import Operador
 from app.models.operador_actividad import OperadorActividad
+from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.services.etiqueta_enrichment_service import lanzar_enriquecimiento_background
 
 router = APIRouter()
@@ -114,6 +117,9 @@ class EtiquetaEnvioResponse(BaseModel):
     pistoleado_caja: Optional[str] = None
     pistoleado_operador_nombre: Optional[str] = None
 
+    # Costo de envío (calculado desde logistica_costo_cordon)
+    costo_envio: Optional[float] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -127,6 +133,8 @@ class EstadisticasEnvioResponse(BaseModel):
     sin_logistica: int
     por_estado_ml: dict[str, int]
     por_estado_erp: dict[str, int]
+    costo_total: float = 0.0
+    costo_por_logistica: dict[str, float] = {}
 
 
 class AsignarLogisticaRequest(BaseModel):
@@ -408,7 +416,9 @@ def registrar_manual(
     summary="Listar etiquetas con datos de envío",
 )
 def listar_etiquetas(
-    fecha_envio: Optional[date] = Query(None, description="Filtrar por fecha de envío"),
+    fecha_envio: Optional[date] = Query(None, description="Filtrar por fecha de envío exacta"),
+    fecha_desde: Optional[date] = Query(None, description="Filtrar desde fecha (inclusive)"),
+    fecha_hasta: Optional[date] = Query(None, description="Filtrar hasta fecha (inclusive)"),
     cordon: Optional[str] = Query(None, description="Filtrar por cordón"),
     logistica_id: Optional[int] = Query(None, description="Filtrar por logística"),
     sin_logistica: bool = Query(False, description="Solo etiquetas sin logística asignada"),
@@ -438,6 +448,44 @@ def listar_etiquetas(
         .subquery()
     )
 
+    # Subquery: costo vigente por (logistica_id, cordon) donde vigente_desde <= hoy.
+    # cp_cordones usa tildes (Cordón) pero logistica_costo_cordon no (Cordon),
+    # así que normalizamos con REPLACE en la condición del JOIN.
+    hoy = date.today()
+    max_costo_sub = (
+        db.query(
+            LogisticaCostoCordon.logistica_id.label("costo_logistica_id"),
+            LogisticaCostoCordon.cordon.label("costo_cordon"),
+            func.max(LogisticaCostoCordon.vigente_desde).label("max_vigente"),
+        )
+        .filter(LogisticaCostoCordon.vigente_desde <= hoy)
+        .group_by(
+            LogisticaCostoCordon.logistica_id,
+            LogisticaCostoCordon.cordon,
+        )
+        .subquery()
+    )
+
+    costo_sub = (
+        db.query(
+            LogisticaCostoCordon.logistica_id.label("costo_log_id"),
+            LogisticaCostoCordon.cordon.label("costo_cordon_val"),
+            LogisticaCostoCordon.costo.label("costo_valor"),
+        )
+        .join(
+            max_costo_sub,
+            and_(
+                LogisticaCostoCordon.logistica_id == max_costo_sub.c.costo_logistica_id,
+                LogisticaCostoCordon.cordon == max_costo_sub.c.costo_cordon,
+                LogisticaCostoCordon.vigente_desde == max_costo_sub.c.max_vigente,
+            ),
+        )
+        .subquery()
+    )
+
+    # Expresión para normalizar cordón: "Cordón 1" → "Cordon 1" (quitar tilde)
+    cordon_normalizado = func.replace(CodigoPostalCordon.cordon, "ó", "o")
+
     query = (
         db.query(
             EtiquetaEnvio.shipping_id,
@@ -464,6 +512,7 @@ def listar_etiquetas(
             soh_sub.c.soh_ssos_id.label("ssos_id"),
             SaleOrderStatus.ssos_name,
             SaleOrderStatus.ssos_color,
+            cast(costo_sub.c.costo_valor, Numeric(12, 2)).label("costo_envio"),
         )
         .outerjoin(
             Logistica,
@@ -489,12 +538,25 @@ def listar_etiquetas(
             Operador,
             EtiquetaEnvio.pistoleado_operador_id == Operador.id,
         )
+        .outerjoin(
+            costo_sub,
+            and_(
+                costo_sub.c.costo_log_id == EtiquetaEnvio.logistica_id,
+                costo_sub.c.costo_cordon_val == cordon_normalizado,
+            ),
+        )
     )
 
     # ── Filtros ──────────────────────────────────────────────────
 
+    # fecha_envio = exacta (backward compatible), fecha_desde/fecha_hasta = rango
     if fecha_envio:
         query = query.filter(EtiquetaEnvio.fecha_envio == fecha_envio)
+    else:
+        if fecha_desde:
+            query = query.filter(EtiquetaEnvio.fecha_envio >= fecha_desde)
+        if fecha_hasta:
+            query = query.filter(EtiquetaEnvio.fecha_envio <= fecha_hasta)
 
     if cordon:
         query = query.filter(CodigoPostalCordon.cordon == cordon)
@@ -551,6 +613,7 @@ def listar_etiquetas(
             pistoleado_at=str(row.pistoleado_at) if row.pistoleado_at else None,
             pistoleado_caja=row.pistoleado_caja,
             pistoleado_operador_nombre=row.pistoleado_operador_nombre,
+            costo_envio=float(row.costo_envio) if row.costo_envio is not None else None,
         )
         for row in rows
     ]
@@ -562,16 +625,32 @@ def listar_etiquetas(
     summary="Estadísticas de distribución de etiquetas",
 )
 def estadisticas_etiquetas(
-    fecha_envio: Optional[date] = Query(None, description="Fecha de envío (por defecto hoy)"),
+    fecha_envio: Optional[date] = Query(None, description="Fecha de envío exacta (por defecto hoy)"),
+    fecha_desde: Optional[date] = Query(None, description="Filtrar desde fecha (inclusive)"),
+    fecha_hasta: Optional[date] = Query(None, description="Filtrar hasta fecha (inclusive)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> EstadisticasEnvioResponse:
     """Distribución de etiquetas por cordón, logística y estado."""
 
-    fecha = fecha_envio or date.today()
+    # Determinar filtro de fechas: exacta (backward compatible) o rango
+    if fecha_envio:
+        fecha_filter = EtiquetaEnvio.fecha_envio == fecha_envio
+        fecha_costo = fecha_envio
+    elif fecha_desde or fecha_hasta:
+        conditions = []
+        if fecha_desde:
+            conditions.append(EtiquetaEnvio.fecha_envio >= fecha_desde)
+        if fecha_hasta:
+            conditions.append(EtiquetaEnvio.fecha_envio <= fecha_hasta)
+        fecha_filter = and_(*conditions) if len(conditions) > 1 else conditions[0]
+        fecha_costo = fecha_hasta or fecha_desde or date.today()
+    else:
+        fecha_filter = EtiquetaEnvio.fecha_envio == date.today()
+        fecha_costo = date.today()
 
-    # Base: etiquetas del día
-    base_query = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.fecha_envio == fecha)
+    # Base: etiquetas filtradas
+    base_query = db.query(EtiquetaEnvio).filter(fecha_filter)
 
     total = base_query.count()
 
@@ -590,7 +669,7 @@ def estadisticas_etiquetas(
             EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
         )
         .filter(
-            EtiquetaEnvio.fecha_envio == fecha,
+            fecha_filter,
             CodigoPostalCordon.cordon.isnot(None),
         )
         .group_by(CodigoPostalCordon.cordon)
@@ -606,7 +685,7 @@ def estadisticas_etiquetas(
             func.count().label("cantidad"),
         )
         .join(EtiquetaEnvio, EtiquetaEnvio.logistica_id == Logistica.id)
-        .filter(EtiquetaEnvio.fecha_envio == fecha)
+        .filter(fecha_filter)
         .group_by(Logistica.nombre)
         .all()
     )
@@ -624,7 +703,7 @@ def estadisticas_etiquetas(
             EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
         )
         .filter(
-            EtiquetaEnvio.fecha_envio == fecha,
+            fecha_filter,
             MercadoLibreOrderShipping.mlstatus.isnot(None),
         )
         .group_by(MercadoLibreOrderShipping.mlstatus)
@@ -652,11 +731,79 @@ def estadisticas_etiquetas(
             EtiquetaEnvio,
             EtiquetaEnvio.shipping_id == soh_sub.c.shipping_id_str,
         )
-        .filter(EtiquetaEnvio.fecha_envio == fecha)
+        .filter(fecha_filter)
         .group_by(SaleOrderStatus.ssos_name)
         .all()
     )
     por_estado_erp = {row.ssos_name: row.cantidad for row in erp_status_rows}
+
+    # ── Costos de envío ─────────────────────────────────────────
+    # Subquery: costo vigente por (logistica_id, cordon) donde vigente_desde <= fecha_costo
+    max_costo_stats = (
+        db.query(
+            LogisticaCostoCordon.logistica_id.label("costo_logistica_id"),
+            LogisticaCostoCordon.cordon.label("costo_cordon"),
+            func.max(LogisticaCostoCordon.vigente_desde).label("max_vigente"),
+        )
+        .filter(LogisticaCostoCordon.vigente_desde <= fecha_costo)
+        .group_by(
+            LogisticaCostoCordon.logistica_id,
+            LogisticaCostoCordon.cordon,
+        )
+        .subquery()
+    )
+
+    costo_stats = (
+        db.query(
+            LogisticaCostoCordon.logistica_id.label("costo_log_id"),
+            LogisticaCostoCordon.cordon.label("costo_cordon_val"),
+            LogisticaCostoCordon.costo.label("costo_valor"),
+        )
+        .join(
+            max_costo_stats,
+            and_(
+                LogisticaCostoCordon.logistica_id == max_costo_stats.c.costo_logistica_id,
+                LogisticaCostoCordon.cordon == max_costo_stats.c.costo_cordon,
+                LogisticaCostoCordon.vigente_desde == max_costo_stats.c.max_vigente,
+            ),
+        )
+        .subquery()
+    )
+
+    # Normalizar cordón: "Cordón 1" → "Cordon 1"
+    cordon_norm = func.replace(CodigoPostalCordon.cordon, "ó", "o")
+
+    costo_rows = (
+        db.query(
+            Logistica.nombre.label("log_nombre"),
+            func.coalesce(func.sum(cast(costo_stats.c.costo_valor, Numeric(12, 2))), 0).label("costo_sum"),
+        )
+        .join(EtiquetaEnvio, EtiquetaEnvio.logistica_id == Logistica.id)
+        .join(
+            MercadoLibreOrderShipping,
+            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
+        )
+        .join(
+            CodigoPostalCordon,
+            MercadoLibreOrderShipping.mlzip_code == CodigoPostalCordon.codigo_postal,
+        )
+        .outerjoin(
+            costo_stats,
+            and_(
+                costo_stats.c.costo_log_id == EtiquetaEnvio.logistica_id,
+                costo_stats.c.costo_cordon_val == cordon_norm,
+            ),
+        )
+        .filter(
+            fecha_filter,
+            CodigoPostalCordon.cordon.isnot(None),
+        )
+        .group_by(Logistica.nombre)
+        .all()
+    )
+
+    costo_por_logistica = {row.log_nombre: float(row.costo_sum) for row in costo_rows}
+    costo_total = sum(costo_por_logistica.values())
 
     return EstadisticasEnvioResponse(
         total=total,
@@ -666,6 +813,252 @@ def estadisticas_etiquetas(
         sin_logistica=max(0, total - con_logistica),
         por_estado_ml=por_estado_ml,
         por_estado_erp=por_estado_erp,
+        costo_total=costo_total,
+        costo_por_logistica=costo_por_logistica,
+    )
+
+
+# ── Columnas disponibles para export ──────────────────────────────
+
+EXPORT_COLUMNS = {
+    "shipping_id": "Shipping ID",
+    "fecha_envio": "Fecha Envío",
+    "destinatario": "Destinatario",
+    "direccion": "Dirección",
+    "cp": "CP",
+    "localidad": "Localidad",
+    "cordon": "Cordón",
+    "logistica": "Logística",
+    "costo_envio": "Costo Envío",
+    "estado_ml": "Estado ML",
+    "estado_erp": "Estado ERP",
+    "pistoleado": "Pistoleado",
+    "caja": "Caja",
+}
+
+
+@router.get(
+    "/etiquetas-envio/export",
+    summary="Exportar etiquetas a Excel (XLSX)",
+    response_class=StreamingResponse,
+)
+def exportar_etiquetas(
+    fecha_desde: date = Query(..., description="Desde fecha (inclusive)"),
+    fecha_hasta: date = Query(..., description="Hasta fecha (inclusive)"),
+    columnas: Optional[str] = Query(
+        None,
+        description="Columnas a incluir (comma-separated). Si no se especifica, todas.",
+    ),
+    cordon: Optional[str] = Query(None, description="Filtrar por cordón"),
+    logistica_id: Optional[int] = Query(None, description="Filtrar por logística"),
+    sin_logistica: bool = Query(False, description="Solo sin logística asignada"),
+    mlstatus: Optional[str] = Query(None, description="Filtrar por estado ML"),
+    search: Optional[str] = Query(None, description="Buscar por shipping_id, destinatario o dirección"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> StreamingResponse:
+    """
+    Exporta etiquetas filtradas a un archivo Excel (.xlsx).
+    Soporta selección de columnas y todos los filtros de la vista.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+
+    # Validar columnas solicitadas
+    if columnas:
+        cols_solicitadas = [c.strip() for c in columnas.split(",") if c.strip()]
+        invalidas = [c for c in cols_solicitadas if c not in EXPORT_COLUMNS]
+        if invalidas:
+            raise HTTPException(400, f"Columnas inválidas: {', '.join(invalidas)}")
+    else:
+        cols_solicitadas = list(EXPORT_COLUMNS.keys())
+
+    # Reusar la query del listado (mismos JOINs)
+    soh_sub = (
+        db.query(
+            cast(SaleOrderHeader.mlshippingid, String).label("shipping_id_str"),
+            SaleOrderHeader.ssos_id.label("soh_ssos_id"),
+        )
+        .filter(SaleOrderHeader.mlshippingid.isnot(None))
+        .subquery()
+    )
+
+    hoy_export = date.today()
+    max_costo_exp = (
+        db.query(
+            LogisticaCostoCordon.logistica_id.label("costo_logistica_id"),
+            LogisticaCostoCordon.cordon.label("costo_cordon"),
+            func.max(LogisticaCostoCordon.vigente_desde).label("max_vigente"),
+        )
+        .filter(LogisticaCostoCordon.vigente_desde <= hoy_export)
+        .group_by(LogisticaCostoCordon.logistica_id, LogisticaCostoCordon.cordon)
+        .subquery()
+    )
+
+    costo_exp = (
+        db.query(
+            LogisticaCostoCordon.logistica_id.label("costo_log_id"),
+            LogisticaCostoCordon.cordon.label("costo_cordon_val"),
+            LogisticaCostoCordon.costo.label("costo_valor"),
+        )
+        .join(
+            max_costo_exp,
+            and_(
+                LogisticaCostoCordon.logistica_id == max_costo_exp.c.costo_logistica_id,
+                LogisticaCostoCordon.cordon == max_costo_exp.c.costo_cordon,
+                LogisticaCostoCordon.vigente_desde == max_costo_exp.c.max_vigente,
+            ),
+        )
+        .subquery()
+    )
+
+    cordon_norm_exp = func.replace(CodigoPostalCordon.cordon, "ó", "o")
+
+    query = (
+        db.query(
+            EtiquetaEnvio.shipping_id,
+            EtiquetaEnvio.fecha_envio,
+            EtiquetaEnvio.pistoleado_at,
+            EtiquetaEnvio.pistoleado_caja,
+            Operador.nombre.label("pistoleado_operador_nombre"),
+            Logistica.nombre.label("logistica_nombre"),
+            MercadoLibreOrderShipping.mlreceiver_name,
+            MercadoLibreOrderShipping.mlstreet_name,
+            MercadoLibreOrderShipping.mlstreet_number,
+            MercadoLibreOrderShipping.mlzip_code,
+            MercadoLibreOrderShipping.mlcity_name,
+            MercadoLibreOrderShipping.mlstatus,
+            CodigoPostalCordon.cordon,
+            SaleOrderStatus.ssos_name,
+            cast(costo_exp.c.costo_valor, Numeric(12, 2)).label("costo_envio"),
+        )
+        .outerjoin(Logistica, EtiquetaEnvio.logistica_id == Logistica.id)
+        .outerjoin(
+            MercadoLibreOrderShipping,
+            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
+        )
+        .outerjoin(
+            CodigoPostalCordon,
+            MercadoLibreOrderShipping.mlzip_code == CodigoPostalCordon.codigo_postal,
+        )
+        .outerjoin(soh_sub, soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id)
+        .outerjoin(SaleOrderStatus, soh_sub.c.soh_ssos_id == SaleOrderStatus.ssos_id)
+        .outerjoin(Operador, EtiquetaEnvio.pistoleado_operador_id == Operador.id)
+        .outerjoin(
+            costo_exp,
+            and_(
+                costo_exp.c.costo_log_id == EtiquetaEnvio.logistica_id,
+                costo_exp.c.costo_cordon_val == cordon_norm_exp,
+            ),
+        )
+    )
+
+    # Filtros
+    query = query.filter(
+        EtiquetaEnvio.fecha_envio >= fecha_desde,
+        EtiquetaEnvio.fecha_envio <= fecha_hasta,
+    )
+
+    if cordon:
+        query = query.filter(CodigoPostalCordon.cordon == cordon)
+    if logistica_id is not None:
+        query = query.filter(EtiquetaEnvio.logistica_id == logistica_id)
+    if sin_logistica:
+        query = query.filter(EtiquetaEnvio.logistica_id.is_(None))
+    if mlstatus:
+        query = query.filter(MercadoLibreOrderShipping.mlstatus == mlstatus)
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            (EtiquetaEnvio.shipping_id.ilike(search_term))
+            | (MercadoLibreOrderShipping.mlreceiver_name.ilike(search_term))
+            | (MercadoLibreOrderShipping.mlstreet_name.ilike(search_term))
+            | (MercadoLibreOrderShipping.mlcity_name.ilike(search_term))
+        )
+
+    query = query.order_by(EtiquetaEnvio.fecha_envio, EtiquetaEnvio.shipping_id.desc())
+    rows = query.all()
+
+    # ── Generar XLSX ──────────────────────────────────────────
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Envíos Flex"
+
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    # Headers
+    headers = [EXPORT_COLUMNS[c] for c in cols_solicitadas]
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+
+    # Mapeo de columna → valor
+    def get_cell_value(col_key: str, row: object) -> object:
+        """Extrae el valor de una columna para una fila de resultados."""
+        if col_key == "shipping_id":
+            return row.shipping_id
+        elif col_key == "fecha_envio":
+            return row.fecha_envio
+        elif col_key == "destinatario":
+            return row.mlreceiver_name or ""
+        elif col_key == "direccion":
+            parts = [row.mlstreet_name or "", row.mlstreet_number or ""]
+            return " ".join(p for p in parts if p).strip()
+        elif col_key == "cp":
+            return row.mlzip_code or ""
+        elif col_key == "localidad":
+            return row.mlcity_name or ""
+        elif col_key == "cordon":
+            return row.cordon or ""
+        elif col_key == "logistica":
+            return row.logistica_nombre or ""
+        elif col_key == "costo_envio":
+            return float(row.costo_envio) if row.costo_envio is not None else ""
+        elif col_key == "estado_ml":
+            return row.mlstatus or ""
+        elif col_key == "estado_erp":
+            return row.ssos_name or ""
+        elif col_key == "pistoleado":
+            if row.pistoleado_at:
+                ts = str(row.pistoleado_at)[:16]  # YYYY-MM-DD HH:MM
+                operador = row.pistoleado_operador_nombre or ""
+                return f"{ts} — {operador}" if operador else ts
+            return ""
+        elif col_key == "caja":
+            return row.pistoleado_caja or ""
+        return ""
+
+    # Datos
+    for row_idx, row in enumerate(rows, start=2):
+        for col_idx, col_key in enumerate(cols_solicitadas, start=1):
+            ws.cell(row=row_idx, column=col_idx, value=get_cell_value(col_key, row))
+
+    # Anchos automáticos (estimados)
+    col_widths = {
+        "shipping_id": 16, "fecha_envio": 14, "destinatario": 25,
+        "direccion": 35, "cp": 8, "localidad": 20, "cordon": 12,
+        "logistica": 18, "costo_envio": 14, "estado_ml": 18,
+        "estado_erp": 18, "pistoleado": 22, "caja": 14,
+    }
+    for col_idx, col_key in enumerate(cols_solicitadas, start=1):
+        col_letter = ws.cell(row=1, column=col_idx).column_letter
+        ws.column_dimensions[col_letter].width = col_widths.get(col_key, 15)
+
+    # Generar archivo en memoria
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"envios_flex_{fecha_desde}_{fecha_hasta}.xlsx"
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
