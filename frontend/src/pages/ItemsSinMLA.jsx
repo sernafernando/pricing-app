@@ -94,6 +94,11 @@ const ItemsSinMLA = () => {
   const [busquedaComparacion] = useState('');
   const [marcaComparacion] = useState('');
 
+  // Estado para sync ML
+  const [syncMLRunning, setSyncMLRunning] = useState(false);
+  const [syncMLLog, setSyncMLLog] = useState('');
+  const [showSyncMLLog, setShowSyncMLLog] = useState(false);
+
   // Estado para multi-selección en comparación
   const [comparacionSeleccionados, setComparacionSeleccionados] = useState(new Set());
   const [ultimoComparacionSeleccionado, setUltimoComparacionSeleccionado] = useState(null);
@@ -404,6 +409,44 @@ const ItemsSinMLA = () => {
     setSoloNuevosBanlist(false);
     setPanelMarcasAbiertoBanlist(false);
     aplicarFiltrosBanlist(itemsBaneadosOriginales);
+  };
+
+  const handleSyncML = async () => {
+    setSyncMLRunning(true);
+    setSyncMLLog('');
+    setShowSyncMLLog(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/sync-ml/publicaciones-full`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        setSyncMLLog((prev) => prev + chunk);
+      }
+
+      // Recargar datos de comparación al terminar
+      cargarComparacionListas();
+    } catch (error) {
+      setSyncMLLog((prev) => prev + `\nERROR: ${error.message}\n`);
+    } finally {
+      setSyncMLRunning(false);
+    }
   };
 
   const cargarComparacionListas = async () => {
@@ -1669,6 +1712,35 @@ const ItemsSinMLA = () => {
       {/* Contenido del Tab 3: Comparación de Listas */}
       {activeTab === 'comparacion' && tienePermiso('admin.ver_comparacion_listas_ml') && (
         <div className="tab-content">
+          {/* Botón de sincronización ML */}
+          <div className="sync-ml-section">
+            <button
+              onClick={handleSyncML}
+              disabled={syncMLRunning}
+              className={`btn-tesla outline-subtle-primary sm ${syncMLRunning ? 'disabled' : ''}`}
+              aria-label="Sincronizar publicaciones de MercadoLibre"
+            >
+              {syncMLRunning ? (
+                <>{Icon.sparkle(14)} Sincronizando...</>
+              ) : (
+                <>{Icon.sparkle(14)} Sincronizar ML</>
+              )}
+            </button>
+            {showSyncMLLog && (
+              <button
+                onClick={() => setShowSyncMLLog(false)}
+                className="btn-tesla outline-subtle-danger xs"
+                aria-label="Cerrar log"
+              >
+                {Icon.x(12)} Cerrar log
+              </button>
+            )}
+          </div>
+
+          {showSyncMLLog && (
+            <pre className="sync-ml-log">{syncMLLog || 'Esperando respuesta del servidor...'}</pre>
+          )}
+
           {/* Barra de acciones para multi-selección */}
           {comparacionSeleccionados.size > 0 && tienePermiso('admin.gestionar_comparacion_banlist') && (
             <div className="seleccion-bar">
