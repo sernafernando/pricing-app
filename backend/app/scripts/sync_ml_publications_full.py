@@ -87,6 +87,26 @@ async def call_meli(http_client: httpx.AsyncClient, endpoint: str, retry=True):
     return response.json()
 
 
+def safe_int(value):
+    """Convierte un valor a int de forma segura. Retorna None si no es posible."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def safe_numeric(value):
+    """Convierte un valor a float de forma segura. Retorna None si no es posible."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
 def extraer_datos_publicacion(item):
     """Extrae campaña, SKU e item_id de una respuesta de ML"""
     # Buscar campaña de cuotas
@@ -115,45 +135,45 @@ def extraer_datos_publicacion(item):
 
     # Intentar obtener item_id del SKU
     item_id = None
-    if seller_sku and seller_sku.isdigit():
+    if seller_sku and str(seller_sku).isdigit():
         item_id = int(seller_sku)
 
     return campaign, seller_sku, item_id
 
 
+def sanitizar_datos_ml(item, campaign, seller_sku, item_id):
+    """
+    Sanitiza los datos de ML antes de enviarlos a PostgreSQL.
+    Convierte tipos para evitar InvalidTextRepresentation.
+    """
+    return {
+        "title": str(item.get("title", ""))[:500] if item.get("title") else None,
+        "price": safe_numeric(item.get("price")),
+        "base_price": safe_numeric(item.get("base_price")),
+        "available_quantity": safe_int(item.get("available_quantity")),
+        "sold_quantity": safe_int(item.get("sold_quantity")),
+        "status": str(item.get("status", ""))[:50] if item.get("status") else None,
+        "listing_type_id": str(item.get("listing_type_id", ""))[:50] if item.get("listing_type_id") else None,
+        "permalink": str(item.get("permalink", ""))[:500] if item.get("permalink") else None,
+        "installments_campaign": str(campaign)[:100] if campaign else None,
+        "seller_sku": str(seller_sku)[:100] if seller_sku else None,
+        "item_id": safe_int(item_id),
+        "snapshot_date": datetime.now(),
+    }
+
+
 def aplicar_snapshot(snapshot, item, campaign, seller_sku, item_id):
     """Actualiza los campos de un snapshot existente con datos nuevos"""
-    snapshot.title = item.get("title")
-    snapshot.price = item.get("price")
-    snapshot.base_price = item.get("base_price")
-    snapshot.available_quantity = item.get("available_quantity")
-    snapshot.sold_quantity = item.get("sold_quantity")
-    snapshot.status = item.get("status")
-    snapshot.listing_type_id = item.get("listing_type_id")
-    snapshot.permalink = item.get("permalink")
-    snapshot.installments_campaign = campaign
-    snapshot.seller_sku = seller_sku
-    snapshot.item_id = item_id
-    snapshot.snapshot_date = datetime.now()
+    datos = sanitizar_datos_ml(item, campaign, seller_sku, item_id)
+    for key, value in datos.items():
+        setattr(snapshot, key, value)
 
 
 def crear_snapshot(mla_id, item, campaign, seller_sku, item_id):
     """Crea un nuevo objeto MLPublicationSnapshot"""
-    return MLPublicationSnapshot(
-        mla_id=mla_id,
-        title=item.get("title"),
-        price=item.get("price"),
-        base_price=item.get("base_price"),
-        available_quantity=item.get("available_quantity"),
-        sold_quantity=item.get("sold_quantity"),
-        status=item.get("status"),
-        listing_type_id=item.get("listing_type_id"),
-        permalink=item.get("permalink"),
-        installments_campaign=campaign,
-        seller_sku=seller_sku,
-        item_id=item_id,
-        snapshot_date=datetime.now(),
-    )
+    datos = sanitizar_datos_ml(item, campaign, seller_sku, item_id)
+    datos["mla_id"] = str(mla_id)[:50] if mla_id else None
+    return MLPublicationSnapshot(**datos)
 
 
 async def obtener_todos_mla_ids(db: Session) -> list:
@@ -279,7 +299,11 @@ async def procesar_batch(
         except Exception as chunk_error:
             # Chunk falló → rollback y procesar individualmente
             db.rollback()
-            errores_detalle.append(f"  ℹ️  Chunk falló, reintentando individual: {str(chunk_error)[:80]}")
+            mla_ids_chunk = [mla_id for mla_id, _, _, _, _ in chunk_items]
+            errores_detalle.append(
+                f"  ℹ️  Chunk falló ({mla_ids_chunk[0]}..{mla_ids_chunk[-1]}), "
+                f"reintentando individual: {str(chunk_error)[:150]}"
+            )
 
             for mla_id, item, campaign, seller_sku, item_id in chunk_items:
                 try:
@@ -303,7 +327,19 @@ async def procesar_batch(
                 except Exception as e:
                     db.rollback()
                     errors += 1
-                    errores_detalle.append(f"  ⚠️  {mla_id}: {str(e)[:120]}")
+                    # Log detallado: MLA ID, tipo de error, y datos que causaron el problema
+                    datos_debug = {
+                        "price": item.get("price"),
+                        "base_price": item.get("base_price"),
+                        "available_quantity": item.get("available_quantity"),
+                        "sold_quantity": item.get("sold_quantity"),
+                        "item_id": item_id,
+                        "seller_sku": seller_sku,
+                    }
+                    errores_detalle.append(
+                        f"  ⚠️  {mla_id} [{type(e).__name__}]: {str(e)[:150]}\n"
+                        f"      Datos: {datos_debug}"
+                    )
 
         # Pausa para no saturar la API
         await asyncio.sleep(0.1)
