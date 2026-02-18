@@ -5,7 +5,7 @@ Registra TODA acción que hace un operador identificado con PIN:
 upload de ZPL, pistoleado, borrado de etiquetas, asignación de logística, etc.
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship

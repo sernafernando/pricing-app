@@ -46,7 +46,7 @@ export default function useOperador() {
       try {
         const { data } = await api.get('/config-operaciones/tabs');
         setConfigTabs(data.filter((t) => t.activo));
-      } catch (err) {
+      } catch {
         // Si falla, no requerimos PIN en ningún tab
         setConfigTabs([]);
       } finally {
@@ -175,7 +175,7 @@ export default function useOperador() {
           accion,
           detalle,
         });
-      } catch (err) {
+      } catch {
         // Log silencioso — no bloquear la acción del usuario
       }
     },

@@ -40,7 +40,7 @@ export default function TabCodigosPostales() {
 
       setCodigosPostales(cpResponse.data);
       setEstadisticas(statsResponse.data);
-    } catch (err) {
+    } catch {
       setError('Error cargando códigos postales');
     } finally {
       setLoading(false);

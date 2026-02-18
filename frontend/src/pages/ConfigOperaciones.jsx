@@ -4,7 +4,6 @@ import {
   Trash2, Save, RefreshCw, Clock, Hash, ChevronDown,
 } from 'lucide-react';
 import api from '../services/api';
-import { usePermisos } from '../contexts/PermisosContext';
 import { registrarPagina, getPaginas } from '../registry/tabRegistry';
 import styles from './ConfigOperaciones.module.css';
 
@@ -72,7 +71,7 @@ function TabOperadores() {
       const params = incluirInactivos ? '?incluir_inactivos=true' : '';
       const { data } = await api.get(`/config-operaciones/operadores${params}`);
       setOperadores(data);
-    } catch (err) {
+    } catch {
       setError('Error al cargar operadores');
     } finally {
       setLoading(false);
@@ -83,7 +82,7 @@ function TabOperadores() {
     try {
       const { data } = await api.get('/config-operaciones/tabs');
       setConfigTabs(data);
-    } catch (err) {
+    } catch {
       // silencioso, no es crítico
     }
   }, []);
@@ -561,7 +560,7 @@ function TabCostosEnvio() {
         m[`${c.logistica_id}-${c.cordon}`] = c.costo.toString();
       }
       setMatrix(m);
-    } catch (err) {
+    } catch {
       setError('Error al cargar costos');
     } finally {
       setLoading(false);
@@ -751,7 +750,7 @@ function TabLogisticas() {
     try {
       const { data } = await api.get('/logisticas?incluir_inactivas=true');
       setLogisticas(data);
-    } catch (err) {
+    } catch {
       setError('Error al cargar logísticas');
     } finally {
       setLoading(false);
