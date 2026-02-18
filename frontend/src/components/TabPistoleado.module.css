@@ -1,0 +1,415 @@
+/* ── Container ──────────────────────────────────────────────── */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Controls Bar ──────────────────────────────────────────── */
+
+.controlsBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  padding: 16px 20px;
+  background: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.controlGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.controlLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.selectLogistica {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 2px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+  min-width: 200px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.selectLogistica:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
+.cajaIndicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 200px;
+}
+
+.cajaActiva {
+  background: #065f4620;
+  color: #059669;
+  border: 2px solid #059669;
+}
+
+.cajaPendiente {
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  border: 2px dashed var(--border-secondary);
+  font-weight: 400;
+}
+
+.ttsToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 2px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: auto;
+}
+
+.ttsOn {
+  color: var(--brand-primary);
+  border-color: var(--brand-primary);
+}
+
+.ttsOff {
+  color: var(--text-tertiary);
+}
+
+.ttsToggle:hover {
+  background: var(--bg-tertiary);
+}
+
+/* ── Scanner Section ───────────────────────────────────────── */
+
+.scannerSection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 16px 20px;
+  background: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.scannerInput {
+  flex: 1;
+  min-width: 280px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 2px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 16px;
+  font-family: monospace;
+  transition: border-color 0.2s;
+}
+
+.scannerInput:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.scannerInput::placeholder {
+  color: var(--text-tertiary);
+  font-family: inherit;
+}
+
+.scannerInput:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.processingIndicator {
+  font-size: 13px;
+  color: var(--brand-primary);
+  font-weight: 500;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ── Stats Section ─────────────────────────────────────────── */
+
+.statsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.statCard {
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  padding: 14px;
+  text-align: center;
+}
+
+.statValue {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.statPrimary {
+  color: var(--brand-primary);
+}
+
+.statCounter {
+  color: #059669;
+}
+
+.statLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* Progress bar */
+
+.progressContainer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.progressBar {
+  flex: 1;
+  height: 10px;
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--brand-primary);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.progressComplete {
+  background: #059669;
+}
+
+.progressLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 48px;
+  text-align: right;
+}
+
+/* Cajas grid */
+
+.cajasGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cajaBadge {
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.cajaBadgeActiva {
+  background: #065f4620;
+  color: #059669;
+  border: 1px solid #059669;
+}
+
+/* ── Log Section ───────────────────────────────────────────── */
+
+.logSection {
+  background: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.logHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--bg-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.logList {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.logEmpty {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+.logItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-primary);
+  animation: logSlideIn 0.2s ease;
+}
+
+@keyframes logSlideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.logIcon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.logMessage {
+  flex: 1;
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.logTime {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Log item types */
+
+.logSuccess {
+  background: #f0fdf4;
+}
+
+.logSuccess .logIcon {
+  color: #059669;
+}
+
+.logDuplicate {
+  background: #fffbeb;
+}
+
+.logDuplicate .logIcon {
+  color: #d97706;
+}
+
+.logError {
+  background: #fef2f2;
+}
+
+.logError .logIcon {
+  color: #dc2626;
+}
+
+.logLogistica_error {
+  background: #fffbeb;
+}
+
+.logLogistica_error .logIcon {
+  color: #d97706;
+}
+
+.logComando {
+  background: #eff6ff;
+}
+
+.logComando .logIcon {
+  color: var(--brand-primary);
+}
+
+.logAnulado {
+  background: #fefce8;
+}
+
+.logAnulado .logIcon {
+  color: #ca8a04;
+}
+
+.logComplete {
+  background: #f0fdf4;
+  font-weight: 600;
+}
+
+.logComplete .logIcon {
+  color: #059669;
+}
+
+/* ── Dark mode overrides ───────────────────────────────────── */
+
+:root[data-theme="dark"] .logSuccess {
+  background: rgba(5, 150, 105, 0.08);
+}
+
+:root[data-theme="dark"] .logDuplicate {
+  background: rgba(217, 119, 6, 0.08);
+}
+
+:root[data-theme="dark"] .logError {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+:root[data-theme="dark"] .logLogistica_error {
+  background: rgba(217, 119, 6, 0.08);
+}
+
+:root[data-theme="dark"] .logComando {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+:root[data-theme="dark"] .logAnulado {
+  background: rgba(202, 138, 4, 0.08);
+}
+
+:root[data-theme="dark"] .logComplete {
+  background: rgba(5, 150, 105, 0.12);
+}

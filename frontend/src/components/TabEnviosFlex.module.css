@@ -142,6 +142,12 @@
   cursor: pointer;
 }
 
+.dateRangeSep {
+  color: var(--text-tertiary);
+  font-size: 14px;
+  user-select: none;
+}
+
 .searchInput {
   flex: 1;
   min-width: 180px;
@@ -181,6 +187,10 @@
 
 .btnUpload {
   composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
+}
+
+.btnExport {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
 }
 
 .btnLogisticas {
@@ -504,6 +514,31 @@
 .cellMuted {
   color: var(--text-tertiary);
   font-size: 12px;
+}
+
+.cellSuccess {
+  color: #059669;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.cellCosto {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.thCosto {
+  text-align: right;
+  padding-right: 18px !important;
+}
+
+/* ── Stats card costo ──────────────────────────────────────── */
+
+.statCardCosto {
+  border: 1px solid #05966940;
 }
 
 /* ── Modal ──────────────────────────────────────────────────── */
@@ -980,6 +1015,83 @@
   border-color: #b91c1c !important;
 }
 
+/* ── Export Modal ───────────────────────────────────────────── */
+
+.exportInfo {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.exportColumnsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.exportColumnsTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.exportToggleAll {
+  background: none;
+  border: none;
+  color: var(--brand-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.exportToggleAll:hover {
+  background: var(--bg-hover);
+}
+
+.exportColumnsList {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  margin-bottom: 8px;
+}
+
+.exportColumnItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.exportColumnItem:hover {
+  background: var(--bg-hover);
+}
+
+.exportColumnActive {
+  background: var(--bg-hover);
+}
+
+.exportColumnOrder {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--brand-primary);
+  font-family: monospace;
+}
+
+.btnExportConfirm {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
+}
+
 /* ── Responsive ─────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
@@ -1007,6 +1119,7 @@
 
   .btnRefresh,
   .btnUpload,
+  .btnExport,
   .btnLogisticas {
     flex: 1;
     justify-content: center;
