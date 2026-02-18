@@ -24,6 +24,7 @@ class SubcategoriaGrupo(Base):
     nombre_subcategoria = Column(String(200), nullable=True)
     cat_id = Column(String(10), index=True, nullable=True)
     nombre_categoria = Column(String(200), nullable=True)
+    oculta = Column(Boolean, default=False)
 
 
 class ComisionListaGrupo(Base):

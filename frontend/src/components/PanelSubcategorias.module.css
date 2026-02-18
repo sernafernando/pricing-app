@@ -1,0 +1,357 @@
+/* ============================================
+   PANEL SUBCATEGORÍAS - Asignación de grupos
+   ============================================ */
+
+.container {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.header h2 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Filtros */
+.filtros {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filtroInput {
+  flex: 1;
+  min-width: 200px;
+  max-width: 400px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.filtroInput:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.filtroSelect {
+  padding: 8px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+  min-width: 160px;
+  cursor: pointer;
+}
+
+.filtroSelect:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+/* Stats */
+.stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.stat {
+  padding: 8px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.stat strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Barra de acciones bulk */
+.bulkBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+:global([data-theme="light"]) .bulkBar {
+  background: rgba(219, 234, 254, 0.5);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.bulkCount {
+  font-weight: 600;
+  color: rgba(96, 165, 250, 1);
+}
+
+:global([data-theme="light"]) .bulkCount {
+  color: rgba(29, 78, 216, 1);
+}
+
+.bulkSelect {
+  padding: 6px 10px;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* Badge de grupo */
+.grupoBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.grupoBadgeAsignado {
+  background: rgba(59, 130, 246, 0.15);
+  color: rgba(96, 165, 250, 1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+:global([data-theme="light"]) .grupoBadgeAsignado {
+  background: rgba(59, 130, 246, 0.1);
+  color: rgba(29, 78, 216, 1);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+.grupoBadgeSinAsignar {
+  background: rgba(245, 158, 11, 0.15);
+  color: rgba(251, 191, 36, 1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  font-style: italic;
+  font-weight: 400;
+}
+
+:global([data-theme="light"]) .grupoBadgeSinAsignar {
+  background: rgba(245, 158, 11, 0.1);
+  color: rgba(180, 83, 9, 1);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+/* Select inline en tabla */
+.grupoSelectInline {
+  padding: 4px 8px;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 70px;
+}
+
+.grupoSelectInline:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+/* Sección de Grupos */
+.gruposSection {
+  background: var(--bg-primary);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.gruposSection h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.gruposGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.grupoCard {
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.grupoCard:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  transform: translateY(-1px);
+}
+
+.grupoCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.grupoCardNombre {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.grupoCardCount {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.grupoCardDesc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.grupoCardInactivo {
+  opacity: 0.5;
+}
+
+/* Formulario nuevo grupo (inline) */
+.nuevoGrupoForm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px dashed rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+}
+
+.nuevoGrupoInput {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.nuevoGrupoInput:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+/* Loading */
+.loading {
+  text-align: center;
+  padding: 48px;
+  color: var(--text-secondary);
+  font-size: 16px;
+}
+
+/* Mensaje de estado */
+.mensaje {
+  padding: 10px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.mensajeExito {
+  background: rgba(34, 197, 94, 0.1);
+  color: rgba(74, 222, 128, 1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+:global([data-theme="light"]) .mensajeExito {
+  background: rgba(34, 197, 94, 0.08);
+  color: rgba(21, 128, 61, 1);
+}
+
+.mensajeError {
+  background: rgba(239, 68, 68, 0.1);
+  color: rgba(248, 113, 113, 1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+:global([data-theme="light"]) .mensajeError {
+  background: rgba(239, 68, 68, 0.08);
+  color: rgba(185, 28, 28, 1);
+}
+
+/* Checkbox en tabla */
+.checkboxCell {
+  width: 40px;
+  text-align: center;
+}
+
+.checkboxCell input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: rgba(59, 130, 246, 0.8);
+}
+
+/* Categoría text */
+.categoriaText {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Fila oculta (banlist) - cuando se muestran */
+.filaOculta {
+  opacity: 0.45;
+}
+
+.filaOculta:hover {
+  opacity: 0.7;
+}
