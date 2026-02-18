@@ -170,15 +170,18 @@ export default function OperadorPinLock({
         <div className={styles.pinContainer}>
           <input
             ref={inputRef}
-            type="password"
+            type="tel"
             inputMode="numeric"
+            pattern="[0-9]*"
             maxLength={4}
             value={pin}
             onChange={handlePinChange}
             onKeyDown={handleKeyDown}
             className={`${styles.pinInput} ${error ? styles.pinInputError : ''}`}
             placeholder="----"
-            autoComplete="off"
+            autoComplete="one-time-code"
+            name="operator-pin-lock"
+            data-form-type="other"
             disabled={validando}
           />
 

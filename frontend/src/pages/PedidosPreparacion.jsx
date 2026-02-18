@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Package, ClipboardList, MapPin, Truck } from 'lucide-react';
+import { Package, ClipboardList, MapPin, Truck, ScanBarcode } from 'lucide-react';
 import api from '../services/api';
 import styles from './PedidosPreparacion.module.css';
 import TabPedidosExport from '../components/TabPedidosExport';
 import TabCodigosPostales from '../components/TabCodigosPostales';
 import TabEnviosFlex from '../components/TabEnviosFlex';
+import TabPistoleado from '../components/TabPistoleado';
 import OperadorPinLock from '../components/OperadorPinLock';
 import useOperador from '../hooks/useOperador';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -18,6 +19,7 @@ registrarPagina({
     { tabKey: 'export', label: 'Pedidos Pendientes' },
     { tabKey: 'codigos-postales', label: 'Códigos Postales' },
     { tabKey: 'envios-flex', label: 'Envíos Flex' },
+    { tabKey: 'pistoleado', label: 'Pistoleado' },
   ],
 });
 
@@ -467,6 +469,12 @@ export default function PedidosPreparacion() {
         >
           <Truck size={16} /> Envíos Flex
         </button>
+        <button
+          className={`${styles.tabBtn} ${tabActiva === 'pistoleado' ? styles.tabActiva : ''}`}
+          onClick={() => setTabActiva('pistoleado')}
+        >
+          <ScanBarcode size={16} /> Pistoleado
+        </button>
       </div>
 
       {/* Contenido condicional según tab activa */}
@@ -697,13 +705,21 @@ export default function PedidosPreparacion() {
         <TabPedidosExport />
       ) : tabActiva === 'codigos-postales' ? (
         <TabCodigosPostales />
-      ) : (
+      ) : tabActiva === 'envios-flex' ? (
         <OperadorPinLock
           tabKey="envios-flex"
           pagePath="/pedidos-preparacion"
           operador={operador}
         >
           <TabEnviosFlex operador={operador} />
+        </OperadorPinLock>
+      ) : (
+        <OperadorPinLock
+          tabKey="pistoleado"
+          pagePath="/pedidos-preparacion"
+          operador={operador}
+        >
+          <TabPistoleado operador={operador} />
         </OperadorPinLock>
       )}
 

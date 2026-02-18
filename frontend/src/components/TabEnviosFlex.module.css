@@ -506,6 +506,12 @@
   font-size: 12px;
 }
 
+.cellSuccess {
+  color: #059669;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 /* ── Modal ──────────────────────────────────────────────────── */
 
 .modalOverlay {

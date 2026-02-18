@@ -14,8 +14,8 @@ class EtiquetaEnvio(Base):
     El campo fecha_envio es la fecha programada del envío y es EDITABLE
     por si se reprograma (ej: "lo llevamos mañana en vez de hoy").
 
-    TODO: Módulo de pistoleado — llenar pistoleado_at y pistoleado_caja
-    cuando se implemente el escaneo de paquetes con asignación a cajas.
+    Pistoleado: operador escanea QR de etiqueta → se graban pistoleado_at,
+    pistoleado_caja y pistoleado_operador_id. Validaciones de duplicado y logística.
 
     TODO: Constantes de valor por cordón — agregar tabla/config con
     costo por cordón (CABA=$X, C1=$Y, C2=$Z, C3=$W) para exportación.
@@ -41,19 +41,22 @@ class EtiquetaEnvio(Base):
     direccion_completa = Column(String(500), nullable=True)
     direccion_comentario = Column(String(500), nullable=True)  # "Puerta negra", "Timbre 3B", etc.
 
-    # Futuro módulo de pistoleado
+    # Pistoleado — escaneo de paquetes con asignación a cajas
     pistoleado_at = Column(DateTime(timezone=True), nullable=True)
     pistoleado_caja = Column(String(50), nullable=True)
+    pistoleado_operador_id = Column(Integer, ForeignKey("operadores.id"), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     logistica = relationship("Logistica", lazy="joined")
+    pistoleado_operador = relationship("Operador", lazy="joined")
 
     __table_args__ = (
         Index("idx_etiquetas_envio_fecha", "fecha_envio"),
         Index("idx_etiquetas_envio_logistica", "logistica_id"),
+        Index("idx_etiquetas_pistoleado_operador", "pistoleado_operador_id"),
     )
 
     def __repr__(self) -> str:

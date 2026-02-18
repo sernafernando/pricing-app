@@ -828,8 +828,14 @@ export default function TabEnviosFlex({ operador = null }) {
                         ))}
                       </select>
                     </td>
-                    <td className={styles.cellMuted}>—</td>
-                    <td className={styles.cellMuted}>—</td>
+                    <td className={e.pistoleado_at ? styles.cellSuccess : styles.cellMuted}>
+                      {e.pistoleado_at
+                        ? `${new Date(e.pistoleado_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} — ${e.pistoleado_operador_nombre || ''}`
+                        : '—'}
+                    </td>
+                    <td className={e.pistoleado_caja ? '' : styles.cellMuted}>
+                      {e.pistoleado_caja || '—'}
+                    </td>
                   </tr>
                 ))
               )}

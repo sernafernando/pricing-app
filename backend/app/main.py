@@ -52,6 +52,7 @@ from app.api.endpoints import (
     logisticas,
     etiquetas_envio,
     config_operaciones,
+    sounds,
 )
 from app.routers import alertas
 from app.core.config import settings
@@ -134,6 +135,7 @@ app.include_router(codigos_postales.router, prefix="/api", tags=["codigos-postal
 app.include_router(logisticas.router, prefix="/api", tags=["logisticas"])
 app.include_router(etiquetas_envio.router, prefix="/api", tags=["etiquetas-envio"])
 app.include_router(config_operaciones.router, prefix="/api", tags=["config-operaciones"])
+app.include_router(sounds.router, prefix="/api", tags=["sounds"])
 
 
 @app.get("/")

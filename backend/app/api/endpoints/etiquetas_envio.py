@@ -19,7 +19,7 @@ import re
 import json
 import zipfile
 from io import BytesIO
-from datetime import date
+from datetime import date, datetime, UTC
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
@@ -37,6 +37,8 @@ from app.models.codigo_postal_cordon import CodigoPostalCordon
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_status import SaleOrderStatus
 from app.models.etiqueta_envio_audit import EtiquetaEnvioAudit
+from app.models.operador import Operador
+from app.models.operador_actividad import OperadorActividad
 from app.services.etiqueta_enrichment_service import lanzar_enriquecimiento_background
 
 router = APIRouter()
@@ -107,9 +109,10 @@ class EtiquetaEnvioResponse(BaseModel):
     ssos_name: Optional[str] = None
     ssos_color: Optional[str] = None
 
-    # Pistoleado (futuro)
+    # Pistoleado
     pistoleado_at: Optional[str] = None
     pistoleado_caja: Optional[str] = None
+    pistoleado_operador_nombre: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -146,6 +149,54 @@ class AsignarMasivoRequest(BaseModel):
 
     shipping_ids: List[str] = Field(min_length=1)
     logistica_id: int
+
+
+# ── Schemas Pistoleado ───────────────────────────────────────────────
+
+
+class PistolearRequest(BaseModel):
+    """Payload del pistoleado: escaneo de QR de etiqueta en depósito."""
+
+    shipping_id: str = Field(description="shipping_id extraído del QR de la etiqueta")
+    caja: str = Field(max_length=50, description="Contenedor activo (CAJA 1, SUELTOS 1, etc.)")
+    logistica_id: int = Field(description="Logística que el operador está pistoleando")
+    operador_id: int = Field(description="Operador autenticado con PIN")
+
+
+class PistolearResponse(BaseModel):
+    """Resultado exitoso de un pistoleado."""
+
+    ok: bool = True
+    shipping_id: str
+    caja: str
+    operador: str
+    receiver_name: Optional[str] = None
+    ciudad: Optional[str] = None
+    cordon: Optional[str] = None
+    pistoleado_at: str
+    count: int = Field(description="Total pistoleadas en esta sesión (fecha + logística + operador)")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PistoleadoConflictResponse(BaseModel):
+    """Respuesta cuando la etiqueta ya fue pistoleada."""
+
+    detail: str = "Ya pistoleada"
+    pistoleado_por: str
+    pistoleado_at: str
+    pistoleado_caja: str
+
+
+class PistoleadoStatsResponse(BaseModel):
+    """Estadísticas de pistoleado para una fecha/logística."""
+
+    total_etiquetas: int
+    pistoleadas: int
+    pendientes: int
+    porcentaje: float
+    por_caja: dict[str, int]
+    por_operador: dict[str, int]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -400,6 +451,7 @@ def listar_etiquetas(
             EtiquetaEnvio.direccion_comentario,
             EtiquetaEnvio.pistoleado_at,
             EtiquetaEnvio.pistoleado_caja,
+            Operador.nombre.label("pistoleado_operador_nombre"),
             Logistica.nombre.label("logistica_nombre"),
             Logistica.color.label("logistica_color"),
             MercadoLibreOrderShipping.mlreceiver_name,
@@ -432,6 +484,10 @@ def listar_etiquetas(
         .outerjoin(
             SaleOrderStatus,
             soh_sub.c.soh_ssos_id == SaleOrderStatus.ssos_id,
+        )
+        .outerjoin(
+            Operador,
+            EtiquetaEnvio.pistoleado_operador_id == Operador.id,
         )
     )
 
@@ -494,6 +550,7 @@ def listar_etiquetas(
             ssos_color=row.ssos_color,
             pistoleado_at=str(row.pistoleado_at) if row.pistoleado_at else None,
             pistoleado_caja=row.pistoleado_caja,
+            pistoleado_operador_nombre=row.pistoleado_operador_nombre,
         )
         for row in rows
     ]
@@ -744,6 +801,7 @@ def borrar_etiquetas(
             direccion_comentario=etiq.direccion_comentario,
             pistoleado_at=etiq.pistoleado_at,
             pistoleado_caja=etiq.pistoleado_caja,
+            pistoleado_operador_id=etiq.pistoleado_operador_id,
             original_created_at=etiq.created_at,
             original_updated_at=etiq.updated_at,
             deleted_by=current_user.id,
@@ -761,3 +819,269 @@ def borrar_etiquetas(
     db.commit()
 
     return {"ok": True, "eliminadas": deleted}
+
+
+# ── Pistoleado ───────────────────────────────────────────────────────
+
+
+@router.post(
+    "/etiquetas-envio/pistolear",
+    response_model=PistolearResponse,
+    summary="Pistolear etiqueta (escaneo de paquete en depósito)",
+    responses={
+        409: {"model": PistoleadoConflictResponse, "description": "Ya pistoleada"},
+        422: {"description": "Logística no coincide"},
+    },
+)
+def pistolear_etiqueta(
+    payload: PistolearRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> PistolearResponse:
+    """
+    Registra el pistoleado de una etiqueta de envío.
+
+    El operador escanea el QR de la etiqueta con pistola de barras.
+    Validaciones:
+    1. La etiqueta debe existir en el sistema.
+    2. No debe haber sido pistoleada antes (duplicado → 409).
+    3. La logística asignada debe coincidir con la que está pistoleando (→ 422).
+
+    Side effects:
+    - Graba pistoleado_at, pistoleado_caja, pistoleado_operador_id.
+    - Registra actividad en operador_actividad.
+    """
+    # Validar operador activo
+    operador = db.query(Operador).filter(
+        Operador.id == payload.operador_id,
+        Operador.activo.is_(True),
+    ).first()
+    if not operador:
+        raise HTTPException(404, "Operador no encontrado o inactivo")
+
+    # Buscar etiqueta
+    etiqueta = db.query(EtiquetaEnvio).filter(
+        EtiquetaEnvio.shipping_id == payload.shipping_id,
+    ).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {payload.shipping_id} no encontrada en el sistema")
+
+    # Validar duplicado
+    if etiqueta.pistoleado_at is not None:
+        # Obtener nombre del operador que pistoleó antes
+        op_previo = db.query(Operador).filter(Operador.id == etiqueta.pistoleado_operador_id).first()
+        nombre_previo = op_previo.nombre if op_previo else "Desconocido"
+        raise HTTPException(
+            409,
+            detail={
+                "detail": "Ya pistoleada",
+                "pistoleado_por": nombre_previo,
+                "pistoleado_at": str(etiqueta.pistoleado_at),
+                "pistoleado_caja": etiqueta.pistoleado_caja or "",
+            },
+        )
+
+    # Validar logística coincide (bloqueo estricto)
+    if etiqueta.logistica_id is not None and etiqueta.logistica_id != payload.logistica_id:
+        logistica_etiq = db.query(Logistica).filter(Logistica.id == etiqueta.logistica_id).first()
+        logistica_pistoleando = db.query(Logistica).filter(Logistica.id == payload.logistica_id).first()
+        raise HTTPException(
+            422,
+            detail={
+                "detail": "Logística no coincide",
+                "etiqueta_logistica": logistica_etiq.nombre if logistica_etiq else "Desconocida",
+                "etiqueta_logistica_id": etiqueta.logistica_id,
+                "pistoleando_logistica": logistica_pistoleando.nombre if logistica_pistoleando else "Desconocida",
+                "pistoleando_logistica_id": payload.logistica_id,
+            },
+        )
+
+    # Grabar pistoleado
+    ahora = datetime.now(UTC)
+    etiqueta.pistoleado_at = ahora
+    etiqueta.pistoleado_caja = payload.caja
+    etiqueta.pistoleado_operador_id = payload.operador_id
+
+    # Registrar actividad
+    actividad = OperadorActividad(
+        operador_id=payload.operador_id,
+        usuario_id=current_user.id,
+        tab_key="pistoleado",
+        accion="pistoleado",
+        detalle={
+            "shipping_id": payload.shipping_id,
+            "caja": payload.caja,
+            "logistica_id": payload.logistica_id,
+            "fecha_envio": str(etiqueta.fecha_envio) if etiqueta.fecha_envio else None,
+        },
+    )
+    db.add(actividad)
+
+    db.commit()
+
+    # Obtener datos de ML shipping para el feedback
+    ml_shipping = db.query(MercadoLibreOrderShipping).filter(
+        MercadoLibreOrderShipping.mlshippingid == payload.shipping_id,
+    ).first()
+
+    # Obtener cordón
+    cordon_val = None
+    if ml_shipping and ml_shipping.mlzip_code:
+        cordon_row = db.query(CodigoPostalCordon.cordon).filter(
+            CodigoPostalCordon.codigo_postal == ml_shipping.mlzip_code,
+        ).first()
+        cordon_val = cordon_row.cordon if cordon_row else None
+
+    # Contar pistoleadas de este operador + logística + fecha (para TTS counter)
+    count = db.query(func.count()).select_from(EtiquetaEnvio).filter(
+        EtiquetaEnvio.pistoleado_operador_id == payload.operador_id,
+        EtiquetaEnvio.pistoleado_at.isnot(None),
+        func.date(EtiquetaEnvio.pistoleado_at) == date.today(),
+    ).scalar() or 0
+
+    return PistolearResponse(
+        ok=True,
+        shipping_id=payload.shipping_id,
+        caja=payload.caja,
+        operador=operador.nombre,
+        receiver_name=ml_shipping.mlreceiver_name if ml_shipping else None,
+        ciudad=ml_shipping.mlcity_name if ml_shipping else None,
+        cordon=cordon_val,
+        pistoleado_at=str(ahora),
+        count=count,
+    )
+
+
+@router.get(
+    "/etiquetas-envio/pistoleado/stats",
+    response_model=PistoleadoStatsResponse,
+    summary="Estadísticas de pistoleado por fecha y logística",
+)
+def stats_pistoleado(
+    fecha: Optional[date] = Query(None, description="Fecha de envío (default: hoy)"),
+    logistica_id: Optional[int] = Query(None, description="Filtrar por logística"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> PistoleadoStatsResponse:
+    """
+    Estadísticas de pistoleado: total, pistoleadas, pendientes, porcentaje,
+    desglose por caja y por operador.
+    """
+    fecha_filtro = fecha or date.today()
+
+    # Base query: etiquetas de la fecha
+    base = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.fecha_envio == fecha_filtro)
+
+    if logistica_id is not None:
+        base = base.filter(EtiquetaEnvio.logistica_id == logistica_id)
+
+    total = base.count()
+    pistoleadas = base.filter(EtiquetaEnvio.pistoleado_at.isnot(None)).count()
+    pendientes = total - pistoleadas
+    porcentaje = round((pistoleadas / total * 100), 1) if total > 0 else 0.0
+
+    # Por caja
+    caja_rows = (
+        db.query(
+            EtiquetaEnvio.pistoleado_caja,
+            func.count().label("cantidad"),
+        )
+        .filter(
+            EtiquetaEnvio.fecha_envio == fecha_filtro,
+            EtiquetaEnvio.pistoleado_at.isnot(None),
+            EtiquetaEnvio.pistoleado_caja.isnot(None),
+        )
+    )
+    if logistica_id is not None:
+        caja_rows = caja_rows.filter(EtiquetaEnvio.logistica_id == logistica_id)
+    caja_rows = caja_rows.group_by(EtiquetaEnvio.pistoleado_caja).all()
+    por_caja = {row.pistoleado_caja: row.cantidad for row in caja_rows}
+
+    # Por operador
+    op_rows = (
+        db.query(
+            Operador.nombre,
+            func.count().label("cantidad"),
+        )
+        .join(EtiquetaEnvio, EtiquetaEnvio.pistoleado_operador_id == Operador.id)
+        .filter(
+            EtiquetaEnvio.fecha_envio == fecha_filtro,
+            EtiquetaEnvio.pistoleado_at.isnot(None),
+        )
+    )
+    if logistica_id is not None:
+        op_rows = op_rows.filter(EtiquetaEnvio.logistica_id == logistica_id)
+    op_rows = op_rows.group_by(Operador.nombre).all()
+    por_operador = {row.nombre: row.cantidad for row in op_rows}
+
+    return PistoleadoStatsResponse(
+        total_etiquetas=total,
+        pistoleadas=pistoleadas,
+        pendientes=pendientes,
+        porcentaje=porcentaje,
+        por_caja=por_caja,
+        por_operador=por_operador,
+    )
+
+
+@router.delete(
+    "/etiquetas-envio/pistolear/{shipping_id}",
+    response_model=dict,
+    summary="Deshacer pistoleado (ANULAR)",
+)
+def deshacer_pistoleado(
+    shipping_id: str,
+    operador_id: int = Query(..., description="Operador que ejecuta la anulación"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Revierte un pistoleado por error (comando ANULAR).
+    Pone pistoleado_at, pistoleado_caja, pistoleado_operador_id en NULL.
+    Registra actividad 'despistoleado' con el estado anterior.
+    """
+    # Validar operador activo
+    operador = db.query(Operador).filter(
+        Operador.id == operador_id,
+        Operador.activo.is_(True),
+    ).first()
+    if not operador:
+        raise HTTPException(404, "Operador no encontrado o inactivo")
+
+    etiqueta = db.query(EtiquetaEnvio).filter(
+        EtiquetaEnvio.shipping_id == shipping_id,
+    ).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    if etiqueta.pistoleado_at is None:
+        raise HTTPException(400, f"Etiqueta {shipping_id} no está pistoleada")
+
+    # Guardar estado anterior para auditoría
+    op_previo = db.query(Operador).filter(Operador.id == etiqueta.pistoleado_operador_id).first()
+    estado_anterior = {
+        "shipping_id": shipping_id,
+        "pistoleado_at": str(etiqueta.pistoleado_at),
+        "pistoleado_caja": etiqueta.pistoleado_caja,
+        "pistoleado_operador_id": etiqueta.pistoleado_operador_id,
+        "pistoleado_operador_nombre": op_previo.nombre if op_previo else None,
+    }
+
+    # Limpiar pistoleado
+    etiqueta.pistoleado_at = None
+    etiqueta.pistoleado_caja = None
+    etiqueta.pistoleado_operador_id = None
+
+    # Registrar actividad
+    actividad = OperadorActividad(
+        operador_id=operador_id,
+        usuario_id=current_user.id,
+        tab_key="pistoleado",
+        accion="despistoleado",
+        detalle=estado_anterior,
+    )
+    db.add(actividad)
+
+    db.commit()
+
+    return {"ok": True, "shipping_id": shipping_id, "anulado_por": operador.nombre}

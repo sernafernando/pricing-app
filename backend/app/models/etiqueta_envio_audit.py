@@ -30,6 +30,7 @@ class EtiquetaEnvioAudit(Base):
     direccion_comentario = Column(String(500), nullable=True)
     pistoleado_at = Column(DateTime(timezone=True), nullable=True)
     pistoleado_caja = Column(String(50), nullable=True)
+    pistoleado_operador_id = Column(Integer, nullable=True)
     original_created_at = Column(DateTime(timezone=True), nullable=True)
     original_updated_at = Column(DateTime(timezone=True), nullable=True)
 
