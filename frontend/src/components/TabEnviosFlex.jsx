@@ -4,6 +4,7 @@ import {
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
 } from 'lucide-react';
 import api from '../services/api';
+import { usePermisos } from '../contexts/PermisosContext';
 import styles from './TabEnviosFlex.module.css';
 
 const CORDONES = ['CABA', 'Cordón 1', 'Cordón 2', 'Cordón 3'];
@@ -62,6 +63,16 @@ const getMlStatusClass = (status) => {
 
 // eslint-disable-next-line no-unused-vars
 export default function TabEnviosFlex({ operador = null }) {
+  const { tienePermiso } = usePermisos();
+
+  // Permisos envíos flex
+  const puedeSubir = tienePermiso('envios_flex.subir_etiquetas');
+  const puedeAsignarLogistica = tienePermiso('envios_flex.asignar_logistica');
+  const puedeCambiarFecha = tienePermiso('envios_flex.cambiar_fecha');
+  const puedeEliminar = tienePermiso('envios_flex.eliminar');
+  const puedeExportar = tienePermiso('envios_flex.exportar');
+  const puedeGestionarLogisticas = tienePermiso('envios_flex.gestionar_logisticas');
+
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
@@ -599,36 +610,38 @@ export default function TabEnviosFlex({ operador = null }) {
         </div>
       )}
 
-      {/* Scanner */}
-      <div className={styles.scannerSection}>
-        <ScanBarcode size={20} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
-        <input
-          ref={scanRef}
-          type="text"
-          value={scanInput}
-          onChange={(e) => setScanInput(e.target.value)}
-          onKeyDown={handleScanKeyDown}
-          placeholder='Escanear QR con pistola (JSON de la etiqueta)...'
-          className={styles.scannerInput}
-          autoComplete="off"
-        />
-        {scanFeedback && (
-          <div
-            className={
-              scanFeedback.type === 'success'
-                ? styles.feedbackSuccess
-                : scanFeedback.type === 'duplicate'
-                ? styles.feedbackDuplicate
-                : styles.feedbackError
-            }
-          >
-            {scanFeedback.type === 'success' && <CheckCircle size={16} />}
-            {scanFeedback.type === 'duplicate' && <AlertCircle size={16} />}
-            {scanFeedback.type === 'error' && <AlertCircle size={16} />}
-            {scanFeedback.message}
-          </div>
-        )}
-      </div>
+      {/* Scanner — solo visible si tiene permiso de subir etiquetas */}
+      {puedeSubir && (
+        <div className={styles.scannerSection}>
+          <ScanBarcode size={20} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+          <input
+            ref={scanRef}
+            type="text"
+            value={scanInput}
+            onChange={(e) => setScanInput(e.target.value)}
+            onKeyDown={handleScanKeyDown}
+            placeholder='Escanear QR con pistola (JSON de la etiqueta)...'
+            className={styles.scannerInput}
+            autoComplete="off"
+          />
+          {scanFeedback && (
+            <div
+              className={
+                scanFeedback.type === 'success'
+                  ? styles.feedbackSuccess
+                  : scanFeedback.type === 'duplicate'
+                  ? styles.feedbackDuplicate
+                  : styles.feedbackError
+              }
+            >
+              {scanFeedback.type === 'success' && <CheckCircle size={16} />}
+              {scanFeedback.type === 'duplicate' && <AlertCircle size={16} />}
+              {scanFeedback.type === 'error' && <AlertCircle size={16} />}
+              {scanFeedback.message}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Controls */}
       <div className={styles.controls}>
@@ -709,40 +722,48 @@ export default function TabEnviosFlex({ operador = null }) {
             Actualizar
           </button>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".zip,.txt"
-            onChange={handleUpload}
-            className={styles.fileInputHidden}
-            id="zpl-upload"
-          />
-          <label
-            htmlFor="zpl-upload"
-            className={`${styles.btnUpload} ${uploading ? styles.btnDisabled : ''}`}
-          >
-            <Upload size={16} />
-            {uploading ? 'Subiendo...' : 'Subir ZPL'}
-          </label>
+          {puedeSubir && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".zip,.txt"
+                onChange={handleUpload}
+                className={styles.fileInputHidden}
+                id="zpl-upload"
+              />
+              <label
+                htmlFor="zpl-upload"
+                className={`${styles.btnUpload} ${uploading ? styles.btnDisabled : ''}`}
+              >
+                <Upload size={16} />
+                {uploading ? 'Subiendo...' : 'Subir ZPL'}
+              </label>
+            </>
+          )}
 
-          <button
-            onClick={() => setShowExportModal(true)}
-            className={styles.btnExport}
-            disabled={etiquetas.length === 0}
-            aria-label="Exportar a Excel"
-          >
-            <Download size={16} />
-            Exportar
-          </button>
+          {puedeExportar && (
+            <button
+              onClick={() => setShowExportModal(true)}
+              className={styles.btnExport}
+              disabled={etiquetas.length === 0}
+              aria-label="Exportar a Excel"
+            >
+              <Download size={16} />
+              Exportar
+            </button>
+          )}
 
-          <button
-            onClick={() => setShowLogisticasModal(true)}
-            className={styles.btnLogisticas}
-            aria-label="Gestionar logísticas"
-          >
-            <Settings size={16} />
-            Logísticas
-          </button>
+          {puedeGestionarLogisticas && (
+            <button
+              onClick={() => setShowLogisticasModal(true)}
+              className={styles.btnLogisticas}
+              aria-label="Gestionar logísticas"
+            >
+              <Settings size={16} />
+              Logísticas
+            </button>
+          )}
         </div>
       </div>
 
@@ -912,7 +933,7 @@ export default function TabEnviosFlex({ operador = null }) {
                         type="date"
                         value={e.fecha_envio}
                         onChange={(ev) => cambiarFecha(e.shipping_id, ev.target.value)}
-                        disabled={actualizando.has(e.shipping_id)}
+                        disabled={!puedeCambiarFecha || actualizando.has(e.shipping_id)}
                         className={styles.fechaInput}
                       />
                     </td>
@@ -920,7 +941,7 @@ export default function TabEnviosFlex({ operador = null }) {
                       <select
                         value={e.logistica_id || ''}
                         onChange={(ev) => cambiarLogistica(e.shipping_id, ev.target.value)}
-                        disabled={actualizando.has(e.shipping_id)}
+                        disabled={!puedeAsignarLogistica || actualizando.has(e.shipping_id)}
                         className={styles.logisticaSelect}
                       >
                         <option value="">— Sin asignar —</option>
@@ -962,36 +983,40 @@ export default function TabEnviosFlex({ operador = null }) {
             {selectedIds.size} etiqueta{selectedIds.size !== 1 ? 's' : ''}
           </span>
 
-          <div className={styles.selectionActions}>
-            <select
-              value={bulkLogisticaId}
-              onChange={(ev) => setBulkLogisticaId(ev.target.value)}
-              className={styles.selectionSelect}
-              disabled={bulkActualizando}
-            >
-              <option value="">Elegir logística...</option>
-              {logisticasActivas.map(l => (
-                <option key={l.id} value={l.id}>{l.nombre}</option>
-              ))}
-            </select>
-            <button
-              onClick={asignarLogisticaMasivo}
-              disabled={!bulkLogisticaId || bulkActualizando}
-              className={styles.selectionBtnAsignar}
-            >
-              {bulkActualizando ? 'Asignando...' : 'Asignar'}
-            </button>
-          </div>
+          {puedeAsignarLogistica && (
+            <div className={styles.selectionActions}>
+              <select
+                value={bulkLogisticaId}
+                onChange={(ev) => setBulkLogisticaId(ev.target.value)}
+                className={styles.selectionSelect}
+                disabled={bulkActualizando}
+              >
+                <option value="">Elegir logística...</option>
+                {logisticasActivas.map(l => (
+                  <option key={l.id} value={l.id}>{l.nombre}</option>
+                ))}
+              </select>
+              <button
+                onClick={asignarLogisticaMasivo}
+                disabled={!bulkLogisticaId || bulkActualizando}
+                className={styles.selectionBtnAsignar}
+              >
+                {bulkActualizando ? 'Asignando...' : 'Asignar'}
+              </button>
+            </div>
+          )}
 
-          <button
-            onClick={borrarSeleccionados}
-            className={styles.selectionBtnBorrar}
-            title="Borrar etiquetas seleccionadas (requiere permisos)"
-            aria-label="Borrar etiquetas seleccionadas"
-          >
-            <Trash2 size={16} />
-            Borrar
-          </button>
+          {puedeEliminar && (
+            <button
+              onClick={borrarSeleccionados}
+              className={styles.selectionBtnBorrar}
+              title="Borrar etiquetas seleccionadas"
+              aria-label="Borrar etiquetas seleccionadas"
+            >
+              <Trash2 size={16} />
+              Borrar
+            </button>
+          )}
 
           <button
             onClick={limpiarSeleccion}

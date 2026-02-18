@@ -129,6 +129,8 @@ export default function PedidosPreparacion() {
   // Permisos
   const puedeGestionarBanlist = tienePermiso('admin.gestionar_produccion_banlist');
   const puedeMarcarPrearmado = tienePermiso('produccion.marcar_prearmado');
+  const puedeVerEnviosFlex = tienePermiso('envios_flex.ver');
+  const puedeVerPistoleado = tienePermiso('envios_flex.pistoleado');
 
   // Abrir modal de pre-armado
   const abrirModalPrearmado = (producto) => {
@@ -463,18 +465,22 @@ export default function PedidosPreparacion() {
         >
           <MapPin size={16} /> Códigos Postales
         </button>
-        <button
-          className={`${styles.tabBtn} ${tabActiva === 'envios-flex' ? styles.tabActiva : ''}`}
-          onClick={() => setTabActiva('envios-flex')}
-        >
-          <Truck size={16} /> Envíos Flex
-        </button>
-        <button
-          className={`${styles.tabBtn} ${tabActiva === 'pistoleado' ? styles.tabActiva : ''}`}
-          onClick={() => setTabActiva('pistoleado')}
-        >
-          <ScanBarcode size={16} /> Pistoleado
-        </button>
+        {puedeVerEnviosFlex && (
+          <button
+            className={`${styles.tabBtn} ${tabActiva === 'envios-flex' ? styles.tabActiva : ''}`}
+            onClick={() => setTabActiva('envios-flex')}
+          >
+            <Truck size={16} /> Envíos Flex
+          </button>
+        )}
+        {puedeVerPistoleado && (
+          <button
+            className={`${styles.tabBtn} ${tabActiva === 'pistoleado' ? styles.tabActiva : ''}`}
+            onClick={() => setTabActiva('pistoleado')}
+          >
+            <ScanBarcode size={16} /> Pistoleado
+          </button>
+        )}
       </div>
 
       {/* Contenido condicional según tab activa */}
