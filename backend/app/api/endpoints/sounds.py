@@ -28,16 +28,15 @@ class GenerateSoundRequest(BaseModel):
 
     text: str = Field(min_length=1, max_length=500, description="Texto a convertir en audio")
     filename: str = Field(
-        min_length=1, max_length=100,
+        min_length=1,
+        max_length=100,
         pattern=r"^[a-zA-Z0-9_\-]+$",
         description="Nombre del archivo sin extensión (solo alfanuméricos, _ y -)",
     )
     lang: str = Field(default="es", description="Código de idioma (es, en, pt, etc.)")
 
     model_config = ConfigDict(
-        json_schema_extra={
-            "example": {"text": "Caja veintidós", "filename": "caja_22", "lang": "es"}
-        }
+        json_schema_extra={"example": {"text": "Caja veintidós", "filename": "caja_22", "lang": "es"}}
     )
 
 
