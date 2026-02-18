@@ -43,11 +43,21 @@ from app.models.operador import Operador
 from app.models.operador_actividad import OperadorActividad
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.services.etiqueta_enrichment_service import lanzar_enriquecimiento_background
+from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
 
 # Regex para extraer JSONs del QR embebidos en ZPL
 QR_JSON_REGEX = re.compile(r'\{"id":"[^}]+\}')
+
+
+def _check_permiso(db: Session, user: Usuario, codigo: str) -> None:
+    """Verifica permiso y lanza 403 si no lo tiene."""
+    if not verificar_permiso(db, user, codigo):
+        raise HTTPException(
+            status_code=403,
+            detail=f"No tenés permiso: {codigo}",
+        )
 
 
 # ── Schemas ──────────────────────────────────────────────────────────
@@ -278,6 +288,8 @@ def upload_etiquetas(
     Extrae los JSONs de los QR codes, parsea shipping_id/sender_id/hash_code
     e inserta en etiquetas_envio con ON CONFLICT(shipping_id) DO NOTHING.
     """
+    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
+
     if not file.filename:
         raise HTTPException(400, "Archivo sin nombre")
 
@@ -371,6 +383,8 @@ def registrar_manual(
     Recibe el JSON del QR escaneado con pistola de código de barras.
     Inserta la etiqueta si no existe.
     """
+    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
+
     try:
         parsed = _parse_qr_json(payload.json_data)
     except (json.JSONDecodeError, ValueError) as e:
@@ -436,6 +450,7 @@ def listar_etiquetas(
     - tb_sale_order_status (nombre y color del estado)
     - logisticas (nombre y color de la logística)
     """
+    _check_permiso(db, current_user, "envios_flex.ver")
 
     # Subquery: obtener el ssos_id más reciente del pedido vinculado al shipping
     # SaleOrderHeader.mlshippingid es BigInteger, etiquetas.shipping_id es varchar
@@ -632,6 +647,7 @@ def estadisticas_etiquetas(
     current_user: Usuario = Depends(get_current_user),
 ) -> EstadisticasEnvioResponse:
     """Distribución de etiquetas por cordón, logística y estado."""
+    _check_permiso(db, current_user, "envios_flex.ver")
 
     # Determinar filtro de fechas: exacta (backward compatible) o rango
     if fecha_envio:
@@ -861,6 +877,8 @@ def exportar_etiquetas(
     Exporta etiquetas filtradas a un archivo Excel (.xlsx).
     Soporta selección de columnas y todos los filtros de la vista.
     """
+    _check_permiso(db, current_user, "envios_flex.exportar")
+
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
 
@@ -1083,6 +1101,7 @@ def asignar_logistica(
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
     """Asigna o desasigna la logística de una etiqueta."""
+    _check_permiso(db, current_user, "envios_flex.asignar_logistica")
 
     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
     if not etiqueta:
@@ -1111,6 +1130,7 @@ def cambiar_fecha(
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
     """Reprograma la fecha de envío de una etiqueta."""
+    _check_permiso(db, current_user, "envios_flex.cambiar_fecha")
 
     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
     if not etiqueta:
@@ -1133,6 +1153,7 @@ def asignar_masivo(
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
     """Asigna la misma logística a un lote de etiquetas."""
+    _check_permiso(db, current_user, "envios_flex.asignar_logistica")
 
     # Verificar que la logística existe
     logistica = db.query(Logistica).filter(Logistica.id == payload.logistica_id, Logistica.activa.is_(True)).first()
@@ -1181,6 +1202,7 @@ def borrar_etiquetas(
     Antes de borrar, copia cada etiqueta a etiquetas_envio_audit
     con el usuario que borró, timestamp y comentario opcional.
     """
+    _check_permiso(db, current_user, "envios_flex.eliminar")
 
     # Buscar etiquetas a borrar
     etiquetas = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids)).all()
@@ -1253,6 +1275,8 @@ def pistolear_etiqueta(
     - Graba pistoleado_at, pistoleado_caja, pistoleado_operador_id.
     - Registra actividad en operador_actividad.
     """
+    _check_permiso(db, current_user, "envios_flex.pistoleado")
+
     # Validar operador activo
     operador = (
         db.query(Operador)
@@ -1391,6 +1415,8 @@ def stats_pistoleado(
     Estadísticas de pistoleado: total, pistoleadas, pendientes, porcentaje,
     desglose por caja y por operador.
     """
+    _check_permiso(db, current_user, "envios_flex.pistoleado")
+
     fecha_filtro = fecha or date.today()
 
     # Base query: etiquetas de la fecha
@@ -1461,6 +1487,8 @@ def deshacer_pistoleado(
     Pone pistoleado_at, pistoleado_caja, pistoleado_operador_id en NULL.
     Registra actividad 'despistoleado' con el estado anterior.
     """
+    _check_permiso(db, current_user, "envios_flex.pistoleado")
+
     # Validar operador activo
     operador = (
         db.query(Operador)
