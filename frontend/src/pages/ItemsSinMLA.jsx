@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../hooks/usePermisos';
@@ -98,6 +98,7 @@ const ItemsSinMLA = () => {
   const [syncMLRunning, setSyncMLRunning] = useState(false);
   const [syncMLLog, setSyncMLLog] = useState('');
   const [showSyncMLLog, setShowSyncMLLog] = useState(false);
+  const syncLogRef = useRef(null);
 
   // Estado para multi-selección en comparación
   const [comparacionSeleccionados, setComparacionSeleccionados] = useState(new Set());
@@ -956,6 +957,13 @@ const ItemsSinMLA = () => {
     }
   }, [marcasSeleccionadasBanlist, busquedaBanlist, soloNuevosBanlist]);
 
+  // Auto-scroll del log de sincronización ML
+  useEffect(() => {
+    if (syncLogRef.current) {
+      syncLogRef.current.scrollTop = syncLogRef.current.scrollHeight;
+    }
+  }, [syncMLLog]);
+
   return (
     <div className="items-sin-mla-container">
       <div className="page-header">
@@ -1738,7 +1746,7 @@ const ItemsSinMLA = () => {
           </div>
 
           {showSyncMLLog && (
-            <pre className="sync-ml-log">{syncMLLog || 'Esperando respuesta del servidor...'}</pre>
+            <pre className="sync-ml-log" ref={syncLogRef}>{syncMLLog || 'Esperando respuesta del servidor...'}</pre>
           )}
 
           {/* Barra de acciones para multi-selección */}
