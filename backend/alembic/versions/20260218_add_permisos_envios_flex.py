@@ -10,6 +10,7 @@ Create Date: 2026-02-18
 """
 
 from alembic import op
+import sqlalchemy as sa
 
 revision = "20260218_permisos_flex"
 down_revision = "20260218_pistoleado_op"
@@ -31,13 +32,17 @@ CODIGOS = [
 
 
 def upgrade():
-    # 0. Agregar valor 'envios_flex' al ENUM categoriapermiso de PostgreSQL.
-    #    La columna en el modelo Python es String(50), pero en la BD sigue siendo ENUM nativo.
-    #    ALTER TYPE ... ADD VALUE no puede ejecutarse dentro de un bloque transaccional,
-    #    por eso cerramos la transacción actual, agregamos el valor, y abrimos una nueva.
-    op.execute("COMMIT")
-    op.execute("ALTER TYPE categoriapermiso ADD VALUE IF NOT EXISTS 'envios_flex'")
-    op.execute("BEGIN")
+    # 0. Convertir columna categoria de ENUM nativo a VARCHAR(50).
+    #    El modelo Python ya usa String(50), pero la BD tenía un ENUM 'categoriapermiso'.
+    #    ALTER TYPE ... ADD VALUE requiere ser owner del tipo (superusuario),
+    #    así que eliminamos el enum de una vez. Esto permite agregar categorías
+    #    nuevas sin tocar el schema nunca más.
+    op.execute(
+        "ALTER TABLE permisos ALTER COLUMN categoria TYPE VARCHAR(50) "
+        "USING categoria::text"
+    )
+    # Eliminar el tipo enum huérfano
+    op.execute("DROP TYPE IF EXISTS categoriapermiso")
 
     # 1. Insertar los 9 permisos nuevos
     op.execute("""
