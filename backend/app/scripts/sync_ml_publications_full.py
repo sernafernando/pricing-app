@@ -337,8 +337,7 @@ async def procesar_batch(
                         "seller_sku": seller_sku,
                     }
                     errores_detalle.append(
-                        f"  ⚠️  {mla_id} [{type(e).__name__}]: {str(e)[:150]}\n"
-                        f"      Datos: {datos_debug}"
+                        f"  ⚠️  {mla_id} [{type(e).__name__}]: {str(e)[:150]}\n      Datos: {datos_debug}"
                     )
 
         # Pausa para no saturar la API
