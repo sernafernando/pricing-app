@@ -23,9 +23,7 @@ class OperadorConfigTab(Base):
     activo = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    __table_args__ = (
-        Index("idx_config_tab_key_page", "tab_key", "page_path", unique=True),
-    )
+    __table_args__ = (Index("idx_config_tab_key_page", "tab_key", "page_path", unique=True),)
 
     def __repr__(self) -> str:
         return f"<OperadorConfigTab(tab={self.tab_key}, page={self.page_path}, timeout={self.timeout_minutos}m)>"

@@ -62,11 +62,7 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
 
                 # Actualizar solo si hay algo que guardar
                 if lat is not None or direccion or comentario:
-                    etiqueta = (
-                        db.query(EtiquetaEnvio)
-                        .filter(EtiquetaEnvio.shipping_id == shipping_id)
-                        .first()
-                    )
+                    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
                     if etiqueta:
                         if lat is not None and lng is not None:
                             etiqueta.latitud = lat
@@ -86,10 +82,7 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                 errores += 1
 
         db.commit()
-        logger.info(
-            f"Enriquecimiento completo: {enriquecidas}/{len(shipping_ids)} OK, "
-            f"{errores} errores"
-        )
+        logger.info(f"Enriquecimiento completo: {enriquecidas}/{len(shipping_ids)} OK, {errores} errores")
 
     except Exception as e:
         db.rollback()

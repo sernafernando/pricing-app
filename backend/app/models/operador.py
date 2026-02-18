@@ -22,9 +22,7 @@ class Operador(Base):
     activo = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    __table_args__ = (
-        Index("idx_operadores_pin", "pin", unique=True),
-    )
+    __table_args__ = (Index("idx_operadores_pin", "pin", unique=True),)
 
     def __repr__(self) -> str:
         return f"<Operador(id={self.id}, nombre={self.nombre}, pin={self.pin})>"

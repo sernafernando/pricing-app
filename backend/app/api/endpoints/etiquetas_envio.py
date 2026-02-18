@@ -186,11 +186,7 @@ def _insertar_etiqueta(
     Inserta una etiqueta si no existe.
     Retorna True si se insertó (nueva), False si ya existía (duplicada).
     """
-    existente = (
-        db.query(EtiquetaEnvio)
-        .filter(EtiquetaEnvio.shipping_id == shipping_id)
-        .first()
-    )
+    existente = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
     if existente:
         return False
 
@@ -239,8 +235,7 @@ def upload_etiquetas(
             with zipfile.ZipFile(BytesIO(contents)) as zf:
                 # Buscar el primer .txt dentro del zip
                 txt_files = [
-                    name for name in zf.namelist()
-                    if name.lower().endswith(".txt") and not name.startswith("__MACOSX")
+                    name for name in zf.namelist() if name.lower().endswith(".txt") and not name.startswith("__MACOSX")
                 ]
                 if not txt_files:
                     raise HTTPException(400, "El .zip no contiene archivos .txt")
@@ -630,20 +625,12 @@ def asignar_logistica(
 ) -> dict:
     """Asigna o desasigna la logística de una etiqueta."""
 
-    etiqueta = (
-        db.query(EtiquetaEnvio)
-        .filter(EtiquetaEnvio.shipping_id == shipping_id)
-        .first()
-    )
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
     if not etiqueta:
         raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
 
     if payload.logistica_id is not None:
-        logistica = (
-            db.query(Logistica)
-            .filter(Logistica.id == payload.logistica_id, Logistica.activa.is_(True))
-            .first()
-        )
+        logistica = db.query(Logistica).filter(Logistica.id == payload.logistica_id, Logistica.activa.is_(True)).first()
         if not logistica:
             raise HTTPException(404, "Logística no encontrada o inactiva")
 
@@ -666,11 +653,7 @@ def cambiar_fecha(
 ) -> dict:
     """Reprograma la fecha de envío de una etiqueta."""
 
-    etiqueta = (
-        db.query(EtiquetaEnvio)
-        .filter(EtiquetaEnvio.shipping_id == shipping_id)
-        .first()
-    )
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
     if not etiqueta:
         raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
 
@@ -693,11 +676,7 @@ def asignar_masivo(
     """Asigna la misma logística a un lote de etiquetas."""
 
     # Verificar que la logística existe
-    logistica = (
-        db.query(Logistica)
-        .filter(Logistica.id == payload.logistica_id, Logistica.activa.is_(True))
-        .first()
-    )
+    logistica = db.query(Logistica).filter(Logistica.id == payload.logistica_id, Logistica.activa.is_(True)).first()
     if not logistica:
         raise HTTPException(404, "Logística no encontrada o inactiva")
 
@@ -745,11 +724,7 @@ def borrar_etiquetas(
     """
 
     # Buscar etiquetas a borrar
-    etiquetas = (
-        db.query(EtiquetaEnvio)
-        .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
-        .all()
-    )
+    etiquetas = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids)).all()
 
     if not etiquetas:
         raise HTTPException(404, "No se encontraron etiquetas para borrar")
