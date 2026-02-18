@@ -1,0 +1,788 @@
+"""
+Endpoints para gestión de etiquetas de envío flex.
+
+Permite:
+- Subir archivos .zip/.txt con etiquetas ZPL de MercadoEnvíos
+- Escanear QR individuales con pistola de código de barras
+- Listar etiquetas con datos de envío (destinatario, dirección, CP, cordón)
+- Asignar logísticas a etiquetas individual o masivamente
+- Cambiar fecha de envío (reprogramar)
+- Estadísticas de distribución por cordón, logística y estado
+
+Los archivos ZPL contienen JSONs embebidos en los QR codes con formato:
+{"id":"46458064834","sender_id":413658225,"hash_code":"...","security_digit":"0"}
+
+El campo "id" del QR = mlshippingid en tb_mercadolibre_orders_shipping.
+"""
+
+import re
+import json
+import zipfile
+from io import BytesIO
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import func, cast, String, case, literal
+from typing import List, Optional
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.core.database import get_db
+from app.api.deps import get_current_user
+from app.models.usuario import Usuario
+from app.models.etiqueta_envio import EtiquetaEnvio
+from app.models.logistica import Logistica
+from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
+from app.models.codigo_postal_cordon import CodigoPostalCordon
+from app.models.sale_order_header import SaleOrderHeader
+from app.models.sale_order_status import SaleOrderStatus
+from app.models.etiqueta_envio_audit import EtiquetaEnvioAudit
+from app.services.etiqueta_enrichment_service import lanzar_enriquecimiento_background
+
+router = APIRouter()
+
+# Regex para extraer JSONs del QR embebidos en ZPL
+QR_JSON_REGEX = re.compile(r'\{"id":"[^}]+\}')
+
+
+# ── Schemas ──────────────────────────────────────────────────────────
+
+
+class UploadResultResponse(BaseModel):
+    """Resultado de la carga de etiquetas desde archivo."""
+
+    total: int
+    nuevas: int
+    duplicadas: int
+    errores: int = 0
+    detalle_errores: List[str] = []
+
+
+class ManualScanRequest(BaseModel):
+    """Payload del escaneo manual con pistola."""
+
+    json_data: str = Field(
+        description='JSON raw del QR, ej: {"id":"46458064834","sender_id":413658225,...}',
+    )
+
+
+class ManualScanResponse(BaseModel):
+    """Resultado del escaneo manual."""
+
+    duplicada: bool
+    shipping_id: str
+    mensaje: str
+
+
+class EtiquetaEnvioResponse(BaseModel):
+    """Etiqueta con datos enriquecidos de envío, dirección y estado."""
+
+    shipping_id: str
+    sender_id: Optional[int] = None
+    nombre_archivo: Optional[str] = None
+    fecha_envio: date
+    logistica_id: Optional[int] = None
+    logistica_nombre: Optional[str] = None
+    logistica_color: Optional[str] = None
+
+    # Datos de ML shipping
+    mlreceiver_name: Optional[str] = None
+    mlstreet_name: Optional[str] = None
+    mlstreet_number: Optional[str] = None
+    mlzip_code: Optional[str] = None
+    mlcity_name: Optional[str] = None
+    mlstatus: Optional[str] = None
+
+    # Cordón
+    cordon: Optional[str] = None
+
+    # Datos enriquecidos (ML webhook)
+    latitud: Optional[float] = None
+    longitud: Optional[float] = None
+    direccion_completa: Optional[str] = None
+    direccion_comentario: Optional[str] = None
+
+    # Estado ERP
+    ssos_id: Optional[int] = None
+    ssos_name: Optional[str] = None
+    ssos_color: Optional[str] = None
+
+    # Pistoleado (futuro)
+    pistoleado_at: Optional[str] = None
+    pistoleado_caja: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EstadisticasEnvioResponse(BaseModel):
+    """Estadísticas de distribución de etiquetas."""
+
+    total: int
+    por_cordon: dict[str, int]
+    sin_cordon: int
+    por_logistica: dict[str, int]
+    sin_logistica: int
+    por_estado_ml: dict[str, int]
+    por_estado_erp: dict[str, int]
+
+
+class AsignarLogisticaRequest(BaseModel):
+    """Payload para asignar logística a una etiqueta."""
+
+    logistica_id: Optional[int] = Field(
+        None,
+        description="ID de logística. None para desasignar.",
+    )
+
+
+class CambiarFechaRequest(BaseModel):
+    """Payload para cambiar fecha de envío."""
+
+    fecha_envio: date
+
+
+class AsignarMasivoRequest(BaseModel):
+    """Payload para asignación masiva de logística."""
+
+    shipping_ids: List[str] = Field(min_length=1)
+    logistica_id: int
+
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
+
+def _parse_qr_json(raw: str) -> dict:
+    """
+    Parsea el JSON del QR de la etiqueta ZPL.
+    Retorna dict con shipping_id, sender_id, hash_code.
+    Raises ValueError si el JSON no tiene el campo 'id'.
+    """
+    data = json.loads(raw)
+    shipping_id = data.get("id")
+    if not shipping_id:
+        raise ValueError("JSON del QR no tiene campo 'id'")
+
+    return {
+        "shipping_id": str(shipping_id),
+        "sender_id": data.get("sender_id"),
+        "hash_code": data.get("hash_code"),
+    }
+
+
+def _extraer_qrs_de_texto(text: str) -> List[str]:
+    """Extrae todos los JSONs de QR de un texto ZPL."""
+    return QR_JSON_REGEX.findall(text)
+
+
+def _insertar_etiqueta(
+    db: Session,
+    shipping_id: str,
+    sender_id: Optional[int],
+    hash_code: Optional[str],
+    nombre_archivo: Optional[str],
+    fecha_envio: date,
+) -> bool:
+    """
+    Inserta una etiqueta si no existe.
+    Retorna True si se insertó (nueva), False si ya existía (duplicada).
+    """
+    existente = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id == shipping_id)
+        .first()
+    )
+    if existente:
+        return False
+
+    etiqueta = EtiquetaEnvio(
+        shipping_id=shipping_id,
+        sender_id=sender_id,
+        hash_code=hash_code,
+        nombre_archivo=nombre_archivo,
+        fecha_envio=fecha_envio,
+    )
+    db.add(etiqueta)
+    return True
+
+
+# ── Endpoints ────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/etiquetas-envio/upload",
+    response_model=UploadResultResponse,
+    summary="Subir archivo ZPL (.zip o .txt) con etiquetas",
+)
+def upload_etiquetas(
+    file: UploadFile = File(..., description="Archivo .zip o .txt con etiquetas ZPL"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> UploadResultResponse:
+    """
+    Recibe un .zip (que contiene .txt) o directamente un .txt con etiquetas ZPL.
+    Extrae los JSONs de los QR codes, parsea shipping_id/sender_id/hash_code
+    e inserta en etiquetas_envio con ON CONFLICT(shipping_id) DO NOTHING.
+    """
+    if not file.filename:
+        raise HTTPException(400, "Archivo sin nombre")
+
+    filename = file.filename.lower()
+    if not filename.endswith((".zip", ".txt")):
+        raise HTTPException(400, "Solo se aceptan archivos .zip o .txt")
+
+    contents = file.file.read()
+    nombre_archivo = file.filename
+    text_content = ""
+
+    if filename.endswith(".zip"):
+        try:
+            with zipfile.ZipFile(BytesIO(contents)) as zf:
+                # Buscar el primer .txt dentro del zip
+                txt_files = [
+                    name for name in zf.namelist()
+                    if name.lower().endswith(".txt") and not name.startswith("__MACOSX")
+                ]
+                if not txt_files:
+                    raise HTTPException(400, "El .zip no contiene archivos .txt")
+
+                text_content = zf.read(txt_files[0]).decode("utf-8", errors="replace")
+        except zipfile.BadZipFile:
+            raise HTTPException(400, "Archivo .zip inválido o corrupto")
+    else:
+        text_content = contents.decode("utf-8", errors="replace")
+
+    # Extraer QR JSONs
+    qr_jsons = _extraer_qrs_de_texto(text_content)
+
+    if not qr_jsons:
+        raise HTTPException(400, "No se encontraron etiquetas QR en el archivo")
+
+    total = len(qr_jsons)
+    nuevas = 0
+    duplicadas = 0
+    errores = 0
+    detalle_errores: List[str] = []
+    nuevos_shipping_ids: List[str] = []
+    hoy = date.today()
+
+    for raw_json in qr_jsons:
+        try:
+            parsed = _parse_qr_json(raw_json)
+            es_nueva = _insertar_etiqueta(
+                db=db,
+                shipping_id=parsed["shipping_id"],
+                sender_id=parsed["sender_id"],
+                hash_code=parsed["hash_code"],
+                nombre_archivo=nombre_archivo,
+                fecha_envio=hoy,
+            )
+            if es_nueva:
+                nuevas += 1
+                nuevos_shipping_ids.append(parsed["shipping_id"])
+            else:
+                duplicadas += 1
+        except (json.JSONDecodeError, ValueError) as e:
+            errores += 1
+            detalle_errores.append(f"Error parseando QR: {str(e)[:100]}")
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error guardando en base de datos: {str(e)}")
+
+    # Enriquecer etiquetas nuevas en background (coords, dirección, comentario)
+    lanzar_enriquecimiento_background(nuevos_shipping_ids)
+
+    return UploadResultResponse(
+        total=total,
+        nuevas=nuevas,
+        duplicadas=duplicadas,
+        errores=errores,
+        detalle_errores=detalle_errores[:20],
+    )
+
+
+@router.post(
+    "/etiquetas-envio/manual",
+    response_model=ManualScanResponse,
+    summary="Registrar etiqueta individual (escaneo con pistola)",
+)
+def registrar_manual(
+    payload: ManualScanRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ManualScanResponse:
+    """
+    Recibe el JSON del QR escaneado con pistola de código de barras.
+    Inserta la etiqueta si no existe.
+    """
+    try:
+        parsed = _parse_qr_json(payload.json_data)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise HTTPException(400, f"JSON inválido: {str(e)}")
+
+    es_nueva = _insertar_etiqueta(
+        db=db,
+        shipping_id=parsed["shipping_id"],
+        sender_id=parsed["sender_id"],
+        hash_code=parsed["hash_code"],
+        nombre_archivo="escaneo_manual",
+        fecha_envio=date.today(),
+    )
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error guardando: {str(e)}")
+
+    shipping_id = parsed["shipping_id"]
+
+    if es_nueva:
+        # Enriquecer en background (coords, dirección, comentario)
+        lanzar_enriquecimiento_background([shipping_id])
+
+        return ManualScanResponse(
+            duplicada=False,
+            shipping_id=shipping_id,
+            mensaje=f"Cargado: {shipping_id}",
+        )
+    else:
+        return ManualScanResponse(
+            duplicada=True,
+            shipping_id=shipping_id,
+            mensaje=f"Ya existía: {shipping_id}",
+        )
+
+
+@router.get(
+    "/etiquetas-envio",
+    response_model=List[EtiquetaEnvioResponse],
+    summary="Listar etiquetas con datos de envío",
+)
+def listar_etiquetas(
+    fecha_envio: Optional[date] = Query(None, description="Filtrar por fecha de envío"),
+    cordon: Optional[str] = Query(None, description="Filtrar por cordón"),
+    logistica_id: Optional[int] = Query(None, description="Filtrar por logística"),
+    sin_logistica: bool = Query(False, description="Solo etiquetas sin logística asignada"),
+    mlstatus: Optional[str] = Query(None, description="Filtrar por estado ML"),
+    ssos_id: Optional[int] = Query(None, description="Filtrar por estado ERP"),
+    search: Optional[str] = Query(None, description="Buscar por shipping_id, destinatario o dirección"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[EtiquetaEnvioResponse]:
+    """
+    Lista etiquetas de envío con JOINs a:
+    - tb_mercadolibre_orders_shipping (datos del envío)
+    - cp_cordones (cordón del CP)
+    - tb_sale_order_header (ssos_id del pedido ERP)
+    - tb_sale_order_status (nombre y color del estado)
+    - logisticas (nombre y color de la logística)
+    """
+
+    # Subquery: obtener el ssos_id más reciente del pedido vinculado al shipping
+    # SaleOrderHeader.mlshippingid es BigInteger, etiquetas.shipping_id es varchar
+    soh_sub = (
+        db.query(
+            cast(SaleOrderHeader.mlshippingid, String).label("shipping_id_str"),
+            SaleOrderHeader.ssos_id.label("soh_ssos_id"),
+        )
+        .filter(SaleOrderHeader.mlshippingid.isnot(None))
+        .subquery()
+    )
+
+    query = (
+        db.query(
+            EtiquetaEnvio.shipping_id,
+            EtiquetaEnvio.sender_id,
+            EtiquetaEnvio.nombre_archivo,
+            EtiquetaEnvio.fecha_envio,
+            EtiquetaEnvio.logistica_id,
+            EtiquetaEnvio.latitud,
+            EtiquetaEnvio.longitud,
+            EtiquetaEnvio.direccion_completa,
+            EtiquetaEnvio.direccion_comentario,
+            EtiquetaEnvio.pistoleado_at,
+            EtiquetaEnvio.pistoleado_caja,
+            Logistica.nombre.label("logistica_nombre"),
+            Logistica.color.label("logistica_color"),
+            MercadoLibreOrderShipping.mlreceiver_name,
+            MercadoLibreOrderShipping.mlstreet_name,
+            MercadoLibreOrderShipping.mlstreet_number,
+            MercadoLibreOrderShipping.mlzip_code,
+            MercadoLibreOrderShipping.mlcity_name,
+            MercadoLibreOrderShipping.mlstatus,
+            CodigoPostalCordon.cordon,
+            soh_sub.c.soh_ssos_id.label("ssos_id"),
+            SaleOrderStatus.ssos_name,
+            SaleOrderStatus.ssos_color,
+        )
+        .outerjoin(
+            Logistica,
+            EtiquetaEnvio.logistica_id == Logistica.id,
+        )
+        .outerjoin(
+            MercadoLibreOrderShipping,
+            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
+        )
+        .outerjoin(
+            CodigoPostalCordon,
+            MercadoLibreOrderShipping.mlzip_code == CodigoPostalCordon.codigo_postal,
+        )
+        .outerjoin(
+            soh_sub,
+            soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id,
+        )
+        .outerjoin(
+            SaleOrderStatus,
+            soh_sub.c.soh_ssos_id == SaleOrderStatus.ssos_id,
+        )
+    )
+
+    # ── Filtros ──────────────────────────────────────────────────
+
+    if fecha_envio:
+        query = query.filter(EtiquetaEnvio.fecha_envio == fecha_envio)
+
+    if cordon:
+        query = query.filter(CodigoPostalCordon.cordon == cordon)
+
+    if logistica_id is not None:
+        query = query.filter(EtiquetaEnvio.logistica_id == logistica_id)
+
+    if sin_logistica:
+        query = query.filter(EtiquetaEnvio.logistica_id.is_(None))
+
+    if mlstatus:
+        query = query.filter(MercadoLibreOrderShipping.mlstatus == mlstatus)
+
+    if ssos_id is not None:
+        query = query.filter(soh_sub.c.soh_ssos_id == ssos_id)
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            (EtiquetaEnvio.shipping_id.ilike(search_term))
+            | (MercadoLibreOrderShipping.mlreceiver_name.ilike(search_term))
+            | (MercadoLibreOrderShipping.mlstreet_name.ilike(search_term))
+            | (MercadoLibreOrderShipping.mlcity_name.ilike(search_term))
+        )
+
+    # Ordenar por shipping_id desc (más recientes primero)
+    query = query.order_by(EtiquetaEnvio.shipping_id.desc())
+
+    rows = query.all()
+
+    return [
+        EtiquetaEnvioResponse(
+            shipping_id=row.shipping_id,
+            sender_id=row.sender_id,
+            nombre_archivo=row.nombre_archivo,
+            fecha_envio=row.fecha_envio,
+            logistica_id=row.logistica_id,
+            logistica_nombre=row.logistica_nombre,
+            logistica_color=row.logistica_color,
+            mlreceiver_name=row.mlreceiver_name,
+            mlstreet_name=row.mlstreet_name,
+            mlstreet_number=row.mlstreet_number,
+            mlzip_code=row.mlzip_code,
+            mlcity_name=row.mlcity_name,
+            mlstatus=row.mlstatus,
+            cordon=row.cordon,
+            latitud=row.latitud,
+            longitud=row.longitud,
+            direccion_completa=row.direccion_completa,
+            direccion_comentario=row.direccion_comentario,
+            ssos_id=row.ssos_id,
+            ssos_name=row.ssos_name,
+            ssos_color=row.ssos_color,
+            pistoleado_at=str(row.pistoleado_at) if row.pistoleado_at else None,
+            pistoleado_caja=row.pistoleado_caja,
+        )
+        for row in rows
+    ]
+
+
+@router.get(
+    "/etiquetas-envio/estadisticas",
+    response_model=EstadisticasEnvioResponse,
+    summary="Estadísticas de distribución de etiquetas",
+)
+def estadisticas_etiquetas(
+    fecha_envio: Optional[date] = Query(None, description="Fecha de envío (por defecto hoy)"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> EstadisticasEnvioResponse:
+    """Distribución de etiquetas por cordón, logística y estado."""
+
+    fecha = fecha_envio or date.today()
+
+    # Base: etiquetas del día
+    base_query = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.fecha_envio == fecha)
+
+    total = base_query.count()
+
+    # Por cordón
+    cordon_rows = (
+        db.query(
+            CodigoPostalCordon.cordon,
+            func.count().label("cantidad"),
+        )
+        .join(
+            MercadoLibreOrderShipping,
+            MercadoLibreOrderShipping.mlzip_code == CodigoPostalCordon.codigo_postal,
+        )
+        .join(
+            EtiquetaEnvio,
+            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
+        )
+        .filter(
+            EtiquetaEnvio.fecha_envio == fecha,
+            CodigoPostalCordon.cordon.isnot(None),
+        )
+        .group_by(CodigoPostalCordon.cordon)
+        .all()
+    )
+    por_cordon = {row.cordon: row.cantidad for row in cordon_rows}
+    con_cordon = sum(por_cordon.values())
+
+    # Por logística
+    logistica_rows = (
+        db.query(
+            Logistica.nombre,
+            func.count().label("cantidad"),
+        )
+        .join(EtiquetaEnvio, EtiquetaEnvio.logistica_id == Logistica.id)
+        .filter(EtiquetaEnvio.fecha_envio == fecha)
+        .group_by(Logistica.nombre)
+        .all()
+    )
+    por_logistica = {row.nombre: row.cantidad for row in logistica_rows}
+    con_logistica = sum(por_logistica.values())
+
+    # Por estado ML
+    ml_status_rows = (
+        db.query(
+            MercadoLibreOrderShipping.mlstatus,
+            func.count().label("cantidad"),
+        )
+        .join(
+            EtiquetaEnvio,
+            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
+        )
+        .filter(
+            EtiquetaEnvio.fecha_envio == fecha,
+            MercadoLibreOrderShipping.mlstatus.isnot(None),
+        )
+        .group_by(MercadoLibreOrderShipping.mlstatus)
+        .all()
+    )
+    por_estado_ml = {row.mlstatus: row.cantidad for row in ml_status_rows}
+
+    # Por estado ERP
+    soh_sub = (
+        db.query(
+            cast(SaleOrderHeader.mlshippingid, String).label("shipping_id_str"),
+            SaleOrderHeader.ssos_id.label("soh_ssos_id"),
+        )
+        .filter(SaleOrderHeader.mlshippingid.isnot(None))
+        .subquery()
+    )
+
+    erp_status_rows = (
+        db.query(
+            SaleOrderStatus.ssos_name,
+            func.count().label("cantidad"),
+        )
+        .join(soh_sub, soh_sub.c.soh_ssos_id == SaleOrderStatus.ssos_id)
+        .join(
+            EtiquetaEnvio,
+            EtiquetaEnvio.shipping_id == soh_sub.c.shipping_id_str,
+        )
+        .filter(EtiquetaEnvio.fecha_envio == fecha)
+        .group_by(SaleOrderStatus.ssos_name)
+        .all()
+    )
+    por_estado_erp = {row.ssos_name: row.cantidad for row in erp_status_rows}
+
+    return EstadisticasEnvioResponse(
+        total=total,
+        por_cordon=por_cordon,
+        sin_cordon=max(0, total - con_cordon),
+        por_logistica=por_logistica,
+        sin_logistica=max(0, total - con_logistica),
+        por_estado_ml=por_estado_ml,
+        por_estado_erp=por_estado_erp,
+    )
+
+
+@router.put(
+    "/etiquetas-envio/{shipping_id}/logistica",
+    response_model=dict,
+    summary="Asignar logística a una etiqueta",
+)
+def asignar_logistica(
+    shipping_id: str,
+    payload: AsignarLogisticaRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """Asigna o desasigna la logística de una etiqueta."""
+
+    etiqueta = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id == shipping_id)
+        .first()
+    )
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    if payload.logistica_id is not None:
+        logistica = (
+            db.query(Logistica)
+            .filter(Logistica.id == payload.logistica_id, Logistica.activa.is_(True))
+            .first()
+        )
+        if not logistica:
+            raise HTTPException(404, "Logística no encontrada o inactiva")
+
+    etiqueta.logistica_id = payload.logistica_id
+    db.commit()
+
+    return {"ok": True, "shipping_id": shipping_id, "logistica_id": payload.logistica_id}
+
+
+@router.put(
+    "/etiquetas-envio/{shipping_id}/fecha",
+    response_model=dict,
+    summary="Cambiar fecha de envío (reprogramar)",
+)
+def cambiar_fecha(
+    shipping_id: str,
+    payload: CambiarFechaRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """Reprograma la fecha de envío de una etiqueta."""
+
+    etiqueta = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id == shipping_id)
+        .first()
+    )
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    etiqueta.fecha_envio = payload.fecha_envio
+    db.commit()
+
+    return {"ok": True, "shipping_id": shipping_id, "fecha_envio": str(payload.fecha_envio)}
+
+
+@router.put(
+    "/etiquetas-envio/asignar-masivo",
+    response_model=dict,
+    summary="Asignar logística a múltiples etiquetas",
+)
+def asignar_masivo(
+    payload: AsignarMasivoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """Asigna la misma logística a un lote de etiquetas."""
+
+    # Verificar que la logística existe
+    logistica = (
+        db.query(Logistica)
+        .filter(Logistica.id == payload.logistica_id, Logistica.activa.is_(True))
+        .first()
+    )
+    if not logistica:
+        raise HTTPException(404, "Logística no encontrada o inactiva")
+
+    # Update masivo
+    updated = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
+        .update(
+            {EtiquetaEnvio.logistica_id: payload.logistica_id},
+            synchronize_session="fetch",
+        )
+    )
+
+    db.commit()
+
+    return {
+        "ok": True,
+        "actualizadas": updated,
+        "logistica_id": payload.logistica_id,
+        "logistica_nombre": logistica.nombre,
+    }
+
+
+class BorrarEtiquetasRequest(BaseModel):
+    """Payload para borrar etiquetas con auditoría."""
+
+    shipping_ids: List[str] = Field(min_length=1)
+    comment: Optional[str] = Field(None, max_length=500, description="Motivo del borrado")
+
+
+@router.delete(
+    "/etiquetas-envio",
+    response_model=dict,
+    summary="Borrar etiquetas de envío (con auditoría)",
+)
+def borrar_etiquetas(
+    payload: BorrarEtiquetasRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Elimina etiquetas por shipping_id.
+    Antes de borrar, copia cada etiqueta a etiquetas_envio_audit
+    con el usuario que borró, timestamp y comentario opcional.
+    """
+
+    # Buscar etiquetas a borrar
+    etiquetas = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
+        .all()
+    )
+
+    if not etiquetas:
+        raise HTTPException(404, "No se encontraron etiquetas para borrar")
+
+    # Copiar a audit antes de borrar
+    for etiq in etiquetas:
+        audit = EtiquetaEnvioAudit(
+            shipping_id=etiq.shipping_id,
+            sender_id=etiq.sender_id,
+            hash_code=etiq.hash_code,
+            nombre_archivo=etiq.nombre_archivo,
+            fecha_envio=etiq.fecha_envio,
+            logistica_id=etiq.logistica_id,
+            latitud=etiq.latitud,
+            longitud=etiq.longitud,
+            direccion_completa=etiq.direccion_completa,
+            direccion_comentario=etiq.direccion_comentario,
+            pistoleado_at=etiq.pistoleado_at,
+            pistoleado_caja=etiq.pistoleado_caja,
+            original_created_at=etiq.created_at,
+            original_updated_at=etiq.updated_at,
+            deleted_by=current_user.id,
+            delete_comment=payload.comment,
+        )
+        db.add(audit)
+
+    # Borrar originales
+    deleted = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
+        .delete(synchronize_session="fetch")
+    )
+
+    db.commit()
+
+    return {"ok": True, "eliminadas": deleted}

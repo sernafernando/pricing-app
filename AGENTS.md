@@ -290,6 +290,7 @@ frontend/src/
 - ❌ Don't use emoji as icons (📦, ✅, ❌, 💰) → Use `lucide-react` SVG components
 - ❌ Don't use `var` → Use `const` (default) or `let` (reassignment only)
 - ❌ Don't leave `console.log` in production code
+- ❌ Don't use `alert()`, `confirm()`, `prompt()` → Use custom modals (Tesla Design System)
 
 ---
 

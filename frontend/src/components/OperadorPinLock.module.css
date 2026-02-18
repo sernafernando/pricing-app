@@ -1,0 +1,236 @@
+/* ═══════════════════════════════════════════════════
+   OperadorPinLock — Lock Screen & Operator Bar
+   ═══════════════════════════════════════════════════ */
+
+.loadingConfig {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* ── Lock Overlay ─────────────────────────────────── */
+
+.overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  padding: 40px 20px;
+}
+
+.lockCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 40px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  max-width: 360px;
+  width: 100%;
+}
+
+.lockIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.lockTitle {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.lockDesc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── PIN Input ────────────────────────────────────── */
+
+.pinContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.pinInput {
+  width: 160px;
+  padding: 14px 20px;
+  border: 2px solid var(--border-primary);
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 28px;
+  font-weight: 700;
+  font-family: monospace;
+  text-align: center;
+  letter-spacing: 0.5em;
+  transition: border-color 0.2s;
+}
+
+.pinInput:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.pinInputError {
+  border-color: #ef4444;
+  animation: shake 0.4s ease-in-out;
+}
+
+.pinInputError:focus {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+}
+
+/* ── PIN Dots ─────────────────────────────────────── */
+
+.pinDots {
+  display: flex;
+  gap: 10px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-primary);
+  transition: all 0.15s;
+}
+
+.dotFilled {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+  transform: scale(1.2);
+}
+
+/* ── Messages ─────────────────────────────────────── */
+
+.pinError {
+  font-size: 13px;
+  color: #ef4444;
+  margin: 0;
+  font-weight: 500;
+}
+
+.pinValidando {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ── Success Flash ────────────────────────────────── */
+
+.successCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 40px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.successIcon {
+  color: #22c55e;
+  animation: popIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.successName {
+  font-size: 24px;
+  font-weight: 600;
+  color: #22c55e;
+  margin: 0;
+}
+
+/* ── Operator Bar (bottom) ────────────────────────── */
+
+.wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.operadorBar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border-primary);
+  font-size: 12px;
+  z-index: 10;
+}
+
+.operadorInfo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+
+.operadorNombre {
+  font-weight: 600;
+  color: var(--brand-primary);
+}
+
+.btnCerrarSesion {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btnCerrarSesion:hover {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* ── Animations ───────────────────────────────────── */
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes popIn {
+  0% { opacity: 0; transform: scale(0.5); }
+  60% { transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
