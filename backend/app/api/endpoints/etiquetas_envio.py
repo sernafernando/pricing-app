@@ -1039,10 +1039,19 @@ def exportar_etiquetas(
 
     # Anchos automáticos (estimados)
     col_widths = {
-        "shipping_id": 16, "fecha_envio": 14, "destinatario": 25,
-        "direccion": 35, "cp": 8, "localidad": 20, "cordon": 12,
-        "logistica": 18, "costo_envio": 14, "estado_ml": 18,
-        "estado_erp": 18, "pistoleado": 22, "caja": 14,
+        "shipping_id": 16,
+        "fecha_envio": 14,
+        "destinatario": 25,
+        "direccion": 35,
+        "cp": 8,
+        "localidad": 20,
+        "cordon": 12,
+        "logistica": 18,
+        "costo_envio": 14,
+        "estado_ml": 18,
+        "estado_erp": 18,
+        "pistoleado": 22,
+        "caja": 14,
     }
     for col_idx, col_key in enumerate(cols_solicitadas, start=1):
         col_letter = ws.cell(row=1, column=col_idx).column_letter
@@ -1245,17 +1254,25 @@ def pistolear_etiqueta(
     - Registra actividad en operador_actividad.
     """
     # Validar operador activo
-    operador = db.query(Operador).filter(
-        Operador.id == payload.operador_id,
-        Operador.activo.is_(True),
-    ).first()
+    operador = (
+        db.query(Operador)
+        .filter(
+            Operador.id == payload.operador_id,
+            Operador.activo.is_(True),
+        )
+        .first()
+    )
     if not operador:
         raise HTTPException(404, "Operador no encontrado o inactivo")
 
     # Buscar etiqueta
-    etiqueta = db.query(EtiquetaEnvio).filter(
-        EtiquetaEnvio.shipping_id == payload.shipping_id,
-    ).first()
+    etiqueta = (
+        db.query(EtiquetaEnvio)
+        .filter(
+            EtiquetaEnvio.shipping_id == payload.shipping_id,
+        )
+        .first()
+    )
     if not etiqueta:
         raise HTTPException(404, f"Etiqueta {payload.shipping_id} no encontrada en el sistema")
 
@@ -1313,24 +1330,38 @@ def pistolear_etiqueta(
     db.commit()
 
     # Obtener datos de ML shipping para el feedback
-    ml_shipping = db.query(MercadoLibreOrderShipping).filter(
-        MercadoLibreOrderShipping.mlshippingid == payload.shipping_id,
-    ).first()
+    ml_shipping = (
+        db.query(MercadoLibreOrderShipping)
+        .filter(
+            MercadoLibreOrderShipping.mlshippingid == payload.shipping_id,
+        )
+        .first()
+    )
 
     # Obtener cordón
     cordon_val = None
     if ml_shipping and ml_shipping.mlzip_code:
-        cordon_row = db.query(CodigoPostalCordon.cordon).filter(
-            CodigoPostalCordon.codigo_postal == ml_shipping.mlzip_code,
-        ).first()
+        cordon_row = (
+            db.query(CodigoPostalCordon.cordon)
+            .filter(
+                CodigoPostalCordon.codigo_postal == ml_shipping.mlzip_code,
+            )
+            .first()
+        )
         cordon_val = cordon_row.cordon if cordon_row else None
 
     # Contar pistoleadas de este operador + logística + fecha (para TTS counter)
-    count = db.query(func.count()).select_from(EtiquetaEnvio).filter(
-        EtiquetaEnvio.pistoleado_operador_id == payload.operador_id,
-        EtiquetaEnvio.pistoleado_at.isnot(None),
-        func.date(EtiquetaEnvio.pistoleado_at) == date.today(),
-    ).scalar() or 0
+    count = (
+        db.query(func.count())
+        .select_from(EtiquetaEnvio)
+        .filter(
+            EtiquetaEnvio.pistoleado_operador_id == payload.operador_id,
+            EtiquetaEnvio.pistoleado_at.isnot(None),
+            func.date(EtiquetaEnvio.pistoleado_at) == date.today(),
+        )
+        .scalar()
+        or 0
+    )
 
     return PistolearResponse(
         ok=True,
@@ -1374,16 +1405,13 @@ def stats_pistoleado(
     porcentaje = round((pistoleadas / total * 100), 1) if total > 0 else 0.0
 
     # Por caja
-    caja_rows = (
-        db.query(
-            EtiquetaEnvio.pistoleado_caja,
-            func.count().label("cantidad"),
-        )
-        .filter(
-            EtiquetaEnvio.fecha_envio == fecha_filtro,
-            EtiquetaEnvio.pistoleado_at.isnot(None),
-            EtiquetaEnvio.pistoleado_caja.isnot(None),
-        )
+    caja_rows = db.query(
+        EtiquetaEnvio.pistoleado_caja,
+        func.count().label("cantidad"),
+    ).filter(
+        EtiquetaEnvio.fecha_envio == fecha_filtro,
+        EtiquetaEnvio.pistoleado_at.isnot(None),
+        EtiquetaEnvio.pistoleado_caja.isnot(None),
     )
     if logistica_id is not None:
         caja_rows = caja_rows.filter(EtiquetaEnvio.logistica_id == logistica_id)
@@ -1434,16 +1462,24 @@ def deshacer_pistoleado(
     Registra actividad 'despistoleado' con el estado anterior.
     """
     # Validar operador activo
-    operador = db.query(Operador).filter(
-        Operador.id == operador_id,
-        Operador.activo.is_(True),
-    ).first()
+    operador = (
+        db.query(Operador)
+        .filter(
+            Operador.id == operador_id,
+            Operador.activo.is_(True),
+        )
+        .first()
+    )
     if not operador:
         raise HTTPException(404, "Operador no encontrado o inactivo")
 
-    etiqueta = db.query(EtiquetaEnvio).filter(
-        EtiquetaEnvio.shipping_id == shipping_id,
-    ).first()
+    etiqueta = (
+        db.query(EtiquetaEnvio)
+        .filter(
+            EtiquetaEnvio.shipping_id == shipping_id,
+        )
+        .first()
+    )
     if not etiqueta:
         raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
 
