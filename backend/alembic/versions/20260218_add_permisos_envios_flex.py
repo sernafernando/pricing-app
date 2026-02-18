@@ -31,6 +31,14 @@ CODIGOS = [
 
 
 def upgrade():
+    # 0. Agregar valor 'envios_flex' al ENUM categoriapermiso de PostgreSQL.
+    #    La columna en el modelo Python es String(50), pero en la BD sigue siendo ENUM nativo.
+    #    ALTER TYPE ... ADD VALUE no puede ejecutarse dentro de un bloque transaccional,
+    #    por eso cerramos la transacción actual, agregamos el valor, y abrimos una nueva.
+    op.execute("COMMIT")
+    op.execute("ALTER TYPE categoriapermiso ADD VALUE IF NOT EXISTS 'envios_flex'")
+    op.execute("BEGIN")
+
     # 1. Insertar los 9 permisos nuevos
     op.execute("""
         INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico, created_at)
