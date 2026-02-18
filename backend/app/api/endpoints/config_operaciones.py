@@ -9,10 +9,10 @@ Agrupa todo lo necesario para la página /config-operaciones del frontend:
 - Costos envío por logística × cordón (con historial de precios)
 """
 
-from datetime import date, datetime, UTC
+from datetime import date, datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, and_
 from sqlalchemy.orm import Session

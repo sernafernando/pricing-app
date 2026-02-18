@@ -44,6 +44,7 @@ const getMlStatusClass = (status) => {
 
 // ────────────────────────────────────────────────────────────────
 
+// eslint-disable-next-line no-unused-vars
 export default function TabEnviosFlex({ operador = null }) {
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
@@ -57,6 +58,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const [filtroCordon, setFiltroCordon] = useState('');
   const [filtroLogistica, setFiltroLogistica] = useState('');
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
+  // eslint-disable-next-line no-unused-vars
   const [filtroSsosId, setFiltroSsosId] = useState('');
   const [sinLogistica, setSinLogistica] = useState(false);
   const [search, setSearch] = useState('');
@@ -405,7 +407,7 @@ export default function TabEnviosFlex({ operador = null }) {
 
     setBulkActualizando(true);
     try {
-      const { data } = await api.put('/etiquetas-envio/asignar-masivo', {
+      await api.put('/etiquetas-envio/asignar-masivo', {
         shipping_ids: Array.from(selectedIds),
         logistica_id: parseInt(bulkLogisticaId, 10),
       });
