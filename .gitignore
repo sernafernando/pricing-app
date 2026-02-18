@@ -74,3 +74,6 @@ gmaps
 # Backup files
 *.backup*
 .backup*
+
+# Sound assets (generated/managed separately)
+frontend/public/sounds/
