@@ -25,8 +25,18 @@ from app.models.operador_config_tab import OperadorConfigTab
 from app.models.operador_actividad import OperadorActividad
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.logistica import Logistica
+from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
+
+
+def _check_config_permiso(db: Session, user: Usuario) -> None:
+    """Verifica que el usuario tenga envios_flex.config."""
+    if not verificar_permiso(db, user, "envios_flex.config"):
+        raise HTTPException(
+            status_code=403,
+            detail="No tenés permiso: envios_flex.config",
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -198,6 +208,8 @@ def listar_operadores(
     current_user: Usuario = Depends(get_current_user),
 ) -> List[OperadorResponse]:
     """Lista todos los operadores del depósito. Por defecto solo los activos."""
+    _check_config_permiso(db, current_user)
+
     query = db.query(Operador)
 
     if not incluir_inactivos:
@@ -222,6 +234,8 @@ def crear_operador(
     Crea un nuevo operador de depósito.
     El PIN debe ser único y de exactamente 4 dígitos.
     """
+    _check_config_permiso(db, current_user)
+
     # Verificar PIN único
     existente = db.query(Operador).filter(Operador.pin == payload.pin).first()
     if existente:
@@ -261,6 +275,8 @@ def actualizar_operador(
     current_user: Usuario = Depends(get_current_user),
 ) -> OperadorResponse:
     """Actualiza nombre, PIN o estado activo de un operador."""
+    _check_config_permiso(db, current_user)
+
     operador = db.query(Operador).filter(Operador.id == operador_id).first()
     if not operador:
         raise HTTPException(404, "Operador no encontrado")
@@ -302,6 +318,8 @@ def desactivar_operador(
     current_user: Usuario = Depends(get_current_user),
 ) -> OperadorResponse:
     """Soft delete: marca el operador como inactivo."""
+    _check_config_permiso(db, current_user)
+
     operador = db.query(Operador).filter(Operador.id == operador_id).first()
     if not operador:
         raise HTTPException(404, "Operador no encontrado")
@@ -354,6 +372,8 @@ def listar_config_tabs(
     current_user: Usuario = Depends(get_current_user),
 ) -> List[ConfigTabResponse]:
     """Lista todas las configuraciones de tabs que requieren PIN."""
+    _check_config_permiso(db, current_user)
+
     return db.query(OperadorConfigTab).order_by(OperadorConfigTab.page_path, OperadorConfigTab.tab_key).all()
 
 
@@ -372,6 +392,8 @@ def crear_config_tab(
     Crea una nueva configuración de tab que requerirá PIN de operador.
     La combinación tab_key + page_path debe ser única.
     """
+    _check_config_permiso(db, current_user)
+
     existente = (
         db.query(OperadorConfigTab)
         .filter(
@@ -411,6 +433,8 @@ def actualizar_config_tab(
     current_user: Usuario = Depends(get_current_user),
 ) -> ConfigTabResponse:
     """Actualiza label, timeout o estado activo de una config de tab."""
+    _check_config_permiso(db, current_user)
+
     config = db.query(OperadorConfigTab).filter(OperadorConfigTab.id == tab_id).first()
     if not config:
         raise HTTPException(404, "Config de tab no encontrada")
@@ -441,6 +465,8 @@ def eliminar_config_tab(
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
     """Elimina una config de tab (hard delete — ya no pedirá PIN en ese tab)."""
+    _check_config_permiso(db, current_user)
+
     config = db.query(OperadorConfigTab).filter(OperadorConfigTab.id == tab_id).first()
     if not config:
         raise HTTPException(404, "Config de tab no encontrada")
@@ -471,6 +497,8 @@ def registrar_actividad(
     Registra una acción realizada por un operador identificado con PIN.
     El usuario_id se toma del usuario del sistema logueado (sesión JWT).
     """
+    _check_config_permiso(db, current_user)
+
     # Verificar que el operador existe y está activo
     operador = db.query(Operador).filter(Operador.id == payload.operador_id, Operador.activo.is_(True)).first()
     if not operador:
@@ -518,6 +546,8 @@ def listar_actividad(
     Lista actividad reciente de operadores con filtros opcionales.
     Paginada, ordenada por más reciente primero.
     """
+    _check_config_permiso(db, current_user)
+
     query = db.query(OperadorActividad)
 
     if operador_id is not None:
@@ -572,6 +602,8 @@ def listar_costos_vigentes(
 
     El frontend construye una matriz logística × cordón con estos datos.
     """
+    _check_config_permiso(db, current_user)
+
     hoy = date.today()
 
     # Subquery: max vigente_desde por (logistica_id, cordon) donde <= hoy
@@ -643,6 +675,8 @@ def crear_costo(
     Los registros anteriores se mantienen como historial — el query vigente
     siempre toma el más reciente con vigente_desde <= hoy.
     """
+    _check_config_permiso(db, current_user)
+
     # Verificar que la logística existe
     logistica = db.query(Logistica).filter(Logistica.id == payload.logistica_id).first()
     if not logistica:
@@ -694,6 +728,8 @@ def historial_costos(
     Historial completo de costos de envío con filtros opcionales.
     Incluye precios pasados y futuros (programados).
     """
+    _check_config_permiso(db, current_user)
+
     query = db.query(
         LogisticaCostoCordon.id,
         LogisticaCostoCordon.logistica_id,

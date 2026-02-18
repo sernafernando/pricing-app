@@ -23,6 +23,7 @@ class CategoriaPermiso(str, enum.Enum):
     REPORTES = "reportes"
     CONFIGURACION = "configuracion"
     ALERTAS = "alertas"
+    ENVIOS_FLEX = "envios_flex"
 
 
 class Permiso(Base):
@@ -539,6 +540,74 @@ PERMISOS_SISTEMA = [
         "orden": 91,
         "es_critico": True,
     },
+    # =========================================================================
+    # ENVÍOS FLEX
+    # =========================================================================
+    {
+        "codigo": "envios_flex.ver",
+        "nombre": "Ver Envíos Flex",
+        "descripcion": "Acceso a la pestaña Envíos Flex en Preparación",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 100,
+    },
+    {
+        "codigo": "envios_flex.subir_etiquetas",
+        "nombre": "Subir etiquetas",
+        "descripcion": "Subir archivos ZIP/TXT con etiquetas ZPL de envío",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 101,
+    },
+    {
+        "codigo": "envios_flex.asignar_logistica",
+        "nombre": "Asignar logística",
+        "descripcion": "Asignar o cambiar logística a etiquetas (individual y masivo)",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 102,
+    },
+    {
+        "codigo": "envios_flex.cambiar_fecha",
+        "nombre": "Cambiar fecha de envío",
+        "descripcion": "Reprogramar fecha de envío de etiquetas",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 103,
+    },
+    {
+        "codigo": "envios_flex.eliminar",
+        "nombre": "Eliminar etiquetas",
+        "descripcion": "Borrar etiquetas de envío (con auditoría)",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 104,
+        "es_critico": True,
+    },
+    {
+        "codigo": "envios_flex.exportar",
+        "nombre": "Exportar a Excel",
+        "descripcion": "Exportar etiquetas de envío a archivo XLSX",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 105,
+    },
+    {
+        "codigo": "envios_flex.gestionar_logisticas",
+        "nombre": "Gestionar logísticas",
+        "descripcion": "Crear y desactivar logísticas desde el modal de configuración",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 106,
+    },
+    {
+        "codigo": "envios_flex.pistoleado",
+        "nombre": "Pistoleado de paquetes",
+        "descripcion": "Acceso a la pestaña de pistoleado de paquetes en depósito",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 107,
+    },
+    {
+        "codigo": "envios_flex.config",
+        "nombre": "Configurar operaciones envío",
+        "descripcion": "Acceso al panel de config-operaciones (operadores, tabs, costos)",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 108,
+        "es_critico": True,
+    },
 ]
 
 
@@ -577,6 +646,7 @@ PERMISOS_POR_ROL = {
         "produccion.marcar_prearmado",
         "config.*",
         "alertas.*",
+        "envios_flex.*",
     ],
     "GERENTE": [
         "productos.ver",
@@ -605,6 +675,8 @@ PERMISOS_POR_ROL = {
         "config.ver_comisiones",
         "config.ver_constantes",
         "config.ver_tipo_cambio",
+        "envios_flex.ver",
+        "envios_flex.exportar",
     ],
     "PRICING": [
         "productos.ver",
@@ -641,5 +713,6 @@ PERMISOS_POR_ROL = {
         "reportes.ver_notificaciones",
         "reportes.ver_calculadora",
         "config.ver_tipo_cambio",
+        "envios_flex.ver",
     ],
 }
