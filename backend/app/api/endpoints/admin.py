@@ -17,8 +17,10 @@ router = APIRouter()
 # Schemas
 # ──────────────────────────────────────────────
 
+
 class SubcategoriaGrupoResponse(BaseModel):
     """Subcategoría con su grupo asignado"""
+
     id: int
     subcat_id: int
     grupo_id: Optional[int] = None
@@ -32,18 +34,21 @@ class SubcategoriaGrupoResponse(BaseModel):
 
 class AsignarGrupoRequest(BaseModel):
     """Request para asignar grupo a una o varias subcategorías"""
+
     subcat_ids: List[int] = Field(min_length=1, description="IDs de subcategorías a actualizar")
     grupo_id: Optional[int] = Field(default=None, description="ID del grupo a asignar (null para desasignar)")
 
 
 class BanlistRequest(BaseModel):
     """Request para ocultar/mostrar subcategorías"""
+
     subcat_ids: List[int] = Field(min_length=1, description="IDs de subcategorías")
     oculta: bool = Field(description="True para ocultar, False para mostrar")
 
 
 class GrupoComisionResponse(BaseModel):
     """Grupo de comisión"""
+
     id: int
     nombre: str
     descripcion: Optional[str] = None
@@ -55,12 +60,14 @@ class GrupoComisionResponse(BaseModel):
 
 class GrupoComisionCreate(BaseModel):
     """Request para crear un grupo de comisión"""
+
     nombre: str = Field(min_length=1, max_length=100)
     descripcion: Optional[str] = Field(default=None, max_length=500)
 
 
 class GrupoComisionUpdate(BaseModel):
     """Request para actualizar un grupo de comisión"""
+
     nombre: Optional[str] = Field(default=None, min_length=1, max_length=100)
     descripcion: Optional[str] = Field(default=None, max_length=500)
     activo: Optional[bool] = None
@@ -69,6 +76,7 @@ class GrupoComisionUpdate(BaseModel):
 # ──────────────────────────────────────────────
 # Endpoints legacy de comisiones (mantener backward compat)
 # ──────────────────────────────────────────────
+
 
 @router.get("/admin/comisiones/{grupo_id}")
 async def obtener_comisiones_grupo(
@@ -104,6 +112,7 @@ async def obtener_comision_especifica(
 # Subcategorías <-> Grupos
 # ──────────────────────────────────────────────
 
+
 @router.get("/admin/subcategorias-grupos", response_model=List[SubcategoriaGrupoResponse])
 async def listar_subcategorias_grupos(
     categoria: Optional[str] = Query(default=None, description="Filtrar por cat_id"),
@@ -119,17 +128,19 @@ async def listar_subcategorias_grupos(
     Soporta filtros por categoría, grupo, sin grupo y búsqueda de texto.
     Por defecto oculta las subcategorías en la banlist (oculta=True).
     """
-    query = db.query(SubcategoriaGrupo).filter(
-        SubcategoriaGrupo.subcat_id.isnot(None),
-    ).order_by(
-        SubcategoriaGrupo.nombre_categoria,
-        SubcategoriaGrupo.nombre_subcategoria,
+    query = (
+        db.query(SubcategoriaGrupo)
+        .filter(
+            SubcategoriaGrupo.subcat_id.isnot(None),
+        )
+        .order_by(
+            SubcategoriaGrupo.nombre_categoria,
+            SubcategoriaGrupo.nombre_subcategoria,
+        )
     )
 
     if not incluir_ocultas:
-        query = query.filter(
-            (SubcategoriaGrupo.oculta == False) | (SubcategoriaGrupo.oculta.is_(None))
-        )
+        query = query.filter((SubcategoriaGrupo.oculta == False) | (SubcategoriaGrupo.oculta.is_(None)))
 
     if categoria is not None:
         query = query.filter(SubcategoriaGrupo.cat_id == categoria)
@@ -143,8 +154,7 @@ async def listar_subcategorias_grupos(
     if buscar:
         patron = f"%{buscar}%"
         query = query.filter(
-            SubcategoriaGrupo.nombre_subcategoria.ilike(patron)
-            | SubcategoriaGrupo.nombre_categoria.ilike(patron)
+            SubcategoriaGrupo.nombre_subcategoria.ilike(patron) | SubcategoriaGrupo.nombre_categoria.ilike(patron)
         )
 
     mappings = query.all()
@@ -164,10 +174,14 @@ async def asignar_grupo_a_subcategorias(
     """
     # Validar que el grupo existe si se especificó uno
     if data.grupo_id is not None:
-        grupo = db.query(GrupoComision).filter(
-            GrupoComision.id == data.grupo_id,
-            GrupoComision.activo == True,
-        ).first()
+        grupo = (
+            db.query(GrupoComision)
+            .filter(
+                GrupoComision.id == data.grupo_id,
+                GrupoComision.activo == True,
+            )
+            .first()
+        )
         if not grupo:
             raise HTTPException(404, f"Grupo de comisión {data.grupo_id} no encontrado o inactivo")
 
@@ -223,6 +237,7 @@ async def toggle_banlist_subcategorias(
 # ──────────────────────────────────────────────
 # CRUD Grupos de Comisión
 # ──────────────────────────────────────────────
+
 
 @router.get("/admin/grupos-comision", response_model=List[GrupoComisionResponse])
 async def listar_grupos_comision(
@@ -298,10 +313,14 @@ async def actualizar_grupo_comision(
 
     if data.nombre is not None:
         # Verificar nombre único (excluir el grupo actual)
-        existente = db.query(GrupoComision).filter(
-            GrupoComision.nombre == data.nombre,
-            GrupoComision.id != grupo_id,
-        ).first()
+        existente = (
+            db.query(GrupoComision)
+            .filter(
+                GrupoComision.nombre == data.nombre,
+                GrupoComision.id != grupo_id,
+            )
+            .first()
+        )
         if existente:
             raise HTTPException(400, f"Ya existe un grupo con el nombre '{data.nombre}'")
         grupo.nombre = data.nombre
@@ -340,12 +359,7 @@ async def listar_categorias_unicas(
         .all()
     )
 
-    return {
-        "categorias": [
-            {"cat_id": c.cat_id, "nombre": c.nombre_categoria}
-            for c in categorias
-        ]
-    }
+    return {"categorias": [{"cat_id": c.cat_id, "nombre": c.nombre_categoria} for c in categorias]}
 
 
 from app.services.bna_scraper import actualizar_tipo_cambio
