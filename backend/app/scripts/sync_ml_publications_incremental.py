@@ -30,6 +30,12 @@ from app.core.database import SessionLocal
 from app.core.config import settings
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+from app.scripts.sync_ml_publications_full import (
+    extraer_datos_publicacion,
+    sanitizar_datos_ml,
+    aplicar_snapshot,
+    crear_snapshot,
+)
 
 # Tokens globales
 ACCESS_TOKEN = None
@@ -143,35 +149,7 @@ async def traer_detalles_batch(ids: list, db: Session):
                     continue
 
                 mla_id = item.get("id")
-
-                # Buscar campaña de cuotas
-                campaign = None
-                sale_terms = item.get("sale_terms", [])
-                for term in sale_terms:
-                    if term.get("id") == "INSTALLMENTS_CAMPAIGN":
-                        campaign = term.get("value_name")
-                        break
-
-                # Lógica condicional de campaña según las especificaciones
-                if item.get("listing_type_id") == "gold_special":
-                    campaign = "Clásica"
-                elif not campaign and item.get("listing_type_id") == "gold_pro":
-                    campaign = "6x_campaign"
-                elif not campaign:
-                    campaign = "-"
-
-                # Buscar SKU
-                seller_sku = None
-                attributes = item.get("attributes", [])
-                for attr in attributes:
-                    if attr.get("id") == "SELLER_SKU":
-                        seller_sku = attr.get("value_id")
-                        break
-
-                # Intentar obtener item_id del SKU (si es numérico)
-                item_id = None
-                if seller_sku and seller_sku.isdigit():
-                    item_id = int(seller_sku)
+                campaign, seller_sku, item_id = extraer_datos_publicacion(item)
 
                 # Verificar si ya existe un snapshot del día de hoy para este MLA_ID
                 existing = (
@@ -183,46 +161,18 @@ async def traer_detalles_batch(ids: list, db: Session):
                 )
 
                 if existing:
-                    # Actualizar el existente
-                    existing.title = item.get("title")
-                    existing.price = item.get("price")
-                    existing.base_price = item.get("base_price")
-                    existing.available_quantity = item.get("available_quantity")
-                    existing.sold_quantity = item.get("sold_quantity")
-                    existing.status = item.get("status")
-                    existing.listing_type_id = item.get("listing_type_id")
-                    existing.permalink = item.get("permalink")
-                    existing.installments_campaign = campaign
-                    existing.seller_sku = seller_sku
-                    existing.item_id = item_id
-                    existing.snapshot_date = datetime.now()
+                    aplicar_snapshot(existing, item, campaign, seller_sku, item_id)
                     db.commit()
                     total_updated += 1
                 else:
-                    # Crear nuevo registro de snapshot
-                    snapshot = MLPublicationSnapshot(
-                        mla_id=mla_id,
-                        title=item.get("title"),
-                        price=item.get("price"),
-                        base_price=item.get("base_price"),
-                        available_quantity=item.get("available_quantity"),
-                        sold_quantity=item.get("sold_quantity"),
-                        status=item.get("status"),
-                        listing_type_id=item.get("listing_type_id"),
-                        permalink=item.get("permalink"),
-                        installments_campaign=campaign,
-                        seller_sku=seller_sku,
-                        item_id=item_id,
-                        snapshot_date=datetime.now(),
-                    )
-                    db.add(snapshot)
+                    db.add(crear_snapshot(mla_id, item, campaign, seller_sku, item_id))
                     db.commit()
                     total_saved += 1
 
             except Exception as e:
                 db.rollback()
                 total_errors += 1
-                errores_detalle.append(f"  ⚠️  {mla_id or 'desconocido'}: {str(e)[:120]}")
+                errores_detalle.append(f"  ⚠️  {mla_id or 'desconocido'}: {str(e)[:150]}")
                 continue
 
         print(
