@@ -190,8 +190,11 @@ class CrearEnvioManualRequest(BaseModel):
         description="Estado del envío: ready_to_ship, shipped, delivered",
         pattern="^(ready_to_ship|shipped|delivered)$",
     )
-    cust_id: Optional[int] = Field(None, description="ID de cliente del ERP (tb_customer.cust_id)")
+    cust_id: Optional[int] = Field(
+        None, description="ID de cliente del ERP. Se resuelve automáticamente si se envía soh_id + bra_id."
+    )
     bra_id: Optional[int] = Field(None, description="Sucursal (tb_branch.bra_id)")
+    soh_id: Optional[int] = Field(None, description="N° pedido ERP (soh_id de SaleOrderHeader)")
     logistica_id: Optional[int] = Field(None, description="Logística asignada")
     comment: Optional[str] = Field(None, max_length=1000, description="Observaciones")
     operador_id: int = Field(description="Operador autenticado con PIN")
@@ -1431,6 +1434,71 @@ def borrar_etiquetas(
 # ── Envío manual (sin ML) ─────────────────────────────────────────────
 
 
+@router.get(
+    "/etiquetas-envio/lookup-pedido",
+    response_model=dict,
+    summary="Buscar pedido ERP por soh_id + bra_id → devuelve cust_id",
+)
+def lookup_pedido(
+    soh_id: int = Query(..., description="N° pedido ERP"),
+    bra_id: int = Query(..., description="Sucursal"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Busca un pedido en SaleOrderHeader por comp_id=1 + bra_id + soh_id
+    y devuelve el cust_id asociado para autocompletar la dirección
+    del cliente en el modal de envío manual.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    from app.models.tb_customer import TBCustomer
+
+    soh = (
+        db.query(
+            SaleOrderHeader.cust_id,
+            SaleOrderHeader.soh_id,
+        )
+        .filter(
+            SaleOrderHeader.comp_id == 1,
+            SaleOrderHeader.bra_id == bra_id,
+            SaleOrderHeader.soh_id == soh_id,
+        )
+        .first()
+    )
+    if not soh:
+        raise HTTPException(
+            404,
+            f"Pedido {soh_id} no encontrado en sucursal {bra_id}",
+        )
+
+    # Buscar datos del cliente para autocompletar
+    cliente = (
+        db.query(
+            TBCustomer.cust_id,
+            TBCustomer.cust_name,
+            TBCustomer.cust_address,
+            TBCustomer.cust_city,
+            TBCustomer.cust_zip,
+        )
+        .filter(
+            TBCustomer.comp_id == 1,
+            TBCustomer.cust_id == soh.cust_id,
+        )
+        .first()
+    )
+
+    return {
+        "soh_id": soh_id,
+        "bra_id": bra_id,
+        "cust_id": soh.cust_id,
+        "cust_name": cliente.cust_name if cliente else None,
+        "cust_address": cliente.cust_address if cliente else None,
+        "cust_city": cliente.cust_city if cliente else None,
+        "cust_zip": cliente.cust_zip if cliente else None,
+    }
+
+
 @router.post(
     "/etiquetas-envio/manual-envio",
     response_model=CrearEnvioManualResponse,
@@ -1464,6 +1532,25 @@ def crear_envio_manual(
         if not logistica:
             raise HTTPException(404, "Logística no encontrada o inactiva")
 
+    # Si viene soh_id + bra_id, resolver cust_id desde SaleOrderHeader
+    resolved_cust_id = payload.cust_id
+    if payload.soh_id and payload.bra_id and not resolved_cust_id:
+        soh = (
+            db.query(SaleOrderHeader.cust_id)
+            .filter(
+                SaleOrderHeader.comp_id == 1,
+                SaleOrderHeader.bra_id == payload.bra_id,
+                SaleOrderHeader.soh_id == payload.soh_id,
+            )
+            .first()
+        )
+        if not soh:
+            raise HTTPException(
+                404,
+                f"Pedido {payload.soh_id} no encontrado en sucursal {payload.bra_id}",
+            )
+        resolved_cust_id = soh.cust_id
+
     # Generar shipping_id único: MAN_{timestamp}_{seq}
     ahora = datetime.now(UTC)
     ts = ahora.strftime("%Y%m%d%H%M%S")
@@ -1488,8 +1575,9 @@ def crear_envio_manual(
         manual_zip_code=payload.zip_code,
         manual_city_name=payload.city_name,
         manual_status=payload.status,
-        manual_cust_id=payload.cust_id,
+        manual_cust_id=resolved_cust_id,
         manual_bra_id=payload.bra_id,
+        manual_soh_id=payload.soh_id,
         manual_comment=payload.comment,
         nombre_archivo="envio_manual",
     )
@@ -1509,8 +1597,9 @@ def crear_envio_manual(
             "zip_code": payload.zip_code,
             "city_name": payload.city_name,
             "status": payload.status,
-            "cust_id": payload.cust_id,
+            "cust_id": resolved_cust_id,
             "bra_id": payload.bra_id,
+            "soh_id": payload.soh_id,
             "logistica_id": payload.logistica_id,
             "comment": payload.comment,
         },
