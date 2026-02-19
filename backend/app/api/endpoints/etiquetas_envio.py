@@ -25,7 +25,7 @@ from datetime import date, datetime, UTC
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, String, and_, desc, Numeric
+from sqlalchemy import func, cast, and_, desc, Numeric
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
