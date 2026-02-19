@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
+  Truck, Search,
 } from 'lucide-react';
 import api from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -128,6 +129,27 @@ export default function TabEnviosFlex({ operador = null }) {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportColumns, setExportColumns] = useState([...Object.keys(EXPORT_COLUMNS)]);
   const [exporting, setExporting] = useState(false);
+
+  // Modal envío manual
+  const [showManualEnvioModal, setShowManualEnvioModal] = useState(false);
+  const [manualEnvio, setManualEnvio] = useState({
+    receiver_name: '',
+    street_name: '',
+    street_number: '',
+    zip_code: '',
+    city_name: '',
+    status: 'ready_to_ship',
+    cust_id: '',
+    bra_id: '',
+    logistica_id: '',
+    comment: '',
+    fecha_envio: todayStr(),
+  });
+  const [manualEnvioLoading, setManualEnvioLoading] = useState(false);
+  const [manualEnvioCordon, setManualEnvioCordon] = useState(null);
+  const [sucursales, setSucursales] = useState([]);
+  const [custLoading, setCustLoading] = useState(false);
+  const [custError, setCustError] = useState(null);
 
   // Confirm modal (reemplaza confirm())
   const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, onConfirm, challengeWord?, showComment? }
@@ -642,6 +664,136 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
+  // ── Envío manual ───────────────────────────────────────────
+
+  const abrirModalManualEnvio = async () => {
+    setManualEnvio({
+      receiver_name: '',
+      street_name: '',
+      street_number: '',
+      zip_code: '',
+      city_name: '',
+      status: 'ready_to_ship',
+      cust_id: '',
+      bra_id: '',
+      logistica_id: '',
+      comment: '',
+      fecha_envio: todayStr(),
+    });
+    setManualEnvioCordon(null);
+    setCustError(null);
+    setShowManualEnvioModal(true);
+
+    // Cargar sucursales si no están cargadas
+    if (sucursales.length === 0) {
+      try {
+        const { data } = await api.get('/clientes/filtros/sucursales');
+        setSucursales(data);
+      } catch {
+        // silently fail — dropdown won't have options
+      }
+    }
+  };
+
+  const handleManualEnvioChange = (field, value) => {
+    setManualEnvio(prev => ({ ...prev, [field]: value }));
+  };
+
+  const resolverCordonPorCP = async (zipCode) => {
+    if (!zipCode || zipCode.length < 4) {
+      setManualEnvioCordon(null);
+      return;
+    }
+    try {
+      const { data } = await api.get(`/codigos-postales/${zipCode}/cordon`);
+      setManualEnvioCordon(data.cordon || null);
+    } catch {
+      setManualEnvioCordon(null);
+    }
+  };
+
+  const buscarCliente = async () => {
+    const custId = manualEnvio.cust_id?.toString().trim();
+    if (!custId) return;
+
+    setCustLoading(true);
+    setCustError(null);
+    try {
+      const { data } = await api.get(`/clientes/${custId}?comp_id=1`);
+      // Auto-fill address fields from ERP customer data
+      // cust_address is combined (e.g. "Av. Corrientes 1234"), try to split
+      let streetName = '';
+      let streetNumber = '';
+      if (data.cust_address) {
+        const match = data.cust_address.match(/^(.+?)\s+(\d+\s*)$/);
+        if (match) {
+          streetName = match[1].trim();
+          streetNumber = match[2].trim();
+        } else {
+          streetName = data.cust_address;
+        }
+      }
+      setManualEnvio(prev => ({
+        ...prev,
+        receiver_name: data.cust_name || prev.receiver_name,
+        street_name: streetName || prev.street_name,
+        street_number: streetNumber || prev.street_number,
+        zip_code: data.cust_zip || prev.zip_code,
+        city_name: data.cust_city || prev.city_name,
+      }));
+      // Resolver cordón del CP auto-completado
+      if (data.cust_zip) {
+        resolverCordonPorCP(data.cust_zip);
+      }
+    } catch (err) {
+      setCustError(err.response?.data?.detail || 'Cliente no encontrado');
+    } finally {
+      setCustLoading(false);
+    }
+  };
+
+  const crearEnvioManual = async () => {
+    // Validaciones básicas
+    if (!manualEnvio.receiver_name.trim()) {
+      mostrarError({ message: 'Ingresá el nombre del destinatario' });
+      return;
+    }
+    if (!manualEnvio.street_name.trim()) {
+      mostrarError({ message: 'Ingresá la calle' });
+      return;
+    }
+    if (!manualEnvio.zip_code.trim()) {
+      mostrarError({ message: 'Ingresá el código postal' });
+      return;
+    }
+
+    setManualEnvioLoading(true);
+    try {
+      const payload = {
+        fecha_envio: manualEnvio.fecha_envio,
+        receiver_name: manualEnvio.receiver_name.trim(),
+        street_name: manualEnvio.street_name.trim(),
+        street_number: manualEnvio.street_number.trim(),
+        zip_code: manualEnvio.zip_code.trim(),
+        city_name: manualEnvio.city_name.trim(),
+        status: manualEnvio.status,
+        cust_id: manualEnvio.cust_id ? parseInt(manualEnvio.cust_id, 10) : null,
+        bra_id: manualEnvio.bra_id ? parseInt(manualEnvio.bra_id, 10) : null,
+        logistica_id: manualEnvio.logistica_id ? parseInt(manualEnvio.logistica_id, 10) : null,
+        comment: manualEnvio.comment.trim() || null,
+        operador_id: operador?.operadorActivo?.id,
+      };
+
+      await api.post('/etiquetas-envio/manual-envio', payload);
+      setShowManualEnvioModal(false);
+      cargarDatos();
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setManualEnvioLoading(false);
+    }
+  };
+
   // ── Render ───────────────────────────────────────────────────
 
   const logisticasActivas = logisticas.filter(l => l.activa);
@@ -816,6 +968,17 @@ export default function TabEnviosFlex({ operador = null }) {
                 {uploading ? 'Subiendo...' : 'Subir ZPL'}
               </label>
             </>
+          )}
+
+          {puedeVerCostos && (
+            <button
+              onClick={abrirModalManualEnvio}
+              className={styles.btnManualEnvio}
+              aria-label="Agregar envío manual"
+            >
+              <Truck size={16} />
+              Envío manual
+            </button>
           )}
 
           {puedeExportar && (
@@ -1295,6 +1458,203 @@ export default function TabEnviosFlex({ operador = null }) {
                 onClick={() => setShowLogisticasModal(false)}
               >
                 Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Envío Manual */}
+      {showManualEnvioModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowManualEnvioModal(false)}>
+          <div className={`${styles.modalContent} ${styles.modalWide}`} onClick={(ev) => ev.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Agregar envío manual</h3>
+              <button
+                className={styles.modalClose}
+                onClick={() => setShowManualEnvioModal(false)}
+                aria-label="Cerrar modal"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={styles.modalBody}>
+              {/* Fila 1: Fecha + Sucursal + Cliente */}
+              <div className={styles.formRow}>
+                <div className={styles.formField}>
+                  <label htmlFor="me-fecha">Fecha de envío</label>
+                  <input
+                    id="me-fecha"
+                    type="date"
+                    value={manualEnvio.fecha_envio}
+                    onChange={(ev) => handleManualEnvioChange('fecha_envio', ev.target.value)}
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="me-sucursal">Sucursal</label>
+                  <select
+                    id="me-sucursal"
+                    value={manualEnvio.bra_id}
+                    onChange={(ev) => handleManualEnvioChange('bra_id', ev.target.value)}
+                  >
+                    <option value="">— Sin asignar —</option>
+                    {sucursales.map(s => (
+                      <option key={s.bra_id} value={s.bra_id}>{s.bra_desc}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="me-custid">N° Cliente (ERP)</label>
+                  <div className={styles.inputWithAction}>
+                    <input
+                      id="me-custid"
+                      type="number"
+                      value={manualEnvio.cust_id}
+                      onChange={(ev) => handleManualEnvioChange('cust_id', ev.target.value)}
+                      placeholder="Ej: 12345"
+                      onKeyDown={(ev) => ev.key === 'Enter' && buscarCliente()}
+                    />
+                    <button
+                      className={styles.btnInputAction}
+                      onClick={buscarCliente}
+                      disabled={custLoading || !manualEnvio.cust_id}
+                      title="Buscar cliente y autocompletar dirección"
+                      aria-label="Buscar cliente"
+                    >
+                      {custLoading ? '...' : <Search size={14} />}
+                    </button>
+                  </div>
+                  {custError && <span className={styles.fieldError}>{custError}</span>}
+                </div>
+              </div>
+
+              {/* Fila 2: Destinatario */}
+              <div className={styles.formRow}>
+                <div className={`${styles.formField} ${styles.formFieldFull}`}>
+                  <label htmlFor="me-receiver">Destinatario</label>
+                  <input
+                    id="me-receiver"
+                    type="text"
+                    value={manualEnvio.receiver_name}
+                    onChange={(ev) => handleManualEnvioChange('receiver_name', ev.target.value)}
+                    placeholder="Nombre del destinatario"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Fila 3: Calle + Número + CP + Ciudad */}
+              <div className={styles.formRow}>
+                <div className={styles.formField} style={{ flex: 2 }}>
+                  <label htmlFor="me-street">Calle</label>
+                  <input
+                    id="me-street"
+                    type="text"
+                    value={manualEnvio.street_name}
+                    onChange={(ev) => handleManualEnvioChange('street_name', ev.target.value)}
+                    placeholder="Nombre de la calle"
+                    required
+                  />
+                </div>
+                <div className={styles.formField} style={{ flex: 0.5 }}>
+                  <label htmlFor="me-number">Número</label>
+                  <input
+                    id="me-number"
+                    type="text"
+                    value={manualEnvio.street_number}
+                    onChange={(ev) => handleManualEnvioChange('street_number', ev.target.value)}
+                    placeholder="N°"
+                  />
+                </div>
+                <div className={styles.formField} style={{ flex: 0.7 }}>
+                  <label htmlFor="me-zip">CP</label>
+                  <input
+                    id="me-zip"
+                    type="text"
+                    value={manualEnvio.zip_code}
+                    onChange={(ev) => {
+                      handleManualEnvioChange('zip_code', ev.target.value);
+                      resolverCordonPorCP(ev.target.value);
+                    }}
+                    placeholder="1234"
+                    required
+                  />
+                  {manualEnvioCordon && (
+                    <span className={styles.fieldHint}>{manualEnvioCordon}</span>
+                  )}
+                </div>
+                <div className={styles.formField} style={{ flex: 1.5 }}>
+                  <label htmlFor="me-city">Ciudad</label>
+                  <input
+                    id="me-city"
+                    type="text"
+                    value={manualEnvio.city_name}
+                    onChange={(ev) => handleManualEnvioChange('city_name', ev.target.value)}
+                    placeholder="Localidad"
+                  />
+                </div>
+              </div>
+
+              {/* Fila 4: Estado + Logística */}
+              <div className={styles.formRow}>
+                <div className={styles.formField}>
+                  <label htmlFor="me-status">Estado</label>
+                  <select
+                    id="me-status"
+                    value={manualEnvio.status}
+                    onChange={(ev) => handleManualEnvioChange('status', ev.target.value)}
+                  >
+                    <option value="ready_to_ship">Listo para enviar</option>
+                    <option value="shipped">Enviado</option>
+                    <option value="delivered">Entregado</option>
+                  </select>
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="me-logistica">Logística</label>
+                  <select
+                    id="me-logistica"
+                    value={manualEnvio.logistica_id}
+                    onChange={(ev) => handleManualEnvioChange('logistica_id', ev.target.value)}
+                  >
+                    <option value="">— Sin asignar —</option>
+                    {logisticasActivas.map(l => (
+                      <option key={l.id} value={l.id}>{l.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Fila 5: Comentario */}
+              <div className={styles.formRow}>
+                <div className={`${styles.formField} ${styles.formFieldFull}`}>
+                  <label htmlFor="me-comment">Observaciones</label>
+                  <textarea
+                    id="me-comment"
+                    value={manualEnvio.comment}
+                    onChange={(ev) => handleManualEnvioChange('comment', ev.target.value)}
+                    placeholder="Notas o instrucciones adicionales (opcional)"
+                    rows={2}
+                    className={styles.textarea}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.modalFooter}>
+              <button
+                className={styles.btnCancelar}
+                onClick={() => setShowManualEnvioModal(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                className={styles.btnCrear}
+                onClick={crearEnvioManual}
+                disabled={manualEnvioLoading || !manualEnvio.receiver_name.trim() || !manualEnvio.zip_code.trim()}
+              >
+                <Truck size={16} />
+                {manualEnvioLoading ? 'Creando...' : 'Crear envío'}
               </button>
             </div>
           </div>

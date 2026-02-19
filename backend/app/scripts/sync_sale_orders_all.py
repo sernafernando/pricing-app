@@ -139,6 +139,8 @@ async def sync_sale_order_header(db: Session, days: int = 7):
                     # Campos de TiendaNube
                     "ws_internalid": record.get("ws_internalID"),
                     "tiendanube_number": record.get("tiendaNube_number"),
+                    # Campo de ML shipping — necesario para cruzar estado ERP en envíos flex
+                    "mlshippingid": record.get("MLShippingID"),
                 }
 
                 if existente:
