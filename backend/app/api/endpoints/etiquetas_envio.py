@@ -25,7 +25,7 @@ from datetime import date, datetime, UTC
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, String, and_, desc, Numeric
+from sqlalchemy import func, cast, and_, desc, Numeric
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -131,6 +131,9 @@ class EtiquetaEnvioResponse(BaseModel):
     costo_envio: Optional[float] = None
     costo_override: Optional[float] = None
 
+    # Envío manual (sin ML)
+    es_manual: bool = False
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -172,6 +175,35 @@ class CostoOverrideRequest(BaseModel):
         description="Costo manual. None para eliminar el override y volver al calculado.",
     )
     operador_id: int = Field(description="Operador autenticado con PIN")
+
+
+class CrearEnvioManualRequest(BaseModel):
+    """Payload para crear un envío manual (sin MercadoLibre)."""
+
+    fecha_envio: date
+    receiver_name: str = Field(max_length=500, description="Nombre del destinatario")
+    street_name: str = Field(max_length=500, description="Calle")
+    street_number: str = Field(max_length=50, description="Número")
+    zip_code: str = Field(max_length=50, description="Código postal")
+    city_name: str = Field(max_length=500, description="Ciudad / Localidad")
+    status: str = Field(
+        description="Estado del envío: ready_to_ship, shipped, delivered",
+        pattern="^(ready_to_ship|shipped|delivered)$",
+    )
+    cust_id: Optional[int] = Field(None, description="ID de cliente del ERP (tb_customer.cust_id)")
+    bra_id: Optional[int] = Field(None, description="Sucursal (tb_branch.bra_id)")
+    logistica_id: Optional[int] = Field(None, description="Logística asignada")
+    comment: Optional[str] = Field(None, max_length=1000, description="Observaciones")
+    operador_id: int = Field(description="Operador autenticado con PIN")
+
+
+class CrearEnvioManualResponse(BaseModel):
+    """Resultado de la creación de un envío manual."""
+
+    ok: bool = True
+    shipping_id: str
+    cordon: Optional[str] = None
+    mensaje: str
 
 
 class AsignarMasivoRequest(BaseModel):
@@ -259,22 +291,34 @@ def _soh_status_subquery(db: Session):
     """
     Subquery deduplicada: estado ERP por shipping_id.
 
-    Un mismo mlshippingid puede tener múltiples filas en SaleOrderHeader
+    Cruza orders_shipping (por mlshippingid) → sale_order_header (por mlo_id).
+    Esto es más robusto que cruzar directo por SaleOrderHeader.mlshippingid,
+    que no siempre está populado en el sync del ERP.
+
+    Un mismo mlo_id puede tener múltiples filas en SaleOrderHeader
     (una por combinación comp_id/bra_id). Se toma el pedido más reciente
     (mayor soh_cd) con ROW_NUMBER OVER (PARTITION BY mlshippingid ORDER BY soh_cd DESC).
     """
     ranked = (
         db.query(
-            cast(SaleOrderHeader.mlshippingid, String).label("shipping_id_str"),
+            MercadoLibreOrderShipping.mlshippingid.label("shipping_id_str"),
             SaleOrderHeader.ssos_id.label("soh_ssos_id"),
             func.row_number()
             .over(
-                partition_by=SaleOrderHeader.mlshippingid,
+                partition_by=MercadoLibreOrderShipping.mlshippingid,
                 order_by=desc(SaleOrderHeader.soh_cd),
             )
             .label("rn"),
         )
-        .filter(SaleOrderHeader.mlshippingid.isnot(None))
+        .join(
+            SaleOrderHeader,
+            MercadoLibreOrderShipping.mlo_id == SaleOrderHeader.mlo_id,
+        )
+        .filter(
+            MercadoLibreOrderShipping.mlshippingid.isnot(None),
+            MercadoLibreOrderShipping.mlo_id.isnot(None),
+            SaleOrderHeader.mlo_id.isnot(None),
+        )
         .subquery()
     )
 
@@ -537,6 +581,14 @@ def listar_etiquetas(
     # Expresión para normalizar cordón: "Cordón 1" → "Cordon 1" (quitar tilde)
     cordon_normalizado = func.replace(CodigoPostalCordon.cordon, "ó", "o")
 
+    # Expresiones COALESCE: para envíos manuales priorizar manual_*, sino ML shipping
+    eff_receiver = func.coalesce(EtiquetaEnvio.manual_receiver_name, MercadoLibreOrderShipping.mlreceiver_name)
+    eff_street = func.coalesce(EtiquetaEnvio.manual_street_name, MercadoLibreOrderShipping.mlstreet_name)
+    eff_street_num = func.coalesce(EtiquetaEnvio.manual_street_number, MercadoLibreOrderShipping.mlstreet_number)
+    eff_zip = func.coalesce(EtiquetaEnvio.manual_zip_code, MercadoLibreOrderShipping.mlzip_code)
+    eff_city = func.coalesce(EtiquetaEnvio.manual_city_name, MercadoLibreOrderShipping.mlcity_name)
+    eff_status = func.coalesce(EtiquetaEnvio.manual_status, MercadoLibreOrderShipping.mlstatus)
+
     query = (
         db.query(
             EtiquetaEnvio.shipping_id,
@@ -550,15 +602,16 @@ def listar_etiquetas(
             EtiquetaEnvio.direccion_comentario,
             EtiquetaEnvio.pistoleado_at,
             EtiquetaEnvio.pistoleado_caja,
+            EtiquetaEnvio.es_manual,
             Operador.nombre.label("pistoleado_operador_nombre"),
             Logistica.nombre.label("logistica_nombre"),
             Logistica.color.label("logistica_color"),
-            MercadoLibreOrderShipping.mlreceiver_name,
-            MercadoLibreOrderShipping.mlstreet_name,
-            MercadoLibreOrderShipping.mlstreet_number,
-            MercadoLibreOrderShipping.mlzip_code,
-            MercadoLibreOrderShipping.mlcity_name,
-            MercadoLibreOrderShipping.mlstatus,
+            eff_receiver.label("mlreceiver_name"),
+            eff_street.label("mlstreet_name"),
+            eff_street_num.label("mlstreet_number"),
+            eff_zip.label("mlzip_code"),
+            eff_city.label("mlcity_name"),
+            eff_status.label("mlstatus"),
             CodigoPostalCordon.cordon,
             soh_sub.c.soh_ssos_id.label("ssos_id"),
             SaleOrderStatus.ssos_name,
@@ -579,7 +632,7 @@ def listar_etiquetas(
         )
         .outerjoin(
             CodigoPostalCordon,
-            MercadoLibreOrderShipping.mlzip_code == CodigoPostalCordon.codigo_postal,
+            eff_zip == CodigoPostalCordon.codigo_postal,
         )
         .outerjoin(
             soh_sub,
@@ -623,7 +676,7 @@ def listar_etiquetas(
         query = query.filter(EtiquetaEnvio.logistica_id.is_(None))
 
     if mlstatus:
-        query = query.filter(MercadoLibreOrderShipping.mlstatus == mlstatus)
+        query = query.filter(eff_status == mlstatus)
 
     if ssos_id is not None:
         query = query.filter(soh_sub.c.soh_ssos_id == ssos_id)
@@ -632,9 +685,9 @@ def listar_etiquetas(
         search_term = f"%{search}%"
         query = query.filter(
             (EtiquetaEnvio.shipping_id.ilike(search_term))
-            | (MercadoLibreOrderShipping.mlreceiver_name.ilike(search_term))
-            | (MercadoLibreOrderShipping.mlstreet_name.ilike(search_term))
-            | (MercadoLibreOrderShipping.mlcity_name.ilike(search_term))
+            | (eff_receiver.ilike(search_term))
+            | (eff_street.ilike(search_term))
+            | (eff_city.ilike(search_term))
         )
 
     # Ordenar por shipping_id desc (más recientes primero)
@@ -670,6 +723,7 @@ def listar_etiquetas(
             pistoleado_operador_nombre=row.pistoleado_operador_nombre,
             costo_envio=float(row.costo_envio) if row.costo_envio is not None else None,
             costo_override=float(row.costo_override) if row.costo_override is not None else None,
+            es_manual=row.es_manual,
         )
         for row in rows
     ]
@@ -711,19 +765,24 @@ def estadisticas_etiquetas(
 
     total = base_query.count()
 
-    # Por cordón
+    # Por cordón — COALESCE para incluir envíos manuales
+    stats_eff_zip = func.coalesce(
+        EtiquetaEnvio.manual_zip_code,
+        MercadoLibreOrderShipping.mlzip_code,
+    )
     cordon_rows = (
         db.query(
             CodigoPostalCordon.cordon,
             func.count().label("cantidad"),
         )
-        .join(
+        .select_from(EtiquetaEnvio)
+        .outerjoin(
             MercadoLibreOrderShipping,
-            MercadoLibreOrderShipping.mlzip_code == CodigoPostalCordon.codigo_postal,
+            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
         )
         .join(
-            EtiquetaEnvio,
-            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
+            CodigoPostalCordon,
+            stats_eff_zip == CodigoPostalCordon.codigo_postal,
         )
         .filter(
             fecha_filter,
@@ -749,24 +808,29 @@ def estadisticas_etiquetas(
     por_logistica = {row.nombre: row.cantidad for row in logistica_rows}
     con_logistica = sum(por_logistica.values())
 
-    # Por estado ML
+    # Por estado ML — COALESCE para incluir envíos manuales
+    stats_eff_status = func.coalesce(
+        EtiquetaEnvio.manual_status,
+        MercadoLibreOrderShipping.mlstatus,
+    )
     ml_status_rows = (
         db.query(
-            MercadoLibreOrderShipping.mlstatus,
+            stats_eff_status.label("eff_mlstatus"),
             func.count().label("cantidad"),
         )
-        .join(
-            EtiquetaEnvio,
+        .select_from(EtiquetaEnvio)
+        .outerjoin(
+            MercadoLibreOrderShipping,
             EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
         )
         .filter(
             fecha_filter,
-            MercadoLibreOrderShipping.mlstatus.isnot(None),
+            stats_eff_status.isnot(None),
         )
-        .group_by(MercadoLibreOrderShipping.mlstatus)
+        .group_by(stats_eff_status)
         .all()
     )
-    por_estado_ml = {row.mlstatus: row.cantidad for row in ml_status_rows}
+    por_estado_ml = {row.eff_mlstatus: row.cantidad for row in ml_status_rows}
 
     # Por estado ERP
     soh_sub = _soh_status_subquery(db)
@@ -830,19 +894,21 @@ def estadisticas_etiquetas(
         cast(costo_stats.c.costo_valor, Numeric(12, 2)),
     )
 
+    # Reusar stats_eff_zip (ya definido en por_cordon) para el JOIN al cordón
     costo_rows = (
         db.query(
             Logistica.nombre.label("log_nombre"),
             func.coalesce(func.sum(costo_efectivo), 0).label("costo_sum"),
         )
-        .join(EtiquetaEnvio, EtiquetaEnvio.logistica_id == Logistica.id)
-        .join(
+        .select_from(EtiquetaEnvio)
+        .join(Logistica, EtiquetaEnvio.logistica_id == Logistica.id)
+        .outerjoin(
             MercadoLibreOrderShipping,
             EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
         )
         .join(
             CodigoPostalCordon,
-            MercadoLibreOrderShipping.mlzip_code == CodigoPostalCordon.codigo_postal,
+            stats_eff_zip == CodigoPostalCordon.codigo_postal,
         )
         .outerjoin(
             costo_stats,
@@ -981,6 +1047,14 @@ def exportar_etiquetas(
 
     cordon_norm_exp = func.replace(CodigoPostalCordon.cordon, "ó", "o")
 
+    # COALESCE para envíos manuales en export
+    exp_receiver = func.coalesce(EtiquetaEnvio.manual_receiver_name, MercadoLibreOrderShipping.mlreceiver_name)
+    exp_street = func.coalesce(EtiquetaEnvio.manual_street_name, MercadoLibreOrderShipping.mlstreet_name)
+    exp_street_num = func.coalesce(EtiquetaEnvio.manual_street_number, MercadoLibreOrderShipping.mlstreet_number)
+    exp_zip = func.coalesce(EtiquetaEnvio.manual_zip_code, MercadoLibreOrderShipping.mlzip_code)
+    exp_city = func.coalesce(EtiquetaEnvio.manual_city_name, MercadoLibreOrderShipping.mlcity_name)
+    exp_status = func.coalesce(EtiquetaEnvio.manual_status, MercadoLibreOrderShipping.mlstatus)
+
     query = (
         db.query(
             EtiquetaEnvio.shipping_id,
@@ -989,12 +1063,12 @@ def exportar_etiquetas(
             EtiquetaEnvio.pistoleado_caja,
             Operador.nombre.label("pistoleado_operador_nombre"),
             Logistica.nombre.label("logistica_nombre"),
-            MercadoLibreOrderShipping.mlreceiver_name,
-            MercadoLibreOrderShipping.mlstreet_name,
-            MercadoLibreOrderShipping.mlstreet_number,
-            MercadoLibreOrderShipping.mlzip_code,
-            MercadoLibreOrderShipping.mlcity_name,
-            MercadoLibreOrderShipping.mlstatus,
+            exp_receiver.label("mlreceiver_name"),
+            exp_street.label("mlstreet_name"),
+            exp_street_num.label("mlstreet_number"),
+            exp_zip.label("mlzip_code"),
+            exp_city.label("mlcity_name"),
+            exp_status.label("mlstatus"),
             CodigoPostalCordon.cordon,
             SaleOrderStatus.ssos_name,
             func.coalesce(
@@ -1009,7 +1083,7 @@ def exportar_etiquetas(
         )
         .outerjoin(
             CodigoPostalCordon,
-            MercadoLibreOrderShipping.mlzip_code == CodigoPostalCordon.codigo_postal,
+            exp_zip == CodigoPostalCordon.codigo_postal,
         )
         .outerjoin(soh_sub, soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id)
         .outerjoin(SaleOrderStatus, soh_sub.c.soh_ssos_id == SaleOrderStatus.ssos_id)
@@ -1036,13 +1110,13 @@ def exportar_etiquetas(
     if sin_logistica:
         query = query.filter(EtiquetaEnvio.logistica_id.is_(None))
     if mlstatus:
-        query = query.filter(MercadoLibreOrderShipping.mlstatus == mlstatus)
+        query = query.filter(exp_status == mlstatus)
     if search:
         search_term = f"%{search}%"
         query = query.filter(
             (EtiquetaEnvio.shipping_id.ilike(search_term))
-            | (MercadoLibreOrderShipping.mlreceiver_name.ilike(search_term))
-            | (MercadoLibreOrderShipping.mlstreet_name.ilike(search_term))
+            | (exp_receiver.ilike(search_term))
+            | (exp_street.ilike(search_term))
             | (MercadoLibreOrderShipping.mlcity_name.ilike(search_term))
         )
 
@@ -1352,6 +1426,183 @@ def borrar_etiquetas(
     db.commit()
 
     return {"ok": True, "eliminadas": deleted}
+
+
+# ── Envío manual (sin ML) ─────────────────────────────────────────────
+
+
+@router.post(
+    "/etiquetas-envio/manual-envio",
+    response_model=CrearEnvioManualResponse,
+    summary="Crear envío manual (sin MercadoLibre)",
+)
+def crear_envio_manual(
+    payload: CrearEnvioManualRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> CrearEnvioManualResponse:
+    """
+    Crea una etiqueta de envío manual para envíos fuera de MercadoLibre.
+
+    Genera un shipping_id con formato "MAN_{timestamp}_{seq}" para no
+    colisionar con los IDs de ML.  Los datos de dirección se guardan
+    en los campos manual_* de la etiqueta.
+
+    Requiere envios_flex.config y operador autenticado con PIN.
+    Registra la acción en operador_actividad para auditoría.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    # Validar operador activo
+    operador = db.query(Operador).filter(Operador.id == payload.operador_id, Operador.activo.is_(True)).first()
+    if not operador:
+        raise HTTPException(404, "Operador no encontrado o inactivo")
+
+    # Validar logística si se envió
+    if payload.logistica_id is not None:
+        logistica = db.query(Logistica).filter(Logistica.id == payload.logistica_id, Logistica.activa.is_(True)).first()
+        if not logistica:
+            raise HTTPException(404, "Logística no encontrada o inactiva")
+
+    # Generar shipping_id único: MAN_{timestamp}_{seq}
+    ahora = datetime.now(UTC)
+    ts = ahora.strftime("%Y%m%d%H%M%S")
+
+    # Secuencia: contar cuántos manuales hay con el mismo segundo
+    prefix = f"MAN_{ts}_"
+    count = (
+        db.query(func.count()).select_from(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id.like(f"{prefix}%")).scalar()
+        or 0
+    )
+    shipping_id = f"{prefix}{count + 1}"
+
+    # Crear etiqueta manual
+    etiqueta = EtiquetaEnvio(
+        shipping_id=shipping_id,
+        fecha_envio=payload.fecha_envio,
+        logistica_id=payload.logistica_id,
+        es_manual=True,
+        manual_receiver_name=payload.receiver_name,
+        manual_street_name=payload.street_name,
+        manual_street_number=payload.street_number,
+        manual_zip_code=payload.zip_code,
+        manual_city_name=payload.city_name,
+        manual_status=payload.status,
+        manual_cust_id=payload.cust_id,
+        manual_bra_id=payload.bra_id,
+        manual_comment=payload.comment,
+        nombre_archivo="envio_manual",
+    )
+    db.add(etiqueta)
+
+    # Registrar actividad del operador
+    actividad = OperadorActividad(
+        operador_id=payload.operador_id,
+        usuario_id=current_user.id,
+        tab_key="envios-flex",
+        accion="crear_envio_manual",
+        detalle={
+            "shipping_id": shipping_id,
+            "receiver_name": payload.receiver_name,
+            "street_name": payload.street_name,
+            "street_number": payload.street_number,
+            "zip_code": payload.zip_code,
+            "city_name": payload.city_name,
+            "status": payload.status,
+            "cust_id": payload.cust_id,
+            "bra_id": payload.bra_id,
+            "logistica_id": payload.logistica_id,
+            "comment": payload.comment,
+        },
+    )
+    db.add(actividad)
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error guardando envío manual: {str(e)}")
+
+    # Resolver cordón del CP para feedback
+    cordon_val = None
+    if payload.zip_code:
+        cordon_row = (
+            db.query(CodigoPostalCordon.cordon).filter(CodigoPostalCordon.codigo_postal == payload.zip_code).first()
+        )
+        cordon_val = cordon_row.cordon if cordon_row else None
+
+    return CrearEnvioManualResponse(
+        ok=True,
+        shipping_id=shipping_id,
+        cordon=cordon_val,
+        mensaje=f"Envío manual creado: {shipping_id}",
+    )
+
+
+@router.put(
+    "/etiquetas-envio/{shipping_id}/estado-ml",
+    response_model=dict,
+    summary="Cambiar estado ML de un envío manual",
+)
+def cambiar_estado_ml(
+    shipping_id: str,
+    status: str = Query(
+        ...,
+        description="Nuevo estado: ready_to_ship, shipped, delivered",
+        pattern="^(ready_to_ship|shipped|delivered)$",
+    ),
+    operador_id: int = Query(..., description="Operador autenticado con PIN"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Cambia el estado ML (manual_status) de un envío manual.
+
+    Solo aplica a etiquetas con es_manual=True.
+    Registra la acción en operador_actividad.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    if not etiqueta.es_manual:
+        raise HTTPException(
+            400,
+            "Solo se puede cambiar el estado ML de envíos manuales",
+        )
+
+    # Validar operador activo
+    operador = db.query(Operador).filter(Operador.id == operador_id, Operador.activo.is_(True)).first()
+    if not operador:
+        raise HTTPException(404, "Operador no encontrado o inactivo")
+
+    estado_anterior = etiqueta.manual_status
+    etiqueta.manual_status = status
+
+    # Registrar actividad
+    actividad = OperadorActividad(
+        operador_id=operador_id,
+        usuario_id=current_user.id,
+        tab_key="envios-flex",
+        accion="cambiar_estado_manual",
+        detalle={
+            "shipping_id": shipping_id,
+            "estado_anterior": estado_anterior,
+            "estado_nuevo": status,
+        },
+    )
+    db.add(actividad)
+
+    db.commit()
+
+    return {
+        "ok": True,
+        "shipping_id": shipping_id,
+        "estado_anterior": estado_anterior,
+        "estado_nuevo": status,
+    }
 
 
 # ── Pistoleado ───────────────────────────────────────────────────────
