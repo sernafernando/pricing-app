@@ -335,6 +335,52 @@ def _soh_status_subquery(db: Session):
     )
 
 
+def _shipping_dedup_subquery(db: Session):
+    """
+    Subquery deduplicada: una fila por mlshippingid de MercadoLibreOrderShipping.
+
+    Un mismo mlshippingid puede tener múltiples filas en la tabla
+    (una por item/order del envío, con distinto mlm_id).
+    Se toma la fila más reciente (mayor mlm_id) con
+    ROW_NUMBER OVER (PARTITION BY mlshippingid ORDER BY mlm_id DESC).
+
+    Esto evita que los JOINs multipliquen filas en listado, export y estadísticas.
+    """
+    ranked = (
+        db.query(
+            MercadoLibreOrderShipping.mlshippingid.label("mlshippingid"),
+            MercadoLibreOrderShipping.mlreceiver_name,
+            MercadoLibreOrderShipping.mlstreet_name,
+            MercadoLibreOrderShipping.mlstreet_number,
+            MercadoLibreOrderShipping.mlzip_code,
+            MercadoLibreOrderShipping.mlcity_name,
+            MercadoLibreOrderShipping.mlstatus,
+            func.row_number()
+            .over(
+                partition_by=MercadoLibreOrderShipping.mlshippingid,
+                order_by=desc(MercadoLibreOrderShipping.mlm_id),
+            )
+            .label("rn"),
+        )
+        .filter(MercadoLibreOrderShipping.mlshippingid.isnot(None))
+        .subquery()
+    )
+
+    return (
+        db.query(
+            ranked.c.mlshippingid,
+            ranked.c.mlreceiver_name,
+            ranked.c.mlstreet_name,
+            ranked.c.mlstreet_number,
+            ranked.c.mlzip_code,
+            ranked.c.mlcity_name,
+            ranked.c.mlstatus,
+        )
+        .filter(ranked.c.rn == 1)
+        .subquery()
+    )
+
+
 def _insertar_etiqueta(
     db: Session,
     shipping_id: str,
@@ -584,13 +630,16 @@ def listar_etiquetas(
     # Expresión para normalizar cordón: "Cordón 1" → "Cordon 1" (quitar tilde)
     cordon_normalizado = func.replace(CodigoPostalCordon.cordon, "ó", "o")
 
+    # Subquery deduplicada: una fila por mlshippingid (evita duplicados por items)
+    shipping_sub = _shipping_dedup_subquery(db)
+
     # Expresiones COALESCE: para envíos manuales priorizar manual_*, sino ML shipping
-    eff_receiver = func.coalesce(EtiquetaEnvio.manual_receiver_name, MercadoLibreOrderShipping.mlreceiver_name)
-    eff_street = func.coalesce(EtiquetaEnvio.manual_street_name, MercadoLibreOrderShipping.mlstreet_name)
-    eff_street_num = func.coalesce(EtiquetaEnvio.manual_street_number, MercadoLibreOrderShipping.mlstreet_number)
-    eff_zip = func.coalesce(EtiquetaEnvio.manual_zip_code, MercadoLibreOrderShipping.mlzip_code)
-    eff_city = func.coalesce(EtiquetaEnvio.manual_city_name, MercadoLibreOrderShipping.mlcity_name)
-    eff_status = func.coalesce(EtiquetaEnvio.manual_status, MercadoLibreOrderShipping.mlstatus)
+    eff_receiver = func.coalesce(EtiquetaEnvio.manual_receiver_name, shipping_sub.c.mlreceiver_name)
+    eff_street = func.coalesce(EtiquetaEnvio.manual_street_name, shipping_sub.c.mlstreet_name)
+    eff_street_num = func.coalesce(EtiquetaEnvio.manual_street_number, shipping_sub.c.mlstreet_number)
+    eff_zip = func.coalesce(EtiquetaEnvio.manual_zip_code, shipping_sub.c.mlzip_code)
+    eff_city = func.coalesce(EtiquetaEnvio.manual_city_name, shipping_sub.c.mlcity_name)
+    eff_status = func.coalesce(EtiquetaEnvio.manual_status, shipping_sub.c.mlstatus)
 
     query = (
         db.query(
@@ -630,8 +679,8 @@ def listar_etiquetas(
             EtiquetaEnvio.logistica_id == Logistica.id,
         )
         .outerjoin(
-            MercadoLibreOrderShipping,
-            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
+            shipping_sub,
+            EtiquetaEnvio.shipping_id == shipping_sub.c.mlshippingid,
         )
         .outerjoin(
             CodigoPostalCordon,
@@ -768,10 +817,13 @@ def estadisticas_etiquetas(
 
     total = base_query.count()
 
+    # Subquery deduplicada para estadísticas (una fila por mlshippingid)
+    shipping_stats = _shipping_dedup_subquery(db)
+
     # Por cordón — COALESCE para incluir envíos manuales
     stats_eff_zip = func.coalesce(
         EtiquetaEnvio.manual_zip_code,
-        MercadoLibreOrderShipping.mlzip_code,
+        shipping_stats.c.mlzip_code,
     )
     cordon_rows = (
         db.query(
@@ -780,8 +832,8 @@ def estadisticas_etiquetas(
         )
         .select_from(EtiquetaEnvio)
         .outerjoin(
-            MercadoLibreOrderShipping,
-            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
+            shipping_stats,
+            EtiquetaEnvio.shipping_id == shipping_stats.c.mlshippingid,
         )
         .join(
             CodigoPostalCordon,
@@ -814,7 +866,7 @@ def estadisticas_etiquetas(
     # Por estado ML — COALESCE para incluir envíos manuales
     stats_eff_status = func.coalesce(
         EtiquetaEnvio.manual_status,
-        MercadoLibreOrderShipping.mlstatus,
+        shipping_stats.c.mlstatus,
     )
     ml_status_rows = (
         db.query(
@@ -823,8 +875,8 @@ def estadisticas_etiquetas(
         )
         .select_from(EtiquetaEnvio)
         .outerjoin(
-            MercadoLibreOrderShipping,
-            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
+            shipping_stats,
+            EtiquetaEnvio.shipping_id == shipping_stats.c.mlshippingid,
         )
         .filter(
             fecha_filter,
@@ -897,7 +949,7 @@ def estadisticas_etiquetas(
         cast(costo_stats.c.costo_valor, Numeric(12, 2)),
     )
 
-    # Reusar stats_eff_zip (ya definido en por_cordon) para el JOIN al cordón
+    # Reusar stats_eff_zip (usa shipping_stats deduplicada) para el JOIN al cordón
     costo_rows = (
         db.query(
             Logistica.nombre.label("log_nombre"),
@@ -906,8 +958,8 @@ def estadisticas_etiquetas(
         .select_from(EtiquetaEnvio)
         .join(Logistica, EtiquetaEnvio.logistica_id == Logistica.id)
         .outerjoin(
-            MercadoLibreOrderShipping,
-            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
+            shipping_stats,
+            EtiquetaEnvio.shipping_id == shipping_stats.c.mlshippingid,
         )
         .join(
             CodigoPostalCordon,
@@ -1050,13 +1102,16 @@ def exportar_etiquetas(
 
     cordon_norm_exp = func.replace(CodigoPostalCordon.cordon, "ó", "o")
 
+    # Subquery deduplicada: una fila por mlshippingid (evita duplicados por items)
+    shipping_exp = _shipping_dedup_subquery(db)
+
     # COALESCE para envíos manuales en export
-    exp_receiver = func.coalesce(EtiquetaEnvio.manual_receiver_name, MercadoLibreOrderShipping.mlreceiver_name)
-    exp_street = func.coalesce(EtiquetaEnvio.manual_street_name, MercadoLibreOrderShipping.mlstreet_name)
-    exp_street_num = func.coalesce(EtiquetaEnvio.manual_street_number, MercadoLibreOrderShipping.mlstreet_number)
-    exp_zip = func.coalesce(EtiquetaEnvio.manual_zip_code, MercadoLibreOrderShipping.mlzip_code)
-    exp_city = func.coalesce(EtiquetaEnvio.manual_city_name, MercadoLibreOrderShipping.mlcity_name)
-    exp_status = func.coalesce(EtiquetaEnvio.manual_status, MercadoLibreOrderShipping.mlstatus)
+    exp_receiver = func.coalesce(EtiquetaEnvio.manual_receiver_name, shipping_exp.c.mlreceiver_name)
+    exp_street = func.coalesce(EtiquetaEnvio.manual_street_name, shipping_exp.c.mlstreet_name)
+    exp_street_num = func.coalesce(EtiquetaEnvio.manual_street_number, shipping_exp.c.mlstreet_number)
+    exp_zip = func.coalesce(EtiquetaEnvio.manual_zip_code, shipping_exp.c.mlzip_code)
+    exp_city = func.coalesce(EtiquetaEnvio.manual_city_name, shipping_exp.c.mlcity_name)
+    exp_status = func.coalesce(EtiquetaEnvio.manual_status, shipping_exp.c.mlstatus)
 
     query = (
         db.query(
@@ -1081,8 +1136,8 @@ def exportar_etiquetas(
         )
         .outerjoin(Logistica, EtiquetaEnvio.logistica_id == Logistica.id)
         .outerjoin(
-            MercadoLibreOrderShipping,
-            EtiquetaEnvio.shipping_id == MercadoLibreOrderShipping.mlshippingid,
+            shipping_exp,
+            EtiquetaEnvio.shipping_id == shipping_exp.c.mlshippingid,
         )
         .outerjoin(
             CodigoPostalCordon,
@@ -1120,7 +1175,7 @@ def exportar_etiquetas(
             (EtiquetaEnvio.shipping_id.ilike(search_term))
             | (exp_receiver.ilike(search_term))
             | (exp_street.ilike(search_term))
-            | (MercadoLibreOrderShipping.mlcity_name.ilike(search_term))
+            | (exp_city.ilike(search_term))
         )
 
     query = query.order_by(EtiquetaEnvio.fecha_envio, EtiquetaEnvio.shipping_id.desc())
