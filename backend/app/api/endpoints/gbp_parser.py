@@ -315,7 +315,8 @@ def parse_soap_response(xml_content: str) -> Any:
             return [{"raw": inner_xml}]
 
 
-@router.api_route("/gbp-parser", methods=["GET", "POST"])
+@router.get("/gbp-parser", operation_id="gbp_parser_get")
+@router.post("/gbp-parser", operation_id="gbp_parser_post")
 async def gbp_parser(request: Request, _user=Depends(get_user_or_localhost)):
     """
     Endpoint para parsear respuestas SOAP del ERP.
