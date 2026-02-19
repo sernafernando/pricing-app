@@ -80,7 +80,7 @@ class SaleOrderHeader(Base):
     prli_id = Column(Integer, index=True)
     stor_id = Column(Integer)
     mlo_id = Column(BigInteger, index=True)
-    mlshippingid = Column(BigInteger)
+    mlshippingid = Column(BigInteger, index=True)
     soh_exchange2currency4total = Column(Numeric(18, 6))
     soh_currency4total = Column(Integer)
     soh_uniqueid = Column(String(100))

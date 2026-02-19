@@ -25,7 +25,7 @@ from datetime import date, datetime, UTC
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, String, and_, Numeric
+from sqlalchemy import func, cast, String, and_, desc, Numeric
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -127,8 +127,9 @@ class EtiquetaEnvioResponse(BaseModel):
     pistoleado_caja: Optional[str] = None
     pistoleado_operador_nombre: Optional[str] = None
 
-    # Costo de envío (calculado desde logistica_costo_cordon)
+    # Costo de envío (calculado desde logistica_costo_cordon, o override manual)
     costo_envio: Optional[float] = None
+    costo_override: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -160,6 +161,17 @@ class CambiarFechaRequest(BaseModel):
     """Payload para cambiar fecha de envío."""
 
     fecha_envio: date
+
+
+class CostoOverrideRequest(BaseModel):
+    """Payload para establecer o quitar un costo override en una etiqueta."""
+
+    costo: Optional[float] = Field(
+        None,
+        ge=0,
+        description="Costo manual. None para eliminar el override y volver al calculado.",
+    )
+    operador_id: int = Field(description="Operador autenticado con PIN")
 
 
 class AsignarMasivoRequest(BaseModel):
@@ -241,6 +253,39 @@ def _parse_qr_json(raw: str) -> dict:
 def _extraer_qrs_de_texto(text: str) -> List[str]:
     """Extrae todos los JSONs de QR de un texto ZPL."""
     return QR_JSON_REGEX.findall(text)
+
+
+def _soh_status_subquery(db: Session):
+    """
+    Subquery deduplicada: estado ERP por shipping_id.
+
+    Un mismo mlshippingid puede tener múltiples filas en SaleOrderHeader
+    (una por combinación comp_id/bra_id). Se toma el pedido más reciente
+    (mayor soh_cd) con ROW_NUMBER OVER (PARTITION BY mlshippingid ORDER BY soh_cd DESC).
+    """
+    ranked = (
+        db.query(
+            cast(SaleOrderHeader.mlshippingid, String).label("shipping_id_str"),
+            SaleOrderHeader.ssos_id.label("soh_ssos_id"),
+            func.row_number()
+            .over(
+                partition_by=SaleOrderHeader.mlshippingid,
+                order_by=desc(SaleOrderHeader.soh_cd),
+            )
+            .label("rn"),
+        )
+        .filter(SaleOrderHeader.mlshippingid.isnot(None))
+        .subquery()
+    )
+
+    return (
+        db.query(
+            ranked.c.shipping_id_str,
+            ranked.c.soh_ssos_id,
+        )
+        .filter(ranked.c.rn == 1)
+        .subquery()
+    )
 
 
 def _insertar_etiqueta(
@@ -452,16 +497,7 @@ def listar_etiquetas(
     """
     _check_permiso(db, current_user, "envios_flex.ver")
 
-    # Subquery: obtener el ssos_id más reciente del pedido vinculado al shipping
-    # SaleOrderHeader.mlshippingid es BigInteger, etiquetas.shipping_id es varchar
-    soh_sub = (
-        db.query(
-            cast(SaleOrderHeader.mlshippingid, String).label("shipping_id_str"),
-            SaleOrderHeader.ssos_id.label("soh_ssos_id"),
-        )
-        .filter(SaleOrderHeader.mlshippingid.isnot(None))
-        .subquery()
-    )
+    soh_sub = _soh_status_subquery(db)
 
     # Subquery: costo vigente por (logistica_id, cordon) donde vigente_desde <= hoy.
     # cp_cordones usa tildes (Cordón) pero logistica_costo_cordon no (Cordon),
@@ -527,7 +563,11 @@ def listar_etiquetas(
             soh_sub.c.soh_ssos_id.label("ssos_id"),
             SaleOrderStatus.ssos_name,
             SaleOrderStatus.ssos_color,
-            cast(costo_sub.c.costo_valor, Numeric(12, 2)).label("costo_envio"),
+            func.coalesce(
+                cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
+                cast(costo_sub.c.costo_valor, Numeric(12, 2)),
+            ).label("costo_envio"),
+            EtiquetaEnvio.costo_override,
         )
         .outerjoin(
             Logistica,
@@ -629,6 +669,7 @@ def listar_etiquetas(
             pistoleado_caja=row.pistoleado_caja,
             pistoleado_operador_nombre=row.pistoleado_operador_nombre,
             costo_envio=float(row.costo_envio) if row.costo_envio is not None else None,
+            costo_override=float(row.costo_override) if row.costo_override is not None else None,
         )
         for row in rows
     ]
@@ -728,14 +769,7 @@ def estadisticas_etiquetas(
     por_estado_ml = {row.mlstatus: row.cantidad for row in ml_status_rows}
 
     # Por estado ERP
-    soh_sub = (
-        db.query(
-            cast(SaleOrderHeader.mlshippingid, String).label("shipping_id_str"),
-            SaleOrderHeader.ssos_id.label("soh_ssos_id"),
-        )
-        .filter(SaleOrderHeader.mlshippingid.isnot(None))
-        .subquery()
-    )
+    soh_sub = _soh_status_subquery(db)
 
     erp_status_rows = (
         db.query(
@@ -789,10 +823,17 @@ def estadisticas_etiquetas(
     # Normalizar cordón: "Cordón 1" → "Cordon 1"
     cordon_norm = func.replace(CodigoPostalCordon.cordon, "ó", "o")
 
+    # costo_efectivo: si la etiqueta tiene costo_override, usar ese;
+    # sino usar el costo calculado de logistica_costo_cordon.
+    costo_efectivo = func.coalesce(
+        cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
+        cast(costo_stats.c.costo_valor, Numeric(12, 2)),
+    )
+
     costo_rows = (
         db.query(
             Logistica.nombre.label("log_nombre"),
-            func.coalesce(func.sum(cast(costo_stats.c.costo_valor, Numeric(12, 2))), 0).label("costo_sum"),
+            func.coalesce(func.sum(costo_efectivo), 0).label("costo_sum"),
         )
         .join(EtiquetaEnvio, EtiquetaEnvio.logistica_id == Logistica.id)
         .join(
@@ -820,6 +861,21 @@ def estadisticas_etiquetas(
 
     costo_por_logistica = {row.log_nombre: float(row.costo_sum) for row in costo_rows}
     costo_total = sum(costo_por_logistica.values())
+
+    # Sumar también etiquetas con costo_override que NO tienen logística
+    # asignada (no entran en la query agrupada por logística)
+    costo_sin_logistica = (
+        db.query(
+            func.coalesce(func.sum(cast(EtiquetaEnvio.costo_override, Numeric(12, 2))), 0),
+        )
+        .filter(
+            fecha_filter,
+            EtiquetaEnvio.logistica_id.is_(None),
+            EtiquetaEnvio.costo_override.isnot(None),
+        )
+        .scalar()
+    )
+    costo_total += float(costo_sin_logistica or 0)
 
     return EstadisticasEnvioResponse(
         total=total,
@@ -891,15 +947,8 @@ def exportar_etiquetas(
     else:
         cols_solicitadas = list(EXPORT_COLUMNS.keys())
 
-    # Reusar la query del listado (mismos JOINs)
-    soh_sub = (
-        db.query(
-            cast(SaleOrderHeader.mlshippingid, String).label("shipping_id_str"),
-            SaleOrderHeader.ssos_id.label("soh_ssos_id"),
-        )
-        .filter(SaleOrderHeader.mlshippingid.isnot(None))
-        .subquery()
-    )
+    # Reusar subquery deduplicada de estado ERP
+    soh_sub = _soh_status_subquery(db)
 
     hoy_export = date.today()
     max_costo_exp = (
@@ -948,7 +997,10 @@ def exportar_etiquetas(
             MercadoLibreOrderShipping.mlstatus,
             CodigoPostalCordon.cordon,
             SaleOrderStatus.ssos_name,
-            cast(costo_exp.c.costo_valor, Numeric(12, 2)).label("costo_envio"),
+            func.coalesce(
+                cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
+                cast(costo_exp.c.costo_valor, Numeric(12, 2)),
+            ).label("costo_envio"),
         )
         .outerjoin(Logistica, EtiquetaEnvio.logistica_id == Logistica.id)
         .outerjoin(
@@ -1140,6 +1192,63 @@ def cambiar_fecha(
     db.commit()
 
     return {"ok": True, "shipping_id": shipping_id, "fecha_envio": str(payload.fecha_envio)}
+
+
+@router.put(
+    "/etiquetas-envio/{shipping_id}/costo",
+    response_model=dict,
+    summary="Establecer o quitar costo override de una etiqueta",
+)
+def set_costo_override(
+    shipping_id: str,
+    payload: CostoOverrideRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Establece un costo manual (override) para una etiqueta de envío.
+
+    Si costo es None, elimina el override y vuelve al costo calculado
+    automáticamente por logistica_costo_cordon.
+
+    Requiere envios_flex.config y operador autenticado con PIN.
+    Registra la acción en operador_actividad para auditoría.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    # Validar operador activo
+    operador = db.query(Operador).filter(Operador.id == payload.operador_id, Operador.activo.is_(True)).first()
+    if not operador:
+        raise HTTPException(404, "Operador no encontrado o inactivo")
+
+    valor_anterior = float(etiqueta.costo_override) if etiqueta.costo_override is not None else None
+    etiqueta.costo_override = payload.costo
+
+    # Registrar actividad del operador
+    actividad = OperadorActividad(
+        operador_id=payload.operador_id,
+        usuario_id=current_user.id,
+        tab_key="envios-flex",
+        accion="costo_override",
+        detalle={
+            "shipping_id": shipping_id,
+            "costo_anterior": valor_anterior,
+            "costo_nuevo": payload.costo,
+        },
+    )
+    db.add(actividad)
+
+    db.commit()
+
+    return {
+        "ok": True,
+        "shipping_id": shipping_id,
+        "costo_override": payload.costo,
+    }
 
 
 @router.put(

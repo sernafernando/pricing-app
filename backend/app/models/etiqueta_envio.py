@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Date, DateTime, Float, ForeignKey, Text, Index
+from sqlalchemy import Column, Integer, BigInteger, String, Date, DateTime, Float, ForeignKey, Numeric, Text, Index
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -34,6 +34,10 @@ class EtiquetaEnvio(Base):
 
     fecha_envio = Column(Date, nullable=False)  # Fecha programada del envío (editable)
     logistica_id = Column(Integer, ForeignKey("logisticas.id"), nullable=True)
+
+    # Costo manual — override del costo calculado por logistica_costo_cordon.
+    # Si no es NULL, prevalece sobre el costo automático.
+    costo_override = Column(Numeric(12, 2), nullable=True)
 
     # Datos enriquecidos del ML webhook (background enrichment post-upload)
     latitud = Column(Float, nullable=True)

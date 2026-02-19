@@ -371,9 +371,13 @@ def listar_config_tabs(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> List[ConfigTabResponse]:
-    """Lista todas las configuraciones de tabs que requieren PIN."""
-    _check_config_permiso(db, current_user)
+    """Lista todas las configuraciones de tabs que requieren PIN.
 
+    No requiere permiso de config — cualquier usuario autenticado puede
+    consultar qué tabs necesitan PIN para que el lock screen funcione
+    correctamente.  Los endpoints de escritura (POST/PUT/DELETE) sí
+    exigen envios_flex.config.
+    """
     return db.query(OperadorConfigTab).order_by(OperadorConfigTab.page_path, OperadorConfigTab.tab_key).all()
 
 

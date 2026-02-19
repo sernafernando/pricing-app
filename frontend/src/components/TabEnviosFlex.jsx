@@ -61,7 +61,6 @@ const getMlStatusClass = (status) => {
 
 // ────────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line no-unused-vars
 export default function TabEnviosFlex({ operador = null }) {
   const { tienePermiso } = usePermisos();
 
@@ -72,6 +71,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const puedeEliminar = tienePermiso('envios_flex.eliminar');
   const puedeExportar = tienePermiso('envios_flex.exportar');
   const puedeGestionarLogisticas = tienePermiso('envios_flex.gestionar_logisticas');
+  const puedeVerCostos = tienePermiso('envios_flex.config');
 
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
@@ -108,6 +108,11 @@ export default function TabEnviosFlex({ operador = null }) {
 
   // Inline editing
   const [actualizando, setActualizando] = useState(new Set());
+
+  // Costo override inline editing
+  const [editandoCosto, setEditandoCosto] = useState(null); // shipping_id que se está editando
+  const [costoInputValue, setCostoInputValue] = useState('');
+  const costoInputRef = useRef(null);
 
   // Selección múltiple
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -351,6 +356,74 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
+  // ── Costo override ─────────────────────────────────────────
+
+  const iniciarEdicionCosto = (shippingId, costoActual) => {
+    setEditandoCosto(shippingId);
+    setCostoInputValue(costoActual != null ? String(costoActual) : '');
+    // Focus en el siguiente render
+    setTimeout(() => costoInputRef.current?.focus(), 0);
+  };
+
+  const cancelarEdicionCosto = () => {
+    setEditandoCosto(null);
+    setCostoInputValue('');
+  };
+
+  const guardarCostoOverride = async (shippingId) => {
+    const valor = costoInputValue.trim();
+    // Si está vacío → quitar override (null)
+    const costo = valor === '' ? null : parseFloat(valor);
+
+    if (costo !== null && (isNaN(costo) || costo < 0)) {
+      mostrarError({ message: 'Ingresá un costo válido (número >= 0, o vacío para quitar)' });
+      return;
+    }
+
+    setActualizando(prev => new Set([...prev, shippingId]));
+    setEditandoCosto(null);
+
+    try {
+      await api.put(`/etiquetas-envio/${shippingId}/costo`, {
+        costo,
+        operador_id: operador?.operadorActivo?.id,
+      });
+
+      // Actualizar localmente
+      setEtiquetas(prev =>
+        prev.map(e =>
+          e.shipping_id === shippingId
+            ? { ...e, costo_override: costo, costo_envio: costo ?? e.costo_envio }
+            : e
+        )
+      );
+
+      // Refrescar estadísticas para que el total refleje el cambio
+      const statsParams = new URLSearchParams();
+      if (fechaDesde) statsParams.append('fecha_desde', fechaDesde);
+      if (fechaHasta) statsParams.append('fecha_hasta', fechaHasta);
+      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${statsParams}`);
+      setEstadisticas(statsData);
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setActualizando(prev => {
+        const next = new Set(prev);
+        next.delete(shippingId);
+        return next;
+      });
+    }
+  };
+
+  const handleCostoKeyDown = (e, shippingId) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      guardarCostoOverride(shippingId);
+    } else if (e.key === 'Escape') {
+      cancelarEdicionCosto();
+    }
+  };
+
   // ── Logísticas CRUD ──────────────────────────────────────────
 
   const crearLogistica = async (e) => {
@@ -534,10 +607,13 @@ export default function TabEnviosFlex({ operador = null }) {
     if (exportColumns.length === 0) return;
     setExporting(true);
     try {
+      const columnasFinales = puedeVerCostos
+        ? exportColumns
+        : exportColumns.filter(c => c !== 'costo_envio');
       const params = new URLSearchParams();
       params.append('fecha_desde', fechaDesde || todayStr());
       params.append('fecha_hasta', fechaHasta || todayStr());
-      params.append('columnas', exportColumns.join(','));
+      params.append('columnas', columnasFinales.join(','));
       if (filtroCordon) params.append('cordon', filtroCordon);
       if (filtroLogistica) params.append('logistica_id', filtroLogistica);
       if (sinLogistica) params.append('sin_logistica', 'true');
@@ -599,7 +675,7 @@ export default function TabEnviosFlex({ operador = null }) {
               <div className={styles.statLabel}>Sin cordón</div>
             </div>
           )}
-          {estadisticas.costo_total > 0 && (
+          {puedeVerCostos && estadisticas.costo_total > 0 && (
             <div className={`${styles.statCard} ${styles.statCardCosto}`}>
               <div className={styles.statValue}>
                 ${estadisticas.costo_total.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
@@ -828,7 +904,7 @@ export default function TabEnviosFlex({ operador = null }) {
                 <th>Estado ML</th>
                 <th>Fecha Envío</th>
                 <th>Logística</th>
-                <th className={styles.thCosto}>Costo</th>
+                {puedeVerCostos && <th className={styles.thCosto}>Costo</th>}
                 <th>Pistoleado</th>
                 <th>Caja</th>
               </tr>
@@ -836,7 +912,7 @@ export default function TabEnviosFlex({ operador = null }) {
             <tbody>
               {etiquetas.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className={styles.empty}>
+                  <td colSpan={puedeVerCostos ? 14 : 13} className={styles.empty}>
                     No hay etiquetas para la fecha seleccionada
                   </td>
                 </tr>
@@ -950,11 +1026,38 @@ export default function TabEnviosFlex({ operador = null }) {
                         ))}
                       </select>
                     </td>
-                    <td className={e.costo_envio != null ? styles.cellCosto : styles.cellMuted}>
-                      {e.costo_envio != null
-                        ? `$${e.costo_envio.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-                        : '—'}
-                    </td>
+                    {puedeVerCostos && (
+                      <td
+                        className={`${e.costo_envio != null ? styles.cellCosto : styles.cellMuted} ${e.costo_override != null ? styles.cellCostoOverride : ''} ${puedeVerCostos ? styles.cellCostoEditable : ''}`}
+                        onClick={() => {
+                          if (puedeVerCostos && editandoCosto !== e.shipping_id && !actualizando.has(e.shipping_id)) {
+                            iniciarEdicionCosto(e.shipping_id, e.costo_override ?? e.costo_envio);
+                          }
+                        }}
+                        title={e.costo_override != null ? 'Costo manual (click para editar)' : puedeVerCostos ? 'Click para editar costo' : undefined}
+                      >
+                        {editandoCosto === e.shipping_id ? (
+                          <input
+                            ref={costoInputRef}
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={costoInputValue}
+                            onChange={(ev) => setCostoInputValue(ev.target.value)}
+                            onKeyDown={(ev) => handleCostoKeyDown(ev, e.shipping_id)}
+                            onBlur={() => guardarCostoOverride(e.shipping_id)}
+                            className={styles.costoInput}
+                            placeholder="Vacío = auto"
+                          />
+                        ) : actualizando.has(e.shipping_id) ? (
+                          <span className={styles.cellMuted}>...</span>
+                        ) : e.costo_envio != null ? (
+                          `$${e.costo_envio.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    )}
                     <td className={e.pistoleado_at ? styles.cellSuccess : styles.cellMuted}>
                       {e.pistoleado_at
                         ? `${new Date(e.pistoleado_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} — ${e.pistoleado_operador_nombre || ''}`
@@ -1224,36 +1327,39 @@ export default function TabEnviosFlex({ operador = null }) {
                 <button
                   className={styles.exportToggleAll}
                   onClick={() => {
-                    if (exportColumns.length === Object.keys(EXPORT_COLUMNS).length) {
+                    const disponibles = Object.keys(EXPORT_COLUMNS).filter(k => k !== 'costo_envio' || puedeVerCostos);
+                    if (exportColumns.length === disponibles.length) {
                       setExportColumns([]);
                     } else {
-                      setExportColumns([...Object.keys(EXPORT_COLUMNS)]);
+                      setExportColumns([...disponibles]);
                     }
                   }}
                 >
-                  {exportColumns.length === Object.keys(EXPORT_COLUMNS).length ? 'Ninguna' : 'Todas'}
+                  {exportColumns.length === Object.keys(EXPORT_COLUMNS).filter(k => k !== 'costo_envio' || puedeVerCostos).length ? 'Ninguna' : 'Todas'}
                 </button>
               </div>
 
               <div className={styles.exportColumnsList}>
-                {Object.entries(EXPORT_COLUMNS).map(([key, label]) => {
-                  const idx = exportColumns.indexOf(key);
-                  const isChecked = idx !== -1;
-                  return (
-                    <label key={key} className={`${styles.exportColumnItem} ${isChecked ? styles.exportColumnActive : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => toggleExportColumn(key)}
-                        className={styles.checkbox}
-                      />
-                      <span>{label}</span>
-                      {isChecked && (
-                        <span className={styles.exportColumnOrder}>({idx + 1})</span>
-                      )}
-                    </label>
-                  );
-                })}
+                {Object.entries(EXPORT_COLUMNS)
+                  .filter(([key]) => key !== 'costo_envio' || puedeVerCostos)
+                  .map(([key, label]) => {
+                    const idx = exportColumns.indexOf(key);
+                    const isChecked = idx !== -1;
+                    return (
+                      <label key={key} className={`${styles.exportColumnItem} ${isChecked ? styles.exportColumnActive : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleExportColumn(key)}
+                          className={styles.checkbox}
+                        />
+                        <span>{label}</span>
+                        {isChecked && (
+                          <span className={styles.exportColumnOrder}>({idx + 1})</span>
+                        )}
+                      </label>
+                    );
+                  })}
               </div>
             </div>
 
