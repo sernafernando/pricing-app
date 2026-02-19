@@ -86,7 +86,7 @@ export default function PanelPermisos() {
     try {
       const res = await api.get(`/permisos/usuario/${usuario.id}`);
       setPermisosUsuario(res.data);
-    } catch (error) {
+    } catch {
       setMensaje({ tipo: 'error', texto: 'Error al cargar permisos del usuario' });
     }
   };
@@ -213,7 +213,7 @@ export default function PanelPermisos() {
       await seleccionarUsuario(usuarioSeleccionado);
       setMensaje({ tipo: 'success', texto: `Permiso ${conceder ? 'concedido' : 'denegado'}` });
       setTimeout(() => setMensaje(null), 2000);
-    } catch (error) {
+    } catch {
       setMensaje({ tipo: 'error', texto: 'Error al modificar permiso' });
     } finally {
       setGuardando(false);
@@ -230,7 +230,7 @@ export default function PanelPermisos() {
       await seleccionarUsuario(usuarioSeleccionado);
       setMensaje({ tipo: 'success', texto: 'Vuelto al permiso base del rol' });
       setTimeout(() => setMensaje(null), 2000);
-    } catch (error) {
+    } catch {
       setMensaje({ tipo: 'error', texto: 'Error al resetear permiso' });
     } finally {
       setGuardando(false);

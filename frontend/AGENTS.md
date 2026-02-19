@@ -256,8 +256,25 @@ export function useDebounce(value, delay = 500) {
 
 ---
 
+## PRE-COMMIT: ALWAYS RUN LINT
+
+**BEFORE every commit that touches `.jsx`, `.js`, or `.css` files, you MUST run:**
+
+```bash
+cd frontend && npx eslint src/path/to/changed/files.jsx
+```
+
+- Fix ALL errors before committing (errors = CI failure = blocked PR)
+- Warnings are acceptable (legacy code) but don't add NEW warnings
+- Common gotcha: removing `console.error` leaves unused `error` variable → use `catch {` instead of `catch (error) {`
+
+**NEVER skip this step. NEVER.**
+
+---
+
 ## QA CHECKLIST
 
+- [ ] **`npm run lint` passes** on changed files (run BEFORE commit)
 - [ ] `const` by default, `let` only for reassignment, no `var`
 - [ ] No `console.log` left in production code
 - [ ] Functional components with hooks
