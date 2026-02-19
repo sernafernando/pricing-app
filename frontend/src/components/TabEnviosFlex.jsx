@@ -61,7 +61,6 @@ const getMlStatusClass = (status) => {
 
 // ────────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line no-unused-vars
 export default function TabEnviosFlex({ operador = null }) {
   const { tienePermiso } = usePermisos();
 
@@ -109,6 +108,11 @@ export default function TabEnviosFlex({ operador = null }) {
 
   // Inline editing
   const [actualizando, setActualizando] = useState(new Set());
+
+  // Costo override inline editing
+  const [editandoCosto, setEditandoCosto] = useState(null); // shipping_id que se está editando
+  const [costoInputValue, setCostoInputValue] = useState('');
+  const costoInputRef = useRef(null);
 
   // Selección múltiple
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -349,6 +353,74 @@ export default function TabEnviosFlex({ operador = null }) {
         next.delete(shippingId);
         return next;
       });
+    }
+  };
+
+  // ── Costo override ─────────────────────────────────────────
+
+  const iniciarEdicionCosto = (shippingId, costoActual) => {
+    setEditandoCosto(shippingId);
+    setCostoInputValue(costoActual != null ? String(costoActual) : '');
+    // Focus en el siguiente render
+    setTimeout(() => costoInputRef.current?.focus(), 0);
+  };
+
+  const cancelarEdicionCosto = () => {
+    setEditandoCosto(null);
+    setCostoInputValue('');
+  };
+
+  const guardarCostoOverride = async (shippingId) => {
+    const valor = costoInputValue.trim();
+    // Si está vacío → quitar override (null)
+    const costo = valor === '' ? null : parseFloat(valor);
+
+    if (costo !== null && (isNaN(costo) || costo < 0)) {
+      mostrarError({ message: 'Ingresá un costo válido (número >= 0, o vacío para quitar)' });
+      return;
+    }
+
+    setActualizando(prev => new Set([...prev, shippingId]));
+    setEditandoCosto(null);
+
+    try {
+      await api.put(`/etiquetas-envio/${shippingId}/costo`, {
+        costo,
+        operador_id: operador?.operadorActivo?.id,
+      });
+
+      // Actualizar localmente
+      setEtiquetas(prev =>
+        prev.map(e =>
+          e.shipping_id === shippingId
+            ? { ...e, costo_override: costo, costo_envio: costo ?? e.costo_envio }
+            : e
+        )
+      );
+
+      // Refrescar estadísticas para que el total refleje el cambio
+      const statsParams = new URLSearchParams();
+      if (fechaDesde) statsParams.append('fecha_desde', fechaDesde);
+      if (fechaHasta) statsParams.append('fecha_hasta', fechaHasta);
+      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${statsParams}`);
+      setEstadisticas(statsData);
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setActualizando(prev => {
+        const next = new Set(prev);
+        next.delete(shippingId);
+        return next;
+      });
+    }
+  };
+
+  const handleCostoKeyDown = (e, shippingId) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      guardarCostoOverride(shippingId);
+    } else if (e.key === 'Escape') {
+      cancelarEdicionCosto();
     }
   };
 
@@ -955,10 +1027,35 @@ export default function TabEnviosFlex({ operador = null }) {
                       </select>
                     </td>
                     {puedeVerCostos && (
-                      <td className={e.costo_envio != null ? styles.cellCosto : styles.cellMuted}>
-                        {e.costo_envio != null
-                          ? `$${e.costo_envio.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-                          : '—'}
+                      <td
+                        className={`${e.costo_envio != null ? styles.cellCosto : styles.cellMuted} ${e.costo_override != null ? styles.cellCostoOverride : ''} ${puedeVerCostos ? styles.cellCostoEditable : ''}`}
+                        onClick={() => {
+                          if (puedeVerCostos && editandoCosto !== e.shipping_id && !actualizando.has(e.shipping_id)) {
+                            iniciarEdicionCosto(e.shipping_id, e.costo_override ?? e.costo_envio);
+                          }
+                        }}
+                        title={e.costo_override != null ? 'Costo manual (click para editar)' : puedeVerCostos ? 'Click para editar costo' : undefined}
+                      >
+                        {editandoCosto === e.shipping_id ? (
+                          <input
+                            ref={costoInputRef}
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={costoInputValue}
+                            onChange={(ev) => setCostoInputValue(ev.target.value)}
+                            onKeyDown={(ev) => handleCostoKeyDown(ev, e.shipping_id)}
+                            onBlur={() => guardarCostoOverride(e.shipping_id)}
+                            className={styles.costoInput}
+                            placeholder="Vacío = auto"
+                          />
+                        ) : actualizando.has(e.shipping_id) ? (
+                          <span className={styles.cellMuted}>...</span>
+                        ) : e.costo_envio != null ? (
+                          `$${e.costo_envio.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                        ) : (
+                          '—'
+                        )}
                       </td>
                     )}
                     <td className={e.pistoleado_at ? styles.cellSuccess : styles.cellMuted}>

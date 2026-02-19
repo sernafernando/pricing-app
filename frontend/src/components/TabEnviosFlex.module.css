@@ -535,6 +535,53 @@
   padding-right: 18px !important;
 }
 
+/* ── Costo override editable ─────────────────────────────── */
+
+.cellCostoOverride {
+  color: var(--warning-text, #b45309);
+  position: relative;
+}
+
+.cellCostoOverride::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: var(--warning-text, #b45309);
+  opacity: 0.3;
+  border-radius: 1px;
+}
+
+.cellCostoEditable {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cellCostoEditable:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+}
+
+.costoInput {
+  width: 90px;
+  padding: 2px 6px;
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--border-primary, #d1d5db);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-primary, #fff);
+  color: var(--text-primary);
+  text-align: right;
+  outline: none;
+}
+
+.costoInput:focus {
+  border-color: var(--accent-primary, #3b82f6);
+  box-shadow: 0 0 0 2px var(--accent-primary-alpha, rgba(59, 130, 246, 0.15));
+}
+
 /* ── Stats card costo ──────────────────────────────────────── */
 
 .statCardCosto {
