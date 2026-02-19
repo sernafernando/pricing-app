@@ -5,7 +5,7 @@ Endpoints para gestión de items sin MLA asociado
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel, ConfigDict
 
 from app.core.database import get_db
@@ -16,8 +16,17 @@ from app.models.item_sin_mla_banlist import ItemSinMLABanlist
 from app.models.comparacion_listas_banlist import ComparacionListasBanlist
 from app.models.usuario import Usuario
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
+from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
+
+# Tiendas oficiales de MercadoLibre
+TIENDAS_OFICIALES: Dict[int, str] = {
+    57997: "Gauss",
+    2645: "TP-Link",
+    144: "Forza/Verbatim",
+    191942: "Multi-marca",
+}
 
 # Mapeo de IDs de listas a nombres
 LISTAS_PRECIOS = {
@@ -61,6 +70,24 @@ ORDEN_LISTAS = {
 
 
 # Schemas
+class ListaTiendaInfo(BaseModel):
+    """Info de una lista de precios con las tiendas donde está/falta."""
+
+    lista: str  # Nombre de la lista (ej: "Clásica", "3 Cuotas")
+    tiendas: List[int]  # IDs de tiendas oficiales donde está publicada
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TiendaOficialResponse(BaseModel):
+    """Info de una tienda oficial para el frontend."""
+
+    id: int
+    nombre: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ItemSinMLAResponse(BaseModel):
     item_id: int
     codigo: str
@@ -68,8 +95,10 @@ class ItemSinMLAResponse(BaseModel):
     marca: str
     categoria: Optional[str]
     stock: int
-    listas_sin_mla: List[str]  # Lista de nombres de listas donde NO tiene MLA
-    listas_con_mla: List[str]  # Lista de nombres de listas donde SÍ tiene MLA
+    listas_sin_mla: List[str]  # Lista de nombres de listas donde NO tiene MLA (compatibilidad)
+    listas_con_mla: List[str]  # Lista de nombres de listas donde SÍ tiene MLA (compatibilidad)
+    listas_detalle_sin: List[ListaTiendaInfo] = []  # Detalle con tiendas donde falta
+    listas_detalle_con: List[ListaTiendaInfo] = []  # Detalle con tiendas donde tiene
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -142,17 +171,32 @@ async def get_items_sin_mla(
     categoria: Optional[str] = Query(None, description="Filtrar por categoría"),
     buscar: Optional[str] = Query(None, description="Buscar en código o descripción"),
     con_stock: Optional[bool] = Query(None, description="Filtrar solo items con stock"),
+    tiendas_oficiales: Optional[str] = Query(
+        None,
+        description="IDs de tiendas oficiales separados por coma (ej: 57997,2645). "
+        "Si se especifica, solo muestra items sin MLA en ESAS tiendas.",
+    ),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """
     Obtiene todos los productos que NO tienen MLA en las listas relevantes (Clásica, Web 3, 6, 9, 12),
     excluyendo los que están en la banlist.
+
+    Cuando se filtra por tiendas_oficiales, la lógica cambia:
+    - Solo considera publicaciones de las tiendas seleccionadas
+    - Un item aparece si le falta al menos un par de listas EN ALGUNA de las tiendas filtradas
     """
-    from app.services.permisos_service import verificar_permiso
 
     if not verificar_permiso(db, current_user, "admin.ver_items_sin_mla"):
         raise HTTPException(status_code=403, detail="No tienes permiso para ver items sin MLA")
+
+    # Parsear tiendas oficiales del filtro
+    store_ids_filtro: Optional[List[int]] = None
+    if tiendas_oficiales:
+        store_ids_filtro = [int(sid.strip()) for sid in tiendas_oficiales.split(",") if sid.strip().isdigit()]
+        if not store_ids_filtro:
+            store_ids_filtro = None
 
     # IDs de las listas relevantes
     listas_relevantes = list(LISTAS_PRECIOS.keys())
@@ -187,36 +231,60 @@ async def get_items_sin_mla(
     # Para cada producto, determinar en qué listas NO tiene MLA
     resultados = []
     for producto in productos:
-        # Obtener todas las listas RELEVANTES donde este item tiene publicación
-        listas_con_mla = (
-            db.query(MercadoLibreItemPublicado.prli_id)
-            .distinct()
-            .filter(
-                and_(
-                    MercadoLibreItemPublicado.item_id == producto.item_id,
-                    MercadoLibreItemPublicado.prli_id.in_(listas_relevantes),
-                )
+        # Obtener listas + tiendas oficiales de cada publicación
+        pub_query = db.query(
+            MercadoLibreItemPublicado.prli_id,
+            MercadoLibreItemPublicado.mlp_official_store_id,
+        ).filter(
+            and_(
+                MercadoLibreItemPublicado.item_id == producto.item_id,
+                MercadoLibreItemPublicado.prli_id.in_(listas_relevantes),
             )
-            .all()
         )
 
-        listas_con_mla_ids = set([l[0] for l in listas_con_mla if l[0] is not None])
+        publicaciones = pub_query.all()
 
-        # Determinar qué pares están presentes
-        # Si tiene Web O PVP, se considera que tiene el par completo
-        pares_presentes = set()  # Solo usamos las listas Web para representar el par
-        pares_faltantes = set()  # Las listas Web que no tienen ni Web ni PVP
+        # Agrupar: por cada prli_id, qué tiendas oficiales lo tienen
+        # prli_to_stores: {prli_id: set de store_ids}
+        prli_to_stores: Dict[int, set] = {}
+        for prli_id_row, store_id in publicaciones:
+            if prli_id_row is not None:
+                if prli_id_row not in prli_to_stores:
+                    prli_to_stores[prli_id_row] = set()
+                if store_id is not None:
+                    prli_to_stores[prli_id_row].add(store_id)
+
+        # Determinar qué pares están presentes/faltantes, CON info de tiendas
+        pares_presentes = set()
+        pares_faltantes = set()
+
+        # Detalle por par: {web_id: set de store_ids donde tiene publicación}
+        par_stores: Dict[int, set] = {}
 
         for web_id, pvp_id in LISTAS_WEB_A_PVP.items():
-            tiene_web = web_id in listas_con_mla_ids
-            tiene_pvp = pvp_id in listas_con_mla_ids
+            stores_web = prli_to_stores.get(web_id, set())
+            stores_pvp = prli_to_stores.get(pvp_id, set())
+            stores_par = stores_web | stores_pvp  # Unión de tiendas de Web y PVP
+            par_stores[web_id] = stores_par
 
-            if tiene_web or tiene_pvp:
-                # Tiene al menos una del par, se considera presente
-                pares_presentes.add(web_id)
+            if store_ids_filtro:
+                # Con filtro de tiendas: verificar si tiene en TODAS las tiendas filtradas
+                tiendas_con = stores_par & set(store_ids_filtro)
+                tiendas_sin = set(store_ids_filtro) - stores_par
+                if tiendas_sin:
+                    pares_faltantes.add(web_id)
+                if tiendas_con:
+                    pares_presentes.add(web_id)
+                # Si no tiene en ninguna tienda filtrada, es faltante
+                if not tiendas_con and not tiendas_sin:
+                    # No tiene en ninguna tienda filtrada (no tiene en ninguna tienda en absoluto)
+                    pares_faltantes.add(web_id)
             else:
-                # No tiene ninguna del par
-                pares_faltantes.add(web_id)
+                # Sin filtro de tiendas: comportamiento original
+                if stores_par or web_id in prli_to_stores or pvp_id in prli_to_stores:
+                    pares_presentes.add(web_id)
+                else:
+                    pares_faltantes.add(web_id)
 
         # Si no le falta ningún par, no lo incluimos en los resultados
         if not pares_faltantes:
@@ -224,15 +292,24 @@ async def get_items_sin_mla(
 
         # Si se filtra por prli_id específico, verificar que le falte ese par
         if prli_id:
-            # Obtener el ID Web del par (si es PVP, obtener su Web)
             web_del_filtro = LISTAS_PVP_A_WEB.get(prli_id, prli_id)
             if web_del_filtro not in pares_faltantes:
                 continue
 
-        # Convertir IDs a nombres (solo mostramos las listas Web, no duplicar con PVP)
-        # Ordenar por el orden definido
+        # Convertir IDs a nombres (compatibilidad con frontend existente)
         listas_sin_mla_nombres = [LISTAS_PRECIOS[lid] for lid in sorted(pares_faltantes, key=lambda x: ORDEN_LISTAS[x])]
         listas_con_mla_nombres = [LISTAS_PRECIOS[lid] for lid in sorted(pares_presentes, key=lambda x: ORDEN_LISTAS[x])]
+
+        # Detalle con info de tiendas
+        listas_detalle_sin = []
+        for lid in sorted(pares_faltantes, key=lambda x: ORDEN_LISTAS[x]):
+            tiendas_que_tienen = sorted(par_stores.get(lid, set()))
+            listas_detalle_sin.append(ListaTiendaInfo(lista=LISTAS_PRECIOS[lid], tiendas=tiendas_que_tienen))
+
+        listas_detalle_con = []
+        for lid in sorted(pares_presentes, key=lambda x: ORDEN_LISTAS[x]):
+            tiendas_que_tienen = sorted(par_stores.get(lid, set()))
+            listas_detalle_con.append(ListaTiendaInfo(lista=LISTAS_PRECIOS[lid], tiendas=tiendas_que_tienen))
 
         resultados.append(
             ItemSinMLAResponse(
@@ -244,6 +321,8 @@ async def get_items_sin_mla(
                 stock=producto.stock or 0,
                 listas_sin_mla=listas_sin_mla_nombres,
                 listas_con_mla=listas_con_mla_nombres,
+                listas_detalle_sin=listas_detalle_sin,
+                listas_detalle_con=listas_detalle_con,
             )
         )
 
@@ -255,7 +334,6 @@ async def get_items_baneados(db: Session = Depends(get_db), current_user: Usuari
     """
     Obtiene todos los items en la banlist (que no deben aparecer en el reporte de sin MLA)
     """
-    from app.services.permisos_service import verificar_permiso
 
     if not verificar_permiso(db, current_user, "admin.gestionar_items_sin_mla_banlist"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de items sin MLA")
@@ -293,7 +371,6 @@ async def banear_item(
     """
     Agrega un item a la banlist para que no aparezca en el reporte de items sin MLA
     """
-    from app.services.permisos_service import verificar_permiso
 
     if not verificar_permiso(db, current_user, "admin.gestionar_items_sin_mla_banlist"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de items sin MLA")
@@ -326,7 +403,6 @@ async def desbanear_item(
     """
     Quita un item de la banlist
     """
-    from app.services.permisos_service import verificar_permiso
 
     if not verificar_permiso(db, current_user, "admin.gestionar_items_sin_mla_banlist"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de items sin MLA")
@@ -354,6 +430,20 @@ async def get_listas_precios(db: Session = Depends(get_db), current_user: Usuari
 
     # Solo devolver las listas Web (las claves de LISTAS_WEB_A_PVP)
     return [{"prli_id": web_id, "nombre": LISTAS_PRECIOS[web_id]} for web_id in sorted(LISTAS_WEB_A_PVP.keys())]
+
+
+@router.get("/tiendas-oficiales", response_model=List[TiendaOficialResponse])
+async def get_tiendas_oficiales(
+    current_user: Usuario = Depends(get_current_user),
+) -> List[TiendaOficialResponse]:
+    """
+    Devuelve la lista de tiendas oficiales de MercadoLibre con sus IDs y nombres.
+    Centraliza esta info para que el frontend no necesite hardcodearla.
+    """
+    return [
+        TiendaOficialResponse(id=store_id, nombre=nombre)
+        for store_id, nombre in sorted(TIENDAS_OFICIALES.items(), key=lambda x: x[1])
+    ]
 
 
 @router.get("/marcas")
@@ -423,7 +513,6 @@ async def get_comparacion_listas(
     Compara las listas/campañas del sistema con las campañas de MercadoLibre
     Devuelve solo los items donde HAY DIFERENCIAS (no coinciden)
     """
-    from app.services.permisos_service import verificar_permiso
 
     if not verificar_permiso(db, current_user, "admin.ver_comparacion_listas_ml"):
         raise HTTPException(status_code=403, detail="No tienes permiso para ver la comparación de listas")
@@ -524,7 +613,6 @@ async def get_comparacion_baneados(db: Session = Depends(get_db), current_user: 
     """
     Obtiene todos los items en la banlist de comparación de listas
     """
-    from app.services.permisos_service import verificar_permiso
 
     if not verificar_permiso(db, current_user, "admin.gestionar_comparacion_banlist"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de comparación")
@@ -590,7 +678,6 @@ async def banear_comparacion(
     """
     Agrega una publicación MLA a la banlist de comparación de listas
     """
-    from app.services.permisos_service import verificar_permiso
 
     if not verificar_permiso(db, current_user, "admin.gestionar_comparacion_banlist"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de comparación")
@@ -621,7 +708,6 @@ async def desbanear_comparacion(
     """
     Quita una publicación MLA de la banlist de comparación de listas
     """
-    from app.services.permisos_service import verificar_permiso
 
     if not verificar_permiso(db, current_user, "admin.gestionar_comparacion_banlist"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la banlist de comparación")

@@ -32,6 +32,7 @@ class Asignacion(Base):
         tipo = 'item_sin_mla'
         referencia_id = 12345  (item_id del producto)
         subtipo = 'Clásica'   (lista de precio faltante)
+        tienda_oficial_id = 57997  (tienda oficial de ML donde falta)
         estado_hash = sha256 de listas_sin_mla al momento de asignar
     """
 
@@ -44,6 +45,7 @@ class Asignacion(Base):
     tipo = Column(String(50), nullable=False, index=True)  # 'item_sin_mla', 'comparacion_listas', etc.
     referencia_id = Column(Integer, nullable=False, index=True)  # item_id, mla_id numérico, etc.
     subtipo = Column(String(100), nullable=True, index=True)  # 'Clásica', '3 Cuotas', etc.
+    tienda_oficial_id = Column(Integer, nullable=True, index=True)  # mlp_official_store_id (57997=Gauss, etc.)
 
     # A quién se asigna
     usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
@@ -80,6 +82,7 @@ class Asignacion(Base):
     __table_args__ = (
         Index("idx_asignacion_tipo_ref", "tipo", "referencia_id"),
         Index("idx_asignacion_tipo_ref_subtipo", "tipo", "referencia_id", "subtipo"),
+        Index("idx_asignacion_tipo_ref_subtipo_tienda", "tipo", "referencia_id", "subtipo", "tienda_oficial_id"),
         Index("idx_asignacion_usuario_estado", "usuario_id", "estado"),
         Index("idx_asignacion_tipo_estado", "tipo", "estado"),
         Index("idx_asignacion_asignado_por", "asignado_por_id"),
@@ -87,4 +90,4 @@ class Asignacion(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Asignacion(id={self.id}, tipo={self.tipo}, ref={self.referencia_id}, subtipo={self.subtipo}, estado={self.estado})>"
+        return f"<Asignacion(id={self.id}, tipo={self.tipo}, ref={self.referencia_id}, subtipo={self.subtipo}, tienda={self.tienda_oficial_id}, estado={self.estado})>"

@@ -28,6 +28,9 @@ from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.asignacion import Asignacion
 from app.models.usuario import Usuario
+from app.services.permisos_service import verificar_permiso
+from app.api.endpoints.items_sin_mla import LISTAS_PRECIOS, LISTAS_WEB_A_PVP
+from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 
 router = APIRouter()
 
@@ -38,10 +41,11 @@ router = APIRouter()
 
 
 class AsignarItemRequest(BaseModel):
-    """Asignar listas específicas de un item a un usuario."""
+    """Asignar listas específicas de un item a un usuario, por tienda oficial."""
 
     item_id: int
     listas: List[str]  # ['Clásica', '3 Cuotas', ...]
+    tienda_oficial_id: Optional[int] = None  # mlp_official_store_id (57997=Gauss, etc.)
     usuario_id: Optional[int] = None  # None = auto-asignarse
     notas: Optional[str] = None
     # Snapshot de todas las listas faltantes (para metadata, no para hash)
@@ -52,6 +56,7 @@ class AsignarItemRequest(BaseModel):
             "example": {
                 "item_id": 12345,
                 "listas": ["Clásica", "3 Cuotas"],
+                "tienda_oficial_id": 57997,
                 "listas_sin_mla": ["Clásica", "3 Cuotas", "6 Cuotas"],
                 "notas": "Producto nuevo, prioridad alta",
             }
@@ -62,7 +67,8 @@ class AsignarItemRequest(BaseModel):
 class AsignarMasivoRequest(BaseModel):
     """Asignar múltiples items de una vez (multi-selección)."""
 
-    items: List[dict]  # [{'item_id': 123, 'listas': ['Clásica'], 'listas_sin_mla': [...]}, ...]
+    # items: [{'item_id': 123, 'listas': ['Clásica'], 'tienda_oficial_id': 57997, 'listas_sin_mla': [...]}, ...]
+    items: List[dict]
     usuario_id: Optional[int] = None
     notas: Optional[str] = None
 
@@ -70,8 +76,13 @@ class AsignarMasivoRequest(BaseModel):
         json_schema_extra={
             "example": {
                 "items": [
-                    {"item_id": 123, "listas": ["Clásica"], "listas_sin_mla": ["Clásica", "3 Cuotas"]},
-                    {"item_id": 456, "listas": ["6 Cuotas"], "listas_sin_mla": ["6 Cuotas"]},
+                    {
+                        "item_id": 123,
+                        "listas": ["Clásica"],
+                        "tienda_oficial_id": 57997,
+                        "listas_sin_mla": ["Clásica", "3 Cuotas"],
+                    },
+                    {"item_id": 456, "listas": ["6 Cuotas"], "tienda_oficial_id": 2645, "listas_sin_mla": ["6 Cuotas"]},
                 ],
                 "notas": "Lote asignado masivamente",
             }
@@ -100,6 +111,7 @@ class AsignacionResponse(BaseModel):
     tipo: str
     referencia_id: int
     subtipo: Optional[str]
+    tienda_oficial_id: Optional[int] = None
     usuario_id: int
     usuario_nombre: str
     asignado_por_id: int
@@ -140,8 +152,6 @@ def _verificar_permiso_asignacion(db: Session, current_user: Usuario, usuario_de
     - Si usuario_destino_id es None o es el propio usuario: requiere admin.asignar_items_sin_mla
     - Si es otro usuario: requiere admin.gestionar_asignaciones
     """
-    from app.services.permisos_service import verificar_permiso
-
     es_auto_asignacion = usuario_destino_id is None or usuario_destino_id == current_user.id
 
     if es_auto_asignacion:
@@ -180,6 +190,7 @@ def _build_asignacion_response(
         tipo=asignacion.tipo,
         referencia_id=asignacion.referencia_id,
         subtipo=asignacion.subtipo,
+        tienda_oficial_id=asignacion.tienda_oficial_id,
         usuario_id=asignacion.usuario_id,
         usuario_nombre=usuario_asignado.nombre,
         asignado_por_id=asignacion.asignado_por_id,
@@ -221,20 +232,22 @@ async def asignar_item(
     creadas = []
     duplicadas = []
 
+    tienda_id = request.tienda_oficial_id
+
     for lista in request.listas:
-        # Verificar si ya existe una asignación PENDIENTE para este item+lista
-        existente = (
-            db.query(Asignacion)
-            .filter(
-                and_(
-                    Asignacion.tipo == "item_sin_mla",
-                    Asignacion.referencia_id == request.item_id,
-                    Asignacion.subtipo == lista,
-                    Asignacion.estado == "pendiente",
-                )
-            )
-            .first()
-        )
+        # Verificar si ya existe una asignación PENDIENTE para este item+lista+tienda
+        filtros_dup = [
+            Asignacion.tipo == "item_sin_mla",
+            Asignacion.referencia_id == request.item_id,
+            Asignacion.subtipo == lista,
+            Asignacion.estado == "pendiente",
+        ]
+        if tienda_id is not None:
+            filtros_dup.append(Asignacion.tienda_oficial_id == tienda_id)
+        else:
+            filtros_dup.append(Asignacion.tienda_oficial_id.is_(None))
+
+        existente = db.query(Asignacion).filter(and_(*filtros_dup)).first()
 
         if existente:
             duplicadas.append(lista)
@@ -248,6 +261,7 @@ async def asignar_item(
             tipo="item_sin_mla",
             referencia_id=request.item_id,
             subtipo=lista,
+            tienda_oficial_id=tienda_id,
             usuario_id=usuario_destino_id,
             asignado_por_id=current_user.id,
             estado="pendiente",
@@ -257,6 +271,7 @@ async def asignar_item(
             metadata_asignacion={
                 "listas_faltantes": request.listas_sin_mla or [],
                 "listas_asignadas": request.listas,
+                "tienda_oficial_id": tienda_id,
             },
         )
         db.add(nueva)
@@ -299,6 +314,7 @@ async def asignar_masivo(
         item_id = item_data.get("item_id")
         listas = item_data.get("listas", [])
         listas_sin_mla = item_data.get("listas_sin_mla", [])
+        tienda_id = item_data.get("tienda_oficial_id")
 
         if not item_id or not listas:
             continue
@@ -306,18 +322,20 @@ async def asignar_masivo(
         for lista in listas:
             # Hash POR ASIGNACIÓN individual: item + lista específica
             estado_hash = _generar_estado_hash(item_id, lista, existe_mla=False)
-            existente = (
-                db.query(Asignacion)
-                .filter(
-                    and_(
-                        Asignacion.tipo == "item_sin_mla",
-                        Asignacion.referencia_id == item_id,
-                        Asignacion.subtipo == lista,
-                        Asignacion.estado == "pendiente",
-                    )
-                )
-                .first()
-            )
+
+            # Verificar duplicados incluyendo tienda_oficial_id
+            filtros_dup = [
+                Asignacion.tipo == "item_sin_mla",
+                Asignacion.referencia_id == item_id,
+                Asignacion.subtipo == lista,
+                Asignacion.estado == "pendiente",
+            ]
+            if tienda_id is not None:
+                filtros_dup.append(Asignacion.tienda_oficial_id == tienda_id)
+            else:
+                filtros_dup.append(Asignacion.tienda_oficial_id.is_(None))
+
+            existente = db.query(Asignacion).filter(and_(*filtros_dup)).first()
 
             if existente:
                 continue
@@ -327,6 +345,7 @@ async def asignar_masivo(
                 tipo="item_sin_mla",
                 referencia_id=item_id,
                 subtipo=lista,
+                tienda_oficial_id=tienda_id,
                 usuario_id=usuario_destino_id,
                 asignado_por_id=current_user.id,
                 estado="pendiente",
@@ -336,6 +355,7 @@ async def asignar_masivo(
                 metadata_asignacion={
                     "listas_faltantes": listas_sin_mla,
                     "listas_asignadas": listas,
+                    "tienda_oficial_id": tienda_id,
                 },
             )
             db.add(nueva)
@@ -394,8 +414,6 @@ async def reasignar(
 
     Requiere: admin.gestionar_asignaciones
     """
-    from app.services.permisos_service import verificar_permiso
-
     if not verificar_permiso(db, current_user, "admin.gestionar_asignaciones"):
         raise HTTPException(status_code=403, detail="No tenés permiso para reasignar")
 
@@ -418,12 +436,13 @@ async def reasignar(
         original.estado = "cancelado"
         original.fecha_resolucion = datetime.now(UTC)
 
-        # Crear nueva para el destino (preserva hash y metadata)
+        # Crear nueva para el destino (preserva hash, metadata y tienda_oficial_id)
         nueva = Asignacion(
             tracking_id=uuid.uuid4(),
             tipo=original.tipo,
             referencia_id=original.referencia_id,
             subtipo=original.subtipo,
+            tienda_oficial_id=original.tienda_oficial_id,
             usuario_id=request.usuario_id,
             asignado_por_id=current_user.id,
             estado="pendiente",
@@ -462,8 +481,6 @@ async def get_asignaciones_items_sin_mla(
     Obtiene asignaciones de items sin MLA con filtros opcionales.
     Requiere al menos permiso de ver items sin MLA.
     """
-    from app.services.permisos_service import verificar_permiso
-
     if not verificar_permiso(db, current_user, "admin.ver_items_sin_mla"):
         raise HTTPException(status_code=403, detail="No tenés permiso para ver items sin MLA")
 
@@ -543,8 +560,6 @@ async def get_usuarios_asignables(
 
     Se permite ver la lista si tenés permiso de auto-asignarte O de gestionar.
     """
-    from app.services.permisos_service import verificar_permiso
-
     puede_auto = verificar_permiso(db, current_user, "admin.asignar_items_sin_mla")
     puede_gestionar = verificar_permiso(db, current_user, "admin.gestionar_asignaciones")
 
@@ -576,10 +591,6 @@ async def verificar_estado_asignaciones(
     - Items resueltos por usuario
     - Velocidad de trabajo
     """
-    from app.services.permisos_service import verificar_permiso
-    from app.api.endpoints.items_sin_mla import LISTAS_PRECIOS, LISTAS_WEB_A_PVP
-    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-
     if not verificar_permiso(db, current_user, "admin.ver_items_sin_mla"):
         raise HTTPException(status_code=403, detail="No tenés permiso")
 
