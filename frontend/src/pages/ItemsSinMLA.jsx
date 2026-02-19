@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../services/api';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../hooks/usePermisos';
@@ -63,6 +63,11 @@ const ItemsSinMLA = () => {
   const [soloNuevos, setSoloNuevos] = useState(false); // Filtro para mostrar solo items nuevos
   const [sinPublicaciones, setSinPublicaciones] = useState(false); // Filtro: sin ninguna publicación
 
+  // Tiendas oficiales
+  const [tiendasOficiales, setTiendasOficiales] = useState([]); // Lista de {id, nombre} del backend
+  const [tiendasSeleccionadas, setTiendasSeleccionadas] = useState([]); // IDs seleccionados para filtrar
+  const [panelTiendasAbierto, setPanelTiendasAbierto] = useState(false);
+
   // Estado para agregar motivo al banear
   const [itemSeleccionado, setItemSeleccionado] = useState(null);
   const [showMotivoModal, setShowMotivoModal] = useState(false);
@@ -91,8 +96,6 @@ const ItemsSinMLA = () => {
   // Estado para comparación de listas
   const [itemsComparacion, setItemsComparacion] = useState([]);
   const [loadingComparacion, setLoadingComparacion] = useState(false);
-  const [busquedaComparacion] = useState('');
-  const [marcaComparacion] = useState('');
 
   // Estado para sync ML
   const [syncMLRunning, setSyncMLRunning] = useState(false);
@@ -126,7 +129,7 @@ const ItemsSinMLA = () => {
   const [usuariosAsignables, setUsuariosAsignables] = useState([]);
   const [showAsignarModal, setShowAsignarModal] = useState(false);
   const [itemParaAsignar, setItemParaAsignar] = useState(null); // Item actual para asignar
-  const [listasParaAsignar, setListasParaAsignar] = useState([]); // Listas seleccionadas en el modal
+  const [listasParaAsignar, setListasParaAsignar] = useState([]); // [{lista, tienda_oficial_id}] o strings para legacy
   const [usuarioDestinoId, setUsuarioDestinoId] = useState(''); // '' = auto-asignarse
   const [notasAsignacion, setNotasAsignacion] = useState('');
   const [loadingAsignacion, setLoadingAsignacion] = useState(false);
@@ -143,10 +146,26 @@ const ItemsSinMLA = () => {
   const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
   const [productoInfoId, setProductoInfoId] = useState(null);
 
+  // Toast notification state (replaces alert())
+  const [toast, setToast] = useState(null); // { message, type: 'success'|'error'|'info' }
+  const toastTimerRef = useRef(null);
 
+  const showToast = useCallback((message, type = 'info') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ message, type });
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
+  }, []);
+
+  // Confirmation modal state (replaces confirm())
+  const [confirmModal, setConfirmModal] = useState(null); // { message, onConfirm }
+
+  const showConfirm = useCallback((message, onConfirm) => {
+    setConfirmModal({ message, onConfirm });
+  }, []);
 
   useEffect(() => {
     cargarListasPrecio();
+    cargarTiendasOficiales();
     cargarItemsSinMLA();
     cargarAsignaciones();
     cargarUsuariosAsignables();
@@ -193,7 +212,41 @@ const ItemsSinMLA = () => {
 
   const handleAsignar = (item) => {
     setItemParaAsignar(item);
-    setListasParaAsignar([...item.listas_sin_mla]); // Pre-seleccionar todas las listas faltantes
+
+    // Build lista × tienda pairs from detalle, or fallback to flat list
+    const detalle = item.listas_detalle_sin;
+    if (detalle && detalle.length > 0 && tiendasSeleccionadas.length > 0) {
+      // Per-store mode: each lista × tienda where the item is MISSING
+      const pairs = [];
+      for (const entry of detalle) {
+        for (const storeId of tiendasSeleccionadas) {
+          if (!entry.tiendas.includes(storeId)) {
+            pairs.push({ lista: entry.lista, tienda_oficial_id: storeId });
+          }
+        }
+      }
+      setListasParaAsignar(pairs);
+    } else if (detalle && detalle.length > 0) {
+      // No store filter but detalle available — expand all tiendas that are missing
+      // Since without filter we show the global "falta en" view, build pairs from all known tiendas
+      const pairs = [];
+      for (const entry of detalle) {
+        // If tiendas array is empty, it means it's missing everywhere — use null tienda
+        if (!entry.tiendas || entry.tiendas.length === 0) {
+          pairs.push({ lista: entry.lista, tienda_oficial_id: null });
+        }
+      }
+      // If no pairs were generated (all entries have tiendas), fallback to listas_sin_mla
+      if (pairs.length === 0) {
+        setListasParaAsignar(item.listas_sin_mla.map(l => ({ lista: l, tienda_oficial_id: null })));
+      } else {
+        setListasParaAsignar(pairs);
+      }
+    } else {
+      // Legacy fallback: flat string list
+      setListasParaAsignar(item.listas_sin_mla.map(l => ({ lista: l, tienda_oficial_id: null })));
+    }
+
     setUsuarioDestinoId('');
     setNotasAsignacion('');
     setShowAsignarModal(true);
@@ -204,41 +257,52 @@ const ItemsSinMLA = () => {
 
     setLoadingAsignacion(true);
     try {
-      await api.post(
-        '/asignaciones/asignar',
-        {
-          item_id: itemParaAsignar.item_id,
-          listas: listasParaAsignar,
-          usuario_id: usuarioDestinoId ? parseInt(usuarioDestinoId) : null,
-          notas: notasAsignacion || null,
-          listas_sin_mla: itemParaAsignar.listas_sin_mla,
-        }
-      );
+      // Group selected pairs by tienda_oficial_id → one POST per tienda
+      const porTienda = {};
+      for (const pair of listasParaAsignar) {
+        const key = pair.tienda_oficial_id ?? '__null__';
+        if (!porTienda[key]) porTienda[key] = { tienda_oficial_id: pair.tienda_oficial_id, listas: [] };
+        porTienda[key].listas.push(pair.lista);
+      }
+
+      for (const group of Object.values(porTienda)) {
+        await api.post(
+          '/asignaciones/asignar',
+          {
+            item_id: itemParaAsignar.item_id,
+            listas: group.listas,
+            tienda_oficial_id: group.tienda_oficial_id,
+            usuario_id: usuarioDestinoId ? parseInt(usuarioDestinoId) : null,
+            notas: notasAsignacion || null,
+            listas_sin_mla: itemParaAsignar.listas_sin_mla,
+          }
+        );
+      }
 
       setShowAsignarModal(false);
       setItemParaAsignar(null);
       cargarAsignaciones();
     } catch (error) {
       console.error('Error al asignar:', error);
-      alert(error.response?.data?.detail || 'Error al asignar item');
+      showToast(error.response?.data?.detail || 'Error al asignar item', 'error');
     } finally {
       setLoadingAsignacion(false);
     }
   };
 
-  const handleDesasignar = async (asignacionIds) => {
-    if (!window.confirm(`¿Desasignar ${asignacionIds.length} asignación(es)?`)) return;
-
-    try {
-      await api.post(
-        '/asignaciones/desasignar',
-        { asignacion_ids: asignacionIds }
-      );
-      cargarAsignaciones();
-    } catch (error) {
-      console.error('Error al desasignar:', error);
-      alert(error.response?.data?.detail || 'Error al desasignar');
-    }
+  const handleDesasignar = (asignacionIds) => {
+    showConfirm(`¿Desasignar ${asignacionIds.length} asignación(es)?`, async () => {
+      try {
+        await api.post(
+          '/asignaciones/desasignar',
+          { asignacion_ids: asignacionIds }
+        );
+        cargarAsignaciones();
+      } catch (error) {
+        console.error('Error al desasignar:', error);
+        showToast(error.response?.data?.detail || 'Error al desasignar', 'error');
+      }
+    });
   };
 
   const handleAsignarMasivo = () => {
@@ -256,23 +320,44 @@ const ItemsSinMLA = () => {
       const items = [];
       for (const itemId of itemsSeleccionados) {
         const item = itemsSinMLA.find(i => i.item_id === itemId);
-        if (item) {
+        if (!item) continue;
+
+        const detalle = item.listas_detalle_sin;
+        if (detalle && detalle.length > 0 && tiendasSeleccionadas.length > 0) {
+          // Per-store mode: create one entry per tienda where the item is missing
+          for (const storeId of tiendasSeleccionadas) {
+            const listasFaltantes = detalle
+              .filter(entry => !entry.tiendas.includes(storeId))
+              .map(entry => entry.lista);
+            if (listasFaltantes.length > 0) {
+              items.push({
+                item_id: item.item_id,
+                listas: listasFaltantes,
+                tienda_oficial_id: storeId,
+                listas_sin_mla: item.listas_sin_mla,
+              });
+            }
+          }
+        } else {
+          // No store filter: assign all missing lists without tienda
           items.push({
             item_id: item.item_id,
-            listas: item.listas_sin_mla, // Asignar TODAS las listas faltantes
+            listas: item.listas_sin_mla,
             listas_sin_mla: item.listas_sin_mla,
           });
         }
       }
 
-      await api.post(
-        '/asignaciones/asignar-masivo',
-        {
-          items,
-          usuario_id: usuarioDestinoId ? parseInt(usuarioDestinoId) : null,
-          notas: notasAsignacion || null,
-        }
-      );
+      if (items.length > 0) {
+        await api.post(
+          '/asignaciones/asignar-masivo',
+          {
+            items,
+            usuario_id: usuarioDestinoId ? parseInt(usuarioDestinoId) : null,
+            notas: notasAsignacion || null,
+          }
+        );
+      }
 
       setShowAsignarMasivoModal(false);
       setItemsSeleccionados(new Set());
@@ -280,7 +365,7 @@ const ItemsSinMLA = () => {
       cargarAsignaciones();
     } catch (error) {
       console.error('Error al asignar masivo:', error);
-      alert(error.response?.data?.detail || 'Error al asignar masivamente');
+      showToast(error.response?.data?.detail || 'Error al asignar masivamente', 'error');
     } finally {
       setLoadingAsignacion(false);
     }
@@ -299,8 +384,17 @@ const ItemsSinMLA = () => {
     try {
       const response = await api.get('/items-sin-mla/listas-precios');
       setListasPrecio(response.data);
-    } catch (error) {
-      console.error('Error al cargar listas de precios:', error);
+    } catch {
+      // Silently fail — price lists are not critical for page load
+    }
+  };
+
+  const cargarTiendasOficiales = async () => {
+    try {
+      const response = await api.get('/items-sin-mla/tiendas-oficiales');
+      setTiendasOficiales(response.data);
+    } catch {
+      // Silently fail — store list is not critical for page load
     }
   };
 
@@ -312,6 +406,7 @@ const ItemsSinMLA = () => {
       if (busqueda) paramsBase.buscar = busqueda;
       if (listaPrecioFiltro) paramsBase.prli_id = listaPrecioFiltro;
       if (conStock !== null) paramsBase.con_stock = conStock;
+      if (tiendasSeleccionadas.length > 0) paramsBase.tiendas_oficiales = tiendasSeleccionadas.join(',');
 
       const responseBase = await api.get('/items-sin-mla/items-sin-mla', {
         params: paramsBase
@@ -346,7 +441,7 @@ const ItemsSinMLA = () => {
       setItemsSinMLA(itemsFiltrados);
     } catch (error) {
       console.error('Error al cargar items sin MLA:', error);
-      alert('Error al cargar items sin MLA');
+      showToast('Error al cargar items sin MLA', 'error');
     } finally {
       setLoadingItems(false);
     }
@@ -368,7 +463,7 @@ const ItemsSinMLA = () => {
       aplicarFiltrosBanlist(data);
     } catch (error) {
       console.error('Error al cargar items baneados:', error);
-      alert('Error al cargar items baneados');
+      showToast('Error al cargar items baneados', 'error');
     } finally {
       setLoadingBaneados(false);
     }
@@ -453,18 +548,12 @@ const ItemsSinMLA = () => {
   const cargarComparacionListas = async () => {
     setLoadingComparacion(true);
     try {
-      const params = {};
-      if (busquedaComparacion) params.buscar = busquedaComparacion;
-      if (marcaComparacion) params.marca = marcaComparacion;
-
-      const response = await api.get('/items-sin-mla/comparacion-listas', {
-        params
-      });
+      const response = await api.get('/items-sin-mla/comparacion-listas');
 
       setItemsComparacion(response.data);
     } catch (error) {
       console.error('Error al cargar comparación de listas:', error);
-      alert('Error al cargar la comparación de listas');
+      showToast('Error al cargar la comparación de listas', 'error');
     } finally {
       setLoadingComparacion(false);
     }
@@ -478,7 +567,7 @@ const ItemsSinMLA = () => {
       setComparacionBaneados(response.data);
     } catch (error) {
       console.error('Error al cargar banlist de comparación:', error);
-      alert('Error al cargar banlist de comparación');
+      showToast('Error al cargar banlist de comparación', 'error');
     } finally {
       setLoadingComparacionBaneados(false);
     }
@@ -499,7 +588,7 @@ const ItemsSinMLA = () => {
         { mla_id: comparacionItemSeleccionado.mla_id, motivo: comparacionMotivo || null }
       );
 
-      alert(`Publicación ${comparacionItemSeleccionado.mla_id} agregada a la banlist`);
+      showToast(`Publicación ${comparacionItemSeleccionado.mla_id} agregada a la banlist`, 'success');
       setShowComparacionMotivoModal(false);
       setComparacionItemSeleccionado(null);
       setComparacionMotivo('');
@@ -510,49 +599,49 @@ const ItemsSinMLA = () => {
       }
     } catch (error) {
       console.error('Error al banear comparación:', error);
-      alert(error.response?.data?.detail || 'Error al banear publicación');
+      showToast(error.response?.data?.detail || 'Error al banear publicación', 'error');
     }
   };
 
-  const handleDesbanearComparacion = async (banlistId, mlaId) => {
-    if (!confirm(`¿Seguro que deseas quitar ${mlaId} de la banlist?`)) return;
-
-    try {
-      await api.post(
-        '/items-sin-mla/desbanear-comparacion',
-        { banlist_id: banlistId }
-      );
-
-      alert(`Publicación ${mlaId} removida de la banlist`);
-      cargarComparacionBaneados();
-      cargarComparacionListas();
-    } catch (error) {
-      console.error('Error al desbanear comparación:', error);
-      alert('Error al desbanear publicación');
-    }
-  };
-
-  const banearComparacionSeleccionados = async () => {
-    if (comparacionSeleccionados.size === 0) return;
-    if (!window.confirm(`¿Banear ${comparacionSeleccionados.size} publicaciones?`)) return;
-
-    try {
-      for (const mlaId of comparacionSeleccionados) {
+  const handleDesbanearComparacion = (banlistId, mlaId) => {
+    showConfirm(`¿Seguro que deseas quitar ${mlaId} de la banlist?`, async () => {
+      try {
         await api.post(
-          '/items-sin-mla/banear-comparacion',
-          { mla_id: mlaId, motivo: 'Baneado masivamente' }
+          '/items-sin-mla/desbanear-comparacion',
+          { banlist_id: banlistId }
         );
-      }
 
-      alert(`${comparacionSeleccionados.size} publicaciones baneadas exitosamente`);
-      setComparacionSeleccionados(new Set());
-      setUltimoComparacionSeleccionado(null);
-      cargarComparacionListas();
-      cargarComparacionBaneados();
-    } catch (error) {
-      console.error('Error baneando comparaciones:', error);
-      alert('Error al banear publicaciones masivamente');
-    }
+        showToast(`Publicación ${mlaId} removida de la banlist`, 'success');
+        cargarComparacionBaneados();
+        cargarComparacionListas();
+      } catch (error) {
+        console.error('Error al desbanear comparación:', error);
+        showToast('Error al desbanear publicación', 'error');
+      }
+    });
+  };
+
+  const banearComparacionSeleccionados = () => {
+    if (comparacionSeleccionados.size === 0) return;
+    showConfirm(`¿Banear ${comparacionSeleccionados.size} publicaciones?`, async () => {
+      try {
+        for (const mlaId of comparacionSeleccionados) {
+          await api.post(
+            '/items-sin-mla/banear-comparacion',
+            { mla_id: mlaId, motivo: 'Baneado masivamente' }
+          );
+        }
+
+        showToast(`${comparacionSeleccionados.size} publicaciones baneadas exitosamente`, 'success');
+        setComparacionSeleccionados(new Set());
+        setUltimoComparacionSeleccionado(null);
+        cargarComparacionListas();
+        cargarComparacionBaneados();
+      } catch (error) {
+        console.error('Error baneando comparaciones:', error);
+        showToast('Error al banear publicaciones masivamente', 'error');
+      }
+    });
   };
 
   const handleSeleccionarComparacion = (mlaId, event) => {
@@ -628,27 +717,27 @@ const ItemsSinMLA = () => {
     }
   };
 
-  const desbanearComparacionSeleccionados = async () => {
+  const desbanearComparacionSeleccionados = () => {
     if (comparacionBaneadosSeleccionados.size === 0) return;
-    if (!window.confirm(`¿Desbanear ${comparacionBaneadosSeleccionados.size} publicaciones?`)) return;
+    showConfirm(`¿Desbanear ${comparacionBaneadosSeleccionados.size} publicaciones?`, async () => {
+      try {
+        for (const banlistId of comparacionBaneadosSeleccionados) {
+          await api.post(
+            '/items-sin-mla/desbanear-comparacion',
+            { banlist_id: banlistId }
+          );
+        }
 
-    try {
-      for (const banlistId of comparacionBaneadosSeleccionados) {
-        await api.post(
-          '/items-sin-mla/desbanear-comparacion',
-          { banlist_id: banlistId }
-        );
+        showToast(`${comparacionBaneadosSeleccionados.size} publicaciones desbaneadas exitosamente`, 'success');
+        setComparacionBaneadosSeleccionados(new Set());
+        setUltimoComparacionBaneadoSeleccionado(null);
+        cargarComparacionBaneados();
+        cargarComparacionListas();
+      } catch (error) {
+        console.error('Error desbaneando comparaciones:', error);
+        showToast('Error al desbanear publicaciones masivamente', 'error');
       }
-
-      alert(`${comparacionBaneadosSeleccionados.size} publicaciones desbaneadas exitosamente`);
-      setComparacionBaneadosSeleccionados(new Set());
-      setUltimoComparacionBaneadoSeleccionado(null);
-      cargarComparacionBaneados();
-      cargarComparacionListas();
-    } catch (error) {
-      console.error('Error desbaneando comparaciones:', error);
-      alert('Error al desbanear publicaciones masivamente');
-    }
+    });
   };
 
   // Filtrar banlist de comparación por búsqueda
@@ -677,7 +766,7 @@ const ItemsSinMLA = () => {
         { item_id: itemSeleccionado.item_id, motivo: motivo || null }
       );
 
-      alert(`Item ${itemSeleccionado.item_id} agregado a la banlist`);
+      showToast(`Item ${itemSeleccionado.item_id} agregado a la banlist`, 'success');
       setShowMotivoModal(false);
       setItemSeleccionado(null);
       setMotivo('');
@@ -689,30 +778,28 @@ const ItemsSinMLA = () => {
       }
     } catch (error) {
       console.error('Error al banear item:', error);
-      alert(error.response?.data?.detail || 'Error al banear item');
+      showToast(error.response?.data?.detail || 'Error al banear item', 'error');
     }
   };
 
-  const handleDesbanear = async (banlistId, itemId) => {
-    if (!confirm(`¿Seguro que deseas quitar el item ${itemId} de la banlist?`)) {
-      return;
-    }
+  const handleDesbanear = (banlistId, itemId) => {
+    showConfirm(`¿Seguro que deseas quitar el item ${itemId} de la banlist?`, async () => {
+      try {
+        await api.post(
+          '/items-sin-mla/desbanear-item',
+          { banlist_id: banlistId }
+        );
 
-    try {
-      await api.post(
-        '/items-sin-mla/desbanear-item',
-        { banlist_id: banlistId }
-      );
+        showToast(`Item ${itemId} removido de la banlist`, 'success');
 
-      alert(`Item ${itemId} removido de la banlist`);
-
-      // Recargar listas
-      cargarItemsBaneados();
-      cargarItemsSinMLA();
-    } catch (error) {
-      console.error('Error al desbanear item:', error);
-      alert('Error al desbanear item');
-    }
+        // Recargar listas
+        cargarItemsBaneados();
+        cargarItemsSinMLA();
+      } catch (error) {
+        console.error('Error al desbanear item:', error);
+        showToast('Error al desbanear item', 'error');
+      }
+    });
   };
 
   const limpiarFiltros = () => {
@@ -723,11 +810,13 @@ const ItemsSinMLA = () => {
     setSoloNuevos(false);
     setSinPublicaciones(false);
     setPanelMarcasAbierto(false);
+    setTiendasSeleccionadas([]);
+    setPanelTiendasAbierto(false);
   };
 
   useEffect(() => {
     cargarItemsSinMLA();
-  }, [marcasSeleccionadas, busqueda, listaPrecioFiltro, conStock, soloNuevos, sinPublicaciones]);
+  }, [marcasSeleccionadas, busqueda, listaPrecioFiltro, conStock, soloNuevos, sinPublicaciones, tiendasSeleccionadas]);
 
   const handleSort = (columna, event) => {
     const shiftPressed = event?.shiftKey;
@@ -863,28 +952,28 @@ const ItemsSinMLA = () => {
     }
   };
 
-  const banearSeleccionados = async () => {
+  const banearSeleccionados = () => {
     if (itemsSeleccionados.size === 0) return;
 
-    if (!window.confirm(`¿Banear ${itemsSeleccionados.size} items?`)) return;
+    showConfirm(`¿Banear ${itemsSeleccionados.size} items?`, async () => {
+      try {
+        for (const itemId of itemsSeleccionados) {
+          await api.post(
+            '/items-sin-mla/banear-item',
+            { item_id: itemId, motivo: 'Baneado masivamente' }
+          );
+        }
 
-    try {
-      for (const itemId of itemsSeleccionados) {
-        await api.post(
-          '/items-sin-mla/banear-item',
-          { item_id: itemId, motivo: 'Baneado masivamente' }
-        );
+        showToast(`${itemsSeleccionados.size} items baneados exitosamente`, 'success');
+        setItemsSeleccionados(new Set());
+        setUltimoSeleccionado(null);
+        cargarItemsSinMLA();
+        cargarItemsBaneados();
+      } catch (error) {
+        console.error('Error baneando items:', error);
+        showToast('Error al banear items masivamente', 'error');
       }
-
-      alert(`${itemsSeleccionados.size} items baneados exitosamente`);
-      setItemsSeleccionados(new Set());
-      setUltimoSeleccionado(null);
-      cargarItemsSinMLA();
-      cargarItemsBaneados();
-    } catch (error) {
-      console.error('Error baneando items:', error);
-      alert('Error al banear items masivamente');
-    }
+    });
   };
 
   // Funciones para multi-selección en banlist
@@ -927,28 +1016,28 @@ const ItemsSinMLA = () => {
     }
   };
 
-  const desbanearSeleccionados = async () => {
+  const desbanearSeleccionados = () => {
     if (baneadosSeleccionados.size === 0) return;
 
-    if (!window.confirm(`¿Desbanear ${baneadosSeleccionados.size} items?`)) return;
+    showConfirm(`¿Desbanear ${baneadosSeleccionados.size} items?`, async () => {
+      try {
+        for (const banlistId of baneadosSeleccionados) {
+          await api.post(
+            '/items-sin-mla/desbanear-item',
+            { banlist_id: banlistId }
+          );
+        }
 
-    try {
-      for (const banlistId of baneadosSeleccionados) {
-        await api.post(
-          '/items-sin-mla/desbanear-item',
-          { banlist_id: banlistId }
-        );
+        showToast(`${baneadosSeleccionados.size} items desbaneados exitosamente`, 'success');
+        setBaneadosSeleccionados(new Set());
+        setUltimoBaneadoSeleccionado(null);
+        cargarItemsBaneados();
+        cargarItemsSinMLA();
+      } catch (error) {
+        console.error('Error desbaneando items:', error);
+        showToast('Error al desbanear items masivamente', 'error');
       }
-
-      alert(`${baneadosSeleccionados.size} items desbaneados exitosamente`);
-      setBaneadosSeleccionados(new Set());
-      setUltimoBaneadoSeleccionado(null);
-      cargarItemsBaneados();
-      cargarItemsSinMLA();
-    } catch (error) {
-      console.error('Error desbaneando items:', error);
-      alert('Error al desbanear items masivamente');
-    }
+    });
   };
 
   useEffect(() => {
@@ -963,6 +1052,87 @@ const ItemsSinMLA = () => {
       syncLogRef.current.scrollTop = syncLogRef.current.scrollHeight;
     }
   }, [syncMLLog]);
+
+  // Helper: obtener nombre de tienda por ID
+  const getNombreTienda = (storeId) => {
+    const tienda = tiendasOficiales.find(t => t.id === storeId);
+    return tienda?.nombre || `Tienda ${storeId}`;
+  };
+
+  // Helper: renderizar badges con colores por tienda
+  const renderBadgesConTienda = (detalle, tipo, asignacionesItem = []) => {
+    if (!detalle || detalle.length === 0) return '-';
+
+    // Si hay tiendas seleccionadas en el filtro, renderizar badges por tienda
+    if (tiendasSeleccionadas.length > 0) {
+      return (
+        <div className="listas-badges">
+          {detalle.map((item, idx) => {
+            // Para cada lista, mostrar un badge por cada tienda filtrada
+            return tiendasSeleccionadas.map(storeId => {
+              const tieneLista = item.tiendas.includes(storeId);
+              if (tipo === 'sin' && tieneLista) return null; // Si tiene en esta tienda, no mostrar en "falta"
+              if (tipo === 'con' && !tieneLista) return null; // Si no tiene en esta tienda, no mostrar en "tiene"
+
+              const estadoClass = tipo === 'sin' ? 'falta' : 'ok';
+              const asigLista = tipo === 'sin'
+                ? asignacionesItem.find(a => a.subtipo === item.lista && a.tienda_oficial_id === storeId)
+                : null;
+
+              return (
+                <span
+                  key={`${idx}-${storeId}`}
+                  className={`badge ${asigLista ? 'badge-asignada' : `badge-tienda-${storeId}-${estadoClass}`}`}
+                  title={asigLista
+                    ? `Asignado a ${asigLista.usuario_nombre} por ${asigLista.asignado_por_nombre} - ${formatFechaHora(asigLista.fecha_asignacion)}`
+                    : `${item.lista} — ${getNombreTienda(storeId)}`}
+                >
+                  {asigLista && Icon.pin(11)}
+                  <span className={`badge-tienda-dot badge-tienda-dot-${storeId}`} />
+                  {item.lista}
+                </span>
+              );
+            });
+          })}
+        </div>
+      );
+    }
+
+    // Sin filtro de tiendas: badges clásicos pero si hay info de tienda, mostrar dots
+    return (
+      <div className="listas-badges">
+        {detalle.map((item, idx) => {
+          const asigLista = tipo === 'sin' ? asignacionesItem.find(a => a.subtipo === item.lista) : null;
+          const hasTiendas = item.tiendas && item.tiendas.length > 0;
+
+          if (hasTiendas && tipo === 'con') {
+            // Mostrar un badge por cada tienda donde está publicado
+            return item.tiendas.map(storeId => (
+              <span
+                key={`${idx}-${storeId}`}
+                className={`badge badge-tienda-${storeId}-ok`}
+                title={`${item.lista} — ${getNombreTienda(storeId)}`}
+              >
+                <span className={`badge-tienda-dot badge-tienda-dot-${storeId}`} />
+                {item.lista}
+              </span>
+            ));
+          }
+
+          // Badge genérico (sin tienda o tipo "sin")
+          return (
+            <span
+              key={idx}
+              className={`badge ${asigLista ? 'badge-asignada' : (tipo === 'sin' ? 'badge-error' : 'badge-success')}`}
+              title={asigLista ? `Asignado a ${asigLista.usuario_nombre} por ${asigLista.asignado_por_nombre} - ${formatFechaHora(asigLista.fecha_asignacion)}` : ''}
+            >
+              {asigLista && Icon.pin(11)}{item.lista}
+            </span>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="items-sin-mla-container">
@@ -1108,6 +1278,60 @@ const ItemsSinMLA = () => {
                 <option value="false">Sin stock</option>
               </select>
             </div>
+
+            {tiendasOficiales.length > 0 && (
+              <div className="filter-group marcas-filter-container" style={{position: 'relative'}}>
+                <label>{Icon.pin(13)} Tienda oficial:</label>
+                <button
+                  onClick={() => setPanelTiendasAbierto(!panelTiendasAbierto)}
+                  className={`filter-button-dropdown ${tiendasSeleccionadas.length > 0 ? 'active' : ''}`}
+                >
+                  {tiendasSeleccionadas.length > 0
+                    ? `${tiendasSeleccionadas.length} tienda(s)`
+                    : 'Todas las tiendas'}
+                  {tiendasSeleccionadas.length > 0 && (
+                    <span className="filter-badge-inline">{tiendasSeleccionadas.length}</span>
+                  )}
+                </button>
+
+                {panelTiendasAbierto && (
+                  <div className="dropdown-panel">
+                    <div className="dropdown-header">
+                      {tiendasSeleccionadas.length > 0 && (
+                        <button
+                          onClick={() => setTiendasSeleccionadas([])}
+                          className="btn-clear-dropdown"
+                        >
+                          Limpiar ({tiendasSeleccionadas.length})
+                        </button>
+                      )}
+                    </div>
+                    <div className="dropdown-list">
+                      {tiendasOficiales.map(tienda => (
+                        <label
+                          key={tienda.id}
+                          className={`dropdown-item ${tiendasSeleccionadas.includes(tienda.id) ? 'selected' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={tiendasSeleccionadas.includes(tienda.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setTiendasSeleccionadas([...tiendasSeleccionadas, tienda.id]);
+                              } else {
+                                setTiendasSeleccionadas(tiendasSeleccionadas.filter(id => id !== tienda.id));
+                              }
+                            }}
+                          />
+                          <span className={`tienda-color-dot tienda-color-dot-${tienda.id}`} />
+                          <span>{tienda.nombre}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="filter-group-toggles">
               <button
@@ -1288,31 +1512,17 @@ const ItemsSinMLA = () => {
                             {item.stock}
                           </td>
                           <td className="listas-cell">
-                            {item.listas_sin_mla && item.listas_sin_mla.length > 0 ? (
-                              <div className="listas-badges">
-                                {item.listas_sin_mla.map((lista, idx) => {
-                                  const asigLista = asignacionesItem.find(a => a.subtipo === lista);
-                                  return (
-                                    <span
-                                      key={idx}
-                                      className={`badge ${asigLista ? 'badge-asignada' : 'badge-error'}`}
-                                      title={asigLista ? `Asignado a ${asigLista.usuario_nombre} por ${asigLista.asignado_por_nombre} - ${formatFechaHora(asigLista.fecha_asignacion)}` : ''}
-                                    >
-                                      {asigLista && Icon.pin(11)}{lista}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            ) : '-'}
+                            {renderBadgesConTienda(
+                              item.listas_detalle_sin || item.listas_sin_mla?.map(l => ({ lista: l, tiendas: [] })),
+                              'sin',
+                              asignacionesItem
+                            )}
                           </td>
                           <td className="listas-cell">
-                            {item.listas_con_mla && item.listas_con_mla.length > 0 ? (
-                              <div className="listas-badges">
-                                {item.listas_con_mla.map((lista, idx) => (
-                                  <span key={idx} className="badge badge-success">{lista}</span>
-                                ))}
-                              </div>
-                            ) : '-'}
+                            {renderBadgesConTienda(
+                              item.listas_detalle_con || item.listas_con_mla?.map(l => ({ lista: l, tiendas: [] })),
+                              'con'
+                            )}
                           </td>
                           <td className="asignacion-cell">
                             {tieneAsignacion ? (
@@ -1918,35 +2128,91 @@ const ItemsSinMLA = () => {
             <div className="form-group">
               <label>Seleccionar listas a asignar:</label>
               <div className="listas-checkboxes">
-                {itemParaAsignar.listas_sin_mla.map((lista) => {
-                  const yaAsignada = asignaciones.some(
-                    a => a.referencia_id === itemParaAsignar.item_id && a.subtipo === lista
-                  );
-                  return (
-                    <label key={lista} className={`lista-checkbox ${yaAsignada ? 'lista-ya-asignada' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={listasParaAsignar.includes(lista)}
-                        disabled={yaAsignada}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setListasParaAsignar([...listasParaAsignar, lista]);
-                          } else {
-                            setListasParaAsignar(listasParaAsignar.filter(l => l !== lista));
-                          }
-                        }}
-                      />
-                      <span className={`badge ${yaAsignada ? 'badge-asignada' : 'badge-error'}`}>
-                        {lista}
-                      </span>
-                      {yaAsignada && (
-                        <span className="ya-asignada-label">
-                          (asignado a {asignaciones.find(a => a.referencia_id === itemParaAsignar.item_id && a.subtipo === lista)?.usuario_nombre})
+                {(() => {
+                  const detalle = itemParaAsignar.listas_detalle_sin;
+                  const useTiendas = detalle && detalle.length > 0 && tiendasSeleccionadas.length > 0;
+
+                  if (useTiendas) {
+                    // Per-store mode: show lista × tienda checkboxes
+                    return detalle.flatMap((entry) =>
+                      tiendasSeleccionadas
+                        .filter(storeId => !entry.tiendas.includes(storeId)) // Only show stores where it's MISSING
+                        .map(storeId => {
+                          const pairKey = `${entry.lista}|${storeId}`;
+                          const yaAsignada = asignaciones.some(
+                            a => a.referencia_id === itemParaAsignar.item_id
+                              && a.subtipo === entry.lista
+                              && a.tienda_oficial_id === storeId
+                          );
+                          const isChecked = listasParaAsignar.some(
+                            p => p.lista === entry.lista && p.tienda_oficial_id === storeId
+                          );
+
+                          return (
+                            <label key={pairKey} className={`lista-checkbox ${yaAsignada ? 'lista-ya-asignada' : ''}`}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                disabled={yaAsignada}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setListasParaAsignar([...listasParaAsignar, { lista: entry.lista, tienda_oficial_id: storeId }]);
+                                  } else {
+                                    setListasParaAsignar(listasParaAsignar.filter(
+                                      p => !(p.lista === entry.lista && p.tienda_oficial_id === storeId)
+                                    ));
+                                  }
+                                }}
+                              />
+                              <span className={`badge ${yaAsignada ? 'badge-asignada' : `badge-tienda-${storeId}-falta`}`}>
+                                <span className={`badge-tienda-dot badge-tienda-dot-${storeId}`} />
+                                {entry.lista}
+                              </span>
+                              {yaAsignada && (
+                                <span className="ya-asignada-label">
+                                  (asignado a {asignaciones.find(a => a.referencia_id === itemParaAsignar.item_id && a.subtipo === entry.lista && a.tienda_oficial_id === storeId)?.usuario_nombre})
+                                </span>
+                              )}
+                            </label>
+                          );
+                        })
+                    );
+                  }
+
+                  // No store filter: show flat list (legacy-compatible)
+                  return (detalle || itemParaAsignar.listas_sin_mla.map(l => ({ lista: l, tiendas: [] }))).map((entry) => {
+                    const lista = typeof entry === 'string' ? entry : entry.lista;
+                    const yaAsignada = asignaciones.some(
+                      a => a.referencia_id === itemParaAsignar.item_id && a.subtipo === lista
+                    );
+                    const isChecked = listasParaAsignar.some(p => p.lista === lista);
+
+                    return (
+                      <label key={lista} className={`lista-checkbox ${yaAsignada ? 'lista-ya-asignada' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          disabled={yaAsignada}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setListasParaAsignar([...listasParaAsignar, { lista, tienda_oficial_id: null }]);
+                            } else {
+                              setListasParaAsignar(listasParaAsignar.filter(p => p.lista !== lista));
+                            }
+                          }}
+                        />
+                        <span className={`badge ${yaAsignada ? 'badge-asignada' : 'badge-error'}`}>
+                          {lista}
                         </span>
-                      )}
-                    </label>
-                  );
-                })}
+                        {yaAsignada && (
+                          <span className="ya-asignada-label">
+                            (asignado a {asignaciones.find(a => a.referencia_id === itemParaAsignar.item_id && a.subtipo === lista)?.usuario_nombre})
+                          </span>
+                        )}
+                      </label>
+                    );
+                  });
+                })()}
               </div>
             </div>
 
@@ -2087,6 +2353,40 @@ const ItemsSinMLA = () => {
         onClose={() => setMostrarModalInfo(false)}
         itemId={productoInfoId}
       />
+
+      {/* Confirmation modal (replaces window.confirm) */}
+      {confirmModal && (
+        <div className="modal-overlay" onClick={() => setConfirmModal(null)}>
+          <div className="modal-content modal-confirm" onClick={(e) => e.stopPropagation()}>
+            <h3>{Icon.alertCircle(18)} Confirmar acción</h3>
+            <p>{confirmModal.message}</p>
+            <div className="modal-actions">
+              <button
+                onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }}
+                className="btn-tesla outline-subtle-primary"
+              >
+                Confirmar
+              </button>
+              <button onClick={() => setConfirmModal(null)} className="btn-tesla outline-subtle-danger">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast notification (replaces alert()) */}
+      {toast && (
+        <div className={`toast-notification toast-${toast.type}`} onClick={() => setToast(null)}>
+          {toast.type === 'success' && Icon.checkCircle(16)}
+          {toast.type === 'error' && Icon.alertCircle(16)}
+          {toast.type === 'info' && Icon.info(16)}
+          <span>{toast.message}</span>
+          <button className="toast-close" onClick={() => setToast(null)} aria-label="Cerrar notificación">
+            {Icon.x(14)}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

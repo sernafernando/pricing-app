@@ -351,6 +351,7 @@
   white-space: nowrap;
 }
 
+/* ========== BADGES GENÉRICOS (sin tienda) ========== */
 .badge-error {
   background: rgba(239, 68, 68, 0.1);
   color: rgba(248, 113, 113, 1);
@@ -374,6 +375,127 @@
   color: rgba(21, 128, 61, 1);
   border: 1px solid rgba(34, 197, 94, 0.25);
 }
+
+/* ==========================================================
+   BADGES POR TIENDA OFICIAL — Colores identitarios
+   Cada tienda tiene 2 tonos: "tiene" (ok) y "falta" (missing)
+   ========================================================== */
+
+/* --- Gauss (57997) — Azul --- */
+.badge-tienda-57997-ok {
+  background: rgba(59, 130, 246, 0.15);
+  color: rgba(96, 165, 250, 1);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+.badge-tienda-57997-falta {
+  background: rgba(59, 130, 246, 0.06);
+  color: rgba(59, 130, 246, 0.55);
+  border: 1px dashed rgba(59, 130, 246, 0.35);
+}
+:root[data-theme="light"] .badge-tienda-57997-ok {
+  background: rgba(59, 130, 246, 0.12);
+  color: rgba(29, 78, 216, 1);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+:root[data-theme="light"] .badge-tienda-57997-falta {
+  background: rgba(59, 130, 246, 0.05);
+  color: rgba(59, 130, 246, 0.5);
+  border: 1px dashed rgba(59, 130, 246, 0.3);
+}
+
+/* --- TP-Link (2645) — Verde --- */
+.badge-tienda-2645-ok {
+  background: rgba(16, 185, 129, 0.15);
+  color: rgba(52, 211, 153, 1);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+.badge-tienda-2645-falta {
+  background: rgba(16, 185, 129, 0.06);
+  color: rgba(16, 185, 129, 0.55);
+  border: 1px dashed rgba(16, 185, 129, 0.35);
+}
+:root[data-theme="light"] .badge-tienda-2645-ok {
+  background: rgba(16, 185, 129, 0.12);
+  color: rgba(4, 120, 87, 1);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+:root[data-theme="light"] .badge-tienda-2645-falta {
+  background: rgba(16, 185, 129, 0.05);
+  color: rgba(16, 185, 129, 0.5);
+  border: 1px dashed rgba(16, 185, 129, 0.3);
+}
+
+/* --- Forza/Verbatim (144) — Ámbar --- */
+.badge-tienda-144-ok {
+  background: rgba(245, 158, 11, 0.15);
+  color: rgba(251, 191, 36, 1);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+.badge-tienda-144-falta {
+  background: rgba(245, 158, 11, 0.06);
+  color: rgba(245, 158, 11, 0.55);
+  border: 1px dashed rgba(245, 158, 11, 0.35);
+}
+:root[data-theme="light"] .badge-tienda-144-ok {
+  background: rgba(245, 158, 11, 0.12);
+  color: rgba(180, 110, 0, 1);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+:root[data-theme="light"] .badge-tienda-144-falta {
+  background: rgba(245, 158, 11, 0.05);
+  color: rgba(180, 110, 0, 0.5);
+  border: 1px dashed rgba(245, 158, 11, 0.3);
+}
+
+/* --- Multi-marca (191942) — Violeta --- */
+.badge-tienda-191942-ok {
+  background: rgba(139, 92, 246, 0.15);
+  color: rgba(167, 139, 250, 1);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+}
+.badge-tienda-191942-falta {
+  background: rgba(139, 92, 246, 0.06);
+  color: rgba(139, 92, 246, 0.55);
+  border: 1px dashed rgba(139, 92, 246, 0.35);
+}
+:root[data-theme="light"] .badge-tienda-191942-ok {
+  background: rgba(139, 92, 246, 0.12);
+  color: rgba(91, 33, 182, 1);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+:root[data-theme="light"] .badge-tienda-191942-falta {
+  background: rgba(139, 92, 246, 0.05);
+  color: rgba(139, 92, 246, 0.5);
+  border: 1px dashed rgba(139, 92, 246, 0.3);
+}
+
+/* Indicador de tienda dentro del badge */
+.badge-tienda-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+.badge-tienda-dot-57997 { background: #3B82F6; }
+.badge-tienda-dot-2645 { background: #10B981; }
+.badge-tienda-dot-144 { background: #F59E0B; }
+.badge-tienda-dot-191942 { background: #8B5CF6; }
+
+/* Dropdown dot de color para el filtro de tiendas */
+.tienda-color-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+.tienda-color-dot-57997 { background: #3B82F6; }
+.tienda-color-dot-2645 { background: #10B981; }
+.tienda-color-dot-144 { background: #F59E0B; }
+.tienda-color-dot-191942 { background: #8B5CF6; }
 
 .badge-nuevo {
   display: inline-block;
@@ -982,4 +1104,95 @@
 
 .sync-ml-log::-webkit-scrollbar-thumb:hover {
   background: #2a5a3a;
+}
+
+/* ==========================================
+   Toast Notification
+   ========================================== */
+.toast-notification {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-radius: var(--radius-md, 8px);
+  font-size: 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  animation: toast-slide-in 0.25s ease-out;
+  max-width: 420px;
+}
+
+@keyframes toast-slide-in {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.toast-success {
+  background: var(--success-bg, #0d2818);
+  color: var(--success-text, #4ade80);
+  border: 1px solid var(--success-border, #166534);
+}
+
+.toast-error {
+  background: var(--error-bg, #2d1215);
+  color: var(--error-text, #f87171);
+  border: 1px solid var(--error-border, #7f1d1d);
+}
+
+.toast-info {
+  background: var(--info-bg, #0c1929);
+  color: var(--info-text, #60a5fa);
+  border: 1px solid var(--info-border, #1e3a5f);
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+  margin-left: 8px;
+  opacity: 0.7;
+  display: flex;
+  align-items: center;
+}
+
+.toast-close:hover {
+  opacity: 1;
+}
+
+/* Light theme toast overrides */
+[data-theme="light"] .toast-success {
+  background: #ecfdf5;
+  color: #166534;
+  border-color: #86efac;
+}
+
+[data-theme="light"] .toast-error {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+
+[data-theme="light"] .toast-info {
+  background: #eff6ff;
+  color: #1e40af;
+  border-color: #93c5fd;
+}
+
+/* ==========================================
+   Confirmation Modal
+   ========================================== */
+.modal-confirm {
+  max-width: 400px;
+}
+
+.modal-confirm h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }

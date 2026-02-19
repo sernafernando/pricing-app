@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
@@ -61,8 +62,26 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Variable global para controlar la tarea de background
-_background_task = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup/shutdown lifecycle manager."""
+    logger.info("Pricing API started (version=%s, env=%s)", app.version, settings.ENVIRONMENT)
+    logger.info("CORS allowed origins: %s", settings.cors_origins)
+
+    # Iniciar tarea de sincronización de pedidos en preparación
+    background_task = asyncio.create_task(sync_pedidos_preparacion_task())
+
+    yield
+
+    # Shutdown: cancelar tarea de background
+    logger.info("Pricing API shutting down")
+    background_task.cancel()
+    try:
+        await background_task
+    except asyncio.CancelledError:
+        logger.info("Background task cancelled successfully")
+
 
 app = FastAPI(
     title="Pricing API",
@@ -71,6 +90,7 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
 # Global error handler — ensures all errors follow the standard envelope
@@ -166,27 +186,3 @@ async def sync_pedidos_preparacion_task():
 
         # Esperar 5 minutos
         await asyncio.sleep(300)
-
-
-@app.on_event("startup")
-async def startup_event():
-    global _background_task
-    logger.info("Pricing API started (version=%s, env=%s)", app.version, settings.ENVIRONMENT)
-    logger.info("CORS allowed origins: %s", settings.cors_origins)
-
-    # Iniciar tarea de sincronización de pedidos en preparación
-    _background_task = asyncio.create_task(sync_pedidos_preparacion_task())
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    global _background_task
-    logger.info("Pricing API shutting down")
-
-    # Cancelar tarea de background
-    if _background_task:
-        _background_task.cancel()
-        try:
-            await _background_task
-        except asyncio.CancelledError:
-            logger.info("Background task cancelled successfully")

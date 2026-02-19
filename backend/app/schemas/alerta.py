@@ -2,7 +2,7 @@
 Schemas Pydantic para Alertas
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List
 from datetime import datetime
 
@@ -57,8 +57,7 @@ class AlertaUsuarioDestinatarioResponse(BaseModel):
     nombre: str
     email: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AlertaResponse(AlertaBase):
@@ -70,8 +69,7 @@ class AlertaResponse(AlertaBase):
     updated_at: Optional[datetime] = None
     usuarios_destinatarios: List[AlertaUsuarioDestinatarioResponse] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AlertaActivaResponse(BaseModel):
@@ -87,8 +85,7 @@ class AlertaActivaResponse(BaseModel):
     prioridad: int
     duracion_segundos: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ConfiguracionAlertaResponse(BaseModel):
@@ -99,8 +96,7 @@ class ConfiguracionAlertaResponse(BaseModel):
     updated_by_id: Optional[int] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ConfiguracionAlertaUpdate(BaseModel):

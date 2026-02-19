@@ -605,7 +605,7 @@ async def setear_precio_rapido(
     item_id: int,
     precio: float = Query(ge=0, le=999999999.99),  # Permitir 0 para borrar precios
     recalcular_cuotas: bool = Query(True, description="Si True, recalcula precios de cuotas automáticamente"),
-    lista_tipo: str = Query("web", regex="^(web|pvp)$", description="Tipo de lista: web o pvp"),
+    lista_tipo: str = Query("web", pattern="^(web|pvp)$", description="Tipo de lista: web o pvp"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -962,7 +962,7 @@ async def setear_precio_rapido(
 @router.post("/precios/recalcular-cuotas")
 async def recalcular_cuotas_desde_clasica(
     item_id: int,
-    lista_tipo: str = Query("web", regex="^(web|pvp)$", description="Tipo de lista: web o pvp"),
+    lista_tipo: str = Query("web", pattern="^(web|pvp)$", description="Tipo de lista: web o pvp"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -1133,9 +1133,9 @@ async def recalcular_cuotas_desde_clasica(
 @router.post("/precios/set-cuota")
 async def setear_precio_cuota(
     item_id: int,
-    tipo_cuota: str = Query(regex="^(clasica|3|6|9|12)$"),  # Acepta clasica, 3, 6, 9 o 12
+    tipo_cuota: str = Query(pattern="^(clasica|3|6|9|12)$"),  # Acepta clasica, 3, 6, 9 o 12
     precio: float = Query(ge=0, le=999999999.99),  # Permitir 0 para borrar precios
-    lista_tipo: str = Query("web", regex="^(web|pvp)$", description="Tipo de lista: web o pvp"),
+    lista_tipo: str = Query("web", pattern="^(web|pvp)$", description="Tipo de lista: web o pvp"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
