@@ -151,6 +151,8 @@ export default function TabEnviosFlex({ operador = null }) {
   const [sucursales, setSucursales] = useState([]);
   const [pedidoLoading, setPedidoLoading] = useState(false);
   const [pedidoError, setPedidoError] = useState(null);
+  const [custLoading, setCustLoading] = useState(false);
+  const [custError, setCustError] = useState(null);
 
   // Confirm modal (reemplaza confirm())
   const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, onConfirm, challengeWord?, showComment? }
@@ -684,6 +686,7 @@ export default function TabEnviosFlex({ operador = null }) {
     });
     setManualEnvioCordon(null);
     setPedidoError(null);
+    setCustError(null);
     setShowManualEnvioModal(true);
 
     // Cargar sucursales si no están cargadas
@@ -756,6 +759,43 @@ export default function TabEnviosFlex({ operador = null }) {
       setPedidoError(err.response?.data?.detail || 'Pedido no encontrado');
     } finally {
       setPedidoLoading(false);
+    }
+  };
+
+  const buscarCliente = async () => {
+    const custId = manualEnvio.cust_id?.toString().trim();
+    if (!custId) return;
+
+    setCustLoading(true);
+    setCustError(null);
+    try {
+      const { data } = await api.get(`/clientes/${custId}?comp_id=1`);
+      let streetName = '';
+      let streetNumber = '';
+      if (data.cust_address) {
+        const match = data.cust_address.match(/^(.+?)\s+(\d+\s*)$/);
+        if (match) {
+          streetName = match[1].trim();
+          streetNumber = match[2].trim();
+        } else {
+          streetName = data.cust_address;
+        }
+      }
+      setManualEnvio(prev => ({
+        ...prev,
+        receiver_name: data.cust_name || prev.receiver_name,
+        street_name: streetName || prev.street_name,
+        street_number: streetNumber || prev.street_number,
+        zip_code: data.cust_zip || prev.zip_code,
+        city_name: data.cust_city || prev.city_name,
+      }));
+      if (data.cust_zip) {
+        resolverCordonPorCP(data.cust_zip);
+      }
+    } catch (err) {
+      setCustError(err.response?.data?.detail || 'Cliente no encontrado');
+    } finally {
+      setCustLoading(false);
     }
   };
 
@@ -1615,7 +1655,7 @@ export default function TabEnviosFlex({ operador = null }) {
                   />
                 </div>
 
-                {/* Fila 6: Estado (span 2 cols no, solo 1) */}
+                {/* Fila 6: Estado + N° Cliente */}
                 <div className={styles.formField}>
                   <label htmlFor="me-status">Estado</label>
                   <select
@@ -1628,7 +1668,29 @@ export default function TabEnviosFlex({ operador = null }) {
                     <option value="delivered">Entregado</option>
                   </select>
                 </div>
-                <div className={styles.formField} />
+                <div className={styles.formField}>
+                  <label htmlFor="me-custid">N° Cliente (ERP)</label>
+                  <div className={styles.inputWithAction}>
+                    <input
+                      id="me-custid"
+                      type="number"
+                      value={manualEnvio.cust_id}
+                      onChange={(ev) => handleManualEnvioChange('cust_id', ev.target.value)}
+                      placeholder="Ej: 12345"
+                      onKeyDown={(ev) => ev.key === 'Enter' && buscarCliente()}
+                    />
+                    <button
+                      className={styles.btnInputAction}
+                      onClick={buscarCliente}
+                      disabled={custLoading || !manualEnvio.cust_id}
+                      title="Buscar cliente y autocompletar dirección"
+                      aria-label="Buscar cliente"
+                    >
+                      {custLoading ? '...' : <Search size={14} />}
+                    </button>
+                  </div>
+                  {custError && <span className={styles.fieldError}>{custError}</span>}
+                </div>
 
                 {/* Fila 7: Observaciones (span 2 cols) */}
                 <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
