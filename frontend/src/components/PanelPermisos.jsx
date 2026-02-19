@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Lock, Search, Check, X } from 'lucide-react';
 import api from '../services/api';
 import adminStyles from '../pages/Admin.module.css';
 import styles from './PanelPermisos.module.css';
@@ -70,7 +71,6 @@ export default function PanelPermisos() {
       setCatalogo(catalogoRes.data || {});
       setRoles(rolesRes.data || []);
     } catch (error) {
-      console.error('Error cargando datos:', error);
       setMensaje({ tipo: 'error', texto: `Error al cargar datos: ${error.response?.data?.detail || error.message}` });
     } finally {
       setLoading(false);
@@ -86,8 +86,7 @@ export default function PanelPermisos() {
     try {
       const res = await api.get(`/permisos/usuario/${usuario.id}`);
       setPermisosUsuario(res.data);
-    } catch (error) {
-      console.error('Error cargando permisos:', error);
+    } catch {
       setMensaje({ tipo: 'error', texto: 'Error al cargar permisos del usuario' });
     }
   };
@@ -118,7 +117,6 @@ export default function PanelPermisos() {
       cargarDatos();
       setTimeout(() => setMensaje(null), 3000);
     } catch (error) {
-      console.error('Error creando usuario:', error);
       setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al crear usuario' });
     } finally {
       setGuardando(false);
@@ -151,7 +149,6 @@ export default function PanelPermisos() {
         setMensaje(null);
       }, 500);
     } catch (error) {
-      console.error('Error actualizando usuario:', error);
       setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al actualizar usuario' });
     } finally {
       setGuardando(false);
@@ -175,7 +172,6 @@ export default function PanelPermisos() {
       setNuevaPassword('');
       setTimeout(() => setMensaje(null), 3000);
     } catch (error) {
-      console.error('Error cambiando password:', error);
       setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al cambiar contraseña' });
     } finally {
       setGuardando(false);
@@ -196,7 +192,6 @@ export default function PanelPermisos() {
       setUsuarioSeleccionado({ ...usuarioSeleccionado, activo: !usuarioSeleccionado.activo });
       setTimeout(() => setMensaje(null), 3000);
     } catch (error) {
-      console.error('Error toggling usuario:', error);
       setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al cambiar estado' });
     } finally {
       setGuardando(false);
@@ -218,8 +213,7 @@ export default function PanelPermisos() {
       await seleccionarUsuario(usuarioSeleccionado);
       setMensaje({ tipo: 'success', texto: `Permiso ${conceder ? 'concedido' : 'denegado'}` });
       setTimeout(() => setMensaje(null), 2000);
-    } catch (error) {
-      console.error('Error forzando permiso:', error);
+    } catch {
       setMensaje({ tipo: 'error', texto: 'Error al modificar permiso' });
     } finally {
       setGuardando(false);
@@ -236,8 +230,7 @@ export default function PanelPermisos() {
       await seleccionarUsuario(usuarioSeleccionado);
       setMensaje({ tipo: 'success', texto: 'Vuelto al permiso base del rol' });
       setTimeout(() => setMensaje(null), 2000);
-    } catch (error) {
-      console.error('Error reseteando override:', error);
+    } catch {
       setMensaje({ tipo: 'error', texto: 'Error al resetear permiso' });
     } finally {
       setGuardando(false);
@@ -387,7 +380,7 @@ export default function PanelPermisos() {
                   <button
                     onClick={crearUsuario}
                     disabled={guardando}
-                    className="btn-tesla outline-subtle-success"
+                    className="btn-tesla outline-subtle-success sm"
                     style={{ flex: 1 }}
                   >
                     {guardando ? 'Creando...' : 'Crear Usuario'}
@@ -397,7 +390,7 @@ export default function PanelPermisos() {
                       setMostrarFormUsuario(false);
                       setFormUsuario({ email: '', nombre: '', password: '', rol_id: null });
                     }}
-                    className="btn-tesla outline-subtle-danger"
+                    className="btn-tesla outline-subtle-danger sm"
                   >
                     Cancelar
                   </button>
@@ -686,7 +679,7 @@ export default function PanelPermisos() {
               {/* Lista de permisos */}
               {!permisosUsuario ? (
                 <div className={styles.emptyState}>
-                  <div className={styles.emptyIcon}>🔐</div>
+                  <div className={styles.emptyIcon}><Lock size={24} /></div>
                   <div className={styles.emptyMessage}>Cargando permisos...</div>
                 </div>
               ) : (
@@ -695,9 +688,9 @@ export default function PanelPermisos() {
                   <div className={styles.permisosHeader}>
                     <div className={styles.headerRow}>
                       <div className={styles.searchBox}>
-                        <input
+                         <input
                           type="text"
-                          placeholder="🔍 Buscar permiso por nombre, código o descripción..."
+                          placeholder="Buscar permiso por nombre, código o descripción..."
                           value={busquedaPermiso}
                           onChange={(e) => setBusquedaPermiso(e.target.value)}
                           className={styles.searchInput}
@@ -783,7 +776,7 @@ export default function PanelPermisos() {
                                   <div className={styles.permisoControls}>
                                     <div className={styles.estadoActual}>
                                       <div className={`${styles.estadoIcon} ${permiso.efectivo ? styles.activo : styles.inactivo}`}>
-                                        {permiso.efectivo ? '✓' : '✗'}
+                                        {permiso.efectivo ? <Check size={14} /> : <X size={14} />}
                                       </div>
                                       <span>{permiso.efectivo ? 'Activo' : 'Inactivo'}</span>
                                     </div>
