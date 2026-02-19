@@ -49,7 +49,7 @@ const contenedorToSound = (nombre) =>
 
 // ── QR parser ───────────────────────────────────────────────────────
 
-const parseQrInput = (raw) => {
+const parseQrInput = (raw, logisticasList = []) => {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
@@ -63,6 +63,15 @@ const parseQrInput = (raw) => {
   }
   if (upper === COMANDO_CONTADOR) {
     return { type: 'contador' };
+  }
+
+  // Nombre de logística (case-insensitive)
+  const lower = trimmed.toLowerCase();
+  const matchedLogistica = logisticasList.find(
+    (l) => l.nombre.toLowerCase() === lower,
+  );
+  if (matchedLogistica) {
+    return { type: 'logistica', logistica: matchedLogistica };
   }
 
   // JSON de etiqueta de envío
@@ -233,6 +242,12 @@ export default function TabPistoleado({ operador = null }) {
         }
         break;
       }
+      case 'logistica': {
+        setLogisticaId(String(parsed.logistica.id));
+        addLog('comando', `Logística: ${parsed.logistica.nombre}`);
+        if (ttsEnabled) playSound('scan_ok');
+        break;
+      }
       case 'anular': {
         await handleAnular();
         break;
@@ -283,7 +298,7 @@ export default function TabPistoleado({ operador = null }) {
     if (!raw || processing) return;
 
     setScanInput('');
-    const parsed = parseQrInput(raw);
+    const parsed = parseQrInput(raw, logisticas);
 
     if (!parsed) return;
 
