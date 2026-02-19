@@ -201,6 +201,13 @@ export default function TabPistoleado({ operador = null }) {
     scanRef.current?.focus();
   }, [cajaActiva, logisticaId]);
 
+  // Re-enfocar input cuando termina de procesar (el DOM ya quitó disabled)
+  useEffect(() => {
+    if (!processing) {
+      scanRef.current?.focus();
+    }
+  }, [processing]);
+
   // ── Log de escaneos ─────────────────────────────────────────
 
   const addLog = (type, message, extra = {}) => {
