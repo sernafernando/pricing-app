@@ -1221,11 +1221,7 @@ def set_costo_override(
         raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
 
     # Validar operador activo
-    operador = (
-        db.query(Operador)
-        .filter(Operador.id == payload.operador_id, Operador.activo.is_(True))
-        .first()
-    )
+    operador = db.query(Operador).filter(Operador.id == payload.operador_id, Operador.activo.is_(True)).first()
     if not operador:
         raise HTTPException(404, "Operador no encontrado o inactivo")
 
