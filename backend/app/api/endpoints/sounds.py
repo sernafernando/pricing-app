@@ -1,10 +1,16 @@
 """
 Generador de sonidos TTS.
 
-Endpoint para generar archivos MP3 de voz a partir de texto usando gTTS.
+Endpoint para generar archivos MP3 de voz a partir de texto usando gTTS o Edge TTS.
 Los archivos se guardan en frontend/public/sounds/ para uso desde el browser.
+
+Engines disponibles:
+- gtts: Google Translate TTS (voz genérica española)
+- edge: Microsoft Edge TTS (voces argentinas: Elena/Tomas)
 """
 
+import asyncio
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +24,25 @@ router = APIRouter()
 
 # Directorio donde se guardan los MP3 (project_root/frontend/public/sounds/)
 SOUNDS_DIR = Path(__file__).resolve().parents[4] / "frontend" / "public" / "sounds"
+
+
+# ── Enums ─────────────────────────────────────────────────────────────
+
+
+class TTSEngine(str, Enum):
+    GTTS = "gtts"
+    EDGE = "edge"
+
+
+class EdgeVoice(str, Enum):
+    F = "f"
+    M = "m"
+
+
+EDGE_VOICES = {
+    EdgeVoice.F: "es-AR-ElenaNeural",
+    EdgeVoice.M: "es-AR-TomasNeural",
+}
 
 
 # ── Schemas ──────────────────────────────────────────────────────────
@@ -34,9 +59,19 @@ class GenerateSoundRequest(BaseModel):
         description="Nombre del archivo sin extensión (solo alfanuméricos, _ y -)",
     )
     lang: str = Field(default="es", description="Código de idioma (es, en, pt, etc.)")
+    engine: TTSEngine = Field(default=TTSEngine.EDGE, description="Motor TTS: gtts o edge")
+    voice: EdgeVoice = Field(default=EdgeVoice.F, description="Voz edge-tts: f (Elena) o m (Tomas)")
 
     model_config = ConfigDict(
-        json_schema_extra={"example": {"text": "Caja veintidós", "filename": "caja_22", "lang": "es"}}
+        json_schema_extra={
+            "example": {
+                "text": "Caja veintidós",
+                "filename": "caja_22",
+                "lang": "es",
+                "engine": "edge",
+                "voice": "f",
+            }
+        }
     )
 
 
@@ -57,6 +92,8 @@ class GenerateRangeRequest(BaseModel):
     to_num: int = Field(ge=0, le=9999, description="Número final (inclusive)")
     lang: str = Field(default="es", description="Código de idioma")
     overwrite: bool = Field(default=False, description="Sobreescribir archivos existentes")
+    engine: TTSEngine = Field(default=TTSEngine.EDGE, description="Motor TTS: gtts o edge")
+    voice: EdgeVoice = Field(default=EdgeVoice.F, description="Voz edge-tts: f (Elena) o m (Tomas)")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -67,6 +104,8 @@ class GenerateRangeRequest(BaseModel):
                 "to_num": 30,
                 "lang": "es",
                 "overwrite": False,
+                "engine": "edge",
+                "voice": "f",
             }
         }
     )
@@ -92,20 +131,39 @@ class GenerateResponse(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _generate_mp3(text: str, filename: str, lang: str = "es", overwrite: bool = False) -> bool:
+def _generate_mp3(
+    text: str,
+    filename: str,
+    lang: str = "es",
+    overwrite: bool = False,
+    engine: TTSEngine = TTSEngine.EDGE,
+    voice: EdgeVoice = EdgeVoice.F,
+) -> bool:
     """
-    Genera un MP3 con gTTS. Retorna True si se generó, False si ya existía y no overwrite.
-    """
-    from gtts import gTTS
+    Genera un MP3. Retorna True si se generó, False si ya existía y no overwrite.
 
+    Engines:
+    - gtts: Google Translate TTS (voz genérica)
+    - edge: Microsoft Edge TTS (voces argentinas Elena/Tomas)
+    """
     SOUNDS_DIR.mkdir(parents=True, exist_ok=True)
     filepath = SOUNDS_DIR / f"{filename}.mp3"
 
     if filepath.exists() and not overwrite:
         return False
 
-    tts = gTTS(text=text, lang=lang, slow=False)
-    tts.save(str(filepath))
+    if engine == TTSEngine.GTTS:
+        from gtts import gTTS
+
+        tts = gTTS(text=text, lang=lang, slow=False)
+        tts.save(str(filepath))
+    else:
+        import edge_tts
+
+        voice_name = EDGE_VOICES[voice]
+        communicate = edge_tts.Communicate(text, voice_name)
+        asyncio.run(communicate.save(str(filepath)))
+
     return True
 
 
@@ -151,11 +209,18 @@ def generate_sound(
     current_user: Usuario = Depends(get_current_user),
 ) -> GenerateResponse:
     """
-    Genera un archivo MP3 a partir de texto usando gTTS.
-    Si el archivo ya existe, no lo sobreescribe (usar generate-range con overwrite=true).
+    Genera un archivo MP3 a partir de texto.
+    Si el archivo ya existe, lo sobreescribe.
     """
     try:
-        created = _generate_mp3(payload.text, payload.filename, payload.lang, overwrite=True)
+        created = _generate_mp3(
+            payload.text,
+            payload.filename,
+            payload.lang,
+            overwrite=True,
+            engine=payload.engine,
+            voice=payload.voice,
+        )
     except Exception as e:
         raise HTTPException(500, f"Error generando audio: {str(e)}")
 
@@ -191,18 +256,19 @@ def generate_range(
 
     generated = []
     skipped = 0
+    current_num = payload.from_num
 
     try:
-        for n in range(payload.from_num, payload.to_num + 1):
-            filename = f"{payload.prefix}{n}"
-            text = f"{payload.text_prefix}{n}"
-            created = _generate_mp3(text, filename, payload.lang, payload.overwrite)
+        for current_num in range(payload.from_num, payload.to_num + 1):
+            filename = f"{payload.prefix}{current_num}"
+            text = f"{payload.text_prefix}{current_num}"
+            created = _generate_mp3(text, filename, payload.lang, payload.overwrite, payload.engine, payload.voice)
             if created:
                 generated.append(filename)
             else:
                 skipped += 1
     except Exception as e:
-        raise HTTPException(500, f"Error generando audio en número {n}: {str(e)}")
+        raise HTTPException(500, f"Error generando audio en número {current_num}: {str(e)}")
 
     return GenerateResponse(
         ok=True,

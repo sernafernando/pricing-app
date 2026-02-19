@@ -1829,6 +1829,7 @@ def pistolear_etiqueta(
         .select_from(EtiquetaEnvio)
         .filter(
             EtiquetaEnvio.pistoleado_operador_id == payload.operador_id,
+            EtiquetaEnvio.logistica_id == payload.logistica_id,
             EtiquetaEnvio.pistoleado_at.isnot(None),
             func.date(EtiquetaEnvio.pistoleado_at) == date.today(),
         )

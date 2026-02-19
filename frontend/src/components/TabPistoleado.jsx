@@ -42,6 +42,23 @@ const playSound = (filename) => {
   audio.play().catch(() => {}); // Silenciar error si no hay interacción
 };
 
+// Reproducir varios audios en secuencia (ej: "86", "de", "222")
+const playSoundSequence = (filenames) => {
+  if (!filenames.length) return;
+  let i = 0;
+  const playNext = () => {
+    if (i >= filenames.length) return;
+    const audio = getAudio(filenames[i]);
+    audio.currentTime = 0;
+    audio.onended = () => {
+      i++;
+      playNext();
+    };
+    audio.play().catch(() => {});
+  };
+  playNext();
+};
+
 // Convertir nombre de contenedor a archivo de audio
 // "CAJA 1" → "caja_1", "SUELTOS 2" → "sueltos_2", "POR FUERA" → "por_fuera"
 const contenedorToSound = (nombre) =>
@@ -132,7 +149,6 @@ export default function TabPistoleado({ operador = null }) {
 
   // Stats
   const [stats, setStats] = useState(null);
-  const [contadorSesion, setContadorSesion] = useState(() => ssGet('contadorSesion', 0));
 
   // Audio
   const [ttsEnabled, setTtsEnabled] = useState(() => ssGet('ttsEnabled', true));
@@ -142,7 +158,6 @@ export default function TabPistoleado({ operador = null }) {
   useEffect(() => { ssSet('logisticaId', logisticaId); }, [logisticaId]);
   useEffect(() => { ssSet('cajaActiva', cajaActiva); }, [cajaActiva]);
   useEffect(() => { ssSet('scanLog', scanLog); }, [scanLog]);
-  useEffect(() => { ssSet('contadorSesion', contadorSesion); }, [contadorSesion]);
   useEffect(() => { ssSet('ttsEnabled', ttsEnabled); }, [ttsEnabled]);
 
   // ── Cargar logísticas ───────────────────────────────────────
@@ -253,10 +268,16 @@ export default function TabPistoleado({ operador = null }) {
         break;
       }
       case 'contador': {
-        if (ttsEnabled && contadorSesion > 0 && contadorSesion <= 500) {
-          playSound(String(contadorSesion));
+        const pistoleadas = stats?.pistoleadas || 0;
+        const total = stats?.total_etiquetas || 0;
+        if (ttsEnabled && pistoleadas > 0 && pistoleadas <= 500) {
+          const sequence = [String(pistoleadas)];
+          if (total > 0 && total <= 500) {
+            sequence.push('de', String(total));
+          }
+          playSoundSequence(sequence);
         }
-        addLog('comando', `Contador: ${contadorSesion}`);
+        addLog('comando', `Contador: ${pistoleadas}/${total}`);
         break;
       }
       case 'desconocido': {
@@ -282,7 +303,6 @@ export default function TabPistoleado({ operador = null }) {
         { params: { operador_id: operador?.operadorActivo?.id } },
       );
       addLog('anulado', `Anulado: ${ultimoExito.shippingId} por ${data.anulado_por}`);
-      setContadorSesion((prev) => Math.max(0, prev - 1));
       if (ttsEnabled) playSound('invalid_scan');
       cargarStats();
     } catch (err) {
@@ -336,17 +356,15 @@ export default function TabPistoleado({ operador = null }) {
         operador_id: operador.operadorActivo.id,
       });
 
-      const newCount = data.count || contadorSesion + 1;
-      setContadorSesion(newCount);
-
       addLog('success', `${parsed.shippingId} — ${data.receiver_name || 'Sin nombre'} — ${data.cordon || data.ciudad || ''} — ${cajaActiva}`, {
         shippingId: parsed.shippingId,
       });
 
-      // Sonar número si está en rango, sino beep genérico
+      // Sonar el total de pistoleadas en la logística
+      const newTotal = (stats?.pistoleadas || 0) + 1;
       if (ttsEnabled) {
-        if (newCount > 0 && newCount <= 500) {
-          playSound(String(newCount));
+        if (newTotal > 0 && newTotal <= 500) {
+          playSound(String(newTotal));
         } else {
           playSound('scan_ok');
         }
@@ -469,12 +487,6 @@ export default function TabPistoleado({ operador = null }) {
             <div className={styles.statCard}>
               <div className={styles.statValue}>{stats.pendientes}</div>
               <div className={styles.statLabel}>Pendientes</div>
-            </div>
-            <div className={styles.statCard}>
-              <div className={`${styles.statValue} ${styles.statCounter}`}>
-                {contadorSesion}
-              </div>
-              <div className={styles.statLabel}>Mi progreso</div>
             </div>
           </div>
 
