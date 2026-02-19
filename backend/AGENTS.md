@@ -85,6 +85,22 @@ backend/
 
 ---
 
+## CODE FORMATTING
+
+**BEFORE every commit that touches `.py` files, you MUST run:**
+
+```bash
+cd backend
+source venv/bin/activate
+ruff format --check app/
+```
+
+- If files need reformatting, run `ruff format app/` to fix them
+- NEVER commit without passing `ruff format --check` first
+- **NEVER skip this step. NEVER.**
+
+---
+
 ## COMMANDS
 
 ```bash
@@ -96,6 +112,10 @@ uvicorn app.main:app --reload --port 8000
 # Database
 alembic revision --autogenerate -m "description"
 alembic upgrade head
+
+# Formatting
+ruff format --check app/   # Check
+ruff format app/            # Fix
 
 # Dependencies
 pip install -r requirements.txt
@@ -150,6 +170,7 @@ async def create_producto(
 
 ## QA CHECKLIST
 
+- [ ] **`ruff format --check app/` passes** (run BEFORE commit)
 - [ ] Type hints on all functions
 - [ ] Endpoints have response models
 - [ ] Auth/permissions checked
