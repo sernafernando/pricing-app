@@ -226,7 +226,7 @@ async def get_items_sin_mla(
         else:
             query = query.filter(ProductoERP.stock == 0)
 
-    productos = query.order_by(ProductoERP.descripcion).limit(500).all()
+    productos = query.order_by(ProductoERP.descripcion).all()
 
     # Para cada producto, determinar en qué listas NO tiene MLA
     resultados = []
