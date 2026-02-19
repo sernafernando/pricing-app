@@ -42,6 +42,23 @@ const playSound = (filename) => {
   audio.play().catch(() => {}); // Silenciar error si no hay interacción
 };
 
+// Reproducir varios audios en secuencia (ej: "86", "de", "222")
+const playSoundSequence = (filenames) => {
+  if (!filenames.length) return;
+  let i = 0;
+  const playNext = () => {
+    if (i >= filenames.length) return;
+    const audio = getAudio(filenames[i]);
+    audio.currentTime = 0;
+    audio.onended = () => {
+      i++;
+      playNext();
+    };
+    audio.play().catch(() => {});
+  };
+  playNext();
+};
+
 // Convertir nombre de contenedor a archivo de audio
 // "CAJA 1" → "caja_1", "SUELTOS 2" → "sueltos_2", "POR FUERA" → "por_fuera"
 const contenedorToSound = (nombre) =>
@@ -252,10 +269,15 @@ export default function TabPistoleado({ operador = null }) {
       }
       case 'contador': {
         const pistoleadas = stats?.pistoleadas || 0;
+        const total = stats?.total_etiquetas || 0;
         if (ttsEnabled && pistoleadas > 0 && pistoleadas <= 500) {
-          playSound(String(pistoleadas));
+          const sequence = [String(pistoleadas)];
+          if (total > 0 && total <= 500) {
+            sequence.push('de', String(total));
+          }
+          playSoundSequence(sequence);
         }
-        addLog('comando', `Contador: ${pistoleadas}`);
+        addLog('comando', `Contador: ${pistoleadas}/${total}`);
         break;
       }
       case 'desconocido': {
