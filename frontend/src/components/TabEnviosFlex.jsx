@@ -977,7 +977,7 @@ export default function TabEnviosFlex({ operador = null }) {
             </>
           )}
 
-          {puedeVerCostos && (
+          {puedeSubir && (
             <button
               onClick={abrirModalManualEnvio}
               className={styles.btnManualEnvio}

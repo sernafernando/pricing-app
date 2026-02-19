@@ -1450,7 +1450,7 @@ def lookup_pedido(
     y devuelve el cust_id asociado para autocompletar la dirección
     del cliente en el modal de envío manual.
     """
-    _check_permiso(db, current_user, "envios_flex.config")
+    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
 
     from app.models.tb_customer import TBCustomer
 
@@ -1516,10 +1516,10 @@ def crear_envio_manual(
     colisionar con los IDs de ML.  Los datos de dirección se guardan
     en los campos manual_* de la etiqueta.
 
-    Requiere envios_flex.config y operador autenticado con PIN.
+    Requiere envios_flex.subir_etiquetas y operador autenticado con PIN.
     Registra la acción en operador_actividad para auditoría.
     """
-    _check_permiso(db, current_user, "envios_flex.config")
+    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
 
     # Validar operador activo
     operador = db.query(Operador).filter(Operador.id == payload.operador_id, Operador.activo.is_(True)).first()
