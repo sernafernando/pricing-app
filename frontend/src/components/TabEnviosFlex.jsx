@@ -141,6 +141,7 @@ export default function TabEnviosFlex({ operador = null }) {
     status: 'ready_to_ship',
     cust_id: '',
     bra_id: '',
+    soh_id: '',
     logistica_id: '',
     comment: '',
     fecha_envio: todayStr(),
@@ -148,8 +149,8 @@ export default function TabEnviosFlex({ operador = null }) {
   const [manualEnvioLoading, setManualEnvioLoading] = useState(false);
   const [manualEnvioCordon, setManualEnvioCordon] = useState(null);
   const [sucursales, setSucursales] = useState([]);
-  const [custLoading, setCustLoading] = useState(false);
-  const [custError, setCustError] = useState(null);
+  const [pedidoLoading, setPedidoLoading] = useState(false);
+  const [pedidoError, setPedidoError] = useState(null);
 
   // Confirm modal (reemplaza confirm())
   const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, onConfirm, challengeWord?, showComment? }
@@ -676,12 +677,13 @@ export default function TabEnviosFlex({ operador = null }) {
       status: 'ready_to_ship',
       cust_id: '',
       bra_id: '',
+      soh_id: '',
       logistica_id: '',
       comment: '',
       fecha_envio: todayStr(),
     });
     setManualEnvioCordon(null);
-    setCustError(null);
+    setPedidoError(null);
     setShowManualEnvioModal(true);
 
     // Cargar sucursales si no están cargadas
@@ -712,16 +714,21 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
-  const buscarCliente = async () => {
-    const custId = manualEnvio.cust_id?.toString().trim();
-    if (!custId) return;
+  const buscarPedido = async () => {
+    const sohId = manualEnvio.soh_id?.toString().trim();
+    const braId = manualEnvio.bra_id?.toString().trim();
+    if (!sohId || !braId) {
+      setPedidoError('Seleccioná una sucursal y cargá el N° de pedido');
+      return;
+    }
 
-    setCustLoading(true);
-    setCustError(null);
+    setPedidoLoading(true);
+    setPedidoError(null);
     try {
-      const { data } = await api.get(`/clientes/${custId}?comp_id=1`);
-      // Auto-fill address fields from ERP customer data
-      // cust_address is combined (e.g. "Av. Corrientes 1234"), try to split
+      const { data } = await api.get(
+        `/etiquetas-envio/lookup-pedido?soh_id=${sohId}&bra_id=${braId}`
+      );
+      // Auto-fill: cust_id + dirección del cliente
       let streetName = '';
       let streetNumber = '';
       if (data.cust_address) {
@@ -735,25 +742,24 @@ export default function TabEnviosFlex({ operador = null }) {
       }
       setManualEnvio(prev => ({
         ...prev,
+        cust_id: data.cust_id || prev.cust_id,
         receiver_name: data.cust_name || prev.receiver_name,
         street_name: streetName || prev.street_name,
         street_number: streetNumber || prev.street_number,
         zip_code: data.cust_zip || prev.zip_code,
         city_name: data.cust_city || prev.city_name,
       }));
-      // Resolver cordón del CP auto-completado
       if (data.cust_zip) {
         resolverCordonPorCP(data.cust_zip);
       }
     } catch (err) {
-      setCustError(err.response?.data?.detail || 'Cliente no encontrado');
+      setPedidoError(err.response?.data?.detail || 'Pedido no encontrado');
     } finally {
-      setCustLoading(false);
+      setPedidoLoading(false);
     }
   };
 
   const crearEnvioManual = async () => {
-    // Validaciones básicas
     if (!manualEnvio.receiver_name.trim()) {
       mostrarError({ message: 'Ingresá el nombre del destinatario' });
       return;
@@ -779,6 +785,7 @@ export default function TabEnviosFlex({ operador = null }) {
         status: manualEnvio.status,
         cust_id: manualEnvio.cust_id ? parseInt(manualEnvio.cust_id, 10) : null,
         bra_id: manualEnvio.bra_id ? parseInt(manualEnvio.bra_id, 10) : null,
+        soh_id: manualEnvio.soh_id ? parseInt(manualEnvio.soh_id, 10) : null,
         logistica_id: manualEnvio.logistica_id ? parseInt(manualEnvio.logistica_id, 10) : null,
         comment: manualEnvio.comment.trim() || null,
         operador_id: operador?.operadorActivo?.id,
@@ -1480,8 +1487,8 @@ export default function TabEnviosFlex({ operador = null }) {
             </div>
 
             <div className={styles.modalBody}>
-              {/* Fila 1: Fecha + Sucursal + Cliente */}
-              <div className={styles.formRow}>
+              <div className={styles.formGrid}>
+                {/* Fila 1: Fecha + Sucursal */}
                 <div className={styles.formField}>
                   <label htmlFor="me-fecha">Fecha de envío</label>
                   <input
@@ -1498,40 +1505,53 @@ export default function TabEnviosFlex({ operador = null }) {
                     value={manualEnvio.bra_id}
                     onChange={(ev) => handleManualEnvioChange('bra_id', ev.target.value)}
                   >
-                    <option value="">— Sin asignar —</option>
+                    <option value="">— Seleccionar —</option>
                     {sucursales.map(s => (
                       <option key={s.bra_id} value={s.bra_id}>{s.bra_desc}</option>
                     ))}
                   </select>
                 </div>
+
+                {/* Fila 2: N° Pedido (con búsqueda) + Logística */}
                 <div className={styles.formField}>
-                  <label htmlFor="me-custid">N° Cliente (ERP)</label>
+                  <label htmlFor="me-sohid">N° Pedido (ERP)</label>
                   <div className={styles.inputWithAction}>
                     <input
-                      id="me-custid"
+                      id="me-sohid"
                       type="number"
-                      value={manualEnvio.cust_id}
-                      onChange={(ev) => handleManualEnvioChange('cust_id', ev.target.value)}
-                      placeholder="Ej: 12345"
-                      onKeyDown={(ev) => ev.key === 'Enter' && buscarCliente()}
+                      value={manualEnvio.soh_id}
+                      onChange={(ev) => handleManualEnvioChange('soh_id', ev.target.value)}
+                      placeholder="Ej: 54321"
+                      onKeyDown={(ev) => ev.key === 'Enter' && buscarPedido()}
                     />
                     <button
                       className={styles.btnInputAction}
-                      onClick={buscarCliente}
-                      disabled={custLoading || !manualEnvio.cust_id}
-                      title="Buscar cliente y autocompletar dirección"
-                      aria-label="Buscar cliente"
+                      onClick={buscarPedido}
+                      disabled={pedidoLoading || !manualEnvio.soh_id || !manualEnvio.bra_id}
+                      title="Buscar pedido y autocompletar datos del cliente"
+                      aria-label="Buscar pedido"
                     >
-                      {custLoading ? '...' : <Search size={14} />}
+                      {pedidoLoading ? '...' : <Search size={14} />}
                     </button>
                   </div>
-                  {custError && <span className={styles.fieldError}>{custError}</span>}
+                  {pedidoError && <span className={styles.fieldError}>{pedidoError}</span>}
                 </div>
-              </div>
+                <div className={styles.formField}>
+                  <label htmlFor="me-logistica">Logística</label>
+                  <select
+                    id="me-logistica"
+                    value={manualEnvio.logistica_id}
+                    onChange={(ev) => handleManualEnvioChange('logistica_id', ev.target.value)}
+                  >
+                    <option value="">— Sin asignar —</option>
+                    {logisticasActivas.map(l => (
+                      <option key={l.id} value={l.id}>{l.nombre}</option>
+                    ))}
+                  </select>
+                </div>
 
-              {/* Fila 2: Destinatario */}
-              <div className={styles.formRow}>
-                <div className={`${styles.formField} ${styles.formFieldFull}`}>
+                {/* Fila 3: Destinatario (span 2 cols) */}
+                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
                   <label htmlFor="me-receiver">Destinatario</label>
                   <input
                     id="me-receiver"
@@ -1542,11 +1562,9 @@ export default function TabEnviosFlex({ operador = null }) {
                     required
                   />
                 </div>
-              </div>
 
-              {/* Fila 3: Calle + Número + CP + Ciudad */}
-              <div className={styles.formRow}>
-                <div className={styles.formField} style={{ flex: 2 }}>
+                {/* Fila 4: Calle + Número */}
+                <div className={styles.formField}>
                   <label htmlFor="me-street">Calle</label>
                   <input
                     id="me-street"
@@ -1557,7 +1575,7 @@ export default function TabEnviosFlex({ operador = null }) {
                     required
                   />
                 </div>
-                <div className={styles.formField} style={{ flex: 0.5 }}>
+                <div className={styles.formField}>
                   <label htmlFor="me-number">Número</label>
                   <input
                     id="me-number"
@@ -1567,7 +1585,9 @@ export default function TabEnviosFlex({ operador = null }) {
                     placeholder="N°"
                   />
                 </div>
-                <div className={styles.formField} style={{ flex: 0.7 }}>
+
+                {/* Fila 5: CP + Ciudad */}
+                <div className={styles.formField}>
                   <label htmlFor="me-zip">CP</label>
                   <input
                     id="me-zip"
@@ -1584,7 +1604,7 @@ export default function TabEnviosFlex({ operador = null }) {
                     <span className={styles.fieldHint}>{manualEnvioCordon}</span>
                   )}
                 </div>
-                <div className={styles.formField} style={{ flex: 1.5 }}>
+                <div className={styles.formField}>
                   <label htmlFor="me-city">Ciudad</label>
                   <input
                     id="me-city"
@@ -1594,10 +1614,8 @@ export default function TabEnviosFlex({ operador = null }) {
                     placeholder="Localidad"
                   />
                 </div>
-              </div>
 
-              {/* Fila 4: Estado + Logística */}
-              <div className={styles.formRow}>
+                {/* Fila 6: Estado (span 2 cols no, solo 1) */}
                 <div className={styles.formField}>
                   <label htmlFor="me-status">Estado</label>
                   <select
@@ -1610,24 +1628,10 @@ export default function TabEnviosFlex({ operador = null }) {
                     <option value="delivered">Entregado</option>
                   </select>
                 </div>
-                <div className={styles.formField}>
-                  <label htmlFor="me-logistica">Logística</label>
-                  <select
-                    id="me-logistica"
-                    value={manualEnvio.logistica_id}
-                    onChange={(ev) => handleManualEnvioChange('logistica_id', ev.target.value)}
-                  >
-                    <option value="">— Sin asignar —</option>
-                    {logisticasActivas.map(l => (
-                      <option key={l.id} value={l.id}>{l.nombre}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                <div className={styles.formField} />
 
-              {/* Fila 5: Comentario */}
-              <div className={styles.formRow}>
-                <div className={`${styles.formField} ${styles.formFieldFull}`}>
+                {/* Fila 7: Observaciones (span 2 cols) */}
+                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
                   <label htmlFor="me-comment">Observaciones</label>
                   <textarea
                     id="me-comment"

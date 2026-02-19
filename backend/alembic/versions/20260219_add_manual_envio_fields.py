@@ -57,6 +57,10 @@ def upgrade():
     )
     op.add_column(
         "etiquetas_envio",
+        sa.Column("manual_soh_id", sa.BigInteger(), nullable=True),
+    )
+    op.add_column(
+        "etiquetas_envio",
         sa.Column("manual_comment", sa.Text(), nullable=True),
     )
     op.create_index(
@@ -69,6 +73,7 @@ def upgrade():
 def downgrade():
     op.drop_index("idx_etiquetas_envio_es_manual", table_name="etiquetas_envio")
     op.drop_column("etiquetas_envio", "manual_comment")
+    op.drop_column("etiquetas_envio", "manual_soh_id")
     op.drop_column("etiquetas_envio", "manual_bra_id")
     op.drop_column("etiquetas_envio", "manual_cust_id")
     op.drop_column("etiquetas_envio", "manual_status")
