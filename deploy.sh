@@ -78,7 +78,7 @@ fi
 # 5) Restart backend
 if [ "$SKIP_BACKEND" = false ]; then
   log "Reiniciando backend..."
-  sudo systemctl restart pricing-app 2>/dev/null || warn "No se pudo reiniciar el servicio (¿existe pricing-app.service?)"
+  sudo systemctl restart pricing-api 2>/dev/null || warn "No se pudo reiniciar el servicio (¿existe pricing-api.service?)"
 fi
 
 log "Deploy completado"
