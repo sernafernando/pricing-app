@@ -45,6 +45,7 @@ from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.services.etiqueta_enrichment_service import (
     lanzar_enriquecimiento_background,
     re_enriquecer_desde_db,
+    re_enriquecer_por_http,
 )
 from app.services.ml_webhook_service import fetch_shipment_label_zpl
 from app.services.permisos_service import verificar_permiso
@@ -2090,18 +2091,18 @@ class ReEnriquecerRequest(BaseModel):
 
 @router.post(
     "/etiquetas-envio/re-enriquecer",
-    summary="Re-enriquece etiquetas desde ml_previews (DB directa)",
+    summary="Re-enriquece etiquetas desde ml_previews con fallback HTTP",
 )
-def re_enriquecer_etiquetas(
+async def re_enriquecer_etiquetas(
     body: ReEnriquecerRequest,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
     """
-    Re-enriquece etiquetas leyendo ml_previews directamente (sin HTTP).
-
-    Útil cuando el webhook estuvo caído, o cuando se agregan campos nuevos
-    (ej: es_outlet) que las etiquetas existentes no tienen.
+    Re-enriquece etiquetas en dos fases:
+    1. Batch rápido: lee ml_previews directo (1 query para todos)
+    2. Fallback HTTP: los que no están en ml_previews los busca
+       uno por uno vía el proxy ml-webhook (~200ms c/u)
 
     Modos de uso:
     - Por fecha: {fecha_desde, fecha_hasta} → re-enriquece todas en ese rango
@@ -2130,11 +2131,40 @@ def re_enriquecer_etiquetas(
         ids = [e.shipping_id for e in etiquetas]
 
     if not ids:
-        return {"actualizadas": 0, "sin_preview": 0, "total": 0, "mensaje": "No hay etiquetas para re-enriquecer"}
+        return {
+            "actualizadas": 0,
+            "sin_preview": 0,
+            "fallback_ok": 0,
+            "fallback_errores": 0,
+            "total": 0,
+            "mensaje": "No hay etiquetas para re-enriquecer",
+        }
 
-    resultado = re_enriquecer_desde_db(ids)
-    resultado["mensaje"] = f"Re-enriquecidas {resultado['actualizadas']} de {resultado['total']} etiquetas"
-    return resultado
+    # Fase 1: batch desde ml_previews (rápido)
+    resultado_db = re_enriquecer_desde_db(ids)
+    ids_sin_preview = resultado_db.get("ids_sin_preview", [])
+
+    # Fase 2: fallback HTTP para los que no estaban en ml_previews
+    fallback_ok = 0
+    fallback_errores = 0
+    if ids_sin_preview:
+        resultado_http = await re_enriquecer_por_http(ids_sin_preview)
+        fallback_ok = resultado_http["actualizadas"]
+        fallback_errores = resultado_http["errores"]
+
+    total_actualizadas = resultado_db["actualizadas"] + fallback_ok
+    return {
+        "actualizadas": total_actualizadas,
+        "sin_preview": resultado_db["sin_preview"],
+        "fallback_ok": fallback_ok,
+        "fallback_errores": fallback_errores,
+        "total": len(ids),
+        "mensaje": (
+            f"Re-enriquecidas {total_actualizadas} de {len(ids)} etiquetas "
+            f"({resultado_db['actualizadas']} por DB, {fallback_ok} por HTTP, "
+            f"{fallback_errores} errores)"
+        ),
+    }
 
 
 # ── Impresión de etiquetas ZPL ──────────────────────────────────
