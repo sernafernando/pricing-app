@@ -164,7 +164,7 @@ def _fetch_previews_batch(
     return result
 
 
-def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, int]:
+def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
     """
     Re-enriquece etiquetas leyendo ml_previews directamente (sin HTTP).
 
@@ -179,10 +179,10 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, int]:
         shipping_ids: Lista de shipping_ids a re-enriquecer
 
     Returns:
-        Dict con contadores: {"actualizadas": N, "sin_preview": N, "total": N}
+        Dict con contadores y lista de IDs que no estaban en ml_previews.
     """
     if not shipping_ids:
-        return {"actualizadas": 0, "sin_preview": 0, "total": 0}
+        return {"actualizadas": 0, "sin_preview": 0, "total": 0, "ids_sin_preview": []}
 
     logger.info(f"Re-enriqueciendo {len(shipping_ids)} etiquetas desde ml_previews...")
 
@@ -194,12 +194,14 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, int]:
     db: Session = SessionLocal()
     actualizadas = 0
     sin_preview = 0
+    ids_sin_preview: List[str] = []
 
     try:
         for sid in shipping_ids:
             preview = previews.get(sid)
             if not preview:
                 sin_preview += 1
+                ids_sin_preview.append(sid)
                 continue
 
             extra = preview.get("extra_data", {})
@@ -249,7 +251,8 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, int]:
 
         db.commit()
         logger.info(
-            f"Re-enrichment completo: {actualizadas} actualizadas, {sin_preview} sin preview, {len(shipping_ids)} total"
+            f"Re-enrichment DB completo: {actualizadas} actualizadas, "
+            f"{sin_preview} sin preview, {len(shipping_ids)} total"
         )
 
     except Exception as e:
@@ -262,5 +265,78 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, int]:
     return {
         "actualizadas": actualizadas,
         "sin_preview": sin_preview,
+        "total": len(shipping_ids),
+        "ids_sin_preview": ids_sin_preview,
+    }
+
+
+async def re_enriquecer_por_http(shipping_ids: List[str]) -> Dict[str, int]:
+    """
+    Fallback: re-enriquece etiquetas vía HTTP al proxy ml-webhook (1 request c/u).
+
+    Se usa para los shipping_ids que no están en ml_previews.
+    Más lento (~200ms por etiqueta) pero funciona siempre.
+
+    Args:
+        shipping_ids: Lista de shipping_ids a enriquecer por HTTP
+
+    Returns:
+        Dict con contadores: {"actualizadas": N, "errores": N, "total": N}
+    """
+    if not shipping_ids:
+        return {"actualizadas": 0, "errores": 0, "total": 0}
+
+    logger.info(f"Fallback HTTP: enriqueciendo {len(shipping_ids)} etiquetas...")
+
+    db: Session = SessionLocal()
+    actualizadas = 0
+    errores = 0
+
+    try:
+        for shipping_id in shipping_ids:
+            try:
+                data = await fetch_shipment_data(shipping_id)
+                if not data:
+                    errores += 1
+                    continue
+
+                lat, lng = extraer_coordenadas(data)
+                direccion = extraer_direccion_completa(data)
+                comentario = extraer_comentario_direccion(data)
+                es_outlet = extraer_es_outlet(data)
+
+                if lat is not None or direccion or comentario or es_outlet:
+                    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+                    if etiqueta:
+                        if lat is not None and lng is not None:
+                            etiqueta.latitud = lat
+                            etiqueta.longitud = lng
+                        if direccion:
+                            etiqueta.direccion_completa = direccion
+                        if comentario:
+                            etiqueta.direccion_comentario = comentario
+                        if es_outlet:
+                            etiqueta.es_outlet = True
+                        actualizadas += 1
+
+                await asyncio.sleep(0.05)
+
+            except Exception as e:
+                logger.error(f"Fallback HTTP error para {shipping_id}: {e}")
+                errores += 1
+
+        db.commit()
+        logger.info(f"Fallback HTTP completo: {actualizadas}/{len(shipping_ids)} OK, {errores} errores")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error en commit fallback HTTP: {e}")
+        raise
+    finally:
+        db.close()
+
+    return {
+        "actualizadas": actualizadas,
+        "errores": errores,
         "total": len(shipping_ids),
     }
