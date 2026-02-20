@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     ML_USER_ID: Optional[str] = None
     ML_REFRESH_TOKEN: Optional[str] = None
 
+    # ML Webhook Database (para consultar ml_previews directamente)
+    ML_WEBHOOK_DB_URL: Optional[str] = None
+
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
 

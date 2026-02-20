@@ -42,7 +42,10 @@ from app.models.etiqueta_envio_audit import EtiquetaEnvioAudit
 from app.models.operador import Operador
 from app.models.operador_actividad import OperadorActividad
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
-from app.services.etiqueta_enrichment_service import lanzar_enriquecimiento_background
+from app.services.etiqueta_enrichment_service import (
+    lanzar_enriquecimiento_background,
+    re_enriquecer_desde_db,
+)
 from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
@@ -2071,3 +2074,63 @@ def deshacer_pistoleado(
     db.commit()
 
     return {"ok": True, "shipping_id": shipping_id, "anulado_por": operador.nombre}
+
+
+# ── Re-enrichment manual ────────────────────────────────────────
+
+
+class ReEnriquecerRequest(BaseModel):
+    """Body para re-enriquecer etiquetas."""
+
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None
+    shipping_ids: Optional[List[str]] = None
+
+
+@router.post(
+    "/etiquetas-envio/re-enriquecer",
+    summary="Re-enriquece etiquetas desde ml_previews (DB directa)",
+)
+def re_enriquecer_etiquetas(
+    body: ReEnriquecerRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Re-enriquece etiquetas leyendo ml_previews directamente (sin HTTP).
+
+    Útil cuando el webhook estuvo caído, o cuando se agregan campos nuevos
+    (ej: es_outlet) que las etiquetas existentes no tienen.
+
+    Modos de uso:
+    - Por fecha: {fecha_desde, fecha_hasta} → re-enriquece todas en ese rango
+    - Por IDs:   {shipping_ids: ["123", "456"]} → re-enriquece esas específicas
+    - Sin filtro: {} → re-enriquece todo lo de hoy
+
+    Requiere permiso envios_flex.config.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    # Determinar qué etiquetas re-enriquecer
+    if body.shipping_ids:
+        ids = body.shipping_ids
+    else:
+        desde = body.fecha_desde or date.today()
+        hasta = body.fecha_hasta or date.today()
+
+        etiquetas = (
+            db.query(EtiquetaEnvio.shipping_id)
+            .filter(
+                EtiquetaEnvio.fecha_envio >= desde,
+                EtiquetaEnvio.fecha_envio <= hasta,
+            )
+            .all()
+        )
+        ids = [e.shipping_id for e in etiquetas]
+
+    if not ids:
+        return {"actualizadas": 0, "sin_preview": 0, "total": 0, "mensaje": "No hay etiquetas para re-enriquecer"}
+
+    resultado = re_enriquecer_desde_db(ids)
+    resultado["mensaje"] = f"Re-enriquecidas {resultado['actualizadas']} de {resultado['total']} etiquetas"
+    return resultado
