@@ -23,6 +23,7 @@ from app.services.ml_webhook_service import (
     extraer_coordenadas,
     extraer_direccion_completa,
     extraer_comentario_direccion,
+    extraer_es_outlet,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,9 +60,10 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                 lat, lng = extraer_coordenadas(data)
                 direccion = extraer_direccion_completa(data)
                 comentario = extraer_comentario_direccion(data)
+                es_outlet = extraer_es_outlet(data)
 
                 # Actualizar solo si hay algo que guardar
-                if lat is not None or direccion or comentario:
+                if lat is not None or direccion or comentario or es_outlet:
                     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
                     if etiqueta:
                         if lat is not None and lng is not None:
@@ -71,6 +73,8 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                             etiqueta.direccion_completa = direccion
                         if comentario:
                             etiqueta.direccion_comentario = comentario
+                        if es_outlet:
+                            etiqueta.es_outlet = True
 
                         enriquecidas += 1
 

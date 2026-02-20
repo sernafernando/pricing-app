@@ -213,6 +213,28 @@ def extraer_comentario_direccion(data: Dict[str, Any]) -> Optional[str]:
         return None
 
 
+def extraer_es_outlet(data: Dict[str, Any]) -> bool:
+    """
+    Detecta si algún item del envío contiene 'outlet' en el título.
+
+    Args:
+        data: Respuesta JSON de ML Webhook
+
+    Returns:
+        True si al menos un shipping_item tiene 'outlet' en su description
+    """
+    try:
+        items = data.get("shipping_items", [])
+        for item in items:
+            desc = item.get("description", "")
+            if desc and "outlet" in desc.lower():
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"Error detectando outlet: {e}")
+        return False
+
+
 def extraer_tipo_geocoding(data: Dict[str, Any]) -> str:
     """
     Extrae el tipo de geocoding usado por ML.

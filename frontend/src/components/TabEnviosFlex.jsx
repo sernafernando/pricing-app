@@ -90,6 +90,7 @@ export default function TabEnviosFlex({ operador = null }) {
   // eslint-disable-next-line no-unused-vars
   const [filtroSsosId, setFiltroSsosId] = useState('');
   const [sinLogistica, setSinLogistica] = useState(false);
+  const [soloOutlet, setSoloOutlet] = useState(false);
   const [search, setSearch] = useState('');
 
   // Extrae shipping_id si el input es JSON de etiqueta (pistola/QR)
@@ -234,6 +235,7 @@ export default function TabEnviosFlex({ operador = null }) {
       if (filtroCordon) params.append('cordon', filtroCordon);
       if (filtroLogistica) params.append('logistica_id', filtroLogistica);
       if (sinLogistica) params.append('sin_logistica', 'true');
+      if (soloOutlet) params.append('solo_outlet', 'true');
       if (filtroMlStatus) params.append('mlstatus', filtroMlStatus);
       if (filtroSsosId) params.append('ssos_id', filtroSsosId);
       if (search) params.append('search', search);
@@ -255,7 +257,7 @@ export default function TabEnviosFlex({ operador = null }) {
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, filtroMlStatus, filtroSsosId, search]);
+  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, soloOutlet, filtroMlStatus, filtroSsosId, search]);
 
   useEffect(() => {
     cargarLogisticas();
@@ -660,6 +662,7 @@ export default function TabEnviosFlex({ operador = null }) {
       if (filtroCordon) params.append('cordon', filtroCordon);
       if (filtroLogistica) params.append('logistica_id', filtroLogistica);
       if (sinLogistica) params.append('sin_logistica', 'true');
+      if (soloOutlet) params.append('solo_outlet', 'true');
       if (filtroMlStatus) params.append('mlstatus', filtroMlStatus);
       if (search) params.append('search', search);
 
@@ -1002,6 +1005,13 @@ export default function TabEnviosFlex({ operador = null }) {
           >
             {sinLogistica ? '✓ ' : ''}Sin logística
           </button>
+
+          <button
+            onClick={() => setSoloOutlet(!soloOutlet)}
+            className={`btn-tesla sm ${soloOutlet ? 'outline-subtle-primary toggle-active' : 'secondary'}`}
+          >
+            {soloOutlet ? '✓ ' : ''}Outlet
+          </button>
         </div>
 
         <div className={styles.actions}>
@@ -1161,6 +1171,9 @@ export default function TabEnviosFlex({ operador = null }) {
                     </td>
                     <td>
                       <span className={styles.shippingId}>{e.shipping_id}</span>
+                      {e.es_outlet && (
+                        <span className={styles.outletBadge}>Outlet</span>
+                      )}
                     </td>
                     <td className={styles.destinatario}>
                       {e.mlreceiver_name || '—'}

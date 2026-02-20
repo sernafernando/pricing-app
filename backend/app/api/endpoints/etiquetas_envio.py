@@ -134,6 +134,9 @@ class EtiquetaEnvioResponse(BaseModel):
     # Envío manual (sin ML)
     es_manual: bool = False
 
+    # Outlet (título de item contiene "outlet")
+    es_outlet: bool = False
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -577,6 +580,7 @@ def listar_etiquetas(
     sin_logistica: bool = Query(False, description="Solo etiquetas sin logística asignada"),
     mlstatus: Optional[str] = Query(None, description="Filtrar por estado ML"),
     ssos_id: Optional[int] = Query(None, description="Filtrar por estado ERP"),
+    solo_outlet: bool = Query(False, description="Solo etiquetas de productos outlet"),
     search: Optional[str] = Query(None, description="Buscar por shipping_id, destinatario o dirección"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -656,6 +660,7 @@ def listar_etiquetas(
             EtiquetaEnvio.pistoleado_at,
             EtiquetaEnvio.pistoleado_caja,
             EtiquetaEnvio.es_manual,
+            EtiquetaEnvio.es_outlet,
             Operador.nombre.label("pistoleado_operador_nombre"),
             Logistica.nombre.label("logistica_nombre"),
             Logistica.color.label("logistica_color"),
@@ -728,6 +733,9 @@ def listar_etiquetas(
     if sin_logistica:
         query = query.filter(EtiquetaEnvio.logistica_id.is_(None))
 
+    if solo_outlet:
+        query = query.filter(EtiquetaEnvio.es_outlet.is_(True))
+
     if mlstatus:
         query = query.filter(eff_status == mlstatus)
 
@@ -777,6 +785,7 @@ def listar_etiquetas(
             costo_envio=float(row.costo_envio) if row.costo_envio is not None else None,
             costo_override=float(row.costo_override) if row.costo_override is not None else None,
             es_manual=row.es_manual,
+            es_outlet=row.es_outlet,
         )
         for row in rows
     ]
