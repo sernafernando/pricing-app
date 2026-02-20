@@ -240,6 +240,7 @@ class PistolearResponse(BaseModel):
     cordon: Optional[str] = None
     pistoleado_at: str
     count: int = Field(description="Total pistoleadas en esta sesión (fecha + logística + operador)")
+    estado_erp: Optional[str] = Field(None, description="Nombre del estado ERP del pedido (ssos_name)")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1878,6 +1879,19 @@ def pistolear_etiqueta(
         )
         cordon_val = cordon_row.cordon if cordon_row else None
 
+    # Obtener estado ERP del pedido (via soh_sub → SaleOrderStatus)
+    estado_erp_name = None
+    if ml_shipping and ml_shipping.mlo_id:
+        soh_row = (
+            db.query(SaleOrderHeader.ssos_id)
+            .filter(SaleOrderHeader.mlo_id == ml_shipping.mlo_id)
+            .order_by(desc(SaleOrderHeader.soh_cd))
+            .first()
+        )
+        if soh_row and soh_row.ssos_id:
+            ssos_row = db.query(SaleOrderStatus.ssos_name).filter(SaleOrderStatus.ssos_id == soh_row.ssos_id).first()
+            estado_erp_name = ssos_row.ssos_name if ssos_row else None
+
     # Contar pistoleadas de este operador + logística + fecha (para TTS counter)
     count = (
         db.query(func.count())
@@ -1902,6 +1916,7 @@ def pistolear_etiqueta(
         cordon=cordon_val,
         pistoleado_at=str(ahora),
         count=count,
+        estado_erp=estado_erp_name,
     )
 
 

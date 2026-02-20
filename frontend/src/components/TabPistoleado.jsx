@@ -356,15 +356,21 @@ export default function TabPistoleado({ operador = null }) {
         operador_id: operador.operadorActivo.id,
       });
 
-      addLog('success', `${parsed.shippingId} — ${data.receiver_name || 'Sin nombre'} — ${data.cordon || data.ciudad || ''} — ${cajaActiva}`, {
+      const estadoErpMsg = data.estado_erp === 'En Preparación' ? ' — Pedido en preparación' : '';
+      addLog('success', `${parsed.shippingId}${estadoErpMsg} — ${data.receiver_name || 'Sin nombre'} — ${data.cordon || data.ciudad || ''} — ${cajaActiva}`, {
         shippingId: parsed.shippingId,
       });
 
       // Sonar el total de pistoleadas en la logística
       const newTotal = (stats?.pistoleadas || 0) + 1;
+      const enPreparacion = data.estado_erp === 'En Preparación';
       if (ttsEnabled) {
         if (newTotal > 0 && newTotal <= 500) {
-          playSound(String(newTotal));
+          if (enPreparacion) {
+            playSoundSequence([String(newTotal), 'preparation']);
+          } else {
+            playSound(String(newTotal));
+          }
         } else {
           playSound('scan_ok');
         }
