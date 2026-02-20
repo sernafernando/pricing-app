@@ -199,13 +199,15 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
     try:
         for sid in shipping_ids:
             preview = previews.get(sid)
-            if not preview:
+            extra = preview.get("extra_data", {}) if preview else {}
+            title = (preview.get("title", "") or "") if preview else ""
+
+            # Si no hay preview o el preview está vacío (sin extra_data ni title),
+            # mandarlo al fallback HTTP que sí tiene los datos completos de ML
+            if not preview or (not extra and not title):
                 sin_preview += 1
                 ids_sin_preview.append(sid)
                 continue
-
-            extra = preview.get("extra_data", {})
-            title = preview.get("title", "") or ""
 
             # Extraer campos
             lat: Optional[float] = None
