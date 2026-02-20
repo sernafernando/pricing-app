@@ -536,8 +536,9 @@ function TabCostosEnvio() {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  // Editable matrix: { `${logistica_id}-${cordon}`: valor }
+  // Editable matrices: { `${logistica_id}-${cordon}`: valor }
   const [matrix, setMatrix] = useState({});
+  const [turboMatrix, setTurboMatrix] = useState({});
   const [vigente, setVigente] = useState(() => {
     const hoy = new Date();
     return hoy.toISOString().split('T')[0];
@@ -554,12 +555,16 @@ function TabCostosEnvio() {
       setCostos(costosRes.data);
       setLogisticas(logisticasRes.data);
 
-      // Construir matrix desde datos existentes
+      // Construir matrices desde datos existentes
       const m = {};
+      const mt = {};
       for (const c of costosRes.data) {
-        m[`${c.logistica_id}-${c.cordon}`] = c.costo.toString();
+        const key = `${c.logistica_id}-${c.cordon}`;
+        m[key] = c.costo.toString();
+        mt[key] = c.costo_turbo != null ? c.costo_turbo.toString() : '';
       }
       setMatrix(m);
+      setTurboMatrix(mt);
     } catch {
       setError('Error al cargar costos');
     } finally {
@@ -578,11 +583,24 @@ function TabCostosEnvio() {
     }));
   };
 
+  const handleTurboCostChange = (logisticaId, cordon, valor) => {
+    setTurboMatrix((prev) => ({
+      ...prev,
+      [`${logisticaId}-${cordon}`]: valor,
+    }));
+  };
+
   const guardarCosto = async (logisticaId, cordon) => {
     const key = `${logisticaId}-${cordon}`;
     const valor = parseFloat(matrix[key]);
     if (isNaN(valor) || valor < 0) {
       setError('Ingresá un costo válido (mayor o igual a 0)');
+      return;
+    }
+
+    const turboVal = turboMatrix[key] ? parseFloat(turboMatrix[key]) : null;
+    if (turboVal !== null && (isNaN(turboVal) || turboVal < 0)) {
+      setError('Ingresá un costo turbo válido (mayor o igual a 0)');
       return;
     }
 
@@ -593,6 +611,7 @@ function TabCostosEnvio() {
         logistica_id: logisticaId,
         cordon: cordon,
         costo: valor,
+        costo_turbo: turboVal,
         vigente_desde: vigente,
       });
       await cargarDatos();
@@ -679,9 +698,14 @@ function TabCostosEnvio() {
                       const key = `${log.id}-${cordon}`;
                       const actual = getCostoActual(log.id, cordon);
                       const valorMatrix = matrix[key] ?? '';
-                      const changed = actual
+                      const turboValMatrix = turboMatrix[key] ?? '';
+                      const costoChanged = actual
                         ? parseFloat(valorMatrix) !== actual.costo
                         : valorMatrix !== '';
+                      const turboChanged = actual
+                        ? (turboValMatrix === '' ? null : parseFloat(turboValMatrix)) !== actual.costo_turbo
+                        : turboValMatrix !== '';
+                      const changed = costoChanged || turboChanged;
 
                       return (
                         <td key={cordon} className={styles.costoCell}>
@@ -698,13 +722,27 @@ function TabCostosEnvio() {
                               className={styles.costoInput}
                               placeholder="—"
                             />
+                          </div>
+                          <div className={styles.costoInputGroup}>
+                            <span className={styles.costoPrefixTurbo}>T$</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={turboValMatrix}
+                              onChange={(e) =>
+                                handleTurboCostChange(log.id, cordon, e.target.value)
+                              }
+                              className={styles.costoInput}
+                              placeholder="—"
+                            />
                             {changed && (
                               <button
                                 onClick={() => guardarCosto(log.id, cordon)}
                                 className={styles.btnSaveCosto}
                                 disabled={saving}
-                                title="Guardar nuevo costo"
-                                aria-label={`Guardar costo de ${log.nombre} para ${cordon}`}
+                                title="Guardar costos"
+                                aria-label={`Guardar costos de ${log.nombre} para ${cordon}`}
                               >
                                 <Save size={14} />
                               </button>

@@ -78,6 +78,7 @@ class EtiquetaEnvio(Base):
     direccion_completa = Column(String(500), nullable=True)
     direccion_comentario = Column(String(500), nullable=True)  # "Puerta negra", "Timbre 3B", etc.
     es_outlet = Column(Boolean, server_default="false", nullable=False)  # Título de item contiene "outlet"
+    es_turbo = Column(Boolean, server_default="false", nullable=False)  # mlshipping_method_id == "515282"
 
     # Pistoleado — escaneo de paquetes con asignación a cajas
     pistoleado_at = Column(DateTime(timezone=True), nullable=True)

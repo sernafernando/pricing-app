@@ -480,6 +480,13 @@
   font-weight: 500;
 }
 
+.costoPrefixTurbo {
+  font-size: 11px;
+  color: #2563eb;
+  font-weight: 600;
+  min-width: 18px;
+}
+
 .costoInput {
   width: 80px;
   padding: 4px 8px;

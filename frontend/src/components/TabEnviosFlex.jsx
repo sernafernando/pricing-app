@@ -92,6 +92,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const [filtroSsosId, setFiltroSsosId] = useState('');
   const [sinLogistica, setSinLogistica] = useState(false);
   const [soloOutlet, setSoloOutlet] = useState(false);
+  const [soloTurbo, setSoloTurbo] = useState(false);
   const [search, setSearch] = useState('');
 
   // Extrae shipping_id si el input es JSON de etiqueta (pistola/QR)
@@ -227,28 +228,31 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   }, []);
 
+  // Helper: construye params de filtros activos (reutilizado en stats refresh)
+  const buildFilterParams = useCallback(() => {
+    const p = new URLSearchParams();
+    if (fechaDesde) p.append('fecha_desde', fechaDesde);
+    if (fechaHasta) p.append('fecha_hasta', fechaHasta);
+    if (filtroCordon) p.append('cordon', filtroCordon);
+    if (filtroLogistica) p.append('logistica_id', filtroLogistica);
+    if (sinLogistica) p.append('sin_logistica', 'true');
+    if (soloOutlet) p.append('solo_outlet', 'true');
+    if (soloTurbo) p.append('solo_turbo', 'true');
+    if (filtroMlStatus) p.append('mlstatus', filtroMlStatus);
+    if (filtroSsosId) p.append('ssos_id', filtroSsosId);
+    if (search) p.append('search', search);
+    return p;
+  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, soloOutlet, soloTurbo, filtroMlStatus, filtroSsosId, search]);
+
   const cargarDatos = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams();
-      if (fechaDesde) params.append('fecha_desde', fechaDesde);
-      if (fechaHasta) params.append('fecha_hasta', fechaHasta);
-      if (filtroCordon) params.append('cordon', filtroCordon);
-      if (filtroLogistica) params.append('logistica_id', filtroLogistica);
-      if (sinLogistica) params.append('sin_logistica', 'true');
-      if (soloOutlet) params.append('solo_outlet', 'true');
-      if (filtroMlStatus) params.append('mlstatus', filtroMlStatus);
-      if (filtroSsosId) params.append('ssos_id', filtroSsosId);
-      if (search) params.append('search', search);
-
-      const statsParams = new URLSearchParams();
-      if (fechaDesde) statsParams.append('fecha_desde', fechaDesde);
-      if (fechaHasta) statsParams.append('fecha_hasta', fechaHasta);
+      const params = buildFilterParams();
 
       const [etiqResponse, statsResponse] = await Promise.all([
         api.get(`/etiquetas-envio?${params}`),
-        api.get(`/etiquetas-envio/estadisticas?${statsParams}`),
+        api.get(`/etiquetas-envio/estadisticas?${params}`),
       ]);
 
       setEtiquetas(etiqResponse.data);
@@ -259,7 +263,7 @@ export default function TabEnviosFlex({ operador = null }) {
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, soloOutlet, filtroMlStatus, filtroSsosId, search]);
+  }, [buildFilterParams]);
 
   useEffect(() => {
     cargarLogisticas();
@@ -475,10 +479,7 @@ export default function TabEnviosFlex({ operador = null }) {
       );
 
       // Refrescar estadísticas para que el total refleje el cambio
-      const statsParams = new URLSearchParams();
-      if (fechaDesde) statsParams.append('fecha_desde', fechaDesde);
-      if (fechaHasta) statsParams.append('fecha_hasta', fechaHasta);
-      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${statsParams}`);
+      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
       setEstadisticas(statsData);
     } catch (err) {
       mostrarError(err);
@@ -645,10 +646,7 @@ export default function TabEnviosFlex({ operador = null }) {
 
       limpiarSeleccion();
       // Refresh stats
-      const statsParams = new URLSearchParams();
-      if (fechaDesde) statsParams.append('fecha_desde', fechaDesde);
-      if (fechaHasta) statsParams.append('fecha_hasta', fechaHasta);
-      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${statsParams}`);
+      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
       setEstadisticas(statsData);
     } catch (err) {
       mostrarError(err);
@@ -690,10 +688,7 @@ export default function TabEnviosFlex({ operador = null }) {
       setEtiquetas(prev => prev.filter(e => !selectedIds.has(e.shipping_id)));
       limpiarSeleccion();
       // Refresh stats
-      const statsParams = new URLSearchParams();
-      if (fechaDesde) statsParams.append('fecha_desde', fechaDesde);
-      if (fechaHasta) statsParams.append('fecha_hasta', fechaHasta);
-      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${statsParams}`);
+      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
       setEstadisticas(statsData);
     } catch (err) {
       mostrarError(err);
@@ -726,6 +721,7 @@ export default function TabEnviosFlex({ operador = null }) {
       if (filtroLogistica) params.append('logistica_id', filtroLogistica);
       if (sinLogistica) params.append('sin_logistica', 'true');
       if (soloOutlet) params.append('solo_outlet', 'true');
+      if (soloTurbo) params.append('solo_turbo', 'true');
       if (filtroMlStatus) params.append('mlstatus', filtroMlStatus);
       if (search) params.append('search', search);
 
@@ -1111,6 +1107,13 @@ export default function TabEnviosFlex({ operador = null }) {
           >
             {soloOutlet ? '✓ ' : ''}Outlet
           </button>
+
+          <button
+            onClick={() => setSoloTurbo(!soloTurbo)}
+            className={`btn-tesla sm ${soloTurbo ? 'outline-subtle-primary toggle-active' : 'secondary'}`}
+          >
+            {soloTurbo ? '✓ ' : ''}Turbo
+          </button>
         </div>
 
         <div className={styles.actions}>
@@ -1273,6 +1276,9 @@ export default function TabEnviosFlex({ operador = null }) {
                       <span className={styles.shippingId}>{e.shipping_id}</span>
                       {e.es_outlet && (
                         <span className={styles.outletBadge}>Outlet</span>
+                      )}
+                      {e.es_turbo && (
+                        <span className={styles.turboBadge}>Turbo</span>
                       )}
                     </td>
                     <td className={styles.destinatario}>

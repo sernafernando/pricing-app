@@ -25,7 +25,7 @@ from datetime import date, datetime, UTC
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, and_, desc, Numeric
+from sqlalchemy import func, cast, case, and_, desc, Numeric
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -145,6 +145,9 @@ class EtiquetaEnvioResponse(BaseModel):
 
     # Outlet (título de item contiene "outlet")
     es_outlet: bool = False
+
+    # Turbo (mlshipping_method_id == "515282")
+    es_turbo: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -590,6 +593,7 @@ def listar_etiquetas(
     mlstatus: Optional[str] = Query(None, description="Filtrar por estado ML"),
     ssos_id: Optional[int] = Query(None, description="Filtrar por estado ERP"),
     solo_outlet: bool = Query(False, description="Solo etiquetas de productos outlet"),
+    solo_turbo: bool = Query(False, description="Solo etiquetas de envíos turbo"),
     search: Optional[str] = Query(None, description="Buscar por shipping_id, destinatario o dirección"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -629,6 +633,7 @@ def listar_etiquetas(
             LogisticaCostoCordon.logistica_id.label("costo_log_id"),
             LogisticaCostoCordon.cordon.label("costo_cordon_val"),
             LogisticaCostoCordon.costo.label("costo_valor"),
+            LogisticaCostoCordon.costo_turbo.label("costo_turbo_valor"),
         )
         .join(
             max_costo_sub,
@@ -674,6 +679,7 @@ def listar_etiquetas(
             EtiquetaEnvio.manual_cust_id,
             EtiquetaEnvio.manual_comment,
             EtiquetaEnvio.es_outlet,
+            EtiquetaEnvio.es_turbo,
             Operador.nombre.label("pistoleado_operador_nombre"),
             Logistica.nombre.label("logistica_nombre"),
             Logistica.color.label("logistica_color"),
@@ -689,7 +695,19 @@ def listar_etiquetas(
             SaleOrderStatus.ssos_color,
             func.coalesce(
                 cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
-                cast(costo_sub.c.costo_valor, Numeric(12, 2)),
+                case(
+                    (
+                        EtiquetaEnvio.es_turbo.is_(True),
+                        cast(
+                            func.coalesce(
+                                costo_sub.c.costo_turbo_valor,
+                                costo_sub.c.costo_valor,
+                            ),
+                            Numeric(12, 2),
+                        ),
+                    ),
+                    else_=cast(costo_sub.c.costo_valor, Numeric(12, 2)),
+                ),
             ).label("costo_envio"),
             EtiquetaEnvio.costo_override,
         )
@@ -749,6 +767,9 @@ def listar_etiquetas(
     if solo_outlet:
         query = query.filter(EtiquetaEnvio.es_outlet.is_(True))
 
+    if solo_turbo:
+        query = query.filter(EtiquetaEnvio.es_turbo.is_(True))
+
     if mlstatus:
         query = query.filter(eff_status == mlstatus)
 
@@ -803,6 +824,7 @@ def listar_etiquetas(
             manual_cust_id=row.manual_cust_id,
             manual_comment=row.manual_comment,
             es_outlet=row.es_outlet,
+            es_turbo=row.es_turbo,
         )
         for row in rows
     ]
@@ -817,10 +839,23 @@ def estadisticas_etiquetas(
     fecha_envio: Optional[date] = Query(None, description="Fecha de envío exacta (por defecto hoy)"),
     fecha_desde: Optional[date] = Query(None, description="Filtrar desde fecha (inclusive)"),
     fecha_hasta: Optional[date] = Query(None, description="Filtrar hasta fecha (inclusive)"),
+    cordon: Optional[str] = Query(None, description="Filtrar por cordón"),
+    logistica_id: Optional[int] = Query(None, description="Filtrar por logística"),
+    sin_logistica: bool = Query(False, description="Solo etiquetas sin logística asignada"),
+    mlstatus: Optional[str] = Query(None, description="Filtrar por estado ML"),
+    ssos_id: Optional[int] = Query(None, description="Filtrar por estado ERP"),
+    solo_outlet: bool = Query(False, description="Solo etiquetas de productos outlet"),
+    solo_turbo: bool = Query(False, description="Solo etiquetas de envíos turbo"),
+    search: Optional[str] = Query(None, description="Buscar por shipping_id, destinatario o dirección"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> EstadisticasEnvioResponse:
-    """Distribución de etiquetas por cordón, logística y estado."""
+    """
+    Distribución de etiquetas por cordón, logística y estado.
+
+    Acepta los mismos filtros que el listado para que las stats sean
+    el resumen exacto de lo que el usuario ve en la tabla.
+    """
     _check_permiso(db, current_user, "envios_flex.ver")
 
     # Determinar filtro de fechas: exacta (backward compatible) o rango
@@ -839,19 +874,84 @@ def estadisticas_etiquetas(
         fecha_filter = EtiquetaEnvio.fecha_envio == date.today()
         fecha_costo = date.today()
 
-    # Base: etiquetas filtradas
-    base_query = db.query(EtiquetaEnvio).filter(fecha_filter)
-
-    total = base_query.count()
-
-    # Subquery deduplicada para estadísticas (una fila por mlshippingid)
+    # ── Subquery de IDs filtrados ────────────────────────────────
+    # Construye la misma lógica de filtros del listado como subquery
+    # de shipping_ids. Todas las queries de stats la usan para limitar
+    # al mismo set que ve el usuario en la tabla.
     shipping_stats = _shipping_dedup_subquery(db)
+    soh_sub = _soh_status_subquery(db)
 
-    # Por cordón — COALESCE para incluir envíos manuales
     stats_eff_zip = func.coalesce(
         EtiquetaEnvio.manual_zip_code,
         shipping_stats.c.mlzip_code,
     )
+    stats_eff_status = func.coalesce(
+        EtiquetaEnvio.manual_status,
+        shipping_stats.c.mlstatus,
+    )
+    stats_eff_receiver = func.coalesce(
+        EtiquetaEnvio.manual_receiver_name,
+        shipping_stats.c.mlreceiver_name,
+    )
+    stats_eff_street = func.coalesce(
+        EtiquetaEnvio.manual_street_name,
+        shipping_stats.c.mlstreet_name,
+    )
+    stats_eff_city = func.coalesce(
+        EtiquetaEnvio.manual_city_name,
+        shipping_stats.c.mlcity_name,
+    )
+
+    filtered_ids_q = (
+        db.query(EtiquetaEnvio.shipping_id)
+        .outerjoin(
+            shipping_stats,
+            EtiquetaEnvio.shipping_id == shipping_stats.c.mlshippingid,
+        )
+        .outerjoin(
+            CodigoPostalCordon,
+            stats_eff_zip == CodigoPostalCordon.codigo_postal,
+        )
+        .outerjoin(
+            soh_sub,
+            soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id,
+        )
+        .filter(fecha_filter)
+    )
+
+    # Aplicar los mismos filtros que el listado
+    if cordon:
+        filtered_ids_q = filtered_ids_q.filter(CodigoPostalCordon.cordon == cordon)
+    if logistica_id:
+        filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.logistica_id == logistica_id)
+    if sin_logistica:
+        filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.logistica_id.is_(None))
+    if solo_outlet:
+        filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.es_outlet.is_(True))
+    if solo_turbo:
+        filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.es_turbo.is_(True))
+    if mlstatus:
+        filtered_ids_q = filtered_ids_q.filter(stats_eff_status == mlstatus)
+    if ssos_id is not None:
+        filtered_ids_q = filtered_ids_q.filter(soh_sub.c.soh_ssos_id == ssos_id)
+    if search:
+        search_term = f"%{search}%"
+        filtered_ids_q = filtered_ids_q.filter(
+            (EtiquetaEnvio.shipping_id.ilike(search_term))
+            | (stats_eff_receiver.ilike(search_term))
+            | (stats_eff_street.ilike(search_term))
+            | (stats_eff_city.ilike(search_term))
+        )
+
+    filtered_ids_sub = filtered_ids_q.subquery()
+
+    # Filtro reutilizable: restringe a los shipping_ids filtrados
+    ids_filter = EtiquetaEnvio.shipping_id.in_(db.query(filtered_ids_sub.c.shipping_id))
+
+    # Base: total de etiquetas que coinciden con los filtros
+    total = db.query(EtiquetaEnvio).filter(ids_filter).count()
+
+    # Por cordón
     cordon_rows = (
         db.query(
             CodigoPostalCordon.cordon,
@@ -867,7 +967,7 @@ def estadisticas_etiquetas(
             stats_eff_zip == CodigoPostalCordon.codigo_postal,
         )
         .filter(
-            fecha_filter,
+            ids_filter,
             CodigoPostalCordon.cordon.isnot(None),
         )
         .group_by(CodigoPostalCordon.cordon)
@@ -883,18 +983,14 @@ def estadisticas_etiquetas(
             func.count().label("cantidad"),
         )
         .join(EtiquetaEnvio, EtiquetaEnvio.logistica_id == Logistica.id)
-        .filter(fecha_filter)
+        .filter(ids_filter)
         .group_by(Logistica.nombre)
         .all()
     )
     por_logistica = {row.nombre: row.cantidad for row in logistica_rows}
     con_logistica = sum(por_logistica.values())
 
-    # Por estado ML — COALESCE para incluir envíos manuales
-    stats_eff_status = func.coalesce(
-        EtiquetaEnvio.manual_status,
-        shipping_stats.c.mlstatus,
-    )
+    # Por estado ML
     ml_status_rows = (
         db.query(
             stats_eff_status.label("eff_mlstatus"),
@@ -906,7 +1002,7 @@ def estadisticas_etiquetas(
             EtiquetaEnvio.shipping_id == shipping_stats.c.mlshippingid,
         )
         .filter(
-            fecha_filter,
+            ids_filter,
             stats_eff_status.isnot(None),
         )
         .group_by(stats_eff_status)
@@ -915,8 +1011,6 @@ def estadisticas_etiquetas(
     por_estado_ml = {row.eff_mlstatus: row.cantidad for row in ml_status_rows}
 
     # Por estado ERP
-    soh_sub = _soh_status_subquery(db)
-
     erp_status_rows = (
         db.query(
             SaleOrderStatus.ssos_name,
@@ -927,14 +1021,13 @@ def estadisticas_etiquetas(
             EtiquetaEnvio,
             EtiquetaEnvio.shipping_id == soh_sub.c.shipping_id_str,
         )
-        .filter(fecha_filter)
+        .filter(ids_filter)
         .group_by(SaleOrderStatus.ssos_name)
         .all()
     )
     por_estado_erp = {row.ssos_name: row.cantidad for row in erp_status_rows}
 
     # ── Costos de envío ─────────────────────────────────────────
-    # Subquery: costo vigente por (logistica_id, cordon) donde vigente_desde <= fecha_costo
     max_costo_stats = (
         db.query(
             LogisticaCostoCordon.logistica_id.label("costo_logistica_id"),
@@ -954,6 +1047,7 @@ def estadisticas_etiquetas(
             LogisticaCostoCordon.logistica_id.label("costo_log_id"),
             LogisticaCostoCordon.cordon.label("costo_cordon_val"),
             LogisticaCostoCordon.costo.label("costo_valor"),
+            LogisticaCostoCordon.costo_turbo.label("costo_turbo_valor"),
         )
         .join(
             max_costo_stats,
@@ -966,17 +1060,25 @@ def estadisticas_etiquetas(
         .subquery()
     )
 
-    # Normalizar cordón: "Cordón 1" → "Cordon 1"
     cordon_norm = func.replace(CodigoPostalCordon.cordon, "ó", "o")
 
-    # costo_efectivo: si la etiqueta tiene costo_override, usar ese;
-    # sino usar el costo calculado de logistica_costo_cordon.
     costo_efectivo = func.coalesce(
         cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
-        cast(costo_stats.c.costo_valor, Numeric(12, 2)),
+        case(
+            (
+                EtiquetaEnvio.es_turbo.is_(True),
+                cast(
+                    func.coalesce(
+                        costo_stats.c.costo_turbo_valor,
+                        costo_stats.c.costo_valor,
+                    ),
+                    Numeric(12, 2),
+                ),
+            ),
+            else_=cast(costo_stats.c.costo_valor, Numeric(12, 2)),
+        ),
     )
 
-    # Reusar stats_eff_zip (usa shipping_stats deduplicada) para el JOIN al cordón
     costo_rows = (
         db.query(
             Logistica.nombre.label("log_nombre"),
@@ -1000,7 +1102,7 @@ def estadisticas_etiquetas(
             ),
         )
         .filter(
-            fecha_filter,
+            ids_filter,
             CodigoPostalCordon.cordon.isnot(None),
         )
         .group_by(Logistica.nombre)
@@ -1011,13 +1113,12 @@ def estadisticas_etiquetas(
     costo_total = sum(costo_por_logistica.values())
 
     # Sumar también etiquetas con costo_override que NO tienen logística
-    # asignada (no entran en la query agrupada por logística)
     costo_sin_logistica = (
         db.query(
             func.coalesce(func.sum(cast(EtiquetaEnvio.costo_override, Numeric(12, 2))), 0),
         )
         .filter(
-            fecha_filter,
+            ids_filter,
             EtiquetaEnvio.logistica_id.is_(None),
             EtiquetaEnvio.costo_override.isnot(None),
         )
@@ -1073,6 +1174,8 @@ def exportar_etiquetas(
     logistica_id: Optional[int] = Query(None, description="Filtrar por logística"),
     sin_logistica: bool = Query(False, description="Solo sin logística asignada"),
     mlstatus: Optional[str] = Query(None, description="Filtrar por estado ML"),
+    solo_outlet: bool = Query(False, description="Solo etiquetas de productos outlet"),
+    solo_turbo: bool = Query(False, description="Solo etiquetas de envíos turbo"),
     search: Optional[str] = Query(None, description="Buscar por shipping_id, destinatario o dirección"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -1115,6 +1218,7 @@ def exportar_etiquetas(
             LogisticaCostoCordon.logistica_id.label("costo_log_id"),
             LogisticaCostoCordon.cordon.label("costo_cordon_val"),
             LogisticaCostoCordon.costo.label("costo_valor"),
+            LogisticaCostoCordon.costo_turbo.label("costo_turbo_valor"),
         )
         .join(
             max_costo_exp,
@@ -1158,7 +1262,19 @@ def exportar_etiquetas(
             SaleOrderStatus.ssos_name,
             func.coalesce(
                 cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
-                cast(costo_exp.c.costo_valor, Numeric(12, 2)),
+                case(
+                    (
+                        EtiquetaEnvio.es_turbo.is_(True),
+                        cast(
+                            func.coalesce(
+                                costo_exp.c.costo_turbo_valor,
+                                costo_exp.c.costo_valor,
+                            ),
+                            Numeric(12, 2),
+                        ),
+                    ),
+                    else_=cast(costo_exp.c.costo_valor, Numeric(12, 2)),
+                ),
             ).label("costo_envio"),
         )
         .outerjoin(Logistica, EtiquetaEnvio.logistica_id == Logistica.id)
@@ -1194,6 +1310,10 @@ def exportar_etiquetas(
         query = query.filter(EtiquetaEnvio.logistica_id == logistica_id)
     if sin_logistica:
         query = query.filter(EtiquetaEnvio.logistica_id.is_(None))
+    if solo_outlet:
+        query = query.filter(EtiquetaEnvio.es_outlet.is_(True))
+    if solo_turbo:
+        query = query.filter(EtiquetaEnvio.es_turbo.is_(True))
     if mlstatus:
         query = query.filter(exp_status == mlstatus)
     if search:
@@ -1894,6 +2014,40 @@ def cambiar_estado_ml(
         "shipping_id": shipping_id,
         "estado_anterior": estado_anterior,
         "estado_nuevo": status,
+    }
+
+
+@router.put(
+    "/etiquetas-envio/{shipping_id}/turbo",
+    response_model=dict,
+    summary="Marcar o desmarcar envío como turbo",
+)
+def toggle_turbo(
+    shipping_id: str,
+    es_turbo: bool = Query(..., description="True para marcar como turbo, False para desmarcar"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Marca o desmarca una etiqueta como turbo (mlshipping_method_id = '515282').
+
+    Requiere permiso envios_flex.config.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    valor_anterior = etiqueta.es_turbo
+    etiqueta.es_turbo = es_turbo
+    db.commit()
+
+    return {
+        "ok": True,
+        "shipping_id": shipping_id,
+        "es_turbo": es_turbo,
+        "valor_anterior": valor_anterior,
     }
 
 
