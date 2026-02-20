@@ -488,6 +488,22 @@
   line-height: 1.6;
 }
 
+/* Turbo badge — blue inline pill next to shipping ID */
+.turboBadge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: #2563eb20;
+  color: #2563eb;
+  vertical-align: middle;
+  line-height: 1.6;
+}
+
 /* Logística badge — color from logistica.color */
 .logisticaBadge {
   display: inline-block;

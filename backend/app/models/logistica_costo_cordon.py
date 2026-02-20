@@ -21,6 +21,7 @@ class LogisticaCostoCordon(Base):
     logistica_id = Column(Integer, ForeignKey("logisticas.id"), nullable=False)
     cordon = Column(String(20), nullable=False)  # 'CABA', 'Cordon 1', 'Cordon 2', 'Cordon 3'
     costo = Column(Numeric(12, 2), nullable=False)
+    costo_turbo = Column(Numeric(12, 2), nullable=True)  # Costo diferenciado para envíos turbo
     vigente_desde = Column(Date, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -177,6 +177,7 @@ class CostoCordonResponse(BaseModel):
     logistica_nombre: Optional[str] = None
     cordon: str
     costo: float
+    costo_turbo: Optional[float] = None
     vigente_desde: date
     created_at: Optional[datetime] = None
 
@@ -189,6 +190,7 @@ class CostoCordonCreate(BaseModel):
     logistica_id: int
     cordon: str = Field(min_length=1, max_length=20)
     costo: float = Field(ge=0)
+    costo_turbo: Optional[float] = Field(None, ge=0)
     vigente_desde: date
 
 
@@ -633,6 +635,7 @@ def listar_costos_vigentes(
             Logistica.nombre.label("logistica_nombre"),
             LogisticaCostoCordon.cordon,
             LogisticaCostoCordon.costo,
+            LogisticaCostoCordon.costo_turbo,
             LogisticaCostoCordon.vigente_desde,
             LogisticaCostoCordon.created_at,
         )
@@ -656,6 +659,7 @@ def listar_costos_vigentes(
             logistica_nombre=row.logistica_nombre,
             cordon=row.cordon,
             costo=float(row.costo),
+            costo_turbo=float(row.costo_turbo) if row.costo_turbo is not None else None,
             vigente_desde=row.vigente_desde,
             created_at=row.created_at,
         )
@@ -698,6 +702,7 @@ def crear_costo(
         logistica_id=payload.logistica_id,
         cordon=payload.cordon,
         costo=payload.costo,
+        costo_turbo=payload.costo_turbo,
         vigente_desde=payload.vigente_desde,
     )
     db.add(costo)
@@ -710,6 +715,7 @@ def crear_costo(
         logistica_nombre=logistica.nombre,
         cordon=costo.cordon,
         costo=float(costo.costo),
+        costo_turbo=float(costo.costo_turbo) if costo.costo_turbo is not None else None,
         vigente_desde=costo.vigente_desde,
         created_at=costo.created_at,
     )
@@ -740,6 +746,7 @@ def historial_costos(
         Logistica.nombre.label("logistica_nombre"),
         LogisticaCostoCordon.cordon,
         LogisticaCostoCordon.costo,
+        LogisticaCostoCordon.costo_turbo,
         LogisticaCostoCordon.vigente_desde,
         LogisticaCostoCordon.created_at,
     ).outerjoin(Logistica, LogisticaCostoCordon.logistica_id == Logistica.id)
@@ -766,6 +773,7 @@ def historial_costos(
             logistica_nombre=row.logistica_nombre,
             cordon=row.cordon,
             costo=float(row.costo),
+            costo_turbo=float(row.costo_turbo) if row.costo_turbo is not None else None,
             vigente_desde=row.vigente_desde,
             created_at=row.created_at,
         )

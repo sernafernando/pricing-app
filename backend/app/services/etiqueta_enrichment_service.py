@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, get_mlwebhook_engine
 from app.models.etiqueta_envio import EtiquetaEnvio
+from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.services.ml_webhook_service import (
     fetch_shipment_data,
     extraer_coordenadas,
@@ -33,6 +34,34 @@ from app.services.ml_webhook_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Shipping method ID que identifica envíos Turbo en MercadoLibre
+TURBO_SHIPPING_METHOD_ID = "515282"
+
+
+def _detectar_turbo_batch(db: Session, shipping_ids: List[str]) -> set[str]:
+    """
+    Detecta cuáles shipping_ids son Turbo consultando tb_mercadolibre_orders_shipping.
+
+    Un envío es Turbo si mlshipping_method_id == '515282'.
+    Retorna el set de shipping_ids que son turbo.
+    """
+    if not shipping_ids:
+        return set()
+
+    rows = (
+        db.query(MercadoLibreOrderShipping.mlshippingid)
+        .filter(
+            MercadoLibreOrderShipping.mlshippingid.in_(shipping_ids),
+            MercadoLibreOrderShipping.mlshipping_method_id == TURBO_SHIPPING_METHOD_ID,
+        )
+        .distinct()
+        .all()
+    )
+    turbo_ids = {str(row.mlshippingid) for row in rows}
+    if turbo_ids:
+        logger.info(f"Detectados {len(turbo_ids)} envíos turbo de {len(shipping_ids)} total")
+    return turbo_ids
 
 
 async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
@@ -56,6 +85,9 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
     errores = 0
 
     try:
+        # Detectar turbo en batch (una sola query para todos los IDs)
+        turbo_ids = _detectar_turbo_batch(db, shipping_ids)
+
         for shipping_id in shipping_ids:
             try:
                 data = await fetch_shipment_data(shipping_id)
@@ -67,9 +99,10 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                 direccion = extraer_direccion_completa(data)
                 comentario = extraer_comentario_direccion(data)
                 es_outlet = extraer_es_outlet(data)
+                es_turbo = shipping_id in turbo_ids
 
                 # Actualizar solo si hay algo que guardar
-                if lat is not None or direccion or comentario or es_outlet:
+                if lat is not None or direccion or comentario or es_outlet or es_turbo:
                     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
                     if etiqueta:
                         if lat is not None and lng is not None:
@@ -81,6 +114,8 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                             etiqueta.direccion_comentario = comentario
                         if es_outlet:
                             etiqueta.es_outlet = True
+                        if es_turbo:
+                            etiqueta.es_turbo = True
 
                         enriquecidas += 1
 
@@ -197,6 +232,9 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
     ids_sin_preview: List[str] = []
 
     try:
+        # Detectar turbo en batch
+        turbo_ids = _detectar_turbo_batch(db, shipping_ids)
+
         for sid in shipping_ids:
             preview = previews.get(sid)
             extra = preview.get("extra_data", {}) if preview else {}
@@ -230,6 +268,7 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
             direccion = ", ".join(direccion_parts) if direccion_parts else None
 
             es_outlet = "outlet" in title.lower() if title else False
+            es_turbo = sid in turbo_ids
 
             # Actualizar etiqueta
             etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == sid).first()
@@ -246,6 +285,9 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
                 cambio = True
             if es_outlet:
                 etiqueta.es_outlet = True
+                cambio = True
+            if es_turbo:
+                etiqueta.es_turbo = True
                 cambio = True
 
             if cambio:
@@ -295,6 +337,9 @@ async def re_enriquecer_por_http(shipping_ids: List[str]) -> Dict[str, int]:
     errores = 0
 
     try:
+        # Detectar turbo en batch
+        turbo_ids = _detectar_turbo_batch(db, shipping_ids)
+
         for shipping_id in shipping_ids:
             try:
                 data = await fetch_shipment_data(shipping_id)
@@ -306,8 +351,9 @@ async def re_enriquecer_por_http(shipping_ids: List[str]) -> Dict[str, int]:
                 direccion = extraer_direccion_completa(data)
                 comentario = extraer_comentario_direccion(data)
                 es_outlet = extraer_es_outlet(data)
+                es_turbo = shipping_id in turbo_ids
 
-                if lat is not None or direccion or comentario or es_outlet:
+                if lat is not None or direccion or comentario or es_outlet or es_turbo:
                     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
                     if etiqueta:
                         if lat is not None and lng is not None:
@@ -319,6 +365,8 @@ async def re_enriquecer_por_http(shipping_ids: List[str]) -> Dict[str, int]:
                             etiqueta.direccion_comentario = comentario
                         if es_outlet:
                             etiqueta.es_outlet = True
+                        if es_turbo:
+                            etiqueta.es_turbo = True
                         actualizadas += 1
 
                 await asyncio.sleep(0.05)
