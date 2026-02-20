@@ -523,6 +523,21 @@
   cursor: not-allowed;
 }
 
+.mlStatusSelect {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 120px;
+}
+
+.mlStatusSelect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .fechaInput {
   padding: 4px 8px;
   border-radius: 6px;

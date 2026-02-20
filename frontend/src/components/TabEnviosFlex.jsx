@@ -402,6 +402,35 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
+  const cambiarEstadoManual = async (shippingId, nuevoEstado) => {
+    const opId = operador?.operadorActivo?.id;
+    if (!opId) {
+      mostrarError({ message: 'No hay operador activo' });
+      return;
+    }
+    setActualizando(prev => new Set([...prev, shippingId]));
+    try {
+      await api.put(
+        `/etiquetas-envio/${shippingId}/estado-ml?status=${nuevoEstado}&operador_id=${opId}`,
+      );
+      setEtiquetas(prev =>
+        prev.map(e =>
+          e.shipping_id === shippingId
+            ? { ...e, mlstatus: nuevoEstado }
+            : e
+        )
+      );
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setActualizando(prev => {
+        const next = new Set(prev);
+        next.delete(shippingId);
+        return next;
+      });
+    }
+  };
+
   // ── Costo override ─────────────────────────────────────────
 
   const iniciarEdicionCosto = (shippingId, costoActual) => {
@@ -1271,7 +1300,19 @@ export default function TabEnviosFlex({ operador = null }) {
                       )}
                     </td>
                     <td>
-                      {e.mlstatus ? (
+                      {e.es_manual && puedeVerCostos ? (
+                        <select
+                          value={e.mlstatus || ''}
+                          onChange={(ev) => cambiarEstadoManual(e.shipping_id, ev.target.value)}
+                          disabled={actualizando.has(e.shipping_id)}
+                          className={`${styles.mlStatusSelect} ${getMlStatusClass(e.mlstatus)}`}
+                        >
+                          {!e.mlstatus && <option value="">— Sin estado —</option>}
+                          <option value="ready_to_ship">Listo para enviar</option>
+                          <option value="shipped">Enviado</option>
+                          <option value="delivered">Entregado</option>
+                        </select>
+                      ) : e.mlstatus ? (
                         <span className={`${styles.badge} ${getMlStatusClass(e.mlstatus)}`}>
                           {ML_STATUS_LABELS[e.mlstatus] || e.mlstatus}
                         </span>
