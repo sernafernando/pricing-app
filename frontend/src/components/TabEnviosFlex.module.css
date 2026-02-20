@@ -499,6 +499,33 @@
   line-height: 1.4;
 }
 
+/* ── Print button ──────────────────────────────────────────── */
+
+.btnPrint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btnPrint:hover:not(:disabled) {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: white;
+}
+
+.btnPrint:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ── Inline editable controls ──────────────────────────────── */
 
 .logisticaSelect {

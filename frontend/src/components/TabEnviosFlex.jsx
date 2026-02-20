@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
-  Truck, Search,
+  Truck, Search, Printer,
 } from 'lucide-react';
 import api from '../services/api';
+import { printZpl } from '../services/zebraPrint';
 import { usePermisos } from '../contexts/PermisosContext';
 import styles from './TabEnviosFlex.module.css';
 
@@ -466,6 +467,38 @@ export default function TabEnviosFlex({ operador = null }) {
       guardarCostoOverride(shippingId);
     } else if (e.key === 'Escape') {
       cancelarEdicionCosto();
+    }
+  };
+
+  // ── Impresión de etiquetas ZPL ─────────────────────────────
+
+  const [imprimiendo, setImprimiendo] = useState(null); // shipping_id en progreso
+
+  const imprimirEtiqueta = async (shippingId) => {
+    setImprimiendo(shippingId);
+    try {
+      const { data } = await api.get(`/etiquetas-envio/${shippingId}/etiqueta`);
+
+      if (!data.ok) {
+        mostrarError(data.error || 'No se pudo obtener la etiqueta');
+        return;
+      }
+
+      const resultado = await printZpl(data.zpl, shippingId);
+
+      if (resultado.method === 'zebra') {
+        // Impreso directamente en la Zebra
+        setScanFeedback({ type: 'success', text: `Etiqueta ${shippingId} enviada a la impresora` });
+        setTimeout(() => setScanFeedback(null), 4000);
+      } else {
+        // Descargado como .zpl
+        setScanFeedback({ type: 'duplicate', text: `Etiqueta ${shippingId} descargada (Zebra no disponible)` });
+        setTimeout(() => setScanFeedback(null), 4000);
+      }
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setImprimiendo(null);
     }
   };
 
@@ -1145,6 +1178,7 @@ export default function TabEnviosFlex({ operador = null }) {
                 {puedeVerCostos && <th className={styles.thCosto}>Costo</th>}
                 <th>Pistoleado</th>
                 <th>Caja</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -1306,6 +1340,17 @@ export default function TabEnviosFlex({ operador = null }) {
                     </td>
                     <td className={e.pistoleado_caja ? '' : styles.cellMuted}>
                       {e.pistoleado_caja || '—'}
+                    </td>
+                    <td>
+                      <button
+                        className={styles.btnPrint}
+                        onClick={() => imprimirEtiqueta(e.shipping_id)}
+                        disabled={imprimiendo === e.shipping_id}
+                        title="Imprimir etiqueta ZPL"
+                        aria-label={`Imprimir etiqueta ${e.shipping_id}`}
+                      >
+                        <Printer size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))

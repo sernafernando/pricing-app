@@ -46,6 +46,7 @@ from app.services.etiqueta_enrichment_service import (
     lanzar_enriquecimiento_background,
     re_enriquecer_desde_db,
 )
+from app.services.ml_webhook_service import fetch_shipment_label_zpl
 from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
@@ -2133,4 +2134,51 @@ def re_enriquecer_etiquetas(
 
     resultado = re_enriquecer_desde_db(ids)
     resultado["mensaje"] = f"Re-enriquecidas {resultado['actualizadas']} de {resultado['total']} etiquetas"
+    return resultado
+
+
+# ── Impresión de etiquetas ZPL ──────────────────────────────────
+
+# Errores de ML traducidos al español
+_ML_LABEL_ERRORS: dict = {
+    "NOT_PRINTABLE_STATUS": "El envío no está listo para imprimir (ya fue despachado, entregado o cancelado)",
+    "invalid_shipment_ff_public": "Los envíos Fulfillment no permiten imprimir etiquetas desde acá",
+    "invalid_shipment_mode": "Este envío no es de tipo ME2 (MercadoEnvíos 2)",
+    "invalid_shipment_caller": "Usuario no autorizado para este envío",
+}
+
+
+@router.get(
+    "/etiquetas-envio/{shipping_id}/etiqueta",
+    summary="Obtiene la etiqueta ZPL de un envío desde ML",
+)
+async def obtener_etiqueta_zpl(
+    shipping_id: str,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Obtiene la etiqueta ZPL de un envío desde MercadoLibre vía ml-webhook proxy.
+
+    Devuelve {ok: true, zpl: "^XA..."} si la etiqueta está disponible,
+    o {ok: false, error: "...", code: "..."} con error descriptivo en español.
+
+    Solo se puede imprimir si el envío está en ready_to_ship / ready_to_print o printed.
+    Requiere permiso envios_flex.ver.
+    """
+    _check_permiso(db, current_user, "envios_flex.ver")
+
+    # Verificar que la etiqueta existe en nuestro sistema
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(status_code=404, detail="Etiqueta no encontrada")
+
+    resultado = await fetch_shipment_label_zpl(shipping_id)
+
+    if not resultado["ok"]:
+        # Traducir error de ML al español
+        code = resultado.get("code", "")
+        error_es = _ML_LABEL_ERRORS.get(code, resultado.get("error", "Error desconocido"))
+        return {"ok": False, "error": error_es, "code": code}
+
     return resultado
