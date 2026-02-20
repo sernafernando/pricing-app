@@ -36,7 +36,7 @@ cd "$PROJECT_DIR"
 # 1) Git pull
 if [ "$SKIP_PULL" = false ]; then
   log "Pulling latest changes..."
-  git pull origin develop
+  git pull
 else
   warn "Skipping git pull"
 fi
