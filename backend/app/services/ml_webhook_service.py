@@ -262,27 +262,69 @@ async def fetch_shipment_label_zpl(shipping_id: str) -> Dict[str, Any]:
             )
 
             content_type = response.headers.get("content-type", "")
+            status_code = response.status_code
 
             # Si ML devuelve JSON, puede ser un error o una respuesta con detalle
             if "application/json" in content_type:
                 data = response.json()
                 # ML devuelve errores con status 400 en JSON
-                if "failed_shipments" in data or data.get("status") == 400:
+                if "failed_shipments" in data or data.get("status") in (400, 401, 403, 404):
                     causes = data.get("causes", [])
                     message = data.get("message", "Error desconocido de ML")
                     return {"ok": False, "error": message, "code": causes[0] if causes else "ML_ERROR"}
                 # Puede ser JSON exitoso (raro para ZPL, pero por si acaso)
                 return {"ok": False, "error": "Respuesta inesperada de ML (JSON)", "code": "UNEXPECTED_JSON"}
 
-            # Si no es JSON, debería ser el ZPL como texto plano
-            zpl_text = response.text
-            if zpl_text and "^XA" in zpl_text:
-                logger.info(f"✅ Etiqueta ZPL obtenida para {shipping_id} ({len(zpl_text)} chars)")
-                return {"ok": True, "zpl": zpl_text}
+            # Si es ZIP, descomprimir y buscar el archivo .txt con el ZPL
+            if "application/zip" in content_type:
+                import io
+                import zipfile
 
-            # Respuesta no reconocida
-            logger.warning(f"Respuesta no reconocida para etiqueta {shipping_id}: {content_type}")
-            return {"ok": False, "error": "Respuesta no reconocida de ML", "code": "UNKNOWN_RESPONSE"}
+                try:
+                    z = zipfile.ZipFile(io.BytesIO(response.content))
+                    txt_files = [n for n in z.namelist() if n.endswith(".txt")]
+                    if txt_files:
+                        zpl_text = z.read(txt_files[0]).decode("utf-8", errors="replace")
+                        if "^XA" in zpl_text:
+                            logger.info(f"Etiqueta ZPL extraída de ZIP para {shipping_id} ({len(zpl_text)} chars)")
+                            return {"ok": True, "zpl": zpl_text}
+                    logger.warning(f"ZIP de etiqueta {shipping_id} no contiene ZPL: {z.namelist()}")
+                    return {"ok": False, "error": "El ZIP de ML no contiene etiqueta ZPL", "code": "ZIP_NO_ZPL"}
+                except zipfile.BadZipFile:
+                    logger.error(f"ZIP corrupto para etiqueta {shipping_id}")
+                    return {"ok": False, "error": "Archivo ZIP corrupto de ML", "code": "BAD_ZIP"}
+
+            # Independientemente del content-type, buscar ZPL en el body texto
+            body_text = response.text
+            if body_text and "^XA" in body_text:
+                logger.info(f"Etiqueta ZPL obtenida para {shipping_id} ({len(body_text)} chars)")
+                return {"ok": True, "zpl": body_text}
+
+            # Si llegamos acá, no hay ZPL — loguear el body para diagnóstico
+            body_preview = (body_text or "")[:500]
+            logger.warning(
+                f"Etiqueta {shipping_id}: respuesta sin ZPL "
+                f"(status={status_code}, content-type={content_type}, "
+                f"body={body_preview!r})"
+            )
+
+            # Error descriptivo según status code
+            if status_code == 401 or status_code == 403:
+                return {"ok": False, "error": "Token de ML expirado o sin permisos", "code": "AUTH_ERROR"}
+            if status_code >= 500:
+                return {
+                    "ok": False,
+                    "error": "Error del servidor de ML (reintentá en unos minutos)",
+                    "code": "ML_SERVER_ERROR",
+                }
+            if status_code >= 400:
+                return {"ok": False, "error": f"Error de ML (HTTP {status_code})", "code": "ML_CLIENT_ERROR"}
+
+            return {
+                "ok": False,
+                "error": "ML no devolvió la etiqueta ZPL (respuesta vacía o HTML)",
+                "code": "UNKNOWN_RESPONSE",
+            }
 
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP error obteniendo etiqueta {shipping_id}: {e.response.status_code}")
