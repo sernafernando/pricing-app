@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
-  Truck, Search, Printer,
+  Truck, Search, Printer, Pencil,
 } from 'lucide-react';
 import api from '../services/api';
 import { printZpl } from '../services/zebraPrint';
@@ -166,6 +166,7 @@ export default function TabEnviosFlex({ operador = null }) {
     comment: '',
     fecha_envio: todayStr(),
   });
+  const [editandoManualId, setEditandoManualId] = useState(null);
   const [manualEnvioLoading, setManualEnvioLoading] = useState(false);
   const [manualEnvioCordon, setManualEnvioCordon] = useState(null);
   const [sucursales, setSucursales] = useState([]);
@@ -753,6 +754,7 @@ export default function TabEnviosFlex({ operador = null }) {
   // ── Envío manual ───────────────────────────────────────────
 
   const abrirModalManualEnvio = async () => {
+    setEditandoManualId(null);
     setManualEnvio({
       receiver_name: '',
       street_name: '',
@@ -779,6 +781,37 @@ export default function TabEnviosFlex({ operador = null }) {
         setSucursales(data);
       } catch {
         // silently fail — dropdown won't have options
+      }
+    }
+  };
+
+  const abrirModalEditarManual = async (envio) => {
+    setEditandoManualId(envio.shipping_id);
+    setManualEnvio({
+      receiver_name: envio.mlreceiver_name || '',
+      street_name: envio.mlstreet_name || '',
+      street_number: envio.mlstreet_number || '',
+      zip_code: envio.mlzip_code || '',
+      city_name: envio.mlcity_name || '',
+      status: envio.mlstatus || 'ready_to_ship',
+      cust_id: envio.manual_cust_id || '',
+      bra_id: envio.manual_bra_id || '',
+      soh_id: envio.manual_soh_id || '',
+      logistica_id: envio.logistica_id || '',
+      comment: envio.manual_comment || '',
+      fecha_envio: envio.fecha_envio || todayStr(),
+    });
+    setManualEnvioCordon(envio.cordon || null);
+    setPedidoError(null);
+    setCustError(null);
+    setShowManualEnvioModal(true);
+
+    if (sucursales.length === 0) {
+      try {
+        const { data } = await api.get('/clientes/filtros/sucursales');
+        setSucursales(data);
+      } catch {
+        // silently fail
       }
     }
   };
@@ -882,7 +915,7 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
-  const crearEnvioManual = async () => {
+  const guardarEnvioManual = async () => {
     if (!manualEnvio.receiver_name.trim()) {
       mostrarError({ message: 'Ingresá el nombre del destinatario' });
       return;
@@ -914,7 +947,11 @@ export default function TabEnviosFlex({ operador = null }) {
         operador_id: operador?.operadorActivo?.id,
       };
 
-      await api.post('/etiquetas-envio/manual-envio', payload);
+      if (editandoManualId) {
+        await api.put(`/etiquetas-envio/manual-envio/${editandoManualId}`, payload);
+      } else {
+        await api.post('/etiquetas-envio/manual-envio', payload);
+      }
       setShowManualEnvioModal(false);
       cargarDatos();
     } catch (err) {
@@ -1383,6 +1420,16 @@ export default function TabEnviosFlex({ operador = null }) {
                       {e.pistoleado_caja || '—'}
                     </td>
                     <td>
+                      {e.es_manual && puedeVerCostos && (
+                        <button
+                          className={styles.btnPrint}
+                          onClick={() => abrirModalEditarManual(e)}
+                          title="Editar envío manual"
+                          aria-label={`Editar envío ${e.shipping_id}`}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
                       <button
                         className={styles.btnPrint}
                         onClick={() => imprimirEtiqueta(e.shipping_id)}
@@ -1633,7 +1680,7 @@ export default function TabEnviosFlex({ operador = null }) {
         <div className={styles.modalOverlay} onClick={() => setShowManualEnvioModal(false)}>
           <div className={`${styles.modalContent} ${styles.modalWide}`} onClick={(ev) => ev.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h3>Agregar envío manual</h3>
+              <h3>{editandoManualId ? `Editar envío ${editandoManualId}` : 'Agregar envío manual'}</h3>
               <button
                 className={styles.modalClose}
                 onClick={() => setShowManualEnvioModal(false)}
@@ -1833,11 +1880,14 @@ export default function TabEnviosFlex({ operador = null }) {
               </button>
               <button
                 className={styles.btnCrear}
-                onClick={crearEnvioManual}
+                onClick={guardarEnvioManual}
                 disabled={manualEnvioLoading || !manualEnvio.receiver_name.trim() || !manualEnvio.zip_code.trim()}
               >
                 <Truck size={16} />
-                {manualEnvioLoading ? 'Creando...' : 'Crear envío'}
+                {manualEnvioLoading
+                  ? (editandoManualId ? 'Guardando...' : 'Creando...')
+                  : (editandoManualId ? 'Guardar cambios' : 'Crear envío')
+                }
               </button>
             </div>
           </div>

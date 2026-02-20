@@ -138,6 +138,10 @@ class EtiquetaEnvioResponse(BaseModel):
 
     # Envío manual (sin ML)
     es_manual: bool = False
+    manual_bra_id: Optional[int] = None
+    manual_soh_id: Optional[int] = None
+    manual_cust_id: Optional[int] = None
+    manual_comment: Optional[str] = None
 
     # Outlet (título de item contiene "outlet")
     es_outlet: bool = False
@@ -665,6 +669,10 @@ def listar_etiquetas(
             EtiquetaEnvio.pistoleado_at,
             EtiquetaEnvio.pistoleado_caja,
             EtiquetaEnvio.es_manual,
+            EtiquetaEnvio.manual_bra_id,
+            EtiquetaEnvio.manual_soh_id,
+            EtiquetaEnvio.manual_cust_id,
+            EtiquetaEnvio.manual_comment,
             EtiquetaEnvio.es_outlet,
             Operador.nombre.label("pistoleado_operador_nombre"),
             Logistica.nombre.label("logistica_nombre"),
@@ -790,6 +798,10 @@ def listar_etiquetas(
             costo_envio=float(row.costo_envio) if row.costo_envio is not None else None,
             costo_override=float(row.costo_override) if row.costo_override is not None else None,
             es_manual=row.es_manual,
+            manual_bra_id=row.manual_bra_id,
+            manual_soh_id=row.manual_soh_id,
+            manual_cust_id=row.manual_cust_id,
+            manual_comment=row.manual_comment,
             es_outlet=row.es_outlet,
         )
         for row in rows
@@ -1696,6 +1708,127 @@ def crear_envio_manual(
         cordon=cordon_val,
         mensaje=f"Envío manual creado: {shipping_id}",
     )
+
+
+@router.put(
+    "/etiquetas-envio/manual-envio/{shipping_id}",
+    response_model=dict,
+    summary="Editar envío manual existente",
+)
+def editar_envio_manual(
+    shipping_id: str,
+    payload: CrearEnvioManualRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Edita los datos de un envío manual existente (es_manual=True).
+
+    Permite corregir destinatario, dirección, logística, estado, etc.
+    sin tener que borrar y recrear el envío.
+    Requiere envios_flex.subir_etiquetas y operador autenticado con PIN.
+    """
+    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
+
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    if not etiqueta.es_manual:
+        raise HTTPException(400, "Solo se pueden editar envíos manuales")
+
+    # Validar operador activo
+    operador = db.query(Operador).filter(Operador.id == payload.operador_id, Operador.activo.is_(True)).first()
+    if not operador:
+        raise HTTPException(404, "Operador no encontrado o inactivo")
+
+    # Validar logística si se envió
+    if payload.logistica_id is not None:
+        logistica = db.query(Logistica).filter(Logistica.id == payload.logistica_id, Logistica.activa.is_(True)).first()
+        if not logistica:
+            raise HTTPException(404, "Logística no encontrada o inactiva")
+
+    # Resolver cust_id desde pedido si corresponde
+    resolved_cust_id = payload.cust_id
+    if payload.soh_id and payload.bra_id and not resolved_cust_id:
+        soh = (
+            db.query(SaleOrderHeader.cust_id)
+            .filter(
+                SaleOrderHeader.comp_id == 1,
+                SaleOrderHeader.bra_id == payload.bra_id,
+                SaleOrderHeader.soh_id == payload.soh_id,
+            )
+            .first()
+        )
+        if not soh:
+            raise HTTPException(
+                404,
+                f"Pedido {payload.soh_id} no encontrado en sucursal {payload.bra_id}",
+            )
+        resolved_cust_id = soh.cust_id
+
+    # Guardar estado anterior para auditoría
+    estado_anterior = {
+        "receiver_name": etiqueta.manual_receiver_name,
+        "street_name": etiqueta.manual_street_name,
+        "street_number": etiqueta.manual_street_number,
+        "zip_code": etiqueta.manual_zip_code,
+        "city_name": etiqueta.manual_city_name,
+        "status": etiqueta.manual_status,
+        "logistica_id": etiqueta.logistica_id,
+        "cust_id": etiqueta.manual_cust_id,
+        "bra_id": etiqueta.manual_bra_id,
+        "soh_id": etiqueta.manual_soh_id,
+        "comment": etiqueta.manual_comment,
+    }
+
+    # Actualizar campos
+    etiqueta.fecha_envio = payload.fecha_envio
+    etiqueta.manual_receiver_name = payload.receiver_name
+    etiqueta.manual_street_name = payload.street_name
+    etiqueta.manual_street_number = payload.street_number
+    etiqueta.manual_zip_code = payload.zip_code
+    etiqueta.manual_city_name = payload.city_name
+    etiqueta.manual_status = payload.status
+    etiqueta.manual_cust_id = resolved_cust_id
+    etiqueta.manual_bra_id = payload.bra_id
+    etiqueta.manual_soh_id = payload.soh_id
+    etiqueta.manual_comment = payload.comment
+    etiqueta.logistica_id = payload.logistica_id
+
+    # Registrar actividad
+    actividad = OperadorActividad(
+        operador_id=payload.operador_id,
+        usuario_id=current_user.id,
+        tab_key="envios-flex",
+        accion="editar_envio_manual",
+        detalle={
+            "shipping_id": shipping_id,
+            "anterior": estado_anterior,
+            "nuevo": {
+                "receiver_name": payload.receiver_name,
+                "street_name": payload.street_name,
+                "street_number": payload.street_number,
+                "zip_code": payload.zip_code,
+                "city_name": payload.city_name,
+                "status": payload.status,
+                "logistica_id": payload.logistica_id,
+                "cust_id": resolved_cust_id,
+                "bra_id": payload.bra_id,
+                "soh_id": payload.soh_id,
+                "comment": payload.comment,
+            },
+        },
+    )
+    db.add(actividad)
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error guardando cambios: {str(e)}")
+
+    return {"ok": True, "shipping_id": shipping_id, "mensaje": f"Envío {shipping_id} actualizado"}
 
 
 @router.put(

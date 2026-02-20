@@ -99,8 +99,8 @@ const parseQrInput = (raw, logisticasList = []) => {
       return { type: 'etiqueta', shippingId: String(shippingId) };
     }
   } catch {
-    // No es JSON, podría ser un shipping_id directo (numérico)
-    if (/^\d{8,}$/.test(trimmed)) {
+    // No es JSON, podría ser un shipping_id directo (numérico o manual MAN_*)
+    if (/^\d{8,}$/.test(trimmed) || /^MAN_/i.test(trimmed)) {
       return { type: 'etiqueta', shippingId: trimmed };
     }
   }
