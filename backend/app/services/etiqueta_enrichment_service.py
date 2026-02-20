@@ -222,7 +222,6 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, int]:
 
             city = extra.get("destination_city", "")
             state = extra.get("destination_state", "")
-            receiver_name = extra.get("receiver_name", "")
             direccion_parts = [p for p in [city, state] if p]
             direccion = ", ".join(direccion_parts) if direccion_parts else None
 
