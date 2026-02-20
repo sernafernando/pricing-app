@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
-  Truck, Search,
+  Truck, Search, Printer,
 } from 'lucide-react';
 import api from '../services/api';
+import { printZpl } from '../services/zebraPrint';
 import { usePermisos } from '../contexts/PermisosContext';
 import styles from './TabEnviosFlex.module.css';
 
@@ -90,6 +91,7 @@ export default function TabEnviosFlex({ operador = null }) {
   // eslint-disable-next-line no-unused-vars
   const [filtroSsosId, setFiltroSsosId] = useState('');
   const [sinLogistica, setSinLogistica] = useState(false);
+  const [soloOutlet, setSoloOutlet] = useState(false);
   const [search, setSearch] = useState('');
 
   // Extrae shipping_id si el input es JSON de etiqueta (pistola/QR)
@@ -234,6 +236,7 @@ export default function TabEnviosFlex({ operador = null }) {
       if (filtroCordon) params.append('cordon', filtroCordon);
       if (filtroLogistica) params.append('logistica_id', filtroLogistica);
       if (sinLogistica) params.append('sin_logistica', 'true');
+      if (soloOutlet) params.append('solo_outlet', 'true');
       if (filtroMlStatus) params.append('mlstatus', filtroMlStatus);
       if (filtroSsosId) params.append('ssos_id', filtroSsosId);
       if (search) params.append('search', search);
@@ -255,7 +258,7 @@ export default function TabEnviosFlex({ operador = null }) {
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, filtroMlStatus, filtroSsosId, search]);
+  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, soloOutlet, filtroMlStatus, filtroSsosId, search]);
 
   useEffect(() => {
     cargarLogisticas();
@@ -467,6 +470,38 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
+  // ── Impresión de etiquetas ZPL ─────────────────────────────
+
+  const [imprimiendo, setImprimiendo] = useState(null); // shipping_id en progreso
+
+  const imprimirEtiqueta = async (shippingId) => {
+    setImprimiendo(shippingId);
+    try {
+      const { data } = await api.get(`/etiquetas-envio/${shippingId}/etiqueta`);
+
+      if (!data.ok) {
+        mostrarError(data.error || 'No se pudo obtener la etiqueta');
+        return;
+      }
+
+      const resultado = await printZpl(data.zpl, shippingId);
+
+      if (resultado.method === 'zebra') {
+        // Impreso directamente en la Zebra
+        setScanFeedback({ type: 'success', text: `Etiqueta ${shippingId} enviada a la impresora` });
+        setTimeout(() => setScanFeedback(null), 4000);
+      } else {
+        // Descargado como .zpl
+        setScanFeedback({ type: 'duplicate', text: `Etiqueta ${shippingId} descargada (Zebra no disponible)` });
+        setTimeout(() => setScanFeedback(null), 4000);
+      }
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setImprimiendo(null);
+    }
+  };
+
   // ── Logísticas CRUD ──────────────────────────────────────────
 
   const crearLogistica = async (e) => {
@@ -660,6 +695,7 @@ export default function TabEnviosFlex({ operador = null }) {
       if (filtroCordon) params.append('cordon', filtroCordon);
       if (filtroLogistica) params.append('logistica_id', filtroLogistica);
       if (sinLogistica) params.append('sin_logistica', 'true');
+      if (soloOutlet) params.append('solo_outlet', 'true');
       if (filtroMlStatus) params.append('mlstatus', filtroMlStatus);
       if (search) params.append('search', search);
 
@@ -1002,6 +1038,13 @@ export default function TabEnviosFlex({ operador = null }) {
           >
             {sinLogistica ? '✓ ' : ''}Sin logística
           </button>
+
+          <button
+            onClick={() => setSoloOutlet(!soloOutlet)}
+            className={`btn-tesla sm ${soloOutlet ? 'outline-subtle-primary toggle-active' : 'secondary'}`}
+          >
+            {soloOutlet ? '✓ ' : ''}Outlet
+          </button>
         </div>
 
         <div className={styles.actions}>
@@ -1135,6 +1178,7 @@ export default function TabEnviosFlex({ operador = null }) {
                 {puedeVerCostos && <th className={styles.thCosto}>Costo</th>}
                 <th>Pistoleado</th>
                 <th>Caja</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -1161,6 +1205,9 @@ export default function TabEnviosFlex({ operador = null }) {
                     </td>
                     <td>
                       <span className={styles.shippingId}>{e.shipping_id}</span>
+                      {e.es_outlet && (
+                        <span className={styles.outletBadge}>Outlet</span>
+                      )}
                     </td>
                     <td className={styles.destinatario}>
                       {e.mlreceiver_name || '—'}
@@ -1293,6 +1340,17 @@ export default function TabEnviosFlex({ operador = null }) {
                     </td>
                     <td className={e.pistoleado_caja ? '' : styles.cellMuted}>
                       {e.pistoleado_caja || '—'}
+                    </td>
+                    <td>
+                      <button
+                        className={styles.btnPrint}
+                        onClick={() => imprimirEtiqueta(e.shipping_id)}
+                        disabled={imprimiendo === e.shipping_id}
+                        title="Imprimir etiqueta ZPL"
+                        aria-label={`Imprimir etiqueta ${e.shipping_id}`}
+                      >
+                        <Printer size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))

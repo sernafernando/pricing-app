@@ -6,23 +6,30 @@ Para cada etiqueta nueva, llama al ML webhook y guarda:
 - latitud / longitud (coordenadas exactas del destinatario)
 - direccion_completa (calle, ciudad, provincia formateada)
 - direccion_comentario (notas del comprador: "puerta negra", "timbre 3B")
+- es_outlet (si algún item contiene "outlet" en el título)
 
 Usa una sesión de DB independiente para no bloquear la respuesta HTTP.
+
+También incluye `re_enriquecer_desde_db()` para re-procesar etiquetas
+leyendo directamente de ml_previews (sin HTTP), útil cuando el webhook
+estuvo caído o se agregaron campos nuevos.
 """
 
 import asyncio
 import logging
-from typing import List
+from typing import Dict, List, Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, get_mlwebhook_engine
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.services.ml_webhook_service import (
     fetch_shipment_data,
     extraer_coordenadas,
     extraer_direccion_completa,
     extraer_comentario_direccion,
+    extraer_es_outlet,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,9 +66,10 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                 lat, lng = extraer_coordenadas(data)
                 direccion = extraer_direccion_completa(data)
                 comentario = extraer_comentario_direccion(data)
+                es_outlet = extraer_es_outlet(data)
 
                 # Actualizar solo si hay algo que guardar
-                if lat is not None or direccion or comentario:
+                if lat is not None or direccion or comentario or es_outlet:
                     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
                     if etiqueta:
                         if lat is not None and lng is not None:
@@ -71,6 +79,8 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                             etiqueta.direccion_completa = direccion
                         if comentario:
                             etiqueta.direccion_comentario = comentario
+                        if es_outlet:
+                            etiqueta.es_outlet = True
 
                         enriquecidas += 1
 
@@ -111,3 +121,146 @@ def lanzar_enriquecimiento_background(shipping_ids: List[str]) -> None:
         logger.info(f"Background enrichment lanzado para {len(shipping_ids)} etiquetas")
     except RuntimeError:
         logger.warning("No hay event loop disponible para background enrichment")
+
+
+# ── Re-enrichment desde ml_previews (DB directa) ──────────────
+
+
+def _fetch_previews_batch(
+    shipping_ids: List[str],
+) -> Dict[str, Dict]:
+    """
+    Lee ml_previews en batch para un lote de shipping_ids.
+
+    Busca registros con resource = '/shipments/{id}' y devuelve un dict
+    {shipping_id: {title, status, extra_data}} para cada match.
+    """
+    engine = get_mlwebhook_engine()
+
+    # Construir la lista de resources esperados: '/shipments/12345'
+    resources = [f"/shipments/{sid}" for sid in shipping_ids]
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT resource, title, status, extra_data
+                FROM ml_previews
+                WHERE resource = ANY(:resources)
+            """),
+            {"resources": resources},
+        ).fetchall()
+
+    result: Dict[str, Dict] = {}
+    for row in rows:
+        resource, title, status, extra_data = row
+        # Extraer shipping_id de '/shipments/12345'
+        sid = resource.replace("/shipments/", "")
+        result[sid] = {
+            "title": title,
+            "status": status,
+            "extra_data": extra_data or {},
+        }
+
+    return result
+
+
+def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, int]:
+    """
+    Re-enriquece etiquetas leyendo ml_previews directamente (sin HTTP).
+
+    Para cada etiqueta en shipping_ids:
+    1. Lee title + extra_data de ml_previews (batch query, rápido)
+    2. Extrae lat/lng de extra_data.destination_lat/destination_lng
+    3. Extrae direccion_completa de extra_data.destination_city + destination_state
+    4. Detecta es_outlet buscando "outlet" en title
+    5. Actualiza EtiquetaEnvio en la DB de pricing
+
+    Args:
+        shipping_ids: Lista de shipping_ids a re-enriquecer
+
+    Returns:
+        Dict con contadores: {"actualizadas": N, "sin_preview": N, "total": N}
+    """
+    if not shipping_ids:
+        return {"actualizadas": 0, "sin_preview": 0, "total": 0}
+
+    logger.info(f"Re-enriqueciendo {len(shipping_ids)} etiquetas desde ml_previews...")
+
+    # 1) Leer previews en batch
+    previews = _fetch_previews_batch(shipping_ids)
+    logger.info(f"Encontrados {len(previews)}/{len(shipping_ids)} previews en ml_previews")
+
+    # 2) Actualizar etiquetas en pricing DB
+    db: Session = SessionLocal()
+    actualizadas = 0
+    sin_preview = 0
+
+    try:
+        for sid in shipping_ids:
+            preview = previews.get(sid)
+            if not preview:
+                sin_preview += 1
+                continue
+
+            extra = preview.get("extra_data", {})
+            title = preview.get("title", "") or ""
+
+            # Extraer campos
+            lat: Optional[float] = None
+            lng: Optional[float] = None
+            raw_lat = extra.get("destination_lat")
+            raw_lng = extra.get("destination_lng")
+            if raw_lat is not None and raw_lng is not None:
+                try:
+                    lat = float(raw_lat)
+                    lng = float(raw_lng)
+                    # Validar rango Argentina
+                    if not (-55 <= lat <= -20 and -75 <= lng <= -50):
+                        lat, lng = None, None
+                except (ValueError, TypeError):
+                    lat, lng = None, None
+
+            city = extra.get("destination_city", "")
+            state = extra.get("destination_state", "")
+            direccion_parts = [p for p in [city, state] if p]
+            direccion = ", ".join(direccion_parts) if direccion_parts else None
+
+            es_outlet = "outlet" in title.lower() if title else False
+
+            # Actualizar etiqueta
+            etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == sid).first()
+            if not etiqueta:
+                continue
+
+            cambio = False
+            if lat is not None and lng is not None:
+                etiqueta.latitud = lat
+                etiqueta.longitud = lng
+                cambio = True
+            if direccion:
+                etiqueta.direccion_completa = direccion
+                cambio = True
+            if es_outlet:
+                etiqueta.es_outlet = True
+                cambio = True
+
+            if cambio:
+                actualizadas += 1
+
+        db.commit()
+        logger.info(
+            f"Re-enrichment completo: {actualizadas} actualizadas, {sin_preview} sin preview, {len(shipping_ids)} total"
+        )
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error en re-enrichment: {e}")
+        raise
+    finally:
+        db.close()
+
+    return {
+        "actualizadas": actualizadas,
+        "sin_preview": sin_preview,
+        "total": len(shipping_ids),
+    }

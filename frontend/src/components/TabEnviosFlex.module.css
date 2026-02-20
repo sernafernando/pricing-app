@@ -472,6 +472,22 @@
   line-height: 1.4;
 }
 
+/* Outlet badge — amber/orange inline pill next to shipping ID */
+.outletBadge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: #d9770620;
+  color: #d97706;
+  vertical-align: middle;
+  line-height: 1.6;
+}
+
 /* Logística badge — color from logistica.color */
 .logisticaBadge {
   display: inline-block;
@@ -481,6 +497,12 @@
   font-weight: 600;
   white-space: nowrap;
   line-height: 1.4;
+}
+
+/* ── Print button ──────────────────────────────────────────── */
+
+.btnPrint {
+  composes: btn-tesla outline-subtle-primary icon-only sm from '../styles/buttons-tesla.css';
 }
 
 /* ── Inline editable controls ──────────────────────────────── */

@@ -213,6 +213,88 @@ def extraer_comentario_direccion(data: Dict[str, Any]) -> Optional[str]:
         return None
 
 
+def extraer_es_outlet(data: Dict[str, Any]) -> bool:
+    """
+    Detecta si algún item del envío contiene 'outlet' en el título.
+
+    Args:
+        data: Respuesta JSON de ML Webhook
+
+    Returns:
+        True si al menos un shipping_item tiene 'outlet' en su description
+    """
+    try:
+        items = data.get("shipping_items", [])
+        for item in items:
+            desc = item.get("description", "")
+            if desc and "outlet" in desc.lower():
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"Error detectando outlet: {e}")
+        return False
+
+
+async def fetch_shipment_label_zpl(shipping_id: str) -> Dict[str, Any]:
+    """
+    Obtiene la etiqueta ZPL de un envío desde ML vía el proxy ml-webhook.
+
+    Llama a /shipment_labels?shipment_ids=XXX&response_type=zpl2 a través
+    del render endpoint del proxy, con query params embebidos en resource.
+
+    Args:
+        shipping_id: ID del envío de MercadoLibre
+
+    Returns:
+        Dict con {ok: True, zpl: "^XA..."} o {ok: False, error: "msg", code: "XXX"}
+    """
+    if not shipping_id:
+        return {"ok": False, "error": "shipping_id vacío", "code": "EMPTY_ID"}
+
+    # Embeber query params de ML dentro del resource (el proxy los forwardea)
+    resource = f"/shipment_labels?shipment_ids={shipping_id}&response_type=zpl2"
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                ML_WEBHOOK_BASE_URL,
+                params={"resource": resource, "format": "json"},
+            )
+
+            content_type = response.headers.get("content-type", "")
+
+            # Si ML devuelve JSON, puede ser un error o una respuesta con detalle
+            if "application/json" in content_type:
+                data = response.json()
+                # ML devuelve errores con status 400 en JSON
+                if "failed_shipments" in data or data.get("status") == 400:
+                    causes = data.get("causes", [])
+                    message = data.get("message", "Error desconocido de ML")
+                    return {"ok": False, "error": message, "code": causes[0] if causes else "ML_ERROR"}
+                # Puede ser JSON exitoso (raro para ZPL, pero por si acaso)
+                return {"ok": False, "error": "Respuesta inesperada de ML (JSON)", "code": "UNEXPECTED_JSON"}
+
+            # Si no es JSON, debería ser el ZPL como texto plano
+            zpl_text = response.text
+            if zpl_text and "^XA" in zpl_text:
+                logger.info(f"✅ Etiqueta ZPL obtenida para {shipping_id} ({len(zpl_text)} chars)")
+                return {"ok": True, "zpl": zpl_text}
+
+            # Respuesta no reconocida
+            logger.warning(f"Respuesta no reconocida para etiqueta {shipping_id}: {content_type}")
+            return {"ok": False, "error": "Respuesta no reconocida de ML", "code": "UNKNOWN_RESPONSE"}
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error obteniendo etiqueta {shipping_id}: {e.response.status_code}")
+        return {"ok": False, "error": f"Error HTTP {e.response.status_code}", "code": "HTTP_ERROR"}
+    except httpx.RequestError as e:
+        logger.error(f"Request error obteniendo etiqueta {shipping_id}: {e}")
+        return {"ok": False, "error": "Error de conexión con ML webhook", "code": "CONNECTION_ERROR"}
+    except Exception as e:
+        logger.error(f"Error inesperado obteniendo etiqueta {shipping_id}: {e}")
+        return {"ok": False, "error": str(e), "code": "UNEXPECTED_ERROR"}
+
+
 def extraer_tipo_geocoding(data: Dict[str, Any]) -> str:
     """
     Extrae el tipo de geocoding usado por ML.

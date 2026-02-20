@@ -42,7 +42,11 @@ from app.models.etiqueta_envio_audit import EtiquetaEnvioAudit
 from app.models.operador import Operador
 from app.models.operador_actividad import OperadorActividad
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
-from app.services.etiqueta_enrichment_service import lanzar_enriquecimiento_background
+from app.services.etiqueta_enrichment_service import (
+    lanzar_enriquecimiento_background,
+    re_enriquecer_desde_db,
+)
+from app.services.ml_webhook_service import fetch_shipment_label_zpl
 from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
@@ -133,6 +137,9 @@ class EtiquetaEnvioResponse(BaseModel):
 
     # Envío manual (sin ML)
     es_manual: bool = False
+
+    # Outlet (título de item contiene "outlet")
+    es_outlet: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -577,6 +584,7 @@ def listar_etiquetas(
     sin_logistica: bool = Query(False, description="Solo etiquetas sin logística asignada"),
     mlstatus: Optional[str] = Query(None, description="Filtrar por estado ML"),
     ssos_id: Optional[int] = Query(None, description="Filtrar por estado ERP"),
+    solo_outlet: bool = Query(False, description="Solo etiquetas de productos outlet"),
     search: Optional[str] = Query(None, description="Buscar por shipping_id, destinatario o dirección"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -656,6 +664,7 @@ def listar_etiquetas(
             EtiquetaEnvio.pistoleado_at,
             EtiquetaEnvio.pistoleado_caja,
             EtiquetaEnvio.es_manual,
+            EtiquetaEnvio.es_outlet,
             Operador.nombre.label("pistoleado_operador_nombre"),
             Logistica.nombre.label("logistica_nombre"),
             Logistica.color.label("logistica_color"),
@@ -728,6 +737,9 @@ def listar_etiquetas(
     if sin_logistica:
         query = query.filter(EtiquetaEnvio.logistica_id.is_(None))
 
+    if solo_outlet:
+        query = query.filter(EtiquetaEnvio.es_outlet.is_(True))
+
     if mlstatus:
         query = query.filter(eff_status == mlstatus)
 
@@ -777,6 +789,7 @@ def listar_etiquetas(
             costo_envio=float(row.costo_envio) if row.costo_envio is not None else None,
             costo_override=float(row.costo_override) if row.costo_override is not None else None,
             es_manual=row.es_manual,
+            es_outlet=row.es_outlet,
         )
         for row in rows
     ]
@@ -2062,3 +2075,110 @@ def deshacer_pistoleado(
     db.commit()
 
     return {"ok": True, "shipping_id": shipping_id, "anulado_por": operador.nombre}
+
+
+# ── Re-enrichment manual ────────────────────────────────────────
+
+
+class ReEnriquecerRequest(BaseModel):
+    """Body para re-enriquecer etiquetas."""
+
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None
+    shipping_ids: Optional[List[str]] = None
+
+
+@router.post(
+    "/etiquetas-envio/re-enriquecer",
+    summary="Re-enriquece etiquetas desde ml_previews (DB directa)",
+)
+def re_enriquecer_etiquetas(
+    body: ReEnriquecerRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Re-enriquece etiquetas leyendo ml_previews directamente (sin HTTP).
+
+    Útil cuando el webhook estuvo caído, o cuando se agregan campos nuevos
+    (ej: es_outlet) que las etiquetas existentes no tienen.
+
+    Modos de uso:
+    - Por fecha: {fecha_desde, fecha_hasta} → re-enriquece todas en ese rango
+    - Por IDs:   {shipping_ids: ["123", "456"]} → re-enriquece esas específicas
+    - Sin filtro: {} → re-enriquece todo lo de hoy
+
+    Requiere permiso envios_flex.config.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    # Determinar qué etiquetas re-enriquecer
+    if body.shipping_ids:
+        ids = body.shipping_ids
+    else:
+        desde = body.fecha_desde or date.today()
+        hasta = body.fecha_hasta or date.today()
+
+        etiquetas = (
+            db.query(EtiquetaEnvio.shipping_id)
+            .filter(
+                EtiquetaEnvio.fecha_envio >= desde,
+                EtiquetaEnvio.fecha_envio <= hasta,
+            )
+            .all()
+        )
+        ids = [e.shipping_id for e in etiquetas]
+
+    if not ids:
+        return {"actualizadas": 0, "sin_preview": 0, "total": 0, "mensaje": "No hay etiquetas para re-enriquecer"}
+
+    resultado = re_enriquecer_desde_db(ids)
+    resultado["mensaje"] = f"Re-enriquecidas {resultado['actualizadas']} de {resultado['total']} etiquetas"
+    return resultado
+
+
+# ── Impresión de etiquetas ZPL ──────────────────────────────────
+
+# Errores de ML traducidos al español
+_ML_LABEL_ERRORS: dict = {
+    "NOT_PRINTABLE_STATUS": "El envío no está listo para imprimir (ya fue despachado, entregado o cancelado)",
+    "invalid_shipment_ff_public": "Los envíos Fulfillment no permiten imprimir etiquetas desde acá",
+    "invalid_shipment_mode": "Este envío no es de tipo ME2 (MercadoEnvíos 2)",
+    "invalid_shipment_caller": "Usuario no autorizado para este envío",
+}
+
+
+@router.get(
+    "/etiquetas-envio/{shipping_id}/etiqueta",
+    summary="Obtiene la etiqueta ZPL de un envío desde ML",
+)
+async def obtener_etiqueta_zpl(
+    shipping_id: str,
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Obtiene la etiqueta ZPL de un envío desde MercadoLibre vía ml-webhook proxy.
+
+    Devuelve {ok: true, zpl: "^XA..."} si la etiqueta está disponible,
+    o {ok: false, error: "...", code: "..."} con error descriptivo en español.
+
+    Solo se puede imprimir si el envío está en ready_to_ship / ready_to_print o printed.
+    Requiere permiso envios_flex.ver.
+    """
+    _check_permiso(db, current_user, "envios_flex.ver")
+
+    # Verificar que la etiqueta existe en nuestro sistema
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(status_code=404, detail="Etiqueta no encontrada")
+
+    resultado = await fetch_shipment_label_zpl(shipping_id)
+
+    if not resultado["ok"]:
+        # Traducir error de ML al español
+        code = resultado.get("code", "")
+        error_es = _ML_LABEL_ERRORS.get(code, resultado.get("error", "Error desconocido"))
+        return {"ok": False, "error": error_es, "code": code}
+
+    return resultado
