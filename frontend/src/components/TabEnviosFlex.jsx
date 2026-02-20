@@ -92,6 +92,24 @@ export default function TabEnviosFlex({ operador = null }) {
   const [sinLogistica, setSinLogistica] = useState(false);
   const [search, setSearch] = useState('');
 
+  // Extrae shipping_id si el input es JSON de etiqueta (pistola/QR)
+  const handleSearchChange = (value) => {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const shippingId = parsed.id || parsed.shipping_id;
+        if (shippingId) {
+          setSearch(String(shippingId));
+          return;
+        }
+      } catch {
+        // No es JSON válido (todavía se está escribiendo), dejar pasar
+      }
+    }
+    setSearch(value);
+  };
+
   // Scanner
   const [scanInput, setScanInput] = useState('');
   const [scanFeedback, setScanFeedback] = useState(null); // { type, message }
@@ -939,9 +957,9 @@ export default function TabEnviosFlex({ operador = null }) {
 
           <input
             type="text"
-            placeholder="Buscar..."
+            placeholder="Buscar (texto o escanear QR)..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className={styles.searchInput}
           />
 
