@@ -231,6 +231,12 @@ class AsignarMasivoRequest(BaseModel):
     logistica_id: int
 
 
+class ShippingIdsRequest(BaseModel):
+    """Payload genérico con lista de shipping_ids."""
+
+    shipping_ids: List[str] = Field(min_length=1)
+
+
 # ── Schemas Pistoleado ───────────────────────────────────────────────
 
 
@@ -2048,6 +2054,39 @@ def toggle_turbo(
         "shipping_id": shipping_id,
         "es_turbo": es_turbo,
         "valor_anterior": valor_anterior,
+    }
+
+
+@router.put(
+    "/etiquetas-envio/turbo-masivo",
+    response_model=dict,
+    summary="Marcar o desmarcar turbo en múltiples etiquetas",
+)
+def toggle_turbo_masivo(
+    payload: ShippingIdsRequest,
+    es_turbo: bool = Query(..., description="True para marcar como turbo, False para desmarcar"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Marca o desmarca múltiples etiquetas como turbo en una sola operación.
+
+    Requiere permiso envios_flex.config.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    updated = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
+        .update({EtiquetaEnvio.es_turbo: es_turbo}, synchronize_session="fetch")
+    )
+    db.commit()
+
+    return {
+        "ok": True,
+        "es_turbo": es_turbo,
+        "actualizados": updated,
+        "solicitados": len(payload.shipping_ids),
     }
 
 

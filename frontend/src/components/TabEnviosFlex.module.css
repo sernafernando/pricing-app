@@ -923,6 +923,58 @@
   cursor: not-allowed;
 }
 
+.selectionBtnTurbo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(37, 99, 235, 0.5);
+  background: rgba(37, 99, 235, 0.15);
+  color: #93c5fd;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnTurbo:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.3);
+  border-color: rgba(37, 99, 235, 0.7);
+}
+
+.selectionBtnTurbo:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.selectionBtnTurboActive {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(37, 99, 235, 0.8);
+  background: rgba(37, 99, 235, 0.4);
+  color: #bfdbfe;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnTurboActive:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.25);
+  border-color: rgba(37, 99, 235, 0.5);
+}
+
+.selectionBtnTurboActive:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .selectionBtnBorrar {
   display: flex;
   align-items: center;
