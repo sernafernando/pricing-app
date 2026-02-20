@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
-  Truck, Search, Printer, Pencil,
+  Truck, Search, Printer, Pencil, Bike,
 } from 'lucide-react';
 import api from '../services/api';
 import { printZpl } from '../services/zebraPrint';
@@ -640,6 +640,35 @@ export default function TabEnviosFlex({ operador = null }) {
                 logistica_nombre: log?.nombre || null,
                 logistica_color: log?.color || null,
               }
+            : e
+        )
+      );
+
+      limpiarSeleccion();
+      // Refresh stats
+      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
+      setEstadisticas(statsData);
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setBulkActualizando(false);
+    }
+  };
+
+  const toggleTurboMasivo = async (marcar) => {
+    if (selectedIds.size === 0) return;
+
+    setBulkActualizando(true);
+    try {
+      await api.put(`/etiquetas-envio/turbo-masivo?es_turbo=${marcar}`, {
+        shipping_ids: Array.from(selectedIds),
+      });
+
+      // Actualizar localmente
+      setEtiquetas(prev =>
+        prev.map(e =>
+          selectedIds.has(e.shipping_id)
+            ? { ...e, es_turbo: marcar }
             : e
         )
       );
@@ -1488,6 +1517,24 @@ export default function TabEnviosFlex({ operador = null }) {
               </button>
             </div>
           )}
+
+          {puedeVerCostos && (() => {
+            const todasTurbo = etiquetas
+              .filter(e => selectedIds.has(e.shipping_id))
+              .every(e => e.es_turbo);
+            return (
+              <button
+                onClick={() => toggleTurboMasivo(!todasTurbo)}
+                disabled={bulkActualizando}
+                className={todasTurbo ? styles.selectionBtnTurboActive : styles.selectionBtnTurbo}
+                title={todasTurbo ? 'Desmarcar turbo' : 'Marcar como turbo'}
+                aria-label={todasTurbo ? 'Desmarcar turbo' : 'Marcar como turbo'}
+              >
+                <Bike size={16} />
+                {todasTurbo ? 'Quitar turbo' : 'Turbo'}
+              </button>
+            );
+          })()}
 
           {puedeEliminar && (
             <button
