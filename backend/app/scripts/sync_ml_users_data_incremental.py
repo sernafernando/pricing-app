@@ -122,6 +122,7 @@ async def _insert_records(db: Session, records: list[dict]) -> tuple[int, int]:
         try:
             user = _build_user(record)
             if user is None:
+                print(f"\n   ⚠️  Record sin MLUser_Id: {record}", flush=True)
                 errores += 1
                 continue
 
@@ -248,6 +249,7 @@ async def sync_ml_users_data_incremental(db: Session) -> tuple[int, int, int]:
                         current += timedelta(days=1)
                         continue
 
+                    print(f"{len(records)} recibidos ...", end=" ", flush=True)
                     insertados, errores = await _insert_records(db, records)
                     total_insertados += insertados
                     total_errores += errores
