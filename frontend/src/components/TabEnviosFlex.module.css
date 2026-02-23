@@ -278,25 +278,6 @@
   margin-bottom: -1px;
 }
 
-/* Estilizar la scrollbar para que sea compacta */
-.topScrollbar::-webkit-scrollbar {
-  height: 8px;
-}
-
-.topScrollbar::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
-  border-radius: 4px;
-}
-
-.topScrollbar::-webkit-scrollbar-thumb {
-  background: var(--text-tertiary);
-  border-radius: 4px;
-}
-
-.topScrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
-}
-
 /* ── Table ──────────────────────────────────────────────────── */
 
 .tableContainer {
