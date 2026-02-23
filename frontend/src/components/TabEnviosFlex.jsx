@@ -7,6 +7,8 @@ import {
 import api from '../services/api';
 import { printZpl } from '../services/zebraPrint';
 import { usePermisos } from '../contexts/PermisosContext';
+import { useToast } from '../hooks/useToast';
+import Toast from './Toast';
 import styles from './TabEnviosFlex.module.css';
 
 const CORDONES = ['CABA', 'Cordón 1', 'Cordón 2', 'Cordón 3'];
@@ -150,8 +152,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const [bulkActualizando, setBulkActualizando] = useState(false);
 
   // Error inline (reemplaza alert())
-  const [errorMsg, setErrorMsg] = useState(null);
-  const errorTimerRef = useRef(null);
+  const { toast, showToast: showErrorToast, hideToast } = useToast(5000);
 
   // Export — array ordenado: el orden de tildado = orden de columnas en el XLSX
   const [showExportModal, setShowExportModal] = useState(false);
@@ -192,9 +193,7 @@ export default function TabEnviosFlex({ operador = null }) {
 
   const mostrarError = (err) => {
     const msg = err?.response?.data?.detail || err?.message || String(err);
-    setErrorMsg(msg);
-    if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
-    errorTimerRef.current = setTimeout(() => setErrorMsg(null), 5000);
+    showErrorToast(msg, 'error');
   };
 
   // ── Confirm dialog helpers ─────────────────────────────────
@@ -1636,19 +1635,7 @@ export default function TabEnviosFlex({ operador = null }) {
       )}
 
       {/* Error toast inline */}
-      {errorMsg && (
-        <div className={styles.errorToast}>
-          <AlertCircle size={16} />
-          <span>{errorMsg}</span>
-          <button
-            className={styles.errorToastClose}
-            onClick={() => setErrorMsg(null)}
-            aria-label="Cerrar mensaje de error"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <Toast toast={toast} onClose={hideToast} />
 
       {/* Confirm modal */}
       {confirmDialog && (

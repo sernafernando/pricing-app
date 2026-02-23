@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { registrarPagina, getPaginas } from '../registry/tabRegistry';
+import { useToast } from '../hooks/useToast';
+import Toast from '../components/Toast';
 import styles from './ConfigOperaciones.module.css';
 
 registrarPagina({
@@ -546,6 +548,8 @@ function TabCostosEnvio() {
   const [vigenteMap, setVigenteMap] = useState({});
   const defaultDate = () => new Date().toISOString().split('T')[0];
 
+  const { toast, showToast, hideToast } = useToast();
+
   const cargarDatos = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -621,6 +625,7 @@ function TabCostosEnvio() {
         vigente_desde: fecha,
       });
       await cargarDatos();
+      showToast(`Costo guardado: ${cordon} — $${valor}${turboVal != null ? ` / T$${turboVal}` : ''}`);
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al guardar costo');
     } finally {
@@ -784,6 +789,8 @@ function TabCostosEnvio() {
           </div>
         )}
       </section>
+
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   );
 }

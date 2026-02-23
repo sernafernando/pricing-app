@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { productosAPI } from '../services/api';
 import PricingModalTesla from '../components/PricingModalTesla';
@@ -11,6 +11,8 @@ import CalcularWebModal from '../components/CalcularWebModal';
 import CalcularPVPModal from '../components/CalcularPVPModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import StatCard from '../components/StatCard';
+import { useToast } from '../hooks/useToast';
+import Toast from '../components/Toast';
 import '../styles/tabla-productos-shared.css';
 import './Productos.css';
 
@@ -135,7 +137,7 @@ export default function Productos() {
   const [recalculandoCuotasMasivo, setRecalculandoCuotasMasivo] = useState(false);
 
   // Toast notification
-  const [toast, setToast] = useState(null);
+  const { toast, showToast, hideToast } = useToast();
 
   // Modal de ban
   const [mostrarModalBan, setMostrarModalBan] = useState(false);
@@ -150,8 +152,6 @@ export default function Productos() {
 
   const user = useAuthStore((state) => state.user);
   const { tienePermiso } = usePermisos();
-
-  const toastTimeoutRef = useRef(null);
 
   // Permisos granulares de edición
   const puedeEditarPrecioClasica = tienePermiso('productos.editar_precio_clasica');
@@ -181,25 +181,6 @@ export default function Productos() {
   // URL Query Params para persistencia de filtros
   const [searchParams, setSearchParams] = useSearchParams();
   const [filtrosInicializados, setFiltrosInicializados] = useState(false);
-
-  // Función para mostrar toast
-  const showToast = (message, type = 'success') => {
-    // Limpiar timeout anterior si existe
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-    }
-    setToast({ message, type });
-    toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
-  };
-
-  // Cleanup del toast timeout al desmontar
-  useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
-    };
-  }, []);
 
   // Función para sincronizar filtros a la URL
   const syncFiltersToURL = () => {
@@ -5039,11 +5020,7 @@ export default function Productos() {
       )}
 
       {/* Toast notification */}
-      {toast && (
-        <div className={`toast ${toast.type === 'error' ? 'error' : ''}`}>
-          {toast.message}
-        </div>
-      )}
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   );
 }
