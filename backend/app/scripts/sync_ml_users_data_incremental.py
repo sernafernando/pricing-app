@@ -29,7 +29,7 @@ from app.core.database import SessionLocal
 import app.models  # noqa
 from app.models.mercadolibre_user_data import MercadoLibreUserData
 
-CHUNK_SIZE = 5000
+CHUNK_SIZE = 500
 API_URL = "http://localhost:8002/api/gbp-parser"
 API_TIMEOUT = 180.0
 
