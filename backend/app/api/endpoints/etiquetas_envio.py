@@ -44,7 +44,6 @@ from app.models.operador_actividad import OperadorActividad
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.services.etiqueta_enrichment_service import (
     enriquecer_etiquetas_sync,
-    lanzar_enriquecimiento_background,
     re_enriquecer_desde_db,
     re_enriquecer_por_http,
 )
