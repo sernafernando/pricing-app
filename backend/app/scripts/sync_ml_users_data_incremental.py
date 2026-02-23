@@ -207,7 +207,7 @@ async def sync_ml_users_data_incremental(db: Session) -> tuple[int, int, int]:
         nuevo_max = db.query(func.max(MercadoLibreUserData.mluser_id)).scalar()
         nuevo_count = db.query(func.count(MercadoLibreUserData.mluser_id)).scalar()
 
-        print(f"\n✅ Carga inicial completada!")
+        print("\n✅ Carga inicial completada!")
         print(f"   Total registros: {nuevo_count}")
         print(f"   Insertados: {total_insertados}")
         print(f"   Errores: {total_errores}")
@@ -257,7 +257,7 @@ async def sync_ml_users_data_incremental(db: Session) -> tuple[int, int, int]:
 
             nuevo_max = db.query(func.max(MercadoLibreUserData.mluser_id)).scalar()
 
-            print(f"\n✅ Sync incremental completado!")
+            print("\n✅ Sync incremental completado!")
             print(f"   Insertados/actualizados: {total_insertados}")
             print(f"   Errores: {total_errores}")
             print(f"   Max mluser_id: {nuevo_max}")
