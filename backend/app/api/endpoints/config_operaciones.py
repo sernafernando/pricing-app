@@ -612,36 +612,14 @@ def listar_costos_vigentes(
 
     hoy = date.today()
 
-    # Subquery: max id por (logistica_id, cordon) donde vigente_desde <= hoy,
-    # agrupando primero por max vigente_desde y luego por max id para desempatar
-    # cuando hay múltiples registros con la misma fecha.
-    max_fecha_sub = (
-        db.query(
-            LogisticaCostoCordon.logistica_id,
-            LogisticaCostoCordon.cordon,
-            func.max(LogisticaCostoCordon.vigente_desde).label("max_fecha"),
-        )
-        .filter(LogisticaCostoCordon.vigente_desde <= hoy)
-        .group_by(
-            LogisticaCostoCordon.logistica_id,
-            LogisticaCostoCordon.cordon,
-        )
-        .subquery()
-    )
-
-    # Second subquery: among rows with max vigente_desde, pick the one with max id
+    # Subquery: max(id) por (logistica_id, cordon) donde vigente_desde <= hoy.
+    # Siempre el id más alto = última voluntad del usuario, incluso si puso
+    # una vigente_desde más vieja después.
     max_id_sub = (
         db.query(
             func.max(LogisticaCostoCordon.id).label("max_id"),
         )
-        .join(
-            max_fecha_sub,
-            and_(
-                LogisticaCostoCordon.logistica_id == max_fecha_sub.c.logistica_id,
-                LogisticaCostoCordon.cordon == max_fecha_sub.c.cordon,
-                LogisticaCostoCordon.vigente_desde == max_fecha_sub.c.max_fecha,
-            ),
-        )
+        .filter(LogisticaCostoCordon.vigente_desde <= hoy)
         .group_by(
             LogisticaCostoCordon.logistica_id,
             LogisticaCostoCordon.cordon,
