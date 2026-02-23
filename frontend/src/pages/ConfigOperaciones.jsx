@@ -599,6 +599,12 @@ function TabCostosEnvio() {
     }));
   };
 
+  const getCostoActual = (logisticaId, cordon) => {
+    return costos.find(
+      (c) => c.logistica_id === logisticaId && c.cordon === cordon
+    );
+  };
+
   // Check if a specific cell has changes (value or date)
   const hasChanges = (logisticaId, cordon) => {
     const key = `${logisticaId}-${cordon}`;
@@ -717,12 +723,6 @@ function TabCostosEnvio() {
     } finally {
       setSaving(false);
     }
-  };
-
-  const getCostoActual = (logisticaId, cordon) => {
-    return costos.find(
-      (c) => c.logistica_id === logisticaId && c.cordon === cordon
-    );
   };
 
   if (loading) {
