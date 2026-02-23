@@ -546,6 +546,7 @@ function TabCostosEnvio() {
   const [origTurboMatrix, setOrigTurboMatrix] = useState({});
   // Per-logística vigente dates: { logistica_id: 'YYYY-MM-DD' }
   const [vigenteMap, setVigenteMap] = useState({});
+  const [origVigenteMap, setOrigVigenteMap] = useState({});
   const defaultDate = () => new Date().toISOString().split('T')[0];
 
   const { toast, showToast, hideToast } = useToast();
@@ -569,11 +570,24 @@ function TabCostosEnvio() {
         m[key] = c.costo.toString();
         mt[key] = c.costo_turbo != null ? c.costo_turbo.toString() : '';
       }
+      // Construir fechas vigentes por logística: tomar la del registro con mayor id
+      // (el último guardado por el usuario, consistente con max(id) del backend)
+      const v = {};
+      const vMaxId = {};
+      for (const c of costosRes.data) {
+        if (!vMaxId[c.logistica_id] || c.id > vMaxId[c.logistica_id]) {
+          vMaxId[c.logistica_id] = c.id;
+          v[c.logistica_id] = c.vigente_desde;
+        }
+      }
+
       setMatrix(m);
       setTurboMatrix(mt);
+      setVigenteMap(v);
       // Snapshot originals for string-based change detection
       setOrigMatrix({ ...m });
       setOrigTurboMatrix({ ...mt });
+      setOrigVigenteMap({ ...v });
     } catch {
       setError('Error al cargar costos');
     } finally {
@@ -612,10 +626,9 @@ function TabCostosEnvio() {
     const turboValMatrix = turboMatrix[key] ?? '';
     const origVal = origMatrix[key] ?? '';
     const origTurbo = origTurboMatrix[key] ?? '';
-    const actual = getCostoActual(logisticaId, cordon);
-    const fechaSeleccionada = vigenteMap[logisticaId] || defaultDate();
-    const fechaChanged = actual ? fechaSeleccionada !== actual.vigente_desde : false;
-    return valorMatrix !== origVal || turboValMatrix !== origTurbo || fechaChanged;
+    const fechaActual = vigenteMap[logisticaId] || '';
+    const fechaOrig = origVigenteMap[logisticaId] || '';
+    return valorMatrix !== origVal || turboValMatrix !== origTurbo || fechaActual !== fechaOrig;
   };
 
   // Check if any cell in a row has changes
@@ -742,7 +755,7 @@ function TabCostosEnvio() {
             {anyChanges && (
               <button
                 onClick={guardarTodo}
-                className={styles.btnGuardarTodo}
+                className="btn-tesla outline-subtle-primary"
                 disabled={saving}
                 aria-label="Guardar todos los cambios"
               >

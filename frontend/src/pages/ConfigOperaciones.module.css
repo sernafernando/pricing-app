@@ -307,32 +307,6 @@
   flex-shrink: 0;
 }
 
-.btnGuardarTodo {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  background: var(--brand-primary);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-
-.btnGuardarTodo:hover:not(:disabled) {
-  background: var(--brand-primary-hover);
-  transform: translateY(-1px);
-}
-
-.btnGuardarTodo:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .btnGuardarFila {
   display: inline-flex;
   align-items: center;
