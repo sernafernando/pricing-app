@@ -620,6 +620,8 @@ def listar_etiquetas(
     soh_sub = _soh_status_subquery(db)
 
     # Subquery: costo vigente por (logistica_id, cordon) donde vigente_desde <= hoy.
+    # Usamos max(id) como criterio único — el registro más reciente (mayor id) es
+    # siempre la última intención del usuario, incluso si hay duplicados por fecha.
     # cp_cordones usa tildes (Cordón) pero logistica_costo_cordon no (Cordon),
     # así que normalizamos con REPLACE en la condición del JOIN.
     hoy = date.today()
@@ -627,7 +629,7 @@ def listar_etiquetas(
         db.query(
             LogisticaCostoCordon.logistica_id.label("costo_logistica_id"),
             LogisticaCostoCordon.cordon.label("costo_cordon"),
-            func.max(LogisticaCostoCordon.vigente_desde).label("max_vigente"),
+            func.max(LogisticaCostoCordon.id).label("max_id"),
         )
         .filter(LogisticaCostoCordon.vigente_desde <= hoy)
         .group_by(
@@ -646,11 +648,7 @@ def listar_etiquetas(
         )
         .join(
             max_costo_sub,
-            and_(
-                LogisticaCostoCordon.logistica_id == max_costo_sub.c.costo_logistica_id,
-                LogisticaCostoCordon.cordon == max_costo_sub.c.costo_cordon,
-                LogisticaCostoCordon.vigente_desde == max_costo_sub.c.max_vigente,
-            ),
+            LogisticaCostoCordon.id == max_costo_sub.c.max_id,
         )
         .subquery()
     )
@@ -1037,11 +1035,13 @@ def estadisticas_etiquetas(
     por_estado_erp = {row.ssos_name: row.cantidad for row in erp_status_rows}
 
     # ── Costos de envío ─────────────────────────────────────────
+    # max(id) como criterio único — evita duplicados cuando hay múltiples registros
+    # con la misma (logistica_id, cordon, vigente_desde).
     max_costo_stats = (
         db.query(
             LogisticaCostoCordon.logistica_id.label("costo_logistica_id"),
             LogisticaCostoCordon.cordon.label("costo_cordon"),
-            func.max(LogisticaCostoCordon.vigente_desde).label("max_vigente"),
+            func.max(LogisticaCostoCordon.id).label("max_id"),
         )
         .filter(LogisticaCostoCordon.vigente_desde <= fecha_costo)
         .group_by(
@@ -1060,11 +1060,7 @@ def estadisticas_etiquetas(
         )
         .join(
             max_costo_stats,
-            and_(
-                LogisticaCostoCordon.logistica_id == max_costo_stats.c.costo_logistica_id,
-                LogisticaCostoCordon.cordon == max_costo_stats.c.costo_cordon,
-                LogisticaCostoCordon.vigente_desde == max_costo_stats.c.max_vigente,
-            ),
+            LogisticaCostoCordon.id == max_costo_stats.c.max_id,
         )
         .subquery()
     )
@@ -1216,7 +1212,7 @@ def exportar_etiquetas(
         db.query(
             LogisticaCostoCordon.logistica_id.label("costo_logistica_id"),
             LogisticaCostoCordon.cordon.label("costo_cordon"),
-            func.max(LogisticaCostoCordon.vigente_desde).label("max_vigente"),
+            func.max(LogisticaCostoCordon.id).label("max_id"),
         )
         .filter(LogisticaCostoCordon.vigente_desde <= hoy_export)
         .group_by(LogisticaCostoCordon.logistica_id, LogisticaCostoCordon.cordon)
@@ -1232,11 +1228,7 @@ def exportar_etiquetas(
         )
         .join(
             max_costo_exp,
-            and_(
-                LogisticaCostoCordon.logistica_id == max_costo_exp.c.costo_logistica_id,
-                LogisticaCostoCordon.cordon == max_costo_exp.c.costo_cordon,
-                LogisticaCostoCordon.vigente_desde == max_costo_exp.c.max_vigente,
-            ),
+            LogisticaCostoCordon.id == max_costo_exp.c.max_id,
         )
         .subquery()
     )
