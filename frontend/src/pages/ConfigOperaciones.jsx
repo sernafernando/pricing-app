@@ -709,50 +709,66 @@ function TabCostosEnvio() {
 
                       return (
                         <td key={cordon} className={styles.costoCell}>
-                          <div className={styles.costoInputGroup}>
-                            <span className={styles.costoPrefix}>$</span>
-                            <input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={valorMatrix}
-                              onChange={(e) =>
-                                handleCostChange(log.id, cordon, e.target.value)
-                              }
-                              className={styles.costoInput}
-                              placeholder="—"
-                            />
+                          <div className={styles.costoRows}>
+                            <div className={styles.costoInputGroup}>
+                              <span className={styles.costoPrefix}>$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={valorMatrix}
+                                onChange={(e) =>
+                                  handleCostChange(log.id, cordon, e.target.value)
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && changed) {
+                                    e.preventDefault();
+                                    guardarCosto(log.id, cordon);
+                                  }
+                                }}
+                                className={styles.costoInput}
+                                placeholder="—"
+                              />
+                            </div>
+                            <div className={styles.costoInputGroup}>
+                              <span className={styles.costoPrefixTurbo}>T$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={turboValMatrix}
+                                onChange={(e) =>
+                                  handleTurboCostChange(log.id, cordon, e.target.value)
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && changed) {
+                                    e.preventDefault();
+                                    guardarCosto(log.id, cordon);
+                                  }
+                                }}
+                                className={styles.costoInput}
+                                placeholder="—"
+                              />
+                            </div>
                           </div>
-                          <div className={styles.costoInputGroup}>
-                            <span className={styles.costoPrefixTurbo}>T$</span>
-                            <input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={turboValMatrix}
-                              onChange={(e) =>
-                                handleTurboCostChange(log.id, cordon, e.target.value)
-                              }
-                              className={styles.costoInput}
-                              placeholder="—"
-                            />
+                          <div className={styles.costoFooter}>
+                            {actual && (
+                              <span className={styles.costoVigente}>
+                                desde {actual.vigente_desde}
+                              </span>
+                            )}
                             {changed && (
                               <button
                                 onClick={() => guardarCosto(log.id, cordon)}
                                 className={styles.btnSaveCosto}
                                 disabled={saving}
-                                title="Guardar costos"
+                                title="Guardar costos (o Enter)"
                                 aria-label={`Guardar costos de ${log.nombre} para ${cordon}`}
                               >
                                 <Save size={14} />
                               </button>
                             )}
                           </div>
-                          {actual && (
-                            <div className={styles.costoVigente}>
-                              desde {actual.vigente_desde}
-                            </div>
-                          )}
                         </td>
                       );
                     })}
