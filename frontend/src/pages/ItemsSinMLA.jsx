@@ -2,7 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../services/api';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../hooks/usePermisos';
+import { useToast } from '../hooks/useToast';
 import ModalInfoProducto from '../components/ModalInfoProducto';
+import Toast from '../components/Toast';
 import './ItemsSinMLA.css';
 
 // Inline SVG icons — stroke-based, consistent 16x16 default
@@ -146,15 +148,8 @@ const ItemsSinMLA = () => {
   const [mostrarModalInfo, setMostrarModalInfo] = useState(false);
   const [productoInfoId, setProductoInfoId] = useState(null);
 
-  // Toast notification state (replaces alert())
-  const [toast, setToast] = useState(null); // { message, type: 'success'|'error'|'info' }
-  const toastTimerRef = useRef(null);
-
-  const showToast = useCallback((message, type = 'info') => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setToast({ message, type });
-    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
-  }, []);
+  // Toast notification (shared hook)
+  const { toast, showToast, hideToast } = useToast(4000);
 
   // Confirmation modal state (replaces confirm())
   const [confirmModal, setConfirmModal] = useState(null); // { message, onConfirm }
@@ -2375,18 +2370,8 @@ const ItemsSinMLA = () => {
         </div>
       )}
 
-      {/* Toast notification (replaces alert()) */}
-      {toast && (
-        <div className={`toast-notification toast-${toast.type}`} onClick={() => setToast(null)}>
-          {toast.type === 'success' && Icon.checkCircle(16)}
-          {toast.type === 'error' && Icon.alertCircle(16)}
-          {toast.type === 'info' && Icon.info(16)}
-          <span>{toast.message}</span>
-          <button className="toast-close" onClick={() => setToast(null)} aria-label="Cerrar notificación">
-            {Icon.x(14)}
-          </button>
-        </div>
-      )}
+      {/* Toast notification */}
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   );
 };

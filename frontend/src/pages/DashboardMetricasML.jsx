@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../services/api';
 import styles from './DashboardMetricasML.module.css';
+import { useToast } from '../hooks/useToast';
+import Toast from '../components/Toast';
 import TabRentabilidad from '../components/TabRentabilidad';
 import PaginationControls from '../components/PaginationControls';
 import { useQueryFilters } from '../hooks/useQueryFilters';
@@ -95,26 +97,7 @@ export default function DashboardMetricasML() {
   const [busquedaCategoria, setBusquedaCategoria] = useState('');
 
   // Toast notification
-  const [toast, setToast] = useState(null);
-  const toastTimeoutRef = useRef(null);
-
-  // Función para mostrar toast
-  const showToast = (message, type = 'success') => {
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-    }
-    setToast({ message, type });
-    toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
-  };
-
-  // Cleanup del toast timeout al desmontar
-  useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
-    };
-  }, []);
+  const { toast, showToast, hideToast } = useToast();
 
   // Hook de paginación server-side (solo para tab de operaciones)
   const paginationFilters = useMemo(() => ({
@@ -1192,11 +1175,7 @@ export default function DashboardMetricasML() {
       )}
 
       {/* Toast notification */}
-      {toast && (
-        <div className={`toast-notification ${toast.type}`}>
-          {toast.message}
-        </div>
-      )}
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   );
 }

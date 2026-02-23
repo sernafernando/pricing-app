@@ -1503,43 +1503,6 @@
 
 /* Filas coloreadas y checkboxes → ver tabla-productos-shared.css */
 
-/* Toast notifications (específico de Tienda) */
-.toast {
-  position: fixed;
-  top: 80px;
-  right: 20px;
-  background: var(--success);
-  color: white;
-  padding: 16px 24px;
-  border-radius: 8px;
-  box-shadow: var(--shadow-lg);
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  animation: slideIn 0.3s ease-out;
-  max-width: 400px;
-  word-break: break-all;
-}
-
-.toast.error {
-  background: var(--error);
-}
-
-@keyframes slideIn {
-  from {
-    transform: translateX(400px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-
 /* Floating selection bar */
 .selection-bar {
   position: fixed;

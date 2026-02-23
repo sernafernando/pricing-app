@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
+import { useToast } from '../hooks/useToast';
+import Toast from './Toast';
 import styles from './SetupMarkups.module.css';
 
 export default function SetupMarkups() {
@@ -21,7 +23,7 @@ export default function SetupMarkups() {
   const [editandoMarkupProducto, setEditandoMarkupProducto] = useState(null);
   const [markupTempProducto, setMarkupTempProducto] = useState('');
 
-  const [toast, setToast] = useState(null);
+  const { toast, showToast, hideToast } = useToast();
 
   // Estados para configuración global
   const [markupWebTarjeta, setMarkupWebTarjeta] = useState('');
@@ -41,18 +43,18 @@ export default function SetupMarkups() {
   const guardarWebTarjeta = async () => {
     const valor = parseFloat(markupWebTarjeta.replace(',', '.'));
     if (isNaN(valor)) {
-      mostrarToast('Ingresá un valor válido', 'error');
+      showToast('Ingresá un valor válido', 'error');
       return;
     }
 
     setGuardandoWebTarjeta(true);
     try {
       await api.put('/markups-tienda/config/markup_web_tarjeta', { valor });
-      mostrarToast('Configuración guardada', 'success');
+      showToast('Configuración guardada', 'success');
       setEditandoWebTarjeta(false);
     } catch (error) {
       console.error('Error guardando config:', error);
-      mostrarToast('Error al guardar', 'error');
+      showToast('Error al guardar', 'error');
     } finally {
       setGuardandoWebTarjeta(false);
     }
@@ -70,7 +72,7 @@ export default function SetupMarkups() {
       setBrands(response.data);
     } catch (error) {
       console.error('Error cargando brands:', error);
-      mostrarToast('Error al cargar marcas', 'error');
+      showToast('Error al cargar marcas', 'error');
     } finally {
       setLoadingBrands(false);
     }
@@ -87,7 +89,7 @@ export default function SetupMarkups() {
 
   const guardarMarkupMarca = async (brand) => {
     if (!markupTempMarca || isNaN(parseFloat(markupTempMarca))) {
-      mostrarToast('Ingresá un markup válido', 'error');
+      showToast('Ingresá un markup válido', 'error');
       return;
     }
 
@@ -103,14 +105,14 @@ export default function SetupMarkups() {
         }
       );
 
-      mostrarToast('Markup guardado', 'success');
+      showToast('Markup guardado', 'success');
       setEditandoMarkupMarca(null);
       setMarkupTempMarca('');
       cargarBrands();
       cargarStats();
     } catch (error) {
       console.error('Error guardando markup:', error);
-      mostrarToast('Error al guardar markup', 'error');
+      showToast('Error al guardar markup', 'error');
     }
   };
 
@@ -119,12 +121,12 @@ export default function SetupMarkups() {
 
     try {
       await api.delete(`/markups-tienda/brands/${brand.comp_id}/${brand.brand_id}/markup`);
-      mostrarToast('Markup eliminado', 'success');
+      showToast('Markup eliminado', 'success');
       cargarBrands();
       cargarStats();
     } catch (error) {
       console.error('Error eliminando markup:', error);
-      mostrarToast('Error al eliminar markup', 'error');
+      showToast('Error al eliminar markup', 'error');
     }
   };
 
@@ -168,7 +170,7 @@ export default function SetupMarkups() {
 
   const guardarMarkupProducto = async (producto) => {
     if (!markupTempProducto || isNaN(parseFloat(markupTempProducto))) {
-      mostrarToast('Ingresá un markup válido', 'error');
+      showToast('Ingresá un markup válido', 'error');
       return;
     }
 
@@ -181,7 +183,7 @@ export default function SetupMarkups() {
         activo: true
       });
 
-      mostrarToast('Markup guardado', 'success');
+      showToast('Markup guardado', 'success');
       setEditandoMarkupProducto(null);
       setMarkupTempProducto('');
       setProductosEncontrados([]);
@@ -190,7 +192,7 @@ export default function SetupMarkups() {
       cargarStats();
     } catch (error) {
       console.error('Error guardando markup:', error);
-      mostrarToast('Error al guardar markup', 'error');
+      showToast('Error al guardar markup', 'error');
     }
   };
 
@@ -199,12 +201,12 @@ export default function SetupMarkups() {
 
     try {
       await api.delete(`/markups-tienda/productos/${producto.item_id}/markup`);
-      mostrarToast('Markup eliminado', 'success');
+      showToast('Markup eliminado', 'success');
       cargarProductosConMarkup();
       cargarStats();
     } catch (error) {
       console.error('Error eliminando markup:', error);
-      mostrarToast('Error al eliminar markup', 'error');
+      showToast('Error al eliminar markup', 'error');
     }
   };
 
@@ -212,12 +214,6 @@ export default function SetupMarkups() {
     setEditandoMarkupProducto(producto);
     setMarkupTempProducto('');
     setProductosEncontrados([]);
-  };
-
-  // ========== HELPERS ==========
-  const mostrarToast = (mensaje, tipo) => {
-    setToast({ mensaje, tipo });
-    setTimeout(() => setToast(null), 3000);
   };
 
   useEffect(() => {
@@ -643,12 +639,7 @@ export default function SetupMarkups() {
         )}
       </div>
 
-      {/* Toast */}
-      {toast && (
-        <div className={`${styles.toast} ${styles[`toast${toast.tipo === 'success' ? 'Success' : 'Error'}`]}`}>
-          {toast.tipo === 'success' ? '✓' : '✕'} {toast.mensaje}
-        </div>
-      )}
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   );
 }

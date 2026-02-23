@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import PricingModalTesla from '../components/PricingModalTesla';
 import { useDebounce } from '../hooks/useDebounce';
+import { useToast } from '../hooks/useToast';
+import Toast from '../components/Toast';
 import { useTiendaFilters } from '../hooks/useTiendaFilters';
 import { useTiendaData } from '../hooks/useTiendaData';
 import { useTiendaPricing } from '../hooks/useTiendaPricing';
@@ -61,16 +63,7 @@ export default function Tienda() {
   const debouncedSearch = useDebounce(searchInput, 500);
 
   // Toast notification
-  const [toast, setToast] = useState(null);
-  const toastTimeoutRef = useRef(null);
-  const showToast = useCallback((message, type = 'success') => {
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    setToast({ message, type });
-    toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
-  }, []);
-  useEffect(() => {
-    return () => { if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current); };
-  }, []);
+  const { toast, showToast, hideToast } = useToast();
 
   // === DATA HOOK: productos, stats, marcas, subcats, PMs, dólar, web tarjeta ===
   const {
@@ -2698,11 +2691,7 @@ export default function Tienda() {
       )}
 
       {/* Toast notification */}
-      {toast && (
-        <div className={`toast ${toast.type === 'error' ? 'error' : ''}`}>
-          {toast.message}
-        </div>
-      )}
+      <Toast toast={toast} onClose={hideToast} />
       </>
       )}
     </div>

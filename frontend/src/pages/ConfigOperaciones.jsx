@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Users, DollarSign, Truck, Plus, ToggleLeft, ToggleRight,
   Trash2, Save, RefreshCw, Clock, Hash, ChevronDown,
 } from 'lucide-react';
 import api from '../services/api';
 import { registrarPagina, getPaginas } from '../registry/tabRegistry';
+import { useToast } from '../hooks/useToast';
+import Toast from '../components/Toast';
 import styles from './ConfigOperaciones.module.css';
 
 registrarPagina({
@@ -546,19 +548,7 @@ function TabCostosEnvio() {
   const [vigenteMap, setVigenteMap] = useState({});
   const defaultDate = () => new Date().toISOString().split('T')[0];
 
-  // Toast notification
-  const [toast, setToast] = useState(null);
-  const toastTimeoutRef = useRef(null);
-  const showToast = (message, type = 'success') => {
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    setToast({ message, type });
-    toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
-  };
-  useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    };
-  }, []);
+  const { toast, showToast, hideToast } = useToast();
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
@@ -800,14 +790,7 @@ function TabCostosEnvio() {
         )}
       </section>
 
-      {toast && (
-        <div
-          className={toast.type === 'error' ? styles.toastError : styles.toastSuccess}
-          onClick={() => setToast(null)}
-        >
-          <span>{toast.message}</span>
-        </div>
-      )}
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   );
 }
