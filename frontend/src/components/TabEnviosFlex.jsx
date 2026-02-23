@@ -1451,6 +1451,11 @@ export default function TabEnviosFlex({ operador = null }) {
                     </td>
                     <td className={styles.destinatario}>
                       <div>{e.mlreceiver_name || '—'}</div>
+                      {e.mluser_nickname && (
+                        <div className={styles.buyerNickname} title={`Usuario ML: ${e.mluser_nickname}`}>
+                          @{e.mluser_nickname}
+                        </div>
+                      )}
                       {e.manual_comment && (
                         <div className={styles.manualComment} title={e.manual_comment}>
                           {e.manual_comment}

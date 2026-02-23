@@ -371,6 +371,17 @@
   white-space: nowrap;
 }
 
+.buyerNickname {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 1px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
 .manualComment {
   font-size: 11px;
   color: var(--warning-text, var(--text-tertiary));
