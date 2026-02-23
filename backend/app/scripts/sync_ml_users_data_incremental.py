@@ -1,7 +1,10 @@
 """
 Script para sincronización incremental de datos de usuarios MercadoLibre.
-Sincroniza solo los registros nuevos desde el último mluser_id.
-Trabaja en chunks de CHUNK_SIZE para evitar timeouts.
+
+Estrategia:
+- Carga inicial: pagina por MES usando fromDate/toDate (sobre mlu_cd)
+  porque los MLUser_Id no son secuenciales (van de 283 a 3.2B con huecos).
+- Incremental (orquestador): pagina por fecha desde la última mlu_cd conocida.
 
 Tabla ERP: tbMercadoLibre_UsersData
 Tabla PG:  tb_mercadolibre_users_data
@@ -21,6 +24,7 @@ if __name__ == "__main__":
 
 import asyncio
 import httpx
+from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import SessionLocal
@@ -29,9 +33,11 @@ from app.core.database import SessionLocal
 import app.models  # noqa
 from app.models.mercadolibre_user_data import MercadoLibreUserData
 
-CHUNK_SIZE = 5000
 API_URL = "http://localhost:8002/api/gbp-parser"
-API_TIMEOUT = 180.0
+API_TIMEOUT = 300.0
+
+# Fecha de inicio de datos en el ERP
+ERP_DATA_START = date(2022, 10, 1)
 
 
 def to_string(value: object) -> str | None:
@@ -86,12 +92,12 @@ def _build_user(record: dict) -> MercadoLibreUserData | None:
     )
 
 
-async def _fetch_chunk(client: httpx.AsyncClient, id_from: int, id_to: int) -> list[dict]:
-    """Trae un chunk de registros del ERP vía gbp-parser."""
+async def _fetch_by_dates(client: httpx.AsyncClient, from_date: str, to_date: str) -> list[dict]:
+    """Trae registros del ERP filtrados por rango de fechas (mlu_cd)."""
     params = {
         "strScriptLabel": "scriptMLUsersData",
-        "idFrom": id_from,
-        "idTo": id_to,
+        "fromDate": from_date,
+        "toDate": to_date,
     }
     response = await client.get(API_URL, params=params)
     response.raise_for_status()
@@ -108,7 +114,7 @@ async def _fetch_chunk(client: httpx.AsyncClient, id_from: int, id_to: int) -> l
 
 
 async def _insert_records(db: Session, records: list[dict]) -> tuple[int, int]:
-    """Inserta registros en la BD. Retorna (insertados, errores)."""
+    """Inserta registros en la BD con merge (upsert por PK). Retorna (insertados, errores)."""
     insertados = 0
     errores = 0
 
@@ -119,10 +125,10 @@ async def _insert_records(db: Session, records: list[dict]) -> tuple[int, int]:
                 errores += 1
                 continue
 
-            db.add(user)
+            db.merge(user)
             insertados += 1
 
-            if insertados % 50 == 0:
+            if insertados % 100 == 0:
                 db.commit()
 
         except Exception as e:
@@ -135,75 +141,119 @@ async def _insert_records(db: Session, records: list[dict]) -> tuple[int, int]:
     return insertados, errores
 
 
+def _next_month(d: date) -> date:
+    """Avanza al primer día del mes siguiente."""
+    if d.month == 12:
+        return date(d.year + 1, 1, 1)
+    return date(d.year, d.month + 1, 1)
+
+
+def _generate_monthly_ranges(start: date, end: date) -> list[tuple[str, str]]:
+    """Genera rangos mensuales como pares de strings MM/DD/YYYY."""
+    ranges = []
+    current = date(start.year, start.month, 1)
+    while current < end:
+        month_end = _next_month(current) - timedelta(days=1)
+        if month_end > end:
+            month_end = end
+        ranges.append((current.strftime("%m/%d/%Y"), month_end.strftime("%m/%d/%Y")))
+        current = _next_month(current)
+    return ranges
+
+
 async def sync_ml_users_data_incremental(db: Session) -> tuple[int, int, int]:
     """
     Sincroniza datos de usuarios de MercadoLibre de forma incremental.
-    Trabaja en chunks de CHUNK_SIZE usando idFrom/idTo para evitar timeouts.
+
+    - Si la tabla está vacía: carga inicial por meses desde Oct 2022.
+    - Si ya tiene datos: trae los últimos 7 días (cubre re-runs y nuevos).
 
     Returns:
         tuple: (insertados, actualizados, errores)
     """
 
-    # Obtener el último mluser_id sincronizado
-    ultimo_id = db.query(func.max(MercadoLibreUserData.mluser_id)).scalar()
+    count = db.query(func.count(MercadoLibreUserData.mluser_id)).scalar() or 0
 
-    if ultimo_id is None:
-        ultimo_id = 0
-        print("⚠️  No hay datos de usuarios ML en la base de datos. Carga inicial...")
+    if count == 0:
+        # ── Carga inicial: mes por mes ──
+        print("⚠️  Tabla vacía. Iniciando carga completa por meses...")
+        today = date.today()
+        ranges = _generate_monthly_ranges(ERP_DATA_START, today)
+        print(f"📊 {len(ranges)} meses a procesar ({ERP_DATA_START} → {today})\n")
 
-    print(f"📊 Último mluser_id en BD: {ultimo_id}")
-    print(f"🔄 Buscando registros nuevos (chunks de {CHUNK_SIZE})...\n")
+        total_insertados = 0
+        total_errores = 0
 
-    total_insertados = 0
-    total_errores = 0
-    chunk_num = 0
-
-    try:
         async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
-            current_from = ultimo_id
-            while True:
-                current_to = current_from + CHUNK_SIZE
-                chunk_num += 1
+            for i, (from_dt, to_dt) in enumerate(ranges, 1):
+                print(f"   📅 [{i}/{len(ranges)}] {from_dt} → {to_dt} ...", end=" ", flush=True)
 
-                print(f"   📦 Chunk {chunk_num}: idFrom={current_from} idTo={current_to}")
-
-                records = await _fetch_chunk(client, current_from, current_to)
+                try:
+                    records = await _fetch_by_dates(client, from_dt, to_dt)
+                except Exception as e:
+                    print(f"ERROR: {e}")
+                    total_errores += 1
+                    continue
 
                 if not records:
-                    print(f"   ✅ Chunk {chunk_num}: sin registros, fin de datos")
-                    break
-
-                print(f"   📥 Chunk {chunk_num}: {len(records)} registros recibidos")
+                    print("0 registros")
+                    continue
 
                 insertados, errores = await _insert_records(db, records)
                 total_insertados += insertados
                 total_errores += errores
+                print(f"{insertados} insertados" + (f", {errores} errores" if errores else ""))
 
-                print(f"   ✓ Chunk {chunk_num}: {insertados} insertados, {errores} errores")
-
-                # Avanzar al siguiente rango
-                current_from = current_to
-
-        # Obtener nuevo máximo
         nuevo_max = db.query(func.max(MercadoLibreUserData.mluser_id)).scalar()
+        nuevo_count = db.query(func.count(MercadoLibreUserData.mluser_id)).scalar()
 
-        print(f"\n✅ Sincronización completada! ({chunk_num} chunks)")
+        print(f"\n✅ Carga inicial completada!")
+        print(f"   Total registros: {nuevo_count}")
         print(f"   Insertados: {total_insertados}")
         print(f"   Errores: {total_errores}")
-        print(f"   Nuevo mluser_id máximo: {nuevo_max}")
+        print(f"   Max mluser_id: {nuevo_max}")
 
         return total_insertados, 0, total_errores
 
-    except httpx.HTTPError as e:
-        print(f"❌ Error al consultar API externa: {str(e)}")
-        return total_insertados, 0, total_errores
-    except Exception as e:
-        db.rollback()
-        print(f"❌ Error en sincronización: {str(e)}")
-        import traceback
+    else:
+        # ── Incremental: últimos 7 días ──
+        desde = (date.today() - timedelta(days=7)).strftime("%m/%d/%Y")
+        hasta = date.today().strftime("%m/%d/%Y")
 
-        traceback.print_exc()
-        return total_insertados, 0, total_errores
+        print(f"📊 {count} registros existentes en BD")
+        print(f"🔄 Sync incremental: {desde} → {hasta}\n")
+
+        try:
+            async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+                records = await _fetch_by_dates(client, desde, hasta)
+
+            if not records:
+                print("✅ No hay registros nuevos.")
+                return 0, 0, 0
+
+            print(f"   📥 {len(records)} registros recibidos")
+
+            insertados, errores = await _insert_records(db, records)
+
+            nuevo_max = db.query(func.max(MercadoLibreUserData.mluser_id)).scalar()
+
+            print(f"\n✅ Sync incremental completado!")
+            print(f"   Insertados/actualizados: {insertados}")
+            print(f"   Errores: {errores}")
+            print(f"   Max mluser_id: {nuevo_max}")
+
+            return insertados, 0, errores
+
+        except httpx.HTTPError as e:
+            print(f"❌ Error al consultar API externa: {str(e)}")
+            return 0, 0, 0
+        except Exception as e:
+            db.rollback()
+            print(f"❌ Error en sincronización: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
+            return 0, 0, 0
 
 
 async def main() -> None:
