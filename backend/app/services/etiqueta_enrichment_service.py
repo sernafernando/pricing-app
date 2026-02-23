@@ -136,13 +136,13 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
         db.close()
 
 
-def lanzar_enriquecimiento_background(shipping_ids: List[str]) -> None:
+def enriquecer_etiquetas_sync(shipping_ids: List[str]) -> None:
     """
-    Lanza el enriquecimiento como background task en el event loop actual.
+    Wrapper sync de enriquecer_etiquetas() para usar con FastAPI BackgroundTasks.
 
-    Se usa desde endpoints sync (def, no async def) usando el loop de uvicorn.
-    No bloquea la respuesta HTTP — el usuario recibe el resultado del upload
-    inmediatamente y las coordenadas se llenan en background.
+    BackgroundTasks ejecuta funciones sync en un threadpool (sin event loop),
+    así que creamos uno nuevo con asyncio.run(). Esto es seguro porque cada
+    invocación corre en su propio thread aislado.
 
     Args:
         shipping_ids: Lista de shipping_ids de etiquetas nuevas
@@ -150,6 +150,27 @@ def lanzar_enriquecimiento_background(shipping_ids: List[str]) -> None:
     if not shipping_ids:
         return
 
+    logger.info(f"Background enrichment (sync wrapper) para {len(shipping_ids)} etiquetas")
+    asyncio.run(enriquecer_etiquetas(shipping_ids))
+
+
+def lanzar_enriquecimiento_background(shipping_ids: List[str]) -> None:
+    """
+    DEPRECADO: Usa enriquecer_etiquetas_sync() con FastAPI BackgroundTasks.
+
+    Este método intentaba lanzar un asyncio.create_task() desde endpoints sync,
+    lo cual no funciona porque FastAPI ejecuta endpoints sync en un threadpool
+    separado del event loop de uvicorn. El task se creaba pero nunca se ejecutaba.
+
+    Se mantiene temporalmente para no romper imports existentes.
+    """
+    if not shipping_ids:
+        return
+
+    logger.warning(
+        "lanzar_enriquecimiento_background() está deprecado. "
+        "Usá enriquecer_etiquetas_sync() con FastAPI BackgroundTasks."
+    )
     try:
         loop = asyncio.get_event_loop()
         loop.create_task(enriquecer_etiquetas(shipping_ids))

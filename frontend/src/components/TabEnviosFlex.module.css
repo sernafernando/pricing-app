@@ -267,14 +267,49 @@
   cursor: pointer;
 }
 
+/* ── Top scrollbar (synced with table) ─────────────────────── */
+
+.topScrollbar {
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bg-primary);
+  border-radius: 12px 12px 0 0;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: -1px;
+}
+
+/* Estilizar la scrollbar para que sea compacta */
+.topScrollbar::-webkit-scrollbar {
+  height: 8px;
+}
+
+.topScrollbar::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.topScrollbar::-webkit-scrollbar-thumb {
+  background: var(--text-tertiary);
+  border-radius: 4px;
+}
+
+.topScrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
 /* ── Table ──────────────────────────────────────────────────── */
 
 .tableContainer {
   background: var(--bg-primary);
-  border-radius: 12px;
+  border-radius: 0 0 12px 12px;
   box-shadow: var(--shadow-sm);
-  overflow: hidden;
   overflow-x: auto;
+  max-height: 75vh;
+  overflow-y: auto;
+}
+
+.tableContainer:focus {
+  outline: none;
 }
 
 .table {
@@ -286,6 +321,9 @@
 .table thead {
   background: var(--bg-secondary);
   border-bottom: 2px solid var(--border-primary);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .table th {
