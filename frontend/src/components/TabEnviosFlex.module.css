@@ -371,6 +371,17 @@
   white-space: nowrap;
 }
 
+.manualComment {
+  font-size: 11px;
+  color: var(--warning-text, var(--text-tertiary));
+  font-style: italic;
+  margin-top: 2px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cpLink {
   display: inline-flex;
   align-items: center;
@@ -1376,6 +1387,36 @@
   min-height: 52px;
   width: 100%;
   box-sizing: border-box;
+}
+
+/* ── Print Preview ──────────────────────────────────────────── */
+
+.printPreview {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.printPreviewRow {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.printPreviewLabel {
+  color: var(--text-tertiary);
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.printPreviewValue {
+  color: var(--text-primary);
+  font-weight: 500;
 }
 
 @media (max-width: 600px) {
