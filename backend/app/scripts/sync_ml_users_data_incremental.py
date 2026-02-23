@@ -107,7 +107,7 @@ async def _fetch_by_dates(client: httpx.AsyncClient, from_date: str, to_date: st
         return []
 
     # Respuesta vacía del ERP
-    if len(data) == 1 and "Column1" in data[0]:
+    if len(data) == 1 and ("Column1" in data[0] or "error" in data[0]):
         return []
 
     return data
