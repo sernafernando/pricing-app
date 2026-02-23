@@ -720,7 +720,11 @@ function TabCostosEnvio() {
                       const turboValMatrix = turboMatrix[key] ?? '';
                       const origVal = origMatrix[key] ?? '';
                       const origTurbo = origTurboMatrix[key] ?? '';
-                      const changed = valorMatrix !== origVal || turboValMatrix !== origTurbo;
+                      const fechaSeleccionada = vigenteMap[log.id] || defaultDate();
+                      const fechaChanged = actual
+                        ? fechaSeleccionada !== actual.vigente_desde
+                        : false;
+                      const changed = valorMatrix !== origVal || turboValMatrix !== origTurbo || fechaChanged;
 
                       return (
                         <td key={cordon} className={styles.costoCell}>
