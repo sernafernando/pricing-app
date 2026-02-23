@@ -14,7 +14,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, and_
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -612,12 +612,12 @@ def listar_costos_vigentes(
 
     hoy = date.today()
 
-    # Subquery: max vigente_desde por (logistica_id, cordon) donde <= hoy
-    max_fecha_sub = (
+    # Subquery: max(id) por (logistica_id, cordon) donde vigente_desde <= hoy.
+    # Siempre el id más alto = última voluntad del usuario, incluso si puso
+    # una vigente_desde más vieja después.
+    max_id_sub = (
         db.query(
-            LogisticaCostoCordon.logistica_id,
-            LogisticaCostoCordon.cordon,
-            func.max(LogisticaCostoCordon.vigente_desde).label("max_fecha"),
+            func.max(LogisticaCostoCordon.id).label("max_id"),
         )
         .filter(LogisticaCostoCordon.vigente_desde <= hoy)
         .group_by(
@@ -627,7 +627,7 @@ def listar_costos_vigentes(
         .subquery()
     )
 
-    # Join para obtener el registro completo
+    # Join para obtener el registro completo (exactamente 1 por logística×cordón)
     rows = (
         db.query(
             LogisticaCostoCordon.id,
@@ -640,12 +640,8 @@ def listar_costos_vigentes(
             LogisticaCostoCordon.created_at,
         )
         .join(
-            max_fecha_sub,
-            and_(
-                LogisticaCostoCordon.logistica_id == max_fecha_sub.c.logistica_id,
-                LogisticaCostoCordon.cordon == max_fecha_sub.c.cordon,
-                LogisticaCostoCordon.vigente_desde == max_fecha_sub.c.max_fecha,
-            ),
+            max_id_sub,
+            LogisticaCostoCordon.id == max_id_sub.c.max_id,
         )
         .outerjoin(Logistica, LogisticaCostoCordon.logistica_id == Logistica.id)
         .order_by(Logistica.nombre, LogisticaCostoCordon.cordon)

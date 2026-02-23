@@ -607,7 +607,12 @@ function TabCostosEnvio() {
       return;
     }
 
-    const turboVal = turboMatrix[key] ? parseFloat(turboMatrix[key]) : null;
+    const turboRaw = turboMatrix[key];
+    const actual = getCostoActual(logisticaId, cordon);
+    // If turbo field is empty, preserve the existing backend value
+    const turboVal = turboRaw !== ''
+      ? parseFloat(turboRaw)
+      : actual?.costo_turbo ?? null;
     if (turboVal !== null && (isNaN(turboVal) || turboVal < 0)) {
       setError('Ingresá un costo turbo válido (mayor o igual a 0)');
       return;
