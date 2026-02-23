@@ -599,40 +599,121 @@ function TabCostosEnvio() {
     }));
   };
 
-  const guardarCosto = async (logisticaId, cordon) => {
+  // Check if a specific cell has changes (value or date)
+  const hasChanges = (logisticaId, cordon) => {
     const key = `${logisticaId}-${cordon}`;
-    const valor = parseFloat(matrix[key]);
-    if (isNaN(valor) || valor < 0) {
-      setError('Ingresá un costo válido (mayor o igual a 0)');
-      return;
-    }
-
-    const turboRaw = turboMatrix[key];
+    const valorMatrix = matrix[key] ?? '';
+    const turboValMatrix = turboMatrix[key] ?? '';
+    const origVal = origMatrix[key] ?? '';
+    const origTurbo = origTurboMatrix[key] ?? '';
     const actual = getCostoActual(logisticaId, cordon);
-    // If turbo field is empty, preserve the existing backend value
-    const turboVal = turboRaw !== ''
-      ? parseFloat(turboRaw)
-      : actual?.costo_turbo ?? null;
-    if (turboVal !== null && (isNaN(turboVal) || turboVal < 0)) {
-      setError('Ingresá un costo turbo válido (mayor o igual a 0)');
-      return;
+    const fechaSeleccionada = vigenteMap[logisticaId] || defaultDate();
+    const fechaChanged = actual ? fechaSeleccionada !== actual.vigente_desde : false;
+    return valorMatrix !== origVal || turboValMatrix !== origTurbo || fechaChanged;
+  };
+
+  // Check if any cell in a row has changes
+  const rowHasChanges = (logisticaId) =>
+    CORDONES.some((cordon) => hasChanges(logisticaId, cordon));
+
+  // Save all changed cells for a logística row
+  const guardarFila = async (logisticaId) => {
+    const fecha = vigenteMap[logisticaId] || defaultDate();
+    const cordonesConCambios = CORDONES.filter((c) => hasChanges(logisticaId, c));
+
+    if (cordonesConCambios.length === 0) return;
+
+    // Validate all before saving
+    for (const cordon of cordonesConCambios) {
+      const key = `${logisticaId}-${cordon}`;
+      const valor = parseFloat(matrix[key]);
+      if (isNaN(valor) || valor < 0) {
+        setError(`Costo inválido en ${cordon}`);
+        return;
+      }
+      const turboRaw = turboMatrix[key];
+      if (turboRaw !== '') {
+        const tv = parseFloat(turboRaw);
+        if (isNaN(tv) || tv < 0) {
+          setError(`Costo turbo inválido en ${cordon}`);
+          return;
+        }
+      }
     }
 
     setSaving(true);
     setError(null);
     try {
-      const fecha = vigenteMap[logisticaId] || defaultDate();
-      await api.post('/config-operaciones/costos', {
-        logistica_id: logisticaId,
-        cordon: cordon,
-        costo: valor,
-        costo_turbo: turboVal,
-        vigente_desde: fecha,
+      const promises = cordonesConCambios.map((cordon) => {
+        const key = `${logisticaId}-${cordon}`;
+        const valor = parseFloat(matrix[key]);
+        const turboRaw = turboMatrix[key];
+        const actual = getCostoActual(logisticaId, cordon);
+        const turboVal = turboRaw !== '' ? parseFloat(turboRaw) : actual?.costo_turbo ?? null;
+
+        return api.post('/config-operaciones/costos', {
+          logistica_id: logisticaId,
+          cordon,
+          costo: valor,
+          costo_turbo: turboVal,
+          vigente_desde: fecha,
+        });
       });
+
+      await Promise.all(promises);
       await cargarDatos();
-      showToast(`Costo guardado: ${cordon} — $${valor}${turboVal != null ? ` / T$${turboVal}` : ''}`);
+      showToast(`${cordonesConCambios.length} cordón(es) guardado(s)`);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Error al guardar costo');
+      setError(err.response?.data?.detail || 'Error al guardar costos');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Check if ANY logística has changes (for "Guardar todo" visibility)
+  const anyChanges = logisticas.some((log) => rowHasChanges(log.id));
+
+  // Save ALL logísticas that have changes
+  const guardarTodo = async () => {
+    const logisticasConCambios = logisticas.filter((log) => rowHasChanges(log.id));
+    if (logisticasConCambios.length === 0) return;
+
+    setSaving(true);
+    setError(null);
+    try {
+      const allPromises = logisticasConCambios.flatMap((log) => {
+        const fecha = vigenteMap[log.id] || defaultDate();
+        return CORDONES.filter((c) => hasChanges(log.id, c)).map((cordon) => {
+          const key = `${log.id}-${cordon}`;
+          const valor = parseFloat(matrix[key]);
+          if (isNaN(valor) || valor < 0) {
+            throw new Error(`Costo inválido en ${log.nombre} — ${cordon}`);
+          }
+          const turboRaw = turboMatrix[key];
+          if (turboRaw !== '') {
+            const tv = parseFloat(turboRaw);
+            if (isNaN(tv) || tv < 0) {
+              throw new Error(`Costo turbo inválido en ${log.nombre} — ${cordon}`);
+            }
+          }
+          const actual = getCostoActual(log.id, cordon);
+          const turboVal = turboRaw !== '' ? parseFloat(turboRaw) : actual?.costo_turbo ?? null;
+
+          return api.post('/config-operaciones/costos', {
+            logistica_id: log.id,
+            cordon,
+            costo: valor,
+            costo_turbo: turboVal,
+            vigente_desde: fecha,
+          });
+        });
+      });
+
+      await Promise.all(allPromises);
+      await cargarDatos();
+      showToast(`${logisticasConCambios.length} logística(s) guardada(s)`);
+    } catch (err) {
+      setError(err.message || err.response?.data?.detail || 'Error al guardar costos');
     } finally {
       setSaving(false);
     }
@@ -658,6 +739,17 @@ function TabCostosEnvio() {
             <DollarSign size={20} /> Costos por Logística y Cordón
           </h2>
           <div className={styles.sectionActions}>
+            {anyChanges && (
+              <button
+                onClick={guardarTodo}
+                className={styles.btnGuardarTodo}
+                disabled={saving}
+                aria-label="Guardar todos los cambios"
+              >
+                <Save size={16} />
+                {saving ? 'Guardando...' : 'Guardar todo'}
+              </button>
+            )}
             <button
               onClick={cargarDatos}
               className={styles.btnRefresh}
@@ -712,22 +804,28 @@ function TabCostosEnvio() {
                         className={styles.logisticaDate}
                         title="Fecha de vigencia para esta logística"
                       />
+                      {rowHasChanges(log.id) && (
+                        <button
+                          onClick={() => guardarFila(log.id)}
+                          className={styles.btnGuardarFila}
+                          disabled={saving}
+                          title="Guardar esta logística (o Enter)"
+                          aria-label={`Guardar cambios de ${log.nombre}`}
+                        >
+                          <Save size={14} />
+                          Guardar
+                        </button>
+                      )}
                     </td>
                     {CORDONES.map((cordon) => {
                       const key = `${log.id}-${cordon}`;
                       const actual = getCostoActual(log.id, cordon);
                       const valorMatrix = matrix[key] ?? '';
                       const turboValMatrix = turboMatrix[key] ?? '';
-                      const origVal = origMatrix[key] ?? '';
-                      const origTurbo = origTurboMatrix[key] ?? '';
-                      const fechaSeleccionada = vigenteMap[log.id] || defaultDate();
-                      const fechaChanged = actual
-                        ? fechaSeleccionada !== actual.vigente_desde
-                        : false;
-                      const changed = valorMatrix !== origVal || turboValMatrix !== origTurbo || fechaChanged;
+                      const cellChanged = hasChanges(log.id, cordon);
 
                       return (
-                        <td key={cordon} className={styles.costoCell}>
+                        <td key={cordon} className={`${styles.costoCell} ${cellChanged ? styles.costoCellChanged : ''}`}>
                           <div className={styles.costoRows}>
                             <div className={styles.costoInputGroup}>
                               <span className={styles.costoPrefix}>$</span>
@@ -740,9 +838,9 @@ function TabCostosEnvio() {
                                   handleCostChange(log.id, cordon, e.target.value)
                                 }
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && changed) {
+                                  if (e.key === 'Enter' && rowHasChanges(log.id)) {
                                     e.preventDefault();
-                                    guardarCosto(log.id, cordon);
+                                    guardarFila(log.id);
                                   }
                                 }}
                                 className={styles.costoInput}
@@ -760,9 +858,9 @@ function TabCostosEnvio() {
                                   handleTurboCostChange(log.id, cordon, e.target.value)
                                 }
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && changed) {
+                                  if (e.key === 'Enter' && rowHasChanges(log.id)) {
                                     e.preventDefault();
-                                    guardarCosto(log.id, cordon);
+                                    guardarFila(log.id);
                                   }
                                 }}
                                 className={styles.costoInput}
@@ -770,24 +868,11 @@ function TabCostosEnvio() {
                               />
                             </div>
                           </div>
-                          <div className={styles.costoFooter}>
-                            {actual && (
-                              <span className={styles.costoVigente}>
-                                desde {actual.vigente_desde}
-                              </span>
-                            )}
-                            {changed && (
-                              <button
-                                onClick={() => guardarCosto(log.id, cordon)}
-                                className={`btn-tesla outline-subtle-primary icon-only ${styles.btnSaveCostoSize}`}
-                                disabled={saving}
-                                title="Guardar costos (o Enter)"
-                                aria-label={`Guardar costos de ${log.nombre} para ${cordon}`}
-                              >
-                                <Save size={14} />
-                              </button>
-                            )}
-                          </div>
+                          {actual && (
+                            <span className={styles.costoVigente}>
+                              desde {actual.vigente_desde}
+                            </span>
+                          )}
                         </td>
                       );
                     })}
