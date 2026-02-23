@@ -132,7 +132,7 @@ async def _insert_records(db: Session, records: list[dict]) -> tuple[int, int]:
                 db.commit()
 
         except Exception as e:
-            print(f"   ⚠️  Error procesando usuario {record.get('MLUser_Id')}: {str(e)}")
+            print(f"\n   ⚠️  Error procesando usuario {record.get('MLUser_Id')}: {str(e)}", flush=True)
             errores += 1
             db.rollback()
             continue
