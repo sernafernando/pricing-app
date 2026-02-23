@@ -539,10 +539,12 @@ function TabCostosEnvio() {
   // Editable matrices: { `${logistica_id}-${cordon}`: valor }
   const [matrix, setMatrix] = useState({});
   const [turboMatrix, setTurboMatrix] = useState({});
-  const [vigente, setVigente] = useState(() => {
-    const hoy = new Date();
-    return hoy.toISOString().split('T')[0];
-  });
+  // Original values from backend (for change detection via string comparison)
+  const [origMatrix, setOrigMatrix] = useState({});
+  const [origTurboMatrix, setOrigTurboMatrix] = useState({});
+  // Per-logística vigente dates: { logistica_id: 'YYYY-MM-DD' }
+  const [vigenteMap, setVigenteMap] = useState({});
+  const defaultDate = () => new Date().toISOString().split('T')[0];
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
@@ -565,6 +567,9 @@ function TabCostosEnvio() {
       }
       setMatrix(m);
       setTurboMatrix(mt);
+      // Snapshot originals for string-based change detection
+      setOrigMatrix({ ...m });
+      setOrigTurboMatrix({ ...mt });
     } catch {
       setError('Error al cargar costos');
     } finally {
@@ -607,12 +612,13 @@ function TabCostosEnvio() {
     setSaving(true);
     setError(null);
     try {
+      const fecha = vigenteMap[logisticaId] || defaultDate();
       await api.post('/config-operaciones/costos', {
         logistica_id: logisticaId,
         cordon: cordon,
         costo: valor,
         costo_turbo: turboVal,
-        vigente_desde: vigente,
+        vigente_desde: fecha,
       });
       await cargarDatos();
     } catch (err) {
@@ -642,16 +648,6 @@ function TabCostosEnvio() {
             <DollarSign size={20} /> Costos por Logística y Cordón
           </h2>
           <div className={styles.sectionActions}>
-            <div className={styles.formField}>
-              <label htmlFor="vigente-desde">Vigente desde</label>
-              <input
-                id="vigente-desde"
-                type="date"
-                value={vigente}
-                onChange={(e) => setVigente(e.target.value)}
-                className={styles.inputDate}
-              />
-            </div>
             <button
               onClick={cargarDatos}
               className={styles.btnRefresh}
@@ -662,9 +658,8 @@ function TabCostosEnvio() {
           </div>
         </div>
         <p className={styles.sectionDesc}>
-          Editá los costos para cada logística y cordón. Al guardar, se crea un nuevo
-          registro con la fecha de vigencia seleccionada. Los precios anteriores quedan
-          como historial.
+          Editá los costos para cada logística y cordón. Cada logística tiene su propia
+          fecha de vigencia. Al guardar se crea un nuevo registro histórico.
         </p>
 
         {logisticas.length === 0 ? (
@@ -686,26 +681,36 @@ function TabCostosEnvio() {
                 {logisticas.map((log) => (
                   <tr key={log.id}>
                     <td className={styles.logisticaCell}>
-                      {log.color && (
-                        <span
-                          className={styles.colorDot}
-                          style={{ background: log.color }}
-                        />
-                      )}
-                      {log.nombre}
+                      <div className={styles.logisticaName}>
+                        {log.color && (
+                          <span
+                            className={styles.colorDot}
+                            style={{ background: log.color }}
+                          />
+                        )}
+                        {log.nombre}
+                      </div>
+                      <input
+                        type="date"
+                        value={vigenteMap[log.id] || defaultDate()}
+                        onChange={(e) =>
+                          setVigenteMap((prev) => ({
+                            ...prev,
+                            [log.id]: e.target.value,
+                          }))
+                        }
+                        className={styles.logisticaDate}
+                        title="Fecha de vigencia para esta logística"
+                      />
                     </td>
                     {CORDONES.map((cordon) => {
                       const key = `${log.id}-${cordon}`;
                       const actual = getCostoActual(log.id, cordon);
                       const valorMatrix = matrix[key] ?? '';
                       const turboValMatrix = turboMatrix[key] ?? '';
-                      const costoChanged = actual
-                        ? parseFloat(valorMatrix) !== actual.costo
-                        : valorMatrix !== '';
-                      const turboChanged = actual
-                        ? (turboValMatrix === '' ? null : parseFloat(turboValMatrix)) !== actual.costo_turbo
-                        : turboValMatrix !== '';
-                      const changed = costoChanged || turboChanged;
+                      const origVal = origMatrix[key] ?? '';
+                      const origTurbo = origTurboMatrix[key] ?? '';
+                      const changed = valorMatrix !== origVal || turboValMatrix !== origTurbo;
 
                       return (
                         <td key={cordon} className={styles.costoCell}>
@@ -760,7 +765,7 @@ function TabCostosEnvio() {
                             {changed && (
                               <button
                                 onClick={() => guardarCosto(log.id, cordon)}
-                                className={styles.btnSaveCosto}
+                                className={`btn-tesla outline-subtle-primary icon-only ${styles.btnSaveCostoSize}`}
                                 disabled={saving}
                                 title="Guardar costos (o Enter)"
                                 aria-label={`Guardar costos de ${log.nombre} para ${cordon}`}

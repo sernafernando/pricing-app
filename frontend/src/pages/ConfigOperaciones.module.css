@@ -300,29 +300,11 @@
   background: var(--bg-hover);
 }
 
-.btnSaveCosto {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.btnSaveCostoSize {
   width: 26px;
   height: 26px;
-  border: none;
-  border-radius: 4px;
-  background: var(--brand-primary);
-  color: #fff;
-  cursor: pointer;
-  transition: all 0.15s;
+  padding: 0;
   flex-shrink: 0;
-}
-
-.btnSaveCosto:hover:not(:disabled) {
-  background: var(--brand-primary-hover);
-  transform: scale(1.05);
-}
-
-.btnSaveCosto:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -457,6 +439,27 @@
   white-space: nowrap;
   font-weight: 500;
   vertical-align: middle;
+  min-width: 140px;
+}
+
+.logisticaName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.logisticaDate {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  padding: 2px 4px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  width: 100%;
+  max-width: 130px;
 }
 
 /* ═══════════════════════════════════════════════════
