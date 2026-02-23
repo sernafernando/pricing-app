@@ -157,7 +157,12 @@ def _generate_monthly_ranges(start: date, end: date) -> list[tuple[str, str]]:
         month_end = _next_month(current) - timedelta(days=1)
         if month_end > end:
             month_end = end
-        ranges.append((current.strftime("%m/%d/%Y"), month_end.strftime("%m/%d/%Y")))
+        ranges.append(
+            (
+                current.strftime("%m/%d/%Y") + " 00:00:00",
+                month_end.strftime("%m/%d/%Y") + " 23:59:59",
+            )
+        )
         current = _next_month(current)
     return ranges
 
@@ -231,8 +236,8 @@ async def sync_ml_users_data_incremental(db: Session) -> tuple[int, int, int]:
             async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
                 current = start
                 while current <= today:
-                    desde = current.strftime("%m/%d/%Y")
-                    hasta = current.strftime("%m/%d/%Y")
+                    desde = current.strftime("%m/%d/%Y") + " 00:00:00"
+                    hasta = current.strftime("%m/%d/%Y") + " 23:59:59"
 
                     print(f"   📅 {desde} ...", end=" ", flush=True)
 
