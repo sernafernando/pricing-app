@@ -16,8 +16,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.database import get_db
+from app.models.logistica import Logistica
 from app.models.usuario import Usuario
 
 router = APIRouter()
@@ -298,3 +301,82 @@ def delete_sound(
 
     filepath.unlink()
     return {"ok": True, "deleted": filename}
+
+
+# ── Logística TTS ────────────────────────────────────────────────────
+
+
+def generate_logistica_sound(logistica_id: int, nombre: str) -> bool:
+    """
+    Genera el MP3 para una logística: archivo 'logistica_{id}.mp3' con el nombre hablado.
+    Siempre sobreescribe (el nombre pudo haber cambiado).
+    Retorna True si se generó correctamente, False si falló.
+    """
+    try:
+        _generate_mp3(
+            text=nombre,
+            filename=f"logistica_{logistica_id}",
+            lang="es",
+            overwrite=True,
+            engine=TTSEngine.EDGE,
+            voice=EdgeVoice.F,
+        )
+        return True
+    except Exception:
+        return False
+
+
+class GenerateLogisticasResponse(BaseModel):
+    """Resultado de generación bulk de audios de logísticas."""
+
+    ok: bool = True
+    generated: int
+    failed: int
+    details: list[dict]
+
+
+@router.post(
+    "/sounds/generate-logisticas",
+    response_model=GenerateLogisticasResponse,
+    summary="Generar audios TTS para todas las logísticas activas",
+)
+def generate_logisticas_sounds(
+    overwrite: bool = Query(False, description="Regenerar incluso si el archivo ya existe"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> GenerateLogisticasResponse:
+    """
+    Lee todas las logísticas activas y genera un MP3 por cada una.
+    Nombre del archivo: logistica_{id}.mp3 (ej: logistica_3.mp3).
+    Texto hablado: el nombre de la logística (ej: "Andreani").
+
+    Con overwrite=false (default) solo genera las que faltan.
+    Con overwrite=true regenera todas (útil si cambiaste la voz).
+    """
+    logisticas = db.query(Logistica).filter(Logistica.activa.is_(True)).all()
+
+    generated = 0
+    failed = 0
+    details: list[dict] = []
+
+    for log in logisticas:
+        filepath = SOUNDS_DIR / f"logistica_{log.id}.mp3"
+
+        if filepath.exists() and not overwrite:
+            details.append({"id": log.id, "nombre": log.nombre, "status": "skipped"})
+            continue
+
+        ok = generate_logistica_sound(log.id, log.nombre)
+        if ok:
+            generated += 1
+            details.append({"id": log.id, "nombre": log.nombre, "status": "generated"})
+        else:
+            failed += 1
+            details.append({"id": log.id, "nombre": log.nombre, "status": "failed"})
+
+    return GenerateLogisticasResponse(
+        ok=failed == 0,
+        generated=generated,
+        failed=failed,
+        details=details,
+    )

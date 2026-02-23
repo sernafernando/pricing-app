@@ -260,7 +260,13 @@ export default function TabPistoleado({ operador = null }) {
       case 'logistica': {
         setLogisticaId(String(parsed.logistica.id));
         addLog('comando', `Logística: ${parsed.logistica.nombre}`);
-        if (ttsEnabled) playSound('scan_ok');
+        if (ttsEnabled) {
+          // Intentar audio específico (logistica_{id}.mp3), fallback a scan_ok
+          const soundFile = `logistica_${parsed.logistica.id}`;
+          const audio = new Audio(`${SOUND_BASE}/${soundFile}.mp3`);
+          audio.onerror = () => playSound('scan_ok');
+          audio.play().catch(() => playSound('scan_ok'));
+        }
         break;
       }
       case 'anular': {

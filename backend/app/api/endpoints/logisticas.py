@@ -3,17 +3,25 @@ CRUD de logísticas para envíos flex.
 
 Cada logística representa un operador de entrega (ej: Andreani, OCA, Flex propio).
 Se asignan a etiquetas de envío para organizar la distribución diaria.
+
+Al crear o renombrar una logística se genera automáticamente un audio TTS
+(logistica_{id}.mp3) para el sistema de pistoleado.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+import logging
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.database import get_db
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
+
 from app.api.deps import get_current_user
-from app.models.usuario import Usuario
+from app.api.endpoints.sounds import generate_logistica_sound
+from app.core.database import get_db
 from app.models.logistica import Logistica
+from app.models.usuario import Usuario
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -107,6 +115,10 @@ def crear_logistica(
     db.commit()
     db.refresh(logistica)
 
+    # Generar audio TTS (fire-and-forget: si falla no bloquea la creación)
+    if not generate_logistica_sound(logistica.id, logistica.nombre):
+        logger.warning("No se pudo generar audio TTS para logística %s (%s)", logistica.id, logistica.nombre)
+
     return logistica
 
 
@@ -127,11 +139,14 @@ def actualizar_logistica(
     if not logistica:
         raise HTTPException(404, "Logística no encontrada")
 
+    nombre_cambio = False
+
     if payload.nombre is not None:
         # Verificar unicidad
         existente = db.query(Logistica).filter(Logistica.nombre == payload.nombre, Logistica.id != logistica_id).first()
         if existente:
             raise HTTPException(400, f"Ya existe una logística con el nombre '{payload.nombre}'")
+        nombre_cambio = payload.nombre != logistica.nombre
         logistica.nombre = payload.nombre
 
     if payload.color is not None:
@@ -142,6 +157,11 @@ def actualizar_logistica(
 
     db.commit()
     db.refresh(logistica)
+
+    # Regenerar audio TTS si el nombre cambió
+    if nombre_cambio:
+        if not generate_logistica_sound(logistica.id, logistica.nombre):
+            logger.warning("No se pudo regenerar audio TTS para logística %s (%s)", logistica.id, logistica.nombre)
 
     return logistica
 
