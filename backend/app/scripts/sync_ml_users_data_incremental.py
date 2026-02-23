@@ -216,44 +216,64 @@ async def sync_ml_users_data_incremental(db: Session) -> tuple[int, int, int]:
         return total_insertados, 0, total_errores
 
     else:
-        # ── Incremental: últimos 7 días ──
-        desde = (date.today() - timedelta(days=7)).strftime("%m/%d/%Y")
-        hasta = date.today().strftime("%m/%d/%Y")
+        # ── Incremental: últimos 3 días, día por día ──
+        today = date.today()
+        start = today - timedelta(days=3)
 
         print(f"📊 {count} registros existentes en BD")
-        print(f"🔄 Sync incremental: {desde} → {hasta}\n")
+        print(f"🔄 Sync incremental día por día: {start} → {today}\n")
+
+        total_insertados = 0
+        total_errores = 0
 
         try:
             async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
-                records = await _fetch_by_dates(client, desde, hasta)
+                current = start
+                while current <= today:
+                    desde = current.strftime("%m/%d/%Y")
+                    hasta = current.strftime("%m/%d/%Y")
 
-            if not records:
-                print("✅ No hay registros nuevos.")
-                return 0, 0, 0
+                    print(f"   📅 {desde} ...", end=" ", flush=True)
 
-            print(f"   📥 {len(records)} registros recibidos")
+                    try:
+                        records = await _fetch_by_dates(client, desde, hasta)
+                    except Exception as e:
+                        print(f"ERROR: {e}")
+                        total_errores += 1
+                        current += timedelta(days=1)
+                        continue
 
-            insertados, errores = await _insert_records(db, records)
+                    if not records:
+                        print("0 registros")
+                        current += timedelta(days=1)
+                        continue
+
+                    insertados, errores = await _insert_records(db, records)
+                    total_insertados += insertados
+                    total_errores += errores
+                    print(f"{insertados} insertados" + (f", {errores} errores" if errores else ""))
+
+                    current += timedelta(days=1)
 
             nuevo_max = db.query(func.max(MercadoLibreUserData.mluser_id)).scalar()
 
             print(f"\n✅ Sync incremental completado!")
-            print(f"   Insertados/actualizados: {insertados}")
-            print(f"   Errores: {errores}")
+            print(f"   Insertados/actualizados: {total_insertados}")
+            print(f"   Errores: {total_errores}")
             print(f"   Max mluser_id: {nuevo_max}")
 
-            return insertados, 0, errores
+            return total_insertados, 0, total_errores
 
         except httpx.HTTPError as e:
             print(f"❌ Error al consultar API externa: {str(e)}")
-            return 0, 0, 0
+            return total_insertados, 0, total_errores
         except Exception as e:
             db.rollback()
             print(f"❌ Error en sincronización: {str(e)}")
             import traceback
 
             traceback.print_exc()
-            return 0, 0, 0
+            return total_insertados, 0, total_errores
 
 
 async def main() -> None:
