@@ -51,6 +51,7 @@ from app.models.operador import Operador
 from app.models.operador_config_tab import OperadorConfigTab
 from app.models.operador_actividad import OperadorActividad
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
+from app.models.mercadolibre_user_data import MercadoLibreUserData
 
 __all__ = [
     "ProductoERP",
@@ -118,4 +119,5 @@ __all__ = [
     "OperadorConfigTab",
     "OperadorActividad",
     "LogisticaCostoCordon",
+    "MercadoLibreUserData",
 ]

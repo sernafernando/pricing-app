@@ -52,6 +52,8 @@ from app.services.etiqueta_enrichment_service import (
 from app.services.ml_webhook_service import fetch_shipment_label_zpl
 from app.models.sale_order_detail import SaleOrderDetail
 from app.models.tb_item import TBItem
+from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
+from app.models.mercadolibre_user_data import MercadoLibreUserData
 from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
@@ -108,6 +110,9 @@ class EtiquetaEnvioResponse(BaseModel):
     logistica_id: Optional[int] = None
     logistica_nombre: Optional[str] = None
     logistica_color: Optional[str] = None
+
+    # Buyer nickname de MercadoLibre (ej: GUSY2007)
+    mluser_nickname: Optional[str] = None
 
     # Datos de ML shipping
     mlreceiver_name: Optional[str] = None
@@ -375,6 +380,7 @@ def _shipping_dedup_subquery(db: Session):
     ranked = (
         db.query(
             MercadoLibreOrderShipping.mlshippingid.label("mlshippingid"),
+            MercadoLibreOrderShipping.mlo_id,
             MercadoLibreOrderShipping.mlreceiver_name,
             MercadoLibreOrderShipping.mlstreet_name,
             MercadoLibreOrderShipping.mlstreet_number,
@@ -395,6 +401,7 @@ def _shipping_dedup_subquery(db: Session):
     return (
         db.query(
             ranked.c.mlshippingid,
+            ranked.c.mlo_id,
             ranked.c.mlreceiver_name,
             ranked.c.mlstreet_name,
             ranked.c.mlstreet_number,
@@ -721,6 +728,7 @@ def listar_etiquetas(
                 ),
             ).label("costo_envio"),
             EtiquetaEnvio.costo_override,
+            MercadoLibreUserData.nickname.label("mluser_nickname"),
         )
         .outerjoin(
             Logistica,
@@ -729,6 +737,14 @@ def listar_etiquetas(
         .outerjoin(
             shipping_sub,
             EtiquetaEnvio.shipping_id == shipping_sub.c.mlshippingid,
+        )
+        .outerjoin(
+            MercadoLibreOrderHeader,
+            shipping_sub.c.mlo_id == MercadoLibreOrderHeader.mlo_id,
+        )
+        .outerjoin(
+            MercadoLibreUserData,
+            MercadoLibreOrderHeader.mluser_id == MercadoLibreUserData.mluser_id,
         )
         .outerjoin(
             CodigoPostalCordon,
@@ -794,6 +810,7 @@ def listar_etiquetas(
             | (eff_receiver.ilike(search_term))
             | (eff_street.ilike(search_term))
             | (eff_city.ilike(search_term))
+            | (MercadoLibreUserData.nickname.ilike(search_term))
         )
 
     # Ordenar por shipping_id desc (más recientes primero)
@@ -810,6 +827,7 @@ def listar_etiquetas(
             logistica_id=row.logistica_id,
             logistica_nombre=row.logistica_nombre,
             logistica_color=row.logistica_color,
+            mluser_nickname=row.mluser_nickname,
             mlreceiver_name=row.mlreceiver_name,
             mlstreet_name=row.mlstreet_name,
             mlstreet_number=row.mlstreet_number,

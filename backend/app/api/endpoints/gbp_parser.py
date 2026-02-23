@@ -104,6 +104,7 @@ SCRIPT_CONFIG = {
     "scriptTiendaNubeOrders": ["fromDate", "toDate", "tnoID", "tnoIDfrom", "tnoIDto"],
     "scriptEnvios": ["fromDate", "toDate"],
     "scriptSaleOrderTimes": ["fromDate", "toDate", "sohID", "braID", "sotID"],
+    "scriptMLUsersData": ["fromDate", "toDate", "mlUserID", "nickname", "idFrom", "idTo"],
 }
 
 # Configuración de operaciones

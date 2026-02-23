@@ -40,6 +40,7 @@ from app.scripts.sync_ml_items_publicados_incremental import sync_items_publicad
 from app.scripts.sync_item_cost_history import sync_item_cost_history_incremental
 from app.scripts.sync_item_cost_list import sync_item_cost_list_incremental
 from app.scripts.sync_customers_incremental import sync_customers_incremental
+from app.scripts.sync_ml_users_data_incremental import sync_ml_users_data_incremental
 
 
 async def ejecutar_todas_sincronizaciones():
@@ -106,6 +107,12 @@ async def ejecutar_todas_sincronizaciones():
             "emoji": "👥",
             "funcion": sync_customers_incremental,
             "args_batch": True,  # Usa batch_size
+        },
+        {
+            "nombre": "ML Users Data",
+            "emoji": "👤",
+            "funcion": sync_ml_users_data_incremental,
+            "args_batch": False,
         },
         # NOTA: ML Publications Snapshot se movió a un cron separado (cada 4-6 horas)
         # porque procesa 14k+ registros y hace que este script tarde demasiado
