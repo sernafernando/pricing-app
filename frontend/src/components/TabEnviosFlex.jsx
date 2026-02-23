@@ -184,6 +184,14 @@ export default function TabEnviosFlex({ operador = null }) {
   const [custLoading, setCustLoading] = useState(false);
   const [custError, setCustError] = useState(null);
 
+  // Modal impresión etiqueta manual
+  const [showPrintManualModal, setShowPrintManualModal] = useState(false);
+  const [printManualEnvio, setPrintManualEnvio] = useState(null); // etiqueta seleccionada
+  const [printNumBultos, setPrintNumBultos] = useState(1);
+  const [printTipoDomicilio, setPrintTipoDomicilio] = useState('Particular');
+  const [printTipoEnvio, setPrintTipoEnvio] = useState('');
+  const [printManualLoading, setPrintManualLoading] = useState(false);
+
   // Confirm modal (reemplaza confirm())
   const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, onConfirm, challengeWord?, showComment? }
   const [confirmInput, setConfirmInput] = useState('');
@@ -1049,6 +1057,62 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
+  // ── Impresión de etiqueta manual ─────────────────────────────
+
+  const abrirModalPrintManual = (envio) => {
+    setPrintManualEnvio(envio);
+    setPrintNumBultos(1);
+    setPrintTipoDomicilio('Particular');
+    setPrintTipoEnvio('');
+    setShowPrintManualModal(true);
+  };
+
+  const imprimirEtiquetaManual = async () => {
+    if (!printManualEnvio) return;
+    if (printNumBultos < 1 || printNumBultos > 10) {
+      mostrarError({ message: 'El número de bultos debe estar entre 1 y 10' });
+      return;
+    }
+
+    setPrintManualLoading(true);
+    try {
+      const params = {
+        num_bultos: printNumBultos,
+        tipo_domicilio_manual: printTipoDomicilio,
+      };
+      if (printTipoEnvio.trim()) {
+        params.tipo_envio_manual = printTipoEnvio;
+      }
+
+      const { data } = await api.get(
+        `/etiquetas-envio/${printManualEnvio.shipping_id}/etiqueta-manual`,
+        { params, responseType: 'text' },
+      );
+
+      // Intentar imprimir vía Zebra Browser Print, fallback a descarga
+      const resultado = await printZpl(data, printManualEnvio.shipping_id);
+
+      if (resultado.method === 'zebra') {
+        setScanFeedback({
+          type: 'success',
+          message: `Etiqueta ${printManualEnvio.shipping_id} enviada a la impresora (${printNumBultos} bulto${printNumBultos > 1 ? 's' : ''})`,
+        });
+      } else {
+        setScanFeedback({
+          type: 'duplicate',
+          message: `Etiqueta ${printManualEnvio.shipping_id} descargada (Zebra no disponible)`,
+        });
+      }
+      setTimeout(() => setScanFeedback(null), 4000);
+
+      setShowPrintManualModal(false);
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setPrintManualLoading(false);
+    }
+  };
+
   // ── Render ───────────────────────────────────────────────────
 
   const logisticasActivas = logisticas.filter(l => l.activa);
@@ -1386,7 +1450,12 @@ export default function TabEnviosFlex({ operador = null }) {
                       )}
                     </td>
                     <td className={styles.destinatario}>
-                      {e.mlreceiver_name || '—'}
+                      <div>{e.mlreceiver_name || '—'}</div>
+                      {e.manual_comment && (
+                        <div className={styles.manualComment} title={e.manual_comment}>
+                          {e.manual_comment}
+                        </div>
+                      )}
                     </td>
                     <td className={styles.direccion} title={e.direccion_completa || `${e.mlstreet_name || ''} ${e.mlstreet_number || ''}`}>
                       <div>
@@ -1540,15 +1609,27 @@ export default function TabEnviosFlex({ operador = null }) {
                           <Pencil size={14} />
                         </button>
                       )}
-                      <button
-                        className={styles.btnPrint}
-                        onClick={() => imprimirEtiqueta(e.shipping_id)}
-                        disabled={imprimiendo === e.shipping_id}
-                        title="Imprimir etiqueta ZPL"
-                        aria-label={`Imprimir etiqueta ${e.shipping_id}`}
-                      >
-                        <Printer size={14} />
-                      </button>
+                      {e.es_manual ? (
+                        <button
+                          className={styles.btnPrint}
+                          onClick={() => abrirModalPrintManual(e)}
+                          disabled={imprimiendo === e.shipping_id}
+                          title="Imprimir etiqueta manual"
+                          aria-label={`Imprimir etiqueta ${e.shipping_id}`}
+                        >
+                          <Printer size={14} />
+                        </button>
+                      ) : (
+                        <button
+                          className={styles.btnPrint}
+                          onClick={() => imprimirEtiqueta(e.shipping_id)}
+                          disabled={imprimiendo === e.shipping_id}
+                          title="Imprimir etiqueta ZPL"
+                          aria-label={`Imprimir etiqueta ${e.shipping_id}`}
+                        >
+                          <Printer size={14} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -2005,6 +2086,114 @@ export default function TabEnviosFlex({ operador = null }) {
                   ? (editandoManualId ? 'Guardando...' : 'Creando...')
                   : (editandoManualId ? 'Guardar cambios' : 'Crear envío')
                 }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Export */}
+      {/* Modal Imprimir Etiqueta Manual */}
+      {showPrintManualModal && printManualEnvio && (
+        <div className={styles.modalOverlay} onClick={() => setShowPrintManualModal(false)}>
+          <div className={styles.modalContent} onClick={(ev) => ev.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Imprimir etiqueta</h3>
+              <button
+                className={styles.modalClose}
+                onClick={() => setShowPrintManualModal(false)}
+                aria-label="Cerrar modal"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={styles.modalBody}>
+              <div className={styles.printPreview}>
+                <div className={styles.printPreviewRow}>
+                  <span className={styles.printPreviewLabel}>Destinatario</span>
+                  <span className={styles.printPreviewValue}>{printManualEnvio.mlreceiver_name || '—'}</span>
+                </div>
+                <div className={styles.printPreviewRow}>
+                  <span className={styles.printPreviewLabel}>Dirección</span>
+                  <span className={styles.printPreviewValue}>
+                    {printManualEnvio.mlstreet_name
+                      ? `${printManualEnvio.mlstreet_name} ${printManualEnvio.mlstreet_number || ''}`
+                      : '—'}
+                  </span>
+                </div>
+                <div className={styles.printPreviewRow}>
+                  <span className={styles.printPreviewLabel}>CP / Ciudad</span>
+                  <span className={styles.printPreviewValue}>
+                    {printManualEnvio.mlzip_code || '—'} — {printManualEnvio.mlcity_name || '—'}
+                  </span>
+                </div>
+                {printManualEnvio.manual_comment && (
+                  <div className={styles.printPreviewRow}>
+                    <span className={styles.printPreviewLabel}>Observaciones</span>
+                    <span className={styles.printPreviewValue}>{printManualEnvio.manual_comment}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className={styles.formGrid}>
+                <div className={styles.formField}>
+                  <label htmlFor="pm-bultos">N° de bultos</label>
+                  <input
+                    id="pm-bultos"
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={printNumBultos}
+                    onChange={(ev) => setPrintNumBultos(parseInt(ev.target.value, 10) || 1)}
+                  />
+                  <span className={styles.fieldHint}>
+                    Se genera una etiqueta por bulto (1/{printNumBultos}, 2/{printNumBultos}...)
+                  </span>
+                </div>
+
+                <div className={styles.formField}>
+                  <label htmlFor="pm-domicilio">Tipo de domicilio</label>
+                  <select
+                    id="pm-domicilio"
+                    value={printTipoDomicilio}
+                    onChange={(ev) => setPrintTipoDomicilio(ev.target.value)}
+                  >
+                    <option value="Particular">Particular</option>
+                    <option value="Comercial">Comercial</option>
+                    <option value="Sucursal">Sucursal</option>
+                  </select>
+                  <span className={styles.fieldHint}>Aparece en el lateral derecho de la etiqueta</span>
+                </div>
+
+                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                  <label htmlFor="pm-tipoenvio">Tipo de envío (opcional)</label>
+                  <input
+                    id="pm-tipoenvio"
+                    type="text"
+                    value={printTipoEnvio}
+                    onChange={(ev) => setPrintTipoEnvio(ev.target.value)}
+                    placeholder='Ej: Domicilio, Retiro en sucursal...'
+                  />
+                  <span className={styles.fieldHint}>Si no se completa, se usa &quot;Domicilio&quot;</span>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.modalFooter}>
+              <button
+                className={styles.btnCancelar}
+                onClick={() => setShowPrintManualModal(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                className={styles.btnCrear}
+                onClick={imprimirEtiquetaManual}
+                disabled={printManualLoading || printNumBultos < 1 || printNumBultos > 10}
+              >
+                <Printer size={16} />
+                {printManualLoading ? 'Generando...' : 'Imprimir'}
               </button>
             </div>
           </div>

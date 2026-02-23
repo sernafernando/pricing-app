@@ -22,8 +22,10 @@ import zipfile
 from io import BytesIO
 from datetime import date, datetime, UTC
 
+from pathlib import Path as FilePath
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, case, and_, desc, Numeric
 from typing import List, Optional
@@ -48,6 +50,8 @@ from app.services.etiqueta_enrichment_service import (
     re_enriquecer_por_http,
 )
 from app.services.ml_webhook_service import fetch_shipment_label_zpl
+from app.models.sale_order_detail import SaleOrderDetail
+from app.models.tb_item import TBItem
 from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
@@ -2538,3 +2542,168 @@ async def obtener_etiqueta_zpl(
         return {"ok": False, "error": error_es, "code": code}
 
     return resultado
+
+
+# ── Impresión de etiquetas ZPL para envíos manuales ─────────────────
+
+
+import logging
+
+_logger = logging.getLogger(__name__)
+
+
+@router.get(
+    "/etiquetas-envio/{shipping_id}/etiqueta-manual",
+    summary="Genera etiqueta ZPL local para un envío manual",
+)
+async def generar_etiqueta_manual_zpl(
+    shipping_id: str,
+    num_bultos: int = Query(1, ge=1, le=10),
+    tipo_envio_manual: Optional[str] = Query(None),
+    tipo_domicilio_manual: Optional[str] = Query(None),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """
+    Genera etiquetas ZPL a partir del template local (etiqueta.zpl)
+    para envíos manuales (es_manual=True).
+
+    Usa los datos del envío manual (destinatario, dirección, CP, ciudad,
+    observaciones). Si el envío tiene soh_id y bra_id, obtiene los items
+    del pedido ERP para incluir SKUs y cantidad.
+
+    Parámetros:
+    - shipping_id: ID del envío manual (ej: MAN_20260123_001)
+    - num_bultos: Número de bultos (genera una etiqueta por bulto, 1-10)
+    - tipo_envio_manual: Override del tipo de envío (ej: "Domicilio")
+    - tipo_domicilio_manual: Override del tipo de domicilio (Particular/Comercial/Sucursal)
+    """
+    _check_permiso(db, current_user, "envios_flex.ver")
+
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(status_code=404, detail="Etiqueta no encontrada")
+
+    if not etiqueta.es_manual:
+        raise HTTPException(
+            status_code=400,
+            detail="Este envío no es manual. Usá el endpoint de etiquetas ML.",
+        )
+
+    # ── Obtener items del pedido ERP (si hay soh_id + bra_id) ────────
+    cantidad_total = 0
+    skus_concatenados = "N/A"
+    id_pedido = "N/A"
+    orden_tn = "N/A"
+
+    if etiqueta.manual_soh_id and etiqueta.manual_bra_id:
+        id_pedido = str(etiqueta.manual_soh_id)
+
+        items_query = (
+            db.query(
+                SaleOrderDetail.item_id,
+                SaleOrderDetail.sod_qty,
+                TBItem.item_code,
+            )
+            .outerjoin(
+                TBItem,
+                and_(
+                    SaleOrderDetail.item_id == TBItem.item_id,
+                    SaleOrderDetail.comp_id == TBItem.comp_id,
+                ),
+            )
+            .filter(
+                and_(
+                    SaleOrderDetail.soh_id == etiqueta.manual_soh_id,
+                    SaleOrderDetail.bra_id == etiqueta.manual_bra_id,
+                    func.coalesce(
+                        SaleOrderDetail.item_id,
+                        SaleOrderDetail.sod_item_id_origin,
+                    ).notin_([2953, 2954]),
+                )
+            )
+            .all()
+        )
+
+        cantidad_total = sum(float(i.sod_qty) if i.sod_qty else 0 for i in items_query)
+        skus_list = [i.item_code for i in items_query if i.item_code]
+        skus_concatenados = " - ".join(skus_list) if skus_list else "N/A"
+
+    # ── Datos de dirección del envío manual ──────────────────────────
+    destinatario = etiqueta.manual_receiver_name or "N/A"
+    calle = etiqueta.manual_street_name or ""
+    numero = etiqueta.manual_street_number or ""
+    direccion = f"{calle} {numero}".strip() or "N/A"
+    codigo_postal = etiqueta.manual_zip_code or "N/A"
+    ciudad = etiqueta.manual_city_name or "N/A"
+    observaciones = etiqueta.manual_comment or "N/A"
+    telefono = "N/A"  # Los envíos manuales no tienen teléfono por ahora
+
+    # Si tiene cust_id, intentar obtener teléfono del cliente
+    if etiqueta.manual_cust_id:
+        from app.models.tb_customer import TBCustomer
+
+        cliente = (
+            db.query(TBCustomer.cust_phone1, TBCustomer.cust_cellphone)
+            .filter(TBCustomer.cust_id == etiqueta.manual_cust_id)
+            .first()
+        )
+        if cliente:
+            telefono = cliente.cust_cellphone or cliente.cust_phone1 or "N/A"
+
+    # ── Tipo de envío y domicilio ────────────────────────────────────
+    tipo_envio = tipo_envio_manual or "Domicilio"
+    tipo_domicilio = tipo_domicilio_manual or "Particular"
+
+    # ── Leer template ZPL ────────────────────────────────────────────
+    template_path = FilePath(__file__).parent.parent.parent.parent / "templates" / "etiqueta.zpl"
+
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            zpl_template = f.read()
+    except FileNotFoundError:
+        _logger.error(f"Template ZPL no encontrado en: {template_path}")
+        raise HTTPException(status_code=500, detail="Template de etiqueta no encontrado")
+
+    # ── Contexto para template ───────────────────────────────────────
+    bra_id = etiqueta.manual_bra_id or 0
+    soh_id = etiqueta.manual_soh_id or 0
+
+    context = {
+        "CANTIDAD_ITEMS_PEDIDO": str(int(cantidad_total)) if cantidad_total else "0",
+        "SKUS_CONCATENADOS": skus_concatenados[:50],
+        "ID_PEDIDO": id_pedido,
+        "ORDEN_TN": orden_tn,
+        "TIPO_ENVIO_ETIQUETA": tipo_envio,
+        "NOMBRE_DESTINATARIO": destinatario,
+        "TELEFONO_DESTINATARIO": telefono,
+        "DIRECCION_CALLE": direccion,
+        "OBSERVACIONES": observaciones,
+        "CODIGO_POSTAL": codigo_postal,
+        "BARRIO": ciudad,
+        "TIPO_DOMICILIO": tipo_domicilio,
+        "TOTAL_BULTOS": str(num_bultos),
+    }
+
+    # ── Generar etiquetas (una por bulto) ────────────────────────────
+    zpl_labels = []
+    for i in range(1, num_bultos + 1):
+        label_context = context.copy()
+        label_context["BULTO_ACTUAL"] = str(i)
+        label_context["CODIGO_ENVIO"] = f"{bra_id}-{soh_id}-{i}"
+
+        rendered_zpl = zpl_template
+        for key, value in label_context.items():
+            rendered_zpl = rendered_zpl.replace(f"{{{{{key}}}}}", str(value))
+
+        zpl_labels.append(rendered_zpl)
+
+    full_zpl = "\n".join(zpl_labels)
+
+    _logger.info(f"Generadas {num_bultos} etiquetas ZPL para envío manual {shipping_id}")
+
+    return Response(
+        content=full_zpl,
+        media_type="text/plain",
+        headers={"Content-Disposition": f"attachment; filename=etiqueta_manual_{shipping_id}.txt"},
+    )
