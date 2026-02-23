@@ -92,23 +92,43 @@ def _build_user(record: dict) -> MercadoLibreUserData | None:
     )
 
 
-async def _fetch_by_dates(client: httpx.AsyncClient, from_date: str, to_date: str) -> list[dict]:
+async def _fetch_by_dates(client: httpx.AsyncClient, from_date: str, to_date: str, verbose: bool = False) -> list[dict]:
     """Trae registros del ERP filtrados por rango de fechas (mlu_cd)."""
     params = {
         "strScriptLabel": "scriptMLUsersData",
         "fromDate": from_date,
         "toDate": to_date,
     }
+
+    if verbose:
+        print(f"\n      [verbose] GET {API_URL} params={params}", flush=True)
+
     response = await client.get(API_URL, params=params)
     response.raise_for_status()
+
+    raw_text = response.text
+    if verbose:
+        size_kb = len(raw_text) / 1024
+        print(f"      [verbose] Status={response.status_code} Size={size_kb:.1f}KB", flush=True)
+        print(f"      [verbose] First 200 chars: {raw_text[:200]}", flush=True)
+
     data = response.json()
 
     if not isinstance(data, list):
+        if verbose:
+            print(f"      [verbose] Not a list: {type(data)}", flush=True)
         return []
 
     # Respuesta vacía del ERP
     if len(data) == 1 and ("Column1" in data[0] or "error" in data[0]):
+        if verbose:
+            print(f"      [verbose] Empty/error response: {data[0]}", flush=True)
         return []
+
+    if verbose:
+        print(f"      [verbose] Parsed {len(data)} records", flush=True)
+        if data:
+            print(f"      [verbose] First record keys: {list(data[0].keys())}", flush=True)
 
     return data
 
@@ -242,7 +262,7 @@ async def sync_ml_users_data_incremental(db: Session) -> tuple[int, int, int]:
                     print(f"   📅 {desde} ...", end=" ", flush=True)
 
                     try:
-                        records = await _fetch_by_dates(client, desde, hasta)
+                        records = await _fetch_by_dates(client, desde, hasta, verbose=True)
                     except Exception as e:
                         print(f"ERROR: {e}")
                         total_errores += 1
