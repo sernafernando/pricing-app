@@ -242,12 +242,12 @@ async def sync_ml_users_data_incremental(db: Session) -> tuple[int, int, int]:
         return total_insertados, 0, total_errores
 
     else:
-        # ── Incremental: últimos 3 días, día por día ──
+        # ── Incremental: solo hoy ──
         today = date.today()
-        start = today - timedelta(days=3)
+        start = today
 
         print(f"📊 {count} registros existentes en BD")
-        print(f"🔄 Sync incremental día por día: {start} → {today}\n")
+        print(f"🔄 Sync incremental: {today}\n")
 
         total_insertados = 0
         total_errores = 0
@@ -262,7 +262,7 @@ async def sync_ml_users_data_incremental(db: Session) -> tuple[int, int, int]:
                     print(f"   📅 {desde} ...", end=" ", flush=True)
 
                     try:
-                        records = await _fetch_by_dates(client, desde, hasta, verbose=True)
+                        records = await _fetch_by_dates(client, desde, hasta)
                     except Exception as e:
                         print(f"ERROR: {e}")
                         total_errores += 1
