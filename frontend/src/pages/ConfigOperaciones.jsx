@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Users, DollarSign, Truck, Plus, ToggleLeft, ToggleRight,
   Trash2, Save, RefreshCw, Clock, Hash, ChevronDown,
@@ -546,6 +546,20 @@ function TabCostosEnvio() {
   const [vigenteMap, setVigenteMap] = useState({});
   const defaultDate = () => new Date().toISOString().split('T')[0];
 
+  // Toast notification
+  const [toast, setToast] = useState(null);
+  const toastTimeoutRef = useRef(null);
+  const showToast = (message, type = 'success') => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
+  };
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    };
+  }, []);
+
   const cargarDatos = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -621,6 +635,7 @@ function TabCostosEnvio() {
         vigente_desde: fecha,
       });
       await cargarDatos();
+      showToast(`Costo guardado: ${cordon} — $${valor}${turboVal != null ? ` / T$${turboVal}` : ''}`);
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al guardar costo');
     } finally {
@@ -784,6 +799,15 @@ function TabCostosEnvio() {
           </div>
         )}
       </section>
+
+      {toast && (
+        <div
+          className={toast.type === 'error' ? styles.toastError : styles.toastSuccess}
+          onClick={() => setToast(null)}
+        >
+          <span>{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }
