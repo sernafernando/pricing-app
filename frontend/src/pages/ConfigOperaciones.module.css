@@ -454,9 +454,9 @@
 }
 
 .logisticaCell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  white-space: nowrap;
+  font-weight: 500;
+  vertical-align: middle;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -464,8 +464,14 @@
    ═══════════════════════════════════════════════════ */
 
 .costoCell {
-  padding: 6px 8px !important;
-  min-width: 130px;
+  padding: 8px 10px !important;
+  min-width: 160px;
+}
+
+.costoRows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .costoInputGroup {
@@ -478,23 +484,27 @@
   font-size: 13px;
   color: var(--text-secondary);
   font-weight: 500;
+  min-width: 20px;
+  text-align: right;
 }
 
 .costoPrefixTurbo {
   font-size: 11px;
   color: #2563eb;
   font-weight: 600;
-  min-width: 18px;
+  min-width: 20px;
+  text-align: right;
 }
 
 .costoInput {
-  width: 80px;
-  padding: 4px 8px;
+  width: 100px;
+  padding: 5px 8px;
   border: 1px solid var(--border-primary);
   border-radius: 4px;
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
@@ -504,10 +514,17 @@
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 
+.costoFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  min-height: 26px;
+}
+
 .costoVigente {
   font-size: 10px;
   color: var(--text-tertiary, var(--text-secondary));
-  margin-top: 2px;
 }
 
 /* ═══════════════════════════════════════════════════
