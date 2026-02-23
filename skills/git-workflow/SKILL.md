@@ -50,7 +50,27 @@ git checkout -b feature/short-description
 - `fix/corregir-calculo-markup`
 - `refactor/migrate-pydantic-v2`
 
-### 2. Make Changes & Commit
+### 2. Run Lint BEFORE Committing
+
+**MANDATORY — run lint on every changed file before `git add`:**
+
+```bash
+# Backend (.py files)
+cd backend && source venv/bin/activate
+ruff check app/path/to/changed_file.py   # Lint (unused imports, etc.)
+ruff format --check app/path/to/changed_file.py  # Format check
+
+# Frontend (.jsx, .js, .css files)
+cd frontend
+npx eslint src/path/to/changed_file.jsx
+```
+
+**Both `ruff check` AND `ruff format --check` must pass for Python files.**
+**`npx eslint` must pass with 0 errors for JS/JSX files.**
+
+Fix any errors before staging. NEVER skip this step.
+
+### 3. Stage & Commit
 
 ```bash
 # Stage changes
@@ -275,6 +295,7 @@ git push origin v1.2.0
 
 - Don't commit directly to `main` or `develop`
 - Don't commit without testing locally
+- Don't commit without running lint (`ruff check` + `ruff format --check` for Python, `npx eslint` for JS/JSX)
 - Don't use vague commit messages ("fix", "changes")
 - Don't include secrets (.env, credentials)
 - Don't commit node_modules, __pycache__, etc
@@ -284,6 +305,8 @@ git push origin v1.2.0
 
 - Create feature branch for each change
 - Write descriptive commit messages
+- **Run `ruff check` AND `ruff format --check` on .py files before committing**
+- **Run `npx eslint` on .jsx/.js files before committing**
 - Test before pushing
 - Review your own diff before PR
 - Keep commits atomic (one logical change)
