@@ -612,7 +612,9 @@ def listar_costos_vigentes(
 
     hoy = date.today()
 
-    # Subquery: max vigente_desde por (logistica_id, cordon) donde <= hoy
+    # Subquery: max id por (logistica_id, cordon) donde vigente_desde <= hoy,
+    # agrupando primero por max vigente_desde y luego por max id para desempatar
+    # cuando hay múltiples registros con la misma fecha.
     max_fecha_sub = (
         db.query(
             LogisticaCostoCordon.logistica_id,
@@ -627,7 +629,27 @@ def listar_costos_vigentes(
         .subquery()
     )
 
-    # Join para obtener el registro completo
+    # Second subquery: among rows with max vigente_desde, pick the one with max id
+    max_id_sub = (
+        db.query(
+            func.max(LogisticaCostoCordon.id).label("max_id"),
+        )
+        .join(
+            max_fecha_sub,
+            and_(
+                LogisticaCostoCordon.logistica_id == max_fecha_sub.c.logistica_id,
+                LogisticaCostoCordon.cordon == max_fecha_sub.c.cordon,
+                LogisticaCostoCordon.vigente_desde == max_fecha_sub.c.max_fecha,
+            ),
+        )
+        .group_by(
+            LogisticaCostoCordon.logistica_id,
+            LogisticaCostoCordon.cordon,
+        )
+        .subquery()
+    )
+
+    # Join para obtener el registro completo (exactamente 1 por logística×cordón)
     rows = (
         db.query(
             LogisticaCostoCordon.id,
@@ -640,12 +662,8 @@ def listar_costos_vigentes(
             LogisticaCostoCordon.created_at,
         )
         .join(
-            max_fecha_sub,
-            and_(
-                LogisticaCostoCordon.logistica_id == max_fecha_sub.c.logistica_id,
-                LogisticaCostoCordon.cordon == max_fecha_sub.c.cordon,
-                LogisticaCostoCordon.vigente_desde == max_fecha_sub.c.max_fecha,
-            ),
+            max_id_sub,
+            LogisticaCostoCordon.id == max_id_sub.c.max_id,
         )
         .outerjoin(Logistica, LogisticaCostoCordon.logistica_id == Logistica.id)
         .order_by(Logistica.nombre, LogisticaCostoCordon.cordon)
