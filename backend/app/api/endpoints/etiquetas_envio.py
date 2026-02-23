@@ -1165,6 +1165,7 @@ EXPORT_COLUMNS = {
     "estado_erp": "Estado ERP",
     "pistoleado": "Pistoleado",
     "caja": "Caja",
+    "turbo": "Turbo",
 }
 
 
@@ -1286,6 +1287,7 @@ def exportar_etiquetas(
                     else_=cast(costo_exp.c.costo_valor, Numeric(12, 2)),
                 ),
             ).label("costo_envio"),
+            EtiquetaEnvio.es_turbo,
         )
         .outerjoin(Logistica, EtiquetaEnvio.logistica_id == Logistica.id)
         .outerjoin(
@@ -1389,6 +1391,8 @@ def exportar_etiquetas(
             return ""
         elif col_key == "caja":
             return row.pistoleado_caja or ""
+        elif col_key == "turbo":
+            return "Turbo" if row.es_turbo else ""
         return ""
 
     # Datos
@@ -1411,6 +1415,7 @@ def exportar_etiquetas(
         "estado_erp": 18,
         "pistoleado": 22,
         "caja": 14,
+        "turbo": 8,
     }
     for col_idx, col_key in enumerate(cols_solicitadas, start=1):
         col_letter = ws.cell(row=1, column=col_idx).column_letter

@@ -25,6 +25,7 @@ const EXPORT_COLUMNS = {
   estado_erp: 'Estado ERP',
   pistoleado: 'Pistoleado',
   caja: 'Caja',
+  turbo: 'Turbo',
 };
 
 const ML_STATUS_LABELS = {
