@@ -22,7 +22,7 @@ import zipfile
 from io import BytesIO
 from datetime import date, datetime, UTC
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, case, and_, desc, Numeric
@@ -43,6 +43,7 @@ from app.models.operador import Operador
 from app.models.operador_actividad import OperadorActividad
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.services.etiqueta_enrichment_service import (
+    enriquecer_etiquetas_sync,
     lanzar_enriquecimiento_background,
     re_enriquecer_desde_db,
     re_enriquecer_por_http,
@@ -439,6 +440,7 @@ def _insertar_etiqueta(
     summary="Subir archivo ZPL (.zip o .txt) con etiquetas",
 )
 def upload_etiquetas(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Archivo .zip o .txt con etiquetas ZPL"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -518,7 +520,8 @@ def upload_etiquetas(
         raise HTTPException(500, f"Error guardando en base de datos: {str(e)}")
 
     # Enriquecer etiquetas nuevas en background (coords, dirección, comentario)
-    lanzar_enriquecimiento_background(nuevos_shipping_ids)
+    if nuevos_shipping_ids:
+        background_tasks.add_task(enriquecer_etiquetas_sync, nuevos_shipping_ids)
 
     return UploadResultResponse(
         total=total,
@@ -536,6 +539,7 @@ def upload_etiquetas(
 )
 def registrar_manual(
     payload: ManualScanRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> ManualScanResponse:
@@ -569,7 +573,7 @@ def registrar_manual(
 
     if es_nueva:
         # Enriquecer en background (coords, dirección, comentario)
-        lanzar_enriquecimiento_background([shipping_id])
+        background_tasks.add_task(enriquecer_etiquetas_sync, [shipping_id])
 
         return ManualScanResponse(
             duplicada=False,
