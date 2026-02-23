@@ -137,6 +137,12 @@ export default function TabEnviosFlex({ operador = null }) {
   const [costoInputValue, setCostoInputValue] = useState('');
   const costoInputRef = useRef(null);
 
+  // Scroll horizontal sincronizado (scrollbar duplicada arriba)
+  const tableContainerRef = useRef(null);
+  const topScrollRef = useRef(null);
+  const tableRef = useRef(null);
+  const [tableWidth, setTableWidth] = useState(0);
+
   // Selección múltiple
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [lastSelected, setLastSelected] = useState(null);
@@ -273,6 +279,63 @@ export default function TabEnviosFlex({ operador = null }) {
   useEffect(() => {
     cargarDatos();
   }, [cargarDatos]);
+
+  // ── Scroll horizontal sincronizado ──────────────────────────
+
+  useEffect(() => {
+    const container = tableContainerRef.current;
+    const topScroll = topScrollRef.current;
+    const table = tableRef.current;
+    if (!container || !topScroll || !table) return;
+
+    // Medir ancho real de la tabla
+    const updateWidth = () => {
+      setTableWidth(table.scrollWidth);
+    };
+    updateWidth();
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(table);
+
+    // Sincronizar scroll entre ambas barras
+    let syncing = false;
+    const syncFromTop = () => {
+      if (syncing) return;
+      syncing = true;
+      container.scrollLeft = topScroll.scrollLeft;
+      syncing = false;
+    };
+    const syncFromBottom = () => {
+      if (syncing) return;
+      syncing = true;
+      topScroll.scrollLeft = container.scrollLeft;
+      syncing = false;
+    };
+
+    topScroll.addEventListener('scroll', syncFromTop);
+    container.addEventListener('scroll', syncFromBottom);
+
+    // Flechas del teclado para scroll horizontal
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+      const step = 200;
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        container.scrollLeft += step;
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        container.scrollLeft -= step;
+      }
+    };
+    container.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      observer.disconnect();
+      topScroll.removeEventListener('scroll', syncFromTop);
+      container.removeEventListener('scroll', syncFromBottom);
+      container.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [etiquetas, loading]);
 
   // ── Scanner ──────────────────────────────────────────────────
 
@@ -1251,8 +1314,20 @@ export default function TabEnviosFlex({ operador = null }) {
       ) : error ? (
         <div className={styles.error}>{error}</div>
       ) : (
-        <div className={styles.tableContainer}>
-          <table className={styles.table}>
+        <>
+        <div
+          ref={topScrollRef}
+          className={styles.topScrollbar}
+        >
+          <div style={{ width: tableWidth, height: 1 }} />
+        </div>
+        <div
+          ref={tableContainerRef}
+          className={styles.tableContainer}
+          tabIndex={0}
+          aria-label="Tabla de envíos — usá flechas izquierda/derecha para scroll horizontal"
+        >
+          <table ref={tableRef} className={styles.table}>
             <thead>
               <tr>
                 <th className={styles.thCheckbox}>
@@ -1480,8 +1555,9 @@ export default function TabEnviosFlex({ operador = null }) {
                 ))
               )}
             </tbody>
-          </table>
+           </table>
         </div>
+        </>
       )}
 
       {/* Footer */}
