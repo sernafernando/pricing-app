@@ -4566,6 +4566,7 @@ export default function Productos() {
             filtroMarkupWebTransf,
             filtroOutOfCards,
             coloresSeleccionados,
+            filtroTiendaOficial,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,
             audit_fecha_desde: filtrosAuditoria.fecha_desde,
