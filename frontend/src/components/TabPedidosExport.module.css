@@ -681,9 +681,40 @@
   white-space: nowrap;
 }
 
-/* Botón de imprimir etiqueta - usa btn btn-primary del sistema */
+/* Botón de imprimir etiqueta */
 .btnPrintLabel {
   white-space: nowrap;
+}
+
+/* ── Confirm Modal ─────────────────────────────────────────── */
+
+.confirmModal {
+  background: var(--bg-primary);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg, 0 20px 60px rgba(0, 0, 0, 0.3));
+  padding: 28px;
+  width: 90%;
+  max-width: 400px;
+}
+
+.confirmTitle {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.confirmMessage {
+  margin: 0 0 24px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 /* Códigos internos y de ML */
