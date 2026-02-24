@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText, Truck, CheckCircle } from 'lucide-react';
+import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText, Truck } from 'lucide-react';
 import api from '../services/api';
+import { useToast } from '../hooks/useToast';
+import Toast from './Toast';
 import styles from './TabPedidosExport.module.css';
 
 // Constantes de user_id del ERP
@@ -53,6 +55,28 @@ export default function TabPedidosExport() {
   // Listas para dropdowns
   const [usuariosDisponibles, setUsuariosDisponibles] = useState([]);
   const [provinciasDisponibles, setProvinciasDisponibles] = useState([]);
+
+  // Toast notifications (reemplaza alert())
+  const { toast, showToast, hideToast } = useToast(5000);
+
+  // Confirm dialog (reemplaza confirm())
+  const [confirmDialog, setConfirmDialog] = useState(null);
+
+  const pedirConfirmacion = (title, message) =>
+    new Promise((resolve) => {
+      setConfirmDialog({
+        title,
+        message,
+        onConfirm: () => {
+          setConfirmDialog(null);
+          resolve(true);
+        },
+        onCancel: () => {
+          setConfirmDialog(null);
+          resolve(false);
+        },
+      });
+    });
   
   const cargarEstadisticas = useCallback(async () => {
     try {
@@ -121,16 +145,18 @@ export default function TabPedidosExport() {
       setPedidos(pedidosFiltrados);
     } catch (error) {
       console.error('Error cargando pedidos:', error);
-      alert('Error cargando pedidos');
+      showToast('Error cargando pedidos', 'error');
     } finally {
       setLoading(false);
     }
   }, [soloActivos, soloTN, soloML, soloOtros, excluirML, soloSinDireccion, userIdFiltro, provinciaFiltro, search]);
 
   const sincronizarPedidos = async () => {
-    if (!confirm('¿Sincronizar pedidos desde el ERP y limpiar archivados? Puede tardar 1-2 minutos.')) {
-      return;
-    }
+    const confirmed = await pedirConfirmacion(
+      'Sincronizar pedidos',
+      'Sincronizar pedidos desde el ERP y limpiar archivados. Puede tardar 1-2 minutos.',
+    );
+    if (!confirmed) return;
 
     setSyncing(true);
     try {
@@ -143,13 +169,13 @@ export default function TabPedidosExport() {
       const headers = response.data.headers_archivados_limpiados || 0;
       const details = response.data.details_archivados_limpiados || 0;
       
-      alert(`✅ Sincronización OK:\n- Pedidos archivados limpiados: ${headers}\n- Detalles archivados limpiados: ${details}`);
+      showToast(`Sincronización OK: ${headers} archivados limpiados, ${details} detalles limpiados`);
       
       await cargarPedidos();
       await cargarEstadisticas();
     } catch (error) {
       console.error('Error en sincronización:', error);
-      alert('❌ Error en sincronización: ' + (error.response?.data?.detail || error.message));
+      showToast('Error en sincronización: ' + (error.response?.data?.detail || error.message), 'error');
     } finally {
       setSyncing(false);
     }
@@ -192,7 +218,7 @@ export default function TabPedidosExport() {
         direccionForm
       );
       
-      alert('✅ Dirección actualizada correctamente');
+      showToast('Dirección actualizada correctamente');
       setEditandoDireccion(false);
       await cargarPedidos();
       
@@ -205,31 +231,35 @@ export default function TabPedidosExport() {
       
     } catch (error) {
       console.error('Error guardando dirección:', error);
-      alert('❌ Error guardando dirección: ' + (error.response?.data?.detail || error.message));
+      showToast('Error guardando dirección: ' + (error.response?.data?.detail || error.message), 'error');
     }
   };
 
   const eliminarOverride = async () => {
-    if (!confirm('¿Eliminar override y volver a los datos originales?')) return;
+    const confirmed = await pedirConfirmacion(
+      'Eliminar override',
+      'Eliminar override y volver a los datos originales de dirección.',
+    );
+    if (!confirmed) return;
     
     try {
       await api.delete(
         `/pedidos-simple/${pedidoSeleccionado.soh_id}/override-shipping`
       );
       
-      alert('✅ Override eliminado, mostrando datos originales');
+      showToast('Override eliminado, mostrando datos originales');
       setEditandoDireccion(false);
       await cargarPedidos();
       
     } catch (error) {
       console.error('Error eliminando override:', error);
-      alert('❌ Error: ' + (error.response?.data?.detail || error.message));
+      showToast('Error: ' + (error.response?.data?.detail || error.message), 'error');
     }
   };
 
   const generarEtiqueta = async () => {
     if (numBultos < 1 || numBultos > 10) {
-      alert('⚠️ El número de bultos debe estar entre 1 y 10');
+      showToast('El número de bultos debe estar entre 1 y 10', 'error');
       return;
     }
 
@@ -262,10 +292,10 @@ export default function TabPedidosExport() {
       window.URL.revokeObjectURL(url);
 
       setMostrarModalEtiqueta(false);
-      alert(`✅ Etiqueta descargada: ${numBultos} bulto${numBultos > 1 ? 's' : ''}`);
+      showToast(`Etiqueta descargada: ${numBultos} bulto${numBultos > 1 ? 's' : ''}`);
     } catch (error) {
       console.error('Error generando etiqueta:', error);
-      alert('❌ Error generando etiqueta: ' + (error.response?.data?.detail || error.message));
+      showToast('Error generando etiqueta: ' + (error.response?.data?.detail || error.message), 'error');
     } finally {
       setGenerandoEtiqueta(false);
     }
@@ -309,19 +339,21 @@ export default function TabPedidosExport() {
       ));
     } catch (error) {
       console.error('Error actualizando bultos/domicilio:', error);
-      alert('Error actualizando configuración');
+      showToast('Error actualizando configuración', 'error');
     }
   };
 
   const generarEtiquetasBulk = async () => {
     if (pedidosSeleccionados.length === 0) {
-      alert('⚠️ Seleccioná al menos un pedido');
+      showToast('Seleccioná al menos un pedido', 'error');
       return;
     }
 
-    if (!confirm(`¿Generar etiquetas para ${pedidosSeleccionados.length} pedido${pedidosSeleccionados.length > 1 ? 's' : ''}?\n\nSe usará el número de bultos y tipo de domicilio configurado en cada fila.`)) {
-      return;
-    }
+    const confirmed = await pedirConfirmacion(
+      'Generar etiquetas',
+      `Generar etiquetas para ${pedidosSeleccionados.length} pedido${pedidosSeleccionados.length > 1 ? 's' : ''}. Se usará el número de bultos y tipo de domicilio configurado en cada fila.`,
+    );
+    if (!confirmed) return;
 
     setGenerandoEtiqueta(true);
     try {
@@ -359,10 +391,10 @@ export default function TabPedidosExport() {
       window.URL.revokeObjectURL(url);
 
       setPedidosSeleccionados([]);
-      alert(`✅ Etiquetas descargadas: ${pedidosSeleccionados.length} pedido${pedidosSeleccionados.length > 1 ? 's' : ''}`);
+      showToast(`Etiquetas descargadas: ${pedidosSeleccionados.length} pedido${pedidosSeleccionados.length > 1 ? 's' : ''}`);
     } catch (error) {
       console.error('Error generando etiquetas bulk:', error);
-      alert('❌ Error generando etiquetas: ' + (error.response?.data?.detail || error.message));
+      showToast('Error generando etiquetas: ' + (error.response?.data?.detail || error.message), 'error');
     } finally {
       setGenerandoEtiqueta(false);
     }
@@ -371,7 +403,7 @@ export default function TabPedidosExport() {
   const enviarAFlex = async (pedido) => {
     const dir = getDireccionDisplay(pedido);
     if (!dir.direccion) {
-      alert('Este pedido no tiene dirección de envío');
+      showToast('Este pedido no tiene dirección de envío', 'error');
       return;
     }
 
@@ -389,10 +421,10 @@ export default function TabPedidosExport() {
         comment: `Pedido GBP:${pedido.soh_id} - Enviado desde Pedidos Pendientes`,
       });
 
-      alert(`Envío flex creado: ${response.data.shipping_id}${response.data.cordon ? ` (${response.data.cordon})` : ''}`);
+      showToast(`Envío flex creado: ${response.data.shipping_id}${response.data.cordon ? ` (${response.data.cordon})` : ''}`);
     } catch (error) {
       console.error('Error enviando a flex:', error);
-      alert('Error creando envío flex: ' + (error.response?.data?.detail || error.message));
+      showToast('Error creando envío flex: ' + (error.response?.data?.detail || error.message), 'error');
     } finally {
       setEnviandoAFlex(false);
     }
@@ -771,14 +803,14 @@ export default function TabPedidosExport() {
                     setTipoEnvio('');
                     setMostrarModalEtiqueta(true);
                   }}
-                  className={`btn-tesla primary sm ${styles.btnPrintLabel}`}
+                  className={`btn-tesla outline-subtle-primary sm ${styles.btnPrintLabel}`}
                   title="Imprimir etiqueta de envío"
                 >
                   <Printer size={14} /> Imprimir Etiqueta
                 </button>
                 <button 
                   onClick={() => setPedidoSeleccionado(null)}
-                  className={`btn-tesla ghost sm ${styles.btnClose}`}
+                  className={`btn-tesla outline-subtle-primary sm icon-only ${styles.btnClose}`}
                   aria-label="Cerrar modal"
                 >
                   <X size={18} />
@@ -883,7 +915,7 @@ export default function TabPedidosExport() {
                     <h3>Dirección de Envío</h3>
                     <button
                       onClick={() => abrirEditarDireccion(pedidoSeleccionado)}
-                      className={`btn-tesla outline sm ${styles.btnEditDireccion}`}
+                      className={`btn-tesla outline-subtle-primary sm ${styles.btnEditDireccion}`}
                       title="Editar dirección de envío"
                     >
                       <Pencil size={14} /> Editar
@@ -951,7 +983,7 @@ export default function TabPedidosExport() {
                     <button
                       onClick={() => enviarAFlex(pedidoSeleccionado)}
                       disabled={enviandoAFlex || !getDireccionDisplay(pedidoSeleccionado).direccion}
-                      className={`btn-tesla success sm ${styles.btnEnviarFlex}`}
+                      className={`btn-tesla outline-subtle-success sm ${styles.btnEnviarFlex}`}
                       title={!getDireccionDisplay(pedidoSeleccionado).direccion ? 'Sin dirección de envío' : 'Crear envío flex manual'}
                     >
                       {enviandoAFlex ? <><Loader2 size={14} className={styles.spinning} /> Enviando...</> : <><Truck size={14} /> Enviar a Flex</>}
@@ -1017,7 +1049,7 @@ export default function TabPedidosExport() {
               <h2><Pencil size={18} /> Editar Dirección de Envío</h2>
               <button 
                 onClick={() => setEditandoDireccion(false)}
-                className={`btn-tesla ghost sm ${styles.btnClose}`}
+                className={`btn-tesla outline-subtle-primary sm icon-only ${styles.btnClose}`}
                 aria-label="Cerrar modal"
               >
                 <X size={18} />
@@ -1109,7 +1141,7 @@ export default function TabPedidosExport() {
               <div className={styles.modalActions}>
                 <button
                   onClick={guardarDireccion}
-                  className={`btn-tesla success ${styles.btnGuardar}`}
+                  className={`btn-tesla outline-subtle-success ${styles.btnGuardar}`}
                   disabled={!direccionForm.direccion}
                 >
                   <Save size={14} /> Guardar
@@ -1118,7 +1150,7 @@ export default function TabPedidosExport() {
                 {getDireccionDisplay(pedidoSeleccionado).hasOverride && (
                   <button
                     onClick={eliminarOverride}
-                    className={`btn-tesla danger ${styles.btnEliminar}`}
+                    className={`btn-tesla outline-subtle-danger ${styles.btnEliminar}`}
                   >
                     <Trash2 size={14} /> Eliminar Override
                   </button>
@@ -1126,7 +1158,7 @@ export default function TabPedidosExport() {
 
                 <button
                   onClick={() => setEditandoDireccion(false)}
-                  className={`btn-tesla secondary ${styles.btnCancelar}`}
+                  className={`btn-tesla outline-subtle-primary ${styles.btnCancelar}`}
                 >
                   Cancelar
                 </button>
@@ -1144,7 +1176,7 @@ export default function TabPedidosExport() {
               <h2><Printer size={18} /> Generar Etiqueta</h2>
               <button 
                 onClick={() => setMostrarModalEtiqueta(false)}
-                className={`btn-tesla ghost sm ${styles.btnClose}`}
+                className={`btn-tesla outline-subtle-primary sm icon-only ${styles.btnClose}`}
                 aria-label="Cerrar modal"
               >
                 <X size={18} />
@@ -1211,7 +1243,7 @@ export default function TabPedidosExport() {
               <div className={styles.modalActions}>
                 <button
                   onClick={generarEtiqueta}
-                  className={`btn-tesla success ${styles.btnGuardar}`}
+                  className={`btn-tesla outline-subtle-success ${styles.btnGuardar}`}
                   disabled={generandoEtiqueta || numBultos < 1 || numBultos > 10}
                 >
                   {generandoEtiqueta ? <><Loader2 size={14} className={styles.spinning} /> Generando...</> : <><Printer size={14} /> Generar y Descargar</>}
@@ -1219,7 +1251,7 @@ export default function TabPedidosExport() {
 
                 <button
                   onClick={() => setMostrarModalEtiqueta(false)}
-                  className={`btn-tesla secondary ${styles.btnCancelar}`}
+                  className={`btn-tesla outline-subtle-primary ${styles.btnCancelar}`}
                 >
                   Cancelar
                 </button>
@@ -1228,6 +1260,33 @@ export default function TabPedidosExport() {
               <div style={{ marginTop: '15px', padding: '10px', background: 'var(--bg-tertiary)', borderRadius: '6px', fontSize: '13px' }}>
                 <strong><Lightbulb size={14} /> Tip:</strong> Abrí el archivo .txt con el software de tu impresora Zebra (Zebra Browser Print o ZebraDesigner) para imprimir.
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast notifications */}
+      <Toast toast={toast} onClose={hideToast} />
+
+      {/* Confirm dialog */}
+      {confirmDialog && (
+        <div className={styles.modal} onClick={confirmDialog.onCancel}>
+          <div className={styles.confirmModal} onClick={(e) => e.stopPropagation()}>
+            <h3 className={styles.confirmTitle}>{confirmDialog.title}</h3>
+            <p className={styles.confirmMessage}>{confirmDialog.message}</p>
+            <div className={styles.confirmActions}>
+              <button
+                className="btn-tesla outline-subtle-primary sm"
+                onClick={confirmDialog.onCancel}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn-tesla outline-subtle-success sm"
+                onClick={confirmDialog.onConfirm}
+              >
+                Confirmar
+              </button>
             </div>
           </div>
         </div>
