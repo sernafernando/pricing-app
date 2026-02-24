@@ -80,6 +80,9 @@ class EtiquetaEnvio(Base):
     es_outlet = Column(Boolean, server_default="false", nullable=False)  # Título de item contiene "outlet"
     es_turbo = Column(Boolean, server_default="false", nullable=False)  # mlshipping_method_id == "515282"
 
+    # Creado por usuario del sistema (cuando se crea desde Pedidos Pendientes)
+    creado_por_usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+
     # Pistoleado — escaneo de paquetes con asignación a cajas
     pistoleado_at = Column(DateTime(timezone=True), nullable=True)
     pistoleado_caja = Column(String(50), nullable=True)
@@ -91,6 +94,7 @@ class EtiquetaEnvio(Base):
     # Relationships
     logistica = relationship("Logistica", lazy="joined")
     pistoleado_operador = relationship("Operador", lazy="joined")
+    creado_por_usuario = relationship("Usuario", lazy="joined")
 
     __table_args__ = (
         Index("idx_etiquetas_envio_fecha", "fecha_envio"),

@@ -1448,6 +1448,11 @@ export default function TabEnviosFlex({ operador = null }) {
                       {e.es_turbo && (
                         <span className={styles.turboBadge}>Turbo</span>
                       )}
+                      {e.creado_por_usuario_nombre && (
+                        <span className={styles.creadoPorBadge} title={`Creado por ${e.creado_por_usuario_nombre} desde Pedidos`}>
+                          {e.creado_por_usuario_nombre}
+                        </span>
+                      )}
                     </td>
                     <td className={styles.destinatario}>
                       <div>{e.mlreceiver_name || '—'}</div>

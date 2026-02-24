@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText } from 'lucide-react';
+import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText, Truck, CheckCircle } from 'lucide-react';
 import api from '../services/api';
 import styles from './TabPedidosExport.module.css';
 
@@ -31,6 +31,10 @@ export default function TabPedidosExport() {
   const [tipoDomicilio, setTipoDomicilio] = useState('Particular');
   const [tipoEnvio, setTipoEnvio] = useState('');
   const [generandoEtiqueta, setGenerandoEtiqueta] = useState(false);
+  
+  // Enviar a Flex
+  const [fechaFlex, setFechaFlex] = useState(() => new Date().toISOString().split('T')[0]);
+  const [enviandoAFlex, setEnviandoAFlex] = useState(false);
   
   // Bulk print
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState([]);
@@ -361,6 +365,36 @@ export default function TabPedidosExport() {
       alert('❌ Error generando etiquetas: ' + (error.response?.data?.detail || error.message));
     } finally {
       setGenerandoEtiqueta(false);
+    }
+  };
+
+  const enviarAFlex = async (pedido) => {
+    const dir = getDireccionDisplay(pedido);
+    if (!dir.direccion) {
+      alert('Este pedido no tiene dirección de envío');
+      return;
+    }
+
+    setEnviandoAFlex(true);
+    try {
+      const response = await api.post('/etiquetas-envio/desde-pedido', {
+        fecha_envio: fechaFlex,
+        soh_id: pedido.soh_id,
+        bra_id: pedido.bra_id,
+        receiver_name: dir.destinatario || pedido.nombre_cliente || 'Sin nombre',
+        street_name: dir.direccion,
+        street_number: 'S/N',
+        zip_code: dir.codigo_postal || '0000',
+        city_name: dir.ciudad || 'Sin ciudad',
+        comment: `Pedido GBP:${pedido.soh_id} - Enviado desde Pedidos Pendientes`,
+      });
+
+      alert(`Envío flex creado: ${response.data.shipping_id}${response.data.cordon ? ` (${response.data.cordon})` : ''}`);
+    } catch (error) {
+      console.error('Error enviando a flex:', error);
+      alert('Error creando envío flex: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setEnviandoAFlex(false);
     }
   };
 
@@ -903,6 +937,26 @@ export default function TabPedidosExport() {
                       <div className={styles.textMuted}>Sin dirección de envío</div>
                     );
                   })()}
+                </div>
+
+                <div className={styles.infoSection}>
+                  <h3><Truck size={16} /> Enviar a Flex</h3>
+                  <div className={styles.flexRow}>
+                    <input
+                      type="date"
+                      value={fechaFlex}
+                      onChange={(e) => setFechaFlex(e.target.value)}
+                      className={styles.dateInput}
+                    />
+                    <button
+                      onClick={() => enviarAFlex(pedidoSeleccionado)}
+                      disabled={enviandoAFlex || !getDireccionDisplay(pedidoSeleccionado).direccion}
+                      className={`btn-tesla success sm ${styles.btnEnviarFlex}`}
+                      title={!getDireccionDisplay(pedidoSeleccionado).direccion ? 'Sin dirección de envío' : 'Crear envío flex manual'}
+                    >
+                      {enviandoAFlex ? <><Loader2 size={14} className={styles.spinning} /> Enviando...</> : <><Truck size={14} /> Enviar a Flex</>}
+                    </button>
+                  </div>
                 </div>
 
                 {pedidoSeleccionado.soh_observation1 && (
