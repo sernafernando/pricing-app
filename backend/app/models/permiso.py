@@ -464,6 +464,20 @@ PERMISOS_SISTEMA = [
         "categoria": CategoriaPermiso.PRODUCTOS,
         "orden": 65,
     },
+    {
+        "codigo": "produccion.ver_preparacion",
+        "nombre": "Ver tab Preparación",
+        "descripcion": "Acceso a la pestaña Preparación (resumen de productos a preparar)",
+        "categoria": CategoriaPermiso.PRODUCTOS,
+        "orden": 66,
+    },
+    {
+        "codigo": "pedidos.ver_pendientes",
+        "nombre": "Ver tab Pedidos Pendientes",
+        "descripcion": "Acceso a la pestaña Pedidos Pendientes (exportar pedidos a logísticas)",
+        "categoria": CategoriaPermiso.PRODUCTOS,
+        "orden": 67,
+    },
     # =========================================================================
     # CONFIGURACIÓN
     # =========================================================================
@@ -601,11 +615,18 @@ PERMISOS_SISTEMA = [
         "orden": 107,
     },
     {
+        "codigo": "envios_flex.ver_codigos_postales",
+        "nombre": "Ver tab Códigos Postales",
+        "descripcion": "Acceso a la pestaña Códigos Postales (gestión de CP y cordones)",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 108,
+    },
+    {
         "codigo": "envios_flex.config",
         "nombre": "Configurar operaciones envío",
         "descripcion": "Acceso al panel de config-operaciones (operadores, tabs, costos)",
         "categoria": CategoriaPermiso.ENVIOS_FLEX,
-        "orden": 108,
+        "orden": 109,
         "es_critico": True,
     },
 ]
@@ -644,6 +665,8 @@ PERMISOS_POR_ROL = {
         "admin.asignar_items_sin_mla",
         "admin.gestionar_asignaciones",
         "produccion.marcar_prearmado",
+        "produccion.ver_preparacion",
+        "pedidos.ver_pendientes",
         "config.*",
         "alertas.*",
         "envios_flex.*",
@@ -675,7 +698,10 @@ PERMISOS_POR_ROL = {
         "config.ver_comisiones",
         "config.ver_constantes",
         "config.ver_tipo_cambio",
+        "produccion.ver_preparacion",
+        "pedidos.ver_pendientes",
         "envios_flex.ver",
+        "envios_flex.ver_codigos_postales",
         "envios_flex.exportar",
     ],
     "PRICING": [
@@ -713,6 +739,7 @@ PERMISOS_POR_ROL = {
         "reportes.ver_notificaciones",
         "reportes.ver_calculadora",
         "config.ver_tipo_cambio",
+        "pedidos.ver_pendientes",
         "envios_flex.ver",
     ],
 }

@@ -30,7 +30,7 @@
 ^FX QR Code - JSON para pistoleado ^FS
 ^FO290,290^BQN,2,7,H^FDMA,{{QR_DATA}}^FS
 ^FO0,585^A0N,48,48^FB800,1,0,C^FH^FDIngresá en nuestra web^FS
-^FO0,640^A0N,45,45^FB800,1,0,C^FH^FDwww.gaussonline.comm.ar^FS
+^FO0,640^A0N,45,45^FB800,1,0,C^FH^FDwww.gaussonline.com.ar^FS
 ^FX 3 Horizontal Line ^FS
 ^FO0,700^GB850,2,2^FS
 ^FO40,720^A0N,28,28^FB720,2,0,L^FH^FDDestinatario: {{NOMBRE_DESTINATARIO}}^FS

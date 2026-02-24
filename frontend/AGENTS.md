@@ -124,6 +124,13 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 - ALWAYS: Semantic HTML: `<button>` not `<div onClick>`
 - ALWAYS: ARIA labels for icon-only buttons: `<button aria-label="Close modal">`
 
+### Tabs & Permissions
+- ALWAYS: Every tab MUST have its own individual permission check via `tienePermiso('modulo.accion')`
+- ALWAYS: Wrap tab buttons in `{tienePermiso('...') && (...)}` so unauthorized users don't see tabs they can't access
+- ALWAYS: Guard tab content rendering with the same permission check
+- NEVER: Render a tab without a permission gate — no tab is "public by default"
+- NEVER: Rely on backend-only permission checks for tab visibility — the UI must hide unauthorized tabs
+
 ### Effects & Cleanup
 - ALWAYS: Provide dependencies array to `useEffect`
 - ALWAYS: Cleanup effects (clear timers, cancel requests, unsubscribe)
@@ -286,6 +293,7 @@ cd frontend && npx eslint src/path/to/changed/files.jsx
 - [ ] Design tokens used (no hardcoded colors)
 - [ ] Dark mode works in both themes
 - [ ] Permissions checked where needed
+- [ ] Every tab has its own `tienePermiso()` gate (no ungated tabs)
 - [ ] Effects have dependency arrays and cleanup
 - [ ] No emoji used as icons — lucide-react SVGs only
 - [ ] No `alert()` / `confirm()` / `prompt()` — use custom modals
