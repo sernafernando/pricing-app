@@ -757,6 +757,16 @@ async def generar_etiqueta_zpl(
         codigo_envio = f"{pedido.bra_id}-{pedido.soh_id}-{i}"
         label_context["CODIGO_ENVIO"] = codigo_envio
 
+        # QR data: JSON para pistoleado
+        qr_obj = {
+            "id": codigo_envio,
+            "soh_id": pedido.soh_id,
+            "bra_id": pedido.bra_id,
+            "bulto": i,
+            "total_bultos": num_bultos,
+        }
+        label_context["QR_DATA"] = json.dumps(qr_obj, separators=(",", ":"))
+
         # Reemplazar variables en template
         rendered_zpl = zpl_template
         for key, value in label_context.items():

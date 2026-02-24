@@ -284,6 +284,8 @@ class PistolearRequest(BaseModel):
     caja: str = Field(max_length=50, description="Contenedor activo (CAJA 1, SUELTOS 1, etc.)")
     logistica_id: int = Field(description="Logística que el operador está pistoleando")
     operador_id: int = Field(description="Operador autenticado con PIN")
+    bulto: Optional[int] = Field(None, description="N° de bulto escaneado (del QR). None = bulto único.")
+    total_bultos: Optional[int] = Field(None, description="Total bultos del envío (del QR)")
 
 
 class PistolearResponse(BaseModel):
@@ -297,6 +299,9 @@ class PistolearResponse(BaseModel):
     ciudad: Optional[str] = None
     cordon: Optional[str] = None
     pistoleado_at: str
+    bulto: Optional[int] = None
+    total_bultos: Optional[int] = None
+    bultos_pistoleados: int = Field(0, description="Cantidad de bultos pistoleados hasta ahora")
     count: int = Field(description="Total pistoleadas en esta sesión (fecha + logística + operador)")
     estado_erp: Optional[str] = Field(None, description="Nombre del estado ERP del pedido (ssos_name)")
 
@@ -2258,13 +2263,23 @@ def pistolear_etiqueta(
     Registra el pistoleado de una etiqueta de envío.
 
     El operador escanea el QR de la etiqueta con pistola de barras.
+
+    Dos modos de operación:
+    - **Bulto único / ML**: si `bulto` es None → comportamiento clásico.
+      Duplicado completo → 409.
+    - **Multi-bulto (manuales)**: si `bulto` y `total_bultos` están presentes
+      y total_bultos > 1 → tracking per-bulto en `pistoleado_bultos` (JSON array).
+      Duplicado de bulto específico → 409. `pistoleado_at` se setea solo cuando
+      TODOS los bultos fueron escaneados.
+
     Validaciones:
-    1. La etiqueta debe existir en el sistema.
-    2. No debe haber sido pistoleada antes (duplicado → 409).
-    3. La logística asignada debe coincidir con la que está pistoleando (→ 422).
+    1. La etiqueta debe existir en el sistema (→ 404).
+    2. La logística asignada debe coincidir (→ 422).
+    3. No debe haber sido pistoleada antes — por envío completo o por bulto (→ 409).
 
     Side effects:
     - Graba pistoleado_at, pistoleado_caja, pistoleado_operador_id.
+    - En multi-bulto: actualiza pistoleado_bultos JSON array y total_bultos.
     - Registra actividad en operador_actividad.
     """
     _check_permiso(db, current_user, "envios_flex.pistoleado")
@@ -2292,22 +2307,7 @@ def pistolear_etiqueta(
     if not etiqueta:
         raise HTTPException(404, f"Etiqueta {payload.shipping_id} no encontrada en el sistema")
 
-    # Validar duplicado
-    if etiqueta.pistoleado_at is not None:
-        # Obtener nombre del operador que pistoleó antes
-        op_previo = db.query(Operador).filter(Operador.id == etiqueta.pistoleado_operador_id).first()
-        nombre_previo = op_previo.nombre if op_previo else "Desconocido"
-        raise HTTPException(
-            409,
-            detail={
-                "detail": "Ya pistoleada",
-                "pistoleado_por": nombre_previo,
-                "pistoleado_at": str(etiqueta.pistoleado_at),
-                "pistoleado_caja": etiqueta.pistoleado_caja or "",
-            },
-        )
-
-    # Validar logística coincide (bloqueo estricto)
+    # Validar logística coincide (bloqueo estricto) — antes de cualquier check de duplicado
     if etiqueta.logistica_id is not None and etiqueta.logistica_id != payload.logistica_id:
         logistica_etiq = db.query(Logistica).filter(Logistica.id == etiqueta.logistica_id).first()
         logistica_pistoleando = db.query(Logistica).filter(Logistica.id == payload.logistica_id).first()
@@ -2322,24 +2322,98 @@ def pistolear_etiqueta(
             },
         )
 
-    # Grabar pistoleado
     ahora = datetime.now(UTC)
-    etiqueta.pistoleado_at = ahora
-    etiqueta.pistoleado_caja = payload.caja
-    etiqueta.pistoleado_operador_id = payload.operador_id
+
+    # --- Per-bulto tracking (solo envíos manuales multi-bulto) ---
+    is_multi_bulto = payload.bulto is not None and payload.total_bultos is not None and payload.total_bultos > 1
+    bultos_pistoleados_count = 0
+
+    if is_multi_bulto:
+        # Parsear array existente de bultos pistoleados
+        bultos_arr: list[dict] = []
+        if etiqueta.pistoleado_bultos:
+            try:
+                bultos_arr = json.loads(etiqueta.pistoleado_bultos)
+            except (json.JSONDecodeError, TypeError):
+                bultos_arr = []
+
+        # Check duplicado de ESTE bulto específico
+        bultos_ya_escaneados = {b["bulto"] for b in bultos_arr if "bulto" in b}
+        if payload.bulto in bultos_ya_escaneados:
+            # Buscar quién lo pistoleó
+            entry_previo = next((b for b in bultos_arr if b.get("bulto") == payload.bulto), None)
+            op_previo_id = entry_previo.get("operador_id") if entry_previo else None
+            op_previo = db.query(Operador).filter(Operador.id == op_previo_id).first() if op_previo_id else None
+            nombre_previo = op_previo.nombre if op_previo else "Desconocido"
+            raise HTTPException(
+                409,
+                detail={
+                    "detail": f"Bulto {payload.bulto}/{payload.total_bultos} ya pistoleado",
+                    "pistoleado_por": nombre_previo,
+                    "pistoleado_at": entry_previo.get("at", "") if entry_previo else "",
+                    "pistoleado_caja": entry_previo.get("caja", "") if entry_previo else "",
+                },
+            )
+
+        # Appendear nuevo bulto
+        bultos_arr.append(
+            {
+                "bulto": payload.bulto,
+                "at": ahora.isoformat(),
+                "caja": payload.caja,
+                "operador_id": payload.operador_id,
+            }
+        )
+        etiqueta.pistoleado_bultos = json.dumps(bultos_arr, separators=(",", ":"))
+        bultos_pistoleados_count = len(bultos_arr)
+
+        # Guardar total_bultos en la etiqueta si no estaba
+        if etiqueta.total_bultos is None:
+            etiqueta.total_bultos = payload.total_bultos
+
+        # Cuando TODOS los bultos fueron escaneados → marcar pistoleado_at (backward compat)
+        if bultos_pistoleados_count >= payload.total_bultos:
+            etiqueta.pistoleado_at = ahora
+            etiqueta.pistoleado_caja = payload.caja
+            etiqueta.pistoleado_operador_id = payload.operador_id
+    else:
+        # --- Comportamiento original: bulto único / ML etiquetas ---
+        if etiqueta.pistoleado_at is not None:
+            op_previo = db.query(Operador).filter(Operador.id == etiqueta.pistoleado_operador_id).first()
+            nombre_previo = op_previo.nombre if op_previo else "Desconocido"
+            raise HTTPException(
+                409,
+                detail={
+                    "detail": "Ya pistoleada",
+                    "pistoleado_por": nombre_previo,
+                    "pistoleado_at": str(etiqueta.pistoleado_at),
+                    "pistoleado_caja": etiqueta.pistoleado_caja or "",
+                },
+            )
+
+        etiqueta.pistoleado_at = ahora
+        etiqueta.pistoleado_caja = payload.caja
+        etiqueta.pistoleado_operador_id = payload.operador_id
+        bultos_pistoleados_count = 1
 
     # Registrar actividad
+    detalle_actividad: dict = {
+        "shipping_id": payload.shipping_id,
+        "caja": payload.caja,
+        "logistica_id": payload.logistica_id,
+        "fecha_envio": str(etiqueta.fecha_envio) if etiqueta.fecha_envio else None,
+    }
+    if is_multi_bulto:
+        detalle_actividad["bulto"] = payload.bulto
+        detalle_actividad["total_bultos"] = payload.total_bultos
+        detalle_actividad["bultos_pistoleados"] = bultos_pistoleados_count
+
     actividad = OperadorActividad(
         operador_id=payload.operador_id,
         usuario_id=current_user.id,
         tab_key="pistoleado",
         accion="pistoleado",
-        detalle={
-            "shipping_id": payload.shipping_id,
-            "caja": payload.caja,
-            "logistica_id": payload.logistica_id,
-            "fecha_envio": str(etiqueta.fecha_envio) if etiqueta.fecha_envio else None,
-        },
+        detalle=detalle_actividad,
     )
     db.add(actividad)
 
@@ -2402,6 +2476,9 @@ def pistolear_etiqueta(
         ciudad=ml_shipping.mlcity_name if ml_shipping else None,
         cordon=cordon_val,
         pistoleado_at=str(ahora),
+        bulto=payload.bulto,
+        total_bultos=payload.total_bultos,
+        bultos_pistoleados=bultos_pistoleados_count,
         count=count,
         estado_erp=estado_erp_name,
     )
@@ -2834,6 +2911,16 @@ async def generar_etiqueta_manual_zpl(
         label_context = context.copy()
         label_context["BULTO_ACTUAL"] = str(i)
         label_context["CODIGO_ENVIO"] = f"{bra_id}-{soh_id}-{i}"
+
+        # QR data: JSON para pistoleado
+        qr_obj = {
+            "id": shipping_id,
+            "bulto": i,
+            "total_bultos": num_bultos,
+        }
+        if soh_id:
+            qr_obj["soh_id"] = soh_id
+        label_context["QR_DATA"] = json.dumps(qr_obj, separators=(",", ":"))
 
         rendered_zpl = zpl_template
         for key, value in label_context.items():
