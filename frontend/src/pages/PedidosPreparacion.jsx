@@ -107,8 +107,8 @@ export default function PedidosPreparacion() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
 
-  // Tab activa
-  const [tabActiva, setTabActiva] = useState('preparacion'); // 'preparacion' | 'export' | 'codigos-postales' | 'envios-flex'
+  // Tab activa — se resuelve dinámicamente según permisos
+  const [tabActiva, setTabActiva] = useState('');
 
   // Filtros
   const [tipoEnvio, setTipoEnvio] = useState('');
@@ -129,8 +129,25 @@ export default function PedidosPreparacion() {
   // Permisos
   const puedeGestionarBanlist = tienePermiso('admin.gestionar_produccion_banlist');
   const puedeMarcarPrearmado = tienePermiso('produccion.marcar_prearmado');
+  const puedeVerPreparacion = tienePermiso('produccion.ver_preparacion');
+  const puedeVerPendientes = tienePermiso('pedidos.ver_pendientes');
+  const puedeVerCodigosPostales = tienePermiso('envios_flex.ver_codigos_postales');
   const puedeVerEnviosFlex = tienePermiso('envios_flex.ver');
   const puedeVerPistoleado = tienePermiso('envios_flex.pistoleado');
+
+  // Seleccionar primera tab disponible según permisos
+  useEffect(() => {
+    if (tabActiva) return; // ya seleccionada
+    const tabs = [
+      { key: 'preparacion', tiene: puedeVerPreparacion },
+      { key: 'export', tiene: puedeVerPendientes },
+      { key: 'codigos-postales', tiene: puedeVerCodigosPostales },
+      { key: 'envios-flex', tiene: puedeVerEnviosFlex },
+      { key: 'pistoleado', tiene: puedeVerPistoleado },
+    ];
+    const primera = tabs.find((t) => t.tiene);
+    if (primera) setTabActiva(primera.key);
+  }, [tabActiva, puedeVerPreparacion, puedeVerPendientes, puedeVerCodigosPostales, puedeVerEnviosFlex, puedeVerPistoleado]);
 
   // Abrir modal de pre-armado
   const abrirModalPrearmado = (producto) => {
@@ -447,24 +464,30 @@ export default function PedidosPreparacion() {
 
       {/* Navegación por Tabs */}
       <div className={styles.tabsContainer}>
-        <button
-          className={`${styles.tabBtn} ${tabActiva === 'preparacion' ? styles.tabActiva : ''}`}
-          onClick={() => setTabActiva('preparacion')}
-        >
-          <Package size={16} /> Preparación
-        </button>
-        <button
-          className={`${styles.tabBtn} ${tabActiva === 'export' ? styles.tabActiva : ''}`}
-          onClick={() => setTabActiva('export')}
-        >
-          <ClipboardList size={16} /> Pedidos Pendientes
-        </button>
-        <button
-          className={`${styles.tabBtn} ${tabActiva === 'codigos-postales' ? styles.tabActiva : ''}`}
-          onClick={() => setTabActiva('codigos-postales')}
-        >
-          <MapPin size={16} /> Códigos Postales
-        </button>
+        {puedeVerPreparacion && (
+          <button
+            className={`${styles.tabBtn} ${tabActiva === 'preparacion' ? styles.tabActiva : ''}`}
+            onClick={() => setTabActiva('preparacion')}
+          >
+            <Package size={16} /> Preparación
+          </button>
+        )}
+        {puedeVerPendientes && (
+          <button
+            className={`${styles.tabBtn} ${tabActiva === 'export' ? styles.tabActiva : ''}`}
+            onClick={() => setTabActiva('export')}
+          >
+            <ClipboardList size={16} /> Pedidos Pendientes
+          </button>
+        )}
+        {puedeVerCodigosPostales && (
+          <button
+            className={`${styles.tabBtn} ${tabActiva === 'codigos-postales' ? styles.tabActiva : ''}`}
+            onClick={() => setTabActiva('codigos-postales')}
+          >
+            <MapPin size={16} /> Códigos Postales
+          </button>
+        )}
         {puedeVerEnviosFlex && (
           <button
             className={`${styles.tabBtn} ${tabActiva === 'envios-flex' ? styles.tabActiva : ''}`}
