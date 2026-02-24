@@ -38,6 +38,8 @@ export default function TabPedidosExport() {
   const [showFlexModal, setShowFlexModal] = useState(false);
   const [flexForm, setFlexForm] = useState({
     fecha_envio: new Date().toISOString().split('T')[0],
+    soh_id: '',
+    bra_id: '',
     receiver_name: '',
     street_name: '',
     street_number: '',
@@ -48,6 +50,8 @@ export default function TabPedidosExport() {
   });
   const [flexLoading, setFlexLoading] = useState(false);
   const [flexCordon, setFlexCordon] = useState(null);
+  const [flexPedidoLoading, setFlexPedidoLoading] = useState(false);
+  const [flexPedidoError, setFlexPedidoError] = useState(null);
   const [logisticas, setLogisticas] = useState([]);
   const [sucursales, setSucursales] = useState([]);
   
@@ -464,37 +468,100 @@ export default function TabPedidosExport() {
     }
   };
 
-  const abrirFlexModal = async (pedido) => {
-    const dir = getDireccionDisplay(pedido);
+  const buscarPedidoFlex = async () => {
+    const sohId = flexForm.soh_id?.toString().trim();
+    const braId = flexForm.bra_id?.toString().trim();
+    if (!sohId || !braId) {
+      setFlexPedidoError('Seleccioná una sucursal y cargá el N° de pedido');
+      return;
+    }
 
-    // Separar calle y número si vienen juntos
-    let streetName = dir.direccion || '';
-    let streetNumber = '';
-    if (streetName) {
-      const match = streetName.match(/^(.+?)\s+(\d+\s*)$/);
-      if (match) {
-        streetName = match[1].trim();
-        streetNumber = match[2].trim();
+    setFlexPedidoLoading(true);
+    setFlexPedidoError(null);
+    try {
+      const { data } = await api.get(
+        `/etiquetas-envio/lookup-pedido?soh_id=${sohId}&bra_id=${braId}`
+      );
+      let streetName = '';
+      let streetNumber = '';
+      if (data.cust_address) {
+        const match = data.cust_address.match(/^(.+?)\s+(\d+\s*)$/);
+        if (match) {
+          streetName = match[1].trim();
+          streetNumber = match[2].trim();
+        } else {
+          streetName = data.cust_address;
+        }
       }
+      setFlexForm(prev => ({
+        ...prev,
+        receiver_name: data.cust_name || prev.receiver_name,
+        street_name: streetName || prev.street_name,
+        street_number: streetNumber || prev.street_number,
+        zip_code: data.cust_zip || prev.zip_code,
+        city_name: data.cust_city || prev.city_name,
+      }));
+      if (data.cust_zip) {
+        resolverCordonPorCP(data.cust_zip);
+      }
+    } catch (err) {
+      setFlexPedidoError(err.response?.data?.detail || 'Pedido no encontrado');
+    } finally {
+      setFlexPedidoLoading(false);
+    }
+  };
+
+  const abrirFlexModal = async (pedido = null) => {
+    if (pedido) {
+      const dir = getDireccionDisplay(pedido);
+
+      // Separar calle y número si vienen juntos
+      let streetName = dir.direccion || '';
+      let streetNumber = '';
+      if (streetName) {
+        const match = streetName.match(/^(.+?)\s+(\d+\s*)$/);
+        if (match) {
+          streetName = match[1].trim();
+          streetNumber = match[2].trim();
+        }
+      }
+
+      setFlexForm({
+        fecha_envio: new Date().toISOString().split('T')[0],
+        soh_id: pedido.soh_id || '',
+        bra_id: pedido.bra_id || '',
+        receiver_name: dir.destinatario || pedido.nombre_cliente || '',
+        street_name: streetName,
+        street_number: streetNumber,
+        zip_code: dir.codigo_postal || '',
+        city_name: dir.ciudad || '',
+        logistica_id: '',
+        comment: '',
+      });
+
+      if (dir.codigo_postal) {
+        resolverCordonPorCP(dir.codigo_postal);
+      } else {
+        setFlexCordon(null);
+      }
+    } else {
+      // Modal vacío — envío manual puro
+      setFlexForm({
+        fecha_envio: new Date().toISOString().split('T')[0],
+        soh_id: '',
+        bra_id: '',
+        receiver_name: '',
+        street_name: '',
+        street_number: '',
+        zip_code: '',
+        city_name: '',
+        logistica_id: '',
+        comment: '',
+      });
+      setFlexCordon(null);
     }
 
-    setFlexForm({
-      fecha_envio: new Date().toISOString().split('T')[0],
-      receiver_name: dir.destinatario || pedido.nombre_cliente || '',
-      street_name: streetName,
-      street_number: streetNumber,
-      zip_code: dir.codigo_postal || '',
-      city_name: dir.ciudad || '',
-      logistica_id: '',
-      comment: '',
-    });
-    setFlexCordon(null);
     setShowFlexModal(true);
-
-    // Resolver cordón si hay CP
-    if (dir.codigo_postal) {
-      resolverCordonPorCP(dir.codigo_postal);
-    }
 
     // Cargar logísticas y sucursales si no están cargadas
     if (logisticas.length === 0) {
@@ -529,8 +596,6 @@ export default function TabPedidosExport() {
     try {
       const payload = {
         fecha_envio: flexForm.fecha_envio,
-        soh_id: pedidoSeleccionado.soh_id,
-        bra_id: pedidoSeleccionado.bra_id,
         receiver_name: flexForm.receiver_name.trim(),
         street_name: flexForm.street_name.trim() || 'S/N',
         street_number: flexForm.street_number.trim() || 'S/N',
@@ -539,6 +604,8 @@ export default function TabPedidosExport() {
         comment: flexForm.comment.trim() || null,
         logistica_id: flexForm.logistica_id ? parseInt(flexForm.logistica_id, 10) : null,
       };
+      if (flexForm.soh_id) payload.soh_id = parseInt(flexForm.soh_id, 10);
+      if (flexForm.bra_id) payload.bra_id = parseInt(flexForm.bra_id, 10);
 
       const { data } = await api.post('/etiquetas-envio/desde-pedido', payload);
 
@@ -705,6 +772,13 @@ export default function TabPedidosExport() {
           className="btn-tesla outline-subtle-success sm"
         >
           {syncing ? <><Loader2 size={14} className={styles.spinning} /> Sincronizando...</> : <><RefreshCw size={14} /> Sync ERP</>}
+        </button>
+
+        <button
+          onClick={() => abrirFlexModal()}
+          className="btn-tesla outline-subtle-success sm"
+        >
+          <Truck size={14} /> Envío manual
         </button>
       </div>
 
@@ -1394,11 +1468,14 @@ export default function TabPedidosExport() {
       )}
 
       {/* Modal Envío Flex */}
-      {showFlexModal && pedidoSeleccionado && (
+      {showFlexModal && (
         <div className={styles.modal} onClick={() => setShowFlexModal(false)}>
           <div className={`${styles.modalContent} ${styles.modalWide}`} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h2><Truck size={18} /> Crear envío flex — Pedido GBP:{pedidoSeleccionado.soh_id}</h2>
+              <h2>
+                <Truck size={18} /> Crear envío flex
+                {flexForm.soh_id ? ` — Pedido GBP:${flexForm.soh_id}` : ''}
+              </h2>
               <button
                 onClick={() => setShowFlexModal(false)}
                 className={`btn-tesla outline-subtle-primary sm icon-only ${styles.btnClose}`}
@@ -1425,21 +1502,58 @@ export default function TabPedidosExport() {
                   <label htmlFor="flex-sucursal">Sucursal</label>
                   <select
                     id="flex-sucursal"
-                    value={pedidoSeleccionado.bra_id || ''}
-                    disabled
+                    value={flexForm.bra_id}
+                    onChange={(e) => handleFlexFormChange('bra_id', e.target.value)}
                     className={styles.formInput}
                   >
-                    <option value="">—</option>
+                    <option value="">— Seleccionar —</option>
                     {sucursales.map(s => (
                       <option key={s.bra_id} value={s.bra_id}>{s.bra_desc}</option>
                     ))}
-                    {!sucursales.find(s => s.bra_id === pedidoSeleccionado.bra_id) && (
-                      <option value={pedidoSeleccionado.bra_id}>Sucursal {pedidoSeleccionado.bra_id}</option>
-                    )}
                   </select>
                 </div>
 
-                {/* Fila 2: Destinatario (span 2) */}
+                {/* Fila 2: N° Pedido + Logística */}
+                <div className={styles.formField}>
+                  <label htmlFor="flex-sohid">N° Pedido (ERP)</label>
+                  <div className={styles.inputWithAction}>
+                    <input
+                      id="flex-sohid"
+                      type="number"
+                      value={flexForm.soh_id}
+                      onChange={(e) => handleFlexFormChange('soh_id', e.target.value)}
+                      className={styles.formInput}
+                      placeholder="Ej: 54321"
+                      onKeyDown={(e) => e.key === 'Enter' && buscarPedidoFlex()}
+                    />
+                    <button
+                      className={`btn-tesla outline-subtle-primary sm icon-only ${styles.btnInputAction}`}
+                      onClick={buscarPedidoFlex}
+                      disabled={flexPedidoLoading || !flexForm.soh_id || !flexForm.bra_id}
+                      title="Buscar pedido y autocompletar datos"
+                      aria-label="Buscar pedido"
+                    >
+                      {flexPedidoLoading ? <Loader2 size={14} className={styles.spinning} /> : <Search size={14} />}
+                    </button>
+                  </div>
+                  {flexPedidoError && <span className={styles.fieldError}>{flexPedidoError}</span>}
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="flex-logistica">Logística</label>
+                  <select
+                    id="flex-logistica"
+                    value={flexForm.logistica_id}
+                    onChange={(e) => handleFlexFormChange('logistica_id', e.target.value)}
+                    className={styles.formInput}
+                  >
+                    <option value="">— Sin asignar —</option>
+                    {logisticas.map(l => (
+                      <option key={l.id} value={l.id}>{l.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Fila 3: Destinatario (span 2) */}
                 <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
                   <label htmlFor="flex-receiver">Destinatario *</label>
                   <input
@@ -1452,7 +1566,7 @@ export default function TabPedidosExport() {
                   />
                 </div>
 
-                {/* Fila 3: Calle + Número */}
+                {/* Fila 4: Calle + Número */}
                 <div className={styles.formField}>
                   <label htmlFor="flex-street">Calle</label>
                   <input
@@ -1476,7 +1590,7 @@ export default function TabPedidosExport() {
                   />
                 </div>
 
-                {/* Fila 4: CP + Ciudad */}
+                {/* Fila 5: CP + Ciudad */}
                 <div className={styles.formField}>
                   <label htmlFor="flex-zip">CP *</label>
                   <input
@@ -1504,22 +1618,6 @@ export default function TabPedidosExport() {
                     className={styles.formInput}
                     placeholder="Localidad"
                   />
-                </div>
-
-                {/* Fila 5: Logística (span 2) */}
-                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
-                  <label htmlFor="flex-logistica">Logística</label>
-                  <select
-                    id="flex-logistica"
-                    value={flexForm.logistica_id}
-                    onChange={(e) => handleFlexFormChange('logistica_id', e.target.value)}
-                    className={styles.formInput}
-                  >
-                    <option value="">— Sin asignar —</option>
-                    {logisticas.map(l => (
-                      <option key={l.id} value={l.id}>{l.nombre}</option>
-                    ))}
-                  </select>
                 </div>
 
                 {/* Fila 6: Observaciones (span 2) */}

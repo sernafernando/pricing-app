@@ -237,11 +237,15 @@ class CrearEnvioManualResponse(BaseModel):
 
 
 class CrearDesdePedidoRequest(BaseModel):
-    """Payload para crear un envío flex desde la tab Pedidos Pendientes."""
+    """Payload para crear un envío flex desde la tab Pedidos Pendientes.
+
+    Si se envían soh_id + bra_id, se resuelve el cust_id automáticamente.
+    Si no se envían, se crea un envío manual puro (sin pedido asociado).
+    """
 
     fecha_envio: date
-    soh_id: int = Field(description="N° pedido ERP (soh_id de SaleOrderHeader)")
-    bra_id: int = Field(description="Sucursal (tb_branch.bra_id)")
+    soh_id: Optional[int] = Field(None, description="N° pedido ERP (opcional)")
+    bra_id: Optional[int] = Field(None, description="Sucursal (opcional)")
     receiver_name: str = Field(max_length=500, description="Nombre del destinatario")
     street_name: str = Field(max_length=500, description="Dirección completa")
     street_number: str = Field(max_length=50, default="S/N", description="Número")
@@ -249,6 +253,7 @@ class CrearDesdePedidoRequest(BaseModel):
     city_name: str = Field(max_length=500, description="Ciudad / Localidad")
     comment: Optional[str] = Field(None, max_length=1000, description="Observaciones")
     logistica_id: Optional[int] = Field(None, description="Logística asignada")
+    cust_id: Optional[int] = Field(None, description="ID cliente ERP (si no hay pedido)")
     status: Optional[str] = Field(
         None,
         description="Estado del envío (default: ready_to_ship)",
@@ -1777,21 +1782,24 @@ def crear_envio_desde_pedido(
     """
     _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
 
-    # Resolver cust_id desde SaleOrderHeader
-    soh = (
-        db.query(SaleOrderHeader.cust_id)
-        .filter(
-            SaleOrderHeader.comp_id == 1,
-            SaleOrderHeader.bra_id == payload.bra_id,
-            SaleOrderHeader.soh_id == payload.soh_id,
+    # Resolver cust_id desde SaleOrderHeader (solo si se pasó soh_id + bra_id)
+    resolved_cust_id: Optional[int] = payload.cust_id
+    if payload.soh_id and payload.bra_id:
+        soh = (
+            db.query(SaleOrderHeader.cust_id)
+            .filter(
+                SaleOrderHeader.comp_id == 1,
+                SaleOrderHeader.bra_id == payload.bra_id,
+                SaleOrderHeader.soh_id == payload.soh_id,
+            )
+            .first()
         )
-        .first()
-    )
-    if not soh:
-        raise HTTPException(
-            404,
-            f"Pedido {payload.soh_id} no encontrado en sucursal {payload.bra_id}",
-        )
+        if not soh:
+            raise HTTPException(
+                404,
+                f"Pedido {payload.soh_id} no encontrado en sucursal {payload.bra_id}",
+            )
+        resolved_cust_id = soh.cust_id
 
     # Generar shipping_id único: MAN_{timestamp}_{seq}
     ahora = datetime.now(UTC)
@@ -1813,7 +1821,7 @@ def crear_envio_desde_pedido(
         manual_zip_code=payload.zip_code,
         manual_city_name=payload.city_name,
         manual_status=payload.status or "ready_to_ship",
-        manual_cust_id=soh.cust_id,
+        manual_cust_id=resolved_cust_id,
         manual_bra_id=payload.bra_id,
         manual_soh_id=payload.soh_id,
         manual_comment=payload.comment,
@@ -1837,11 +1845,12 @@ def crear_envio_desde_pedido(
         )
         cordon_val = cordon_row.cordon if cordon_row else None
 
+    soh_label = f" desde pedido GBP:{payload.soh_id}" if payload.soh_id else ""
     return CrearEnvioManualResponse(
         ok=True,
         shipping_id=shipping_id,
         cordon=cordon_val,
-        mensaje=f"Envío flex creado desde pedido GBP:{payload.soh_id}",
+        mensaje=f"Envío flex creado{soh_label}",
     )
 
 
