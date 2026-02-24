@@ -23,11 +23,16 @@ SYSTEM_USERNAME = "sistema"
 
 def upgrade() -> None:
     # Insertar usuario sistema con activo=False para que no pueda hacer login
+    # Obtener el rol_id de VENTAS (el más básico) para cumplir NOT NULL
     op.execute(
         sa.text(
             """
-            INSERT INTO usuarios (username, nombre, email, password_hash, activo, auth_provider, created_at)
-            VALUES (:username, :nombre, :email, :password_hash, :activo, :auth_provider, :created_at)
+            INSERT INTO usuarios (username, nombre, email, password_hash, activo, auth_provider, rol_id, created_at)
+            VALUES (
+                :username, :nombre, :email, :password_hash, :activo, :auth_provider,
+                (SELECT id FROM roles WHERE codigo = 'VENTAS' LIMIT 1),
+                :created_at
+            )
             ON CONFLICT (username) DO NOTHING
             """
         ).bindparams(
