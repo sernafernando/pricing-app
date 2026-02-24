@@ -660,6 +660,27 @@
   margin-bottom: var(--spacing-xs);
 }
 
+/* Enviar a Flex */
+.flexRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+.dateInput {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-base);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+}
+
+.btnEnviarFlex {
+  white-space: nowrap;
+}
+
 /* Botón de imprimir etiqueta - usa btn btn-primary del sistema */
 .btnPrintLabel {
   white-space: nowrap;

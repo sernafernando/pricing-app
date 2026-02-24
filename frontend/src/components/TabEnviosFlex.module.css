@@ -545,6 +545,21 @@
   line-height: 1.6;
 }
 
+/* Creado por usuario badge — purple inline pill */
+.creadoPorBadge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  background: #7c3aed20;
+  color: #7c3aed;
+  vertical-align: middle;
+  line-height: 1.6;
+}
+
 /* Logística badge — color from logistica.color */
 .logisticaBadge {
   display: inline-block;

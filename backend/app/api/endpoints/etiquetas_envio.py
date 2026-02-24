@@ -158,6 +158,9 @@ class EtiquetaEnvioResponse(BaseModel):
     # Turbo (mlshipping_method_id == "515282")
     es_turbo: bool = False
 
+    # Creado por usuario del sistema (cuando viene de Pedidos Pendientes)
+    creado_por_usuario_nombre: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -231,6 +234,20 @@ class CrearEnvioManualResponse(BaseModel):
     shipping_id: str
     cordon: Optional[str] = None
     mensaje: str
+
+
+class CrearDesdePedidoRequest(BaseModel):
+    """Payload para crear un envío flex desde la tab Pedidos Pendientes."""
+
+    fecha_envio: date
+    soh_id: int = Field(description="N° pedido ERP (soh_id de SaleOrderHeader)")
+    bra_id: int = Field(description="Sucursal (tb_branch.bra_id)")
+    receiver_name: str = Field(max_length=500, description="Nombre del destinatario")
+    street_name: str = Field(max_length=500, description="Dirección completa")
+    street_number: str = Field(max_length=50, default="S/N", description="Número")
+    zip_code: str = Field(max_length=50, description="Código postal")
+    city_name: str = Field(max_length=500, description="Ciudad / Localidad")
+    comment: Optional[str] = Field(None, max_length=1000, description="Observaciones")
 
 
 class AsignarMasivoRequest(BaseModel):
@@ -729,6 +746,7 @@ def listar_etiquetas(
             ).label("costo_envio"),
             EtiquetaEnvio.costo_override,
             MercadoLibreUserData.nickname.label("mluser_nickname"),
+            Usuario.nombre.label("creado_por_usuario_nombre"),
         )
         .outerjoin(
             Logistica,
@@ -761,6 +779,10 @@ def listar_etiquetas(
         .outerjoin(
             Operador,
             EtiquetaEnvio.pistoleado_operador_id == Operador.id,
+        )
+        .outerjoin(
+            Usuario,
+            EtiquetaEnvio.creado_por_usuario_id == Usuario.id,
         )
         .outerjoin(
             costo_sub,
@@ -854,6 +876,7 @@ def listar_etiquetas(
             manual_comment=row.manual_comment,
             es_outlet=row.es_outlet,
             es_turbo=row.es_turbo,
+            creado_por_usuario_nombre=row.creado_por_usuario_nombre,
         )
         for row in rows
     ]
@@ -1727,6 +1750,92 @@ def lookup_pedido(
         "cust_city": cliente.cust_city if cliente else None,
         "cust_zip": cliente.cust_zip if cliente else None,
     }
+
+
+@router.post(
+    "/etiquetas-envio/desde-pedido",
+    response_model=CrearEnvioManualResponse,
+    summary="Crear envío flex desde Pedidos Pendientes",
+)
+def crear_envio_desde_pedido(
+    payload: CrearDesdePedidoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> CrearEnvioManualResponse:
+    """
+    Crea un envío flex manual desde la tab Pedidos Pendientes.
+
+    Similar a crear_envio_manual pero NO requiere operador (lo crea otro sector).
+    Guarda el usuario del sistema que lo creó en creado_por_usuario_id para
+    trazabilidad visual en la grilla de Envíos Flex.
+    """
+    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
+
+    # Resolver cust_id desde SaleOrderHeader
+    soh = (
+        db.query(SaleOrderHeader.cust_id)
+        .filter(
+            SaleOrderHeader.comp_id == 1,
+            SaleOrderHeader.bra_id == payload.bra_id,
+            SaleOrderHeader.soh_id == payload.soh_id,
+        )
+        .first()
+    )
+    if not soh:
+        raise HTTPException(
+            404,
+            f"Pedido {payload.soh_id} no encontrado en sucursal {payload.bra_id}",
+        )
+
+    # Generar shipping_id único: MAN_{timestamp}_{seq}
+    ahora = datetime.now(UTC)
+    ts = ahora.strftime("%Y%m%d%H%M%S")
+    prefix = f"MAN_{ts}_"
+    count = (
+        db.query(func.count()).select_from(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id.like(f"{prefix}%")).scalar()
+        or 0
+    )
+    shipping_id = f"{prefix}{count + 1}"
+
+    etiqueta = EtiquetaEnvio(
+        shipping_id=shipping_id,
+        fecha_envio=payload.fecha_envio,
+        es_manual=True,
+        manual_receiver_name=payload.receiver_name,
+        manual_street_name=payload.street_name,
+        manual_street_number=payload.street_number,
+        manual_zip_code=payload.zip_code,
+        manual_city_name=payload.city_name,
+        manual_status="ready_to_ship",
+        manual_cust_id=soh.cust_id,
+        manual_bra_id=payload.bra_id,
+        manual_soh_id=payload.soh_id,
+        manual_comment=payload.comment,
+        nombre_archivo="desde_pedido",
+        creado_por_usuario_id=current_user.id,
+    )
+    db.add(etiqueta)
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error creando envío desde pedido: {str(e)}")
+
+    # Resolver cordón del CP
+    cordon_val = None
+    if payload.zip_code:
+        cordon_row = (
+            db.query(CodigoPostalCordon.cordon).filter(CodigoPostalCordon.codigo_postal == payload.zip_code).first()
+        )
+        cordon_val = cordon_row.cordon if cordon_row else None
+
+    return CrearEnvioManualResponse(
+        ok=True,
+        shipping_id=shipping_id,
+        cordon=cordon_val,
+        mensaje=f"Envío flex creado desde pedido GBP:{payload.soh_id}",
+    )
 
 
 @router.post(
