@@ -1785,7 +1785,7 @@ def crear_envio_desde_pedido(
     Guarda el usuario del sistema que lo creó en creado_por_usuario_id para
     trazabilidad visual en la grilla de Envíos Flex.
     """
-    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
+    _check_permiso(db, current_user, "pedidos.crear_envio_flex")
 
     # Resolver cust_id desde SaleOrderHeader (solo si se pasó soh_id + bra_id)
     resolved_cust_id: Optional[int] = payload.cust_id
