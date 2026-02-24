@@ -83,6 +83,12 @@ class EtiquetaEnvio(Base):
     # Creado por usuario del sistema (cuando se crea desde Pedidos Pendientes)
     creado_por_usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
 
+    # Bultos — para tracking de pistoleado por bulto
+    total_bultos = Column(Integer, nullable=True)  # Cantidad de bultos del envío
+    pistoleado_bultos = Column(
+        Text, nullable=True
+    )  # JSON array: [{"bulto":1,"at":"...","caja":"...","operador_id":7}, ...]
+
     # Pistoleado — escaneo de paquetes con asignación a cajas
     pistoleado_at = Column(DateTime(timezone=True), nullable=True)
     pistoleado_caja = Column(String(50), nullable=True)
