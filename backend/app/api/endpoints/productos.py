@@ -3572,7 +3572,19 @@ async def exportar_rebate(
 
         if filtros.get("colores"):
             colores_list = filtros["colores"].split(",")
-            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+            if "sin_color" in colores_list:
+                colores_con_valor = [c for c in colores_list if c != "sin_color"]
+                if colores_con_valor:
+                    query = query.filter(
+                        or_(
+                            ProductoPricing.color_marcado.in_(colores_con_valor),
+                            ProductoPricing.color_marcado.is_(None),
+                        )
+                    )
+                else:
+                    query = query.filter(ProductoPricing.color_marcado.is_(None))
+            else:
+                query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
 
         if filtros.get("pms"):
             from app.models.marca_pm import MarcaPM
@@ -4148,7 +4160,19 @@ async def calcular_web_masivo(
         # Filtro de colores
         if request.filtros.get("colores"):
             colores_list = request.filtros["colores"].split(",")
-            query = query.filter(ProductoPricing.color.in_(colores_list))
+            if "sin_color" in colores_list:
+                colores_con_valor = [c for c in colores_list if c != "sin_color"]
+                if colores_con_valor:
+                    query = query.filter(
+                        or_(
+                            ProductoPricing.color_marcado.in_(colores_con_valor),
+                            ProductoPricing.color_marcado.is_(None),
+                        )
+                    )
+                else:
+                    query = query.filter(ProductoPricing.color_marcado.is_(None))
+            else:
+                query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
 
         # Filtro de PMs - filtra por pares (marca, categoria)
         if request.filtros.get("pms"):
@@ -4400,7 +4424,19 @@ async def calcular_pvp_masivo(
 
         if request.filtros.get("colores"):
             colores_list = request.filtros["colores"].split(",")
-            query = query.filter(ProductoPricing.color.in_(colores_list))
+            if "sin_color" in colores_list:
+                colores_con_valor = [c for c in colores_list if c != "sin_color"]
+                if colores_con_valor:
+                    query = query.filter(
+                        or_(
+                            ProductoPricing.color_marcado.in_(colores_con_valor),
+                            ProductoPricing.color_marcado.is_(None),
+                        )
+                    )
+                else:
+                    query = query.filter(ProductoPricing.color_marcado.is_(None))
+            else:
+                query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
 
         if request.filtros.get("pms"):
             from app.models.marca_pm import MarcaPM
@@ -4673,7 +4709,19 @@ async def recalcular_cuotas_masivo(
 
         if request.filtros.get("colores"):
             colores_list = request.filtros["colores"].split(",")
-            query = query.filter(ProductoPricing.color.in_(colores_list))
+            if "sin_color" in colores_list:
+                colores_con_valor = [c for c in colores_list if c != "sin_color"]
+                if colores_con_valor:
+                    query = query.filter(
+                        or_(
+                            ProductoPricing.color_marcado.in_(colores_con_valor),
+                            ProductoPricing.color_marcado.is_(None),
+                        )
+                    )
+                else:
+                    query = query.filter(ProductoPricing.color_marcado.is_(None))
+            else:
+                query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
 
         if request.filtros.get("pms"):
             from app.models.marca_pm import MarcaPM
@@ -6812,7 +6860,19 @@ async def exportar_vista_actual(
 
         if colores:
             colores_list = colores.split(",")
-            query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
+            if "sin_color" in colores_list:
+                colores_con_valor = [c for c in colores_list if c != "sin_color"]
+                if colores_con_valor:
+                    query = query.filter(
+                        or_(
+                            ProductoPricing.color_marcado.in_(colores_con_valor),
+                            ProductoPricing.color_marcado.is_(None),
+                        )
+                    )
+                else:
+                    query = query.filter(ProductoPricing.color_marcado.is_(None))
+            else:
+                query = query.filter(ProductoPricing.color_marcado.in_(colores_list))
 
         if pms:
             from app.models.marca_pm import MarcaPM
@@ -7149,7 +7209,19 @@ async def exportar_lista_gremio(
 
         if colores:
             colores_list = colores.split(",")
-            query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
+            if "sin_color" in colores_list:
+                colores_con_valor = [c for c in colores_list if c != "sin_color"]
+                if colores_con_valor:
+                    query = query.filter(
+                        or_(
+                            ProductoPricing.color_marcado_tienda.in_(colores_con_valor),
+                            ProductoPricing.color_marcado_tienda.is_(None),
+                        )
+                    )
+                else:
+                    query = query.filter(ProductoPricing.color_marcado_tienda.is_(None))
+            else:
+                query = query.filter(ProductoPricing.color_marcado_tienda.in_(colores_list))
 
         # Ejecutar query
         results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()
