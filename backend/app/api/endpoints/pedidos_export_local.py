@@ -29,6 +29,10 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Constantes del ERP
+SSOT_STATUS_CLOSED = 40  # Estado "cerrado" en tb_sale_order_times
+EXCLUDED_ITEM_IDS = [2953, 2954]  # Items internos excluidos de conteo
+
 
 @router.get("/pedidos-local", response_model=List[PedidoDetallado])
 async def obtener_pedidos_local(
@@ -78,6 +82,10 @@ async def obtener_pedidos_local(
         db.query(
             SaleOrderHeader,
             TBCustomer.cust_name.label("nombre_cliente"),
+            TBCustomer.cust_address.label("cust_address"),
+            TBCustomer.cust_city.label("cust_city"),
+            TBCustomer.cust_zip.label("cust_zip"),
+            TBCustomer.cust_phone1.label("cust_phone"),
             TBUser.user_name.label("user_name"),
             TiendaNubeOrder.tno_orderid.label("tn_orderid"),
             TiendaNubeOrder.tno_json.label("tn_json"),
@@ -95,7 +103,7 @@ async def obtener_pedidos_local(
 
     # EXCLUIR pedidos cerrados (ssot_id = 40 en tb_sale_order_times)
     # Subquery para obtener soh_ids con ssot_id = 40
-    subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == 40).distinct()
+    subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED).distinct()
 
     query = query.filter(~SaleOrderHeader.soh_id.in_(subquery_cerrados))
 
@@ -179,7 +187,17 @@ async def obtener_pedidos_local(
 
     # Construir respuesta
     pedidos = []
-    for pedido, nombre_cliente, user_name, tn_orderid, tn_json in resultados:
+    for (
+        pedido,
+        nombre_cliente,
+        cust_address,
+        cust_city,
+        cust_zip,
+        cust_phone,
+        user_name,
+        tn_orderid,
+        tn_json,
+    ) in resultados:
         # Obtener items del pedido (excluyendo 2953 y 2954)
         items_query = (
             db.query(SaleOrderDetail.item_id, SaleOrderDetail.sod_qty, TBItem.item_desc, TBItem.item_code)
@@ -192,7 +210,9 @@ async def obtener_pedidos_local(
                     SaleOrderDetail.bra_id == pedido.bra_id,
                     or_(
                         func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).is_(None),
-                        func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).notin_([2953, 2954]),
+                        func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).notin_(
+                            EXCLUDED_ITEM_IDS
+                        ),
                     ),
                 )
             )
@@ -351,6 +371,11 @@ async def obtener_pedidos_local(
             "override_modified_at": pedido.override_modified_at,
             "override_num_bultos": pedido.override_num_bultos,
             "override_tipo_domicilio": pedido.override_tipo_domicilio,
+            # Dirección de facturación (fallback desde tb_customer)
+            "cust_address": cust_address,
+            "cust_city": cust_city,
+            "cust_zip": cust_zip,
+            "cust_phone": cust_phone,
             # Otros
             "soh_packagesqty": pedido.soh_packagesqty,
             "soh_total": pedido.soh_total,
@@ -378,7 +403,7 @@ async def obtener_estadisticas_local(
     EXCLUYE pedidos con más de dias_atras días de antigüedad.
     """
     # Subquery para excluir pedidos cerrados
-    subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == 40).distinct()
+    subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED).distinct()
 
     # Filtro de fecha: Solo pedidos de los últimos N días (desde las 00:00:00 del día inicial)
     fecha_limite = datetime.combine(datetime.now().date() - timedelta(days=dias_atras), datetime.min.time())
@@ -404,7 +429,7 @@ async def obtener_estadisticas_local(
         .filter(
             or_(
                 func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).is_(None),
-                func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).notin_([2953, 2954]),
+                func.coalesce(SaleOrderDetail.item_id, SaleOrderDetail.sod_item_id_origin).notin_(EXCLUDED_ITEM_IDS),
             )
         )
     )
