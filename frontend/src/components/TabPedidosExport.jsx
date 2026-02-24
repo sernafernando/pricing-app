@@ -413,7 +413,39 @@ export default function TabPedidosExport() {
     }
   };
 
-  // ── Flex modal helpers ───────────────────────────────────────────────
+  // ── Envío rápido (inline, usa datos del pedido directamente) ─────────
+
+  const enviarAFlexRapido = async (pedido) => {
+    const dir = getDireccionDisplay(pedido);
+    if (!dir.direccion) {
+      showToast('Este pedido no tiene dirección de envío', 'error');
+      return;
+    }
+
+    setFlexLoading(true);
+    try {
+      const { data } = await api.post('/etiquetas-envio/desde-pedido', {
+        fecha_envio: new Date().toISOString().split('T')[0],
+        soh_id: pedido.soh_id,
+        bra_id: pedido.bra_id,
+        receiver_name: dir.destinatario || pedido.nombre_cliente || 'Sin nombre',
+        street_name: dir.direccion,
+        street_number: 'S/N',
+        zip_code: dir.codigo_postal || '0000',
+        city_name: dir.ciudad || 'Sin ciudad',
+        comment: `Pedido GBP:${pedido.soh_id} - Envío rápido desde Pedidos Pendientes`,
+      });
+
+      showToast(`Envío flex creado: ${data.shipping_id}${data.cordon ? ` (${data.cordon})` : ''}`);
+    } catch (error) {
+      console.error('Error enviando a flex:', error);
+      showToast('Error creando envío flex: ' + (error.response?.data?.detail || error.message), 'error');
+    } finally {
+      setFlexLoading(false);
+    }
+  };
+
+  // ── Flex modal helpers (envío manual completo) ─────────────────────
 
   const handleFlexFormChange = (field, value) => {
     setFlexForm(prev => ({ ...prev, [field]: value }));
@@ -1063,13 +1095,28 @@ export default function TabPedidosExport() {
 
                 <div className={styles.infoSection}>
                   <h3><Truck size={16} /> Enviar a Flex</h3>
-                  <button
-                    onClick={() => abrirFlexModal(pedidoSeleccionado)}
-                    className={`btn-tesla outline-subtle-success sm ${styles.btnEnviarFlex}`}
-                    title="Abrir modal de envío flex"
-                  >
-                    <Truck size={14} /> Crear envío flex
-                  </button>
+                  <div className={styles.flexActions}>
+                    <button
+                      onClick={() => enviarAFlexRapido(pedidoSeleccionado)}
+                      disabled={flexLoading || !getDireccionDisplay(pedidoSeleccionado).direccion}
+                      className={`btn-tesla outline-subtle-success sm ${styles.btnEnviarFlex}`}
+                      title={!getDireccionDisplay(pedidoSeleccionado).direccion ? 'Sin dirección de envío' : 'Envío rápido con datos del pedido'}
+                    >
+                      {flexLoading ? <><Loader2 size={14} className={styles.spinning} /> Enviando...</> : <><Truck size={14} /> Envío rápido</>}
+                    </button>
+                    <button
+                      onClick={() => abrirFlexModal(pedidoSeleccionado)}
+                      className={`btn-tesla outline-subtle-primary sm`}
+                      title="Crear envío manual con datos editables"
+                    >
+                      <Pencil size={14} /> Envío manual
+                    </button>
+                  </div>
+                  {!getDireccionDisplay(pedidoSeleccionado).direccion && (
+                    <div className={styles.fieldHint} style={{ marginTop: '8px', color: 'var(--text-tertiary)' }}>
+                      Sin dirección — usá Envío manual para cargar datos
+                    </div>
+                  )}
                 </div>
 
                 {pedidoSeleccionado.soh_observation1 && (
