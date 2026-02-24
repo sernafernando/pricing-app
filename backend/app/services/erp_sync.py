@@ -2,6 +2,7 @@ import httpx
 import hashlib
 from sqlalchemy.orm import Session
 from app.core.config import settings
+from app.core.constants import get_system_user_id
 from app.models.producto import ProductoERP, ProductoPricing
 from typing import Dict, List
 
@@ -72,6 +73,8 @@ async def sincronizar_erp(db: Session) -> Dict:
     }
 
     try:
+        system_user_id = get_system_user_id(db)
+
         print("Trayendo productos del ERP...")
         productos = await fetch_productos_erp()
 
@@ -209,7 +212,7 @@ async def sincronizar_erp(db: Session) -> Dict:
                                     item_id=item_id,
                                     precio_lista_ml=precio_publicado,
                                     markup_calculado=markup_calculado,
-                                    usuario_id=1,
+                                    usuario_id=system_user_id,
                                     motivo_cambio="Sincronización ERP - Inicial",
                                 )
                                 db.add(pricing)
