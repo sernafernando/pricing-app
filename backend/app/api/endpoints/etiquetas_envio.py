@@ -248,6 +248,12 @@ class CrearDesdePedidoRequest(BaseModel):
     zip_code: str = Field(max_length=50, description="Código postal")
     city_name: str = Field(max_length=500, description="Ciudad / Localidad")
     comment: Optional[str] = Field(None, max_length=1000, description="Observaciones")
+    logistica_id: Optional[int] = Field(None, description="Logística asignada")
+    status: Optional[str] = Field(
+        None,
+        description="Estado del envío (default: ready_to_ship)",
+        pattern="^(ready_to_ship|shipped|delivered)$",
+    )
 
 
 class AsignarMasivoRequest(BaseModel):
@@ -1806,11 +1812,12 @@ def crear_envio_desde_pedido(
         manual_street_number=payload.street_number,
         manual_zip_code=payload.zip_code,
         manual_city_name=payload.city_name,
-        manual_status="ready_to_ship",
+        manual_status=payload.status or "ready_to_ship",
         manual_cust_id=soh.cust_id,
         manual_bra_id=payload.bra_id,
         manual_soh_id=payload.soh_id,
         manual_comment=payload.comment,
+        logistica_id=payload.logistica_id,
         nombre_archivo="desde_pedido",
         creado_por_usuario_id=current_user.id,
     )

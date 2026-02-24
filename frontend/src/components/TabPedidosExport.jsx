@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText, Truck } from 'lucide-react';
+import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText, Truck, Search } from 'lucide-react';
 import api from '../services/api';
 import { useToast } from '../hooks/useToast';
 import Toast from './Toast';
@@ -34,9 +34,22 @@ export default function TabPedidosExport() {
   const [tipoEnvio, setTipoEnvio] = useState('');
   const [generandoEtiqueta, setGenerandoEtiqueta] = useState(false);
   
-  // Enviar a Flex
-  const [fechaFlex, setFechaFlex] = useState(() => new Date().toISOString().split('T')[0]);
-  const [enviandoAFlex, setEnviandoAFlex] = useState(false);
+  // Modal Enviar a Flex (completo)
+  const [showFlexModal, setShowFlexModal] = useState(false);
+  const [flexForm, setFlexForm] = useState({
+    fecha_envio: new Date().toISOString().split('T')[0],
+    receiver_name: '',
+    street_name: '',
+    street_number: '',
+    zip_code: '',
+    city_name: '',
+    logistica_id: '',
+    comment: '',
+  });
+  const [flexLoading, setFlexLoading] = useState(false);
+  const [flexCordon, setFlexCordon] = useState(null);
+  const [logisticas, setLogisticas] = useState([]);
+  const [sucursales, setSucursales] = useState([]);
   
   // Bulk print
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState([]);
@@ -400,33 +413,110 @@ export default function TabPedidosExport() {
     }
   };
 
-  const enviarAFlex = async (pedido) => {
+  // ── Flex modal helpers ───────────────────────────────────────────────
+
+  const handleFlexFormChange = (field, value) => {
+    setFlexForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const resolverCordonPorCP = async (zipCode) => {
+    if (!zipCode || zipCode.length < 4) {
+      setFlexCordon(null);
+      return;
+    }
+    try {
+      const { data } = await api.get(`/codigos-postales/${zipCode}/cordon`);
+      setFlexCordon(data.cordon || null);
+    } catch {
+      setFlexCordon(null);
+    }
+  };
+
+  const abrirFlexModal = async (pedido) => {
     const dir = getDireccionDisplay(pedido);
-    if (!dir.direccion) {
-      showToast('Este pedido no tiene dirección de envío', 'error');
+
+    // Separar calle y número si vienen juntos
+    let streetName = dir.direccion || '';
+    let streetNumber = '';
+    if (streetName) {
+      const match = streetName.match(/^(.+?)\s+(\d+\s*)$/);
+      if (match) {
+        streetName = match[1].trim();
+        streetNumber = match[2].trim();
+      }
+    }
+
+    setFlexForm({
+      fecha_envio: new Date().toISOString().split('T')[0],
+      receiver_name: dir.destinatario || pedido.nombre_cliente || '',
+      street_name: streetName,
+      street_number: streetNumber,
+      zip_code: dir.codigo_postal || '',
+      city_name: dir.ciudad || '',
+      logistica_id: '',
+      comment: '',
+    });
+    setFlexCordon(null);
+    setShowFlexModal(true);
+
+    // Resolver cordón si hay CP
+    if (dir.codigo_postal) {
+      resolverCordonPorCP(dir.codigo_postal);
+    }
+
+    // Cargar logísticas y sucursales si no están cargadas
+    if (logisticas.length === 0) {
+      try {
+        const { data } = await api.get('/logisticas?incluir_inactivas=false');
+        setLogisticas(data);
+      } catch {
+        // silently fail
+      }
+    }
+    if (sucursales.length === 0) {
+      try {
+        const { data } = await api.get('/clientes/filtros/sucursales');
+        setSucursales(data);
+      } catch {
+        // silently fail
+      }
+    }
+  };
+
+  const guardarEnvioFlex = async () => {
+    if (!flexForm.receiver_name.trim()) {
+      showToast('Ingresá el nombre del destinatario', 'error');
+      return;
+    }
+    if (!flexForm.zip_code.trim()) {
+      showToast('Ingresá el código postal', 'error');
       return;
     }
 
-    setEnviandoAFlex(true);
+    setFlexLoading(true);
     try {
-      const response = await api.post('/etiquetas-envio/desde-pedido', {
-        fecha_envio: fechaFlex,
-        soh_id: pedido.soh_id,
-        bra_id: pedido.bra_id,
-        receiver_name: dir.destinatario || pedido.nombre_cliente || 'Sin nombre',
-        street_name: dir.direccion,
-        street_number: 'S/N',
-        zip_code: dir.codigo_postal || '0000',
-        city_name: dir.ciudad || 'Sin ciudad',
-        comment: `Pedido GBP:${pedido.soh_id} - Enviado desde Pedidos Pendientes`,
-      });
+      const payload = {
+        fecha_envio: flexForm.fecha_envio,
+        soh_id: pedidoSeleccionado.soh_id,
+        bra_id: pedidoSeleccionado.bra_id,
+        receiver_name: flexForm.receiver_name.trim(),
+        street_name: flexForm.street_name.trim() || 'S/N',
+        street_number: flexForm.street_number.trim() || 'S/N',
+        zip_code: flexForm.zip_code.trim(),
+        city_name: flexForm.city_name.trim() || 'Sin ciudad',
+        comment: flexForm.comment.trim() || null,
+        logistica_id: flexForm.logistica_id ? parseInt(flexForm.logistica_id, 10) : null,
+      };
 
-      showToast(`Envío flex creado: ${response.data.shipping_id}${response.data.cordon ? ` (${response.data.cordon})` : ''}`);
+      const { data } = await api.post('/etiquetas-envio/desde-pedido', payload);
+
+      setShowFlexModal(false);
+      showToast(`Envío flex creado: ${data.shipping_id}${data.cordon ? ` (${data.cordon})` : ''}`);
     } catch (error) {
-      console.error('Error enviando a flex:', error);
+      console.error('Error creando envío flex:', error);
       showToast('Error creando envío flex: ' + (error.response?.data?.detail || error.message), 'error');
     } finally {
-      setEnviandoAFlex(false);
+      setFlexLoading(false);
     }
   };
 
@@ -973,22 +1063,13 @@ export default function TabPedidosExport() {
 
                 <div className={styles.infoSection}>
                   <h3><Truck size={16} /> Enviar a Flex</h3>
-                  <div className={styles.flexRow}>
-                    <input
-                      type="date"
-                      value={fechaFlex}
-                      onChange={(e) => setFechaFlex(e.target.value)}
-                      className={styles.dateInput}
-                    />
-                    <button
-                      onClick={() => enviarAFlex(pedidoSeleccionado)}
-                      disabled={enviandoAFlex || !getDireccionDisplay(pedidoSeleccionado).direccion}
-                      className={`btn-tesla outline-subtle-success sm ${styles.btnEnviarFlex}`}
-                      title={!getDireccionDisplay(pedidoSeleccionado).direccion ? 'Sin dirección de envío' : 'Crear envío flex manual'}
-                    >
-                      {enviandoAFlex ? <><Loader2 size={14} className={styles.spinning} /> Enviando...</> : <><Truck size={14} /> Enviar a Flex</>}
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => abrirFlexModal(pedidoSeleccionado)}
+                    className={`btn-tesla outline-subtle-success sm ${styles.btnEnviarFlex}`}
+                    title="Abrir modal de envío flex"
+                  >
+                    <Truck size={14} /> Crear envío flex
+                  </button>
                 </div>
 
                 {pedidoSeleccionado.soh_observation1 && (
@@ -1259,6 +1340,172 @@ export default function TabPedidosExport() {
 
               <div style={{ marginTop: '15px', padding: '10px', background: 'var(--bg-tertiary)', borderRadius: '6px', fontSize: '13px' }}>
                 <strong><Lightbulb size={14} /> Tip:</strong> Abrí el archivo .txt con el software de tu impresora Zebra (Zebra Browser Print o ZebraDesigner) para imprimir.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Envío Flex */}
+      {showFlexModal && pedidoSeleccionado && (
+        <div className={styles.modal} onClick={() => setShowFlexModal(false)}>
+          <div className={`${styles.modalContent} ${styles.modalWide}`} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2><Truck size={18} /> Crear envío flex — Pedido GBP:{pedidoSeleccionado.soh_id}</h2>
+              <button
+                onClick={() => setShowFlexModal(false)}
+                className={`btn-tesla outline-subtle-primary sm icon-only ${styles.btnClose}`}
+                aria-label="Cerrar modal"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className={styles.modalBody}>
+              <div className={styles.formGrid}>
+                {/* Fila 1: Fecha + Sucursal */}
+                <div className={styles.formField}>
+                  <label htmlFor="flex-fecha">Fecha de envío</label>
+                  <input
+                    id="flex-fecha"
+                    type="date"
+                    value={flexForm.fecha_envio}
+                    onChange={(e) => handleFlexFormChange('fecha_envio', e.target.value)}
+                    className={styles.formInput}
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="flex-sucursal">Sucursal</label>
+                  <select
+                    id="flex-sucursal"
+                    value={pedidoSeleccionado.bra_id || ''}
+                    disabled
+                    className={styles.formInput}
+                  >
+                    <option value="">—</option>
+                    {sucursales.map(s => (
+                      <option key={s.bra_id} value={s.bra_id}>{s.bra_desc}</option>
+                    ))}
+                    {!sucursales.find(s => s.bra_id === pedidoSeleccionado.bra_id) && (
+                      <option value={pedidoSeleccionado.bra_id}>Sucursal {pedidoSeleccionado.bra_id}</option>
+                    )}
+                  </select>
+                </div>
+
+                {/* Fila 2: Destinatario (span 2) */}
+                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                  <label htmlFor="flex-receiver">Destinatario *</label>
+                  <input
+                    id="flex-receiver"
+                    type="text"
+                    value={flexForm.receiver_name}
+                    onChange={(e) => handleFlexFormChange('receiver_name', e.target.value)}
+                    className={styles.formInput}
+                    placeholder="Nombre del destinatario"
+                  />
+                </div>
+
+                {/* Fila 3: Calle + Número */}
+                <div className={styles.formField}>
+                  <label htmlFor="flex-street">Calle</label>
+                  <input
+                    id="flex-street"
+                    type="text"
+                    value={flexForm.street_name}
+                    onChange={(e) => handleFlexFormChange('street_name', e.target.value)}
+                    className={styles.formInput}
+                    placeholder="Nombre de la calle"
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="flex-number">Número</label>
+                  <input
+                    id="flex-number"
+                    type="text"
+                    value={flexForm.street_number}
+                    onChange={(e) => handleFlexFormChange('street_number', e.target.value)}
+                    className={styles.formInput}
+                    placeholder="N°"
+                  />
+                </div>
+
+                {/* Fila 4: CP + Ciudad */}
+                <div className={styles.formField}>
+                  <label htmlFor="flex-zip">CP *</label>
+                  <input
+                    id="flex-zip"
+                    type="text"
+                    value={flexForm.zip_code}
+                    onChange={(e) => {
+                      handleFlexFormChange('zip_code', e.target.value);
+                      resolverCordonPorCP(e.target.value);
+                    }}
+                    className={styles.formInput}
+                    placeholder="1234"
+                  />
+                  {flexCordon && (
+                    <span className={styles.fieldHint}>{flexCordon}</span>
+                  )}
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="flex-city">Ciudad</label>
+                  <input
+                    id="flex-city"
+                    type="text"
+                    value={flexForm.city_name}
+                    onChange={(e) => handleFlexFormChange('city_name', e.target.value)}
+                    className={styles.formInput}
+                    placeholder="Localidad"
+                  />
+                </div>
+
+                {/* Fila 5: Logística (span 2) */}
+                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                  <label htmlFor="flex-logistica">Logística</label>
+                  <select
+                    id="flex-logistica"
+                    value={flexForm.logistica_id}
+                    onChange={(e) => handleFlexFormChange('logistica_id', e.target.value)}
+                    className={styles.formInput}
+                  >
+                    <option value="">— Sin asignar —</option>
+                    {logisticas.map(l => (
+                      <option key={l.id} value={l.id}>{l.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Fila 6: Observaciones (span 2) */}
+                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                  <label htmlFor="flex-comment">Observaciones</label>
+                  <textarea
+                    id="flex-comment"
+                    value={flexForm.comment}
+                    onChange={(e) => handleFlexFormChange('comment', e.target.value)}
+                    className={`${styles.formInput} ${styles.textarea}`}
+                    placeholder="Notas o instrucciones adicionales (opcional)"
+                    rows={2}
+                  />
+                </div>
+              </div>
+
+              <div className={styles.modalActions}>
+                <button
+                  onClick={guardarEnvioFlex}
+                  className={`btn-tesla outline-subtle-success ${styles.btnGuardar}`}
+                  disabled={flexLoading || !flexForm.receiver_name.trim() || !flexForm.zip_code.trim()}
+                >
+                  {flexLoading
+                    ? <><Loader2 size={14} className={styles.spinning} /> Creando...</>
+                    : <><Truck size={14} /> Crear envío</>
+                  }
+                </button>
+                <button
+                  onClick={() => setShowFlexModal(false)}
+                  className={`btn-tesla outline-subtle-primary ${styles.btnCancelar}`}
+                >
+                  Cancelar
+                </button>
               </div>
             </div>
           </div>
