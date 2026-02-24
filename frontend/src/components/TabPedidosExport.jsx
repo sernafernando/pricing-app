@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText } from 'lucide-react';
 import api from '../services/api';
 import styles from './TabPedidosExport.module.css';
+
+// Constantes de user_id del ERP
+const USER_ID_TIENDANUBE = 50021;
+const USER_ID_VENDEDOR_ML = 50006;
+const USER_ID_MERCADOLIBRE = 50001;
 
 export default function TabPedidosExport() {
   const [pedidos, setPedidos] = useState([]);
@@ -35,6 +41,7 @@ export default function TabPedidosExport() {
   const [soloML, setSoloML] = useState(false);
   const [soloOtros, setSoloOtros] = useState(false);
   const [soloSinDireccion, setSoloSinDireccion] = useState(false);
+  const [excluirML, setExcluirML] = useState(true);
   const [userIdFiltro, setUserIdFiltro] = useState('');
   const [provinciaFiltro, setProvinciaFiltro] = useState('');
   const [search, setSearch] = useState('');
@@ -96,12 +103,15 @@ export default function TabPedidosExport() {
         `/pedidos-local?${params.toString()}`
       );
       
-      // Si "Solo Otros" está activado, filtrar en el frontend
+      // Filtros client-side
       let pedidosFiltrados = response.data;
       if (soloOtros) {
-        pedidosFiltrados = response.data.filter(p => 
-          p.user_id !== 50021 && p.user_id !== 50006
+        pedidosFiltrados = pedidosFiltrados.filter(p => 
+          p.user_id !== USER_ID_TIENDANUBE && p.user_id !== USER_ID_VENDEDOR_ML
         );
+      }
+      if (excluirML && !soloML) {
+        pedidosFiltrados = pedidosFiltrados.filter(p => p.user_id !== USER_ID_VENDEDOR_ML);
       }
       
       setPedidos(pedidosFiltrados);
@@ -111,7 +121,7 @@ export default function TabPedidosExport() {
     } finally {
       setLoading(false);
     }
-  }, [soloActivos, soloTN, soloML, soloOtros, soloSinDireccion, userIdFiltro, provinciaFiltro, search]);
+  }, [soloActivos, soloTN, soloML, soloOtros, excluirML, soloSinDireccion, userIdFiltro, provinciaFiltro, search]);
 
   const sincronizarPedidos = async () => {
     if (!confirm('¿Sincronizar pedidos desde el ERP y limpiar archivados? Puede tardar 1-2 minutos.')) {
@@ -141,16 +151,19 @@ export default function TabPedidosExport() {
     }
   };
 
-  // Obtener dirección con prioridad: override > TN > ERP
+  // Obtener dirección con prioridad: override > TN > ERP > facturación (cliente)
   const getDireccionDisplay = (pedido) => {
+    const direccion = pedido.override_shipping_address || pedido.tiendanube_shipping_address || pedido.soh_deliveryaddress || pedido.cust_address;
+    const fromCustomer = !pedido.override_shipping_address && !pedido.tiendanube_shipping_address && !pedido.soh_deliveryaddress && !!pedido.cust_address;
     return {
-      direccion: pedido.override_shipping_address || pedido.tiendanube_shipping_address || pedido.soh_deliveryaddress,
-      ciudad: pedido.override_shipping_city || pedido.tiendanube_shipping_city,
+      direccion,
+      ciudad: pedido.override_shipping_city || pedido.tiendanube_shipping_city || (fromCustomer ? pedido.cust_city : null),
       provincia: pedido.override_shipping_province || pedido.tiendanube_shipping_province,
-      codigo_postal: pedido.override_shipping_zipcode || pedido.tiendanube_shipping_zipcode,
-      telefono: pedido.override_shipping_phone || pedido.tiendanube_shipping_phone,
+      codigo_postal: pedido.override_shipping_zipcode || pedido.tiendanube_shipping_zipcode || (fromCustomer ? pedido.cust_zip : null),
+      telefono: pedido.override_shipping_phone || pedido.tiendanube_shipping_phone || (fromCustomer ? pedido.cust_phone : null),
       destinatario: pedido.override_shipping_recipient || pedido.tiendanube_recipient_name,
-      hasOverride: !!pedido.override_shipping_address
+      hasOverride: !!pedido.override_shipping_address,
+      fromCustomer,
     };
   };
 
@@ -458,7 +471,7 @@ export default function TabPedidosExport() {
         <button
           onClick={() => {
             setSoloML(!soloML);
-            if (!soloML) { setSoloTN(false); setSoloOtros(false); }
+            if (!soloML) { setSoloTN(false); setSoloOtros(false); setExcluirML(false); }
           }}
           className={`btn-tesla outline-subtle-primary sm ${soloML ? 'toggle-active' : ''}`}
         >
@@ -473,6 +486,14 @@ export default function TabPedidosExport() {
           className={`btn-tesla outline-subtle-primary sm ${soloOtros ? 'toggle-active' : ''}`}
         >
           {soloOtros ? '✓ ' : ''}Otros
+        </button>
+
+        <button
+          onClick={() => setExcluirML(!excluirML)}
+          className={`btn-tesla outline-subtle-primary sm ${excluirML ? 'toggle-active' : ''}`}
+          title="Excluir pedidos del Vendedor ML (user_id 50006)"
+        >
+          {excluirML ? '✓ ' : ''}Excluir Vendedor ML
         </button>
 
         <button
@@ -495,7 +516,7 @@ export default function TabPedidosExport() {
           disabled={syncing}
           className="btn-tesla outline-subtle-success sm"
         >
-          {syncing ? '⏳ Sincronizando...' : '🔄 Sync ERP'}
+          {syncing ? <><Loader2 size={14} className={styles.spinning} /> Sincronizando...</> : <><RefreshCw size={14} /> Sync ERP</>}
         </button>
       </div>
 
@@ -507,13 +528,13 @@ export default function TabPedidosExport() {
             disabled={generandoEtiqueta}
             className="btn-tesla outline-subtle-primary sm"
           >
-            {generandoEtiqueta ? '⏳ Generando...' : `🖨️ Imprimir Etiquetas (${pedidosSeleccionados.length})`}
+            {generandoEtiqueta ? <><Loader2 size={14} className={styles.spinning} /> Generando...</> : <><Printer size={14} /> Imprimir Etiquetas ({pedidosSeleccionados.length})</>}
           </button>
           <button
             onClick={() => setPedidosSeleccionados([])}
             className="btn-tesla outline-subtle-danger sm"
           >
-            ✖️ Limpiar Selección
+            <X size={14} /> Limpiar Selección
           </button>
           <span className={styles.bulkCount}>
             {pedidosSeleccionados.length} seleccionados
@@ -577,15 +598,15 @@ export default function TabPedidosExport() {
                   
                   <td onClick={() => setPedidoSeleccionado(pedido)}>
                     <div className={styles.codigoInterno}>
-                      {pedido.user_id === 50001 ? (
+                      {pedido.user_id === USER_ID_MERCADOLIBRE ? (
                         // MercadoLibre: mostrar soh_mlguia (shipping ID)
                         <span className={styles.codigoML} title="Shipping ID de ML">
-                          📦 {pedido.soh_mlguia || pedido.soh_mlid || 'Sin ID'}
+                          <Package size={14} /> {pedido.soh_mlguia || pedido.soh_mlid || 'Sin ID'}
                         </span>
                       ) : (
                         // TiendaNube/Otros: mostrar codigo_envio_interno
                         <span className={styles.codigoTN} title="Código interno">
-                          🏷️ {pedido.codigo_envio_interno || `${pedido.bra_id}-${pedido.soh_id}`}
+                          <Tag size={14} /> {pedido.codigo_envio_interno || `${pedido.bra_id}-${pedido.soh_id}`}
                         </span>
                       )}
                     </div>
@@ -626,9 +647,9 @@ export default function TabPedidosExport() {
                       onChange={(e) => actualizarBultosDomicilio(pedido.soh_id, pedido.override_num_bultos || 1, e.target.value)}
                       className={styles.selectCompact}
                     >
-                      <option value="Particular">🏠</option>
-                      <option value="Comercial">🏢</option>
-                      <option value="Sucursal">📦</option>
+                      <option value="Particular">Part.</option>
+                      <option value="Comercial">Com.</option>
+                      <option value="Sucursal">Suc.</option>
                     </select>
                   </td>
                   
@@ -636,7 +657,7 @@ export default function TabPedidosExport() {
                     {pedido.tiendanube_number ? (
                       <div className={styles.ordenTN}>
                         <div className={styles.ordenTNNumber}>
-                          🛒 {pedido.tiendanube_number}
+                          <ShoppingCart size={14} /> {pedido.tiendanube_number}
                         </div>
                         {pedido.ws_internalid && (
                           <div className={styles.ordenTNId}>ID: {pedido.ws_internalid}</div>
@@ -655,7 +676,10 @@ export default function TabPedidosExport() {
                       return dir.direccion ? (
                         <div className={styles.direccion}>
                           {dir.hasOverride && (
-                            <div className={styles.overrideBadgeSmall}>✏️</div>
+                            <div className={styles.overrideBadgeSmall}><Pencil size={12} /></div>
+                          )}
+                          {dir.fromCustomer && (
+                            <div className={styles.fallbackBadge} title="Dirección tomada de facturación del cliente">Dir. Facturación</div>
                           )}
                           <div>{dir.direccion}</div>
                           {dir.ciudad && (
@@ -665,7 +689,7 @@ export default function TabPedidosExport() {
                           )}
                           {dir.telefono && (
                             <div className={styles.telefono}>
-                              📞 {dir.telefono}
+                              <Phone size={12} /> {dir.telefono}
                             </div>
                           )}
                         </div>
@@ -716,13 +740,14 @@ export default function TabPedidosExport() {
                   className={`btn-tesla primary sm ${styles.btnPrintLabel}`}
                   title="Imprimir etiqueta de envío"
                 >
-                  🖨️ Imprimir Etiqueta
+                  <Printer size={14} /> Imprimir Etiqueta
                 </button>
                 <button 
                   onClick={() => setPedidoSeleccionado(null)}
                   className={`btn-tesla ghost sm ${styles.btnClose}`}
+                  aria-label="Cerrar modal"
                 >
-                  ✕
+                  <X size={18} />
                 </button>
               </div>
             </div>
@@ -790,13 +815,13 @@ export default function TabPedidosExport() {
                       }}
                       className={styles.selectInModal}
                     >
-                      <option value="Particular">🏠 Particular</option>
-                      <option value="Comercial">🏢 Comercial</option>
-                      <option value="Sucursal">📦 Sucursal</option>
+                      <option value="Particular">Particular</option>
+                      <option value="Comercial">Comercial</option>
+                      <option value="Sucursal">Sucursal</option>
                     </select>
                   </div>
                   <div className={styles.infoRow} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                    💡 Estos valores se guardan automáticamente y se usan para generar las etiquetas
+                    <Lightbulb size={12} /> Estos valores se guardan automáticamente y se usan para generar las etiquetas
                   </div>
                 </div>
 
@@ -827,7 +852,7 @@ export default function TabPedidosExport() {
                       className={`btn-tesla outline sm ${styles.btnEditDireccion}`}
                       title="Editar dirección de envío"
                     >
-                      ✏️ Editar
+                      <Pencil size={14} /> Editar
                     </button>
                   </div>
                   
@@ -837,7 +862,12 @@ export default function TabPedidosExport() {
                       <>
                         {dir.hasOverride && (
                           <div className={styles.overrideBadge}>
-                            ⚠️ Dirección modificada manualmente
+                            <AlertTriangle size={14} /> Dirección modificada manualmente
+                          </div>
+                        )}
+                        {dir.fromCustomer && (
+                          <div className={styles.fallbackBadge}>
+                            Dirección tomada de facturación del cliente (sin dirección de envío)
                           </div>
                         )}
                         <div className={styles.infoRow}>
@@ -930,18 +960,19 @@ export default function TabPedidosExport() {
         <div className={styles.modal} onClick={() => setEditandoDireccion(false)}>
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
             <div className={styles.modalHeader}>
-              <h2>✏️ Editar Dirección de Envío</h2>
+              <h2><Pencil size={18} /> Editar Dirección de Envío</h2>
               <button 
                 onClick={() => setEditandoDireccion(false)}
                 className={`btn-tesla ghost sm ${styles.btnClose}`}
+                aria-label="Cerrar modal"
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
             <div className={styles.modalBody}>
               <div style={{ marginBottom: '15px', padding: '10px', background: 'var(--info-bg)', borderRadius: '6px', color: 'var(--info-text)' }}>
-                <strong>📝 Nota:</strong> Este cambio sobrescribe los datos de TN/ERP. Se usará para visualización Y para las etiquetas de envío.
+                <strong><FileText size={14} /> Nota:</strong> Este cambio sobrescribe los datos de TN/ERP. Se usará para visualización Y para las etiquetas de envío.
               </div>
 
               <div className={styles.formGroup}>
@@ -1027,7 +1058,7 @@ export default function TabPedidosExport() {
                   className={`btn-tesla success ${styles.btnGuardar}`}
                   disabled={!direccionForm.direccion}
                 >
-                  💾 Guardar
+                  <Save size={14} /> Guardar
                 </button>
                 
                 {getDireccionDisplay(pedidoSeleccionado).hasOverride && (
@@ -1035,7 +1066,7 @@ export default function TabPedidosExport() {
                     onClick={eliminarOverride}
                     className={`btn-tesla danger ${styles.btnEliminar}`}
                   >
-                    🗑️ Eliminar Override
+                    <Trash2 size={14} /> Eliminar Override
                   </button>
                 )}
 
@@ -1056,18 +1087,19 @@ export default function TabPedidosExport() {
         <div className={styles.modal} onClick={() => setMostrarModalEtiqueta(false)}>
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
             <div className={styles.modalHeader}>
-              <h2>🖨️ Generar Etiqueta</h2>
+              <h2><Printer size={18} /> Generar Etiqueta</h2>
               <button 
                 onClick={() => setMostrarModalEtiqueta(false)}
                 className={`btn-tesla ghost sm ${styles.btnClose}`}
+                aria-label="Cerrar modal"
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
             <div className={styles.modalBody}>
               <div style={{ marginBottom: '20px', padding: '12px', background: 'var(--info-bg)', borderRadius: '6px', color: 'var(--info-text)', fontSize: '14px' }}>
-                <strong>📋 Datos de la etiqueta:</strong>
+                <strong><ClipboardList size={14} /> Datos de la etiqueta:</strong>
                 <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px' }}>
                   <li>Usa <strong>override</strong> si existe</li>
                   <li>Sino usa datos de <strong>TiendaNube</strong></li>
@@ -1099,9 +1131,9 @@ export default function TabPedidosExport() {
                   className={styles.formInput}
                   style={{ fontSize: '16px' }}
                 >
-                  <option value="Particular">🏠 Particular</option>
-                  <option value="Comercial">🏢 Comercial</option>
-                  <option value="Sucursal">📦 Sucursal</option>
+                  <option value="Particular">Particular</option>
+                  <option value="Comercial">Comercial</option>
+                  <option value="Sucursal">Sucursal</option>
                 </select>
                 <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '5px' }}>
                   Aparece en el lateral derecho de la etiqueta
@@ -1128,7 +1160,7 @@ export default function TabPedidosExport() {
                   className={`btn-tesla success ${styles.btnGuardar}`}
                   disabled={generandoEtiqueta || numBultos < 1 || numBultos > 10}
                 >
-                  {generandoEtiqueta ? '⏳ Generando...' : '🖨️ Generar y Descargar'}
+                  {generandoEtiqueta ? <><Loader2 size={14} className={styles.spinning} /> Generando...</> : <><Printer size={14} /> Generar y Descargar</>}
                 </button>
 
                 <button
@@ -1140,7 +1172,7 @@ export default function TabPedidosExport() {
               </div>
 
               <div style={{ marginTop: '15px', padding: '10px', background: 'var(--bg-tertiary)', borderRadius: '6px', fontSize: '13px' }}>
-                <strong>💡 Tip:</strong> Abrí el archivo .txt con el software de tu impresora Zebra (Zebra Browser Print o ZebraDesigner) para imprimir.
+                <strong><Lightbulb size={14} /> Tip:</strong> Abrí el archivo .txt con el software de tu impresora Zebra (Zebra Browser Print o ZebraDesigner) para imprimir.
               </div>
             </div>
           </div>

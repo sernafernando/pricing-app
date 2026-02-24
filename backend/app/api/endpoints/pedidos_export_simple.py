@@ -10,6 +10,7 @@ from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 import logging
+import re
 import httpx
 import json
 from pathlib import Path
@@ -94,6 +95,12 @@ class PedidoDetallado(BaseModel):
     override_modified_at: Optional[datetime]
     override_num_bultos: Optional[int]
     override_tipo_domicilio: Optional[str]
+
+    # Dirección de facturación (fallback desde tb_customer)
+    cust_address: Optional[str] = None
+    cust_city: Optional[str] = None
+    cust_zip: Optional[str] = None
+    cust_phone: Optional[str] = None
 
     # Otros
     soh_packagesqty: Optional[int]  # Bultos
@@ -198,7 +205,9 @@ async def obtener_pedidos(
         # Ej: "trda" → regex que encuentra "terrada" pero NO "tierra derretida"
         # Patrón: cada letra puede tener caracteres NO-ESPACIO entre ellas
         # "trda" → "t[^ ]*r[^ ]*d[^ ]*a" (case-insensitive)
-        fuzzy_regex = ".*" + "[^ ]*".join(buscar.lower()) + ".*"
+        # Sanitizar input: escapar caracteres especiales de regex para prevenir inyección
+        sanitized = re.escape(buscar.lower())
+        fuzzy_regex = ".*" + "[^ ]*".join(sanitized) + ".*"
 
         query = query.filter(
             or_(
@@ -571,8 +580,11 @@ async def sincronizar_pedidos(db: Session = Depends(get_db), current_user: Usuar
 
     try:
         # Llamar al endpoint existente de sincronización
+        from app.core.config import settings
+
+        sync_url = settings.GBP_PARSER_URL.replace("/gbp-parser", "/pedidos-export/sincronizar-export-80")
         async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.post("http://localhost:8002/api/pedidos-export/sincronizar-export-80")
+            response = await client.post(sync_url)
             response.raise_for_status()
             data = response.json()
 

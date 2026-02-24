@@ -3,6 +3,16 @@
   max-width: 100%;
 }
 
+/* Spinner animation for loading icons */
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Stats Bar - Diseño compacto horizontal */
 .statsBar {
   display: flex;
@@ -631,6 +641,18 @@
   display: inline-block;
   background: var(--warning-bg);
   color: var(--warning-text);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-base);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--spacing-xs);
+}
+
+/* Badge de dirección de facturación (fallback) */
+.fallbackBadge {
+  display: inline-block;
+  background: var(--info-bg);
+  color: var(--info-text);
   padding: var(--spacing-xs) var(--spacing-sm);
   border-radius: var(--radius-base);
   font-size: var(--font-xs);
