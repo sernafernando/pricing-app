@@ -661,20 +661,11 @@
 }
 
 /* Enviar a Flex */
-.flexRow {
+.flexActions {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
   margin-top: var(--spacing-sm);
-}
-
-.dateInput {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-base);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: var(--font-sm);
 }
 
 .btnEnviarFlex {
@@ -684,6 +675,83 @@
 /* Botón de imprimir etiqueta */
 .btnPrintLabel {
   white-space: nowrap;
+}
+
+/* ── Modal wide (Envío Flex) ───────────────────────────────────────── */
+
+.modalWide {
+  max-width: 620px;
+}
+
+/* ── Form Grid (2 cols) ────────────────────────────────────────────── */
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.formField label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.formFieldSpan2 {
+  grid-column: span 2;
+}
+
+.inputWithAction {
+  display: flex;
+  gap: 0;
+}
+
+.inputWithAction .formInput {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  flex: 1;
+}
+
+.btnInputAction {
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+  border-left: none !important;
+  min-width: 38px;
+}
+
+.fieldHint {
+  font-size: 12px;
+  color: var(--brand-primary);
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.fieldError {
+  font-size: 12px;
+  color: var(--error-text, #ef4444);
+  margin-top: 2px;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 48px;
+}
+
+@media (max-width: 480px) {
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+  .formFieldSpan2 {
+    grid-column: span 1;
+  }
 }
 
 /* ── Confirm Modal ─────────────────────────────────────────── */
