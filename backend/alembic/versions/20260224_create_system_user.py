@@ -36,7 +36,7 @@ def upgrade() -> None:
             email="sistema@pricing-app.internal",
             password_hash="!NOLOGIN",  # Hash inválido, imposible hacer login
             activo=False,  # Inactivo: no puede autenticarse via API
-            auth_provider="local",
+            auth_provider="LOCAL",
             created_at=datetime.now(UTC),
         )
     )
