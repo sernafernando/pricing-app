@@ -478,6 +478,13 @@ PERMISOS_SISTEMA = [
         "categoria": CategoriaPermiso.PRODUCTOS,
         "orden": 67,
     },
+    {
+        "codigo": "pedidos.crear_envio_flex",
+        "nombre": "Crear envío flex desde Pedidos",
+        "descripcion": "Crear envíos flex manuales desde la pestaña Pedidos Pendientes",
+        "categoria": CategoriaPermiso.PRODUCTOS,
+        "orden": 68,
+    },
     # =========================================================================
     # CONFIGURACIÓN
     # =========================================================================
@@ -667,6 +674,7 @@ PERMISOS_POR_ROL = {
         "produccion.marcar_prearmado",
         "produccion.ver_preparacion",
         "pedidos.ver_pendientes",
+        "pedidos.crear_envio_flex",
         "config.*",
         "alertas.*",
         "envios_flex.*",
@@ -700,6 +708,7 @@ PERMISOS_POR_ROL = {
         "config.ver_tipo_cambio",
         "produccion.ver_preparacion",
         "pedidos.ver_pendientes",
+        "pedidos.crear_envio_flex",
         "envios_flex.ver",
         "envios_flex.ver_codigos_postales",
         "envios_flex.exportar",
@@ -740,6 +749,7 @@ PERMISOS_POR_ROL = {
         "reportes.ver_calculadora",
         "config.ver_tipo_cambio",
         "pedidos.ver_pendientes",
+        "pedidos.crear_envio_flex",
         "envios_flex.ver",
     ],
 }
