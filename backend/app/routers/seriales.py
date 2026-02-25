@@ -188,9 +188,17 @@ def determinar_tipo(row: dict) -> str:
 def construir_nro_documento(row: dict) -> Optional[str]:
     """Construye el número de documento legible (ej: Fc A 00004-0000128762)"""
     df_desc = row.get("df_desc") or ""
+    kind = row.get("ct_kindof") or ""
     doc_number = row.get("ct_docnumber") or ""
-    if df_desc or doc_number:
+
+    if df_desc:
+        # df_desc ya incluye el tipo (ej: "01.Fc A 0005")
         return f"{df_desc} {doc_number}".strip() or None
+    if kind and doc_number:
+        # Fallback: tipo + número (ej: "A 00129887")
+        return f"{kind} {doc_number}".strip()
+    if doc_number:
+        return doc_number
     return None
 
 
