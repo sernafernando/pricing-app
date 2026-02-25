@@ -49,12 +49,31 @@ VALID_FIELDS = {"comp_id", "is_id", "sose_id", "bra_id", "soh_id", "sose_guid"}
 UPDATE_FIELDS = {"is_id", "soh_id", "sose_guid"}
 
 
+def is_erp_error(data: list) -> bool:
+    """Detecta respuestas de error del ERP (ej: [{"Column1":"-9"}])"""
+    if len(data) == 1 and isinstance(data[0], dict):
+        first = data[0]
+        # Error code en Column1 (valor negativo = error ERP)
+        if "Column1" in first:
+            try:
+                return int(first["Column1"]) < 0
+            except (ValueError, TypeError):
+                return False
+        # Respuesta sin ningún campo válido de la tabla
+        if not any(field in first for field in VALID_FIELDS):
+            return True
+    return False
+
+
 async def fetch_from_erp(params: dict) -> list:
-    """Consulta el ERP vía gbp-parser"""
+    """Consulta el ERP vía gbp-parser. Retorna lista vacía si el ERP devuelve error."""
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.get(GBP_PARSER_URL, params=params)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        if not data or not isinstance(data, list) or is_erp_error(data):
+            return []
+        return data
 
 
 def normalize_row(row: dict) -> dict | None:
