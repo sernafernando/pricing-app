@@ -1,7 +1,7 @@
 """create tb_rma_supplier_cn_pending table
 
 Revision ID: 20260225_rma_supplier_cn_pending
-Revises: 20260225_rma_detail_attrib_history
+Revises: 20260225_rma_attrib_hist
 Create Date: 2026-02-25
 
 """
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "20260225_rma_supplier_cn_pending"
-down_revision = "20260225_rma_detail_attrib_history"
+down_revision = "20260225_rma_attrib_hist"
 branch_labels = None
 depends_on = None
 
