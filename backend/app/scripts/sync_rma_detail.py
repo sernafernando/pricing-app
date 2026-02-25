@@ -320,7 +320,7 @@ def sync_by_rmah(db: Session, rmah_id: int) -> None:
         batch = normalized_data[i : i + 500]
         upsert_batch(db, batch)
 
-    print(f"\n✅ Sincronización por RMA header finalizada")
+    print("\n✅ Sincronización por RMA header finalizada")
     print(f"   Total actualizado: {len(normalized_data)} registros")
 
 
@@ -359,7 +359,7 @@ def sync_by_date_range(db: Session, from_date: str, to_date: str) -> None:
         batch = normalized_data[i : i + 500]
         upsert_batch(db, batch)
 
-    print(f"\n✅ Sincronización por rango de fechas finalizada")
+    print("\n✅ Sincronización por rango de fechas finalizada")
     print(f"   Total actualizado: {len(normalized_data)} registros")
 
 

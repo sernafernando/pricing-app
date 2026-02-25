@@ -3,7 +3,7 @@ Modelo para la tabla tb_rma_supplier_cn_pending (notas de crédito pendientes de
 Origen ERP: tbRMA_SupplierCreditNotePending
 """
 
-from sqlalchemy import Column, BigInteger, Integer, String, Numeric, Boolean, Index
+from sqlalchemy import Column, BigInteger, Integer, Numeric, Boolean, Index
 from app.core.database import Base
 
 
