@@ -61,6 +61,7 @@ class PedidoSerial(BaseModel):
     cust_id: Optional[int] = None
     cliente: Optional[str] = None
     ml_id: Optional[str] = None
+    shipping_id: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -123,6 +124,59 @@ class TrazaSerialResponse(BaseModel):
     movimientos: list[MovimientoSerial] = []
     pedidos: list[PedidoSerial] = []
     rma: list[RMASerial] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TrazaMLSerialItem(BaseModel):
+    """Traza de un serial individual dentro de una venta ML"""
+
+    serial: str
+    articulo: Optional[ArticuloInfo] = None
+    movimientos: list[MovimientoSerial] = []
+    rma: list[RMASerial] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TrazaMLResponse(BaseModel):
+    """Respuesta completa de traza por venta ML"""
+
+    ml_id: str
+    busqueda_por: str = "soh_mlid"  # "soh_mlid" o "mlshippingid"
+    pedidos: list[PedidoSerial] = []
+    seriales: list[TrazaMLSerialItem] = []
+    rma_por_factura: list[RMASerial] = []  # RMAs encontrados vía factura (no por serial)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FacturaInfo(BaseModel):
+    """Info de la factura (transacción comercial)"""
+
+    ct_transaction: int
+    bra_id: int
+    tipo: str  # ct_kindof (A, B, C...)
+    punto_venta: int  # ct_pointofsale
+    nro_documento: str  # ct_docnumber
+    fecha: Optional[str] = None
+    total: Optional[float] = None
+    cust_id: Optional[int] = None
+    cliente: Optional[str] = None
+    supp_id: Optional[int] = None
+    proveedor: Optional[str] = None
+    soh_id: Optional[int] = None  # Pedido vinculado si existe
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TrazaFacturaResponse(BaseModel):
+    """Respuesta completa de traza por número de factura"""
+
+    factura: FacturaInfo
+    seriales: list[TrazaMLSerialItem] = []
+    rma_por_serial: list[RMASerial] = []  # RMAs encontrados vía serial
+    rma_por_factura: list[RMASerial] = []  # RMAs encontrados vía línea de factura
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -262,6 +316,224 @@ QUERY_RMA_HISTORIAL = text("""
     ORDER BY rmadh_cd ASC NULLS LAST, rmadh_id ASC
 """)
 
+QUERY_PEDIDOS_BY_MLID = text("""
+    SELECT DISTINCT
+        soh.soh_id,
+        soh.bra_id,
+        soh.comp_id,
+        soh.soh_cd,
+        soh.cust_id,
+        cust.cust_name AS cliente_nombre,
+        soh.soh_mlid,
+        soh.mlshippingid,
+        ssos.ssos_name AS estado_nombre
+    FROM tb_sale_order_header soh
+    LEFT JOIN tb_customer cust
+        ON soh.comp_id = cust.comp_id
+        AND soh.cust_id = cust.cust_id
+    LEFT JOIN tb_sale_order_status ssos
+        ON soh.ssos_id = ssos.ssos_id
+    WHERE soh.soh_mlid = :ml_id
+    ORDER BY soh.soh_cd ASC NULLS LAST
+""")
+
+QUERY_PEDIDOS_BY_SHIPPINGID = text("""
+    SELECT DISTINCT
+        soh.soh_id,
+        soh.bra_id,
+        soh.comp_id,
+        soh.soh_cd,
+        soh.cust_id,
+        cust.cust_name AS cliente_nombre,
+        soh.soh_mlid,
+        soh.mlshippingid,
+        ssos.ssos_name AS estado_nombre
+    FROM tb_sale_order_header soh
+    LEFT JOIN tb_customer cust
+        ON soh.comp_id = cust.comp_id
+        AND soh.cust_id = cust.cust_id
+    LEFT JOIN tb_sale_order_status ssos
+        ON soh.ssos_id = ssos.ssos_id
+    WHERE soh.mlshippingid = :shipping_id
+    ORDER BY soh.soh_cd ASC NULLS LAST
+""")
+
+QUERY_SERIALES_BY_PEDIDO = text("""
+    SELECT DISTINCT
+        s.is_serial
+    FROM tb_sale_order_serials sos
+    INNER JOIN tb_item_serials s
+        ON sos.is_id = s.is_id
+        AND sos.comp_id = s.comp_id
+    WHERE sos.soh_id = :soh_id
+        AND sos.comp_id = :comp_id
+        AND sos.bra_id = :bra_id
+        AND s.is_serial IS NOT NULL
+        AND s.is_serial != ''
+    ORDER BY s.is_serial
+""")
+
+QUERY_RMA_BY_INVOICE = text("""
+    SELECT DISTINCT
+        d.rmah_id,
+        d.rmad_id,
+        d.bra_id,
+        d.comp_id,
+        d.is_id,
+        d.rmad_serial,
+        d."rmad_Manual",
+        d.item_id,
+        d."rmad_originalPrice",
+        d.rmad_qty,
+        d.stor_id,
+        -- Etapas
+        d."rmad_Date_Reception",
+        d."rmad_ReceptionNote",
+        d."rmad_Date_Diagnostic",
+        d."rmad_DiagnosticNote",
+        d."rmad_Date_Proc",
+        d."rmad_ProcNote",
+        d."rmad_Date_Delivery",
+        d."rmad_DelioveryNote",
+        -- Garantía
+        d."rmad_insertWarrantyDetail",
+        -- Header
+        h.rmah_cd,
+        h.cust_id,
+        h.supp_id,
+        h."rmah_isInSuppplier",
+        -- Joins
+        cust.cust_name AS cliente_nombre,
+        supp.supp_name AS proveedor_nombre,
+        stor.stor_desc,
+        pe.codigo AS item_codigo,
+        pe.descripcion AS item_descripcion,
+        -- Invoice info
+        ct.ct_transaction AS factura_ct_transaction,
+        it.it_transaction AS factura_it_transaction
+    FROM tb_commercial_transactions ct
+    INNER JOIN tb_item_transactions it
+        ON ct.ct_transaction = it.ct_transaction
+    INNER JOIN tb_rma_detail d
+        ON it.it_transaction = d.it_transaction
+        AND it.comp_id = d.comp_id
+    INNER JOIN tb_rma_header h
+        ON d.comp_id = h.comp_id
+        AND d.rmah_id = h.rmah_id
+        AND d.bra_id = h.bra_id
+    LEFT JOIN tb_customer cust
+        ON h.comp_id = cust.comp_id
+        AND h.cust_id = cust.cust_id
+    LEFT JOIN tb_supplier supp
+        ON h.comp_id = supp.comp_id
+        AND h.supp_id = supp.supp_id
+    LEFT JOIN tb_storage stor
+        ON d.comp_id = stor.comp_id
+        AND d.stor_id = stor.stor_id
+    LEFT JOIN productos_erp pe
+        ON d.item_id = pe.item_id
+    WHERE ct.ct_soh_id = :soh_id
+    ORDER BY h.rmah_cd ASC NULLS LAST, d.rmad_id ASC
+""")
+
+QUERY_FACTURA = text("""
+    SELECT
+        ct.ct_transaction,
+        ct.comp_id,
+        ct.bra_id,
+        ct.ct_kindof,
+        ct.ct_pointofsale,
+        ct.ct_docnumber,
+        ct.ct_date,
+        ct.ct_total,
+        ct.cust_id,
+        ct.supp_id,
+        ct.ct_soh_id,
+        -- Joins
+        cust.cust_name AS cliente_nombre,
+        supp.supp_name AS proveedor_nombre
+    FROM tb_commercial_transactions ct
+    LEFT JOIN tb_customer cust
+        ON ct.comp_id = cust.comp_id
+        AND ct.cust_id = cust.cust_id
+    LEFT JOIN tb_supplier supp
+        ON ct.comp_id = supp.comp_id
+        AND ct.supp_id = supp.supp_id
+    WHERE ct.ct_kindof = :kindof
+        AND ct.ct_pointofsale = :pointofsale
+        AND ct.ct_docnumber = :docnumber
+    ORDER BY ct.ct_date DESC NULLS LAST
+    LIMIT 1
+""")
+
+QUERY_SERIALES_BY_FACTURA = text("""
+    SELECT DISTINCT
+        s.is_serial
+    FROM tb_item_serials s
+    WHERE s.ct_transaction = :ct_transaction
+        AND s.is_serial IS NOT NULL
+        AND s.is_serial != ''
+    ORDER BY s.is_serial
+""")
+
+QUERY_RMA_BY_CT_TRANSACTION = text("""
+    SELECT DISTINCT
+        d.rmah_id,
+        d.rmad_id,
+        d.bra_id,
+        d.comp_id,
+        d.is_id,
+        d.rmad_serial,
+        d."rmad_Manual",
+        d.item_id,
+        d."rmad_originalPrice",
+        d.rmad_qty,
+        d.stor_id,
+        -- Etapas
+        d."rmad_Date_Reception",
+        d."rmad_ReceptionNote",
+        d."rmad_Date_Diagnostic",
+        d."rmad_DiagnosticNote",
+        d."rmad_Date_Proc",
+        d."rmad_ProcNote",
+        d."rmad_Date_Delivery",
+        d."rmad_DelioveryNote",
+        -- Garantía
+        d."rmad_insertWarrantyDetail",
+        -- Header
+        h.rmah_cd,
+        h.cust_id,
+        h.supp_id,
+        h."rmah_isInSuppplier",
+        -- Joins
+        cust.cust_name AS cliente_nombre,
+        supp.supp_name AS proveedor_nombre,
+        stor.stor_desc,
+        pe.codigo AS item_codigo,
+        pe.descripcion AS item_descripcion
+    FROM tb_item_transactions it
+    INNER JOIN tb_rma_detail d
+        ON it.it_transaction = d.it_transaction
+        AND it.comp_id = d.comp_id
+    INNER JOIN tb_rma_header h
+        ON d.comp_id = h.comp_id
+        AND d.rmah_id = h.rmah_id
+        AND d.bra_id = h.bra_id
+    LEFT JOIN tb_customer cust
+        ON h.comp_id = cust.comp_id
+        AND h.cust_id = cust.cust_id
+    LEFT JOIN tb_supplier supp
+        ON h.comp_id = supp.comp_id
+        AND h.supp_id = supp.supp_id
+    LEFT JOIN tb_storage stor
+        ON d.comp_id = stor.comp_id
+        AND d.stor_id = stor.stor_id
+    LEFT JOIN productos_erp pe
+        ON d.item_id = pe.item_id
+    WHERE it.ct_transaction = :ct_transaction
+    ORDER BY h.rmah_cd ASC NULLS LAST, d.rmad_id ASC
+""")
+
 QUERY_PEDIDOS = text("""
     SELECT DISTINCT
         soh.soh_id,
@@ -270,6 +542,7 @@ QUERY_PEDIDOS = text("""
         soh.cust_id,
         cust.cust_name AS cliente_nombre,
         soh.soh_mlid,
+        soh.mlshippingid,
         ssos.ssos_name AS estado_nombre
     FROM tb_sale_order_serials sos
     INNER JOIN tb_item_serials s
@@ -343,25 +616,15 @@ def calcular_dias(fecha: object) -> Optional[int]:
 
 
 # =============================================================================
-# ENDPOINTS
+# BUILDERS (lógica reutilizable entre endpoints)
 # =============================================================================
 
 
-@router.get("/traza/{serial}", response_model=TrazaSerialResponse)
-def traza_serial(
-    serial: str,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
-) -> TrazaSerialResponse:
-    """
-    Obtiene la traza completa de un número de serie.
-    Devuelve artículo, movimientos (compras/ventas/transferencias) y pedidos vinculados.
-    """
-    # 1. Buscar movimientos del serial
-    result_movimientos = db.execute(QUERY_TRAZA, {"serial": serial})
-    rows = [dict(row._mapping) for row in result_movimientos]
+def _build_movimientos(db: Session, serial: str) -> tuple[list[MovimientoSerial], Optional[ArticuloInfo]]:
+    """Busca movimientos de un serial y extrae info del artículo."""
+    result = db.execute(QUERY_TRAZA, {"serial": serial})
+    rows = [dict(row._mapping) for row in result]
 
-    # 2. Extraer info del artículo (del primer movimiento)
     articulo = None
     if rows:
         first = rows[0]
@@ -374,7 +637,6 @@ def traza_serial(
                 categoria=first.get("item_categoria"),
             )
 
-    # 3. Construir movimientos
     movimientos = []
     for row in rows:
         tipo = determinar_tipo(row)
@@ -390,7 +652,6 @@ def traza_serial(
 
         ct_date = row.get("ct_date")
         is_cd = row.get("is_cd")
-
         estado = "Disponible" if row.get("is_available") else "No Disponible"
 
         movimientos.append(
@@ -409,39 +670,24 @@ def traza_serial(
             )
         )
 
-    # 4. Buscar pedidos vinculados
-    result_pedidos = db.execute(QUERY_PEDIDOS, {"serial": serial})
-    pedidos_rows = [dict(row._mapping) for row in result_pedidos]
+    return movimientos, articulo
 
-    pedidos = []
-    for row in pedidos_rows:
-        fecha = row.get("soh_cd")
-        pedidos.append(
-            PedidoSerial(
-                soh_id=row["soh_id"],
-                bra_id=row["bra_id"],
-                fecha=str(fecha) if fecha else None,
-                estado=row.get("estado_nombre"),
-                cust_id=row.get("cust_id"),
-                cliente=row.get("cliente_nombre"),
-                ml_id=row.get("soh_mlid"),
-            )
-        )
 
-    # 5. Buscar RMAs vinculados (por is_id, rmad_serial o rmad_Manual)
+def _build_rma(
+    db: Session, serial: str, articulo: Optional[ArticuloInfo] = None
+) -> tuple[list[RMASerial], Optional[ArticuloInfo]]:
+    """Busca RMAs vinculados a un serial (por is_id, rmad_serial o rmad_Manual)."""
     result_rma = db.execute(QUERY_RMA, {"serial": serial})
     rma_rows = [dict(row._mapping) for row in result_rma]
 
     rma_list = []
     for row in rma_rows:
-        # Determinar por qué campo matcheó
         match_por = "is_id"
         if row.get("rmad_serial") == serial:
             match_por = "rmad_serial"
         elif row.get("rmad_Manual") == serial:
             match_por = "rmad_Manual"
 
-        # Si no tenemos artículo de los movimientos, intentar sacarlo del RMA
         if articulo is None and row.get("item_id"):
             articulo = ArticuloInfo(
                 item_id=row["item_id"],
@@ -449,7 +695,6 @@ def traza_serial(
                 descripcion=row.get("item_descripcion") or "",
             )
 
-        # Buscar historial de estados para este RMA detail
         historial = []
         if row.get("comp_id") and row.get("rmah_id") and row.get("rmad_id"):
             result_hist = db.execute(
@@ -512,7 +757,341 @@ def traza_serial(
             )
         )
 
-    # Si no encontramos nada en ningún lado, 404
+    return rma_list, articulo
+
+
+def _build_rma_by_invoice(
+    db: Session,
+    soh_ids: list[int],
+    exclude_rmad_ids: set[tuple[int, int, int]] | None = None,
+) -> list[RMASerial]:
+    """
+    Busca RMAs vinculados a pedidos vía cadena de factura:
+    sale_order_header (soh_id) → commercial_transactions (ct_soh_id)
+    → item_transactions (ct_transaction) → rma_detail (it_transaction)
+
+    exclude_rmad_ids: set de (comp_id, rmad_id, bra_id) ya encontrados por serial,
+    para deduplicar.
+    """
+    if not soh_ids:
+        return []
+
+    if exclude_rmad_ids is None:
+        exclude_rmad_ids = set()
+
+    rma_list: list[RMASerial] = []
+
+    for soh_id in soh_ids:
+        result = db.execute(QUERY_RMA_BY_INVOICE, {"soh_id": soh_id})
+        rows = [dict(row._mapping) for row in result]
+
+        for row in rows:
+            # Deduplicar contra los ya encontrados por serial
+            rma_key: tuple[int, int, int] = (
+                int(row.get("comp_id") or 0),
+                int(row["rmad_id"]),
+                int(row["bra_id"]),
+            )
+            if rma_key in exclude_rmad_ids:
+                continue
+            exclude_rmad_ids.add(rma_key)
+
+            # Historial de atributos
+            historial: list[RMAHistorialEstado] = []
+            if row.get("comp_id") and row.get("rmah_id") and row.get("rmad_id"):
+                result_hist = db.execute(
+                    QUERY_RMA_HISTORIAL,
+                    {
+                        "comp_id": row["comp_id"],
+                        "rmah_id": row["rmah_id"],
+                        "rmad_id": row["rmad_id"],
+                    },
+                )
+                for h in result_hist:
+                    h_dict = dict(h._mapping)
+                    fecha_h = h_dict.get("rmadh_cd")
+                    historial.append(
+                        RMAHistorialEstado(
+                            rmadh_id=h_dict["rmadh_id"],
+                            fecha=str(fecha_h) if fecha_h else None,
+                            user_id=h_dict.get("user_id"),
+                        )
+                    )
+
+            fecha_rma = row.get("rmah_cd")
+            fecha_rec = row.get("rmad_Date_Reception")
+            fecha_diag = row.get("rmad_Date_Diagnostic")
+            fecha_proc = row.get("rmad_Date_Proc")
+            fecha_ent = row.get("rmad_Date_Delivery")
+            precio = row.get("rmad_originalPrice")
+            qty = row.get("rmad_qty")
+
+            rma_list.append(
+                RMASerial(
+                    rmah_id=row["rmah_id"],
+                    rmad_id=row["rmad_id"],
+                    bra_id=row["bra_id"],
+                    match_por="it_transaction",
+                    fecha_rma=str(fecha_rma) if fecha_rma else None,
+                    cust_id=row.get("cust_id"),
+                    cliente=row.get("cliente_nombre"),
+                    supp_id=row.get("supp_id"),
+                    proveedor=row.get("proveedor_nombre"),
+                    en_proveedor=row.get("rmah_isInSuppplier"),
+                    item_id=row.get("item_id"),
+                    item_codigo=row.get("item_codigo"),
+                    item_descripcion=row.get("item_descripcion"),
+                    rmad_serial=row.get("rmad_serial"),
+                    rmad_Manual=row.get("rmad_Manual"),
+                    precio_original=float(precio) if precio else None,
+                    cantidad=float(qty) if qty else None,
+                    deposito=row.get("stor_desc"),
+                    fecha_recepcion=str(fecha_rec) if fecha_rec else None,
+                    nota_recepcion=row.get("rmad_ReceptionNote"),
+                    fecha_diagnostico=str(fecha_diag) if fecha_diag else None,
+                    nota_diagnostico=row.get("rmad_DiagnosticNote"),
+                    fecha_procesamiento=str(fecha_proc) if fecha_proc else None,
+                    nota_procesamiento=row.get("rmad_ProcNote"),
+                    fecha_entrega=str(fecha_ent) if fecha_ent else None,
+                    nota_entrega=row.get("rmad_DelioveryNote"),
+                    garantia=row.get("rmad_insertWarrantyDetail"),
+                    historial=historial,
+                )
+            )
+
+    return rma_list
+
+
+def _build_rma_by_ct_transaction(
+    db: Session,
+    ct_transaction: int,
+    exclude_rmad_ids: set[tuple[int, int, int]] | None = None,
+) -> list[RMASerial]:
+    """
+    Busca RMAs vinculados a una factura vía cadena:
+    commercial_transactions (ct_transaction) → item_transactions → rma_detail (it_transaction)
+
+    exclude_rmad_ids: set de (comp_id, rmad_id, bra_id) ya encontrados por serial,
+    para deduplicar.
+    """
+    if exclude_rmad_ids is None:
+        exclude_rmad_ids = set()
+
+    rma_list: list[RMASerial] = []
+    result = db.execute(QUERY_RMA_BY_CT_TRANSACTION, {"ct_transaction": ct_transaction})
+    rows = [dict(row._mapping) for row in result]
+
+    for row in rows:
+        rma_key: tuple[int, int, int] = (
+            int(row.get("comp_id") or 0),
+            int(row["rmad_id"]),
+            int(row["bra_id"]),
+        )
+        if rma_key in exclude_rmad_ids:
+            continue
+        exclude_rmad_ids.add(rma_key)
+
+        historial: list[RMAHistorialEstado] = []
+        if row.get("comp_id") and row.get("rmah_id") and row.get("rmad_id"):
+            result_hist = db.execute(
+                QUERY_RMA_HISTORIAL,
+                {
+                    "comp_id": row["comp_id"],
+                    "rmah_id": row["rmah_id"],
+                    "rmad_id": row["rmad_id"],
+                },
+            )
+            for h in result_hist:
+                h_dict = dict(h._mapping)
+                fecha_h = h_dict.get("rmadh_cd")
+                historial.append(
+                    RMAHistorialEstado(
+                        rmadh_id=h_dict["rmadh_id"],
+                        fecha=str(fecha_h) if fecha_h else None,
+                        user_id=h_dict.get("user_id"),
+                    )
+                )
+
+        fecha_rma = row.get("rmah_cd")
+        fecha_rec = row.get("rmad_Date_Reception")
+        fecha_diag = row.get("rmad_Date_Diagnostic")
+        fecha_proc = row.get("rmad_Date_Proc")
+        fecha_ent = row.get("rmad_Date_Delivery")
+        precio = row.get("rmad_originalPrice")
+        qty = row.get("rmad_qty")
+
+        rma_list.append(
+            RMASerial(
+                rmah_id=row["rmah_id"],
+                rmad_id=row["rmad_id"],
+                bra_id=row["bra_id"],
+                match_por="it_transaction",
+                fecha_rma=str(fecha_rma) if fecha_rma else None,
+                cust_id=row.get("cust_id"),
+                cliente=row.get("cliente_nombre"),
+                supp_id=row.get("supp_id"),
+                proveedor=row.get("proveedor_nombre"),
+                en_proveedor=row.get("rmah_isInSuppplier"),
+                item_id=row.get("item_id"),
+                item_codigo=row.get("item_codigo"),
+                item_descripcion=row.get("item_descripcion"),
+                rmad_serial=row.get("rmad_serial"),
+                rmad_Manual=row.get("rmad_Manual"),
+                precio_original=float(precio) if precio else None,
+                cantidad=float(qty) if qty else None,
+                deposito=row.get("stor_desc"),
+                fecha_recepcion=str(fecha_rec) if fecha_rec else None,
+                nota_recepcion=row.get("rmad_ReceptionNote"),
+                fecha_diagnostico=str(fecha_diag) if fecha_diag else None,
+                nota_diagnostico=row.get("rmad_DiagnosticNote"),
+                fecha_procesamiento=str(fecha_proc) if fecha_proc else None,
+                nota_procesamiento=row.get("rmad_ProcNote"),
+                fecha_entrega=str(fecha_ent) if fecha_ent else None,
+                nota_entrega=row.get("rmad_DelioveryNote"),
+                garantia=row.get("rmad_insertWarrantyDetail"),
+                historial=historial,
+            )
+        )
+
+    return rma_list
+
+
+# =============================================================================
+# ENDPOINTS
+# =============================================================================
+
+
+@router.get("/traza/factura", response_model=TrazaFacturaResponse)
+def traza_factura(
+    tipo: str,
+    punto_venta: int,
+    nro_documento: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TrazaFacturaResponse:
+    """
+    Obtiene la traza completa a partir de un número de factura.
+    Parámetros: tipo (letra A/B/C), punto_venta (0004), nro_documento.
+    El punto de venta identifica unívocamente la sucursal.
+    Busca seriales y RMAs vinculados a la factura, con y sin serial.
+    """
+    # 1. Buscar la factura
+    result = db.execute(
+        QUERY_FACTURA,
+        {
+            "kindof": tipo.upper().strip(),
+            "pointofsale": punto_venta,
+            "docnumber": nro_documento.strip(),
+        },
+    )
+    factura_row = result.fetchone()
+
+    if not factura_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(f"No se encontró la factura: {tipo} {str(punto_venta).zfill(4)}-{nro_documento}"),
+        )
+
+    frow = dict(factura_row._mapping)
+    ct_date = frow.get("ct_date")
+    ct_total = frow.get("ct_total")
+
+    factura = FacturaInfo(
+        ct_transaction=frow["ct_transaction"],
+        bra_id=frow["bra_id"],
+        tipo=frow.get("ct_kindof") or tipo,
+        punto_venta=frow.get("ct_pointofsale") or punto_venta,
+        nro_documento=frow.get("ct_docnumber") or nro_documento,
+        fecha=str(ct_date) if ct_date else None,
+        total=float(ct_total) if ct_total else None,
+        cust_id=frow.get("cust_id"),
+        cliente=frow.get("cliente_nombre"),
+        supp_id=frow.get("supp_id"),
+        proveedor=frow.get("proveedor_nombre"),
+        soh_id=frow.get("ct_soh_id"),
+    )
+
+    # 2. Buscar seriales vinculados a esta factura
+    result_seriales = db.execute(
+        QUERY_SERIALES_BY_FACTURA,
+        {"ct_transaction": frow["ct_transaction"]},
+    )
+
+    seriales_vistos: set[str] = set()
+    seriales_list: list[TrazaMLSerialItem] = []
+    rma_ids_por_serial: set[tuple[int, int, int]] = set()
+    all_rma_por_serial: list[RMASerial] = []
+
+    for serial_row in result_seriales:
+        serial = dict(serial_row._mapping)["is_serial"]
+        if serial in seriales_vistos:
+            continue
+        seriales_vistos.add(serial)
+
+        movimientos, articulo = _build_movimientos(db, serial)
+        rma_list, articulo = _build_rma(db, serial, articulo)
+
+        # Trackear RMAs por serial para deduplicar
+        factura_comp_id: int = frow.get("comp_id") or 0
+        for rma in rma_list:
+            rma_ids_por_serial.add((factura_comp_id, rma.rmad_id, rma.bra_id))
+
+        all_rma_por_serial.extend(rma_list)
+
+        seriales_list.append(
+            TrazaMLSerialItem(
+                serial=serial,
+                articulo=articulo,
+                movimientos=movimientos,
+                rma=rma_list,
+            )
+        )
+
+    # 3. Buscar RMAs vía línea de factura (para productos sin serial)
+    # Cadena: ct_transaction → item_transactions → rma_detail (it_transaction)
+    rma_por_factura = _build_rma_by_ct_transaction(db, frow["ct_transaction"], exclude_rmad_ids=rma_ids_por_serial)
+
+    return TrazaFacturaResponse(
+        factura=factura,
+        seriales=seriales_list,
+        rma_por_serial=all_rma_por_serial,
+        rma_por_factura=rma_por_factura,
+    )
+
+
+@router.get("/traza/{serial}", response_model=TrazaSerialResponse)
+def traza_serial(
+    serial: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TrazaSerialResponse:
+    """
+    Obtiene la traza completa de un número de serie.
+    Devuelve artículo, movimientos (compras/ventas/transferencias),
+    pedidos vinculados y RMAs.
+    """
+    # 1. Movimientos y artículo
+    movimientos, articulo = _build_movimientos(db, serial)
+
+    # 2. Pedidos vinculados
+    result_pedidos = db.execute(QUERY_PEDIDOS, {"serial": serial})
+    pedidos = [
+        PedidoSerial(
+            soh_id=row["soh_id"],
+            bra_id=row["bra_id"],
+            fecha=str(row["soh_cd"]) if row.get("soh_cd") else None,
+            estado=row.get("estado_nombre"),
+            cust_id=row.get("cust_id"),
+            cliente=row.get("cliente_nombre"),
+            ml_id=row.get("soh_mlid"),
+            shipping_id=row.get("mlshippingid"),
+        )
+        for row in (dict(r._mapping) for r in result_pedidos)
+    ]
+
+    # 3. RMAs
+    rma_list, articulo = _build_rma(db, serial, articulo)
+
     if not movimientos and not pedidos and not rma_list:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -525,4 +1104,114 @@ def traza_serial(
         movimientos=movimientos,
         pedidos=pedidos,
         rma=rma_list,
+    )
+
+
+@router.get("/traza/ml/{ml_id}", response_model=TrazaMLResponse)
+def traza_ml(
+    ml_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TrazaMLResponse:
+    """
+    Obtiene la traza completa de una venta de MercadoLibre.
+    Si el número empieza con '2000' busca por soh_mlid (nro de venta ML).
+    Si no, busca por mlshippingid (nro de envío).
+    Luego trae los seriales vinculados a cada pedido, y para cada serial
+    trae movimientos y RMAs. También busca RMAs vía factura.
+    """
+    # 1. Determinar tipo de búsqueda y buscar pedidos
+    # Si empieza con 2000 → nro de venta ML (soh_mlid)
+    # Si no y es numérico → shipping ID (mlshippingid)
+    # Si no es numérico → buscar como soh_mlid de todas formas
+    if ml_id.startswith("2000"):
+        busqueda_por = "soh_mlid"
+        result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
+    elif ml_id.isdigit():
+        busqueda_por = "mlshippingid"
+        result_pedidos = db.execute(QUERY_PEDIDOS_BY_SHIPPINGID, {"shipping_id": int(ml_id)})
+    else:
+        busqueda_por = "soh_mlid"
+        result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
+
+    pedidos_rows = [dict(row._mapping) for row in result_pedidos]
+
+    if not pedidos_rows:
+        # Si buscó por shipping y no encontró, intentar por mlid como fallback
+        if busqueda_por == "mlshippingid":
+            busqueda_por = "soh_mlid"
+            result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
+            pedidos_rows = [dict(row._mapping) for row in result_pedidos]
+
+        if not pedidos_rows:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No se encontró la venta ML ni envío: {ml_id}",
+            )
+
+    pedidos = [
+        PedidoSerial(
+            soh_id=row["soh_id"],
+            bra_id=row["bra_id"],
+            fecha=str(row["soh_cd"]) if row.get("soh_cd") else None,
+            estado=row.get("estado_nombre"),
+            cust_id=row.get("cust_id"),
+            cliente=row.get("cliente_nombre"),
+            ml_id=row.get("soh_mlid"),
+            shipping_id=row.get("mlshippingid"),
+        )
+        for row in pedidos_rows
+    ]
+
+    # 2. Para cada pedido, buscar seriales vinculados
+    seriales_vistos: set[str] = set()
+    seriales_list: list[TrazaMLSerialItem] = []
+    # Trackear RMAs ya encontrados por serial para deduplicar contra factura
+    rma_ids_por_serial: set[tuple[int, int, int]] = set()
+
+    for pedido_row in pedidos_rows:
+        result_seriales = db.execute(
+            QUERY_SERIALES_BY_PEDIDO,
+            {
+                "soh_id": pedido_row["soh_id"],
+                "comp_id": pedido_row["comp_id"],
+                "bra_id": pedido_row["bra_id"],
+            },
+        )
+
+        for serial_row in result_seriales:
+            serial = dict(serial_row._mapping)["is_serial"]
+            if serial in seriales_vistos:
+                continue
+            seriales_vistos.add(serial)
+
+            # Traza completa de este serial
+            movimientos, articulo = _build_movimientos(db, serial)
+            rma_list, articulo = _build_rma(db, serial, articulo)
+
+            # Registrar RMAs encontrados por serial para deduplicar después
+            comp_id: int = pedido_row["comp_id"]
+            for rma in rma_list:
+                rma_ids_por_serial.add((comp_id, rma.rmad_id, rma.bra_id))
+
+            seriales_list.append(
+                TrazaMLSerialItem(
+                    serial=serial,
+                    articulo=articulo,
+                    movimientos=movimientos,
+                    rma=rma_list,
+                )
+            )
+
+    # 3. Buscar RMAs vía factura (para productos no seriados o RMAs sin serial)
+    # Cadena: soh_id → commercial_transactions → item_transactions → rma_detail
+    soh_ids = [row["soh_id"] for row in pedidos_rows]
+    rma_por_factura = _build_rma_by_invoice(db, soh_ids, exclude_rmad_ids=rma_ids_por_serial)
+
+    return TrazaMLResponse(
+        ml_id=ml_id,
+        busqueda_por=busqueda_por,
+        pedidos=pedidos,
+        seriales=seriales_list,
+        rma_por_factura=rma_por_factura,
     )
