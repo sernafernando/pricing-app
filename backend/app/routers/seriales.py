@@ -65,6 +65,56 @@ class PedidoSerial(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RMAHistorialEstado(BaseModel):
+    """Un cambio de estado en el historial del RMA"""
+
+    rmadh_id: int
+    fecha: Optional[str] = None
+    user_id: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RMASerial(BaseModel):
+    """RMA vinculado al serial"""
+
+    rmah_id: int
+    rmad_id: int
+    bra_id: int
+    match_por: str  # "is_id", "rmad_serial", "rmad_Manual"
+    # Header
+    fecha_rma: Optional[str] = None
+    cust_id: Optional[int] = None
+    cliente: Optional[str] = None
+    supp_id: Optional[int] = None
+    proveedor: Optional[str] = None
+    en_proveedor: Optional[bool] = None
+    # Detail
+    item_id: Optional[int] = None
+    item_codigo: Optional[str] = None
+    item_descripcion: Optional[str] = None
+    rmad_serial: Optional[str] = None
+    rmad_Manual: Optional[str] = None
+    precio_original: Optional[float] = None
+    cantidad: Optional[float] = None
+    deposito: Optional[str] = None
+    # Etapas
+    fecha_recepcion: Optional[str] = None
+    nota_recepcion: Optional[str] = None
+    fecha_diagnostico: Optional[str] = None
+    nota_diagnostico: Optional[str] = None
+    fecha_procesamiento: Optional[str] = None
+    nota_procesamiento: Optional[str] = None
+    fecha_entrega: Optional[str] = None
+    nota_entrega: Optional[str] = None
+    # Garantía
+    garantia: Optional[str] = None
+    # Historial de estados
+    historial: list[RMAHistorialEstado] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TrazaSerialResponse(BaseModel):
     """Respuesta completa de traza de un serial"""
 
@@ -72,6 +122,7 @@ class TrazaSerialResponse(BaseModel):
     articulo: Optional[ArticuloInfo] = None
     movimientos: list[MovimientoSerial] = []
     pedidos: list[PedidoSerial] = []
+    rma: list[RMASerial] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -138,6 +189,77 @@ QUERY_TRAZA = text("""
         ORDER BY s.is_cd ASC NULLS LAST, s.is_id ASC
     )
     SELECT * FROM serial_movimientos
+""")
+
+QUERY_RMA = text("""
+    SELECT
+        d.rmah_id,
+        d.rmad_id,
+        d.bra_id,
+        d.comp_id,
+        d.is_id,
+        d.rmad_serial,
+        d."rmad_Manual",
+        d.item_id,
+        d."rmad_originalPrice",
+        d.rmad_qty,
+        d.stor_id,
+        -- Etapas
+        d."rmad_Date_Reception",
+        d."rmad_ReceptionNote",
+        d."rmad_Date_Diagnostic",
+        d."rmad_DiagnosticNote",
+        d."rmad_Date_Proc",
+        d."rmad_ProcNote",
+        d."rmad_Date_Delivery",
+        d."rmad_DelioveryNote",
+        -- Garantía
+        d."rmad_insertWarrantyDetail",
+        -- Header
+        h.rmah_cd,
+        h.cust_id,
+        h.supp_id,
+        h."rmah_isInSuppplier",
+        -- Joins
+        cust.cust_name AS cliente_nombre,
+        supp.supp_name AS proveedor_nombre,
+        stor.stor_desc,
+        pe.codigo AS item_codigo,
+        pe.descripcion AS item_descripcion
+    FROM tb_rma_detail d
+    INNER JOIN tb_rma_header h
+        ON d.comp_id = h.comp_id
+        AND d.rmah_id = h.rmah_id
+        AND d.bra_id = h.bra_id
+    LEFT JOIN tb_customer cust
+        ON h.comp_id = cust.comp_id
+        AND h.cust_id = cust.cust_id
+    LEFT JOIN tb_supplier supp
+        ON h.comp_id = supp.comp_id
+        AND h.supp_id = supp.supp_id
+    LEFT JOIN tb_storage stor
+        ON d.comp_id = stor.comp_id
+        AND d.stor_id = stor.stor_id
+    LEFT JOIN productos_erp pe
+        ON d.item_id = pe.item_id
+    WHERE d.is_id IN (
+        SELECT s.is_id FROM tb_item_serials s WHERE s.is_serial = :serial
+    )
+    OR d.rmad_serial = :serial
+    OR d."rmad_Manual" = :serial
+    ORDER BY h.rmah_cd ASC NULLS LAST, d.rmad_id ASC
+""")
+
+QUERY_RMA_HISTORIAL = text("""
+    SELECT
+        rmadh_id,
+        rmadh_cd,
+        user_id
+    FROM tb_rma_detail_attrib_history
+    WHERE comp_id = :comp_id
+        AND rmah_id = :rmah_id
+        AND rmad_id = :rmad_id
+    ORDER BY rmadh_cd ASC NULLS LAST, rmadh_id ASC
 """)
 
 QUERY_PEDIDOS = text("""
@@ -239,23 +361,18 @@ def traza_serial(
     result_movimientos = db.execute(QUERY_TRAZA, {"serial": serial})
     rows = [dict(row._mapping) for row in result_movimientos]
 
-    if not rows:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No se encontró el serial: {serial}",
-        )
-
     # 2. Extraer info del artículo (del primer movimiento)
-    first = rows[0]
     articulo = None
-    if first.get("item_id"):
-        articulo = ArticuloInfo(
-            item_id=first["item_id"],
-            codigo=first.get("item_codigo") or "",
-            descripcion=first.get("item_descripcion") or "",
-            marca=first.get("item_marca"),
-            categoria=first.get("item_categoria"),
-        )
+    if rows:
+        first = rows[0]
+        if first.get("item_id"):
+            articulo = ArticuloInfo(
+                item_id=first["item_id"],
+                codigo=first.get("item_codigo") or "",
+                descripcion=first.get("item_descripcion") or "",
+                marca=first.get("item_marca"),
+                categoria=first.get("item_categoria"),
+            )
 
     # 3. Construir movimientos
     movimientos = []
@@ -311,9 +428,101 @@ def traza_serial(
             )
         )
 
+    # 5. Buscar RMAs vinculados (por is_id, rmad_serial o rmad_Manual)
+    result_rma = db.execute(QUERY_RMA, {"serial": serial})
+    rma_rows = [dict(row._mapping) for row in result_rma]
+
+    rma_list = []
+    for row in rma_rows:
+        # Determinar por qué campo matcheó
+        match_por = "is_id"
+        if row.get("rmad_serial") == serial:
+            match_por = "rmad_serial"
+        elif row.get("rmad_Manual") == serial:
+            match_por = "rmad_Manual"
+
+        # Si no tenemos artículo de los movimientos, intentar sacarlo del RMA
+        if articulo is None and row.get("item_id"):
+            articulo = ArticuloInfo(
+                item_id=row["item_id"],
+                codigo=row.get("item_codigo") or "",
+                descripcion=row.get("item_descripcion") or "",
+            )
+
+        # Buscar historial de estados para este RMA detail
+        historial = []
+        if row.get("comp_id") and row.get("rmah_id") and row.get("rmad_id"):
+            result_hist = db.execute(
+                QUERY_RMA_HISTORIAL,
+                {
+                    "comp_id": row["comp_id"],
+                    "rmah_id": row["rmah_id"],
+                    "rmad_id": row["rmad_id"],
+                },
+            )
+            for h in result_hist:
+                h_dict = dict(h._mapping)
+                fecha_h = h_dict.get("rmadh_cd")
+                historial.append(
+                    RMAHistorialEstado(
+                        rmadh_id=h_dict["rmadh_id"],
+                        fecha=str(fecha_h) if fecha_h else None,
+                        user_id=h_dict.get("user_id"),
+                    )
+                )
+
+        fecha_rma = row.get("rmah_cd")
+        fecha_rec = row.get("rmad_Date_Reception")
+        fecha_diag = row.get("rmad_Date_Diagnostic")
+        fecha_proc = row.get("rmad_Date_Proc")
+        fecha_ent = row.get("rmad_Date_Delivery")
+        precio = row.get("rmad_originalPrice")
+        qty = row.get("rmad_qty")
+
+        rma_list.append(
+            RMASerial(
+                rmah_id=row["rmah_id"],
+                rmad_id=row["rmad_id"],
+                bra_id=row["bra_id"],
+                match_por=match_por,
+                fecha_rma=str(fecha_rma) if fecha_rma else None,
+                cust_id=row.get("cust_id"),
+                cliente=row.get("cliente_nombre"),
+                supp_id=row.get("supp_id"),
+                proveedor=row.get("proveedor_nombre"),
+                en_proveedor=row.get("rmah_isInSuppplier"),
+                item_id=row.get("item_id"),
+                item_codigo=row.get("item_codigo"),
+                item_descripcion=row.get("item_descripcion"),
+                rmad_serial=row.get("rmad_serial"),
+                rmad_Manual=row.get("rmad_Manual"),
+                precio_original=float(precio) if precio else None,
+                cantidad=float(qty) if qty else None,
+                deposito=row.get("stor_desc"),
+                fecha_recepcion=str(fecha_rec) if fecha_rec else None,
+                nota_recepcion=row.get("rmad_ReceptionNote"),
+                fecha_diagnostico=str(fecha_diag) if fecha_diag else None,
+                nota_diagnostico=row.get("rmad_DiagnosticNote"),
+                fecha_procesamiento=str(fecha_proc) if fecha_proc else None,
+                nota_procesamiento=row.get("rmad_ProcNote"),
+                fecha_entrega=str(fecha_ent) if fecha_ent else None,
+                nota_entrega=row.get("rmad_DelioveryNote"),
+                garantia=row.get("rmad_insertWarrantyDetail"),
+                historial=historial,
+            )
+        )
+
+    # Si no encontramos nada en ningún lado, 404
+    if not movimientos and not pedidos and not rma_list:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No se encontró el serial: {serial}",
+        )
+
     return TrazaSerialResponse(
         serial=serial,
         articulo=articulo,
         movimientos=movimientos,
         pedidos=pedidos,
+        rma=rma_list,
     )
