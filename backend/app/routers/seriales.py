@@ -347,14 +347,17 @@ QUERY_PEDIDOS_BY_SHIPPINGID = text("""
         cust.cust_name AS cliente_nombre,
         soh.soh_mlid,
         soh.mlshippingid,
+        ship.mlshippingid AS shipping_id_real,
         ssos.ssos_name AS estado_nombre
-    FROM tb_sale_order_header soh
+    FROM tb_mercadolibre_orders_shipping ship
+    INNER JOIN tb_sale_order_header soh
+        ON ship.mlo_id = soh.mlo_id
     LEFT JOIN tb_customer cust
         ON soh.comp_id = cust.comp_id
         AND soh.cust_id = cust.cust_id
     LEFT JOIN tb_sale_order_status ssos
         ON soh.ssos_id = ssos.ssos_id
-    WHERE soh.mlshippingid = :shipping_id
+    WHERE ship.mlshippingid = :shipping_id
     ORDER BY soh.soh_cd ASC NULLS LAST
 """)
 
@@ -1129,7 +1132,7 @@ def traza_ml(
         result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
     elif ml_id.isdigit():
         busqueda_por = "mlshippingid"
-        result_pedidos = db.execute(QUERY_PEDIDOS_BY_SHIPPINGID, {"shipping_id": int(ml_id)})
+        result_pedidos = db.execute(QUERY_PEDIDOS_BY_SHIPPINGID, {"shipping_id": ml_id})
     else:
         busqueda_por = "soh_mlid"
         result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
@@ -1158,7 +1161,7 @@ def traza_ml(
             cust_id=row.get("cust_id"),
             cliente=row.get("cliente_nombre"),
             ml_id=row.get("soh_mlid"),
-            shipping_id=row.get("mlshippingid"),
+            shipping_id=row.get("shipping_id_real") or row.get("mlshippingid"),
         )
         for row in pedidos_rows
     ]
