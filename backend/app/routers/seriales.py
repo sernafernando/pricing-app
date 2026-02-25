@@ -262,7 +262,7 @@ def traza_serial(
             ref_id = row.get("cust_id")
             ref_nombre = row.get("cliente_nombre")
 
-        fecha = row.get("ct_date") or row.get("is_cd")
+        fecha = row.get("is_cd") or row.get("ct_date")
         fecha_str = str(fecha) if fecha else None
 
         estado = "Disponible" if row.get("is_available") else "No Disponible"
