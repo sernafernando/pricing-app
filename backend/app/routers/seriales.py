@@ -127,6 +127,27 @@ class TrazaSerialResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TrazaMLSerialItem(BaseModel):
+    """Traza de un serial individual dentro de una venta ML"""
+
+    serial: str
+    articulo: Optional[ArticuloInfo] = None
+    movimientos: list[MovimientoSerial] = []
+    rma: list[RMASerial] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TrazaMLResponse(BaseModel):
+    """Respuesta completa de traza por venta ML"""
+
+    ml_id: str
+    pedidos: list[PedidoSerial] = []
+    seriales: list[TrazaMLSerialItem] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # =============================================================================
 # QUERIES
 # =============================================================================
@@ -262,6 +283,41 @@ QUERY_RMA_HISTORIAL = text("""
     ORDER BY rmadh_cd ASC NULLS LAST, rmadh_id ASC
 """)
 
+QUERY_PEDIDOS_BY_MLID = text("""
+    SELECT DISTINCT
+        soh.soh_id,
+        soh.bra_id,
+        soh.comp_id,
+        soh.soh_cd,
+        soh.cust_id,
+        cust.cust_name AS cliente_nombre,
+        soh.soh_mlid,
+        ssos.ssos_name AS estado_nombre
+    FROM tb_sale_order_header soh
+    LEFT JOIN tb_customer cust
+        ON soh.comp_id = cust.comp_id
+        AND soh.cust_id = cust.cust_id
+    LEFT JOIN tb_sale_order_status ssos
+        ON soh.ssos_id = ssos.ssos_id
+    WHERE soh.soh_mlid = :ml_id
+    ORDER BY soh.soh_cd ASC NULLS LAST
+""")
+
+QUERY_SERIALES_BY_PEDIDO = text("""
+    SELECT DISTINCT
+        s.is_serial
+    FROM tb_sale_order_serials sos
+    INNER JOIN tb_item_serials s
+        ON sos.is_id = s.is_id
+        AND sos.comp_id = s.comp_id
+    WHERE sos.soh_id = :soh_id
+        AND sos.comp_id = :comp_id
+        AND sos.bra_id = :bra_id
+        AND s.is_serial IS NOT NULL
+        AND s.is_serial != ''
+    ORDER BY s.is_serial
+""")
+
 QUERY_PEDIDOS = text("""
     SELECT DISTINCT
         soh.soh_id,
@@ -343,25 +399,15 @@ def calcular_dias(fecha: object) -> Optional[int]:
 
 
 # =============================================================================
-# ENDPOINTS
+# BUILDERS (lógica reutilizable entre endpoints)
 # =============================================================================
 
 
-@router.get("/traza/{serial}", response_model=TrazaSerialResponse)
-def traza_serial(
-    serial: str,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
-) -> TrazaSerialResponse:
-    """
-    Obtiene la traza completa de un número de serie.
-    Devuelve artículo, movimientos (compras/ventas/transferencias) y pedidos vinculados.
-    """
-    # 1. Buscar movimientos del serial
-    result_movimientos = db.execute(QUERY_TRAZA, {"serial": serial})
-    rows = [dict(row._mapping) for row in result_movimientos]
+def _build_movimientos(db: Session, serial: str) -> tuple[list[MovimientoSerial], Optional[ArticuloInfo]]:
+    """Busca movimientos de un serial y extrae info del artículo."""
+    result = db.execute(QUERY_TRAZA, {"serial": serial})
+    rows = [dict(row._mapping) for row in result]
 
-    # 2. Extraer info del artículo (del primer movimiento)
     articulo = None
     if rows:
         first = rows[0]
@@ -374,7 +420,6 @@ def traza_serial(
                 categoria=first.get("item_categoria"),
             )
 
-    # 3. Construir movimientos
     movimientos = []
     for row in rows:
         tipo = determinar_tipo(row)
@@ -390,7 +435,6 @@ def traza_serial(
 
         ct_date = row.get("ct_date")
         is_cd = row.get("is_cd")
-
         estado = "Disponible" if row.get("is_available") else "No Disponible"
 
         movimientos.append(
@@ -409,39 +453,24 @@ def traza_serial(
             )
         )
 
-    # 4. Buscar pedidos vinculados
-    result_pedidos = db.execute(QUERY_PEDIDOS, {"serial": serial})
-    pedidos_rows = [dict(row._mapping) for row in result_pedidos]
+    return movimientos, articulo
 
-    pedidos = []
-    for row in pedidos_rows:
-        fecha = row.get("soh_cd")
-        pedidos.append(
-            PedidoSerial(
-                soh_id=row["soh_id"],
-                bra_id=row["bra_id"],
-                fecha=str(fecha) if fecha else None,
-                estado=row.get("estado_nombre"),
-                cust_id=row.get("cust_id"),
-                cliente=row.get("cliente_nombre"),
-                ml_id=row.get("soh_mlid"),
-            )
-        )
 
-    # 5. Buscar RMAs vinculados (por is_id, rmad_serial o rmad_Manual)
+def _build_rma(
+    db: Session, serial: str, articulo: Optional[ArticuloInfo] = None
+) -> tuple[list[RMASerial], Optional[ArticuloInfo]]:
+    """Busca RMAs vinculados a un serial (por is_id, rmad_serial o rmad_Manual)."""
     result_rma = db.execute(QUERY_RMA, {"serial": serial})
     rma_rows = [dict(row._mapping) for row in result_rma]
 
     rma_list = []
     for row in rma_rows:
-        # Determinar por qué campo matcheó
         match_por = "is_id"
         if row.get("rmad_serial") == serial:
             match_por = "rmad_serial"
         elif row.get("rmad_Manual") == serial:
             match_por = "rmad_Manual"
 
-        # Si no tenemos artículo de los movimientos, intentar sacarlo del RMA
         if articulo is None and row.get("item_id"):
             articulo = ArticuloInfo(
                 item_id=row["item_id"],
@@ -449,7 +478,6 @@ def traza_serial(
                 descripcion=row.get("item_descripcion") or "",
             )
 
-        # Buscar historial de estados para este RMA detail
         historial = []
         if row.get("comp_id") and row.get("rmah_id") and row.get("rmad_id"):
             result_hist = db.execute(
@@ -512,7 +540,46 @@ def traza_serial(
             )
         )
 
-    # Si no encontramos nada en ningún lado, 404
+    return rma_list, articulo
+
+
+# =============================================================================
+# ENDPOINTS
+# =============================================================================
+
+
+@router.get("/traza/{serial}", response_model=TrazaSerialResponse)
+def traza_serial(
+    serial: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TrazaSerialResponse:
+    """
+    Obtiene la traza completa de un número de serie.
+    Devuelve artículo, movimientos (compras/ventas/transferencias),
+    pedidos vinculados y RMAs.
+    """
+    # 1. Movimientos y artículo
+    movimientos, articulo = _build_movimientos(db, serial)
+
+    # 2. Pedidos vinculados
+    result_pedidos = db.execute(QUERY_PEDIDOS, {"serial": serial})
+    pedidos = [
+        PedidoSerial(
+            soh_id=row["soh_id"],
+            bra_id=row["bra_id"],
+            fecha=str(row["soh_cd"]) if row.get("soh_cd") else None,
+            estado=row.get("estado_nombre"),
+            cust_id=row.get("cust_id"),
+            cliente=row.get("cliente_nombre"),
+            ml_id=row.get("soh_mlid"),
+        )
+        for row in (dict(r._mapping) for r in result_pedidos)
+    ]
+
+    # 3. RMAs
+    rma_list, articulo = _build_rma(db, serial, articulo)
+
     if not movimientos and not pedidos and not rma_list:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -525,4 +592,79 @@ def traza_serial(
         movimientos=movimientos,
         pedidos=pedidos,
         rma=rma_list,
+    )
+
+
+@router.get("/traza/ml/{ml_id}", response_model=TrazaMLResponse)
+def traza_ml(
+    ml_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TrazaMLResponse:
+    """
+    Obtiene la traza completa de una venta de MercadoLibre.
+    Busca pedidos por soh_mlid, luego los seriales vinculados a cada pedido,
+    y para cada serial trae movimientos y RMAs.
+    No todos los pedidos tienen seriales (productos no seriados).
+    """
+    # 1. Buscar pedidos por ML ID
+    result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
+    pedidos_rows = [dict(row._mapping) for row in result_pedidos]
+
+    if not pedidos_rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No se encontró la venta ML: {ml_id}",
+        )
+
+    pedidos = [
+        PedidoSerial(
+            soh_id=row["soh_id"],
+            bra_id=row["bra_id"],
+            fecha=str(row["soh_cd"]) if row.get("soh_cd") else None,
+            estado=row.get("estado_nombre"),
+            cust_id=row.get("cust_id"),
+            cliente=row.get("cliente_nombre"),
+            ml_id=row.get("soh_mlid"),
+        )
+        for row in pedidos_rows
+    ]
+
+    # 2. Para cada pedido, buscar seriales vinculados
+    seriales_vistos: set[str] = set()
+    seriales_list: list[TrazaMLSerialItem] = []
+
+    for pedido_row in pedidos_rows:
+        result_seriales = db.execute(
+            QUERY_SERIALES_BY_PEDIDO,
+            {
+                "soh_id": pedido_row["soh_id"],
+                "comp_id": pedido_row["comp_id"],
+                "bra_id": pedido_row["bra_id"],
+            },
+        )
+
+        for serial_row in result_seriales:
+            serial = dict(serial_row._mapping)["is_serial"]
+            if serial in seriales_vistos:
+                continue
+            seriales_vistos.add(serial)
+
+            # Traza completa de este serial
+            movimientos, articulo = _build_movimientos(db, serial)
+            rma_list, articulo = _build_rma(db, serial, articulo)
+
+            seriales_list.append(
+                TrazaMLSerialItem(
+                    serial=serial,
+                    articulo=articulo,
+                    movimientos=movimientos,
+                    rma=rma_list,
+                )
+            )
+
+    return TrazaMLResponse(
+        ml_id=ml_id,
+        pedidos=pedidos,
+        seriales=seriales_list,
     )
