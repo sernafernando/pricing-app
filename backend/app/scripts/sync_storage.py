@@ -128,7 +128,7 @@ def sync_full(db: Session, stor_id: int | None = None) -> None:
     db.execute(stmt, normalized_data)
     db.commit()
 
-    print(f"\n✅ Sincronización finalizada")
+    print("\n✅ Sincronización finalizada")
     print(f"   Total actualizado: {len(normalized_data)} registros")
 
 
