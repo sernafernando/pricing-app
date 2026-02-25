@@ -105,6 +105,7 @@ SCRIPT_CONFIG = {
     "scriptEnvios": ["fromDate", "toDate"],
     "scriptSaleOrderTimes": ["fromDate", "toDate", "sohID", "braID", "sotID"],
     "scriptMLUsersData": ["fromDate", "toDate", "mlUserID", "nickname", "idFrom", "idTo"],
+    "scriptSaleOrderSerials": ["soseID", "soseIDfrom", "soseIDto", "sohID", "isID"],
 }
 
 # Configuración de operaciones
