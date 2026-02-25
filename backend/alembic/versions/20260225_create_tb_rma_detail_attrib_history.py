@@ -1,6 +1,6 @@
 """create tb_rma_detail_attrib_history table
 
-Revision ID: 20260225_rma_detail_attrib_history
+Revision ID: 20260225_rma_attrib_hist
 Revises: 20260225_rma_add_items
 Create Date: 2026-02-25
 
@@ -9,7 +9,7 @@ Create Date: 2026-02-25
 from alembic import op
 import sqlalchemy as sa
 
-revision = "20260225_rma_detail_attrib_history"
+revision = "20260225_rma_attrib_hist"
 down_revision = "20260225_rma_add_items"
 branch_labels = None
 depends_on = None
