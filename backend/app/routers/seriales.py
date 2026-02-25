@@ -37,7 +37,8 @@ class MovimientoSerial(BaseModel):
     """Un movimiento del serial (compra, venta, transferencia, etc.)"""
 
     is_id: int
-    fecha: Optional[str] = None
+    fecha_documento: Optional[str] = None  # Fecha del documento comercial
+    fecha_seriado: Optional[str] = None  # Fecha y hora de serialización
     tipo: Optional[str] = None  # PROVEEDOR, CLIENTE, TRANSFERENCIA
     referencia_id: Optional[int] = None  # cust_id o supp_id
     referencia_nombre: Optional[str] = None  # nombre del cliente/proveedor
@@ -193,18 +194,20 @@ def construir_nro_documento(row: dict) -> Optional[str]:
     return None
 
 
-def calcular_dias(fecha_str: Optional[str]) -> Optional[int]:
-    """Calcula días desde la fecha hasta hoy"""
-    if not fecha_str:
+def calcular_dias(fecha: object) -> Optional[int]:
+    """Calcula días desde la fecha hasta hoy. Acepta datetime, date o string ISO."""
+    if not fecha:
         return None
     from datetime import datetime, date
 
     try:
-        if isinstance(fecha_str, (datetime, date)):
-            fecha = fecha_str if isinstance(fecha_str, date) else fecha_str.date()
-        else:
-            fecha = datetime.fromisoformat(str(fecha_str)).date()
-        return (date.today() - fecha).days
+        if isinstance(fecha, datetime):
+            return (date.today() - fecha.date()).days
+        if isinstance(fecha, date):
+            return (date.today() - fecha).days
+        # String fallback
+        parsed = datetime.fromisoformat(str(fecha).replace("Z", "+00:00"))
+        return (date.today() - parsed.date()).days
     except (ValueError, TypeError):
         return None
 
@@ -260,20 +263,21 @@ def traza_serial(
             ref_id = row.get("cust_id")
             ref_nombre = row.get("cliente_nombre")
 
-        fecha = row.get("ct_date") or row.get("is_cd")
-        fecha_str = str(fecha) if fecha else None
+        ct_date = row.get("ct_date")
+        is_cd = row.get("is_cd")
 
         estado = "Disponible" if row.get("is_available") else "No Disponible"
 
         movimientos.append(
             MovimientoSerial(
                 is_id=row["is_id"],
-                fecha=fecha_str,
+                fecha_documento=str(ct_date) if ct_date else None,
+                fecha_seriado=str(is_cd) if is_cd else None,
                 tipo=tipo,
                 referencia_id=ref_id,
                 referencia_nombre=ref_nombre,
                 nro_documento=construir_nro_documento(row),
-                dias_a_la_fecha=calcular_dias(fecha),
+                dias_a_la_fecha=calcular_dias(is_cd or ct_date),
                 estado=estado,
                 deposito=row.get("stor_desc"),
                 deposito_id=row.get("stor_id"),
