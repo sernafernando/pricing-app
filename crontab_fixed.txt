@@ -121,3 +121,10 @@
 
 # ML Items Full - diario a las 3:10 AM
 10 3 * * * cd /var/www/html/pricing-app/backend && /home/gauss/pricing-env/bin/python -m app.scripts.sync_ml_items_publicados_full 2>&1 >> /var/log/ml_items_pub_full_sync.log
+
+# ============================================================================
+# LIMPIEZA DE NOTIFICACIONES
+# ============================================================================
+
+# Notificaciones markup_bajo - cada 15 días (1 y 15 de cada mes, 2:30 AM)
+30 2 1,15 * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python clear_notis.py >> /var/log/pricing-app/clear_notis.log 2>&1
