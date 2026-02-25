@@ -40,7 +40,10 @@ from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.notificacion import Notificacion
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario, RolUsuario
+from app.services.permisos_service import PermisosService
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
+
+PERMISO_RECIBIR_MARKUP = "reportes.recibir_notificaciones_markup"
 
 
 def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
@@ -336,8 +339,12 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
         diferencia = markup_calculado - markup_real
 
         if markup_real < 0 and markup_real < markup_calculado and diferencia > 0.5:
-            # Obtener TODOS los usuarios activos para notificar
-            usuarios_notificar = db.query(Usuario).filter(Usuario.activo == True).all()
+            # Obtener usuarios con permiso para recibir notificaciones de markup
+            permisos_service = PermisosService(db)
+            usuarios_activos = db.query(Usuario).filter(Usuario.activo == True).all()
+            usuarios_notificar = [
+                u for u in usuarios_activos if permisos_service.tiene_permiso(u, PERMISO_RECIBIR_MARKUP)
+            ]
 
             if not usuarios_notificar:
                 return False

@@ -332,18 +332,25 @@ PERMISOS_SISTEMA = [
         "orden": 41,
     },
     {
+        "codigo": "reportes.recibir_notificaciones_markup",
+        "nombre": "Recibir notificaciones de markup",
+        "descripcion": "Recibir notificaciones automáticas cuando una venta tiene markup negativo o por debajo del esperado",
+        "categoria": CategoriaPermiso.REPORTES,
+        "orden": 42,
+    },
+    {
         "codigo": "reportes.ver_calculadora",
         "nombre": "Usar calculadora",
         "descripcion": "Acceso a la calculadora de pricing",
         "categoria": CategoriaPermiso.REPORTES,
-        "orden": 42,
+        "orden": 43,
     },
     {
         "codigo": "reportes.exportar",
         "nombre": "Exportar reportes",
         "descripcion": "Exportar datos de reportes a Excel",
         "categoria": CategoriaPermiso.REPORTES,
-        "orden": 43,
+        "orden": 44,
     },
     # =========================================================================
     # ADMINISTRACIÓN
@@ -698,6 +705,7 @@ PERMISOS_POR_ROL = {
         "clientes.exportar",
         "reportes.ver_auditoria",
         "reportes.ver_notificaciones",
+        "reportes.recibir_notificaciones_markup",
         "reportes.ver_calculadora",
         "reportes.exportar",
         "admin.ver_items_sin_mla",
@@ -731,6 +739,7 @@ PERMISOS_POR_ROL = {
         "ventas_tn.ver_dashboard",
         "ventas_tn.ver_operaciones",
         "reportes.ver_notificaciones",
+        "reportes.recibir_notificaciones_markup",
         "reportes.ver_calculadora",
         "reportes.exportar",
         "config.ver_comisiones",
