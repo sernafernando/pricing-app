@@ -37,7 +37,8 @@ class MovimientoSerial(BaseModel):
     """Un movimiento del serial (compra, venta, transferencia, etc.)"""
 
     is_id: int
-    fecha: Optional[str] = None
+    fecha_documento: Optional[str] = None  # Fecha del documento comercial
+    fecha_seriado: Optional[str] = None  # Fecha y hora de serialización
     tipo: Optional[str] = None  # PROVEEDOR, CLIENTE, TRANSFERENCIA
     referencia_id: Optional[int] = None  # cust_id o supp_id
     referencia_nombre: Optional[str] = None  # nombre del cliente/proveedor
@@ -262,20 +263,21 @@ def traza_serial(
             ref_id = row.get("cust_id")
             ref_nombre = row.get("cliente_nombre")
 
-        fecha = row.get("is_cd") or row.get("ct_date")
-        fecha_str = str(fecha) if fecha else None
+        ct_date = row.get("ct_date")
+        is_cd = row.get("is_cd")
 
         estado = "Disponible" if row.get("is_available") else "No Disponible"
 
         movimientos.append(
             MovimientoSerial(
                 is_id=row["is_id"],
-                fecha=fecha_str,
+                fecha_documento=str(ct_date) if ct_date else None,
+                fecha_seriado=str(is_cd) if is_cd else None,
                 tipo=tipo,
                 referencia_id=ref_id,
                 referencia_nombre=ref_nombre,
                 nro_documento=construir_nro_documento(row),
-                dias_a_la_fecha=calcular_dias(fecha),
+                dias_a_la_fecha=calcular_dias(is_cd or ct_date),
                 estado=estado,
                 deposito=row.get("stor_desc"),
                 deposito_id=row.get("stor_id"),
