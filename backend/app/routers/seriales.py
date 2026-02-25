@@ -193,18 +193,20 @@ def construir_nro_documento(row: dict) -> Optional[str]:
     return None
 
 
-def calcular_dias(fecha_str: Optional[str]) -> Optional[int]:
-    """Calcula días desde la fecha hasta hoy"""
-    if not fecha_str:
+def calcular_dias(fecha: object) -> Optional[int]:
+    """Calcula días desde la fecha hasta hoy. Acepta datetime, date o string ISO."""
+    if not fecha:
         return None
     from datetime import datetime, date
 
     try:
-        if isinstance(fecha_str, (datetime, date)):
-            fecha = fecha_str if isinstance(fecha_str, date) else fecha_str.date()
-        else:
-            fecha = datetime.fromisoformat(str(fecha_str)).date()
-        return (date.today() - fecha).days
+        if isinstance(fecha, datetime):
+            return (date.today() - fecha.date()).days
+        if isinstance(fecha, date):
+            return (date.today() - fecha).days
+        # String fallback
+        parsed = datetime.fromisoformat(str(fecha).replace("Z", "+00:00"))
+        return (date.today() - parsed.date()).days
     except (ValueError, TypeError):
         return None
 
