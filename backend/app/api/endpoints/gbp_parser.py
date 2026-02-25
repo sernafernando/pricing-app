@@ -107,6 +107,11 @@ SCRIPT_CONFIG = {
     "scriptMLUsersData": ["fromDate", "toDate", "mlUserID", "nickname", "idFrom", "idTo"],
     "scriptSaleOrderSerials": ["soseID", "soseIDfrom", "soseIDto", "sohID", "isID"],
     "scriptStorage": ["storID"],
+    "scriptRMAHeader": ["rmahID", "fromDate", "toDate"],
+    "scriptRMADetail": ["rmadID", "rmahID", "fromDate", "toDate"],
+    "scriptRMAAddItems": ["rmaaiID", "rmahID", "rmadID"],
+    "scriptRMADetailAttribHistory": ["rmadhID", "rmahID", "rmadID"],
+    "scriptRMASupplierCreditNotePending": ["rmancID", "rmahID", "rmadID"],
 }
 
 # Configuración de operaciones

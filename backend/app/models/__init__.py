@@ -54,6 +54,11 @@ from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.mercadolibre_user_data import MercadoLibreUserData
 from app.models.tb_sale_order_serial import TbSaleOrderSerial
 from app.models.tb_storage import TbStorage
+from app.models.tb_rma_detail import TbRMADetail
+from app.models.tb_rma_header import TbRMAHeader
+from app.models.tb_rma_add_items import TbRMAAddItems
+from app.models.tb_rma_detail_attrib_history import TbRMADetailAttribHistory
+from app.models.tb_rma_supplier_cn_pending import TbRMASupplierCNPending
 
 __all__ = [
     "ProductoERP",
@@ -124,4 +129,9 @@ __all__ = [
     "MercadoLibreUserData",
     "TbSaleOrderSerial",
     "TbStorage",
+    "TbRMADetail",
+    "TbRMAHeader",
+    "TbRMAAddItems",
+    "TbRMADetailAttribHistory",
+    "TbRMASupplierCNPending",
 ]
