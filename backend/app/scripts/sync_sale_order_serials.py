@@ -2,15 +2,14 @@
 Script para sincronizar tb_sale_order_serials desde el ERP (tbSaleOrderSerials)
 
 Modos de uso:
+    # Full - toda la tabla del ERP (paginado por cursor)
+    python -m app.scripts.sync_sale_order_serials --full
+
     # Incremental automático (desde último sose_id en DB)
     python -m app.scripts.sync_sale_order_serials --incremental
 
     # Incremental desde un ID específico
     python -m app.scripts.sync_sale_order_serials --incremental --from-id 150000
-
-    # Full completo (por rangos de sose_id)
-    python -m app.scripts.sync_sale_order_serials --full
-    python -m app.scripts.sync_sale_order_serials --full --max-id 300000 --batch-size 5000
 
     # Por sale order específico
     python -m app.scripts.sync_sale_order_serials --soh-id 853
@@ -100,65 +99,90 @@ def get_max_sose_id(db: Session) -> int:
     return result or 0
 
 
-def sync_full(db: Session, batch_size: int = 10000, max_sose_id: int = 200000) -> None:
-    """Sincronización completa por rangos de sose_id"""
-    print("\n🔄 Sincronización COMPLETA de tb_sale_order_serials (por rangos de sose_id)")
-    print("=" * 60)
-    print(f"Tamaño de lote: {batch_size} registros")
-    print(f"Rango máximo: hasta sose_id={max_sose_id}")
-    print()
+def fetch_and_process(db: Session, params: dict) -> list[dict]:
+    """Fetch del ERP, normaliza y upsert. Retorna los registros normalizados."""
+    data = asyncio.run(fetch_from_erp(params))
 
-    current_from = 1
+    if not data:
+        return []
+
+    normalized_data = []
+    for row in data:
+        normalized = normalize_row(row)
+        if normalized:
+            normalized_data.append(normalized)
+
+    if not normalized_data:
+        return []
+
+    # Procesar en sub-batches para INSERT
+    for i in range(0, len(normalized_data), 500):
+        batch = normalized_data[i : i + 500]
+        upsert_batch(db, batch)
+
+    return normalized_data
+
+
+def sync_full(db: Session) -> None:
+    """Sincronización completa usando cursor por sose_id (sose_id > X)"""
+    print("\n🔄 Sincronización COMPLETA de tb_sale_order_serials")
+    print("=" * 60)
+
+    cursor = 0
     total_procesado = 0
     batch_num = 1
 
-    while current_from < max_sose_id:
-        current_to = current_from + batch_size - 1
-        if current_to > max_sose_id:
-            current_to = max_sose_id
-
-        print(f"📦 Lote #{batch_num} (sose_id: {current_from} - {current_to})...")
+    while True:
+        print(f"📦 Lote #{batch_num} (sose_id > {cursor})...")
 
         params = {
             "strScriptLabel": "scriptSaleOrderSerials",
-            "soseIDfrom": current_from,
-            "soseIDto": current_to,
+            "soseID": cursor,
         }
 
         try:
             data = asyncio.run(fetch_from_erp(params))
 
-            if not data or len(data) == 0:
-                print("   ⚠️  Sin registros en este rango")
-            else:
-                print(f"   ✓ Obtenidos {len(data)} registros")
+            if not data:
+                print("   ✓ Sin más registros")
+                break
 
-                normalized_data = []
-                for row in data:
-                    normalized = normalize_row(row)
-                    if normalized:
-                        normalized_data.append(normalized)
+            print(f"   ✓ Obtenidos {len(data)} registros")
 
-                # Procesar en sub-batches para INSERT
-                insert_batch_size = 500
-                for i in range(0, len(normalized_data), insert_batch_size):
-                    batch = normalized_data[i : i + insert_batch_size]
-                    upsert_batch(db, batch)
+            normalized_data = []
+            for row in data:
+                normalized = normalize_row(row)
+                if normalized:
+                    normalized_data.append(normalized)
 
-                total_procesado += len(normalized_data)
-                print(f"   💾 Insertados en DB (Total acumulado: {total_procesado})")
+            if not normalized_data:
+                break
+
+            # Upsert en sub-batches
+            for i in range(0, len(normalized_data), 500):
+                batch = normalized_data[i : i + 500]
+                upsert_batch(db, batch)
+
+            total_procesado += len(normalized_data)
+            print(f"   💾 Insertados en DB (Total acumulado: {total_procesado})")
+
+            # Avanzar cursor al max sose_id de este lote
+            max_id_in_batch = max(row["sose_id"] for row in normalized_data)
+            if max_id_in_batch == cursor:
+                # No avanzó, evitar loop infinito
+                break
+            cursor = max_id_in_batch
+            batch_num += 1
 
         except httpx.HTTPStatusError as e:
             print(f"   ❌ Error HTTP: {e.response.status_code} - {e.response.text[:200]}")
+            break
         except Exception as e:
             print(f"   ❌ Error: {str(e)}")
             import traceback
 
             traceback.print_exc()
-
-        # Avanzar al siguiente rango
-        current_from = current_to + 1
-        batch_num += 1
+            break
 
     print("\n✅ Sincronización completa finalizada")
     print(f"   Total procesado: {total_procesado} registros")
@@ -247,14 +271,10 @@ def main() -> None:
 
     # Modos de ejecución
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--full", action="store_true", help="Sincronización completa por rangos de sose_id")
+    mode.add_argument("--full", action="store_true", help="Sincronización completa (toda la tabla del ERP)")
     mode.add_argument("--incremental", action="store_true", help="Incremental desde último sose_id en DB")
     mode.add_argument("--soh-id", type=int, help="Sincronizar serials de un sale order específico")
     mode.add_argument("--is-id", type=int, help="Sincronizar registros de un item serial específico")
-
-    # Opciones para full
-    parser.add_argument("--batch-size", type=int, default=10000, help="Tamaño de lote para full (default: 10000)")
-    parser.add_argument("--max-id", type=int, default=200000, help="ID máximo para full (default: 200000)")
 
     # Opciones para incremental
     parser.add_argument(
@@ -267,7 +287,7 @@ def main() -> None:
 
     try:
         if args.full:
-            sync_full(db, batch_size=args.batch_size, max_sose_id=args.max_id)
+            sync_full(db)
         elif args.incremental:
             sync_incremental(db, from_id=args.from_id)
         elif args.soh_id:
