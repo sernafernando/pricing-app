@@ -53,6 +53,7 @@ from app.models.operador_actividad import OperadorActividad
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.mercadolibre_user_data import MercadoLibreUserData
 from app.models.tb_sale_order_serial import TbSaleOrderSerial
+from app.models.tb_storage import TbStorage
 
 __all__ = [
     "ProductoERP",
@@ -122,4 +123,5 @@ __all__ = [
     "LogisticaCostoCordon",
     "MercadoLibreUserData",
     "TbSaleOrderSerial",
+    "TbStorage",
 ]
