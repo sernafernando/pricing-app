@@ -1718,8 +1718,17 @@ def lookup_pedido(
     Busca un pedido en SaleOrderHeader por comp_id=1 + bra_id + soh_id
     y devuelve el cust_id asociado para autocompletar la dirección
     del cliente en el modal de envío manual.
+
+    Acepta envios_flex.subir_etiquetas (tab Envíos Flex) O
+    pedidos.crear_envio_flex (tab Pedidos Pendientes).
     """
-    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
+    if not verificar_permiso(db, current_user, "envios_flex.subir_etiquetas") and not verificar_permiso(
+        db, current_user, "pedidos.crear_envio_flex"
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="No tenés permiso: envios_flex.subir_etiquetas o pedidos.crear_envio_flex",
+        )
 
     from app.models.tb_customer import TBCustomer
 
