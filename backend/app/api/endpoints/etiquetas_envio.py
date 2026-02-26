@@ -152,6 +152,7 @@ class EtiquetaEnvioResponse(BaseModel):
     manual_soh_id: Optional[int] = None
     manual_cust_id: Optional[int] = None
     manual_comment: Optional[str] = None
+    manual_phone: Optional[str] = None
 
     # Outlet (título de item contiene "outlet")
     es_outlet: bool = False
@@ -236,6 +237,7 @@ class CrearEnvioManualRequest(BaseModel):
     logistica_id: Optional[int] = Field(None, description="Logística asignada")
     transporte_id: Optional[int] = Field(None, description="Transporte interprovincial asignado")
     comment: Optional[str] = Field(None, max_length=1000, description="Observaciones")
+    phone: Optional[str] = Field(None, max_length=100, description="Teléfono del destinatario")
     operador_id: int = Field(description="Operador autenticado con PIN")
 
 
@@ -264,6 +266,7 @@ class CrearDesdePedidoRequest(BaseModel):
     zip_code: str = Field(max_length=50, description="Código postal")
     city_name: str = Field(max_length=500, description="Ciudad / Localidad")
     comment: Optional[str] = Field(None, max_length=1000, description="Observaciones")
+    phone: Optional[str] = Field(None, max_length=100, description="Teléfono del destinatario")
     logistica_id: Optional[int] = Field(None, description="Logística asignada")
     transporte_id: Optional[int] = Field(None, description="Transporte interprovincial asignado")
     cust_id: Optional[int] = Field(None, description="ID cliente ERP (si no hay pedido)")
@@ -748,6 +751,7 @@ def listar_etiquetas(
             EtiquetaEnvio.manual_soh_id,
             EtiquetaEnvio.manual_cust_id,
             EtiquetaEnvio.manual_comment,
+            EtiquetaEnvio.manual_phone,
             EtiquetaEnvio.es_outlet,
             EtiquetaEnvio.es_turbo,
             Operador.nombre.label("pistoleado_operador_nombre"),
@@ -920,6 +924,7 @@ def listar_etiquetas(
             manual_soh_id=row.manual_soh_id,
             manual_cust_id=row.manual_cust_id,
             manual_comment=row.manual_comment,
+            manual_phone=row.manual_phone,
             es_outlet=row.es_outlet,
             es_turbo=row.es_turbo,
             creado_por_usuario_nombre=row.creado_por_usuario_nombre,
@@ -1796,6 +1801,8 @@ def lookup_pedido(
             TBCustomer.cust_address,
             TBCustomer.cust_city,
             TBCustomer.cust_zip,
+            TBCustomer.cust_phone1,
+            TBCustomer.cust_cellphone,
         )
         .filter(
             TBCustomer.comp_id == 1,
@@ -1812,6 +1819,8 @@ def lookup_pedido(
         "cust_address": cliente.cust_address if cliente else None,
         "cust_city": cliente.cust_city if cliente else None,
         "cust_zip": cliente.cust_zip if cliente else None,
+        "cust_phone1": cliente.cust_phone1 if cliente else None,
+        "cust_cellphone": cliente.cust_cellphone if cliente else None,
     }
 
 
@@ -1885,6 +1894,7 @@ def crear_envio_desde_pedido(
         manual_bra_id=payload.bra_id,
         manual_soh_id=payload.soh_id,
         manual_comment=payload.comment,
+        manual_phone=payload.phone,
         logistica_id=payload.logistica_id,
         transporte_id=payload.transporte_id,
         nombre_archivo="desde_pedido",
@@ -2009,6 +2019,7 @@ def crear_envio_manual(
         manual_bra_id=payload.bra_id,
         manual_soh_id=payload.soh_id,
         manual_comment=payload.comment,
+        manual_phone=payload.phone,
         nombre_archivo="envio_manual",
     )
     db.add(etiqueta)
@@ -2143,6 +2154,7 @@ def editar_envio_manual(
         "bra_id": etiqueta.manual_bra_id,
         "soh_id": etiqueta.manual_soh_id,
         "comment": etiqueta.manual_comment,
+        "phone": etiqueta.manual_phone,
     }
 
     # Actualizar campos
@@ -2157,6 +2169,7 @@ def editar_envio_manual(
     etiqueta.manual_bra_id = payload.bra_id
     etiqueta.manual_soh_id = payload.soh_id
     etiqueta.manual_comment = payload.comment
+    etiqueta.manual_phone = payload.phone
     etiqueta.logistica_id = payload.logistica_id
     etiqueta.transporte_id = payload.transporte_id
 
@@ -2182,6 +2195,7 @@ def editar_envio_manual(
                 "bra_id": payload.bra_id,
                 "soh_id": payload.soh_id,
                 "comment": payload.comment,
+                "phone": payload.phone,
             },
         },
     )
@@ -2961,10 +2975,10 @@ async def generar_etiqueta_manual_zpl(
     codigo_postal = etiqueta.manual_zip_code or "N/A"
     ciudad = etiqueta.manual_city_name or "N/A"
     observaciones = etiqueta.manual_comment or "N/A"
-    telefono = "N/A"  # Los envíos manuales no tienen teléfono por ahora
+    # Teléfono: manual_phone tiene prioridad, fallback a TBCustomer
+    telefono = etiqueta.manual_phone or None
 
-    # Si tiene cust_id, intentar obtener teléfono del cliente
-    if etiqueta.manual_cust_id:
+    if not telefono and etiqueta.manual_cust_id:
         from app.models.tb_customer import TBCustomer
 
         cliente = (
@@ -2973,7 +2987,9 @@ async def generar_etiqueta_manual_zpl(
             .first()
         )
         if cliente:
-            telefono = cliente.cust_cellphone or cliente.cust_phone1 or "N/A"
+            telefono = cliente.cust_cellphone or cliente.cust_phone1 or None
+
+    telefono = telefono or "N/A"
 
     # ── Tipo de envío y domicilio ────────────────────────────────────
     tipo_envio = tipo_envio_manual or "Domicilio"
