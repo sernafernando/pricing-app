@@ -167,6 +167,8 @@ class EtiquetaEnvioResponse(BaseModel):
     transporte_nombre: Optional[str] = None
     transporte_color: Optional[str] = None
     transporte_direccion: Optional[str] = None
+    transporte_cp: Optional[str] = None
+    transporte_localidad: Optional[str] = None
     transporte_telefono: Optional[str] = None
     transporte_horario: Optional[str] = None
 
@@ -749,6 +751,8 @@ def listar_etiquetas(
             Transporte.nombre.label("transporte_nombre"),
             Transporte.color.label("transporte_color"),
             Transporte.direccion.label("transporte_direccion"),
+            Transporte.cp.label("transporte_cp"),
+            Transporte.localidad.label("transporte_localidad"),
             Transporte.telefono.label("transporte_telefono"),
             Transporte.horario.label("transporte_horario"),
             eff_receiver.label("mlreceiver_name"),
@@ -918,6 +922,8 @@ def listar_etiquetas(
             transporte_nombre=row.transporte_nombre,
             transporte_color=row.transporte_color,
             transporte_direccion=row.transporte_direccion,
+            transporte_cp=row.transporte_cp,
+            transporte_localidad=row.transporte_localidad,
             transporte_telefono=row.transporte_telefono,
             transporte_horario=row.transporte_horario,
         )

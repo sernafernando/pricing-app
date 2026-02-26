@@ -1116,6 +1116,8 @@ function TabTransportes() {
   const [newNombre, setNewNombre] = useState('');
   const [newCuit, setNewCuit] = useState('');
   const [newDireccion, setNewDireccion] = useState('');
+  const [newCp, setNewCp] = useState('');
+  const [newLocalidad, setNewLocalidad] = useState('');
   const [newTelefono, setNewTelefono] = useState('');
   const [newHorario, setNewHorario] = useState('');
   const [newColor, setNewColor] = useState('#8b5cf6');
@@ -1148,6 +1150,8 @@ function TabTransportes() {
         nombre: newNombre.trim(),
         cuit: newCuit.trim() || null,
         direccion: newDireccion.trim() || null,
+        cp: newCp.trim() || null,
+        localidad: newLocalidad.trim() || null,
         telefono: newTelefono.trim() || null,
         horario: newHorario.trim() || null,
         color: newColor,
@@ -1155,6 +1159,8 @@ function TabTransportes() {
       setNewNombre('');
       setNewCuit('');
       setNewDireccion('');
+      setNewCp('');
+      setNewLocalidad('');
       setNewTelefono('');
       setNewHorario('');
       setNewColor('#8b5cf6');
@@ -1246,6 +1252,28 @@ function TabTransportes() {
             />
           </div>
           <div className={styles.formField}>
+            <label htmlFor="transp-cp">CP</label>
+            <input
+              id="transp-cp"
+              type="text"
+              value={newCp}
+              onChange={(e) => setNewCp(e.target.value)}
+              placeholder="1234"
+              maxLength={10}
+            />
+          </div>
+          <div className={styles.formField}>
+            <label htmlFor="transp-localidad">Localidad</label>
+            <input
+              id="transp-localidad"
+              type="text"
+              value={newLocalidad}
+              onChange={(e) => setNewLocalidad(e.target.value)}
+              placeholder="Ciudad/localidad"
+              maxLength={200}
+            />
+          </div>
+          <div className={styles.formField}>
             <label htmlFor="transp-telefono">Teléfono</label>
             <input
               id="transp-telefono"
@@ -1299,6 +1327,8 @@ function TabTransportes() {
                   <th>Nombre</th>
                   <th>CUIT</th>
                   <th>Dirección</th>
+                  <th>CP</th>
+                  <th>Localidad</th>
                   <th>Teléfono</th>
                   <th>Horario</th>
                   <th>Estado</th>
@@ -1308,7 +1338,7 @@ function TabTransportes() {
               <tbody>
                 {transportes.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className={styles.empty}>
+                    <td colSpan={10} className={styles.empty}>
                       No hay transportes creados
                     </td>
                   </tr>
@@ -1324,6 +1354,8 @@ function TabTransportes() {
                       <td>{t.nombre}</td>
                       <td>{t.cuit || '—'}</td>
                       <td>{t.direccion || '—'}</td>
+                      <td>{t.cp || '—'}</td>
+                      <td>{t.localidad || '—'}</td>
                       <td>{t.telefono || '—'}</td>
                       <td>{t.horario || '—'}</td>
                       <td>
