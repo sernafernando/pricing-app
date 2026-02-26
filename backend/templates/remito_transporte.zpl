@@ -22,10 +22,8 @@
 ^FX ═══════════════════════════════════════════════════════
 
 ^FO30,145^A0N,30,30^FH^FDTransporte:^FS
-^FO30,145^A0N,30,30^FH^FDTransporte:^FS
 ^FO220,145^A0N,30,30^FB560,1,0,L^FH^FD{{TRANSPORTE_NOMBRE}}^FS
 
-^FO30,190^A0N,24,24^FH^FDDirecci_C3_B3n:^FS
 ^FO30,190^A0N,24,24^FH^FDDirecci_C3_B3n:^FS
 ^FO180,190^A0N,24,24^FB600,2,0,L^FH^FD{{TRANSPORTE_DIRECCION}}^FS
 
@@ -42,10 +40,8 @@
 ^FX ═══════════════════════════════════════════════════════
 
 ^FO30,350^A0N,30,30^FH^FDDestinatario final:^FS
-^FO30,350^A0N,30,30^FH^FDDestinatario final:^FS
 ^FO300,350^A0N,30,30^FB480,1,0,L^FH^FD{{NOMBRE_DESTINATARIO}}^FS
 
-^FO30,400^A0N,24,24^FH^FDDirecci_C3_B3n:^FS
 ^FO30,400^A0N,24,24^FH^FDDirecci_C3_B3n:^FS
 ^FO180,400^A0N,24,24^FB600,2,0,L^FH^FD{{DIRECCION_CLIENTE}}^FS
 
