@@ -1372,6 +1372,7 @@ export default function TabEnviosFlex({ operador = null }) {
               className={styles.dateInput}
               title="Desde"
             />
+            <span className={styles.dateGroupSep}>a</span>
             <input
               type="date"
               value={fechaHasta}

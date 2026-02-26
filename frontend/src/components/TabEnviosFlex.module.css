@@ -148,12 +148,19 @@
 
 .dateGroup {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
+}
+
+.dateGroupSep {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  user-select: none;
 }
 
 .dateInput {
-  padding: 7px 10px;
+  width: 125px;
+  padding: 8px 8px;
   border-radius: 8px;
   border: 1px solid var(--border-secondary);
   background: var(--bg-secondary);
@@ -1346,11 +1353,6 @@
 @media (max-width: 768px) {
   .filtros {
     flex-direction: column;
-  }
-
-  .dateGroup {
-    flex-direction: row;
-    gap: 8px;
   }
 
   .select,
