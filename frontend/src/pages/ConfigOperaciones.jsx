@@ -258,7 +258,7 @@ function TabOperadores() {
           </div>
           <button
             type="submit"
-            className={styles.btnCrear}
+            className="btn-tesla outline-subtle-primary"
             disabled={creating || formPin.length !== 4}
           >
             <Plus size={16} />
@@ -453,7 +453,7 @@ function TabOperadores() {
           </div>
           <button
             type="submit"
-            className={styles.btnCrear}
+            className="btn-tesla outline-subtle-primary"
             disabled={creatingTab || !selectedPagePath || !selectedTabKey}
           >
             <Plus size={16} />
@@ -1024,7 +1024,7 @@ function TabLogisticas() {
           </div>
           <button
             type="submit"
-            className={styles.btnCrear}
+            className="btn-tesla outline-subtle-primary"
             disabled={creating || !newNombre.trim()}
           >
             <Plus size={16} />
@@ -1279,7 +1279,7 @@ function TabTransportes() {
           </div>
           <button
             type="submit"
-            className={styles.btnCrear}
+            className="btn-tesla outline-subtle-primary"
             disabled={creating || !newNombre.trim()}
           >
             <Plus size={16} />
