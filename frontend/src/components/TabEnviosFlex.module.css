@@ -131,9 +131,8 @@
 
 .controls {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  gap: 12px;
   padding: 16px 20px;
   background: var(--bg-primary);
   border-radius: 12px;
@@ -143,9 +142,8 @@
 .filtros {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
-  flex: 1;
 }
 
 .dateInput {
@@ -200,8 +198,10 @@
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .btnRefresh {
@@ -1345,10 +1345,6 @@
 /* ── Responsive ─────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
-  .controls {
-    flex-direction: column;
-  }
-
   .filtros {
     flex-direction: column;
   }
