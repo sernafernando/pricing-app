@@ -146,27 +146,107 @@
   align-items: center;
 }
 
-.dateGroup {
+/* ── Date quick filters (Hoy, Ayer, 3d, 7d + calendario) ──── */
+
+.dateQuickFilters {
+  display: flex;
+  gap: 0;
+  background: var(--bg-secondary);
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid var(--border-secondary);
+  position: relative;
+}
+
+.btnDateQuick {
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--text-tertiary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.btnDateCalendar {
+  padding: 6px 10px;
   display: flex;
   align-items: center;
+  justify-content: center;
+}
+
+.btnDateQuick:hover {
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary);
+}
+
+.btnDateQuickActive {
+  background: var(--brand-primary-alpha, rgba(59, 130, 246, 0.15));
+  color: var(--brand-primary);
+}
+
+.btnDateQuickActive:hover {
+  background: var(--brand-primary-alpha, rgba(59, 130, 246, 0.2));
+  color: var(--brand-primary);
+}
+
+.dateDropdownOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+}
+
+.dateDropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dateDropdownField {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
 
-.dateGroupSep {
-  color: var(--text-tertiary);
+.dateDropdownField label {
   font-size: 12px;
-  user-select: none;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
-.dateInput {
-  width: 125px;
-  padding: 8px 8px;
-  border-radius: 8px;
-  border: 1px solid var(--border-secondary);
+.dateDropdownInput {
+  padding: 10px 12px;
   background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
   color: var(--text-primary);
   font-size: 13px;
   cursor: pointer;
+}
+
+.dateDropdownInput:hover {
+  border-color: var(--text-tertiary);
+}
+
+.dateDropdownInput:focus {
+  outline: none;
+  border-color: var(--brand-primary);
 }
 
 .searchInput {
