@@ -92,9 +92,10 @@ export default function TabEnviosFlex({ operador = null }) {
   const [filtroCordon, setFiltroCordon] = useState('');
   const [filtroLogistica, setFiltroLogistica] = useState('');
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
-  // eslint-disable-next-line no-unused-vars
   const [filtroSsosId, setFiltroSsosId] = useState('');
   const [sinLogistica, setSinLogistica] = useState(false);
+  const [sinCordon, setSinCordon] = useState(false);
+  const [filtroPistoleado, setFiltroPistoleado] = useState('');
   const [soloOutlet, setSoloOutlet] = useState(false);
   const [soloTurbo, setSoloTurbo] = useState(false);
   const [search, setSearch] = useState('');
@@ -273,13 +274,15 @@ export default function TabEnviosFlex({ operador = null }) {
     if (filtroCordon) p.append('cordon', filtroCordon);
     if (filtroLogistica) p.append('logistica_id', filtroLogistica);
     if (sinLogistica) p.append('sin_logistica', 'true');
+    if (sinCordon) p.append('sin_cordon', 'true');
     if (soloOutlet) p.append('solo_outlet', 'true');
     if (soloTurbo) p.append('solo_turbo', 'true');
     if (filtroMlStatus) p.append('mlstatus', filtroMlStatus);
     if (filtroSsosId) p.append('ssos_id', filtroSsosId);
+    if (filtroPistoleado) p.append('pistoleado', filtroPistoleado);
     if (search) p.append('search', search);
     return p;
-  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, soloOutlet, soloTurbo, filtroMlStatus, filtroSsosId, search]);
+  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, sinCordon, soloOutlet, soloTurbo, filtroMlStatus, filtroSsosId, filtroPistoleado, search]);
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
@@ -1274,32 +1277,45 @@ export default function TabEnviosFlex({ operador = null }) {
 
   return (
     <div className={styles.container}>
-      {/* Estadísticas */}
+      {/* Estadísticas — clickeables para filtrar */}
       {estadisticas && (
         <div className={styles.statsGrid}>
           <div className={styles.statCard}>
             <div className={styles.statValue}>{estadisticas.total}</div>
             <div className={styles.statLabel}>Etiquetas</div>
           </div>
-          <div className={styles.statCard}>
+          <button
+            type="button"
+            className={`${styles.statCard} ${styles.statCardClickable} ${sinLogistica ? styles.statCardActive : ''}`}
+            onClick={() => { setSinLogistica(prev => !prev); setSinCordon(false); setFiltroCordon(''); }}
+          >
             <div className={`${styles.statValue} ${styles.statSecondary}`}>
               {estadisticas.sin_logistica}
             </div>
             <div className={styles.statLabel}>Sin logística</div>
-          </div>
-          {Object.entries(estadisticas.por_cordon).map(([cordon, qty]) => (
-            <div key={cordon} className={styles.statCard}>
+          </button>
+          {Object.entries(estadisticas.por_cordon).map(([cordonName, qty]) => (
+            <button
+              key={cordonName}
+              type="button"
+              className={`${styles.statCard} ${styles.statCardClickable} ${filtroCordon === cordonName && !sinCordon ? styles.statCardActive : ''}`}
+              onClick={() => { setFiltroCordon(prev => prev === cordonName ? '' : cordonName); setSinCordon(false); setSinLogistica(false); }}
+            >
               <div className={styles.statValue}>{qty}</div>
-              <div className={styles.statLabel}>{cordon}</div>
-            </div>
+              <div className={styles.statLabel}>{cordonName}</div>
+            </button>
           ))}
           {estadisticas.sin_cordon > 0 && (
-            <div className={styles.statCard}>
+            <button
+              type="button"
+              className={`${styles.statCard} ${styles.statCardClickable} ${sinCordon ? styles.statCardActive : ''}`}
+              onClick={() => { setSinCordon(prev => !prev); setFiltroCordon(''); setSinLogistica(false); }}
+            >
               <div className={`${styles.statValue} ${styles.statSecondary}`}>
                 {estadisticas.sin_cordon}
               </div>
               <div className={styles.statLabel}>Sin cordón</div>
-            </div>
+            </button>
           )}
           {puedeVerCostos && estadisticas.costo_total > 0 && (
             <div className={`${styles.statCard} ${styles.statCardCosto}`}>
@@ -1425,6 +1441,42 @@ export default function TabEnviosFlex({ operador = null }) {
           >
             {soloTurbo ? '✓ ' : ''}Turbo
           </button>
+
+          <select
+            value={filtroPistoleado}
+            onChange={(e) => setFiltroPistoleado(e.target.value)}
+            className={styles.select}
+          >
+            <option value="">Pistoleado</option>
+            <option value="si">Pistoleado: Sí</option>
+            <option value="no">Pistoleado: No</option>
+          </select>
+
+          {(() => {
+            // Extraer pares únicos ssos_id→ssos_name de las etiquetas cargadas
+            const erpOptions = [];
+            const seen = new Set();
+            for (const e of etiquetas) {
+              if (e.ssos_id != null && !seen.has(e.ssos_id)) {
+                seen.add(e.ssos_id);
+                erpOptions.push({ id: e.ssos_id, name: e.ssos_name || `Estado ${e.ssos_id}` });
+              }
+            }
+            erpOptions.sort((a, b) => a.name.localeCompare(b.name));
+            if (erpOptions.length === 0) return null;
+            return (
+              <select
+                value={filtroSsosId}
+                onChange={(e) => setFiltroSsosId(e.target.value)}
+                className={styles.select}
+              >
+                <option value="">Estado ERP</option>
+                {erpOptions.map(opt => (
+                  <option key={opt.id} value={opt.id}>{opt.name}</option>
+                ))}
+              </select>
+            );
+          })()}
         </div>
 
         <div className={styles.actions}>

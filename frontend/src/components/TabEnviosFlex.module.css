@@ -38,6 +38,22 @@
   color: var(--text-tertiary);
 }
 
+.statCardClickable {
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.statCardClickable:hover {
+  border-color: var(--brand-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.statCardActive {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 1px var(--brand-primary);
+}
+
 /* ── Scanner Section ───────────────────────────────────────── */
 
 .scannerSection {
