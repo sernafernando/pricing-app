@@ -146,26 +146,25 @@
   align-items: center;
 }
 
+.dateGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .dateInput {
-  padding: 10px 14px;
+  padding: 7px 10px;
   border-radius: 8px;
   border: 1px solid var(--border-secondary);
   background: var(--bg-secondary);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
-}
-
-.dateRangeSep {
-  color: var(--text-tertiary);
-  font-size: 14px;
-  user-select: none;
 }
 
 .searchInput {
   flex: 1;
-  min-width: 180px;
-  max-width: 280px;
+  min-width: 200px;
   padding: 10px 14px;
   border-radius: 8px;
   border: 1px solid var(--border-secondary);
@@ -1349,11 +1348,13 @@
     flex-direction: column;
   }
 
-  .searchInput {
-    max-width: none;
+  .dateGroup {
+    flex-direction: row;
+    gap: 8px;
   }
 
-  .select {
+  .select,
+  .selectSm {
     width: 100%;
     min-width: unset;
   }

@@ -1364,21 +1364,22 @@ export default function TabEnviosFlex({ operador = null }) {
       {/* Controls */}
       <div className={styles.controls}>
         <div className={styles.filtros}>
-          <input
-            type="date"
-            value={fechaDesde}
-            onChange={(e) => setFechaDesde(e.target.value)}
-            className={styles.dateInput}
-            title="Desde"
-          />
-          <span className={styles.dateRangeSep}>—</span>
-          <input
-            type="date"
-            value={fechaHasta}
-            onChange={(e) => setFechaHasta(e.target.value)}
-            className={styles.dateInput}
-            title="Hasta"
-          />
+          <div className={styles.dateGroup}>
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              className={styles.dateInput}
+              title="Desde"
+            />
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              className={styles.dateInput}
+              title="Hasta"
+            />
+          </div>
 
           <input
             type="text"
