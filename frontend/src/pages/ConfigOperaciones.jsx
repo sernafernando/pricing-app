@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Users, DollarSign, Truck, Plus, ToggleLeft, ToggleRight,
-  Trash2, Save, RefreshCw, Clock, Hash, ChevronDown,
+  Trash2, Save, RefreshCw, Clock, Hash, ChevronDown, Building,
 } from 'lucide-react';
 import api from '../services/api';
 import { registrarPagina, getPaginas } from '../registry/tabRegistry';
@@ -16,6 +16,7 @@ registrarPagina({
     { tabKey: 'operadores', label: 'Operadores' },
     { tabKey: 'costos', label: 'Costos Envío' },
     { tabKey: 'logisticas', label: 'Logísticas' },
+    { tabKey: 'transportes', label: 'Transportes' },
   ],
 });
 
@@ -1103,6 +1104,269 @@ function TabLogisticas() {
 
 
 // ══════════════════════════════════════════════════════════════════════
+// Tab: Transportes
+// ══════════════════════════════════════════════════════════════════════
+
+function TabTransportes() {
+  const [transportes, setTransportes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Create form
+  const [newNombre, setNewNombre] = useState('');
+  const [newCuit, setNewCuit] = useState('');
+  const [newDireccion, setNewDireccion] = useState('');
+  const [newTelefono, setNewTelefono] = useState('');
+  const [newHorario, setNewHorario] = useState('');
+  const [newColor, setNewColor] = useState('#8b5cf6');
+  const [creating, setCreating] = useState(false);
+
+  const cargarTransportes = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data } = await api.get('/transportes?incluir_inactivas=true');
+      setTransportes(data);
+    } catch {
+      setError('Error al cargar transportes');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    cargarTransportes();
+  }, [cargarTransportes]);
+
+  const crearTransporte = async (e) => {
+    e.preventDefault();
+    if (!newNombre.trim()) return;
+    setCreating(true);
+    setError(null);
+    try {
+      await api.post('/transportes', {
+        nombre: newNombre.trim(),
+        cuit: newCuit.trim() || null,
+        direccion: newDireccion.trim() || null,
+        telefono: newTelefono.trim() || null,
+        horario: newHorario.trim() || null,
+        color: newColor,
+      });
+      setNewNombre('');
+      setNewCuit('');
+      setNewDireccion('');
+      setNewTelefono('');
+      setNewHorario('');
+      setNewColor('#8b5cf6');
+      await cargarTransportes();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al crear transporte');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const toggleActiva = async (t) => {
+    try {
+      await api.put(`/transportes/${t.id}`, {
+        activa: !t.activa,
+      });
+      await cargarTransportes();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al actualizar transporte');
+    }
+  };
+
+  const desactivar = async (t) => {
+    try {
+      await api.delete(`/transportes/${t.id}`);
+      await cargarTransportes();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al desactivar transporte');
+    }
+  };
+
+  return (
+    <div className={styles.tabContent}>
+      {error && <div className={styles.errorMsg}>{error}</div>}
+
+      <section className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <h2 className={styles.sectionTitle}>
+            <Building size={20} /> Transportes Interprovinciales
+          </h2>
+          <button
+            onClick={cargarTransportes}
+            className={styles.btnRefresh}
+            disabled={loading}
+            aria-label="Actualizar transportes"
+          >
+            <RefreshCw size={16} className={loading ? styles.spinning : ''} />
+          </button>
+        </div>
+        <p className={styles.sectionDesc}>
+          Gestioná los transportes interprovinciales disponibles para asignar a envíos flex.
+          Incluyen dirección de terminal, teléfono y horario de recepción.
+        </p>
+
+        {/* Create form */}
+        <form onSubmit={crearTransporte} className={styles.createForm}>
+          <div className={styles.formField}>
+            <label htmlFor="transp-nombre">Nombre</label>
+            <input
+              id="transp-nombre"
+              type="text"
+              value={newNombre}
+              onChange={(e) => setNewNombre(e.target.value)}
+              placeholder="Ej: Cruz del Sur"
+              required
+              maxLength={150}
+            />
+          </div>
+          <div className={styles.formField}>
+            <label htmlFor="transp-cuit">CUIT</label>
+            <input
+              id="transp-cuit"
+              type="text"
+              value={newCuit}
+              onChange={(e) => setNewCuit(e.target.value)}
+              placeholder="30-12345678-9"
+              maxLength={13}
+            />
+          </div>
+          <div className={styles.formField}>
+            <label htmlFor="transp-direccion">Dirección</label>
+            <input
+              id="transp-direccion"
+              type="text"
+              value={newDireccion}
+              onChange={(e) => setNewDireccion(e.target.value)}
+              placeholder="Terminal/depósito"
+              maxLength={500}
+            />
+          </div>
+          <div className={styles.formField}>
+            <label htmlFor="transp-telefono">Teléfono</label>
+            <input
+              id="transp-telefono"
+              type="text"
+              value={newTelefono}
+              onChange={(e) => setNewTelefono(e.target.value)}
+              placeholder="011-4444-5555"
+              maxLength={50}
+            />
+          </div>
+          <div className={styles.formField}>
+            <label htmlFor="transp-horario">Horario</label>
+            <input
+              id="transp-horario"
+              type="text"
+              value={newHorario}
+              onChange={(e) => setNewHorario(e.target.value)}
+              placeholder="Lun-Vie 8-17"
+              maxLength={200}
+            />
+          </div>
+          <div className={styles.formField}>
+            <label htmlFor="transp-color">Color</label>
+            <input
+              id="transp-color"
+              type="color"
+              value={newColor}
+              onChange={(e) => setNewColor(e.target.value)}
+              className={styles.colorInput}
+            />
+          </div>
+          <button
+            type="submit"
+            className={styles.btnCrear}
+            disabled={creating || !newNombre.trim()}
+          >
+            <Plus size={16} />
+            {creating ? 'Creando...' : 'Crear'}
+          </button>
+        </form>
+
+        {/* List */}
+        {loading ? (
+          <div className={styles.loading}>Cargando transportes...</div>
+        ) : (
+          <div className={styles.tableWrapper}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Color</th>
+                  <th>Nombre</th>
+                  <th>CUIT</th>
+                  <th>Dirección</th>
+                  <th>Teléfono</th>
+                  <th>Horario</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transportes.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className={styles.empty}>
+                      No hay transportes creados
+                    </td>
+                  </tr>
+                ) : (
+                  transportes.map((t) => (
+                    <tr key={t.id} className={!t.activa ? styles.rowInactiva : ''}>
+                      <td>
+                        <span
+                          className={styles.colorDot}
+                          style={{ background: t.color || '#94a3b8' }}
+                        />
+                      </td>
+                      <td>{t.nombre}</td>
+                      <td>{t.cuit || '—'}</td>
+                      <td>{t.direccion || '—'}</td>
+                      <td>{t.telefono || '—'}</td>
+                      <td>{t.horario || '—'}</td>
+                      <td>
+                        <span
+                          className={`${styles.badge} ${t.activa ? styles.badgeActivo : styles.badgeInactivo}`}
+                        >
+                          {t.activa ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </td>
+                      <td className={styles.actions}>
+                        <button
+                          onClick={() => toggleActiva(t)}
+                          className={styles.btnAction}
+                          title={t.activa ? 'Desactivar' : 'Activar'}
+                          aria-label={t.activa ? 'Desactivar transporte' : 'Activar transporte'}
+                        >
+                          {t.activa ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                        </button>
+                        {t.activa && (
+                          <button
+                            onClick={() => desactivar(t)}
+                            className={styles.btnAction}
+                            title="Desactivar"
+                            aria-label="Desactivar transporte"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+
+// ══════════════════════════════════════════════════════════════════════
 // Main Page Component
 // ══════════════════════════════════════════════════════════════════════
 
@@ -1135,12 +1399,19 @@ export default function ConfigOperaciones() {
         >
           <Truck size={16} /> Logísticas
         </button>
+        <button
+          className={`${styles.tabBtn} ${tabActiva === 'transportes' ? styles.tabActiva : ''}`}
+          onClick={() => setTabActiva('transportes')}
+        >
+          <Building size={16} /> Transportes
+        </button>
       </div>
 
       {/* Tab content */}
       {tabActiva === 'operadores' && <TabOperadores />}
       {tabActiva === 'costos' && <TabCostosEnvio />}
       {tabActiva === 'logisticas' && <TabLogisticas />}
+      {tabActiva === 'transportes' && <TabTransportes />}
     </div>
   );
 }
