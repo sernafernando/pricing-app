@@ -663,6 +663,8 @@ def listar_etiquetas(
     ssos_id: Optional[int] = Query(None, description="Filtrar por estado ERP"),
     solo_outlet: bool = Query(False, description="Solo etiquetas de productos outlet"),
     solo_turbo: bool = Query(False, description="Solo etiquetas de envíos turbo"),
+    pistoleado: Optional[str] = Query(None, pattern="^(si|no)$", description="Filtrar por pistoleado: si/no"),
+    sin_cordon: bool = Query(False, description="Solo etiquetas sin cordón asignado"),
     search: Optional[str] = Query(None, description="Buscar por shipping_id, destinatario o dirección"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -875,6 +877,14 @@ def listar_etiquetas(
     if ssos_id is not None:
         query = query.filter(soh_sub.c.soh_ssos_id == ssos_id)
 
+    if pistoleado == "si":
+        query = query.filter(EtiquetaEnvio.pistoleado_at.isnot(None))
+    elif pistoleado == "no":
+        query = query.filter(EtiquetaEnvio.pistoleado_at.is_(None))
+
+    if sin_cordon:
+        query = query.filter(CodigoPostalCordon.cordon.is_(None))
+
     if search:
         search_term = f"%{search}%"
         query = query.filter(
@@ -957,6 +967,8 @@ def estadisticas_etiquetas(
     ssos_id: Optional[int] = Query(None, description="Filtrar por estado ERP"),
     solo_outlet: bool = Query(False, description="Solo etiquetas de productos outlet"),
     solo_turbo: bool = Query(False, description="Solo etiquetas de envíos turbo"),
+    pistoleado: Optional[str] = Query(None, pattern="^(si|no)$", description="Filtrar por pistoleado: si/no"),
+    sin_cordon: bool = Query(False, description="Solo etiquetas sin cordón asignado"),
     search: Optional[str] = Query(None, description="Buscar por shipping_id, destinatario o dirección"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -1013,6 +1025,10 @@ def estadisticas_etiquetas(
         shipping_stats.c.mlcity_name,
     )
 
+    # CP efectivo para resolver cordón en stats: si hay transporte con CP,
+    # usar ese; sino, usar el CP del cliente.  Mismo patrón que listar_etiquetas.
+    stats_eff_zip_for_cordon = func.coalesce(Transporte.cp, stats_eff_zip)
+
     filtered_ids_q = (
         db.query(EtiquetaEnvio.shipping_id)
         .outerjoin(
@@ -1020,8 +1036,12 @@ def estadisticas_etiquetas(
             EtiquetaEnvio.shipping_id == shipping_stats.c.mlshippingid,
         )
         .outerjoin(
+            Transporte,
+            EtiquetaEnvio.transporte_id == Transporte.id,
+        )
+        .outerjoin(
             CodigoPostalCordon,
-            stats_eff_zip == CodigoPostalCordon.codigo_postal,
+            stats_eff_zip_for_cordon == CodigoPostalCordon.codigo_postal,
         )
         .outerjoin(
             soh_sub,
@@ -1045,6 +1065,12 @@ def estadisticas_etiquetas(
         filtered_ids_q = filtered_ids_q.filter(stats_eff_status == mlstatus)
     if ssos_id is not None:
         filtered_ids_q = filtered_ids_q.filter(soh_sub.c.soh_ssos_id == ssos_id)
+    if pistoleado == "si":
+        filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.pistoleado_at.isnot(None))
+    elif pistoleado == "no":
+        filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.pistoleado_at.is_(None))
+    if sin_cordon:
+        filtered_ids_q = filtered_ids_q.filter(CodigoPostalCordon.cordon.is_(None))
     if search:
         search_term = f"%{search}%"
         filtered_ids_q = filtered_ids_q.filter(
@@ -1073,9 +1099,13 @@ def estadisticas_etiquetas(
             shipping_stats,
             EtiquetaEnvio.shipping_id == shipping_stats.c.mlshippingid,
         )
+        .outerjoin(
+            Transporte,
+            EtiquetaEnvio.transporte_id == Transporte.id,
+        )
         .join(
             CodigoPostalCordon,
-            stats_eff_zip == CodigoPostalCordon.codigo_postal,
+            stats_eff_zip_for_cordon == CodigoPostalCordon.codigo_postal,
         )
         .filter(
             ids_filter,
@@ -1199,9 +1229,13 @@ def estadisticas_etiquetas(
             shipping_stats,
             EtiquetaEnvio.shipping_id == shipping_stats.c.mlshippingid,
         )
+        .outerjoin(
+            Transporte,
+            EtiquetaEnvio.transporte_id == Transporte.id,
+        )
         .join(
             CodigoPostalCordon,
-            stats_eff_zip == CodigoPostalCordon.codigo_postal,
+            stats_eff_zip_for_cordon == CodigoPostalCordon.codigo_postal,
         )
         .outerjoin(
             costo_stats,
