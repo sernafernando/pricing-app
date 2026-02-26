@@ -371,6 +371,50 @@
   white-space: nowrap;
 }
 
+.direccionTransporte {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--brand-primary);
+  font-weight: 500;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transporteIcon {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.direccionCliente {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 1px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transporteInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.transporteDetail {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .buyerNickname {
   font-size: 11px;
   color: var(--text-tertiary);

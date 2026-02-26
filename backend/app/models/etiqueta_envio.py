@@ -52,6 +52,7 @@ class EtiquetaEnvio(Base):
 
     fecha_envio = Column(Date, nullable=False)  # Fecha programada del envío (editable)
     logistica_id = Column(Integer, ForeignKey("logisticas.id"), nullable=True)
+    transporte_id = Column(Integer, ForeignKey("transportes.id"), nullable=True)
 
     # Costo manual — override del costo calculado por logistica_costo_cordon.
     # Si no es NULL, prevalece sobre el costo automático.
@@ -99,12 +100,14 @@ class EtiquetaEnvio(Base):
 
     # Relationships
     logistica = relationship("Logistica", lazy="joined")
+    transporte = relationship("Transporte", lazy="joined")
     pistoleado_operador = relationship("Operador", lazy="joined")
     creado_por_usuario = relationship("Usuario", lazy="joined")
 
     __table_args__ = (
         Index("idx_etiquetas_envio_fecha", "fecha_envio"),
         Index("idx_etiquetas_envio_logistica", "logistica_id"),
+        Index("idx_etiquetas_envio_transporte", "transporte_id"),
         Index("idx_etiquetas_pistoleado_operador", "pistoleado_operador_id"),
         Index("idx_etiquetas_envio_es_manual", "es_manual"),
     )

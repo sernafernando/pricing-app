@@ -36,6 +36,7 @@ from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.logistica import Logistica
+from app.models.transporte import Transporte
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.codigo_postal_cordon import CodigoPostalCordon
 from app.models.sale_order_header import SaleOrderHeader
@@ -161,6 +162,14 @@ class EtiquetaEnvioResponse(BaseModel):
     # Creado por usuario del sistema (cuando viene de Pedidos Pendientes)
     creado_por_usuario_nombre: Optional[str] = None
 
+    # Transporte interprovincial
+    transporte_id: Optional[int] = None
+    transporte_nombre: Optional[str] = None
+    transporte_color: Optional[str] = None
+    transporte_direccion: Optional[str] = None
+    transporte_telefono: Optional[str] = None
+    transporte_horario: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -223,6 +232,7 @@ class CrearEnvioManualRequest(BaseModel):
     bra_id: Optional[int] = Field(None, description="Sucursal (tb_branch.bra_id)")
     soh_id: Optional[int] = Field(None, description="N° pedido ERP (soh_id de SaleOrderHeader)")
     logistica_id: Optional[int] = Field(None, description="Logística asignada")
+    transporte_id: Optional[int] = Field(None, description="Transporte interprovincial asignado")
     comment: Optional[str] = Field(None, max_length=1000, description="Observaciones")
     operador_id: int = Field(description="Operador autenticado con PIN")
 
@@ -253,6 +263,7 @@ class CrearDesdePedidoRequest(BaseModel):
     city_name: str = Field(max_length=500, description="Ciudad / Localidad")
     comment: Optional[str] = Field(None, max_length=1000, description="Observaciones")
     logistica_id: Optional[int] = Field(None, description="Logística asignada")
+    transporte_id: Optional[int] = Field(None, description="Transporte interprovincial asignado")
     cust_id: Optional[int] = Field(None, description="ID cliente ERP (si no hay pedido)")
     status: Optional[str] = Field(
         None,
@@ -718,6 +729,7 @@ def listar_etiquetas(
             EtiquetaEnvio.nombre_archivo,
             EtiquetaEnvio.fecha_envio,
             EtiquetaEnvio.logistica_id,
+            EtiquetaEnvio.transporte_id,
             EtiquetaEnvio.latitud,
             EtiquetaEnvio.longitud,
             EtiquetaEnvio.direccion_completa,
@@ -734,6 +746,11 @@ def listar_etiquetas(
             Operador.nombre.label("pistoleado_operador_nombre"),
             Logistica.nombre.label("logistica_nombre"),
             Logistica.color.label("logistica_color"),
+            Transporte.nombre.label("transporte_nombre"),
+            Transporte.color.label("transporte_color"),
+            Transporte.direccion.label("transporte_direccion"),
+            Transporte.telefono.label("transporte_telefono"),
+            Transporte.horario.label("transporte_horario"),
             eff_receiver.label("mlreceiver_name"),
             eff_street.label("mlstreet_name"),
             eff_street_num.label("mlstreet_number"),
@@ -767,6 +784,10 @@ def listar_etiquetas(
         .outerjoin(
             Logistica,
             EtiquetaEnvio.logistica_id == Logistica.id,
+        )
+        .outerjoin(
+            Transporte,
+            EtiquetaEnvio.transporte_id == Transporte.id,
         )
         .outerjoin(
             shipping_sub,
@@ -893,6 +914,12 @@ def listar_etiquetas(
             es_outlet=row.es_outlet,
             es_turbo=row.es_turbo,
             creado_por_usuario_nombre=row.creado_por_usuario_nombre,
+            transporte_id=row.transporte_id,
+            transporte_nombre=row.transporte_nombre,
+            transporte_color=row.transporte_color,
+            transporte_direccion=row.transporte_direccion,
+            transporte_telefono=row.transporte_telefono,
+            transporte_horario=row.transporte_horario,
         )
         for row in rows
     ]
@@ -1825,6 +1852,14 @@ def crear_envio_desde_pedido(
     )
     shipping_id = f"{prefix}{count + 1}"
 
+    # Validar transporte si se envió
+    if payload.transporte_id is not None:
+        transporte = (
+            db.query(Transporte).filter(Transporte.id == payload.transporte_id, Transporte.activa.is_(True)).first()
+        )
+        if not transporte:
+            raise HTTPException(404, "Transporte no encontrado o inactivo")
+
     etiqueta = EtiquetaEnvio(
         shipping_id=shipping_id,
         fecha_envio=payload.fecha_envio,
@@ -1840,6 +1875,7 @@ def crear_envio_desde_pedido(
         manual_soh_id=payload.soh_id,
         manual_comment=payload.comment,
         logistica_id=payload.logistica_id,
+        transporte_id=payload.transporte_id,
         nombre_archivo="desde_pedido",
         creado_por_usuario_id=current_user.id,
     )
@@ -1901,6 +1937,14 @@ def crear_envio_manual(
         if not logistica:
             raise HTTPException(404, "Logística no encontrada o inactiva")
 
+    # Validar transporte si se envió
+    if payload.transporte_id is not None:
+        transporte = (
+            db.query(Transporte).filter(Transporte.id == payload.transporte_id, Transporte.activa.is_(True)).first()
+        )
+        if not transporte:
+            raise HTTPException(404, "Transporte no encontrado o inactivo")
+
     # Si viene soh_id + bra_id, resolver cust_id desde SaleOrderHeader
     resolved_cust_id = payload.cust_id
     if payload.soh_id and payload.bra_id and not resolved_cust_id:
@@ -1937,6 +1981,7 @@ def crear_envio_manual(
         shipping_id=shipping_id,
         fecha_envio=payload.fecha_envio,
         logistica_id=payload.logistica_id,
+        transporte_id=payload.transporte_id,
         es_manual=True,
         manual_receiver_name=payload.receiver_name,
         manual_street_name=payload.street_name,
@@ -1970,6 +2015,7 @@ def crear_envio_manual(
             "bra_id": payload.bra_id,
             "soh_id": payload.soh_id,
             "logistica_id": payload.logistica_id,
+            "transporte_id": payload.transporte_id,
             "comment": payload.comment,
         },
     )
@@ -2035,6 +2081,14 @@ def editar_envio_manual(
         if not logistica:
             raise HTTPException(404, "Logística no encontrada o inactiva")
 
+    # Validar transporte si se envió
+    if payload.transporte_id is not None:
+        transporte_obj = (
+            db.query(Transporte).filter(Transporte.id == payload.transporte_id, Transporte.activa.is_(True)).first()
+        )
+        if not transporte_obj:
+            raise HTTPException(404, "Transporte no encontrado o inactivo")
+
     # Resolver cust_id desde pedido si corresponde
     resolved_cust_id = payload.cust_id
     if payload.soh_id and payload.bra_id and not resolved_cust_id:
@@ -2063,6 +2117,7 @@ def editar_envio_manual(
         "city_name": etiqueta.manual_city_name,
         "status": etiqueta.manual_status,
         "logistica_id": etiqueta.logistica_id,
+        "transporte_id": etiqueta.transporte_id,
         "cust_id": etiqueta.manual_cust_id,
         "bra_id": etiqueta.manual_bra_id,
         "soh_id": etiqueta.manual_soh_id,
@@ -2082,6 +2137,7 @@ def editar_envio_manual(
     etiqueta.manual_soh_id = payload.soh_id
     etiqueta.manual_comment = payload.comment
     etiqueta.logistica_id = payload.logistica_id
+    etiqueta.transporte_id = payload.transporte_id
 
     # Registrar actividad
     actividad = OperadorActividad(
@@ -2100,6 +2156,7 @@ def editar_envio_manual(
                 "city_name": payload.city_name,
                 "status": payload.status,
                 "logistica_id": payload.logistica_id,
+                "transporte_id": payload.transporte_id,
                 "cust_id": resolved_cust_id,
                 "bra_id": payload.bra_id,
                 "soh_id": payload.soh_id,

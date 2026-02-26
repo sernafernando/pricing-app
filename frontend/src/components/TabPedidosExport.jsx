@@ -46,13 +46,18 @@ export default function TabPedidosExport() {
     zip_code: '',
     city_name: '',
     logistica_id: '',
+    transporte_id: '',
+    cust_id: '',
     comment: '',
   });
   const [flexLoading, setFlexLoading] = useState(false);
   const [flexCordon, setFlexCordon] = useState(null);
   const [flexPedidoLoading, setFlexPedidoLoading] = useState(false);
   const [flexPedidoError, setFlexPedidoError] = useState(null);
+  const [flexCustLoading, setFlexCustLoading] = useState(false);
+  const [flexCustError, setFlexCustError] = useState(null);
   const [logisticas, setLogisticas] = useState([]);
+  const [transportes, setTransportes] = useState([]);
   const [sucursales, setSucursales] = useState([]);
   
   // Bulk print
@@ -511,6 +516,43 @@ export default function TabPedidosExport() {
     }
   };
 
+  const buscarClienteFlex = async () => {
+    const custId = flexForm.cust_id?.toString().trim();
+    if (!custId) return;
+
+    setFlexCustLoading(true);
+    setFlexCustError(null);
+    try {
+      const { data } = await api.get(`/clientes/${custId}?comp_id=1`);
+      let streetName = '';
+      let streetNumber = '';
+      if (data.cust_address) {
+        const match = data.cust_address.match(/^(.+?)\s+(\d+\s*)$/);
+        if (match) {
+          streetName = match[1].trim();
+          streetNumber = match[2].trim();
+        } else {
+          streetName = data.cust_address;
+        }
+      }
+      setFlexForm(prev => ({
+        ...prev,
+        receiver_name: data.cust_name || prev.receiver_name,
+        street_name: streetName || prev.street_name,
+        street_number: streetNumber || prev.street_number,
+        zip_code: data.cust_zip || prev.zip_code,
+        city_name: data.cust_city || prev.city_name,
+      }));
+      if (data.cust_zip) {
+        resolverCordonPorCP(data.cust_zip);
+      }
+    } catch (err) {
+      setFlexCustError(err.response?.data?.detail || 'Cliente no encontrado');
+    } finally {
+      setFlexCustLoading(false);
+    }
+  };
+
   const abrirFlexModal = async (pedido = null) => {
     if (pedido) {
       const dir = getDireccionDisplay(pedido);
@@ -536,6 +578,8 @@ export default function TabPedidosExport() {
         zip_code: dir.codigo_postal || '',
         city_name: dir.ciudad || '',
         logistica_id: '',
+        transporte_id: '',
+        cust_id: pedido.cust_id || '',
         comment: '',
       });
 
@@ -556,6 +600,8 @@ export default function TabPedidosExport() {
         zip_code: '',
         city_name: '',
         logistica_id: '',
+        transporte_id: '',
+        cust_id: '',
         comment: '',
       });
       setFlexCordon(null);
@@ -563,11 +609,19 @@ export default function TabPedidosExport() {
 
     setShowFlexModal(true);
 
-    // Cargar logísticas y sucursales si no están cargadas
+    // Cargar logísticas, transportes y sucursales si no están cargadas
     if (logisticas.length === 0) {
       try {
         const { data } = await api.get('/logisticas?incluir_inactivas=false');
         setLogisticas(data);
+      } catch {
+        // silently fail
+      }
+    }
+    if (transportes.length === 0) {
+      try {
+        const { data } = await api.get('/transportes?incluir_inactivas=false');
+        setTransportes(data);
       } catch {
         // silently fail
       }
@@ -603,6 +657,8 @@ export default function TabPedidosExport() {
         city_name: flexForm.city_name.trim() || 'Sin ciudad',
         comment: flexForm.comment.trim() || null,
         logistica_id: flexForm.logistica_id ? parseInt(flexForm.logistica_id, 10) : null,
+        transporte_id: flexForm.transporte_id ? parseInt(flexForm.transporte_id, 10) : null,
+        cust_id: flexForm.cust_id ? parseInt(flexForm.cust_id, 10) : null,
       };
       if (flexForm.soh_id) payload.soh_id = parseInt(flexForm.soh_id, 10);
       if (flexForm.bra_id) payload.bra_id = parseInt(flexForm.bra_id, 10);
@@ -1553,6 +1609,33 @@ export default function TabPedidosExport() {
                   </select>
                 </div>
 
+                {/* Fila 2b: Transporte (span 2) */}
+                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                  <label htmlFor="flex-transporte">Transporte interprovincial</label>
+                  <select
+                    id="flex-transporte"
+                    value={flexForm.transporte_id}
+                    onChange={(e) => handleFlexFormChange('transporte_id', e.target.value)}
+                    className={styles.formInput}
+                  >
+                    <option value="">— Sin transporte —</option>
+                    {transportes.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.nombre}{t.direccion ? ` — ${t.direccion}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {flexForm.transporte_id && (() => {
+                    const tr = transportes.find(t => t.id === parseInt(flexForm.transporte_id, 10));
+                    if (!tr) return null;
+                    return (
+                      <span className={styles.fieldHint}>
+                        {[tr.direccion, tr.telefono, tr.horario].filter(Boolean).join(' — ')}
+                      </span>
+                    );
+                  })()}
+                </div>
+
                 {/* Fila 3: Destinatario (span 2) */}
                 <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
                   <label htmlFor="flex-receiver">Destinatario *</label>
@@ -1620,7 +1703,34 @@ export default function TabPedidosExport() {
                   />
                 </div>
 
-                {/* Fila 6: Observaciones (span 2) */}
+                {/* Fila 6: N° Cliente */}
+                <div className={styles.formField}>
+                  <label htmlFor="flex-custid">N° Cliente (ERP)</label>
+                  <div className={styles.inputWithAction}>
+                    <input
+                      id="flex-custid"
+                      type="number"
+                      value={flexForm.cust_id}
+                      onChange={(e) => handleFlexFormChange('cust_id', e.target.value)}
+                      className={styles.formInput}
+                      placeholder="Ej: 12345"
+                      onKeyDown={(e) => e.key === 'Enter' && buscarClienteFlex()}
+                    />
+                    <button
+                      className={`btn-tesla outline-subtle-primary sm icon-only ${styles.btnInputAction}`}
+                      onClick={buscarClienteFlex}
+                      disabled={flexCustLoading || !flexForm.cust_id}
+                      title="Buscar cliente y autocompletar dirección"
+                      aria-label="Buscar cliente"
+                    >
+                      {flexCustLoading ? <Loader2 size={14} className={styles.spinning} /> : <Search size={14} />}
+                    </button>
+                  </div>
+                  {flexCustError && <span className={styles.fieldError}>{flexCustError}</span>}
+                </div>
+                <div className={styles.formField} />
+
+                {/* Fila 7: Observaciones (span 2) */}
                 <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
                   <label htmlFor="flex-comment">Observaciones</label>
                   <textarea
