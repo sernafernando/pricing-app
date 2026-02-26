@@ -191,6 +191,13 @@
   cursor: pointer;
 }
 
+.selectSm {
+  composes: select;
+  min-width: auto;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
 .actions {
   display: flex;
   gap: 10px;
