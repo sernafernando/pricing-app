@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Users, DollarSign, Truck, Plus, ToggleLeft, ToggleRight,
-  Trash2, Save, RefreshCw, Clock, Hash, ChevronDown, Building,
+  Trash2, Save, RefreshCw, Clock, Hash, ChevronDown, Building, Pencil, X,
 } from 'lucide-react';
 import api from '../services/api';
 import { registrarPagina, getPaginas } from '../registry/tabRegistry';
@@ -1192,6 +1192,49 @@ function TabTransportes() {
     }
   };
 
+  // Edit modal
+  const [editTransporte, setEditTransporte] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  const abrirEdicion = (t) => {
+    setEditTransporte(t);
+    setEditForm({
+      nombre: t.nombre || '',
+      cuit: t.cuit || '',
+      direccion: t.direccion || '',
+      cp: t.cp || '',
+      localidad: t.localidad || '',
+      telefono: t.telefono || '',
+      horario: t.horario || '',
+      color: t.color || '#8b5cf6',
+    });
+  };
+
+  const guardarEdicion = async () => {
+    if (!editTransporte || !editForm.nombre.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put(`/transportes/${editTransporte.id}`, {
+        nombre: editForm.nombre.trim(),
+        cuit: editForm.cuit.trim() || null,
+        direccion: editForm.direccion.trim() || null,
+        cp: editForm.cp.trim() || null,
+        localidad: editForm.localidad.trim() || null,
+        telefono: editForm.telefono.trim() || null,
+        horario: editForm.horario.trim() || null,
+        color: editForm.color,
+      });
+      setEditTransporte(null);
+      await cargarTransportes();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al guardar transporte');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className={styles.tabContent}>
       {error && <div className={styles.errorMsg}>{error}</div>}
@@ -1367,6 +1410,14 @@ function TabTransportes() {
                       </td>
                       <td className={styles.actions}>
                         <button
+                          onClick={() => abrirEdicion(t)}
+                          className={styles.btnAction}
+                          title="Editar"
+                          aria-label="Editar transporte"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
                           onClick={() => toggleActiva(t)}
                           className={styles.btnAction}
                           title={t.activa ? 'Desactivar' : 'Activar'}
@@ -1393,6 +1444,125 @@ function TabTransportes() {
           </div>
         )}
       </section>
+
+      {/* Modal editar transporte */}
+      {editTransporte && (
+        <div className={styles.modalOverlay} onClick={() => setEditTransporte(null)}>
+          <div className={styles.modalContent} onClick={(ev) => ev.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Editar transporte</h3>
+              <button
+                className={styles.modalClose}
+                onClick={() => setEditTransporte(null)}
+                aria-label="Cerrar modal"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              <div className={styles.createForm}>
+                <div className={styles.formField}>
+                  <label htmlFor="edit-transp-nombre">Nombre</label>
+                  <input
+                    id="edit-transp-nombre"
+                    type="text"
+                    value={editForm.nombre}
+                    onChange={(ev) => setEditForm(prev => ({ ...prev, nombre: ev.target.value }))}
+                    maxLength={150}
+                    required
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="edit-transp-cuit">CUIT</label>
+                  <input
+                    id="edit-transp-cuit"
+                    type="text"
+                    value={editForm.cuit}
+                    onChange={(ev) => setEditForm(prev => ({ ...prev, cuit: ev.target.value }))}
+                    maxLength={13}
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="edit-transp-direccion">Dirección</label>
+                  <input
+                    id="edit-transp-direccion"
+                    type="text"
+                    value={editForm.direccion}
+                    onChange={(ev) => setEditForm(prev => ({ ...prev, direccion: ev.target.value }))}
+                    maxLength={500}
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="edit-transp-cp">CP</label>
+                  <input
+                    id="edit-transp-cp"
+                    type="text"
+                    value={editForm.cp}
+                    onChange={(ev) => setEditForm(prev => ({ ...prev, cp: ev.target.value }))}
+                    maxLength={10}
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="edit-transp-localidad">Localidad</label>
+                  <input
+                    id="edit-transp-localidad"
+                    type="text"
+                    value={editForm.localidad}
+                    onChange={(ev) => setEditForm(prev => ({ ...prev, localidad: ev.target.value }))}
+                    maxLength={200}
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="edit-transp-telefono">Teléfono</label>
+                  <input
+                    id="edit-transp-telefono"
+                    type="text"
+                    value={editForm.telefono}
+                    onChange={(ev) => setEditForm(prev => ({ ...prev, telefono: ev.target.value }))}
+                    maxLength={50}
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="edit-transp-horario">Horario</label>
+                  <input
+                    id="edit-transp-horario"
+                    type="text"
+                    value={editForm.horario}
+                    onChange={(ev) => setEditForm(prev => ({ ...prev, horario: ev.target.value }))}
+                    maxLength={200}
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="edit-transp-color">Color</label>
+                  <input
+                    id="edit-transp-color"
+                    type="color"
+                    value={editForm.color}
+                    onChange={(ev) => setEditForm(prev => ({ ...prev, color: ev.target.value }))}
+                    className={styles.colorInput}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className={styles.modalFooter}>
+              <button
+                className="btn-tesla secondary"
+                onClick={() => setEditTransporte(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn-tesla outline-subtle-primary"
+                onClick={guardarEdicion}
+                disabled={saving || !editForm.nombre?.trim()}
+              >
+                <Save size={16} />
+                {saving ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
