@@ -3000,6 +3000,56 @@ async def generar_etiqueta_manual_zpl(
 
         zpl_labels.append(rendered_zpl)
 
+    # ── Remito de transporte (etiqueta adicional al final) ─────────
+    if etiqueta.transporte_id:
+        transporte = db.query(Transporte).filter(Transporte.id == etiqueta.transporte_id).first()
+        if transporte:
+            # Obtener nombre de logística si tiene
+            logistica_nombre = "N/A"
+            if etiqueta.logistica_id:
+                logistica = db.query(Logistica).filter(Logistica.id == etiqueta.logistica_id).first()
+                if logistica:
+                    logistica_nombre = logistica.nombre
+
+            remito_template_path = (
+                FilePath(__file__).parent.parent.parent.parent / "templates" / "remito_transporte.zpl"
+            )
+            try:
+                with open(remito_template_path, "r", encoding="utf-8") as f:
+                    remito_template = f.read()
+
+                remito_context = {
+                    "FECHA_ENVIO": etiqueta.fecha_envio or "N/A",
+                    "SHIPPING_ID": shipping_id,
+                    "TRANSPORTE_NOMBRE": transporte.nombre or "N/A",
+                    "TRANSPORTE_DIRECCION": transporte.direccion or "N/A",
+                    "TRANSPORTE_CP": transporte.cp or "N/A",
+                    "TRANSPORTE_LOCALIDAD": transporte.localidad or "N/A",
+                    "TRANSPORTE_TELEFONO": transporte.telefono or "N/A",
+                    "TRANSPORTE_HORARIO": transporte.horario or "N/A",
+                    "NOMBRE_DESTINATARIO": destinatario,
+                    "DIRECCION_CLIENTE": direccion,
+                    "CP_CLIENTE": codigo_postal,
+                    "CIUDAD_CLIENTE": ciudad,
+                    "TELEFONO_DESTINATARIO": telefono,
+                    "ID_PEDIDO": id_pedido,
+                    "CANTIDAD_ITEMS": str(int(cantidad_total)) if cantidad_total else "0",
+                    "SKUS_CONCATENADOS": skus_concatenados[:50],
+                    "OBSERVACIONES": observaciones,
+                    "TOTAL_BULTOS": str(num_bultos),
+                    "BULTOS_PLURAL": "S" if num_bultos != 1 else "",
+                    "LOGISTICA_NOMBRE": logistica_nombre,
+                }
+
+                rendered_remito = remito_template
+                for key, value in remito_context.items():
+                    rendered_remito = rendered_remito.replace(f"{{{{{key}}}}}", str(value))
+
+                zpl_labels.append(rendered_remito)
+                _logger.info(f"Remito de transporte '{transporte.nombre}' agregado para envío {shipping_id}")
+            except FileNotFoundError:
+                _logger.warning(f"Template remito_transporte.zpl no encontrado, se omite remito para {shipping_id}")
+
     full_zpl = "\n".join(zpl_labels)
 
     _logger.info(f"Generadas {num_bultos} etiquetas ZPL para envío manual {shipping_id}")
