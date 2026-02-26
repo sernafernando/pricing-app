@@ -1391,9 +1391,9 @@ export default function TabEnviosFlex({ operador = null }) {
           <select
             value={filtroCordon}
             onChange={(e) => setFiltroCordon(e.target.value)}
-            className={styles.select}
+            className={styles.selectSm}
           >
-            <option value="">Todos cordones</option>
+            <option value="">Cordón</option>
             {CORDONES.map(c => (
               <option key={c} value={c}>{c}</option>
             ))}
@@ -1402,9 +1402,9 @@ export default function TabEnviosFlex({ operador = null }) {
           <select
             value={filtroLogistica}
             onChange={(e) => setFiltroLogistica(e.target.value)}
-            className={styles.select}
+            className={styles.selectSm}
           >
-            <option value="">Todas logísticas</option>
+            <option value="">Logística</option>
             {logisticasActivas.map(l => (
               <option key={l.id} value={l.id}>{l.nombre}</option>
             ))}
@@ -1413,13 +1413,48 @@ export default function TabEnviosFlex({ operador = null }) {
           <select
             value={filtroMlStatus}
             onChange={(e) => setFiltroMlStatus(e.target.value)}
-            className={styles.select}
+            className={styles.selectSm}
           >
-            <option value="">Todo estado ML</option>
+            <option value="">Estado ML</option>
             {Object.entries(ML_STATUS_LABELS).map(([val, label]) => (
               <option key={val} value={val}>{label}</option>
             ))}
           </select>
+
+          <select
+            value={filtroPistoleado}
+            onChange={(e) => setFiltroPistoleado(e.target.value)}
+            className={styles.selectSm}
+          >
+            <option value="">Pistoleado</option>
+            <option value="si">Sí</option>
+            <option value="no">No</option>
+          </select>
+
+          {(() => {
+            const erpOptions = [];
+            const seen = new Set();
+            for (const e of etiquetas) {
+              if (e.ssos_id != null && !seen.has(e.ssos_id)) {
+                seen.add(e.ssos_id);
+                erpOptions.push({ id: e.ssos_id, name: e.ssos_name || `Estado ${e.ssos_id}` });
+              }
+            }
+            erpOptions.sort((a, b) => a.name.localeCompare(b.name));
+            if (erpOptions.length === 0) return null;
+            return (
+              <select
+                value={filtroSsosId}
+                onChange={(e) => setFiltroSsosId(e.target.value)}
+                className={styles.selectSm}
+              >
+                <option value="">Estado ERP</option>
+                {erpOptions.map(opt => (
+                  <option key={opt.id} value={opt.id}>{opt.name}</option>
+                ))}
+              </select>
+            );
+          })()}
 
           <button
             onClick={() => setSinLogistica(!sinLogistica)}
@@ -1441,42 +1476,6 @@ export default function TabEnviosFlex({ operador = null }) {
           >
             {soloTurbo ? '✓ ' : ''}Turbo
           </button>
-
-          <select
-            value={filtroPistoleado}
-            onChange={(e) => setFiltroPistoleado(e.target.value)}
-            className={styles.select}
-          >
-            <option value="">Pistoleado</option>
-            <option value="si">Pistoleado: Sí</option>
-            <option value="no">Pistoleado: No</option>
-          </select>
-
-          {(() => {
-            // Extraer pares únicos ssos_id→ssos_name de las etiquetas cargadas
-            const erpOptions = [];
-            const seen = new Set();
-            for (const e of etiquetas) {
-              if (e.ssos_id != null && !seen.has(e.ssos_id)) {
-                seen.add(e.ssos_id);
-                erpOptions.push({ id: e.ssos_id, name: e.ssos_name || `Estado ${e.ssos_id}` });
-              }
-            }
-            erpOptions.sort((a, b) => a.name.localeCompare(b.name));
-            if (erpOptions.length === 0) return null;
-            return (
-              <select
-                value={filtroSsosId}
-                onChange={(e) => setFiltroSsosId(e.target.value)}
-                className={styles.select}
-              >
-                <option value="">Estado ERP</option>
-                {erpOptions.map(opt => (
-                  <option key={opt.id} value={opt.id}>{opt.name}</option>
-                ))}
-              </select>
-            );
-          })()}
         </div>
 
         <div className={styles.actions}>
