@@ -337,6 +337,28 @@ QUERY_PEDIDOS_BY_MLID = text("""
     ORDER BY soh.soh_cd ASC NULLS LAST
 """)
 
+QUERY_PEDIDOS_BY_MLGUIA = text("""
+    SELECT DISTINCT
+        soh.soh_id,
+        soh.bra_id,
+        soh.comp_id,
+        soh.soh_cd,
+        soh.cust_id,
+        cust.cust_name AS cliente_nombre,
+        soh.soh_mlid,
+        soh.mlshippingid,
+        soh.soh_mlguia AS shipping_id_real,
+        ssos.ssos_name AS estado_nombre
+    FROM tb_sale_order_header soh
+    LEFT JOIN tb_customer cust
+        ON soh.comp_id = cust.comp_id
+        AND soh.cust_id = cust.cust_id
+    LEFT JOIN tb_sale_order_status ssos
+        ON soh.ssos_id = ssos.ssos_id
+    WHERE soh.soh_mlguia = :shipping_id
+    ORDER BY soh.soh_cd ASC NULLS LAST
+""")
+
 QUERY_PEDIDOS_BY_SHIPPINGID = text("""
     SELECT DISTINCT
         soh.soh_id,
@@ -1125,32 +1147,39 @@ def traza_ml(
     """
     # 1. Determinar tipo de búsqueda y buscar pedidos
     # Si empieza con 2000 → nro de venta ML (soh_mlid)
-    # Si no y es numérico → shipping ID (mlshippingid)
-    # Si no es numérico → buscar como soh_mlid de todas formas
+    # Si no y es numérico → soh_mlguia → shipping table → soh_mlid (fallbacks)
+    # Si no es numérico → buscar como soh_mlid
     if ml_id.startswith("2000"):
         busqueda_por = "soh_mlid"
         result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
+        pedidos_rows = [dict(row._mapping) for row in result_pedidos]
     elif ml_id.isdigit():
-        busqueda_por = "mlshippingid"
-        result_pedidos = db.execute(QUERY_PEDIDOS_BY_SHIPPINGID, {"shipping_id": ml_id})
-    else:
-        busqueda_por = "soh_mlid"
-        result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
+        # Intentar soh_mlguia primero (campo directo en el pedido)
+        busqueda_por = "soh_mlguia"
+        result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLGUIA, {"shipping_id": ml_id})
+        pedidos_rows = [dict(row._mapping) for row in result_pedidos]
 
-    pedidos_rows = [dict(row._mapping) for row in result_pedidos]
+        # Fallback: buscar en tabla de shipping por mlo_id
+        if not pedidos_rows:
+            busqueda_por = "mlshippingid"
+            result_pedidos = db.execute(QUERY_PEDIDOS_BY_SHIPPINGID, {"shipping_id": ml_id})
+            pedidos_rows = [dict(row._mapping) for row in result_pedidos]
 
-    if not pedidos_rows:
-        # Si buscó por shipping y no encontró, intentar por mlid como fallback
-        if busqueda_por == "mlshippingid":
+        # Fallback final: buscar como soh_mlid
+        if not pedidos_rows:
             busqueda_por = "soh_mlid"
             result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
             pedidos_rows = [dict(row._mapping) for row in result_pedidos]
+    else:
+        busqueda_por = "soh_mlid"
+        result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
+        pedidos_rows = [dict(row._mapping) for row in result_pedidos]
 
-        if not pedidos_rows:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No se encontró la venta ML ni envío: {ml_id}",
-            )
+    if not pedidos_rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No se encontró la venta ML ni envío: {ml_id}",
+        )
 
     pedidos = [
         PedidoSerial(
