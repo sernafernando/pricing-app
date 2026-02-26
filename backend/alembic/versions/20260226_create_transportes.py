@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "20260226_transp"
-down_revision = None
+down_revision = "20260225_rma_supplier_cn_pending"
 branch_labels = None
 depends_on = None
 
