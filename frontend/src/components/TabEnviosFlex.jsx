@@ -2236,7 +2236,7 @@ export default function TabEnviosFlex({ operador = null }) {
             </div>
 
             <div className={styles.modalBody}>
-              <div className={styles.formGrid}>
+              <div className={styles.formGrid} autoComplete="off">
                 {/* Fila 1: Fecha + Sucursal */}
                 <div className={styles.formField}>
                   <label htmlFor="me-fecha">Fecha de envío</label>
@@ -2334,6 +2334,7 @@ export default function TabEnviosFlex({ operador = null }) {
                     value={manualEnvio.receiver_name}
                     onChange={(ev) => handleManualEnvioChange('receiver_name', ev.target.value)}
                     placeholder="Nombre del destinatario"
+                    autoComplete="one-time-code"
                     required
                   />
                 </div>
@@ -2347,6 +2348,7 @@ export default function TabEnviosFlex({ operador = null }) {
                     value={manualEnvio.street_name}
                     onChange={(ev) => handleManualEnvioChange('street_name', ev.target.value)}
                     placeholder="Nombre de la calle"
+                    autoComplete="one-time-code"
                     required
                   />
                 </div>
@@ -2358,6 +2360,7 @@ export default function TabEnviosFlex({ operador = null }) {
                     value={manualEnvio.street_number}
                     onChange={(ev) => handleManualEnvioChange('street_number', ev.target.value)}
                     placeholder="N°"
+                    autoComplete="one-time-code"
                   />
                 </div>
 
@@ -2373,6 +2376,7 @@ export default function TabEnviosFlex({ operador = null }) {
                       resolverCordonPorCP(ev.target.value);
                     }}
                     placeholder="1234"
+                    autoComplete="one-time-code"
                     required
                   />
                   {manualEnvioCordon && (
@@ -2387,6 +2391,7 @@ export default function TabEnviosFlex({ operador = null }) {
                     value={manualEnvio.city_name}
                     onChange={(ev) => handleManualEnvioChange('city_name', ev.target.value)}
                     placeholder="Localidad"
+                    autoComplete="one-time-code"
                   />
                 </div>
 

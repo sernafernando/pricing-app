@@ -1542,7 +1542,7 @@ export default function TabPedidosExport() {
             </div>
 
             <div className={styles.modalBody}>
-              <div className={styles.formGrid}>
+              <div className={styles.formGrid} autoComplete="off">
                 {/* Fila 1: Fecha + Sucursal */}
                 <div className={styles.formField}>
                   <label htmlFor="flex-fecha">Fecha de envío</label>
@@ -1580,6 +1580,7 @@ export default function TabPedidosExport() {
                       onChange={(e) => handleFlexFormChange('soh_id', e.target.value)}
                       className={styles.formInput}
                       placeholder="Ej: 54321"
+                      autoComplete="one-time-code"
                       onKeyDown={(e) => e.key === 'Enter' && buscarPedidoFlex()}
                     />
                     <button
@@ -1646,6 +1647,7 @@ export default function TabPedidosExport() {
                     onChange={(e) => handleFlexFormChange('receiver_name', e.target.value)}
                     className={styles.formInput}
                     placeholder="Nombre del destinatario"
+                    autoComplete="one-time-code"
                   />
                 </div>
 
@@ -1659,6 +1661,7 @@ export default function TabPedidosExport() {
                     onChange={(e) => handleFlexFormChange('street_name', e.target.value)}
                     className={styles.formInput}
                     placeholder="Nombre de la calle"
+                    autoComplete="one-time-code"
                   />
                 </div>
                 <div className={styles.formField}>
@@ -1670,6 +1673,7 @@ export default function TabPedidosExport() {
                     onChange={(e) => handleFlexFormChange('street_number', e.target.value)}
                     className={styles.formInput}
                     placeholder="N°"
+                    autoComplete="one-time-code"
                   />
                 </div>
 
@@ -1686,6 +1690,7 @@ export default function TabPedidosExport() {
                     }}
                     className={styles.formInput}
                     placeholder="1234"
+                    autoComplete="one-time-code"
                   />
                   {flexCordon && (
                     <span className={styles.fieldHint}>{flexCordon}</span>
@@ -1700,6 +1705,7 @@ export default function TabPedidosExport() {
                     onChange={(e) => handleFlexFormChange('city_name', e.target.value)}
                     className={styles.formInput}
                     placeholder="Localidad"
+                    autoComplete="one-time-code"
                   />
                 </div>
 
