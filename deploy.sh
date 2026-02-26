@@ -41,12 +41,18 @@ else
   warn "Skipping git pull"
 fi
 
-# 2) Backend dependencies
+# 2) Backend dependencies + migrations
 if [ "$SKIP_BACKEND" = false ]; then
   if [ -f "$BACKEND_DIR/requirements.txt" ]; then
     log "Instalando dependencias backend..."
     source "$BACKEND_DIR/venv/bin/activate"
     pip install -q -r "$BACKEND_DIR/requirements.txt"
+
+    log "Ejecutando migraciones (alembic upgrade head)..."
+    cd "$BACKEND_DIR"
+    alembic upgrade head
+    cd "$PROJECT_DIR"
+
     deactivate
   fi
 else
