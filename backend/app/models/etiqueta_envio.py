@@ -72,6 +72,7 @@ class EtiquetaEnvio(Base):
     manual_bra_id = Column(Integer, nullable=True)  # Sucursal (tb_branch.bra_id)
     manual_soh_id = Column(BigInteger, nullable=True)  # N° pedido ERP (PK con comp_id+bra_id)
     manual_comment = Column(Text, nullable=True)  # Observaciones
+    manual_phone = Column(String(100), nullable=True)  # Teléfono del destinatario
 
     # Datos enriquecidos del ML webhook (background enrichment post-upload)
     latitud = Column(Float, nullable=True)

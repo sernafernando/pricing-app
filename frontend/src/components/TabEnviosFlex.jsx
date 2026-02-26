@@ -179,6 +179,7 @@ export default function TabEnviosFlex({ operador = null }) {
     street_number: '',
     zip_code: '',
     city_name: '',
+    phone: '',
     status: 'ready_to_ship',
     cust_id: '',
     bra_id: '',
@@ -992,6 +993,7 @@ export default function TabEnviosFlex({ operador = null }) {
       street_number: '',
       zip_code: '',
       city_name: '',
+      phone: '',
       status: 'ready_to_ship',
       cust_id: '',
       bra_id: '',
@@ -1032,6 +1034,7 @@ export default function TabEnviosFlex({ operador = null }) {
       logistica_id: envio.logistica_id || '',
       transporte_id: envio.transporte_id || '',
       comment: envio.manual_comment || '',
+      phone: envio.manual_phone || '',
       fecha_envio: envio.fecha_envio || todayStr(),
     });
     setManualEnvioCordon(envio.cordon || null);
@@ -1092,6 +1095,7 @@ export default function TabEnviosFlex({ operador = null }) {
           streetName = data.cust_address;
         }
       }
+      const custPhone = data.cust_cellphone || data.cust_phone1 || '';
       setManualEnvio(prev => ({
         ...prev,
         cust_id: data.cust_id || prev.cust_id,
@@ -1100,6 +1104,7 @@ export default function TabEnviosFlex({ operador = null }) {
         street_number: streetNumber || prev.street_number,
         zip_code: data.cust_zip || prev.zip_code,
         city_name: data.cust_city || prev.city_name,
+        phone: custPhone || prev.phone,
       }));
       if (data.cust_zip) {
         resolverCordonPorCP(data.cust_zip);
@@ -1130,6 +1135,7 @@ export default function TabEnviosFlex({ operador = null }) {
           streetName = data.cust_address;
         }
       }
+      const custPhone = data.cust_cellphone || data.cust_phone1 || '';
       setManualEnvio(prev => ({
         ...prev,
         receiver_name: data.cust_name || prev.receiver_name,
@@ -1137,6 +1143,7 @@ export default function TabEnviosFlex({ operador = null }) {
         street_number: streetNumber || prev.street_number,
         zip_code: data.cust_zip || prev.zip_code,
         city_name: data.cust_city || prev.city_name,
+        phone: custPhone || prev.phone,
       }));
       if (data.cust_zip) {
         resolverCordonPorCP(data.cust_zip);
@@ -1178,6 +1185,7 @@ export default function TabEnviosFlex({ operador = null }) {
         logistica_id: manualEnvio.logistica_id ? parseInt(manualEnvio.logistica_id, 10) : null,
         transporte_id: manualEnvio.transporte_id ? parseInt(manualEnvio.transporte_id, 10) : null,
         comment: manualEnvio.comment.trim() || null,
+        phone: manualEnvio.phone.trim() || null,
         operador_id: operador?.operadorActivo?.id,
       };
 
@@ -2384,8 +2392,8 @@ export default function TabEnviosFlex({ operador = null }) {
                   })()}
                 </div>
 
-                {/* Fila 3: Destinatario (span 2 cols) */}
-                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                {/* Fila 3: Destinatario + Teléfono */}
+                <div className={styles.formField}>
                   <label htmlFor="me-receiver">Destinatario</label>
                   <input
                     id="me-receiver"
@@ -2395,6 +2403,17 @@ export default function TabEnviosFlex({ operador = null }) {
                     placeholder="Nombre del destinatario"
                     autoComplete="one-time-code"
                     required
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="me-phone">Teléfono</label>
+                  <input
+                    id="me-phone"
+                    type="tel"
+                    value={manualEnvio.phone}
+                    onChange={(ev) => handleManualEnvioChange('phone', ev.target.value)}
+                    placeholder="Ej: 11 1234-5678"
+                    autoComplete="one-time-code"
                   />
                 </div>
 
