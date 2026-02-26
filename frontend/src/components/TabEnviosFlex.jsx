@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
-  Truck, Search, Printer, Pencil, Bike, Building,
+  Truck, Search, Printer, Pencil, Bike, Building, Calendar,
 } from 'lucide-react';
 import api from '../services/api';
 import { printZpl } from '../services/zebraPrint';
@@ -89,6 +89,9 @@ export default function TabEnviosFlex({ operador = null }) {
   // Filtros
   const [fechaDesde, setFechaDesde] = useState(todayStr());
   const [fechaHasta, setFechaHasta] = useState(todayStr());
+  const [filtroRapidoActivo, setFiltroRapidoActivo] = useState('hoy');
+  const [mostrarDropdownFecha, setMostrarDropdownFecha] = useState(false);
+  const [fechaTemporal, setFechaTemporal] = useState({ desde: todayStr(), hasta: todayStr() });
   const [filtroCordon, setFiltroCordon] = useState('');
   const [filtroLogistica, setFiltroLogistica] = useState('');
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
@@ -116,6 +119,48 @@ export default function TabEnviosFlex({ operador = null }) {
       }
     }
     setSearch(value);
+  };
+
+  // Filtros rápidos de fecha (copiados del Dashboard)
+  const aplicarFiltroRapido = (filtro) => {
+    const hoy = new Date();
+    const fmt = (d) => d.toISOString().split('T')[0];
+    let desde;
+    let hasta = hoy;
+
+    switch (filtro) {
+      case 'hoy':
+        desde = new Date(hoy);
+        break;
+      case 'ayer': {
+        desde = new Date(hoy);
+        desde.setDate(desde.getDate() - 1);
+        hasta = new Date(desde);
+        break;
+      }
+      case '3d':
+        desde = new Date(hoy);
+        desde.setDate(desde.getDate() - 2);
+        break;
+      case '7d':
+        desde = new Date(hoy);
+        desde.setDate(desde.getDate() - 6);
+        break;
+      default:
+        return;
+    }
+
+    setFiltroRapidoActivo(filtro);
+    setMostrarDropdownFecha(false);
+    setFechaDesde(fmt(desde));
+    setFechaHasta(fmt(hasta));
+  };
+
+  const aplicarFechaPersonalizada = () => {
+    setFiltroRapidoActivo('custom');
+    setMostrarDropdownFecha(false);
+    setFechaDesde(fechaTemporal.desde);
+    setFechaHasta(fechaTemporal.hasta);
   };
 
   // Scanner
@@ -1364,22 +1409,79 @@ export default function TabEnviosFlex({ operador = null }) {
       {/* Controls */}
       <div className={styles.controls}>
         <div className={styles.filtros}>
-          <div className={styles.dateGroup}>
-            <input
-              type="date"
-              value={fechaDesde}
-              onChange={(e) => setFechaDesde(e.target.value)}
-              className={styles.dateInput}
-              title="Desde"
-            />
-            <span className={styles.dateGroupSep}>a</span>
-            <input
-              type="date"
-              value={fechaHasta}
-              onChange={(e) => setFechaHasta(e.target.value)}
-              className={styles.dateInput}
-              title="Hasta"
-            />
+          <div className={styles.dateQuickFilters}>
+            <button
+              type="button"
+              onClick={() => setMostrarDropdownFecha(!mostrarDropdownFecha)}
+              className={`${styles.btnDateQuick} ${styles.btnDateCalendar} ${filtroRapidoActivo === 'custom' ? styles.btnDateQuickActive : ''}`}
+              title="Rango personalizado"
+            >
+              <Calendar size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => aplicarFiltroRapido('hoy')}
+              className={`${styles.btnDateQuick} ${filtroRapidoActivo === 'hoy' ? styles.btnDateQuickActive : ''}`}
+            >
+              Hoy
+            </button>
+            <button
+              type="button"
+              onClick={() => aplicarFiltroRapido('ayer')}
+              className={`${styles.btnDateQuick} ${filtroRapidoActivo === 'ayer' ? styles.btnDateQuickActive : ''}`}
+            >
+              Ayer
+            </button>
+            <button
+              type="button"
+              onClick={() => aplicarFiltroRapido('3d')}
+              className={`${styles.btnDateQuick} ${filtroRapidoActivo === '3d' ? styles.btnDateQuickActive : ''}`}
+            >
+              3d
+            </button>
+            <button
+              type="button"
+              onClick={() => aplicarFiltroRapido('7d')}
+              className={`${styles.btnDateQuick} ${filtroRapidoActivo === '7d' ? styles.btnDateQuickActive : ''}`}
+            >
+              7d
+            </button>
+
+            {mostrarDropdownFecha && (
+              <>
+                <div
+                  className={styles.dateDropdownOverlay}
+                  onClick={() => setMostrarDropdownFecha(false)}
+                />
+                <div className={styles.dateDropdown}>
+                  <div className={styles.dateDropdownField}>
+                    <label>Desde</label>
+                    <input
+                      type="date"
+                      value={fechaTemporal.desde}
+                      onChange={(e) => setFechaTemporal({ ...fechaTemporal, desde: e.target.value })}
+                      className={styles.dateDropdownInput}
+                    />
+                  </div>
+                  <div className={styles.dateDropdownField}>
+                    <label>Hasta</label>
+                    <input
+                      type="date"
+                      value={fechaTemporal.hasta}
+                      onChange={(e) => setFechaTemporal({ ...fechaTemporal, hasta: e.target.value })}
+                      className={styles.dateDropdownInput}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={aplicarFechaPersonalizada}
+                    className="btn-tesla outline-subtle-primary sm"
+                  >
+                    Aplicar
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           <input
@@ -1462,21 +1564,21 @@ export default function TabEnviosFlex({ operador = null }) {
             onClick={() => setSinLogistica(!sinLogistica)}
             className={`btn-tesla sm ${sinLogistica ? 'outline-subtle-primary toggle-active' : 'secondary'}`}
           >
-            {sinLogistica ? '✓ ' : ''}Sin logística
+            Sin logística
           </button>
 
           <button
             onClick={() => setSoloOutlet(!soloOutlet)}
             className={`btn-tesla sm ${soloOutlet ? 'outline-subtle-primary toggle-active' : 'secondary'}`}
           >
-            {soloOutlet ? '✓ ' : ''}Outlet
+            Outlet
           </button>
 
           <button
             onClick={() => setSoloTurbo(!soloTurbo)}
             className={`btn-tesla sm ${soloTurbo ? 'outline-subtle-primary toggle-active' : 'secondary'}`}
           >
-            {soloTurbo ? '✓ ' : ''}Turbo
+            Turbo
           </button>
         </div>
 
