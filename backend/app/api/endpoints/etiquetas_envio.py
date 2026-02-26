@@ -724,6 +724,11 @@ def listar_etiquetas(
     eff_city = func.coalesce(EtiquetaEnvio.manual_city_name, shipping_sub.c.mlcity_name)
     eff_status = func.coalesce(EtiquetaEnvio.manual_status, shipping_sub.c.mlstatus)
 
+    # CP efectivo para resolver cordón: si hay transporte con CP, usar ese;
+    # sino, usar el CP del cliente (eff_zip).  La etiqueta sigue mostrando
+    # el CP del cliente — esto solo afecta la resolución de cordón/costo.
+    eff_zip_for_cordon = func.coalesce(Transporte.cp, eff_zip)
+
     query = (
         db.query(
             EtiquetaEnvio.shipping_id,
@@ -807,7 +812,7 @@ def listar_etiquetas(
         )
         .outerjoin(
             CodigoPostalCordon,
-            eff_zip == CodigoPostalCordon.codigo_postal,
+            eff_zip_for_cordon == CodigoPostalCordon.codigo_postal,
         )
         .outerjoin(
             soh_sub,
@@ -1893,11 +1898,16 @@ def crear_envio_desde_pedido(
         db.rollback()
         raise HTTPException(500, f"Error creando envío desde pedido: {str(e)}")
 
-    # Resolver cordón del CP
+    # Resolver cordón: si hay transporte con CP, usar ese CP (zona de entrega
+    # de la logística); sino, usar el CP del cliente.
+    cp_for_cordon = payload.zip_code
+    if payload.transporte_id is not None and transporte and transporte.cp:
+        cp_for_cordon = transporte.cp
+
     cordon_val = None
-    if payload.zip_code:
+    if cp_for_cordon:
         cordon_row = (
-            db.query(CodigoPostalCordon.cordon).filter(CodigoPostalCordon.codigo_postal == payload.zip_code).first()
+            db.query(CodigoPostalCordon.cordon).filter(CodigoPostalCordon.codigo_postal == cp_for_cordon).first()
         )
         cordon_val = cordon_row.cordon if cordon_row else None
 
@@ -2033,11 +2043,16 @@ def crear_envio_manual(
         db.rollback()
         raise HTTPException(500, f"Error guardando envío manual: {str(e)}")
 
-    # Resolver cordón del CP para feedback
+    # Resolver cordón: si hay transporte con CP, usar ese CP (zona de entrega
+    # de la logística); sino, usar el CP del cliente.
+    cp_for_cordon = payload.zip_code
+    if payload.transporte_id is not None and transporte and transporte.cp:
+        cp_for_cordon = transporte.cp
+
     cordon_val = None
-    if payload.zip_code:
+    if cp_for_cordon:
         cordon_row = (
-            db.query(CodigoPostalCordon.cordon).filter(CodigoPostalCordon.codigo_postal == payload.zip_code).first()
+            db.query(CodigoPostalCordon.cordon).filter(CodigoPostalCordon.codigo_postal == cp_for_cordon).first()
         )
         cordon_val = cordon_row.cordon if cordon_row else None
 
@@ -2178,7 +2193,24 @@ def editar_envio_manual(
         db.rollback()
         raise HTTPException(500, f"Error guardando cambios: {str(e)}")
 
-    return {"ok": True, "shipping_id": shipping_id, "mensaje": f"Envío {shipping_id} actualizado"}
+    # Resolver cordón: si hay transporte con CP, usar ese CP; sino, CP del cliente.
+    cp_for_cordon = payload.zip_code
+    if payload.transporte_id is not None and transporte_obj and transporte_obj.cp:
+        cp_for_cordon = transporte_obj.cp
+
+    cordon_val = None
+    if cp_for_cordon:
+        cordon_row = (
+            db.query(CodigoPostalCordon.cordon).filter(CodigoPostalCordon.codigo_postal == cp_for_cordon).first()
+        )
+        cordon_val = cordon_row.cordon if cordon_row else None
+
+    return {
+        "ok": True,
+        "shipping_id": shipping_id,
+        "cordon": cordon_val,
+        "mensaje": f"Envío {shipping_id} actualizado",
+    }
 
 
 @router.put(

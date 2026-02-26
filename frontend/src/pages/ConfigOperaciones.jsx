@@ -975,6 +975,37 @@ function TabLogisticas() {
     }
   };
 
+  // Edit modal
+  const [editLogistica, setEditLogistica] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  const abrirEdicion = (log) => {
+    setEditLogistica(log);
+    setEditForm({
+      nombre: log.nombre || '',
+      color: log.color || '#3b82f6',
+    });
+  };
+
+  const guardarEdicion = async () => {
+    if (!editLogistica || !editForm.nombre.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put(`/logisticas/${editLogistica.id}`, {
+        nombre: editForm.nombre.trim(),
+        color: editForm.color,
+      });
+      setEditLogistica(null);
+      await cargarLogisticas();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al guardar logística');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className={styles.tabContent}>
       {error && <div className={styles.errorMsg}>{error}</div>}
@@ -1072,6 +1103,14 @@ function TabLogisticas() {
                       </td>
                       <td className={styles.actions}>
                         <button
+                          onClick={() => abrirEdicion(log)}
+                          className={styles.btnAction}
+                          title="Editar"
+                          aria-label="Editar logística"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
                           onClick={() => toggleActiva(log)}
                           className={styles.btnAction}
                           title={log.activa ? 'Desactivar' : 'Activar'}
@@ -1098,6 +1137,65 @@ function TabLogisticas() {
           </div>
         )}
       </section>
+
+      {/* Modal editar logística */}
+      {editLogistica && (
+        <div className={styles.modalOverlay} onClick={() => setEditLogistica(null)}>
+          <div className={styles.modalContent} onClick={(ev) => ev.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Editar logística</h3>
+              <button
+                className={styles.modalClose}
+                onClick={() => setEditLogistica(null)}
+                aria-label="Cerrar modal"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              <div className={styles.createForm}>
+                <div className={styles.formField}>
+                  <label htmlFor="edit-log-nombre">Nombre</label>
+                  <input
+                    id="edit-log-nombre"
+                    type="text"
+                    value={editForm.nombre}
+                    onChange={(ev) => setEditForm(prev => ({ ...prev, nombre: ev.target.value }))}
+                    maxLength={100}
+                    required
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label htmlFor="edit-log-color">Color</label>
+                  <input
+                    id="edit-log-color"
+                    type="color"
+                    value={editForm.color}
+                    onChange={(ev) => setEditForm(prev => ({ ...prev, color: ev.target.value }))}
+                    className={styles.colorInput}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className={styles.modalFooter}>
+              <button
+                className="btn-tesla secondary"
+                onClick={() => setEditLogistica(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn-tesla outline-subtle-primary"
+                onClick={guardarEdicion}
+                disabled={saving || !editForm.nombre?.trim()}
+              >
+                <Save size={16} />
+                {saving ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
