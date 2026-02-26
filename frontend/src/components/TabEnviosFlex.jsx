@@ -137,6 +137,8 @@ export default function TabEnviosFlex({ operador = null }) {
   const [newTranspNombre, setNewTranspNombre] = useState('');
   const [newTranspCuit, setNewTranspCuit] = useState('');
   const [newTranspDireccion, setNewTranspDireccion] = useState('');
+  const [newTranspCp, setNewTranspCp] = useState('');
+  const [newTranspLocalidad, setNewTranspLocalidad] = useState('');
   const [newTranspTelefono, setNewTranspTelefono] = useState('');
   const [newTranspHorario, setNewTranspHorario] = useState('');
   const [newTranspColor, setNewTranspColor] = useState('#8b5cf6');
@@ -680,6 +682,8 @@ export default function TabEnviosFlex({ operador = null }) {
         nombre: newTranspNombre.trim(),
         cuit: newTranspCuit.trim() || null,
         direccion: newTranspDireccion.trim() || null,
+        cp: newTranspCp.trim() || null,
+        localidad: newTranspLocalidad.trim() || null,
         telefono: newTranspTelefono.trim() || null,
         horario: newTranspHorario.trim() || null,
         color: newTranspColor,
@@ -687,6 +691,8 @@ export default function TabEnviosFlex({ operador = null }) {
       setNewTranspNombre('');
       setNewTranspCuit('');
       setNewTranspDireccion('');
+      setNewTranspCp('');
+      setNewTranspLocalidad('');
       setNewTranspTelefono('');
       setNewTranspHorario('');
       setNewTranspColor('#8b5cf6');
@@ -758,6 +764,8 @@ export default function TabEnviosFlex({ operador = null }) {
                 transporte_nombre: tr?.nombre || null,
                 transporte_color: tr?.color || null,
                 transporte_direccion: tr?.direccion || null,
+                transporte_cp: tr?.cp || null,
+                transporte_localidad: tr?.localidad || null,
                 transporte_telefono: tr?.telefono || null,
                 transporte_horario: tr?.horario || null,
               }
@@ -1199,9 +1207,17 @@ export default function TabEnviosFlex({ operador = null }) {
 
   const imprimirEtiquetaManual = async () => {
     if (!printManualEnvio) return;
-    if (printNumBultos < 1 || printNumBultos > 10) {
-      mostrarError({ message: 'El número de bultos debe estar entre 1 y 10' });
+    if (printNumBultos < 1) {
+      mostrarError({ message: 'El número de bultos debe ser al menos 1' });
       return;
+    }
+
+    if (printNumBultos > 20) {
+      const { confirmed } = await pedirConfirmacion(
+        'Cantidad elevada de bultos',
+        `Vas a generar ${printNumBultos} etiquetas (una por bulto). ¿Confirmar impresión?`,
+      );
+      if (!confirmed) return;
     }
 
     setPrintManualLoading(true);
@@ -1584,7 +1600,18 @@ export default function TabEnviosFlex({ operador = null }) {
                       />
                     </td>
                     <td>
-                      <span className={styles.shippingId}>{e.shipping_id}</span>
+                      {!e.es_manual && /^\d+$/.test(e.shipping_id) ? (
+                        <a
+                          href={`https://www.mercadolibre.com.ar/ventas/${e.shipping_id}/detalle`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.shippingIdLink}
+                        >
+                          {e.shipping_id}
+                        </a>
+                      ) : (
+                        <span className={styles.shippingId}>{e.shipping_id}</span>
+                      )}
                       {e.es_outlet && (
                         <span className={styles.outletBadge}>Outlet</span>
                       )}
@@ -1612,7 +1639,7 @@ export default function TabEnviosFlex({ operador = null }) {
                     </td>
                     <td className={styles.direccion} title={
                       e.transporte_id && e.transporte_direccion
-                        ? `Transporte: ${e.transporte_direccion} | Cliente: ${e.mlstreet_name || ''} ${e.mlstreet_number || ''}`
+                        ? `Transporte: ${e.transporte_direccion}${e.transporte_cp ? ` (${e.transporte_cp})` : ''}${e.transporte_localidad ? ` - ${e.transporte_localidad}` : ''} | Cliente: ${e.mlstreet_name || ''} ${e.mlstreet_number || ''}`
                         : (e.direccion_completa || `${e.mlstreet_name || ''} ${e.mlstreet_number || ''}`)
                     }>
                       {e.transporte_id && e.transporte_direccion ? (
@@ -1620,6 +1647,11 @@ export default function TabEnviosFlex({ operador = null }) {
                           <div className={styles.direccionTransporte}>
                             <Building size={12} className={styles.transporteIcon} />
                             {e.transporte_direccion}
+                            {(e.transporte_cp || e.transporte_localidad) && (
+                              <span className={styles.transporteCpLocalidad}>
+                                {' '}({[e.transporte_cp, e.transporte_localidad].filter(Boolean).join(' - ')})
+                              </span>
+                            )}
                           </div>
                           {e.mlstreet_name && (
                             <div className={styles.direccionCliente} title={`Dir. cliente: ${e.mlstreet_name} ${e.mlstreet_number || ''}`}>
@@ -2110,6 +2142,11 @@ export default function TabEnviosFlex({ operador = null }) {
                         <span className={styles.logisticaNombre}>{t.nombre}</span>
                         {t.cuit && <span className={styles.transporteDetail}>CUIT: {t.cuit}</span>}
                         {t.direccion && <span className={styles.transporteDetail}>{t.direccion}</span>}
+                        {(t.cp || t.localidad) && (
+                          <span className={styles.transporteDetail}>
+                            {[t.cp, t.localidad].filter(Boolean).join(' - ')}
+                          </span>
+                        )}
                         {t.telefono && <span className={styles.transporteDetail}>Tel: {t.telefono}</span>}
                         {t.horario && <span className={styles.transporteDetail}>{t.horario}</span>}
                       </div>
@@ -2168,6 +2205,28 @@ export default function TabEnviosFlex({ operador = null }) {
                       value={newTranspDireccion}
                       onChange={(ev) => setNewTranspDireccion(ev.target.value)}
                       placeholder="Dirección de la terminal/depósito"
+                    />
+                  </div>
+                  <div className={styles.formField}>
+                    <label htmlFor="transp-cp">CP</label>
+                    <input
+                      id="transp-cp"
+                      type="text"
+                      value={newTranspCp}
+                      onChange={(ev) => setNewTranspCp(ev.target.value)}
+                      placeholder="1234"
+                      maxLength={10}
+                    />
+                  </div>
+                  <div className={styles.formField}>
+                    <label htmlFor="transp-localidad">Localidad</label>
+                    <input
+                      id="transp-localidad"
+                      type="text"
+                      value={newTranspLocalidad}
+                      onChange={(ev) => setNewTranspLocalidad(ev.target.value)}
+                      placeholder="Ciudad/localidad"
+                      maxLength={200}
                     />
                   </div>
                   <div className={styles.formField}>
@@ -2521,7 +2580,6 @@ export default function TabEnviosFlex({ operador = null }) {
                     id="pm-bultos"
                     type="number"
                     min={1}
-                    max={10}
                     value={printNumBultos}
                     onChange={(ev) => setPrintNumBultos(parseInt(ev.target.value, 10) || 1)}
                   />
@@ -2568,7 +2626,7 @@ export default function TabEnviosFlex({ operador = null }) {
               <button
                 className={styles.btnCrear}
                 onClick={imprimirEtiquetaManual}
-                disabled={printManualLoading || printNumBultos < 1 || printNumBultos > 10}
+                disabled={printManualLoading || printNumBultos < 1}
               >
                 <Printer size={16} />
                 {printManualLoading ? 'Generando...' : 'Imprimir'}

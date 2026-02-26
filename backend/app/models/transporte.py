@@ -26,6 +26,8 @@ class Transporte(Base):
     nombre = Column(String(150), unique=True, nullable=False)
     cuit = Column(String(13), nullable=True)  # Formato: XX-XXXXXXXX-X
     direccion = Column(String(500), nullable=True)  # Dirección de la terminal/depósito
+    cp = Column(String(10), nullable=True)  # Código postal de la terminal
+    localidad = Column(String(200), nullable=True)  # Ciudad/localidad de la terminal
     telefono = Column(String(50), nullable=True)
     horario = Column(String(200), nullable=True)  # Ej: "Lun-Vie 8:00-17:00"
     activa = Column(Boolean, default=True, nullable=False)

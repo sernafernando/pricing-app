@@ -456,7 +456,7 @@ async def obtener_provincias_disponibles(
 @router.put("/pedidos-simple/{soh_id}/bultos-domicilio")
 async def actualizar_bultos_domicilio(
     soh_id: int,
-    num_bultos: int = Query(1, ge=1, le=10),
+    num_bultos: int = Query(1, ge=1),
     tipo_domicilio: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -607,7 +607,7 @@ async def sincronizar_pedidos(db: Session = Depends(get_db), current_user: Usuar
 @router.get("/pedidos-simple/{soh_id}/etiqueta-zpl")
 async def generar_etiqueta_zpl(
     soh_id: int,
-    num_bultos: int = Query(1, ge=1, le=10),
+    num_bultos: int = Query(1, ge=1),
     tipo_envio_manual: Optional[str] = Query(None),
     tipo_domicilio_manual: Optional[str] = Query(None),
     db: Session = Depends(get_db),

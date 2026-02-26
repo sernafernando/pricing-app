@@ -35,6 +35,8 @@ class TransporteResponse(BaseModel):
     nombre: str
     cuit: Optional[str] = None
     direccion: Optional[str] = None
+    cp: Optional[str] = None
+    localidad: Optional[str] = None
     telefono: Optional[str] = None
     horario: Optional[str] = None
     activa: bool
@@ -57,6 +59,16 @@ class TransporteCreate(BaseModel):
         max_length=500,
         description="Dirección de la terminal/depósito del transporte",
     )
+    cp: Optional[str] = Field(
+        None,
+        max_length=10,
+        description="Código postal de la terminal",
+    )
+    localidad: Optional[str] = Field(
+        None,
+        max_length=200,
+        description="Ciudad/localidad de la terminal",
+    )
     telefono: Optional[str] = Field(None, max_length=50)
     horario: Optional[str] = Field(
         None,
@@ -77,6 +89,8 @@ class TransporteUpdate(BaseModel):
     nombre: Optional[str] = Field(None, min_length=1, max_length=150)
     cuit: Optional[str] = Field(None, max_length=13)
     direccion: Optional[str] = Field(None, max_length=500)
+    cp: Optional[str] = Field(None, max_length=10)
+    localidad: Optional[str] = Field(None, max_length=200)
     telefono: Optional[str] = Field(None, max_length=50)
     horario: Optional[str] = Field(None, max_length=200)
     color: Optional[str] = Field(
@@ -134,6 +148,8 @@ def crear_transporte(
         nombre=payload.nombre,
         cuit=payload.cuit,
         direccion=payload.direccion,
+        cp=payload.cp,
+        localidad=payload.localidad,
         telefono=payload.telefono,
         horario=payload.horario,
         color=payload.color,
@@ -175,6 +191,12 @@ def actualizar_transporte(
 
     if payload.direccion is not None:
         transporte.direccion = payload.direccion if payload.direccion else None
+
+    if payload.cp is not None:
+        transporte.cp = payload.cp if payload.cp else None
+
+    if payload.localidad is not None:
+        transporte.localidad = payload.localidad if payload.localidad else None
 
     if payload.telefono is not None:
         transporte.telefono = payload.telefono if payload.telefono else None

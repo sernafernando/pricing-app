@@ -167,6 +167,8 @@ class EtiquetaEnvioResponse(BaseModel):
     transporte_nombre: Optional[str] = None
     transporte_color: Optional[str] = None
     transporte_direccion: Optional[str] = None
+    transporte_cp: Optional[str] = None
+    transporte_localidad: Optional[str] = None
     transporte_telefono: Optional[str] = None
     transporte_horario: Optional[str] = None
 
@@ -749,6 +751,8 @@ def listar_etiquetas(
             Transporte.nombre.label("transporte_nombre"),
             Transporte.color.label("transporte_color"),
             Transporte.direccion.label("transporte_direccion"),
+            Transporte.cp.label("transporte_cp"),
+            Transporte.localidad.label("transporte_localidad"),
             Transporte.telefono.label("transporte_telefono"),
             Transporte.horario.label("transporte_horario"),
             eff_receiver.label("mlreceiver_name"),
@@ -918,6 +922,8 @@ def listar_etiquetas(
             transporte_nombre=row.transporte_nombre,
             transporte_color=row.transporte_color,
             transporte_direccion=row.transporte_direccion,
+            transporte_cp=row.transporte_cp,
+            transporte_localidad=row.transporte_localidad,
             transporte_telefono=row.transporte_telefono,
             transporte_horario=row.transporte_horario,
         )
@@ -2844,7 +2850,7 @@ _logger = logging.getLogger(__name__)
 )
 async def generar_etiqueta_manual_zpl(
     shipping_id: str,
-    num_bultos: int = Query(1, ge=1, le=10),
+    num_bultos: int = Query(1, ge=1),
     tipo_envio_manual: Optional[str] = Query(None),
     tipo_domicilio_manual: Optional[str] = Query(None),
     current_user: Usuario = Depends(get_current_user),
