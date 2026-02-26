@@ -115,7 +115,7 @@ async def sync_sale_order_header(db: Session, days: int = 7):
                     except:
                         return None
 
-                # Datos básicos (no mapeo todas las 70+ columnas, solo las principales)
+                # Datos principales + campos necesarios para traza/envíos
                 datos = {
                     "comp_id": comp_id,
                     "bra_id": bra_id,
@@ -132,10 +132,15 @@ async def sync_sale_order_header(db: Session, days: int = 7):
                     "soh_lastupdate": parse_dt(record.get("soh_lastUpdate")),
                     "mlo_id": record.get("mlo_id"),
                     "soh_mlid": record.get("soh_MLId"),
+                    "soh_mlguia": record.get("soh_MLGUIA"),
+                    "soh_internalannotation": record.get("soh_internalAnnotation"),
                     "prli_id": record.get("prli_id"),
                     "ssos_id": record.get("ssos_id"),
                     "df_id": record.get("df_id"),
                     "user_id": record.get("user_id"),
+                    "stor_id": record.get("stor_id"),
+                    "soh_deliveryaddress": record.get("soh_deliveryAddress"),
+                    "soh_mldeliverylabel": record.get("soh_MLdeliveryLabel"),
                     # Campos de TiendaNube
                     "ws_internalid": record.get("ws_internalID"),
                     "tiendanube_number": record.get("tiendaNube_number"),
