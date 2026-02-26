@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
-  Truck, Search, Printer, Pencil, Bike,
+  Truck, Search, Printer, Pencil, Bike, Building,
 } from 'lucide-react';
 import api from '../services/api';
 import { printZpl } from '../services/zebraPrint';
@@ -82,6 +82,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const [etiquetas, setEtiquetas] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
   const [logisticas, setLogisticas] = useState([]);
+  const [transportes, setTransportes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -131,6 +132,15 @@ export default function TabEnviosFlex({ operador = null }) {
   const [newLogNombre, setNewLogNombre] = useState('');
   const [newLogColor, setNewLogColor] = useState('#3b82f6');
 
+  // Modal transportes
+  const [showTransportesModal, setShowTransportesModal] = useState(false);
+  const [newTranspNombre, setNewTranspNombre] = useState('');
+  const [newTranspCuit, setNewTranspCuit] = useState('');
+  const [newTranspDireccion, setNewTranspDireccion] = useState('');
+  const [newTranspTelefono, setNewTranspTelefono] = useState('');
+  const [newTranspHorario, setNewTranspHorario] = useState('');
+  const [newTranspColor, setNewTranspColor] = useState('#8b5cf6');
+
   // Inline editing
   const [actualizando, setActualizando] = useState(new Set());
 
@@ -172,6 +182,7 @@ export default function TabEnviosFlex({ operador = null }) {
     bra_id: '',
     soh_id: '',
     logistica_id: '',
+    transporte_id: '',
     comment: '',
     fecha_envio: todayStr(),
   });
@@ -242,6 +253,15 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   }, []);
 
+  const cargarTransportes = useCallback(async () => {
+    try {
+      const { data } = await api.get('/transportes?incluir_inactivas=true');
+      setTransportes(data);
+    } catch (err) {
+      console.error('Error cargando transportes:', err);
+    }
+  }, []);
+
   // Helper: construye params de filtros activos (reutilizado en stats refresh)
   const buildFilterParams = useCallback(() => {
     const p = new URLSearchParams();
@@ -281,7 +301,8 @@ export default function TabEnviosFlex({ operador = null }) {
 
   useEffect(() => {
     cargarLogisticas();
-  }, [cargarLogisticas]);
+    cargarTransportes();
+  }, [cargarLogisticas, cargarTransportes]);
 
   useEffect(() => {
     cargarDatos();
@@ -648,6 +669,112 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
+  // ── Transportes CRUD ────────────────────────────────────────
+
+  const crearTransporte = async (e) => {
+    e.preventDefault();
+    if (!newTranspNombre.trim()) return;
+
+    try {
+      await api.post('/transportes', {
+        nombre: newTranspNombre.trim(),
+        cuit: newTranspCuit.trim() || null,
+        direccion: newTranspDireccion.trim() || null,
+        telefono: newTranspTelefono.trim() || null,
+        horario: newTranspHorario.trim() || null,
+        color: newTranspColor,
+      });
+      setNewTranspNombre('');
+      setNewTranspCuit('');
+      setNewTranspDireccion('');
+      setNewTranspTelefono('');
+      setNewTranspHorario('');
+      setNewTranspColor('#8b5cf6');
+      cargarTransportes();
+    } catch (err) {
+      mostrarError(err);
+    }
+  };
+
+  const toggleTransporte = async (transporte) => {
+    try {
+      await api.put(`/transportes/${transporte.id}`, {
+        activa: !transporte.activa,
+      });
+      cargarTransportes();
+    } catch (err) {
+      mostrarError(err);
+    }
+  };
+
+  const eliminarTransporte = async (transporte) => {
+    const { confirmed } = await pedirConfirmacion(
+      'Desactivar transporte',
+      `¿Desactivar transporte "${transporte.nombre}"?`,
+    );
+    if (!confirmed) return;
+    try {
+      await api.delete(`/transportes/${transporte.id}`);
+      cargarTransportes();
+    } catch (err) {
+      mostrarError(err);
+    }
+  };
+
+  const cambiarTransporte = async (shippingId, transporteId) => {
+    setActualizando(prev => new Set([...prev, shippingId]));
+    try {
+      const val = transporteId === '' ? null : parseInt(transporteId, 10);
+      // Usamos el endpoint de edición manual para actualizar transporte_id
+      // Solo funciona para envíos manuales
+      const etiqueta = etiquetas.find(et => et.shipping_id === shippingId);
+      if (etiqueta?.es_manual) {
+        await api.put(`/etiquetas-envio/manual-envio/${shippingId}`, {
+          fecha_envio: etiqueta.fecha_envio,
+          receiver_name: etiqueta.mlreceiver_name || 'Sin nombre',
+          street_name: etiqueta.mlstreet_name || 'S/N',
+          street_number: etiqueta.mlstreet_number || 'S/N',
+          zip_code: etiqueta.mlzip_code || '0000',
+          city_name: etiqueta.mlcity_name || '',
+          status: etiqueta.mlstatus || 'ready_to_ship',
+          cust_id: etiqueta.manual_cust_id || null,
+          bra_id: etiqueta.manual_bra_id || null,
+          soh_id: etiqueta.manual_soh_id || null,
+          logistica_id: etiqueta.logistica_id || null,
+          transporte_id: val,
+          comment: etiqueta.manual_comment || null,
+          operador_id: operador?.operadorActivo?.id,
+        });
+      }
+
+      // Update locally
+      const tr = transportes.find(t => t.id === val);
+      setEtiquetas(prev =>
+        prev.map(et =>
+          et.shipping_id === shippingId
+            ? {
+                ...et,
+                transporte_id: val,
+                transporte_nombre: tr?.nombre || null,
+                transporte_color: tr?.color || null,
+                transporte_direccion: tr?.direccion || null,
+                transporte_telefono: tr?.telefono || null,
+                transporte_horario: tr?.horario || null,
+              }
+            : et
+        )
+      );
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setActualizando(prev => {
+        const next = new Set(prev);
+        next.delete(shippingId);
+        return next;
+      });
+    }
+  };
+
   // ── Selección múltiple ─────────────────────────────────────
 
   const toggleSeleccion = (shippingId, shiftKey) => {
@@ -862,6 +989,7 @@ export default function TabEnviosFlex({ operador = null }) {
       bra_id: '',
       soh_id: '',
       logistica_id: '',
+      transporte_id: '',
       comment: '',
       fecha_envio: todayStr(),
     });
@@ -894,6 +1022,7 @@ export default function TabEnviosFlex({ operador = null }) {
       bra_id: envio.manual_bra_id || '',
       soh_id: envio.manual_soh_id || '',
       logistica_id: envio.logistica_id || '',
+      transporte_id: envio.transporte_id || '',
       comment: envio.manual_comment || '',
       fecha_envio: envio.fecha_envio || todayStr(),
     });
@@ -1039,6 +1168,7 @@ export default function TabEnviosFlex({ operador = null }) {
         bra_id: manualEnvio.bra_id ? parseInt(manualEnvio.bra_id, 10) : null,
         soh_id: manualEnvio.soh_id ? parseInt(manualEnvio.soh_id, 10) : null,
         logistica_id: manualEnvio.logistica_id ? parseInt(manualEnvio.logistica_id, 10) : null,
+        transporte_id: manualEnvio.transporte_id ? parseInt(manualEnvio.transporte_id, 10) : null,
         comment: manualEnvio.comment.trim() || null,
         operador_id: operador?.operadorActivo?.id,
       };
@@ -1116,6 +1246,7 @@ export default function TabEnviosFlex({ operador = null }) {
   // ── Render ───────────────────────────────────────────────────
 
   const logisticasActivas = logisticas.filter(l => l.activa);
+  const transportesActivos = transportes.filter(t => t.activa);
 
   return (
     <div className={styles.container}>
@@ -1336,6 +1467,17 @@ export default function TabEnviosFlex({ operador = null }) {
               Logísticas
             </button>
           )}
+
+          {puedeGestionarLogisticas && (
+            <button
+              onClick={() => setShowTransportesModal(true)}
+              className={styles.btnLogisticas}
+              aria-label="Gestionar transportes"
+            >
+              <Building size={16} />
+              Transportes
+            </button>
+          )}
         </div>
       </div>
 
@@ -1412,6 +1554,7 @@ export default function TabEnviosFlex({ operador = null }) {
                 <th>Estado ML</th>
                 <th>Fecha Envío</th>
                 <th>Logística</th>
+                <th>Transporte</th>
                 {puedeVerCostos && <th className={styles.thCosto}>Costo</th>}
                 <th>Pistoleado</th>
                 <th>Caja</th>
@@ -1421,7 +1564,7 @@ export default function TabEnviosFlex({ operador = null }) {
             <tbody>
               {etiquetas.length === 0 ? (
                 <tr>
-                  <td colSpan={puedeVerCostos ? 14 : 13} className={styles.empty}>
+                  <td colSpan={puedeVerCostos ? 15 : 14} className={styles.empty}>
                     No hay etiquetas para la fecha seleccionada
                   </td>
                 </tr>
@@ -1467,16 +1610,36 @@ export default function TabEnviosFlex({ operador = null }) {
                         </div>
                       )}
                     </td>
-                    <td className={styles.direccion} title={e.direccion_completa || `${e.mlstreet_name || ''} ${e.mlstreet_number || ''}`}>
-                      <div>
-                        {e.mlstreet_name
-                          ? `${e.mlstreet_name} ${e.mlstreet_number || ''}`
-                          : '—'}
-                      </div>
-                      {e.direccion_comentario && (
-                        <div className={styles.direccionComentario} title={e.direccion_comentario}>
-                          {e.direccion_comentario}
-                        </div>
+                    <td className={styles.direccion} title={
+                      e.transporte_id && e.transporte_direccion
+                        ? `Transporte: ${e.transporte_direccion} | Cliente: ${e.mlstreet_name || ''} ${e.mlstreet_number || ''}`
+                        : (e.direccion_completa || `${e.mlstreet_name || ''} ${e.mlstreet_number || ''}`)
+                    }>
+                      {e.transporte_id && e.transporte_direccion ? (
+                        <>
+                          <div className={styles.direccionTransporte}>
+                            <Building size={12} className={styles.transporteIcon} />
+                            {e.transporte_direccion}
+                          </div>
+                          {e.mlstreet_name && (
+                            <div className={styles.direccionCliente} title={`Dir. cliente: ${e.mlstreet_name} ${e.mlstreet_number || ''}`}>
+                              {e.mlstreet_name} {e.mlstreet_number || ''}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            {e.mlstreet_name
+                              ? `${e.mlstreet_name} ${e.mlstreet_number || ''}`
+                              : '—'}
+                          </div>
+                          {e.direccion_comentario && (
+                            <div className={styles.direccionComentario} title={e.direccion_comentario}>
+                              {e.direccion_comentario}
+                            </div>
+                          )}
+                        </>
                       )}
                     </td>
                     <td>
@@ -1567,6 +1730,36 @@ export default function TabEnviosFlex({ operador = null }) {
                           <option key={l.id} value={l.id}>{l.nombre}</option>
                         ))}
                       </select>
+                    </td>
+                    <td>
+                      {e.es_manual ? (
+                        <select
+                          value={e.transporte_id || ''}
+                          onChange={(ev) => cambiarTransporte(e.shipping_id, ev.target.value)}
+                          disabled={!puedeAsignarLogistica || actualizando.has(e.shipping_id)}
+                          className={styles.logisticaSelect}
+                        >
+                          <option value="">— Sin transporte —</option>
+                          {transportesActivos.map(t => (
+                            <option key={t.id} value={t.id}>{t.nombre}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        e.transporte_nombre ? (
+                          <span
+                            className={styles.erpBadge}
+                            style={
+                              e.transporte_color
+                                ? { background: `${e.transporte_color}20`, color: e.transporte_color }
+                                : undefined
+                            }
+                          >
+                            {e.transporte_nombre}
+                          </span>
+                        ) : (
+                          <span className={styles.cellMuted}>—</span>
+                        )
+                      )}
                     </td>
                     {puedeVerCostos && (
                       <td
@@ -1883,6 +2076,150 @@ export default function TabEnviosFlex({ operador = null }) {
         </div>
       )}
 
+      {/* Modal Transportes */}
+      {showTransportesModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowTransportesModal(false)}>
+          <div className={`${styles.modalContent} ${styles.modalWide}`} onClick={(ev) => ev.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Transportes interprovinciales</h3>
+              <button
+                className={styles.modalClose}
+                onClick={() => setShowTransportesModal(false)}
+                aria-label="Cerrar modal"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={styles.modalBody}>
+              {/* List */}
+              <div className={styles.logisticasList}>
+                {transportes.length === 0 ? (
+                  <div className={styles.empty}>No hay transportes creados</div>
+                ) : (
+                  transportes.map(t => (
+                    <div
+                      key={t.id}
+                      className={`${styles.logisticaItem} ${!t.activa ? styles.logisticaInactiva : ''}`}
+                    >
+                      <div
+                        className={styles.logisticaColor}
+                        style={{ background: t.color || '#94a3b8' }}
+                      />
+                      <div className={styles.transporteInfo}>
+                        <span className={styles.logisticaNombre}>{t.nombre}</span>
+                        {t.cuit && <span className={styles.transporteDetail}>CUIT: {t.cuit}</span>}
+                        {t.direccion && <span className={styles.transporteDetail}>{t.direccion}</span>}
+                        {t.telefono && <span className={styles.transporteDetail}>Tel: {t.telefono}</span>}
+                        {t.horario && <span className={styles.transporteDetail}>{t.horario}</span>}
+                      </div>
+                      <button
+                        className={styles.btnLogisticaAction}
+                        onClick={() => toggleTransporte(t)}
+                        title={t.activa ? 'Desactivar' : 'Activar'}
+                        aria-label={t.activa ? 'Desactivar transporte' : 'Activar transporte'}
+                      >
+                        {t.activa ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                      </button>
+                      {t.activa && (
+                        <button
+                          className={styles.btnLogisticaAction}
+                          onClick={() => eliminarTransporte(t)}
+                          title="Desactivar"
+                          aria-label="Desactivar transporte"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Create form */}
+              <form onSubmit={crearTransporte} className={styles.createForm}>
+                <div className={styles.formGrid}>
+                  <div className={styles.formField}>
+                    <label htmlFor="transp-nombre">Nombre</label>
+                    <input
+                      id="transp-nombre"
+                      type="text"
+                      value={newTranspNombre}
+                      onChange={(ev) => setNewTranspNombre(ev.target.value)}
+                      placeholder="Ej: Cruz del Sur"
+                      required
+                    />
+                  </div>
+                  <div className={styles.formField}>
+                    <label htmlFor="transp-cuit">CUIT</label>
+                    <input
+                      id="transp-cuit"
+                      type="text"
+                      value={newTranspCuit}
+                      onChange={(ev) => setNewTranspCuit(ev.target.value)}
+                      placeholder="30-12345678-9"
+                    />
+                  </div>
+                  <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                    <label htmlFor="transp-direccion">Dirección</label>
+                    <input
+                      id="transp-direccion"
+                      type="text"
+                      value={newTranspDireccion}
+                      onChange={(ev) => setNewTranspDireccion(ev.target.value)}
+                      placeholder="Dirección de la terminal/depósito"
+                    />
+                  </div>
+                  <div className={styles.formField}>
+                    <label htmlFor="transp-telefono">Teléfono</label>
+                    <input
+                      id="transp-telefono"
+                      type="text"
+                      value={newTranspTelefono}
+                      onChange={(ev) => setNewTranspTelefono(ev.target.value)}
+                      placeholder="011-4444-5555"
+                    />
+                  </div>
+                  <div className={styles.formField}>
+                    <label htmlFor="transp-horario">Horario</label>
+                    <input
+                      id="transp-horario"
+                      type="text"
+                      value={newTranspHorario}
+                      onChange={(ev) => setNewTranspHorario(ev.target.value)}
+                      placeholder="Lun-Vie 8:00-17:00"
+                    />
+                  </div>
+                  <div className={styles.formField}>
+                    <label htmlFor="transp-color">Color</label>
+                    <input
+                      id="transp-color"
+                      type="color"
+                      value={newTranspColor}
+                      onChange={(ev) => setNewTranspColor(ev.target.value)}
+                      className={styles.colorInput}
+                    />
+                  </div>
+                </div>
+                <button type="submit" className={styles.btnCrear}>
+                  <Plus size={16} />
+                  Crear transporte
+                </button>
+              </form>
+            </div>
+
+            <div className={styles.modalFooter}>
+              <button
+                className={styles.btnCancelar}
+                onClick={() => setShowTransportesModal(false)}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Envío Manual */}
       {showManualEnvioModal && (
         <div className={styles.modalOverlay} onClick={() => setShowManualEnvioModal(false)}>
@@ -1960,6 +2297,32 @@ export default function TabEnviosFlex({ operador = null }) {
                       <option key={l.id} value={l.id}>{l.nombre}</option>
                     ))}
                   </select>
+                </div>
+
+                {/* Fila 2b: Transporte (span 2 cols) */}
+                <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                  <label htmlFor="me-transporte">Transporte interprovincial</label>
+                  <select
+                    id="me-transporte"
+                    value={manualEnvio.transporte_id}
+                    onChange={(ev) => handleManualEnvioChange('transporte_id', ev.target.value)}
+                  >
+                    <option value="">— Sin transporte —</option>
+                    {transportesActivos.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.nombre}{t.direccion ? ` — ${t.direccion}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {manualEnvio.transporte_id && (() => {
+                    const tr = transportesActivos.find(t => t.id === parseInt(manualEnvio.transporte_id, 10));
+                    if (!tr) return null;
+                    return (
+                      <span className={styles.fieldHint}>
+                        {[tr.direccion, tr.telefono, tr.horario].filter(Boolean).join(' — ')}
+                      </span>
+                    );
+                  })()}
                 </div>
 
                 {/* Fila 3: Destinatario (span 2 cols) */}

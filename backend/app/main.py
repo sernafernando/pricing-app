@@ -54,6 +54,7 @@ from app.api.endpoints import (
     etiquetas_envio,
     config_operaciones,
     sounds,
+    transportes,
 )
 from app.routers import alertas, seriales
 from app.core.config import settings
@@ -156,6 +157,7 @@ app.include_router(logisticas.router, prefix="/api", tags=["logisticas"])
 app.include_router(etiquetas_envio.router, prefix="/api", tags=["etiquetas-envio"])
 app.include_router(config_operaciones.router, prefix="/api", tags=["config-operaciones"])
 app.include_router(sounds.router, prefix="/api", tags=["sounds"])
+app.include_router(transportes.router, prefix="/api", tags=["transportes"])
 app.include_router(seriales.router, prefix="/api", tags=["seriales"])
 
 
