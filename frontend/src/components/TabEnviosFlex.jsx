@@ -1199,9 +1199,17 @@ export default function TabEnviosFlex({ operador = null }) {
 
   const imprimirEtiquetaManual = async () => {
     if (!printManualEnvio) return;
-    if (printNumBultos < 1 || printNumBultos > 10) {
-      mostrarError({ message: 'El número de bultos debe estar entre 1 y 10' });
+    if (printNumBultos < 1) {
+      mostrarError({ message: 'El número de bultos debe ser al menos 1' });
       return;
+    }
+
+    if (printNumBultos > 20) {
+      const { confirmed } = await pedirConfirmacion(
+        'Cantidad elevada de bultos',
+        `Vas a generar ${printNumBultos} etiquetas (una por bulto). ¿Confirmar impresión?`,
+      );
+      if (!confirmed) return;
     }
 
     setPrintManualLoading(true);
@@ -2521,7 +2529,6 @@ export default function TabEnviosFlex({ operador = null }) {
                     id="pm-bultos"
                     type="number"
                     min={1}
-                    max={10}
                     value={printNumBultos}
                     onChange={(ev) => setPrintNumBultos(parseInt(ev.target.value, 10) || 1)}
                   />
@@ -2568,7 +2575,7 @@ export default function TabEnviosFlex({ operador = null }) {
               <button
                 className={styles.btnCrear}
                 onClick={imprimirEtiquetaManual}
-                disabled={printManualLoading || printNumBultos < 1 || printNumBultos > 10}
+                disabled={printManualLoading || printNumBultos < 1}
               >
                 <Printer size={16} />
                 {printManualLoading ? 'Generando...' : 'Imprimir'}

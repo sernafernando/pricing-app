@@ -2844,7 +2844,7 @@ _logger = logging.getLogger(__name__)
 )
 async def generar_etiqueta_manual_zpl(
     shipping_id: str,
-    num_bultos: int = Query(1, ge=1, le=10),
+    num_bultos: int = Query(1, ge=1),
     tipo_envio_manual: Optional[str] = Query(None),
     tipo_domicilio_manual: Optional[str] = Query(None),
     current_user: Usuario = Depends(get_current_user),
