@@ -83,6 +83,7 @@ async def _geocode_envio_manual(
     street_number: str,
     city_name: str,
     transporte_id: Optional[int],
+    zip_code: Optional[str] = None,
 ) -> None:
     """
     Background task: geocodifica un envío manual y guarda lat/lng.
@@ -123,7 +124,7 @@ async def _geocode_envio_manual(
         if lat is None and street_name:
             direccion_cliente = f"{street_name} {street_number}".strip()
             ciudad = city_name or "Buenos Aires"
-            coords = await geocode_address(direccion_cliente, ciudad=ciudad, db=db)
+            coords = await geocode_address(direccion_cliente, ciudad=ciudad, zip_code=zip_code, db=db)
             if coords:
                 lat, lng = coords
 
@@ -2118,6 +2119,7 @@ def crear_envio_desde_pedido(
         street_number=payload.street_number,
         city_name=payload.city_name,
         transporte_id=payload.transporte_id,
+        zip_code=payload.zip_code,
     )
 
     soh_label = f" desde pedido GBP:{payload.soh_id}" if payload.soh_id else ""
@@ -2275,6 +2277,7 @@ def crear_envio_manual(
         street_number=payload.street_number,
         city_name=payload.city_name,
         transporte_id=payload.transporte_id,
+        zip_code=payload.zip_code,
     )
 
     return CrearEnvioManualResponse(
@@ -2290,9 +2293,10 @@ def crear_envio_manual(
     response_model=dict,
     summary="Editar envío manual existente",
 )
-def editar_envio_manual(
+async def editar_envio_manual(
     shipping_id: str,
     payload: CrearEnvioManualRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
@@ -2350,6 +2354,15 @@ def editar_envio_manual(
             )
         resolved_cust_id = soh.cust_id
 
+    # Detectar si la dirección cambió → necesita re-geocoding
+    direccion_cambio = (
+        (etiqueta.manual_street_name or "") != (payload.street_name or "")
+        or (etiqueta.manual_street_number or "") != (payload.street_number or "")
+        or (etiqueta.manual_city_name or "") != (payload.city_name or "")
+        or (etiqueta.manual_zip_code or "") != (payload.zip_code or "")
+        or (etiqueta.transporte_id or None) != (payload.transporte_id or None)
+    )
+
     # Guardar estado anterior para auditoría
     estado_anterior = {
         "receiver_name": etiqueta.manual_receiver_name,
@@ -2366,6 +2379,11 @@ def editar_envio_manual(
         "comment": etiqueta.manual_comment,
         "phone": etiqueta.manual_phone,
     }
+
+    # Si la dirección cambió, limpiar coords viejas para forzar re-geocoding
+    if direccion_cambio:
+        etiqueta.latitud = None
+        etiqueta.longitud = None
 
     # Actualizar campos
     etiqueta.fecha_envio = payload.fecha_envio
@@ -2416,6 +2434,22 @@ def editar_envio_manual(
     except Exception as e:
         db.rollback()
         raise HTTPException(500, f"Error guardando cambios: {str(e)}")
+
+    # Si la dirección cambió, re-geocodificar en background
+    if direccion_cambio:
+        background_tasks.add_task(
+            _geocode_envio_manual,
+            shipping_id=shipping_id,
+            street_name=payload.street_name,
+            street_number=payload.street_number,
+            city_name=payload.city_name,
+            transporte_id=payload.transporte_id,
+            zip_code=payload.zip_code,
+        )
+        logger.info(
+            "Dirección cambió para %s → re-geocodificando en background",
+            shipping_id,
+        )
 
     # Resolver cordón: si hay transporte con CP, usar ese CP; sino, CP del cliente.
     cp_for_cordon = payload.zip_code
@@ -3459,10 +3493,12 @@ async def geocodificar_etiquetas(
             # ── Fallback: dirección del cliente (manual o enriquecida) ──
             direccion = None
             ciudad = "Buenos Aires"
+            zip_code = None
 
             if etiqueta.es_manual and etiqueta.manual_street_name:
                 direccion = f"{etiqueta.manual_street_name} {etiqueta.manual_street_number or ''}".strip()
                 ciudad = etiqueta.manual_city_name or "Buenos Aires"
+                zip_code = etiqueta.manual_zip_code
             elif etiqueta.direccion_completa:
                 direccion = etiqueta.direccion_completa
             else:
@@ -3475,9 +3511,10 @@ async def geocodificar_etiquetas(
                 if ml_ship and ml_ship.mlstreet_name:
                     direccion = f"{ml_ship.mlstreet_name} {ml_ship.mlstreet_number or ''}".strip()
                     ciudad = ml_ship.mlcity_name or "Buenos Aires"
+                    zip_code = ml_ship.mlzip_code
 
             if direccion:
-                coords = await geocode_address(direccion, ciudad=ciudad, db=db)
+                coords = await geocode_address(direccion, ciudad=ciudad, zip_code=zip_code, db=db)
                 if coords:
                     lat, lng = coords
 
