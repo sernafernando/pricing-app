@@ -15,6 +15,7 @@ Los archivos ZPL contienen JSONs embebidos en los QR codes con formato:
 El campo "id" del QR = mlshippingid en tb_mercadolibre_orders_shipping.
 """
 
+import logging
 import re
 import io
 import json
@@ -51,6 +52,7 @@ from app.services.etiqueta_enrichment_service import (
     re_enriquecer_por_http,
 )
 from app.services.ml_webhook_service import fetch_shipment_label_zpl
+from app.services.geocoding_service import geocode_address
 from app.models.sale_order_detail import SaleOrderDetail
 from app.models.tb_item import TBItem
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
@@ -63,6 +65,9 @@ router = APIRouter()
 QR_JSON_REGEX = re.compile(r'\{"id":"[^}]+\}')
 
 
+logger = logging.getLogger(__name__)
+
+
 def _check_permiso(db: Session, user: Usuario, codigo: str) -> None:
     """Verifica permiso y lanza 403 si no lo tiene."""
     if not verificar_permiso(db, user, codigo):
@@ -70,6 +75,71 @@ def _check_permiso(db: Session, user: Usuario, codigo: str) -> None:
             status_code=403,
             detail=f"No tenés permiso: {codigo}",
         )
+
+
+async def _geocode_envio_manual(
+    shipping_id: str,
+    street_name: str,
+    street_number: str,
+    city_name: str,
+    transporte_id: Optional[int],
+) -> None:
+    """
+    Background task: geocodifica un envío manual y guarda lat/lng.
+
+    Lógica:
+      1. Si tiene transporte asignado y el transporte YA tiene lat/lng → usar esos.
+      2. Si tiene transporte con dirección pero sin lat/lng → geocodificar la
+         dirección del transporte, guardar en AMBOS (transporte + etiqueta).
+      3. Si no tiene transporte → geocodificar la dirección del cliente.
+    """
+    from app.core.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+        if not etiqueta:
+            return
+
+        lat, lng = None, None
+
+        # Caso 1 y 2: tiene transporte
+        if transporte_id is not None:
+            transporte = db.query(Transporte).filter(Transporte.id == transporte_id).first()
+            if transporte:
+                if transporte.latitud and transporte.longitud:
+                    # Caso 1: transporte ya geocodificado
+                    lat, lng = transporte.latitud, transporte.longitud
+                elif transporte.direccion:
+                    # Caso 2: geocodificar dirección del transporte
+                    ciudad_transp = transporte.localidad or "Buenos Aires"
+                    coords = await geocode_address(transporte.direccion, ciudad=ciudad_transp, db=db)
+                    if coords:
+                        lat, lng = coords
+                        transporte.latitud = lat
+                        transporte.longitud = lng
+
+        # Caso 3: sin transporte o transporte sin dirección → geocodificar cliente
+        if lat is None and street_name:
+            direccion_cliente = f"{street_name} {street_number}".strip()
+            ciudad = city_name or "Buenos Aires"
+            coords = await geocode_address(direccion_cliente, ciudad=ciudad, db=db)
+            if coords:
+                lat, lng = coords
+
+        if lat is not None and lng is not None:
+            etiqueta.latitud = lat
+            etiqueta.longitud = lng
+            db.commit()
+            logger.info("Geocoding OK para envío manual %s → (%.6f, %.6f)", shipping_id, lat, lng)
+        else:
+            logger.warning("Geocoding sin resultado para envío manual %s", shipping_id)
+
+    except Exception:
+        logger.exception("Error geocodificando envío manual %s", shipping_id)
+        db.rollback()
+    finally:
+        db.close()
 
 
 # ── Schemas ──────────────────────────────────────────────────────────
@@ -1865,6 +1935,7 @@ def lookup_pedido(
 )
 def crear_envio_desde_pedido(
     payload: CrearDesdePedidoRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> CrearEnvioManualResponse:
@@ -1955,6 +2026,16 @@ def crear_envio_desde_pedido(
         )
         cordon_val = cordon_row.cordon if cordon_row else None
 
+    # Geocodificar en background (no bloquea la respuesta)
+    background_tasks.add_task(
+        _geocode_envio_manual,
+        shipping_id=shipping_id,
+        street_name=payload.street_name,
+        street_number=payload.street_number,
+        city_name=payload.city_name,
+        transporte_id=payload.transporte_id,
+    )
+
     soh_label = f" desde pedido GBP:{payload.soh_id}" if payload.soh_id else ""
     return CrearEnvioManualResponse(
         ok=True,
@@ -1971,6 +2052,7 @@ def crear_envio_desde_pedido(
 )
 def crear_envio_manual(
     payload: CrearEnvioManualRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> CrearEnvioManualResponse:
@@ -2100,6 +2182,16 @@ def crear_envio_manual(
             db.query(CodigoPostalCordon.cordon).filter(CodigoPostalCordon.codigo_postal == cp_for_cordon).first()
         )
         cordon_val = cordon_row.cordon if cordon_row else None
+
+    # Geocodificar en background (no bloquea la respuesta)
+    background_tasks.add_task(
+        _geocode_envio_manual,
+        shipping_id=shipping_id,
+        street_name=payload.street_name,
+        street_number=payload.street_number,
+        city_name=payload.city_name,
+        transporte_id=payload.transporte_id,
+    )
 
     return CrearEnvioManualResponse(
         ok=True,
