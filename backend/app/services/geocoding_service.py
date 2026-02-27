@@ -22,10 +22,30 @@ logger = logging.getLogger(__name__)
 MAPBOX_GEOCODING_URL = "https://api.mapbox.com/geocoding/v5/mapbox.places"
 
 
+def _es_cp_caba(zip_code: Optional[str]) -> bool:
+    """
+    Detecta si un código postal argentino pertenece a CABA.
+
+    CABA usa CPs de 4 dígitos que empiezan con '1' (1000-1499),
+    o CPA alfanumérico que empieza con 'C' (ej. C1029AAO).
+    """
+    if not zip_code:
+        return False
+    cp = zip_code.strip()
+    # CPA alfanumérico: C1029AAO → empieza con C
+    if cp.upper().startswith("C") and len(cp) >= 5:
+        return True
+    # CP numérico de 4 dígitos: 1000-1499
+    if cp.isdigit() and len(cp) == 4 and cp.startswith("1") and int(cp) < 1500:
+        return True
+    return False
+
+
 async def geocode_address(
     direccion: str,
     ciudad: str = "Buenos Aires",
     pais: str = "Argentina",
+    zip_code: Optional[str] = None,
     db: Optional[Session] = None,
     usar_cache: bool = True,
 ) -> Optional[Tuple[float, float]]:
@@ -37,6 +57,7 @@ async def geocode_address(
         direccion: Dirección completa (calle, número, etc)
         ciudad: Ciudad (default Buenos Aires)
         pais: País (default Argentina)
+        zip_code: Código postal (opcional, mejora precisión)
         db: Sesión de BD para cache (opcional)
         usar_cache: Si True, busca en cache antes de consultar API
 
@@ -48,8 +69,27 @@ async def geocode_address(
         logger.error("MAPBOX_ACCESS_TOKEN no configurado en .env")
         return None
 
-    # Construir query completa
-    query = f"{direccion}, {ciudad}, {pais}"
+    # Si el CP indica CABA pero la ciudad es un barrio (no "Buenos Aires"),
+    # corregir para que Mapbox no se confunda con nombres de barrio
+    if _es_cp_caba(zip_code) and ciudad.lower() not in (
+        "buenos aires",
+        "caba",
+        "capital federal",
+        "ciudad autónoma de buenos aires",
+        "ciudad autonoma de buenos aires",
+    ):
+        logger.info(
+            "CP %s indica CABA, overriding ciudad '%s' → 'Buenos Aires'",
+            zip_code,
+            ciudad,
+        )
+        ciudad = "Buenos Aires"
+
+    # Construir query completa — incluir CP si está disponible
+    if zip_code:
+        query = f"{direccion}, {zip_code} {ciudad}, {pais}"
+    else:
+        query = f"{direccion}, {ciudad}, {pais}"
 
     # Verificar cache si está disponible
     if usar_cache and db:
