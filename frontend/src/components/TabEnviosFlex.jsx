@@ -182,11 +182,13 @@ export default function TabEnviosFlex({ operador = null }) {
   const [showLogisticasModal, setShowLogisticasModal] = useState(false);
   const [newLogNombre, setNewLogNombre] = useState('');
   const [newLogColor, setNewLogColor] = useState('#3b82f6');
+  const [editingLog, setEditingLog] = useState(null); // { id, nombre, color }
 
   // Modal transportes
   const [showTransportesModal, setShowTransportesModal] = useState(false);
   const [newTranspNombre, setNewTranspNombre] = useState('');
   const [newTranspCuit, setNewTranspCuit] = useState('');
+  const [editingTransp, setEditingTransp] = useState(null); // { id, nombre, cuit, direccion, cp, localidad, telefono, horario, color }
   const [newTranspDireccion, setNewTranspDireccion] = useState('');
   const [newTranspCp, setNewTranspCp] = useState('');
   const [newTranspLocalidad, setNewTranspLocalidad] = useState('');
@@ -805,6 +807,20 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
+  const guardarEdicionLogistica = async () => {
+    if (!editingLog || !editingLog.nombre.trim()) return;
+    try {
+      await api.put(`/logisticas/${editingLog.id}`, {
+        nombre: editingLog.nombre.trim(),
+        color: editingLog.color || '',
+      });
+      setEditingLog(null);
+      cargarLogisticas();
+    } catch (err) {
+      mostrarError(err);
+    }
+  };
+
   // ── Transportes CRUD ────────────────────────────────────────
 
   const crearTransporte = async (e) => {
@@ -855,6 +871,26 @@ export default function TabEnviosFlex({ operador = null }) {
     if (!confirmed) return;
     try {
       await api.delete(`/transportes/${transporte.id}`);
+      cargarTransportes();
+    } catch (err) {
+      mostrarError(err);
+    }
+  };
+
+  const guardarEdicionTransporte = async () => {
+    if (!editingTransp || !editingTransp.nombre.trim()) return;
+    try {
+      await api.put(`/transportes/${editingTransp.id}`, {
+        nombre: editingTransp.nombre.trim(),
+        cuit: editingTransp.cuit?.trim() || null,
+        direccion: editingTransp.direccion?.trim() || null,
+        cp: editingTransp.cp?.trim() || null,
+        localidad: editingTransp.localidad?.trim() || null,
+        telefono: editingTransp.telefono?.trim() || null,
+        horario: editingTransp.horario?.trim() || null,
+        color: editingTransp.color || '',
+      });
+      setEditingTransp(null);
       cargarTransportes();
     } catch (err) {
       mostrarError(err);
@@ -2350,46 +2386,96 @@ export default function TabEnviosFlex({ operador = null }) {
                       key={l.id}
                       className={`${styles.logisticaItem} ${!l.activa ? styles.logisticaInactiva : ''}`}
                     >
-                      <div
-                        className={styles.logisticaColor}
-                        style={{ background: l.color || '#94a3b8' }}
-                      />
-                      <span className={styles.logisticaNombre}>{l.nombre}</span>
-                      {l.activa && (
-                        <label
-                          className={styles.logisticaAsignaLabel}
-                          title="Al pistolear, asigna la logística en vez de verificar"
-                        >
+                      {editingLog?.id === l.id ? (
+                        <>
                           <input
-                            type="checkbox"
-                            checked={l.pistoleado_asigna || false}
-                            onChange={() => {
-                              api.put(`/logisticas/${l.id}`, { pistoleado_asigna: !l.pistoleado_asigna })
-                                .then(() => cargarLogisticas())
-                                .catch(mostrarError);
+                            type="color"
+                            value={editingLog.color || '#94a3b8'}
+                            onChange={(ev) => setEditingLog({ ...editingLog, color: ev.target.value })}
+                            className={styles.colorInput}
+                          />
+                          <input
+                            type="text"
+                            value={editingLog.nombre}
+                            onChange={(ev) => setEditingLog({ ...editingLog, nombre: ev.target.value })}
+                            className={styles.editInlineInput}
+                            autoFocus
+                            onKeyDown={(ev) => {
+                              if (ev.key === 'Enter') guardarEdicionLogistica();
+                              if (ev.key === 'Escape') setEditingLog(null);
                             }}
                           />
-                          <ScanBarcode size={14} />
-                          <span>Asigna</span>
-                        </label>
-                      )}
-                      <button
-                        className={styles.btnLogisticaAction}
-                        onClick={() => toggleLogistica(l)}
-                        title={l.activa ? 'Desactivar' : 'Activar'}
-                        aria-label={l.activa ? 'Desactivar logística' : 'Activar logística'}
-                      >
-                        {l.activa ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
-                      </button>
-                      {l.activa && (
-                        <button
-                          className={styles.btnLogisticaAction}
-                          onClick={() => eliminarLogistica(l)}
-                          title="Desactivar"
-                          aria-label="Desactivar logística"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                          <button
+                            className={styles.btnLogisticaAction}
+                            onClick={guardarEdicionLogistica}
+                            title="Guardar"
+                            aria-label="Guardar cambios"
+                          >
+                            <CheckCircle size={16} />
+                          </button>
+                          <button
+                            className={styles.btnLogisticaAction}
+                            onClick={() => setEditingLog(null)}
+                            title="Cancelar"
+                            aria-label="Cancelar edición"
+                          >
+                            <X size={16} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <div
+                            className={styles.logisticaColor}
+                            style={{ background: l.color || '#94a3b8' }}
+                          />
+                          <span className={styles.logisticaNombre}>{l.nombre}</span>
+                          {l.activa && (
+                            <label
+                              className={styles.logisticaAsignaLabel}
+                              title="Al pistolear, asigna la logística en vez de verificar"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={l.pistoleado_asigna || false}
+                                onChange={() => {
+                                  api.put(`/logisticas/${l.id}`, { pistoleado_asigna: !l.pistoleado_asigna })
+                                    .then(() => cargarLogisticas())
+                                    .catch(mostrarError);
+                                }}
+                              />
+                              <ScanBarcode size={14} />
+                              <span>Asigna</span>
+                            </label>
+                          )}
+                          {l.activa && (
+                            <button
+                              className={styles.btnLogisticaAction}
+                              onClick={() => setEditingLog({ id: l.id, nombre: l.nombre, color: l.color || '#94a3b8' })}
+                              title="Editar"
+                              aria-label="Editar logística"
+                            >
+                              <Pencil size={16} />
+                            </button>
+                          )}
+                          <button
+                            className={styles.btnLogisticaAction}
+                            onClick={() => toggleLogistica(l)}
+                            title={l.activa ? 'Desactivar' : 'Activar'}
+                            aria-label={l.activa ? 'Desactivar logística' : 'Activar logística'}
+                          >
+                            {l.activa ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                          </button>
+                          {l.activa && (
+                            <button
+                              className={styles.btnLogisticaAction}
+                              onClick={() => eliminarLogistica(l)}
+                              title="Desactivar"
+                              aria-label="Desactivar logística"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   ))
@@ -2460,43 +2546,143 @@ export default function TabEnviosFlex({ operador = null }) {
                   <div className={styles.empty}>No hay transportes creados</div>
                 ) : (
                   transportes.map(t => (
-                    <div
-                      key={t.id}
-                      className={`${styles.logisticaItem} ${!t.activa ? styles.logisticaInactiva : ''}`}
-                    >
+                    <div key={t.id}>
                       <div
-                        className={styles.logisticaColor}
-                        style={{ background: t.color || '#94a3b8' }}
-                      />
-                      <div className={styles.transporteInfo}>
-                        <span className={styles.logisticaNombre}>{t.nombre}</span>
-                        {t.cuit && <span className={styles.transporteDetail}>CUIT: {t.cuit}</span>}
-                        {t.direccion && <span className={styles.transporteDetail}>{t.direccion}</span>}
-                        {(t.cp || t.localidad) && (
-                          <span className={styles.transporteDetail}>
-                            {[t.cp, t.localidad].filter(Boolean).join(' - ')}
-                          </span>
-                        )}
-                        {t.telefono && <span className={styles.transporteDetail}>Tel: {t.telefono}</span>}
-                        {t.horario && <span className={styles.transporteDetail}>{t.horario}</span>}
-                      </div>
-                      <button
-                        className={styles.btnLogisticaAction}
-                        onClick={() => toggleTransporte(t)}
-                        title={t.activa ? 'Desactivar' : 'Activar'}
-                        aria-label={t.activa ? 'Desactivar transporte' : 'Activar transporte'}
+                        className={`${styles.logisticaItem} ${!t.activa ? styles.logisticaInactiva : ''}`}
                       >
-                        {t.activa ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
-                      </button>
-                      {t.activa && (
+                        <div
+                          className={styles.logisticaColor}
+                          style={{ background: t.color || '#94a3b8' }}
+                        />
+                        <div className={styles.transporteInfo}>
+                          <span className={styles.logisticaNombre}>{t.nombre}</span>
+                          {t.cuit && <span className={styles.transporteDetail}>CUIT: {t.cuit}</span>}
+                          {t.direccion && <span className={styles.transporteDetail}>{t.direccion}</span>}
+                          {(t.cp || t.localidad) && (
+                            <span className={styles.transporteDetail}>
+                              {[t.cp, t.localidad].filter(Boolean).join(' - ')}
+                            </span>
+                          )}
+                          {t.telefono && <span className={styles.transporteDetail}>Tel: {t.telefono}</span>}
+                          {t.horario && <span className={styles.transporteDetail}>{t.horario}</span>}
+                        </div>
+                        {t.activa && (
+                          <button
+                            className={styles.btnLogisticaAction}
+                            onClick={() => setEditingTransp(
+                              editingTransp?.id === t.id ? null : {
+                                id: t.id, nombre: t.nombre, cuit: t.cuit || '',
+                                direccion: t.direccion || '', cp: t.cp || '',
+                                localidad: t.localidad || '', telefono: t.telefono || '',
+                                horario: t.horario || '', color: t.color || '#8b5cf6',
+                              }
+                            )}
+                            title="Editar"
+                            aria-label="Editar transporte"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                        )}
                         <button
                           className={styles.btnLogisticaAction}
-                          onClick={() => eliminarTransporte(t)}
-                          title="Desactivar"
-                          aria-label="Desactivar transporte"
+                          onClick={() => toggleTransporte(t)}
+                          title={t.activa ? 'Desactivar' : 'Activar'}
+                          aria-label={t.activa ? 'Desactivar transporte' : 'Activar transporte'}
                         >
-                          <Trash2 size={16} />
+                          {t.activa ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                         </button>
+                        {t.activa && (
+                          <button
+                            className={styles.btnLogisticaAction}
+                            onClick={() => eliminarTransporte(t)}
+                            title="Desactivar"
+                            aria-label="Desactivar transporte"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                      {editingTransp?.id === t.id && (
+                        <div className={styles.editTranspForm}>
+                          <div className={styles.formGrid}>
+                            <div className={styles.formField}>
+                              <label>Nombre</label>
+                              <input
+                                type="text"
+                                value={editingTransp.nombre}
+                                onChange={(ev) => setEditingTransp({ ...editingTransp, nombre: ev.target.value })}
+                                autoFocus
+                              />
+                            </div>
+                            <div className={styles.formField}>
+                              <label>CUIT</label>
+                              <input
+                                type="text"
+                                value={editingTransp.cuit}
+                                onChange={(ev) => setEditingTransp({ ...editingTransp, cuit: ev.target.value })}
+                                placeholder="30-12345678-9"
+                              />
+                            </div>
+                            <div className={`${styles.formField} ${styles.formFieldSpan2}`}>
+                              <label>Dirección</label>
+                              <input
+                                type="text"
+                                value={editingTransp.direccion}
+                                onChange={(ev) => setEditingTransp({ ...editingTransp, direccion: ev.target.value })}
+                              />
+                            </div>
+                            <div className={styles.formField}>
+                              <label>CP</label>
+                              <input
+                                type="text"
+                                value={editingTransp.cp}
+                                onChange={(ev) => setEditingTransp({ ...editingTransp, cp: ev.target.value })}
+                              />
+                            </div>
+                            <div className={styles.formField}>
+                              <label>Localidad</label>
+                              <input
+                                type="text"
+                                value={editingTransp.localidad}
+                                onChange={(ev) => setEditingTransp({ ...editingTransp, localidad: ev.target.value })}
+                              />
+                            </div>
+                            <div className={styles.formField}>
+                              <label>Teléfono</label>
+                              <input
+                                type="text"
+                                value={editingTransp.telefono}
+                                onChange={(ev) => setEditingTransp({ ...editingTransp, telefono: ev.target.value })}
+                              />
+                            </div>
+                            <div className={styles.formField}>
+                              <label>Horario</label>
+                              <input
+                                type="text"
+                                value={editingTransp.horario}
+                                onChange={(ev) => setEditingTransp({ ...editingTransp, horario: ev.target.value })}
+                              />
+                            </div>
+                            <div className={styles.formField}>
+                              <label>Color</label>
+                              <input
+                                type="color"
+                                value={editingTransp.color}
+                                onChange={(ev) => setEditingTransp({ ...editingTransp, color: ev.target.value })}
+                                className={styles.colorInput}
+                              />
+                            </div>
+                          </div>
+                          <div className={styles.editTranspActions}>
+                            <button className={styles.btnCrear} onClick={guardarEdicionTransporte}>
+                              <CheckCircle size={16} />
+                              Guardar
+                            </button>
+                            <button className={styles.btnCancelar} onClick={() => setEditingTransp(null)}>
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))

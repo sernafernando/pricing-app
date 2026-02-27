@@ -1063,6 +1063,40 @@
   cursor: pointer;
 }
 
+/* ── Inline editing ─────────────────────────────────────────── */
+
+.editInlineInput {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.editInlineInput:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
+.editTranspForm {
+  padding: 12px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  margin-top: -1px;
+}
+
+.editTranspActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
 /* ── Create Logística Form ─────────────────────────────────── */
 
 .createForm {
