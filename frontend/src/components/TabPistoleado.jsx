@@ -211,7 +211,14 @@ export default function TabPistoleado({ operador = null }) {
           ? ` — ${data.en_preparacion} en preparación`
           : '';
         addLog('complete', `${logNombre} completa: ${data.pistoleadas}/${data.total_etiquetas}${prepMsg}`);
-        if (ttsEnabled) playSound('upload_ok');
+        if (ttsEnabled) {
+          // Secuencia: "logística completa" + (si hay en prep) "N en preparación"
+          const seq = ['logistica_completa'];
+          if (data.en_preparacion > 0 && data.en_preparacion <= 500) {
+            seq.push(String(data.en_preparacion), 'en_preparacion');
+          }
+          playSoundSequence(seq);
+        }
       }
     } catch (err) {
       console.error('Error cargando stats:', err);
