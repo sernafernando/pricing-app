@@ -3284,7 +3284,7 @@ class GeocodificarResponse(BaseModel):
 
 
 @router.post(
-    "/geocodificar",
+    "/etiquetas-envio/geocodificar",
     response_model=GeocodificarResponse,
     summary="Geocodificar etiquetas sin coordenadas",
 )
