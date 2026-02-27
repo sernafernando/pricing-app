@@ -3337,13 +3337,31 @@ async def geocodificar_etiquetas(
                             transporte.latitud = lat
                             transporte.longitud = lng
 
-            # Fallback: dirección del cliente
-            if lat is None and etiqueta.mlstreet_name:
-                direccion = f"{etiqueta.mlstreet_name} {etiqueta.mlstreet_number or ''}".strip()
-                ciudad = etiqueta.mlcity_name or "Buenos Aires"
-                coords = await geocode_address(direccion, ciudad=ciudad, db=db)
-                if coords:
-                    lat, lng = coords
+            # Fallback: dirección del cliente (manual o enriquecida)
+            if lat is None:
+                direccion = None
+                ciudad = "Buenos Aires"
+
+                if etiqueta.es_manual and etiqueta.manual_street_name:
+                    direccion = f"{etiqueta.manual_street_name} {etiqueta.manual_street_number or ''}".strip()
+                    ciudad = etiqueta.manual_city_name or "Buenos Aires"
+                elif etiqueta.direccion_completa:
+                    direccion = etiqueta.direccion_completa
+                else:
+                    # Buscar en ML shipping como último recurso
+                    ml_ship = (
+                        db.query(MercadoLibreOrderShipping)
+                        .filter(MercadoLibreOrderShipping.mlshippingid == etiqueta.shipping_id)
+                        .first()
+                    )
+                    if ml_ship and ml_ship.mlstreet_name:
+                        direccion = f"{ml_ship.mlstreet_name} {ml_ship.mlstreet_number or ''}".strip()
+                        ciudad = ml_ship.mlcity_name or "Buenos Aires"
+
+                if direccion:
+                    coords = await geocode_address(direccion, ciudad=ciudad, db=db)
+                    if coords:
+                        lat, lng = coords
 
             if lat is not None and lng is not None:
                 etiqueta.latitud = lat
