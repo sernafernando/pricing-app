@@ -514,8 +514,14 @@ def _soh_status_subquery(db: Session):
         manual_ranked.c.soh_ssos_id,
     ).filter(manual_ranked.c.rn == 1)
 
-    # UNION de ambas fuentes
-    return ml_dedup.union_all(manual_dedup).subquery()
+    # UNION de ambas fuentes — wrappear con labels explícitos
+    # para que .c.shipping_id_str y .c.soh_ssos_id estén disponibles
+    union = ml_dedup.union_all(manual_dedup).subquery("soh_union")
+
+    return db.query(
+        union.c.shipping_id_str,
+        union.c.soh_ssos_id,
+    ).subquery()
 
 
 def _shipping_dedup_subquery(db: Session):
