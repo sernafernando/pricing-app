@@ -390,6 +390,10 @@ class PistolearResponse(BaseModel):
     bultos_pistoleados: int = Field(0, description="Cantidad de bultos pistoleados hasta ahora")
     count: int = Field(description="Total pistoleadas en esta sesión (fecha + logística + operador)")
     estado_erp: Optional[str] = Field(None, description="Nombre del estado ERP del pedido (ssos_name)")
+    logistica_asignada: bool = Field(
+        False,
+        description="True si la logística fue asignada por el pistoleado (modo pistoleado_asigna)",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -2631,20 +2635,34 @@ def pistolear_etiqueta(
     if not etiqueta:
         raise HTTPException(404, f"Etiqueta {payload.shipping_id} no encontrada en el sistema")
 
-    # Validar logística coincide (bloqueo estricto) — antes de cualquier check de duplicado
+    # Validar logística coincide — o asignar si pistoleado_asigna está activo
+    logistica_pistoleando = db.query(Logistica).filter(Logistica.id == payload.logistica_id).first()
+    if not logistica_pistoleando:
+        raise HTTPException(404, "Logística de pistoleado no encontrada")
+
+    fue_asignada = False
     if etiqueta.logistica_id is not None and etiqueta.logistica_id != payload.logistica_id:
-        logistica_etiq = db.query(Logistica).filter(Logistica.id == etiqueta.logistica_id).first()
-        logistica_pistoleando = db.query(Logistica).filter(Logistica.id == payload.logistica_id).first()
-        raise HTTPException(
-            422,
-            detail={
-                "detail": "Logística no coincide",
-                "etiqueta_logistica": logistica_etiq.nombre if logistica_etiq else "Desconocida",
-                "etiqueta_logistica_id": etiqueta.logistica_id,
-                "pistoleando_logistica": logistica_pistoleando.nombre if logistica_pistoleando else "Desconocida",
-                "pistoleando_logistica_id": payload.logistica_id,
-            },
-        )
+        if logistica_pistoleando.pistoleado_asigna:
+            # Modo asignación: reasignar la logística de la etiqueta
+            etiqueta.logistica_id = payload.logistica_id
+            fue_asignada = True
+        else:
+            # Modo estricto: rechazar si no coincide
+            logistica_etiq = db.query(Logistica).filter(Logistica.id == etiqueta.logistica_id).first()
+            raise HTTPException(
+                422,
+                detail={
+                    "detail": "Logística no coincide",
+                    "etiqueta_logistica": logistica_etiq.nombre if logistica_etiq else "Desconocida",
+                    "etiqueta_logistica_id": etiqueta.logistica_id,
+                    "pistoleando_logistica": logistica_pistoleando.nombre,
+                    "pistoleando_logistica_id": payload.logistica_id,
+                },
+            )
+    elif etiqueta.logistica_id is None and logistica_pistoleando.pistoleado_asigna:
+        # Sin logística asignada + modo asignación → asignar
+        etiqueta.logistica_id = payload.logistica_id
+        fue_asignada = True
 
     ahora = datetime.now(UTC)
 
@@ -2805,6 +2823,7 @@ def pistolear_etiqueta(
         bultos_pistoleados=bultos_pistoleados_count,
         count=count,
         estado_erp=estado_erp_name,
+        logistica_asignada=fue_asignada,
     )
 
 
@@ -3365,7 +3384,7 @@ class GeocodificarResponse(BaseModel):
 @router.post(
     "/etiquetas-envio/geocodificar",
     response_model=GeocodificarResponse,
-    summary="Geocodificar etiquetas sin coordenadas",
+    summary="Geocodificar etiquetas (o re-geocodificar con coords de transporte)",
 )
 async def geocodificar_etiquetas(
     body: GeocodificarRequest,
@@ -3373,13 +3392,15 @@ async def geocodificar_etiquetas(
     current_user: Usuario = Depends(get_current_user),
 ) -> GeocodificarResponse:
     """
-    Geocodifica etiquetas que no tienen lat/lng.
+    Geocodifica etiquetas que no tienen lat/lng, o actualiza las que tienen
+    transporte asignado para que apunten a la dirección del transporte.
 
     Para cada etiqueta:
-      1. Si ya tiene coordenadas → skip (ya_tenian).
-      2. Si tiene transporte con coords → copiar del transporte.
-      3. Si tiene transporte con dirección → geocodificar transporte, guardar en ambos.
-      4. Geocodificar dirección del cliente (mlstreet_name + mlstreet_number).
+      1. Si tiene transporte → SIEMPRE usar coords del transporte (aunque ya
+         tenga lat/lng propias). Esto corrige envíos que apuntan a la
+         dirección del cliente cuando deberían apuntar al transporte.
+      2. Si NO tiene transporte y ya tiene coords → skip (ya_tenian).
+      3. Geocodificar dirección del cliente (manual, enriquecida, o ML).
     """
     _check_permiso(db, current_user, "envios_flex")
 
@@ -3395,14 +3416,9 @@ async def geocodificar_etiquetas(
 
     for etiqueta in etiquetas:
         try:
-            # Ya tiene coordenadas
-            if etiqueta.latitud and etiqueta.longitud:
-                ya_tenian += 1
-                continue
-
             lat, lng = None, None
 
-            # Intentar desde transporte
+            # ── Con transporte: SIEMPRE usar coords del transporte ──
             if etiqueta.transporte_id:
                 transporte = db.query(Transporte).filter(Transporte.id == etiqueta.transporte_id).first()
                 if transporte:
@@ -3416,31 +3432,54 @@ async def geocodificar_etiquetas(
                             transporte.latitud = lat
                             transporte.longitud = lng
 
-            # Fallback: dirección del cliente (manual o enriquecida)
-            if lat is None:
-                direccion = None
-                ciudad = "Buenos Aires"
+                if lat is not None and lng is not None:
+                    # Actualizar aunque ya tuviera coords (pueden ser del cliente)
+                    if etiqueta.latitud == lat and etiqueta.longitud == lng:
+                        ya_tenian += 1
+                    else:
+                        etiqueta.latitud = lat
+                        etiqueta.longitud = lng
+                        geocodificados += 1
+                        logger.info(
+                            "Geocoding (transporte) %s → (%.6f, %.6f)",
+                            etiqueta.shipping_id,
+                            lat,
+                            lng,
+                        )
+                    continue
 
-                if etiqueta.es_manual and etiqueta.manual_street_name:
-                    direccion = f"{etiqueta.manual_street_name} {etiqueta.manual_street_number or ''}".strip()
-                    ciudad = etiqueta.manual_city_name or "Buenos Aires"
-                elif etiqueta.direccion_completa:
-                    direccion = etiqueta.direccion_completa
-                else:
-                    # Buscar en ML shipping como último recurso
-                    ml_ship = (
-                        db.query(MercadoLibreOrderShipping)
-                        .filter(MercadoLibreOrderShipping.mlshippingid == etiqueta.shipping_id)
-                        .first()
-                    )
-                    if ml_ship and ml_ship.mlstreet_name:
-                        direccion = f"{ml_ship.mlstreet_name} {ml_ship.mlstreet_number or ''}".strip()
-                        ciudad = ml_ship.mlcity_name or "Buenos Aires"
+                # Transporte sin coords ni dirección → caer al fallback del cliente
+                # (no hacemos continue, dejamos que siga abajo)
 
-                if direccion:
-                    coords = await geocode_address(direccion, ciudad=ciudad, db=db)
-                    if coords:
-                        lat, lng = coords
+            # ── Sin transporte: skip si ya tiene coordenadas ──
+            if etiqueta.latitud and etiqueta.longitud:
+                ya_tenian += 1
+                continue
+
+            # ── Fallback: dirección del cliente (manual o enriquecida) ──
+            direccion = None
+            ciudad = "Buenos Aires"
+
+            if etiqueta.es_manual and etiqueta.manual_street_name:
+                direccion = f"{etiqueta.manual_street_name} {etiqueta.manual_street_number or ''}".strip()
+                ciudad = etiqueta.manual_city_name or "Buenos Aires"
+            elif etiqueta.direccion_completa:
+                direccion = etiqueta.direccion_completa
+            else:
+                # Buscar en ML shipping como último recurso
+                ml_ship = (
+                    db.query(MercadoLibreOrderShipping)
+                    .filter(MercadoLibreOrderShipping.mlshippingid == etiqueta.shipping_id)
+                    .first()
+                )
+                if ml_ship and ml_ship.mlstreet_name:
+                    direccion = f"{ml_ship.mlstreet_name} {ml_ship.mlstreet_number or ''}".strip()
+                    ciudad = ml_ship.mlcity_name or "Buenos Aires"
+
+            if direccion:
+                coords = await geocode_address(direccion, ciudad=ciudad, db=db)
+                if coords:
+                    lat, lng = coords
 
             if lat is not None and lng is not None:
                 etiqueta.latitud = lat
@@ -3463,4 +3502,87 @@ async def geocodificar_etiquetas(
         ya_tenian=ya_tenian,
         sin_resultado=sin_resultado,
         errores=errores,
+    )
+
+
+# ── Smart Polling ─────────────────────────────────────────────
+
+
+class CheckUpdatesResponse(BaseModel):
+    """Respuesta ligera para polling: count + timestamp del último cambio."""
+
+    count: int = Field(description="Total de etiquetas que matchean los filtros base")
+    last_updated: Optional[str] = Field(None, description="Timestamp ISO del último updated_at")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get(
+    "/etiquetas-envio/check-updates",
+    response_model=CheckUpdatesResponse,
+    summary="Check ligero para polling — count + last_updated",
+)
+def check_updates(
+    fecha_envio: Optional[date] = Query(None, description="Fecha de envío exacta"),
+    fecha_desde: Optional[date] = Query(None, description="Desde fecha (inclusive)"),
+    fecha_hasta: Optional[date] = Query(None, description="Hasta fecha (inclusive)"),
+    logistica_id: Optional[int] = Query(None, description="Filtrar por logística"),
+    sin_logistica: bool = Query(False, description="Solo sin logística"),
+    solo_outlet: bool = Query(False, description="Solo outlet"),
+    solo_turbo: bool = Query(False, description="Solo turbo"),
+    pistoleado: Optional[str] = Query(None, pattern="^(si|no)$", description="Filtrar por pistoleado: si/no"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> CheckUpdatesResponse:
+    """
+    Endpoint ultra-ligero para smart polling (cada ~10s).
+
+    Devuelve solo COUNT(*) + MAX(updated_at) sobre EtiquetaEnvio
+    con filtros básicos (fecha, logística, outlet, turbo, pistoleado).
+
+    NO hace JOINs pesados (ML shipping, cordón, estado ERP, search).
+    Si cualquier etiqueta dentro del rango cambia, el frontend recarga.
+
+    Filtros que requieren JOINs (cordon, sin_cordon, mlstatus, ssos_id,
+    search) se omiten intencionalmente — el COUNT puede diferir del
+    total visible, pero last_updated siempre detectará cambios.
+    """
+    _check_permiso(db, current_user, "envios_flex.ver")
+
+    query = db.query(
+        func.count(EtiquetaEnvio.shipping_id).label("count"),
+        func.max(EtiquetaEnvio.updated_at).label("last_updated"),
+    )
+
+    # ── Filtros directos sobre EtiquetaEnvio (sin JOINs) ──
+    if fecha_envio:
+        query = query.filter(EtiquetaEnvio.fecha_envio == fecha_envio)
+    else:
+        if fecha_desde:
+            query = query.filter(EtiquetaEnvio.fecha_envio >= fecha_desde)
+        if fecha_hasta:
+            query = query.filter(EtiquetaEnvio.fecha_envio <= fecha_hasta)
+
+    if logistica_id is not None:
+        query = query.filter(EtiquetaEnvio.logistica_id == logistica_id)
+
+    if sin_logistica:
+        query = query.filter(EtiquetaEnvio.logistica_id.is_(None))
+
+    if solo_outlet:
+        query = query.filter(EtiquetaEnvio.es_outlet.is_(True))
+
+    if solo_turbo:
+        query = query.filter(EtiquetaEnvio.es_turbo.is_(True))
+
+    if pistoleado == "si":
+        query = query.filter(EtiquetaEnvio.pistoleado_at.isnot(None))
+    elif pistoleado == "no":
+        query = query.filter(EtiquetaEnvio.pistoleado_at.is_(None))
+
+    row = query.one()
+
+    return CheckUpdatesResponse(
+        count=row.count,
+        last_updated=row.last_updated.isoformat() if row.last_updated else None,
     )

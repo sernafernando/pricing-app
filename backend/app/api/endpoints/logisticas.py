@@ -36,6 +36,7 @@ class LogisticaResponse(BaseModel):
     nombre: str
     activa: bool
     color: Optional[str] = None
+    pistoleado_asigna: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -50,6 +51,10 @@ class LogisticaCreate(BaseModel):
         pattern=r"^#[0-9a-fA-F]{6}$",
         description="Color hex para badge, ej: #3b82f6",
     )
+    pistoleado_asigna: bool = Field(
+        False,
+        description="Si True, al pistolear asigna la logística en vez de verificar",
+    )
 
 
 class LogisticaUpdate(BaseModel):
@@ -62,6 +67,7 @@ class LogisticaUpdate(BaseModel):
         description="Color hex para badge, ej: #3b82f6. Enviar string vacío para borrar.",
     )
     activa: Optional[bool] = None
+    pistoleado_asigna: Optional[bool] = None
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
@@ -110,6 +116,7 @@ def crear_logistica(
     logistica = Logistica(
         nombre=payload.nombre,
         color=payload.color,
+        pistoleado_asigna=payload.pistoleado_asigna,
     )
     db.add(logistica)
     db.commit()
@@ -154,6 +161,9 @@ def actualizar_logistica(
 
     if payload.activa is not None:
         logistica.activa = payload.activa
+
+    if payload.pistoleado_asigna is not None:
+        logistica.pistoleado_asigna = payload.pistoleado_asigna
 
     db.commit()
     db.refresh(logistica)

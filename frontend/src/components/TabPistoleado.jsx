@@ -164,21 +164,9 @@ export default function TabPistoleado({ operador = null }) {
 
   const cargarLogisticas = useCallback(async () => {
     try {
-      const { data: etiquetas } = await api.get('/etiquetas-envio', {
-        params: { fecha_envio: new Date().toISOString().split('T')[0] },
-      });
-      // Extraer logísticas únicas de las etiquetas del día
-      const logMap = new Map();
-      etiquetas.forEach((e) => {
-        if (e.logistica_id && e.logistica_nombre) {
-          logMap.set(e.logistica_id, {
-            id: e.logistica_id,
-            nombre: e.logistica_nombre,
-            color: e.logistica_color,
-          });
-        }
-      });
-      setLogisticas(Array.from(logMap.values()));
+      // Cargar logísticas activas (incluye pistoleado_asigna)
+      const { data } = await api.get('/logisticas');
+      setLogisticas(data);
     } catch (err) {
       console.error('Error cargando logísticas:', err);
     }
@@ -373,7 +361,8 @@ export default function TabPistoleado({ operador = null }) {
       });
 
       const estadoErpMsg = data.estado_erp === 'En Preparación' ? ' — Pedido en preparación' : '';
-      addLog('success', `${parsed.shippingId}${estadoErpMsg} — ${data.receiver_name || 'Sin nombre'} — ${data.cordon || data.ciudad || ''} — ${cajaActiva}`, {
+      const asignadaMsg = data.logistica_asignada ? ' [ASIGNADA]' : '';
+      addLog('success', `${parsed.shippingId}${asignadaMsg}${estadoErpMsg} — ${data.receiver_name || 'Sin nombre'} — ${data.cordon || data.ciudad || ''} — ${cajaActiva}`, {
         shippingId: parsed.shippingId,
       });
 
@@ -432,6 +421,8 @@ export default function TabPistoleado({ operador = null }) {
 
   // ── Render ──────────────────────────────────────────────────
 
+  const logisticaActiva = logisticas.find((l) => String(l.id) === logisticaId);
+  const modoAsignacion = logisticaActiva?.pistoleado_asigna || false;
   const porcentaje = stats ? stats.porcentaje : 0;
 
   return (
@@ -450,6 +441,12 @@ export default function TabPistoleado({ operador = null }) {
               <option key={l.id} value={l.id}>{l.nombre}</option>
             ))}
           </select>
+          {modoAsignacion && (
+            <div className={styles.modoAsignacionBadge} title="Al pistolear, asigna esta logística automáticamente">
+              <ScanBarcode size={14} />
+              Modo asignación
+            </div>
+          )}
         </div>
 
         <div className={styles.controlGroup}>
