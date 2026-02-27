@@ -86,7 +86,7 @@ const CORDON_COLORS = {
 };
 
 // ── Main Component ──────────────────────────────────────────────
-export default function MapaEnviosFlex({ envios = [] }) {
+export default function MapaEnviosFlex({ envios = [], onGeolocalizar, geocodificando = false }) {
   const [modoColor, setModoColor] = useState('logistica'); // 'logistica' | 'cordon' | 'estado'
 
   // Separar envíos con y sin coordenadas + contar turbos
@@ -260,6 +260,17 @@ export default function MapaEnviosFlex({ envios = [] }) {
           <div className={`${styles.infoBadge} ${styles.infoBadgeWarning}`}>
             <AlertTriangle size={14} />
             <span>{sinCoords.length} sin coordenadas</span>
+            {onGeolocalizar && (
+              <button
+                type="button"
+                className={styles.geoBtn}
+                onClick={() => onGeolocalizar(sinCoords.map(e => e.shipping_id))}
+                disabled={geocodificando}
+              >
+                <MapPin size={12} />
+                {geocodificando ? 'Geolocalizando...' : 'Geolocalizar'}
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -159,6 +159,33 @@
   border-color: #f59e0b;
 }
 
+.geoBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: var(--spacing-xs);
+  padding: 2px 8px;
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-sm);
+  border: 1px solid #b45309;
+  background: #b45309;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.geoBtn:hover:not(:disabled) {
+  background: #92400e;
+  border-color: #92400e;
+}
+
+.geoBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ============================================
    POPUP
    ============================================ */
