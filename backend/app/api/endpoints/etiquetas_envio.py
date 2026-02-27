@@ -390,6 +390,10 @@ class PistolearResponse(BaseModel):
     bultos_pistoleados: int = Field(0, description="Cantidad de bultos pistoleados hasta ahora")
     count: int = Field(description="Total pistoleadas en esta sesión (fecha + logística + operador)")
     estado_erp: Optional[str] = Field(None, description="Nombre del estado ERP del pedido (ssos_name)")
+    logistica_asignada: bool = Field(
+        False,
+        description="True si la logística fue asignada por el pistoleado (modo pistoleado_asigna)",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -2631,20 +2635,34 @@ def pistolear_etiqueta(
     if not etiqueta:
         raise HTTPException(404, f"Etiqueta {payload.shipping_id} no encontrada en el sistema")
 
-    # Validar logística coincide (bloqueo estricto) — antes de cualquier check de duplicado
+    # Validar logística coincide — o asignar si pistoleado_asigna está activo
+    logistica_pistoleando = db.query(Logistica).filter(Logistica.id == payload.logistica_id).first()
+    if not logistica_pistoleando:
+        raise HTTPException(404, "Logística de pistoleado no encontrada")
+
+    fue_asignada = False
     if etiqueta.logistica_id is not None and etiqueta.logistica_id != payload.logistica_id:
-        logistica_etiq = db.query(Logistica).filter(Logistica.id == etiqueta.logistica_id).first()
-        logistica_pistoleando = db.query(Logistica).filter(Logistica.id == payload.logistica_id).first()
-        raise HTTPException(
-            422,
-            detail={
-                "detail": "Logística no coincide",
-                "etiqueta_logistica": logistica_etiq.nombre if logistica_etiq else "Desconocida",
-                "etiqueta_logistica_id": etiqueta.logistica_id,
-                "pistoleando_logistica": logistica_pistoleando.nombre if logistica_pistoleando else "Desconocida",
-                "pistoleando_logistica_id": payload.logistica_id,
-            },
-        )
+        if logistica_pistoleando.pistoleado_asigna:
+            # Modo asignación: reasignar la logística de la etiqueta
+            etiqueta.logistica_id = payload.logistica_id
+            fue_asignada = True
+        else:
+            # Modo estricto: rechazar si no coincide
+            logistica_etiq = db.query(Logistica).filter(Logistica.id == etiqueta.logistica_id).first()
+            raise HTTPException(
+                422,
+                detail={
+                    "detail": "Logística no coincide",
+                    "etiqueta_logistica": logistica_etiq.nombre if logistica_etiq else "Desconocida",
+                    "etiqueta_logistica_id": etiqueta.logistica_id,
+                    "pistoleando_logistica": logistica_pistoleando.nombre,
+                    "pistoleando_logistica_id": payload.logistica_id,
+                },
+            )
+    elif etiqueta.logistica_id is None and logistica_pistoleando.pistoleado_asigna:
+        # Sin logística asignada + modo asignación → asignar
+        etiqueta.logistica_id = payload.logistica_id
+        fue_asignada = True
 
     ahora = datetime.now(UTC)
 
@@ -2805,6 +2823,7 @@ def pistolear_etiqueta(
         bultos_pistoleados=bultos_pistoleados_count,
         count=count,
         estado_erp=estado_erp_name,
+        logistica_asignada=fue_asignada,
     )
 
 

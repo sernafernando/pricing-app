@@ -16,6 +16,13 @@ class Logistica(Base):
     nombre = Column(String(100), unique=True, nullable=False)
     activa = Column(Boolean, default=True, nullable=False)
     color = Column(String(7), nullable=True)  # Hex color para badge, ej: "#3b82f6"
+    pistoleado_asigna = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false",
+        comment="Si True, al pistolear asigna la logística en vez de verificar coincidencia",
+    )
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

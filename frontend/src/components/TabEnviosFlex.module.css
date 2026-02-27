@@ -1036,6 +1036,33 @@
   color: var(--text-primary);
 }
 
+.logisticaAsignaLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s;
+}
+
+.logisticaAsignaLabel:has(input:checked) {
+  color: var(--accent);
+  background: var(--accent-bg, rgba(59, 130, 246, 0.1));
+}
+
+.logisticaAsignaLabel input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 /* ── Create Logística Form ─────────────────────────────────── */
 
 .createForm {

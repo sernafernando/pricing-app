@@ -2355,6 +2355,24 @@ export default function TabEnviosFlex({ operador = null }) {
                         style={{ background: l.color || '#94a3b8' }}
                       />
                       <span className={styles.logisticaNombre}>{l.nombre}</span>
+                      {l.activa && (
+                        <label
+                          className={styles.logisticaAsignaLabel}
+                          title="Al pistolear, asigna la logística en vez de verificar"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={l.pistoleado_asigna || false}
+                            onChange={() => {
+                              api.put(`/logisticas/${l.id}`, { pistoleado_asigna: !l.pistoleado_asigna })
+                                .then(() => cargarLogisticas())
+                                .catch(mostrarError);
+                            }}
+                          />
+                          <ScanBarcode size={14} />
+                          <span>Asigna</span>
+                        </label>
+                      )}
                       <button
                         className={styles.btnLogisticaAction}
                         onClick={() => toggleLogistica(l)}
