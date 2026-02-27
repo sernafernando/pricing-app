@@ -410,6 +410,7 @@ class PistoleadoStatsResponse(BaseModel):
     pistoleadas: int
     pendientes: int
     porcentaje: float
+    en_preparacion: int = Field(0, description="Pistoleadas cuyo pedido ERP está En Preparación")
     por_caja: dict[str, int]
     por_operador: dict[str, int]
 
@@ -2789,11 +2790,39 @@ def stats_pistoleado(
     op_rows = op_rows.group_by(Operador.nombre).all()
     por_operador = {row.nombre: row.cantidad for row in op_rows}
 
+    # Pistoleadas cuyo pedido ERP está "En Preparación"
+    # shipping_id → MercadoLibreOrderShipping.mlshippingid → mlo_id
+    # → SaleOrderHeader.mlo_id → ssos_id → SaleOrderStatus.ssos_name
+    ssos_preparacion = db.query(SaleOrderStatus.ssos_id).filter(SaleOrderStatus.ssos_name == "En Preparación").first()
+    en_preparacion = 0
+    if ssos_preparacion:
+        en_prep_q = (
+            db.query(func.count())
+            .select_from(EtiquetaEnvio)
+            .join(
+                MercadoLibreOrderShipping,
+                MercadoLibreOrderShipping.mlshippingid == EtiquetaEnvio.shipping_id,
+            )
+            .join(
+                SaleOrderHeader,
+                SaleOrderHeader.mlo_id == MercadoLibreOrderShipping.mlo_id,
+            )
+            .filter(
+                EtiquetaEnvio.fecha_envio == fecha_filtro,
+                EtiquetaEnvio.pistoleado_at.isnot(None),
+                SaleOrderHeader.ssos_id == ssos_preparacion.ssos_id,
+            )
+        )
+        if logistica_id is not None:
+            en_prep_q = en_prep_q.filter(EtiquetaEnvio.logistica_id == logistica_id)
+        en_preparacion = en_prep_q.scalar() or 0
+
     return PistoleadoStatsResponse(
         total_etiquetas=total,
         pistoleadas=pistoleadas,
         pendientes=pendientes,
         porcentaje=porcentaje,
+        en_preparacion=en_preparacion,
         por_caja=por_caja,
         por_operador=por_operador,
     )
