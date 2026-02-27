@@ -294,9 +294,7 @@
 
 .vistaToggle {
   display: flex;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  overflow: hidden;
+  gap: var(--spacing-xs);
   margin-right: auto;
 }
 
@@ -306,10 +304,10 @@
   gap: 4px;
   padding: 5px 10px;
   font-size: 13px;
-  font-weight: 500;
-  border: none;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
@@ -321,13 +319,14 @@
 }
 
 .vistaBtnActive {
-  background: var(--brand-primary);
-  color: #fff;
+  color: var(--brand-primary);
+  background: var(--bg-tertiary);
+  border-color: var(--border-primary);
+  font-weight: var(--font-medium);
 }
 
 .vistaBtnActive:hover {
-  background: var(--brand-primary);
-  color: #fff;
+  color: var(--brand-primary);
 }
 
 .btnRefresh {
