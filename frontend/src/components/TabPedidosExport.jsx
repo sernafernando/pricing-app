@@ -118,21 +118,25 @@ export default function TabPedidosExport() {
 
   const cargarUsuariosDisponibles = useCallback(async () => {
     try {
-      const response = await api.get('/pedidos-simple/usuarios-disponibles');
+      const params = { dias_atras: 60 };
+      if (soloActivos) params.ssos_id = 20;
+      const response = await api.get('/pedidos-local/usuarios-disponibles', { params });
       setUsuariosDisponibles(response.data);
-    } catch (error) {
-      console.error('Error cargando usuarios:', error);
+    } catch {
+      // silently fail
     }
-  }, []);
+  }, [soloActivos]);
 
   const cargarProvinciasDisponibles = useCallback(async () => {
     try {
-      const response = await api.get('/pedidos-simple/provincias-disponibles');
+      const params = { dias_atras: 60 };
+      if (soloActivos) params.ssos_id = 20;
+      const response = await api.get('/pedidos-local/provincias-disponibles', { params });
       setProvinciasDisponibles(response.data);
-    } catch (error) {
-      console.error('Error cargando provincias:', error);
+    } catch {
+      // silently fail
     }
-  }, []);
+  }, [soloActivos]);
 
   const cargarEnviosFlex = useCallback(async (pedidosList) => {
     if (!pedidosList || pedidosList.length === 0) return;
