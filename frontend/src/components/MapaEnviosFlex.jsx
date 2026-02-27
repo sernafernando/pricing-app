@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { MapPin, AlertTriangle } from 'lucide-react';
+import { MapPin, AlertTriangle, Zap } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import styles from './MapaEnviosFlex.module.css';
 
@@ -16,15 +16,24 @@ L.Icon.Default.mergeOptions({
 // ── SVG marker factory ──────────────────────────────────────────
 const markerCache = new Map();
 
-const createColoredIcon = (color) => {
-  const key = color || '#6b7280';
+const createColoredIcon = (color, isTurbo = false) => {
+  const fillColor = color || '#6b7280';
+  const key = `${fillColor}-${isTurbo ? 'turbo' : 'normal'}`;
   if (markerCache.has(key)) return markerCache.get(key);
+
+  // Turbo: rayo blanco adentro + borde dorado
+  // Normal: círculo blanco adentro + borde blanco
+  const stroke = isTurbo ? '#f59e0b' : '#fff';
+  const strokeWidth = isTurbo ? '2' : '1.5';
+  const innerShape = isTurbo
+    ? '<polygon points="14,6 10,14 13,14 11,20 16,12 13,12" fill="#fff"/>'
+    : '<circle cx="12.5" cy="12.5" r="5" fill="#fff"/>';
 
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="25" height="41" viewBox="0 0 25 41">
       <path d="M12.5 0C5.6 0 0 5.6 0 12.5C0 21.9 12.5 41 12.5 41S25 21.9 25 12.5C25 5.6 19.4 0 12.5 0z"
-            fill="${key}" stroke="#fff" stroke-width="1.5"/>
-      <circle cx="12.5" cy="12.5" r="5" fill="#fff"/>
+            fill="${fillColor}" stroke="${stroke}" stroke-width="${strokeWidth}"/>
+      ${innerShape}
     </svg>`;
 
   const icon = new L.Icon({
@@ -80,22 +89,24 @@ const CORDON_COLORS = {
 export default function MapaEnviosFlex({ envios = [] }) {
   const [modoColor, setModoColor] = useState('logistica'); // 'logistica' | 'cordon' | 'estado'
 
-  // Separar envíos con y sin coordenadas
-  const { conCoords, sinCoords, posiciones } = useMemo(() => {
+  // Separar envíos con y sin coordenadas + contar turbos
+  const { conCoords, sinCoords, posiciones, hayTurbos } = useMemo(() => {
     const con = [];
     const sin = [];
     const pos = [];
+    let turbos = false;
 
     for (const e of envios) {
       if (e.latitud && e.longitud) {
         con.push(e);
         pos.push([e.latitud, e.longitud]);
+        if (e.es_turbo) turbos = true;
       } else {
         sin.push(e);
       }
     }
 
-    return { conCoords: con, sinCoords: sin, posiciones: pos };
+    return { conCoords: con, sinCoords: sin, posiciones: pos, hayTurbos: turbos };
   }, [envios]);
 
   // Leyenda dinámica según modo de color activo
@@ -159,11 +170,14 @@ export default function MapaEnviosFlex({ envios = [] }) {
           <Marker
             key={envio.shipping_id}
             position={[envio.latitud, envio.longitud]}
-            icon={createColoredIcon(getColor(envio))}
+            icon={createColoredIcon(getColor(envio), envio.es_turbo)}
           >
             <Popup>
               <div className={styles.popup}>
-                <h4>Envío #{envio.shipping_id}</h4>
+                <h4>
+                  Envío #{envio.shipping_id}
+                  {envio.es_turbo && <Zap size={14} className={styles.popupTurboIcon} />}
+                </h4>
                 <p><strong>Destinatario:</strong> {envio.mlreceiver_name}</p>
                 <p><strong>Dirección:</strong> {envio.direccion_completa}</p>
                 <p><strong>CP:</strong> {envio.mlzip_code}</p>
@@ -223,6 +237,15 @@ export default function MapaEnviosFlex({ envios = [] }) {
                 <span>{label}</span>
               </div>
             ))}
+            {hayTurbos && (
+              <>
+                <div className={styles.leyendaSeparator} />
+                <div className={styles.leyendaItem}>
+                  <Zap size={12} className={styles.leyendaTurboIcon} />
+                  <span>Turbo</span>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
