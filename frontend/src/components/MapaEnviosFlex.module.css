@@ -176,6 +176,29 @@
 }
 
 /* ============================================
+   LEAFLET POPUP OVERRIDE (global dentro del módulo)
+   ============================================ */
+
+.mapaContainer :global(.leaflet-popup-content-wrapper) {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.mapaContainer :global(.leaflet-popup-tip) {
+  background: var(--bg-primary);
+}
+
+.mapaContainer :global(.leaflet-popup-close-button) {
+  color: var(--text-tertiary);
+}
+
+.mapaContainer :global(.leaflet-popup-close-button:hover) {
+  color: var(--text-primary);
+}
+
+/* ============================================
    DARK MODE
    ============================================ */
 
@@ -196,6 +219,15 @@
 
 [data-theme="dark"] .leyendaDot {
   border-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-theme="dark"] .mapaContainer :global(.leaflet-popup-content-wrapper) {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+}
+
+[data-theme="dark"] .mapaContainer :global(.leaflet-popup-tip) {
+  background: var(--bg-secondary);
 }
 
 /* ============================================
