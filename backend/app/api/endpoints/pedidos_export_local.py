@@ -429,6 +429,74 @@ async def obtener_pedidos_local(
     return pedidos
 
 
+@router.get("/pedidos-local/usuarios-disponibles")
+async def obtener_usuarios_disponibles_local(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    ssos_id: Optional[int] = Query(None),
+    dias_atras: int = Query(60, ge=1, le=365),
+):
+    """
+    Usuarios (canales/vendedores) que tienen pedidos en la DB local.
+    Usa la misma base de filtros que /pedidos-local.
+    """
+    fecha_limite = datetime.combine(datetime.now().date() - timedelta(days=dias_atras), datetime.min.time())
+
+    query = db.query(SaleOrderHeader.user_id, TBUser.user_name).outerjoin(
+        TBUser, SaleOrderHeader.user_id == TBUser.user_id
+    )
+
+    # Filtros base (misma lógica que /pedidos-local)
+    query = query.filter(
+        SaleOrderHeader.soh_cd >= fecha_limite,
+        SaleOrderHeader.user_id.isnot(None),
+    )
+    if ssos_id is not None:
+        query = query.filter(SaleOrderHeader.ssos_id == ssos_id)
+        subquery_cerrados = (
+            db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED).distinct()
+        )
+        query = query.filter(~SaleOrderHeader.soh_id.in_(subquery_cerrados))
+
+    usuarios = query.distinct().order_by(TBUser.user_name.asc().nullslast()).all()
+
+    return [{"user_id": u.user_id, "user_name": u.user_name or f"User {u.user_id}"} for u in usuarios]
+
+
+@router.get("/pedidos-local/provincias-disponibles")
+async def obtener_provincias_disponibles_local(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    ssos_id: Optional[int] = Query(None),
+    dias_atras: int = Query(60, ge=1, le=365),
+):
+    """
+    Provincias únicas en pedidos de la DB local.
+    Prioriza override > TN.
+    """
+    fecha_limite = datetime.combine(datetime.now().date() - timedelta(days=dias_atras), datetime.min.time())
+
+    provincia_efectiva = func.coalesce(
+        SaleOrderHeader.override_shipping_province, SaleOrderHeader.tiendanube_shipping_province
+    ).label("provincia")
+
+    query = db.query(provincia_efectiva).filter(
+        SaleOrderHeader.soh_cd >= fecha_limite,
+        provincia_efectiva.isnot(None),
+        provincia_efectiva != "",
+    )
+    if ssos_id is not None:
+        query = query.filter(SaleOrderHeader.ssos_id == ssos_id)
+        subquery_cerrados = (
+            db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED).distinct()
+        )
+        query = query.filter(~SaleOrderHeader.soh_id.in_(subquery_cerrados))
+
+    provincias = query.distinct().order_by(provincia_efectiva.asc()).all()
+
+    return [p.provincia for p in provincias if p.provincia]
+
+
 # ── Schemas para envíos flex asociados a pedidos ──────────────────────
 
 
