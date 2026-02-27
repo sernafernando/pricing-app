@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Float, Integer, String, Boolean, DateTime
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -30,6 +30,8 @@ class Transporte(Base):
     localidad = Column(String(200), nullable=True)  # Ciudad/localidad de la terminal
     telefono = Column(String(50), nullable=True)
     horario = Column(String(200), nullable=True)  # Ej: "Lun-Vie 8:00-17:00"
+    latitud = Column(Float, nullable=True)  # Geocodificación de la terminal
+    longitud = Column(Float, nullable=True)
     activa = Column(Boolean, default=True, nullable=False)
     color = Column(String(7), nullable=True)  # Hex color para badge, ej: "#3b82f6"
 
