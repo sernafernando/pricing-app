@@ -3,7 +3,9 @@ import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
   Truck, Search, Printer, Pencil, Bike, Building, Calendar,
+  Table, Map,
 } from 'lucide-react';
+import MapaEnviosFlex from './MapaEnviosFlex';
 import api from '../services/api';
 import { printZpl } from '../services/zebraPrint';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -202,6 +204,9 @@ export default function TabEnviosFlex({ operador = null }) {
   const topScrollRef = useRef(null);
   const tableRef = useRef(null);
   const [tableWidth, setTableWidth] = useState(0);
+
+  // Vista: tabla o mapa
+  const [vistaActiva, setVistaActiva] = useState('tabla'); // 'tabla' | 'mapa'
 
   // Selección múltiple
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -1583,6 +1588,27 @@ export default function TabEnviosFlex({ operador = null }) {
         </div>
 
         <div className={styles.actions}>
+          <div className={styles.vistaToggle}>
+            <button
+              type="button"
+              className={`${styles.vistaBtn} ${vistaActiva === 'tabla' ? styles.vistaBtnActive : ''}`}
+              onClick={() => setVistaActiva('tabla')}
+              aria-label="Vista tabla"
+            >
+              <Table size={15} />
+              Tabla
+            </button>
+            <button
+              type="button"
+              className={`${styles.vistaBtn} ${vistaActiva === 'mapa' ? styles.vistaBtnActive : ''}`}
+              onClick={() => setVistaActiva('mapa')}
+              aria-label="Vista mapa"
+            >
+              <Map size={15} />
+              Mapa
+            </button>
+          </div>
+
           <button
             onClick={cargarDatos}
             className={styles.btnRefresh}
@@ -1692,11 +1718,13 @@ export default function TabEnviosFlex({ operador = null }) {
         </div>
       )}
 
-      {/* Table */}
+      {/* Contenido principal: tabla o mapa */}
       {loading ? (
         <div className={styles.loading}>Cargando etiquetas...</div>
       ) : error ? (
         <div className={styles.error}>{error}</div>
+      ) : vistaActiva === 'mapa' ? (
+        <MapaEnviosFlex envios={etiquetas} />
       ) : (
         <>
         <div
