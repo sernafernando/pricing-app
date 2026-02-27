@@ -26,7 +26,7 @@ const createColoredIcon = (color, isTurbo = false) => {
   const stroke = isTurbo ? '#f59e0b' : '#fff';
   const strokeWidth = isTurbo ? '2' : '1.5';
   const innerShape = isTurbo
-    ? '<polygon points="14,6 10,14 13,14 11,20 16,12 13,12" fill="#fff"/>'
+    ? '<polygon points="15,4 8,14 12,14 10,22 17,11 13,11" fill="#fff"/>'
     : '<circle cx="12.5" cy="12.5" r="5" fill="#fff"/>';
 
   const svg = `
