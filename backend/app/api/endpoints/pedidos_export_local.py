@@ -117,12 +117,6 @@ async def obtener_pedidos_local(
         )
     )
 
-    # EXCLUIR pedidos cerrados (ssot_id = 40 en tb_sale_order_times)
-    # Subquery para obtener soh_ids con ssot_id = 40
-    subquery_cerrados = db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED).distinct()
-
-    query = query.filter(~SaleOrderHeader.soh_id.in_(subquery_cerrados))
-
     # FILTRO POR FECHA: Solo pedidos de los últimos N días (desde las 00:00:00 del día inicial)
     fecha_limite = datetime.combine(datetime.now().date() - timedelta(days=dias_atras), datetime.min.time())
     query = query.filter(SaleOrderHeader.soh_cd >= fecha_limite)
@@ -130,6 +124,12 @@ async def obtener_pedidos_local(
     # Filtro por estado ERP (opcional)
     if ssos_id is not None:
         query = query.filter(SaleOrderHeader.ssos_id == ssos_id)
+        # Cuando se filtra por estado activo, excluir pedidos cerrados en tb_sale_order_times
+        # (ssot_id=40 indica cerrado). Sin filtro de estado, se muestran todos.
+        subquery_cerrados = (
+            db.query(SaleOrderTimes.soh_id).filter(SaleOrderTimes.ssot_id == SSOT_STATUS_CLOSED).distinct()
+        )
+        query = query.filter(~SaleOrderHeader.soh_id.in_(subquery_cerrados))
 
     # Filtros adicionales
     if solo_tn:
@@ -224,10 +224,17 @@ async def obtener_pedidos_local(
             continue
         seen_pedidos.add(pedido_key)
 
-        # Obtener items del pedido (excluyendo 2953 y 2954)
-        # Filtrar también por comp_id para evitar bleed entre compañías
+        # Obtener items del pedido agrupados por item_id (excluyendo 2953 y 2954)
+        # El ERP puede tener múltiples líneas de detalle para el mismo item_id,
+        # así que agrupamos y sumamos cantidades para evitar "duplicados" visuales.
+        # Filtrar también por comp_id para evitar bleed entre compañías.
         items_query = (
-            db.query(SaleOrderDetail.item_id, SaleOrderDetail.sod_qty, TBItem.item_desc, TBItem.item_code)
+            db.query(
+                SaleOrderDetail.item_id,
+                func.sum(SaleOrderDetail.sod_qty).label("total_qty"),
+                TBItem.item_desc,
+                TBItem.item_code,
+            )
             .outerjoin(
                 TBItem, and_(SaleOrderDetail.item_id == TBItem.item_id, SaleOrderDetail.comp_id == TBItem.comp_id)
             )
@@ -244,6 +251,7 @@ async def obtener_pedidos_local(
                     ),
                 )
             )
+            .group_by(SaleOrderDetail.item_id, TBItem.item_desc, TBItem.item_code)
         )
 
         items = []
