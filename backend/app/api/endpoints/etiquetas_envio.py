@@ -27,8 +27,8 @@ from pathlib import Path as FilePath
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, case, and_, desc, Numeric
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy import func, cast, case, and_, or_, desc, Numeric
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -443,18 +443,14 @@ def _extraer_qrs_de_texto(text: str) -> List[str]:
 
 def _soh_status_subquery(db: Session):
     """
-    Subquery deduplicada: estado ERP por shipping_id.
+    Subquery deduplicada: estado ERP por shipping_id (envíos ML).
 
-    Cubre DOS fuentes:
-      1. Envíos ML: orders_shipping (mlshippingid) → sale_order_header (mlo_id)
-      2. Envíos manuales: etiquetas_envio (manual_soh_id + manual_bra_id) → sale_order_header
-
+    Cruza orders_shipping (por mlshippingid) → sale_order_header (por mlo_id).
     Un mismo mlo_id puede tener múltiples filas en SaleOrderHeader
     (una por combinación comp_id/bra_id). Se toma el pedido más reciente
-    (mayor soh_cd) con ROW_NUMBER OVER (PARTITION BY shipping_id ORDER BY soh_cd DESC).
+    (mayor soh_cd) con ROW_NUMBER OVER (PARTITION BY mlshippingid ORDER BY soh_cd DESC).
     """
-    # Fuente 1: envíos ML (por mlo_id)
-    ml_ranked = (
+    ranked = (
         db.query(
             MercadoLibreOrderShipping.mlshippingid.label("shipping_id_str"),
             SaleOrderHeader.ssos_id.label("soh_ssos_id"),
@@ -477,16 +473,27 @@ def _soh_status_subquery(db: Session):
         .subquery()
     )
 
-    ml_dedup = db.query(
-        ml_ranked.c.shipping_id_str,
-        ml_ranked.c.soh_ssos_id,
-    ).filter(ml_ranked.c.rn == 1)
+    return (
+        db.query(
+            ranked.c.shipping_id_str,
+            ranked.c.soh_ssos_id,
+        )
+        .filter(ranked.c.rn == 1)
+        .subquery()
+    )
 
-    # Fuente 2: envíos manuales (por manual_soh_id + manual_bra_id)
-    manual_ranked = (
+
+def _manual_soh_status_subquery(db: Session):
+    """
+    Subquery: estado ERP para envíos manuales (por manual_soh_id + manual_bra_id).
+
+    Los envíos manuales creados desde pedidos tienen manual_soh_id y manual_bra_id
+    que referencian directamente a SaleOrderHeader.
+    """
+    ranked = (
         db.query(
             EtiquetaEnvio.shipping_id.label("shipping_id_str"),
-            SaleOrderHeader.ssos_id.label("soh_ssos_id"),
+            SaleOrderHeader.ssos_id.label("manual_ssos_id"),
             func.row_number()
             .over(
                 partition_by=EtiquetaEnvio.shipping_id,
@@ -509,19 +516,14 @@ def _soh_status_subquery(db: Session):
         .subquery()
     )
 
-    manual_dedup = db.query(
-        manual_ranked.c.shipping_id_str,
-        manual_ranked.c.soh_ssos_id,
-    ).filter(manual_ranked.c.rn == 1)
-
-    # UNION de ambas fuentes — wrappear con labels explícitos
-    # para que .c.shipping_id_str y .c.soh_ssos_id estén disponibles
-    union = ml_dedup.union_all(manual_dedup).subquery("soh_union")
-
-    return db.query(
-        union.c.shipping_id_str,
-        union.c.soh_ssos_id,
-    ).subquery()
+    return (
+        db.query(
+            ranked.c.shipping_id_str,
+            ranked.c.manual_ssos_id,
+        )
+        .filter(ranked.c.rn == 1)
+        .subquery()
+    )
 
 
 def _shipping_dedup_subquery(db: Session):
@@ -789,6 +791,8 @@ def listar_etiquetas(
     _check_permiso(db, current_user, "envios_flex.ver")
 
     soh_sub = _soh_status_subquery(db)
+    manual_soh_sub = _manual_soh_status_subquery(db)
+    ManualSaleOrderStatus = aliased(SaleOrderStatus)
 
     # Subquery: costo vigente por (logistica_id, cordon) donde vigente_desde <= hoy.
     # Usamos max(id) como criterio único — el registro más reciente (mayor id) es
@@ -882,9 +886,9 @@ def listar_etiquetas(
             eff_city.label("mlcity_name"),
             eff_status.label("mlstatus"),
             CodigoPostalCordon.cordon,
-            soh_sub.c.soh_ssos_id.label("ssos_id"),
-            SaleOrderStatus.ssos_name,
-            SaleOrderStatus.ssos_color,
+            func.coalesce(soh_sub.c.soh_ssos_id, manual_soh_sub.c.manual_ssos_id).label("ssos_id"),
+            func.coalesce(SaleOrderStatus.ssos_name, ManualSaleOrderStatus.ssos_name).label("ssos_name"),
+            func.coalesce(SaleOrderStatus.ssos_color, ManualSaleOrderStatus.ssos_color).label("ssos_color"),
             func.coalesce(
                 cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
                 case(
@@ -938,6 +942,14 @@ def listar_etiquetas(
             soh_sub.c.soh_ssos_id == SaleOrderStatus.ssos_id,
         )
         .outerjoin(
+            manual_soh_sub,
+            manual_soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id,
+        )
+        .outerjoin(
+            ManualSaleOrderStatus,
+            manual_soh_sub.c.manual_ssos_id == ManualSaleOrderStatus.ssos_id,
+        )
+        .outerjoin(
             Operador,
             EtiquetaEnvio.pistoleado_operador_id == Operador.id,
         )
@@ -984,7 +996,7 @@ def listar_etiquetas(
         query = query.filter(eff_status == mlstatus)
 
     if ssos_id is not None:
-        query = query.filter(soh_sub.c.soh_ssos_id == ssos_id)
+        query = query.filter(or_(soh_sub.c.soh_ssos_id == ssos_id, manual_soh_sub.c.manual_ssos_id == ssos_id))
 
     if pistoleado == "si":
         query = query.filter(EtiquetaEnvio.pistoleado_at.isnot(None))
@@ -1112,6 +1124,7 @@ def estadisticas_etiquetas(
     # al mismo set que ve el usuario en la tabla.
     shipping_stats = _shipping_dedup_subquery(db)
     soh_sub = _soh_status_subquery(db)
+    manual_soh_sub = _manual_soh_status_subquery(db)
 
     stats_eff_zip = func.coalesce(
         EtiquetaEnvio.manual_zip_code,
@@ -1156,6 +1169,10 @@ def estadisticas_etiquetas(
             soh_sub,
             soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id,
         )
+        .outerjoin(
+            manual_soh_sub,
+            manual_soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id,
+        )
         .filter(fecha_filter)
     )
 
@@ -1173,7 +1190,9 @@ def estadisticas_etiquetas(
     if mlstatus:
         filtered_ids_q = filtered_ids_q.filter(stats_eff_status == mlstatus)
     if ssos_id is not None:
-        filtered_ids_q = filtered_ids_q.filter(soh_sub.c.soh_ssos_id == ssos_id)
+        filtered_ids_q = filtered_ids_q.filter(
+            or_(soh_sub.c.soh_ssos_id == ssos_id, manual_soh_sub.c.manual_ssos_id == ssos_id)
+        )
     if pistoleado == "si":
         filtered_ids_q = filtered_ids_q.filter(EtiquetaEnvio.pistoleado_at.isnot(None))
     elif pistoleado == "no":
@@ -1260,7 +1279,7 @@ def estadisticas_etiquetas(
     )
     por_estado_ml = {row.eff_mlstatus: row.cantidad for row in ml_status_rows}
 
-    # Por estado ERP
+    # Por estado ERP (ML + manuales)
     erp_status_rows = (
         db.query(
             SaleOrderStatus.ssos_name,
@@ -1276,6 +1295,24 @@ def estadisticas_etiquetas(
         .all()
     )
     por_estado_erp = {row.ssos_name: row.cantidad for row in erp_status_rows}
+
+    # Agregar manuales con pedido ERP
+    manual_erp_rows = (
+        db.query(
+            SaleOrderStatus.ssos_name,
+            func.count().label("cantidad"),
+        )
+        .join(manual_soh_sub, manual_soh_sub.c.manual_ssos_id == SaleOrderStatus.ssos_id)
+        .join(
+            EtiquetaEnvio,
+            EtiquetaEnvio.shipping_id == manual_soh_sub.c.shipping_id_str,
+        )
+        .filter(ids_filter)
+        .group_by(SaleOrderStatus.ssos_name)
+        .all()
+    )
+    for row in manual_erp_rows:
+        por_estado_erp[row.ssos_name] = por_estado_erp.get(row.ssos_name, 0) + row.cantidad
 
     # ── Costos de envío ─────────────────────────────────────────
     # max(id) como criterio único — evita duplicados cuando hay múltiples registros
@@ -1453,6 +1490,8 @@ def exportar_etiquetas(
 
     # Reusar subquery deduplicada de estado ERP
     soh_sub = _soh_status_subquery(db)
+    manual_soh_sub = _manual_soh_status_subquery(db)
+    ManualSaleOrderStatus = aliased(SaleOrderStatus)
 
     hoy_export = date.today()
     max_costo_exp = (
@@ -1508,7 +1547,7 @@ def exportar_etiquetas(
             exp_city.label("mlcity_name"),
             exp_status.label("mlstatus"),
             CodigoPostalCordon.cordon,
-            SaleOrderStatus.ssos_name,
+            func.coalesce(SaleOrderStatus.ssos_name, ManualSaleOrderStatus.ssos_name).label("ssos_name"),
             func.coalesce(
                 cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
                 case(
@@ -1538,6 +1577,8 @@ def exportar_etiquetas(
         )
         .outerjoin(soh_sub, soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id)
         .outerjoin(SaleOrderStatus, soh_sub.c.soh_ssos_id == SaleOrderStatus.ssos_id)
+        .outerjoin(manual_soh_sub, manual_soh_sub.c.shipping_id_str == EtiquetaEnvio.shipping_id)
+        .outerjoin(ManualSaleOrderStatus, manual_soh_sub.c.manual_ssos_id == ManualSaleOrderStatus.ssos_id)
         .outerjoin(Operador, EtiquetaEnvio.pistoleado_operador_id == Operador.id)
         .outerjoin(
             costo_exp,
