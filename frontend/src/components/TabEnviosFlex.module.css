@@ -290,6 +290,46 @@
   justify-content: flex-end;
 }
 
+/* ── Vista toggle (tabla/mapa) ───────────────────────── */
+
+.vistaToggle {
+  display: flex;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-right: auto;
+}
+
+.vistaBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.vistaBtn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.vistaBtnActive {
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+.vistaBtnActive:hover {
+  background: var(--brand-primary);
+  color: #fff;
+}
+
 .btnRefresh {
   composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
