@@ -52,7 +52,7 @@ const FitBounds = ({ positions }) => {
   return null;
 };
 
-// ── Status labels ───────────────────────────────────────────────
+// ── Status labels & colors ──────────────────────────────────────
 const ML_STATUS_LABELS = {
   ready_to_ship: 'Listo para enviar',
   shipped: 'Enviado',
@@ -61,9 +61,24 @@ const ML_STATUS_LABELS = {
   not_delivered: 'No entregado',
 };
 
+const ML_STATUS_COLORS = {
+  ready_to_ship: '#f59e0b', // amarillo — pendiente de despacho
+  shipped: '#3b82f6',       // azul — en camino
+  delivered: '#22c55e',     // verde — entregado
+  cancelled: '#ef4444',     // rojo — cancelado
+  not_delivered: '#8b5cf6', // violeta — no entregado
+};
+
+const CORDON_COLORS = {
+  'CABA': '#3b82f6',
+  'Cordón 1': '#22c55e',
+  'Cordón 2': '#f59e0b',
+  'Cordón 3': '#ef4444',
+};
+
 // ── Main Component ──────────────────────────────────────────────
 export default function MapaEnviosFlex({ envios = [] }) {
-  const [modoColor, setModoColor] = useState('logistica'); // 'logistica' | 'cordon'
+  const [modoColor, setModoColor] = useState('logistica'); // 'logistica' | 'cordon' | 'estado'
 
   // Separar envíos con y sin coordenadas
   const { conCoords, sinCoords, posiciones } = useMemo(() => {
@@ -93,18 +108,16 @@ export default function MapaEnviosFlex({ envios = [] }) {
         if (!items.has(key)) {
           items.set(key, e.logistica_color || '#6b7280');
         }
-      } else {
+      } else if (modoColor === 'cordon') {
         const key = e.cordon || 'Sin cordón';
         if (!items.has(key)) {
-          // Colores fijos por cordón
-          const cordonColors = {
-            'CABA': '#3b82f6',
-            'Cordón 1': '#22c55e',
-            'Cordón 2': '#f59e0b',
-            'Cordón 3': '#ef4444',
-            'Sin cordón': '#6b7280',
-          };
-          items.set(key, cordonColors[key] || '#6b7280');
+          items.set(key, CORDON_COLORS[key] || '#6b7280');
+        }
+      } else {
+        // estado ML
+        const key = ML_STATUS_LABELS[e.mlstatus] || e.mlstatus || 'Desconocido';
+        if (!items.has(key)) {
+          items.set(key, ML_STATUS_COLORS[e.mlstatus] || '#6b7280');
         }
       }
     }
@@ -117,13 +130,11 @@ export default function MapaEnviosFlex({ envios = [] }) {
     if (modoColor === 'logistica') {
       return envio.logistica_color || '#6b7280';
     }
-    const cordonColors = {
-      'CABA': '#3b82f6',
-      'Cordón 1': '#22c55e',
-      'Cordón 2': '#f59e0b',
-      'Cordón 3': '#ef4444',
-    };
-    return cordonColors[envio.cordon] || '#6b7280';
+    if (modoColor === 'cordon') {
+      return CORDON_COLORS[envio.cordon] || '#6b7280';
+    }
+    // estado ML
+    return ML_STATUS_COLORS[envio.mlstatus] || '#6b7280';
   };
 
   // Centro default: Buenos Aires
@@ -191,6 +202,13 @@ export default function MapaEnviosFlex({ envios = [] }) {
             onClick={() => setModoColor('cordon')}
           >
             Cordón
+          </button>
+          <button
+            type="button"
+            className={`${styles.colorToggleBtn} ${modoColor === 'estado' ? styles.colorToggleBtnActive : ''}`}
+            onClick={() => setModoColor('estado')}
+          >
+            Estado
           </button>
         </div>
 
