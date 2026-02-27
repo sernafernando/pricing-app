@@ -88,6 +88,9 @@ export default function TabEnviosFlex({ operador = null }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Smart polling ref (count + lastUpdated del último check)
+  const pollingRef = useRef({ count: null, lastUpdated: null });
+
   // Filtros
   const [fechaDesde, setFechaDesde] = useState(todayStr());
   const [fechaHasta, setFechaHasta] = useState(todayStr());
@@ -347,6 +350,10 @@ export default function TabEnviosFlex({ operador = null }) {
 
       setEtiquetas(etiqResponse.data);
       setEstadisticas(statsResponse.data);
+
+      // Resetear polling ref para que el próximo poll no triggerea reload
+      // (se recalcula en el siguiente tick de polling)
+      pollingRef.current = { count: null, lastUpdated: null };
     } catch (err) {
       setError('Error cargando etiquetas');
       console.error(err);
@@ -363,6 +370,79 @@ export default function TabEnviosFlex({ operador = null }) {
   useEffect(() => {
     cargarDatos();
   }, [cargarDatos]);
+
+  // ── Smart Polling: detectar cambios y recargar silenciosamente ──
+
+  useEffect(() => {
+    const POLL_INTERVAL = 10_000; // 10 segundos
+
+    const checkForUpdates = async () => {
+      // No pollear si hay modal abierta, bulk action, o tab no visible
+      if (
+        document.hidden ||
+        showManualEnvioModal ||
+        showLogisticasModal ||
+        showTransportesModal ||
+        showExportModal ||
+        showPrintManualModal ||
+        bulkActualizando
+      ) {
+        return;
+      }
+
+      try {
+        // Construir solo los filtros livianos (los que el backend acepta sin JOINs)
+        const p = new URLSearchParams();
+        if (fechaDesde) p.append('fecha_desde', fechaDesde);
+        if (fechaHasta) p.append('fecha_hasta', fechaHasta);
+        if (filtroLogistica) p.append('logistica_id', filtroLogistica);
+        if (sinLogistica) p.append('sin_logistica', 'true');
+        if (soloOutlet) p.append('solo_outlet', 'true');
+        if (soloTurbo) p.append('solo_turbo', 'true');
+        if (filtroPistoleado) p.append('pistoleado', filtroPistoleado);
+
+        const { data } = await api.get(`/etiquetas-envio/check-updates?${p}`);
+        const prev = pollingRef.current;
+
+        // Primera vez: solo guardar la referencia
+        if (prev.count === null) {
+          pollingRef.current = { count: data.count, lastUpdated: data.last_updated };
+          return;
+        }
+
+        // Detectar cambio: count distinto O timestamp distinto
+        if (data.count !== prev.count || data.last_updated !== prev.lastUpdated) {
+          pollingRef.current = { count: data.count, lastUpdated: data.last_updated };
+          // Recargar silenciosamente (sin setLoading)
+          try {
+            const params = buildFilterParams();
+            const [etiqResponse, statsResponse] = await Promise.all([
+              api.get(`/etiquetas-envio?${params}`),
+              api.get(`/etiquetas-envio/estadisticas?${params}`),
+            ]);
+            setEtiquetas(etiqResponse.data);
+            setEstadisticas(statsResponse.data);
+          } catch {
+            // Silencioso — no mostrar error por polling
+          }
+        }
+      } catch {
+        // Silencioso — el polling no debería molestar al usuario con errores
+      }
+    };
+
+    const intervalId = setInterval(checkForUpdates, POLL_INTERVAL);
+
+    // Resetear referencia cuando cambian los filtros
+    pollingRef.current = { count: null, lastUpdated: null };
+
+    return () => clearInterval(intervalId);
+  }, [
+    fechaDesde, fechaHasta, filtroLogistica, sinLogistica, soloOutlet,
+    soloTurbo, filtroPistoleado, showManualEnvioModal, showLogisticasModal,
+    showTransportesModal, showExportModal, showPrintManualModal,
+    bulkActualizando, buildFilterParams,
+  ]);
 
   // ── Scroll horizontal sincronizado ──────────────────────────
 

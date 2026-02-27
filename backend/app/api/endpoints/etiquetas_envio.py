@@ -3464,3 +3464,86 @@ async def geocodificar_etiquetas(
         sin_resultado=sin_resultado,
         errores=errores,
     )
+
+
+# ── Smart Polling ─────────────────────────────────────────────
+
+
+class CheckUpdatesResponse(BaseModel):
+    """Respuesta ligera para polling: count + timestamp del último cambio."""
+
+    count: int = Field(description="Total de etiquetas que matchean los filtros base")
+    last_updated: Optional[str] = Field(None, description="Timestamp ISO del último updated_at")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get(
+    "/etiquetas-envio/check-updates",
+    response_model=CheckUpdatesResponse,
+    summary="Check ligero para polling — count + last_updated",
+)
+def check_updates(
+    fecha_envio: Optional[date] = Query(None, description="Fecha de envío exacta"),
+    fecha_desde: Optional[date] = Query(None, description="Desde fecha (inclusive)"),
+    fecha_hasta: Optional[date] = Query(None, description="Hasta fecha (inclusive)"),
+    logistica_id: Optional[int] = Query(None, description="Filtrar por logística"),
+    sin_logistica: bool = Query(False, description="Solo sin logística"),
+    solo_outlet: bool = Query(False, description="Solo outlet"),
+    solo_turbo: bool = Query(False, description="Solo turbo"),
+    pistoleado: Optional[str] = Query(None, pattern="^(si|no)$", description="Filtrar por pistoleado: si/no"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> CheckUpdatesResponse:
+    """
+    Endpoint ultra-ligero para smart polling (cada ~10s).
+
+    Devuelve solo COUNT(*) + MAX(updated_at) sobre EtiquetaEnvio
+    con filtros básicos (fecha, logística, outlet, turbo, pistoleado).
+
+    NO hace JOINs pesados (ML shipping, cordón, estado ERP, search).
+    Si cualquier etiqueta dentro del rango cambia, el frontend recarga.
+
+    Filtros que requieren JOINs (cordon, sin_cordon, mlstatus, ssos_id,
+    search) se omiten intencionalmente — el COUNT puede diferir del
+    total visible, pero last_updated siempre detectará cambios.
+    """
+    _check_permiso(db, current_user, "envios_flex.ver")
+
+    query = db.query(
+        func.count(EtiquetaEnvio.shipping_id).label("count"),
+        func.max(EtiquetaEnvio.updated_at).label("last_updated"),
+    )
+
+    # ── Filtros directos sobre EtiquetaEnvio (sin JOINs) ──
+    if fecha_envio:
+        query = query.filter(EtiquetaEnvio.fecha_envio == fecha_envio)
+    else:
+        if fecha_desde:
+            query = query.filter(EtiquetaEnvio.fecha_envio >= fecha_desde)
+        if fecha_hasta:
+            query = query.filter(EtiquetaEnvio.fecha_envio <= fecha_hasta)
+
+    if logistica_id is not None:
+        query = query.filter(EtiquetaEnvio.logistica_id == logistica_id)
+
+    if sin_logistica:
+        query = query.filter(EtiquetaEnvio.logistica_id.is_(None))
+
+    if solo_outlet:
+        query = query.filter(EtiquetaEnvio.es_outlet.is_(True))
+
+    if solo_turbo:
+        query = query.filter(EtiquetaEnvio.es_turbo.is_(True))
+
+    if pistoleado == "si":
+        query = query.filter(EtiquetaEnvio.pistoleado_at.isnot(None))
+    elif pistoleado == "no":
+        query = query.filter(EtiquetaEnvio.pistoleado_at.is_(None))
+
+    row = query.one()
+
+    return CheckUpdatesResponse(
+        count=row.count,
+        last_updated=row.last_updated.isoformat() if row.last_updated else None,
+    )
