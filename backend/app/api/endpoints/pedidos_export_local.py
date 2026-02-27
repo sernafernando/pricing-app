@@ -4,10 +4,11 @@ Replica la lógica del Export 87 del ERP (WHERE ssos_id = 20)
 SIN necesidad de llamar al gbp-parser.
 """
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Body, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
-from typing import List, Optional
+from pydantic import BaseModel, ConfigDict
+from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 import json
 
@@ -21,6 +22,9 @@ from app.models.tb_customer import TBCustomer
 from app.models.tb_item import TBItem
 from app.models.tb_user import TBUser
 from app.models.tienda_nube_order import TiendaNubeOrder
+from app.models.etiqueta_envio import EtiquetaEnvio
+from app.models.logistica import Logistica
+from app.models.transporte import Transporte
 from app.api.endpoints.pedidos_export_simple import PedidoDetallado, ItemPedidoDetalle
 from app.services.tienda_nube_order_client import TiendaNubeOrderClient
 
@@ -423,6 +427,94 @@ async def obtener_pedidos_local(
         pedidos.append(PedidoDetallado(**pedido_dict))
 
     return pedidos
+
+
+# ── Schemas para envíos flex asociados a pedidos ──────────────────────
+
+
+class EnvioFlexInfo(BaseModel):
+    """Info resumida de un envío flex asociado a un pedido."""
+
+    shipping_id: str
+    fecha_envio: Optional[str] = None
+    estado: Optional[str] = None  # manual_status: ready_to_ship, shipped, delivered
+    logistica_nombre: Optional[str] = None
+    logistica_color: Optional[str] = None
+    transporte_nombre: Optional[str] = None
+    transporte_color: Optional[str] = None
+    pistoleado_at: Optional[datetime] = None
+    pistoleado_caja: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.post("/pedidos-local/envios-flex")
+async def obtener_envios_flex_por_pedidos(
+    soh_ids: List[int] = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> Dict[int, List[EnvioFlexInfo]]:
+    """
+    Dado una lista de soh_ids, devuelve un mapa {soh_id: [envios_flex]}
+    con la info resumida de cada envío flex asociado.
+
+    Un pedido puede tener 0 o más envíos flex (por ejemplo, reenvíos).
+    """
+    if not soh_ids:
+        return {}
+
+    # Limitar a 500 IDs por request
+    if len(soh_ids) > 500:
+        soh_ids = soh_ids[:500]
+
+    # Query batch: traer etiquetas manuales que tengan manual_soh_id en la lista
+    results = (
+        db.query(
+            EtiquetaEnvio.manual_soh_id,
+            EtiquetaEnvio.shipping_id,
+            EtiquetaEnvio.fecha_envio,
+            EtiquetaEnvio.manual_status,
+            EtiquetaEnvio.pistoleado_at,
+            EtiquetaEnvio.pistoleado_caja,
+            EtiquetaEnvio.created_at,
+            Logistica.nombre.label("logistica_nombre"),
+            Logistica.color.label("logistica_color"),
+            Transporte.nombre.label("transporte_nombre"),
+            Transporte.color.label("transporte_color"),
+        )
+        .outerjoin(Logistica, EtiquetaEnvio.logistica_id == Logistica.id)
+        .outerjoin(Transporte, EtiquetaEnvio.transporte_id == Transporte.id)
+        .filter(
+            EtiquetaEnvio.manual_soh_id.in_(soh_ids),
+            EtiquetaEnvio.es_manual.is_(True),
+        )
+        .order_by(EtiquetaEnvio.created_at.desc())
+        .all()
+    )
+
+    # Agrupar por soh_id
+    envios_map: Dict[int, List[EnvioFlexInfo]] = {}
+    for row in results:
+        soh_id = row.manual_soh_id
+        if soh_id not in envios_map:
+            envios_map[soh_id] = []
+        envios_map[soh_id].append(
+            EnvioFlexInfo(
+                shipping_id=row.shipping_id,
+                fecha_envio=str(row.fecha_envio) if row.fecha_envio else None,
+                estado=row.manual_status,
+                logistica_nombre=row.logistica_nombre,
+                logistica_color=row.logistica_color,
+                transporte_nombre=row.transporte_nombre,
+                transporte_color=row.transporte_color,
+                pistoleado_at=row.pistoleado_at,
+                pistoleado_caja=row.pistoleado_caja,
+                created_at=row.created_at,
+            )
+        )
+
+    return envios_map
 
 
 @router.get("/pedidos-local/estadisticas")

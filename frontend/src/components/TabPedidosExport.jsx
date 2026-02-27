@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText, Truck, Search } from 'lucide-react';
+import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText, Truck, Search, CheckCircle, Clock, ScanBarcode } from 'lucide-react';
 import api from '../services/api';
 import { useToast } from '../hooks/useToast';
 import Toast from './Toast';
@@ -60,6 +60,9 @@ export default function TabPedidosExport() {
   const [transportes, setTransportes] = useState([]);
   const [sucursales, setSucursales] = useState([]);
   
+  // Envíos flex asociados a pedidos: { soh_id: [envios] }
+  const [enviosFlex, setEnviosFlex] = useState({});
+
   // Bulk print
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState([]);
   
@@ -131,6 +134,17 @@ export default function TabPedidosExport() {
     }
   }, []);
 
+  const cargarEnviosFlex = useCallback(async (pedidosList) => {
+    if (!pedidosList || pedidosList.length === 0) return;
+    try {
+      const sohIds = pedidosList.map(p => p.soh_id);
+      const { data } = await api.post('/pedidos-local/envios-flex', { soh_ids: sohIds });
+      setEnviosFlex(data);
+    } catch {
+      // Silently fail — envíos flex info is non-critical
+    }
+  }, []);
+
   const cargarPedidos = useCallback(async () => {
     setLoading(true);
     try {
@@ -165,13 +179,15 @@ export default function TabPedidosExport() {
       }
       
       setPedidos(pedidosFiltrados);
-    } catch (error) {
-      console.error('Error cargando pedidos:', error);
+
+      // Cargar envíos flex asociados (fire & forget)
+      cargarEnviosFlex(pedidosFiltrados);
+    } catch {
       showToast('Error cargando pedidos', 'error');
     } finally {
       setLoading(false);
     }
-  }, [soloActivos, soloTN, soloML, soloOtros, excluirML, soloSinDireccion, userIdFiltro, provinciaFiltro, search]);
+  }, [soloActivos, soloTN, soloML, soloOtros, excluirML, soloSinDireccion, userIdFiltro, provinciaFiltro, search, cargarEnviosFlex]);
 
   const sincronizarPedidos = async () => {
     const confirmed = await pedirConfirmacion(
@@ -323,6 +339,18 @@ export default function TabPedidosExport() {
     }
   };
 
+  // Helper para mostrar estado flex
+  const getFlexStatusDisplay = (estado) => {
+    switch (estado) {
+      case 'delivered':
+        return { label: 'Entregado', className: styles.flexStatusDelivered, icon: CheckCircle };
+      case 'shipped':
+        return { label: 'En tránsito', className: styles.flexStatusShipped, icon: Truck };
+      default:
+        return { label: 'Pendiente', className: styles.flexStatusPending, icon: Clock };
+    }
+  };
+
   const getUserLabel = (pedido) => {
     // Usar user_name del backend (viene desde tb_user)
     // Si no existe, fallback a user_id
@@ -446,8 +474,9 @@ export default function TabPedidosExport() {
       });
 
       showToast(`Envío flex creado: ${data.shipping_id}${data.cordon ? ` (${data.cordon})` : ''}`);
+      // Recargar envíos flex para actualizar badges
+      cargarEnviosFlex(pedidos);
     } catch (error) {
-      console.error('Error enviando a flex:', error);
       showToast('Error creando envío flex: ' + (error.response?.data?.detail || error.message), 'error');
     } finally {
       setFlexLoading(false);
@@ -667,8 +696,9 @@ export default function TabPedidosExport() {
 
       setShowFlexModal(false);
       showToast(`Envío flex creado: ${data.shipping_id}${data.cordon ? ` (${data.cordon})` : ''}`);
+      // Recargar envíos flex para actualizar badges
+      cargarEnviosFlex(pedidos);
     } catch (error) {
-      console.error('Error creando envío flex:', error);
       showToast('Error creando envío flex: ' + (error.response?.data?.detail || error.message), 'error');
     } finally {
       setFlexLoading(false);
@@ -911,6 +941,17 @@ export default function TabPedidosExport() {
                           {getUserLabel(pedido)}
                         </div>
                       )}
+                      {enviosFlex[pedido.soh_id] && (() => {
+                        const envio = enviosFlex[pedido.soh_id][0];
+                        const status = getFlexStatusDisplay(envio.estado);
+                        const StatusIcon = status.icon;
+                        return (
+                          <div className={`${styles.flexBadge} ${status.className}`} title={`Flex: ${envio.shipping_id} — ${status.label}${envio.pistoleado_at ? ' (pistoleado)' : ''}`}>
+                            <StatusIcon size={11} /> {status.label}
+                            {envio.pistoleado_at && <ScanBarcode size={11} />}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </td>
                   
@@ -1224,7 +1265,72 @@ export default function TabPedidosExport() {
                 </div>
 
                 <div className={styles.infoSection}>
-                  <h3><Truck size={16} /> Enviar a Flex</h3>
+                  <h3><Truck size={16} /> Envío Flex</h3>
+
+                  {/* Mostrar info de envíos existentes */}
+                  {enviosFlex[pedidoSeleccionado.soh_id] && enviosFlex[pedidoSeleccionado.soh_id].length > 0 ? (
+                    <div className={styles.flexEnviosList}>
+                      {enviosFlex[pedidoSeleccionado.soh_id].map((envio) => {
+                        const status = getFlexStatusDisplay(envio.estado);
+                        const StatusIcon = status.icon;
+                        return (
+                          <div key={envio.shipping_id} className={styles.flexEnvioCard}>
+                            <div className={styles.flexEnvioHeader}>
+                              <span className={styles.flexEnvioShippingId}>{envio.shipping_id}</span>
+                              <span className={`${styles.flexEnvioStatus} ${status.className}`}>
+                                <StatusIcon size={13} /> {status.label}
+                              </span>
+                            </div>
+                            <div className={styles.flexEnvioDetails}>
+                              {envio.fecha_envio && (
+                                <div className={styles.flexEnvioDetail}>
+                                  <strong>Fecha envío:</strong> {new Date(envio.fecha_envio + 'T12:00:00').toLocaleDateString('es-AR')}
+                                </div>
+                              )}
+                              {envio.logistica_nombre && (
+                                <div className={styles.flexEnvioDetail}>
+                                  <strong>Logística:</strong>
+                                  <span className={styles.flexEnvioLogBadge} style={envio.logistica_color ? { borderLeft: `3px solid ${envio.logistica_color}` } : undefined}>
+                                    {envio.logistica_nombre}
+                                  </span>
+                                </div>
+                              )}
+                              {envio.transporte_nombre && (
+                                <div className={styles.flexEnvioDetail}>
+                                  <strong>Transporte:</strong>
+                                  <span className={styles.flexEnvioLogBadge} style={envio.transporte_color ? { borderLeft: `3px solid ${envio.transporte_color}` } : undefined}>
+                                    {envio.transporte_nombre}
+                                  </span>
+                                </div>
+                              )}
+                              {envio.pistoleado_at ? (
+                                <div className={styles.flexEnvioDetail}>
+                                  <strong>Pistoleado:</strong>
+                                  <span className={styles.flexPistoleadoOk}>
+                                    <ScanBarcode size={13} /> {new Date(envio.pistoleado_at).toLocaleString('es-AR')}
+                                    {envio.pistoleado_caja && ` — Caja: ${envio.pistoleado_caja}`}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className={styles.flexEnvioDetail}>
+                                  <strong>Pistoleado:</strong> <span className={styles.flexPistoleadoPending}>Sin pistolear</span>
+                                </div>
+                              )}
+                              {envio.created_at && (
+                                <div className={styles.flexEnvioDetail}>
+                                  <strong>Creado:</strong> {new Date(envio.created_at).toLocaleString('es-AR')}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className={styles.flexNoEnvio}>Sin envío flex asociado</div>
+                  )}
+
+                  {/* Botones de acción siempre visibles */}
                   <div className={styles.flexActions}>
                     <button
                       onClick={() => enviarAFlexRapido(pedidoSeleccionado)}
@@ -1232,7 +1338,7 @@ export default function TabPedidosExport() {
                       className={`btn-tesla outline-subtle-success sm ${styles.btnEnviarFlex}`}
                       title={!getDireccionDisplay(pedidoSeleccionado).direccion ? 'Sin dirección de envío' : 'Envío rápido con datos del pedido'}
                     >
-                      {flexLoading ? <><Loader2 size={14} className={styles.spinning} /> Enviando...</> : <><Truck size={14} /> Envío rápido</>}
+                      {flexLoading ? <><Loader2 size={14} className={styles.spinning} /> Enviando...</> : <><Truck size={14} /> {enviosFlex[pedidoSeleccionado.soh_id] ? 'Reenviar' : 'Envío rápido'}</>}
                     </button>
                     <button
                       onClick={() => abrirFlexModal(pedidoSeleccionado)}
