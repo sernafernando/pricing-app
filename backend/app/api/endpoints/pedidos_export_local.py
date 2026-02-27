@@ -77,6 +77,22 @@ async def obtener_pedidos_local(
       - etc.
     - Resto de filtros: igual que /pedidos-simple
     """
+    # Subquery para TiendaNubeOrder: tomar solo 1 registro por (soh_id, bra_id)
+    # Esto previene que múltiples registros TN para el mismo pedido
+    # multipliquen filas en el resultado del OUTER JOIN.
+    # Usamos DISTINCT ON (PostgreSQL) para quedarnos con el más reciente.
+    tn_sub = (
+        db.query(
+            TiendaNubeOrder.soh_id.label("tn_soh_id"),
+            TiendaNubeOrder.bra_id.label("tn_bra_id"),
+            TiendaNubeOrder.tno_orderid.label("tn_orderid"),
+            TiendaNubeOrder.tno_json.label("tn_json"),
+        )
+        .distinct(TiendaNubeOrder.soh_id, TiendaNubeOrder.bra_id)
+        .order_by(TiendaNubeOrder.soh_id, TiendaNubeOrder.bra_id, TiendaNubeOrder.tno_id.desc())
+        .subquery("tn_unique")
+    )
+
     # Query base
     query = (
         db.query(
@@ -87,8 +103,8 @@ async def obtener_pedidos_local(
             TBCustomer.cust_zip.label("cust_zip"),
             TBCustomer.cust_phone1.label("cust_phone"),
             TBUser.user_name.label("user_name"),
-            TiendaNubeOrder.tno_orderid.label("tn_orderid"),
-            TiendaNubeOrder.tno_json.label("tn_json"),
+            tn_sub.c.tn_orderid.label("tn_orderid"),
+            tn_sub.c.tn_json.label("tn_json"),
         )
         .outerjoin(
             TBCustomer,
@@ -96,8 +112,8 @@ async def obtener_pedidos_local(
         )
         .outerjoin(TBUser, SaleOrderHeader.user_id == TBUser.user_id)
         .outerjoin(
-            TiendaNubeOrder,
-            and_(SaleOrderHeader.soh_id == TiendaNubeOrder.soh_id, SaleOrderHeader.bra_id == TiendaNubeOrder.bra_id),
+            tn_sub,
+            and_(SaleOrderHeader.soh_id == tn_sub.c.tn_soh_id, SaleOrderHeader.bra_id == tn_sub.c.tn_bra_id),
         )
     )
 
@@ -118,7 +134,7 @@ async def obtener_pedidos_local(
     # Filtros adicionales
     if solo_tn:
         # Filtrar por pedidos que tengan registro en tb_tiendanube_orders
-        query = query.filter(TiendaNubeOrder.tno_orderid.isnot(None))
+        query = query.filter(tn_sub.c.tn_orderid.isnot(None))
 
     if solo_ml:
         query = query.filter(and_(SaleOrderHeader.soh_mlid.isnot(None), SaleOrderHeader.soh_mlid != ""))
@@ -185,8 +201,10 @@ async def obtener_pedidos_local(
     # Ejecutar query
     resultados = query.all()
 
-    # Construir respuesta
+    # Construir respuesta — deduplicar por (comp_id, bra_id, soh_id) como safety net
+    # En caso de que JOINs produzcan filas duplicadas por datos inconsistentes
     pedidos = []
+    seen_pedidos: set[tuple[int, int, int]] = set()
     for (
         pedido,
         nombre_cliente,
@@ -198,7 +216,16 @@ async def obtener_pedidos_local(
         tn_orderid,
         tn_json,
     ) in resultados:
+        pedido_key = (pedido.comp_id, pedido.bra_id, pedido.soh_id)
+        if pedido_key in seen_pedidos:
+            logger.warning(
+                f"Pedido duplicado ignorado: comp_id={pedido.comp_id}, bra_id={pedido.bra_id}, soh_id={pedido.soh_id}"
+            )
+            continue
+        seen_pedidos.add(pedido_key)
+
         # Obtener items del pedido (excluyendo 2953 y 2954)
+        # Filtrar también por comp_id para evitar bleed entre compañías
         items_query = (
             db.query(SaleOrderDetail.item_id, SaleOrderDetail.sod_qty, TBItem.item_desc, TBItem.item_code)
             .outerjoin(
@@ -206,6 +233,7 @@ async def obtener_pedidos_local(
             )
             .filter(
                 and_(
+                    SaleOrderDetail.comp_id == pedido.comp_id,
                     SaleOrderDetail.soh_id == pedido.soh_id,
                     SaleOrderDetail.bra_id == pedido.bra_id,
                     or_(
