@@ -113,6 +113,17 @@
   border: 1.5px solid rgba(0, 0, 0, 0.15);
 }
 
+.leyendaSeparator {
+  height: 1px;
+  background: var(--border-primary);
+  margin: 2px 0;
+}
+
+.leyendaTurboIcon {
+  color: #f59e0b;
+  flex-shrink: 0;
+}
+
 /* ============================================
    INFO BAR — flotante bottom-center
    ============================================ */
@@ -161,6 +172,13 @@
   font-size: var(--font-base);
   font-weight: var(--font-bold);
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.popupTurboIcon {
+  color: #f59e0b;
 }
 
 .popup p {
