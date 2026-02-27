@@ -445,15 +445,16 @@ def _soh_status_subquery(db: Session):
     """
     Subquery deduplicada: estado ERP por shipping_id.
 
-    Cruza orders_shipping (por mlshippingid) → sale_order_header (por mlo_id).
-    Esto es más robusto que cruzar directo por SaleOrderHeader.mlshippingid,
-    que no siempre está populado en el sync del ERP.
+    Cubre DOS fuentes:
+      1. Envíos ML: orders_shipping (mlshippingid) → sale_order_header (mlo_id)
+      2. Envíos manuales: etiquetas_envio (manual_soh_id + manual_bra_id) → sale_order_header
 
     Un mismo mlo_id puede tener múltiples filas en SaleOrderHeader
     (una por combinación comp_id/bra_id). Se toma el pedido más reciente
-    (mayor soh_cd) con ROW_NUMBER OVER (PARTITION BY mlshippingid ORDER BY soh_cd DESC).
+    (mayor soh_cd) con ROW_NUMBER OVER (PARTITION BY shipping_id ORDER BY soh_cd DESC).
     """
-    ranked = (
+    # Fuente 1: envíos ML (por mlo_id)
+    ml_ranked = (
         db.query(
             MercadoLibreOrderShipping.mlshippingid.label("shipping_id_str"),
             SaleOrderHeader.ssos_id.label("soh_ssos_id"),
@@ -476,14 +477,45 @@ def _soh_status_subquery(db: Session):
         .subquery()
     )
 
-    return (
+    ml_dedup = db.query(
+        ml_ranked.c.shipping_id_str,
+        ml_ranked.c.soh_ssos_id,
+    ).filter(ml_ranked.c.rn == 1)
+
+    # Fuente 2: envíos manuales (por manual_soh_id + manual_bra_id)
+    manual_ranked = (
         db.query(
-            ranked.c.shipping_id_str,
-            ranked.c.soh_ssos_id,
+            EtiquetaEnvio.shipping_id.label("shipping_id_str"),
+            SaleOrderHeader.ssos_id.label("soh_ssos_id"),
+            func.row_number()
+            .over(
+                partition_by=EtiquetaEnvio.shipping_id,
+                order_by=desc(SaleOrderHeader.soh_cd),
+            )
+            .label("rn"),
         )
-        .filter(ranked.c.rn == 1)
+        .join(
+            SaleOrderHeader,
+            and_(
+                EtiquetaEnvio.manual_soh_id == SaleOrderHeader.soh_id,
+                EtiquetaEnvio.manual_bra_id == SaleOrderHeader.bra_id,
+            ),
+        )
+        .filter(
+            EtiquetaEnvio.es_manual.is_(True),
+            EtiquetaEnvio.manual_soh_id.isnot(None),
+            EtiquetaEnvio.manual_bra_id.isnot(None),
+        )
         .subquery()
     )
+
+    manual_dedup = db.query(
+        manual_ranked.c.shipping_id_str,
+        manual_ranked.c.soh_ssos_id,
+    ).filter(manual_ranked.c.rn == 1)
+
+    # UNION de ambas fuentes
+    return ml_dedup.union_all(manual_dedup).subquery()
 
 
 def _shipping_dedup_subquery(db: Session):
