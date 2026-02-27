@@ -944,6 +944,34 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
+  const geocodificarSeleccionados = async (ids = null) => {
+    const shipping_ids = ids || Array.from(selectedIds);
+    if (shipping_ids.length === 0) return;
+
+    setBulkActualizando(true);
+    try {
+      const { data } = await api.post('/etiquetas-envio/geocodificar', { shipping_ids });
+      const { geocodificados, ya_tenian, sin_resultado, errores } = data;
+
+      const partes = [];
+      if (geocodificados > 0) partes.push(`${geocodificados} geocodificado${geocodificados !== 1 ? 's' : ''}`);
+      if (ya_tenian > 0) partes.push(`${ya_tenian} ya tenían coords`);
+      if (sin_resultado > 0) partes.push(`${sin_resultado} sin resultado`);
+      if (errores > 0) partes.push(`${errores} error${errores !== 1 ? 'es' : ''}`);
+
+      showErrorToast(partes.join(' · '), geocodificados > 0 ? 'success' : 'warning');
+
+      // Refrescar datos si algo se geocodificó
+      if (geocodificados > 0) {
+        await cargarDatos();
+      }
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setBulkActualizando(false);
+    }
+  };
+
   const borrarSeleccionados = async () => {
     if (selectedIds.size === 0) return;
     const n = selectedIds.size;
@@ -1724,7 +1752,7 @@ export default function TabEnviosFlex({ operador = null }) {
       ) : error ? (
         <div className={styles.error}>{error}</div>
       ) : vistaActiva === 'mapa' ? (
-        <MapaEnviosFlex envios={etiquetas} />
+        <MapaEnviosFlex envios={etiquetas} onGeolocalizar={geocodificarSeleccionados} geocodificando={bulkActualizando} />
       ) : (
         <>
         <div
@@ -2118,6 +2146,19 @@ export default function TabEnviosFlex({ operador = null }) {
               </button>
             );
           })()}
+
+          {puedeAsignarLogistica && (
+            <button
+              onClick={() => geocodificarSeleccionados()}
+              disabled={bulkActualizando}
+              className={styles.selectionBtnGeo}
+              title="Geolocalizar etiquetas seleccionadas"
+              aria-label="Geolocalizar etiquetas seleccionadas"
+            >
+              <MapPin size={16} />
+              Geolocalizar
+            </button>
+          )}
 
           {puedeEliminar && (
             <button

@@ -3262,3 +3262,108 @@ async def generar_etiqueta_manual_zpl(
         media_type="text/plain",
         headers={"Content-Disposition": f"attachment; filename=etiqueta_manual_{shipping_id}.txt"},
     )
+
+
+# ── Geocodificación masiva ───────────────────────────────────────────
+
+
+class GeocodificarRequest(BaseModel):
+    """IDs de etiquetas a geocodificar."""
+
+    shipping_ids: List[str]
+
+
+class GeocodificarResponse(BaseModel):
+    """Resultado de geocodificación masiva."""
+
+    total: int
+    geocodificados: int
+    ya_tenian: int
+    sin_resultado: int
+    errores: int
+
+
+@router.post(
+    "/geocodificar",
+    response_model=GeocodificarResponse,
+    summary="Geocodificar etiquetas sin coordenadas",
+)
+async def geocodificar_etiquetas(
+    body: GeocodificarRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> GeocodificarResponse:
+    """
+    Geocodifica etiquetas que no tienen lat/lng.
+
+    Para cada etiqueta:
+      1. Si ya tiene coordenadas → skip (ya_tenian).
+      2. Si tiene transporte con coords → copiar del transporte.
+      3. Si tiene transporte con dirección → geocodificar transporte, guardar en ambos.
+      4. Geocodificar dirección del cliente (mlstreet_name + mlstreet_number).
+    """
+    _check_permiso(db, current_user, "envios_flex")
+
+    if len(body.shipping_ids) > 200:
+        raise HTTPException(status_code=400, detail="Máximo 200 etiquetas por request")
+
+    etiquetas = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id.in_(body.shipping_ids)).all()
+
+    geocodificados = 0
+    ya_tenian = 0
+    sin_resultado = 0
+    errores = 0
+
+    for etiqueta in etiquetas:
+        try:
+            # Ya tiene coordenadas
+            if etiqueta.latitud and etiqueta.longitud:
+                ya_tenian += 1
+                continue
+
+            lat, lng = None, None
+
+            # Intentar desde transporte
+            if etiqueta.transporte_id:
+                transporte = db.query(Transporte).filter(Transporte.id == etiqueta.transporte_id).first()
+                if transporte:
+                    if transporte.latitud and transporte.longitud:
+                        lat, lng = transporte.latitud, transporte.longitud
+                    elif transporte.direccion:
+                        ciudad_transp = transporte.localidad or "Buenos Aires"
+                        coords = await geocode_address(transporte.direccion, ciudad=ciudad_transp, db=db)
+                        if coords:
+                            lat, lng = coords
+                            transporte.latitud = lat
+                            transporte.longitud = lng
+
+            # Fallback: dirección del cliente
+            if lat is None and etiqueta.mlstreet_name:
+                direccion = f"{etiqueta.mlstreet_name} {etiqueta.mlstreet_number or ''}".strip()
+                ciudad = etiqueta.mlcity_name or "Buenos Aires"
+                coords = await geocode_address(direccion, ciudad=ciudad, db=db)
+                if coords:
+                    lat, lng = coords
+
+            if lat is not None and lng is not None:
+                etiqueta.latitud = lat
+                etiqueta.longitud = lng
+                geocodificados += 1
+                logger.info("Geocoding OK %s → (%.6f, %.6f)", etiqueta.shipping_id, lat, lng)
+            else:
+                sin_resultado += 1
+                logger.warning("Geocoding sin resultado para %s", etiqueta.shipping_id)
+
+        except Exception:
+            logger.exception("Error geocodificando %s", etiqueta.shipping_id)
+            errores += 1
+
+    db.commit()
+
+    return GeocodificarResponse(
+        total=len(etiquetas),
+        geocodificados=geocodificados,
+        ya_tenian=ya_tenian,
+        sin_resultado=sin_resultado,
+        errores=errores,
+    )

@@ -1241,6 +1241,32 @@
   cursor: not-allowed;
 }
 
+.selectionBtnGeo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.15);
+  color: #86efac;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnGeo:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.3);
+  border-color: rgba(34, 197, 94, 0.7);
+}
+
+.selectionBtnGeo:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .selectionBtnBorrar {
   display: flex;
   align-items: center;
