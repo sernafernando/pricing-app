@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ScanBarcode, CheckCircle, AlertCircle, XCircle, Box, BarChart3,
-  Volume2, VolumeX, Undo2,
+  Volume2, VolumeX, Undo2, Clock,
 } from 'lucide-react';
 import api from '../services/api';
 import styles from './TabPistoleado.module.css';
@@ -207,7 +207,10 @@ export default function TabPistoleado({ operador = null }) {
       // Check 100% completion
       if (data.total_etiquetas > 0 && data.pistoleadas === data.total_etiquetas) {
         const logNombre = logisticas.find((l) => l.id === Number(logisticaId))?.nombre || '';
-        addLog('complete', `${logNombre} completo: ${data.pistoleadas}/${data.total_etiquetas}`);
+        const prepMsg = data.en_preparacion > 0
+          ? ` — ${data.en_preparacion} en preparación`
+          : '';
+        addLog('complete', `${logNombre} completa: ${data.pistoleadas}/${data.total_etiquetas}${prepMsg}`);
         if (ttsEnabled) playSound('upload_ok');
       }
     } catch (err) {
@@ -500,6 +503,15 @@ export default function TabPistoleado({ operador = null }) {
               <div className={styles.statValue}>{stats.pendientes}</div>
               <div className={styles.statLabel}>Pendientes</div>
             </div>
+            {stats.en_preparacion > 0 && (
+              <div className={`${styles.statCard} ${styles.statCardWarning}`}>
+                <div className={`${styles.statValue} ${styles.statWarning}`}>
+                  <Clock size={18} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
+                  {stats.en_preparacion}
+                </div>
+                <div className={styles.statLabel}>En Preparación</div>
+              </div>
+            )}
           </div>
 
           {/* Progress bar */}
