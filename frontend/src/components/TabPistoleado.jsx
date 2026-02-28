@@ -20,6 +20,10 @@ const COMANDO_CONTADOR = 'BACKUP';
 
 const MAX_LOG_ITEMS = 50;
 
+// ── Buffer de etiquetas sin logística (para doble escaneo) ──────────
+const SIN_LOGISTICA_MAX = 5;
+const SIN_LOGISTICA_TTL_MS = 60_000; // 1 minuto
+
 // ── TTS helper ──────────────────────────────────────────────────────
 
 // ── Audio local (archivos MP3 pregenerados) ─────────────────────────
@@ -146,6 +150,9 @@ export default function TabPistoleado({ operador = null }) {
   });
   const [processing, setProcessing] = useState(false);
   const scanRef = useRef(null);
+
+  // Buffer de etiquetas sin logística (doble escaneo para asignar)
+  const sinLogisticaBuffer = useRef([]);
 
   // Stats
   const [stats, setStats] = useState(null);
@@ -350,6 +357,15 @@ export default function TabPistoleado({ operador = null }) {
       return;
     }
 
+    // Chequear si esta etiqueta está en el buffer de "sin logística" (doble escaneo)
+    const ahora = Date.now();
+    sinLogisticaBuffer.current = sinLogisticaBuffer.current.filter(
+      (e) => ahora - e.time < SIN_LOGISTICA_TTL_MS,
+    );
+    const enBuffer = sinLogisticaBuffer.current.some(
+      (e) => e.shippingId === parsed.shippingId,
+    );
+
     // Pistolear
     setProcessing(true);
     try {
@@ -358,7 +374,15 @@ export default function TabPistoleado({ operador = null }) {
         caja: cajaActiva,
         logistica_id: Number(logisticaId),
         operador_id: operador.operadorActivo.id,
+        ...(enBuffer && { forzar_asignacion: true }),
       });
+
+      // Limpiar del buffer si se asignó por doble escaneo
+      if (enBuffer) {
+        sinLogisticaBuffer.current = sinLogisticaBuffer.current.filter(
+          (e) => e.shippingId !== parsed.shippingId,
+        );
+      }
 
       const estadoErpMsg = data.estado_erp === 'En Preparación' ? ' — Pedido en preparación' : '';
       const asignadaMsg = data.logistica_asignada ? ' [ASIGNADA]' : '';
@@ -396,13 +420,27 @@ export default function TabPistoleado({ operador = null }) {
         // Logística no coincide o sin asignar
         const info = typeof detail === 'object' ? detail : {};
         const sinAsignar = info.etiqueta_logistica_id === null;
-        const msg = sinAsignar
-          ? `Sin logística asignada: ${parsed.shippingId} — no se puede pistolear con ${info.pistoleando_logistica || '?'}`
-          : `Logística no coincide: ${parsed.shippingId} — asignada a ${info.etiqueta_logistica || '?'}, pistoleando ${info.pistoleando_logistica || '?'}`;
-        addLog('logistica_error', msg, {
-          shippingId: parsed.shippingId,
-        });
-        if (ttsEnabled) playSound('invalid_scan');
+
+        if (sinAsignar) {
+          // Agregar al buffer para doble escaneo (máx 5 entradas, 1 min TTL)
+          const yaEnBuffer = sinLogisticaBuffer.current.some(
+            (e) => e.shippingId === parsed.shippingId,
+          );
+          if (!yaEnBuffer) {
+            sinLogisticaBuffer.current = [
+              ...sinLogisticaBuffer.current.slice(-(SIN_LOGISTICA_MAX - 1)),
+              { shippingId: parsed.shippingId, time: Date.now() },
+            ];
+          }
+          addLog('logistica_error', `Sin logística: ${parsed.shippingId} — escaneá de nuevo para asignar ${info.pistoleando_logistica || '?'}`, {
+            shippingId: parsed.shippingId,
+          });
+        } else {
+          addLog('logistica_error', `Logística no coincide: ${parsed.shippingId} — asignada a ${info.etiqueta_logistica || '?'}, pistoleando ${info.pistoleando_logistica || '?'}`, {
+            shippingId: parsed.shippingId,
+          });
+        }
+        if (ttsEnabled) playSound(sinAsignar ? 'sin_logistica' : 'invalid_scan');
       } else if (status === 404) {
         addLog('error', `No encontrada: ${parsed.shippingId}`);
         if (ttsEnabled) playSound('invalid_scan');

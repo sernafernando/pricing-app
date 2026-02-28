@@ -373,6 +373,9 @@ class PistolearRequest(BaseModel):
     operador_id: int = Field(description="Operador autenticado con PIN")
     bulto: Optional[int] = Field(None, description="N° de bulto escaneado (del QR). None = bulto único.")
     total_bultos: Optional[int] = Field(None, description="Total bultos del envío (del QR)")
+    forzar_asignacion: bool = Field(
+        False, description="Si True, asigna la logística aunque no tenga pistoleado_asigna (doble escaneo)"
+    )
 
 
 class PistolearResponse(BaseModel):
@@ -2698,17 +2701,22 @@ def pistolear_etiqueta(
         etiqueta.logistica_id = payload.logistica_id
         fue_asignada = True
     elif etiqueta.logistica_id is None and not logistica_pistoleando.pistoleado_asigna:
-        # Sin logística asignada + modo estricto → rechazar
-        raise HTTPException(
-            422,
-            detail={
-                "detail": "Etiqueta sin logística asignada",
-                "etiqueta_logistica": "Sin asignar",
-                "etiqueta_logistica_id": None,
-                "pistoleando_logistica": logistica_pistoleando.nombre,
-                "pistoleando_logistica_id": payload.logistica_id,
-            },
-        )
+        if payload.forzar_asignacion:
+            # Doble escaneo: el operador confirmó asignar esta logística
+            etiqueta.logistica_id = payload.logistica_id
+            fue_asignada = True
+        else:
+            # Sin logística asignada + modo estricto → rechazar (primer escaneo)
+            raise HTTPException(
+                422,
+                detail={
+                    "detail": "Etiqueta sin logística asignada",
+                    "etiqueta_logistica": "Sin asignar",
+                    "etiqueta_logistica_id": None,
+                    "pistoleando_logistica": logistica_pistoleando.nombre,
+                    "pistoleando_logistica_id": payload.logistica_id,
+                },
+            )
 
     ahora = datetime.now(UTC)
 
