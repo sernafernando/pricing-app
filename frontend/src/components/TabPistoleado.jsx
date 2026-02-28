@@ -440,7 +440,7 @@ export default function TabPistoleado({ operador = null }) {
             shippingId: parsed.shippingId,
           });
         }
-        if (ttsEnabled) playSound('invalid_scan');
+        if (ttsEnabled) playSound(sinAsignar ? 'sin_logistica' : 'invalid_scan');
       } else if (status === 404) {
         addLog('error', `No encontrada: ${parsed.shippingId}`);
         if (ttsEnabled) playSound('invalid_scan');
