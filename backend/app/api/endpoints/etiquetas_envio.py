@@ -2697,6 +2697,18 @@ def pistolear_etiqueta(
         # Sin logística asignada + modo asignación → asignar
         etiqueta.logistica_id = payload.logistica_id
         fue_asignada = True
+    elif etiqueta.logistica_id is None and not logistica_pistoleando.pistoleado_asigna:
+        # Sin logística asignada + modo estricto → rechazar
+        raise HTTPException(
+            422,
+            detail={
+                "detail": "Etiqueta sin logística asignada",
+                "etiqueta_logistica": "Sin asignar",
+                "etiqueta_logistica_id": None,
+                "pistoleando_logistica": logistica_pistoleando.nombre,
+                "pistoleando_logistica_id": payload.logistica_id,
+            },
+        )
 
     ahora = datetime.now(UTC)
 

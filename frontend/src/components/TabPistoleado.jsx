@@ -393,9 +393,13 @@ export default function TabPistoleado({ operador = null }) {
         });
         if (ttsEnabled) playSound('scan_duplicate');
       } else if (status === 422) {
-        // Logística no coincide
+        // Logística no coincide o sin asignar
         const info = typeof detail === 'object' ? detail : {};
-        addLog('logistica_error', `Logística no coincide: ${parsed.shippingId} — asignada a ${info.etiqueta_logistica || '?'}, pistoleando ${info.pistoleando_logistica || '?'}`, {
+        const sinAsignar = info.etiqueta_logistica_id === null;
+        const msg = sinAsignar
+          ? `Sin logística asignada: ${parsed.shippingId} — no se puede pistolear con ${info.pistoleando_logistica || '?'}`
+          : `Logística no coincide: ${parsed.shippingId} — asignada a ${info.etiqueta_logistica || '?'}, pistoleando ${info.pistoleando_logistica || '?'}`;
+        addLog('logistica_error', msg, {
           shippingId: parsed.shippingId,
         });
         if (ttsEnabled) playSound('invalid_scan');
