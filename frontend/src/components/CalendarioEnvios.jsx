@@ -112,6 +112,8 @@ export default function CalendarioEnvios({ onDiaClick }) {
   const [error, setError] = useState(null);
 
   const { desde, hasta } = calcularRango(refDate, modo);
+  const desdeStr = fmt(desde);
+  const hastaStr = fmt(hasta);
   const today = todayStr();
 
   const cargarDatos = useCallback(async () => {
@@ -120,8 +122,8 @@ export default function CalendarioEnvios({ onDiaClick }) {
     try {
       const { data } = await api.get('/etiquetas-envio/estadisticas-por-dia', {
         params: {
-          fecha_desde: fmt(desde),
-          fecha_hasta: fmt(hasta),
+          fecha_desde: desdeStr,
+          fecha_hasta: hastaStr,
         },
       });
 
@@ -135,7 +137,7 @@ export default function CalendarioEnvios({ onDiaClick }) {
     } finally {
       setLoading(false);
     }
-  }, [desde, hasta]);
+  }, [desdeStr, hastaStr]);
 
   useEffect(() => {
     cargarDatos();
