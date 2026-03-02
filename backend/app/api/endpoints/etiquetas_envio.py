@@ -3633,7 +3633,7 @@ async def geocodificar_etiquetas(
       2. Si NO tiene transporte y ya tiene coords → skip (ya_tenian).
       3. Geocodificar dirección del cliente (manual, enriquecida, o ML).
     """
-    _check_permiso(db, current_user, "envios_flex")
+    _check_permiso(db, current_user, "envios_flex.asignar_logistica")
 
     if len(body.shipping_ids) > 200:
         raise HTTPException(status_code=400, detail="Máximo 200 etiquetas por request")
