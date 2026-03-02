@@ -377,6 +377,13 @@ class AsignarMasivoRequest(BaseModel):
     logistica_id: int
 
 
+class AsignarTransporteMasivoRequest(BaseModel):
+    """Payload para asignación masiva de transporte."""
+
+    shipping_ids: List[str] = Field(min_length=1)
+    transporte_id: Optional[int] = Field(None, description="ID del transporte (None para desasignar)")
+
+
 class ShippingIdsRequest(BaseModel):
     """Payload genérico con lista de shipping_ids."""
 
@@ -2729,6 +2736,51 @@ def toggle_turbo_masivo(
         "es_turbo": es_turbo,
         "actualizados": updated,
         "solicitados": len(payload.shipping_ids),
+    }
+
+
+@router.put(
+    "/etiquetas-envio/transporte-masivo",
+    response_model=dict,
+    summary="Asignar o quitar transporte a múltiples etiquetas",
+)
+def asignar_transporte_masivo(
+    payload: AsignarTransporteMasivoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Asigna (o desasigna) el mismo transporte a un lote de etiquetas.
+
+    Si transporte_id es None, desasigna el transporte de todas las
+    etiquetas indicadas.  Requiere permiso envios_flex.asignar_logistica.
+    """
+    _check_permiso(db, current_user, "envios_flex.asignar_logistica")
+
+    transporte_nombre: Optional[str] = None
+    if payload.transporte_id is not None:
+        transporte = (
+            db.query(Transporte).filter(Transporte.id == payload.transporte_id, Transporte.activa.is_(True)).first()
+        )
+        if not transporte:
+            raise HTTPException(404, "Transporte no encontrado o inactivo")
+        transporte_nombre = transporte.nombre
+
+    updated = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
+        .update(
+            {EtiquetaEnvio.transporte_id: payload.transporte_id},
+            synchronize_session="fetch",
+        )
+    )
+    db.commit()
+
+    return {
+        "ok": True,
+        "actualizadas": updated,
+        "transporte_id": payload.transporte_id,
+        "transporte_nombre": transporte_nombre,
     }
 
 
