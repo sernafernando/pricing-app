@@ -3822,20 +3822,12 @@ async def exportar_rebate(
             "MLA",
             "",
             "",
+            "",
             "TIPO DE OFERTA",
             "DESDE",
             "HASTA",
             "PVP LLENO",
             "PVP SELLER",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "REBATE",
         ]
     else:
         # Formato tradicional (original)
@@ -3913,31 +3905,23 @@ async def exportar_rebate(
                 continue
 
             if request.formato == "nuevo":
-                # Formato DXI pedido por el usuario (17 columnas)
+                # Formato DXI (9 columnas)
                 ws.cell(row=row, column=1, value=mla.mla)
                 ws.cell(row=row, column=2, value="")
                 ws.cell(row=row, column=3, value="")
-                ws.cell(row=row, column=4, value="DXI")
-                ws.cell(row=row, column=5, value=fecha_desde)
-                ws.cell(row=row, column=6, value=fecha_hasta)
-                ws.cell(row=row, column=7, value=pvp_lleno)
-                ws.cell(row=row, column=8, value=round(pvp_seller, 2))
-                ws.cell(row=row, column=9, value="")
-                ws.cell(row=row, column=10, value="")
-                ws.cell(row=row, column=11, value="")
-                ws.cell(row=row, column=12, value="")
-                ws.cell(row=row, column=13, value="")
-                ws.cell(row=row, column=14, value="")
-                ws.cell(row=row, column=15, value="")
-                ws.cell(row=row, column=16, value="")
-                ws.cell(row=row, column=17, value=f"{porcentaje_rebate}%")
+                ws.cell(row=row, column=4, value="")
+                ws.cell(row=row, column=5, value="DxI")
+                ws.cell(row=row, column=6, value=fecha_desde)
+                ws.cell(row=row, column=7, value=fecha_hasta)
+                ws.cell(row=row, column=8, value=pvp_lleno)
+                ws.cell(row=row, column=9, value=round(pvp_seller, 2))
             else:
                 # Formato tradicional
                 ws.cell(row=row, column=1, value=f"{porcentaje_rebate}%")
                 ws.cell(row=row, column=2, value=producto_erp.marca or "")
                 ws.cell(row=row, column=3, value=fecha_desde)
                 ws.cell(row=row, column=4, value=fecha_hasta)
-                ws.cell(row=row, column=5, value="DXI")
+                ws.cell(row=row, column=5, value="DxI")
                 ws.cell(row=row, column=6, value="")  # Categoría vacía
                 ws.cell(row=row, column=7, value=mla.item_title or producto_erp.descripcion or "")
                 ws.cell(row=row, column=8, value="Clásica" if pricelist_id == 4 else f"{request.tipo_cuotas} Cuotas")

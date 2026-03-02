@@ -830,7 +830,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                   onChange={(e) => setFormatoRebate(e.target.value)}
                   className={styles.input}
                 >
-                  <option value="nuevo">Nuevo (DXI - Columnas Vacías)</option>
+                  <option value="nuevo">Nuevo (DxI)</option>
                   <option value="tradicional">Tradicional (Viejo)</option>
                 </select>
               </div>
