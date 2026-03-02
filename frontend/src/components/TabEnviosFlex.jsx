@@ -218,6 +218,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [lastSelected, setLastSelected] = useState(null);
   const [bulkLogisticaId, setBulkLogisticaId] = useState('');
+  const [bulkTransporteId, setBulkTransporteId] = useState('');
   const [bulkActualizando, setBulkActualizando] = useState(false);
 
   // Error inline (reemplaza alert())
@@ -994,6 +995,7 @@ export default function TabEnviosFlex({ operador = null }) {
     setSelectedIds(new Set());
     setLastSelected(null);
     setBulkLogisticaId('');
+    setBulkTransporteId('');
   };
 
   const asignarLogisticaMasivo = async () => {
@@ -1016,6 +1018,49 @@ export default function TabEnviosFlex({ operador = null }) {
                 logistica_id: log?.id || null,
                 logistica_nombre: log?.nombre || null,
                 logistica_color: log?.color || null,
+              }
+            : e
+        )
+      );
+
+      limpiarSeleccion();
+      // Refresh stats
+      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
+      setEstadisticas(statsData);
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setBulkActualizando(false);
+    }
+  };
+
+  const asignarTransporteMasivo = async () => {
+    if (!bulkTransporteId || selectedIds.size === 0) return;
+
+    const transporteId = bulkTransporteId === 'none' ? null : parseInt(bulkTransporteId, 10);
+
+    setBulkActualizando(true);
+    try {
+      await api.put('/etiquetas-envio/transporte-masivo', {
+        shipping_ids: Array.from(selectedIds),
+        transporte_id: transporteId,
+      });
+
+      // Actualizar localmente
+      const tr = transporteId ? transportes.find(t => t.id === transporteId) : null;
+      setEtiquetas(prev =>
+        prev.map(e =>
+          selectedIds.has(e.shipping_id)
+            ? {
+                ...e,
+                transporte_id: tr?.id || null,
+                transporte_nombre: tr?.nombre || null,
+                transporte_color: tr?.color || null,
+                transporte_direccion: tr?.direccion || null,
+                transporte_cp: tr?.cp || null,
+                transporte_localidad: tr?.localidad || null,
+                transporte_telefono: tr?.telefono || null,
+                transporte_horario: tr?.horario || null,
               }
             : e
         )
@@ -2264,6 +2309,30 @@ export default function TabEnviosFlex({ operador = null }) {
             </div>
           )}
 
+          {puedeAsignarLogistica && (
+            <div className={styles.selectionActions}>
+              <select
+                value={bulkTransporteId}
+                onChange={(ev) => setBulkTransporteId(ev.target.value)}
+                className={styles.selectionSelect}
+                disabled={bulkActualizando}
+              >
+                <option value="">Elegir transporte...</option>
+                <option value="none">— Sin transporte —</option>
+                {transportesActivos.map(t => (
+                  <option key={t.id} value={t.id}>{t.nombre}</option>
+                ))}
+              </select>
+              <button
+                onClick={asignarTransporteMasivo}
+                disabled={!bulkTransporteId || bulkActualizando}
+                className={styles.selectionBtnAsignar}
+              >
+                {bulkActualizando ? 'Asignando...' : 'Asignar'}
+              </button>
+            </div>
+          )}
+
           {puedeVerCostos && (() => {
             const todasTurbo = etiquetas
               .filter(e => selectedIds.has(e.shipping_id))
@@ -2294,6 +2363,39 @@ export default function TabEnviosFlex({ operador = null }) {
               Geolocalizar
             </button>
           )}
+
+          {/* Acciones rápidas cuando hay 1 solo envío seleccionado */}
+          {selectedIds.size === 1 && (() => {
+            const selId = Array.from(selectedIds)[0];
+            const envio = etiquetas.find(e => e.shipping_id === selId);
+            if (!envio) return null;
+            return (
+              <>
+                {envio.es_manual && puedeVerCostos && (
+                  <button
+                    onClick={() => abrirModalEditarManual(envio)}
+                    disabled={bulkActualizando}
+                    className={styles.selectionBtnGeo}
+                    title="Editar envío"
+                    aria-label="Editar envío"
+                  >
+                    <Pencil size={16} />
+                    Editar
+                  </button>
+                )}
+                <button
+                  onClick={() => envio.es_manual ? abrirModalPrintManual(envio) : imprimirEtiqueta(envio.shipping_id)}
+                  disabled={bulkActualizando || imprimiendo === envio.shipping_id}
+                  className={styles.selectionBtnGeo}
+                  title="Imprimir etiqueta"
+                  aria-label="Imprimir etiqueta"
+                >
+                  <Printer size={16} />
+                  Imprimir
+                </button>
+              </>
+            );
+          })()}
 
           {puedeEliminar && (
             <button
