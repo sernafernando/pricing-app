@@ -1,0 +1,236 @@
+/* CalendarioEnvios.module.css */
+
+.container {
+  padding: var(--spacing-md) 0;
+}
+
+/* ── Controles (rango + navegación) ──────────────── */
+
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.rangeToggle {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.rangeBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  font-size: var(--font-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rangeBtn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.rangeBtnActive {
+  color: var(--brand-primary);
+  background: var(--bg-tertiary);
+  border-color: var(--border-primary);
+  font-weight: var(--font-medium);
+}
+
+.navGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.navBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.navBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.rangeLabel {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  min-width: 200px;
+  text-align: center;
+}
+
+/* ── Grid del calendario ─────────────────────────── */
+
+.calendarGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background: var(--border-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.dayHeader {
+  padding: var(--spacing-sm);
+  text-align: center;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  background: var(--bg-secondary);
+}
+
+.dayCell {
+  background: var(--bg-primary);
+  padding: var(--spacing-sm);
+  min-height: 100px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  position: relative;
+}
+
+.dayCell:hover {
+  background: var(--bg-tertiary);
+}
+
+.dayCellEmpty {
+  background: var(--bg-secondary);
+  cursor: default;
+  min-height: 100px;
+  padding: var(--spacing-sm);
+}
+
+.dayCellToday {
+  box-shadow: inset 0 0 0 2px var(--brand-primary);
+}
+
+.dayNumber {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.dayNumberToday {
+  color: var(--brand-primary);
+}
+
+/* ── Badges dentro de cada día ───────────────────── */
+
+.dayBadges {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.badgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+/* Tipo de envío */
+.badgeFlex {
+  background: #3b82f620;
+  color: #3b82f6;
+}
+
+.badgeManual {
+  background: #8b5cf620;
+  color: #8b5cf6;
+}
+
+/* Cordones (mismos colores que TabEnviosFlex) */
+.badgeCaba {
+  background: #7c3aed20;
+  color: #7c3aed;
+}
+
+.badgeCordon1 {
+  background: #05966920;
+  color: #059669;
+}
+
+.badgeCordon2 {
+  background: #0284c720;
+  color: #0284c7;
+}
+
+.badgeCordon3 {
+  background: #d9770620;
+  color: #d97706;
+}
+
+.badgeSinCordon {
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+
+/* Logística */
+.badgeConLog {
+  background: #05966920;
+  color: #059669;
+}
+
+.badgeSinLog {
+  background: #dc262620;
+  color: #dc2626;
+}
+
+/* Total del día */
+.dayTotal {
+  font-size: var(--font-xs);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+/* ── Loading / Error ─────────────────────────────── */
+
+.loading {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+.error {
+  text-align: center;
+  padding: var(--spacing-lg);
+  color: var(--error-text);
+  background: var(--error-bg);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+}

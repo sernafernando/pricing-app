@@ -183,6 +183,9 @@ class EtiquetaEnvioResponse(BaseModel):
     logistica_nombre: Optional[str] = None
     logistica_color: Optional[str] = None
 
+    # Order ID de MercadoLibre (para link a detalle de venta en ML)
+    ml_order_id: Optional[str] = None
+
     # Buyer nickname de MercadoLibre (ej: GUSY2007)
     mluser_nickname: Optional[str] = None
 
@@ -259,6 +262,25 @@ class EstadisticasEnvioResponse(BaseModel):
     por_estado_erp: dict[str, int]
     costo_total: float = 0.0
     costo_por_logistica: dict[str, float] = {}
+
+
+class EstadisticaDiaItem(BaseModel):
+    """Estadísticas de un día individual para la vista calendario."""
+
+    fecha: date
+    total: int = 0
+    flex: int = 0
+    manuales: int = 0
+    por_cordon: dict[str, int] = {}
+    sin_cordon: int = 0
+    con_logistica: int = 0
+    sin_logistica: int = 0
+
+
+class EstadisticasPorDiaResponse(BaseModel):
+    """Respuesta del endpoint de estadísticas agrupadas por día."""
+
+    dias: List[EstadisticaDiaItem]
 
 
 class AsignarLogisticaRequest(BaseModel):
@@ -915,6 +937,7 @@ def listar_etiquetas(
             ).label("costo_envio"),
             EtiquetaEnvio.costo_override,
             MercadoLibreUserData.nickname.label("mluser_nickname"),
+            MercadoLibreOrderHeader.mlorder_id.label("ml_order_id"),
             Usuario.nombre.label("creado_por_usuario_nombre"),
         )
         .outerjoin(
@@ -1434,6 +1457,108 @@ def estadisticas_etiquetas(
         costo_total=costo_total,
         costo_por_logistica=costo_por_logistica,
     )
+
+
+@router.get(
+    "/etiquetas-envio/estadisticas-por-dia",
+    response_model=EstadisticasPorDiaResponse,
+    summary="Estadísticas agrupadas por día para vista calendario",
+)
+def estadisticas_por_dia(
+    fecha_desde: date = Query(..., description="Fecha inicio (inclusive)"),
+    fecha_hasta: date = Query(..., description="Fecha fin (inclusive)"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> EstadisticasPorDiaResponse:
+    """
+    Devuelve estadísticas agrupadas por fecha_envio para la vista calendario.
+
+    Para cada día en el rango devuelve:
+    - total, flex (no manual), manuales (es_manual=True)
+    - distribución por cordón (CABA, Cordón 1, etc.)
+    - con/sin logística asignada
+
+    Solo incluye días que tienen al menos 1 etiqueta.
+    """
+    _check_permiso(db, current_user, "envios_flex.ver")
+
+    shipping_stats = _shipping_dedup_subquery(db)
+
+    stats_eff_zip = func.coalesce(
+        EtiquetaEnvio.manual_zip_code,
+        shipping_stats.c.mlzip_code,
+    )
+    stats_eff_zip_for_cordon = func.coalesce(Transporte.cp, stats_eff_zip)
+
+    # Query base: una fila por (fecha_envio, es_manual, cordon, tiene_logistica)
+    base_q = (
+        db.query(
+            EtiquetaEnvio.fecha_envio,
+            EtiquetaEnvio.es_manual,
+            CodigoPostalCordon.cordon,
+            case(
+                (EtiquetaEnvio.logistica_id.isnot(None), True),
+                else_=False,
+            ).label("tiene_logistica"),
+            func.count().label("cantidad"),
+        )
+        .outerjoin(
+            shipping_stats,
+            EtiquetaEnvio.shipping_id == shipping_stats.c.mlshippingid,
+        )
+        .outerjoin(
+            Transporte,
+            EtiquetaEnvio.transporte_id == Transporte.id,
+        )
+        .outerjoin(
+            CodigoPostalCordon,
+            stats_eff_zip_for_cordon == CodigoPostalCordon.codigo_postal,
+        )
+        .filter(
+            EtiquetaEnvio.fecha_envio >= fecha_desde,
+            EtiquetaEnvio.fecha_envio <= fecha_hasta,
+        )
+        .group_by(
+            EtiquetaEnvio.fecha_envio,
+            EtiquetaEnvio.es_manual,
+            CodigoPostalCordon.cordon,
+            "tiene_logistica",
+        )
+        .all()
+    )
+
+    # Agrupar resultados por fecha
+    dias_map: dict[date, EstadisticaDiaItem] = {}
+
+    for row in base_q:
+        fecha = row.fecha_envio
+        if fecha not in dias_map:
+            dias_map[fecha] = EstadisticaDiaItem(fecha=fecha)
+
+        dia = dias_map[fecha]
+        cantidad = row.cantidad
+
+        dia.total += cantidad
+
+        if row.es_manual:
+            dia.manuales += cantidad
+        else:
+            dia.flex += cantidad
+
+        if row.cordon:
+            dia.por_cordon[row.cordon] = dia.por_cordon.get(row.cordon, 0) + cantidad
+        else:
+            dia.sin_cordon += cantidad
+
+        if row.tiene_logistica:
+            dia.con_logistica += cantidad
+        else:
+            dia.sin_logistica += cantidad
+
+    # Ordenar por fecha
+    dias = sorted(dias_map.values(), key=lambda d: d.fecha)
+
+    return EstadisticasPorDiaResponse(dias=dias)
 
 
 # ── Columnas disponibles para export ──────────────────────────────
