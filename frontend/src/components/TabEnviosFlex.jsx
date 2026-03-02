@@ -6,6 +6,7 @@ import {
   Table, Map,
 } from 'lucide-react';
 import MapaEnviosFlex from './MapaEnviosFlex';
+import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
 import { printZpl } from '../services/zebraPrint';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -210,8 +211,8 @@ export default function TabEnviosFlex({ operador = null }) {
   const tableRef = useRef(null);
   const [tableWidth, setTableWidth] = useState(0);
 
-  // Vista: tabla o mapa
-  const [vistaActiva, setVistaActiva] = useState('tabla'); // 'tabla' | 'mapa'
+  // Vista: tabla, mapa o calendario
+  const [vistaActiva, setVistaActiva] = useState('tabla'); // 'tabla' | 'mapa' | 'calendario'
 
   // Selección múltiple
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -1751,6 +1752,15 @@ export default function TabEnviosFlex({ operador = null }) {
               <Map size={15} />
               Mapa
             </button>
+            <button
+              type="button"
+              className={`${styles.vistaBtn} ${vistaActiva === 'calendario' ? styles.vistaBtnActive : ''}`}
+              onClick={() => setVistaActiva('calendario')}
+              aria-label="Vista calendario"
+            >
+              <Calendar size={15} />
+              Calendario
+            </button>
           </div>
 
           <button
@@ -1862,13 +1872,22 @@ export default function TabEnviosFlex({ operador = null }) {
         </div>
       )}
 
-      {/* Contenido principal: tabla o mapa */}
+      {/* Contenido principal: tabla, mapa o calendario */}
       {loading ? (
         <div className={styles.loading}>Cargando etiquetas...</div>
       ) : error ? (
         <div className={styles.error}>{error}</div>
       ) : vistaActiva === 'mapa' ? (
         <MapaEnviosFlex envios={etiquetas} onGeolocalizar={geocodificarSeleccionados} geocodificando={bulkActualizando} />
+      ) : vistaActiva === 'calendario' ? (
+        <CalendarioEnvios
+          onDiaClick={(dateStr) => {
+            setFechaDesde(dateStr);
+            setFechaHasta(dateStr);
+            setFiltroRapidoActivo('custom');
+            setVistaActiva('tabla');
+          }}
+        />
       ) : (
         <>
         <div
@@ -1935,9 +1954,9 @@ export default function TabEnviosFlex({ operador = null }) {
                       />
                     </td>
                     <td>
-                      {!e.es_manual && /^\d+$/.test(e.shipping_id) ? (
+                      {!e.es_manual && e.ml_order_id ? (
                         <a
-                          href={`https://www.mercadolibre.com.ar/ventas/${e.shipping_id}/detalle`}
+                          href={`https://www.mercadolibre.com.ar/ventas/${e.ml_order_id}/detalle`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className={styles.shippingIdLink}
