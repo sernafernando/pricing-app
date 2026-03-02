@@ -30,6 +30,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
   const [porcentajeClasica, setPorcentajeClasica] = useState('0');
   const [tipoCuotas, setTipoCuotas] = useState('clasica'); // clasica, 3, 6, 9, 12
+  const [formatoRebate, setFormatoRebate] = useState('nuevo'); // nuevo, tradicional
+  const [tipoCuotasRebate, setTipoCuotasRebate] = useState('clasica'); // clasica, 3, 6, 9, 12
   const [tipoCuotasPVP, setTipoCuotasPVP] = useState('pvp'); // pvp, pvp_3, pvp_6, pvp_9, pvp_12
   const [porcentajePVP, setPorcentajePVP] = useState('0');
   const [monedaClasica, setMonedaClasica] = useState('ARS'); // ARS o USD
@@ -304,7 +306,9 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     try {
       const body = {
         fecha_desde: convertirFechaParaAPI(fechaDesde),
-        fecha_hasta: convertirFechaParaAPI(fechaHasta)
+        fecha_hasta: convertirFechaParaAPI(fechaHasta),
+        formato: formatoRebate,
+        tipo_cuotas: tipoCuotasRebate
       };
 
       if (aplicarFiltros) {
@@ -818,6 +822,33 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
                   {aplicarFiltros && <FiltrosActivosDisplay />}
                 </div>
               )}
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Formato de exportación:</label>
+                <select
+                  value={formatoRebate}
+                  onChange={(e) => setFormatoRebate(e.target.value)}
+                  className={styles.input}
+                >
+                  <option value="nuevo">Nuevo (DXI - Columnas Vacías)</option>
+                  <option value="tradicional">Tradicional (Viejo)</option>
+                </select>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Tipo de precio (Lista):</label>
+                <select
+                  value={tipoCuotasRebate}
+                  onChange={(e) => setTipoCuotasRebate(e.target.value)}
+                  className={styles.input}
+                >
+                  <option value="clasica">Clásica</option>
+                  <option value="3">3 Cuotas</option>
+                  <option value="6">6 Cuotas</option>
+                  <option value="9">9 Cuotas</option>
+                  <option value="12">12 Cuotas</option>
+                </select>
+              </div>
 
               <div className={styles.formGrid}>
                 <div className={styles.formGroup}>
