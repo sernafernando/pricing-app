@@ -3892,7 +3892,7 @@ async def exportar_rebate(
         # Basado en precio_lista_ml de ProductoPricing si es clásica, o calculado si son cuotas
         # Para ser consistentes con el resto del sistema, calculamos pvp_seller aplicando el rebate sobre pvp_lleno
         porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
-        
+
         # Si es Clásica (4), usamos precio_lista_ml para mantener compatibilidad con lógica original
         if pricelist_id == 4 and producto_pricing.precio_lista_ml:
             pvp_seller = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate / 100)
