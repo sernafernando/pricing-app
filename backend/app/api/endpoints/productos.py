@@ -3516,13 +3516,7 @@ async def exportar_rebate(
         fecha_hasta = f"{hoy.year}-{hoy.month:02d}-{ultimo_dia:02d}"
 
     # Determinar pricelist_id según tipo_cuotas
-    pricelist_map = {
-        "clasica": 4,
-        "3": 17,
-        "6": 14,
-        "9": 13,
-        "12": 23
-    }
+    pricelist_map = {"clasica": 4, "3": 17, "6": 14, "9": 13, "12": 23}
     pricelist_id = pricelist_map.get(request.tipo_cuotas, 4)
 
     # Construir query con filtros
@@ -3883,7 +3877,9 @@ async def exportar_rebate(
         from app.models.precio_ml import PrecioML
 
         precio_lista = (
-            db.query(PrecioML).filter(PrecioML.item_id == producto_erp.item_id, PrecioML.pricelist_id == pricelist_id).first()
+            db.query(PrecioML)
+            .filter(PrecioML.item_id == producto_erp.item_id, PrecioML.pricelist_id == pricelist_id)
+            .first()
         )
 
         # PVP LLENO = Precio de la lista de precios seleccionada
@@ -3940,9 +3936,8 @@ async def exportar_rebate(
                 ws.cell(row=row, column=11, value=mla.mla)
                 ws.cell(row=row, column=12, value=pvp_lleno)
                 ws.cell(row=row, column=13, value=round(pvp_seller, 2))
-            
-            row += 1
 
+            row += 1
 
     # Guardar en memoria
     output = BytesIO()
