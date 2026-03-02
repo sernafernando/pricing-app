@@ -3910,7 +3910,7 @@ async def exportar_rebate(
                 ws.cell(row=row, column=2, value="")
                 ws.cell(row=row, column=3, value="")
                 ws.cell(row=row, column=4, value="")
-                ws.cell(row=row, column=5, value="DXI")
+                ws.cell(row=row, column=5, value="DxI")
                 ws.cell(row=row, column=6, value=fecha_desde)
                 ws.cell(row=row, column=7, value=fecha_hasta)
                 ws.cell(row=row, column=8, value=pvp_lleno)
@@ -3921,7 +3921,7 @@ async def exportar_rebate(
                 ws.cell(row=row, column=2, value=producto_erp.marca or "")
                 ws.cell(row=row, column=3, value=fecha_desde)
                 ws.cell(row=row, column=4, value=fecha_hasta)
-                ws.cell(row=row, column=5, value="DXI")
+                ws.cell(row=row, column=5, value="DxI")
                 ws.cell(row=row, column=6, value="")  # Categoría vacía
                 ws.cell(row=row, column=7, value=mla.item_title or producto_erp.descripcion or "")
                 ws.cell(row=row, column=8, value="Clásica" if pricelist_id == 4 else f"{request.tipo_cuotas} Cuotas")
