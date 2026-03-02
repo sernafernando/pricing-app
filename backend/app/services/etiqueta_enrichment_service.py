@@ -39,6 +39,40 @@ logger = logging.getLogger(__name__)
 TURBO_SHIPPING_METHOD_ID = "515282"
 
 
+def _detectar_turbo_desde_json(data: Dict) -> bool:
+    """
+    Detecta si un envío es Turbo a partir del JSON del shipment de ML.
+
+    Fallback para cuando tb_mercadolibre_orders_shipping (GBP) no tiene
+    el registro todavía. Usa dos señales del JSON:
+
+    1. tags contiene "turbo" (más semántico, fuente primaria)
+    2. shipping_option.shipping_method_id == 515282 (puede venir como int o str)
+
+    Args:
+        data: Respuesta JSON de ML Webhook (/shipments/{id})
+
+    Returns:
+        True si el envío es Turbo
+    """
+    if not data:
+        return False
+
+    # Señal 1: tags contiene "turbo"
+    tags = data.get("tags", [])
+    if isinstance(tags, list) and "turbo" in tags:
+        return True
+
+    # Señal 2: shipping_option.shipping_method_id == 515282
+    shipping_option = data.get("shipping_option", {})
+    if isinstance(shipping_option, dict):
+        method_id = shipping_option.get("shipping_method_id")
+        if str(method_id) == TURBO_SHIPPING_METHOD_ID:
+            return True
+
+    return False
+
+
 def _detectar_turbo_batch(db: Session, shipping_ids: List[str]) -> set[str]:
     """
     Detecta cuáles shipping_ids son Turbo consultando tb_mercadolibre_orders_shipping.
@@ -85,9 +119,6 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
     errores = 0
 
     try:
-        # Detectar turbo en batch (una sola query para todos los IDs)
-        turbo_ids = _detectar_turbo_batch(db, shipping_ids)
-
         for shipping_id in shipping_ids:
             try:
                 data = await fetch_shipment_data(shipping_id)
@@ -99,7 +130,7 @@ async def enriquecer_etiquetas(shipping_ids: List[str]) -> None:
                 direccion = extraer_direccion_completa(data)
                 comentario = extraer_comentario_direccion(data)
                 es_outlet = extraer_es_outlet(data)
-                es_turbo = shipping_id in turbo_ids
+                es_turbo = _detectar_turbo_desde_json(data)
 
                 # Actualizar solo si hay algo que guardar
                 if lat is not None or direccion or comentario or es_outlet or es_turbo:
@@ -229,7 +260,9 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
     2. Extrae lat/lng de extra_data.destination_lat/destination_lng
     3. Extrae direccion_completa de extra_data.destination_city + destination_state
     4. Detecta es_outlet buscando "outlet" en title
-    5. Actualiza EtiquetaEnvio en la DB de pricing
+    5. Detecta es_turbo desde extra_data.tags y extra_data.shipping_method_id
+       (fallback a GBP batch query para previews viejos sin esos campos)
+    6. Actualiza EtiquetaEnvio en la DB de pricing
 
     Args:
         shipping_ids: Lista de shipping_ids a re-enriquecer
@@ -253,8 +286,8 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
     ids_sin_preview: List[str] = []
 
     try:
-        # Detectar turbo en batch
-        turbo_ids = _detectar_turbo_batch(db, shipping_ids)
+        # IDs que no pudimos resolver turbo desde el preview (para fallback batch al GBP)
+        ids_sin_turbo_en_preview: List[str] = []
 
         for sid in shipping_ids:
             preview = previews.get(sid)
@@ -289,9 +322,70 @@ def re_enriquecer_desde_db(shipping_ids: List[str]) -> Dict[str, object]:
             direccion = ", ".join(direccion_parts) if direccion_parts else None
 
             es_outlet = "outlet" in title.lower() if title else False
-            es_turbo = sid in turbo_ids
 
-            # Actualizar etiqueta
+            # Detectar turbo desde extra_data del preview (tags + shipping_method_id)
+            preview_tags = extra.get("tags", [])
+            preview_method_id = extra.get("shipping_method_id")
+            es_turbo = (isinstance(preview_tags, list) and "turbo" in preview_tags) or str(
+                preview_method_id
+            ) == TURBO_SHIPPING_METHOD_ID
+            if not es_turbo and (preview_tags or preview_method_id is not None):
+                # El preview tiene los campos pero no es turbo → confirmado no-turbo
+                pass
+            elif not es_turbo:
+                # Preview viejo sin tags/shipping_method_id → necesita fallback al GBP
+                ids_sin_turbo_en_preview.append(sid)
+
+        # Fallback batch al GBP solo para previews viejos que no tenían tags/shipping_method_id
+        turbo_ids_gbp: set[str] = set()
+        if ids_sin_turbo_en_preview:
+            logger.info(
+                f"{len(ids_sin_turbo_en_preview)} previews sin tags/shipping_method_id, "
+                f"fallback a GBP para detectar turbo"
+            )
+            turbo_ids_gbp = _detectar_turbo_batch(db, ids_sin_turbo_en_preview)
+
+        # Segunda pasada: actualizar etiquetas con todos los datos recolectados
+        for sid in shipping_ids:
+            preview = previews.get(sid)
+            if not preview:
+                continue
+            extra = preview.get("extra_data", {}) or {}
+            title = preview.get("title", "") or ""
+
+            if not extra and not title:
+                continue
+
+            # Re-extraer campos (mismo cálculo que arriba, barato en memoria)
+            lat: Optional[float] = None
+            lng: Optional[float] = None
+            raw_lat = extra.get("destination_lat")
+            raw_lng = extra.get("destination_lng")
+            if raw_lat is not None and raw_lng is not None:
+                try:
+                    lat = float(raw_lat)
+                    lng = float(raw_lng)
+                    if not (-55 <= lat <= -20 and -75 <= lng <= -50):
+                        lat, lng = None, None
+                except (ValueError, TypeError):
+                    lat, lng = None, None
+
+            city = extra.get("destination_city", "")
+            state = extra.get("destination_state", "")
+            direccion_parts = [p for p in [city, state] if p]
+            direccion = ", ".join(direccion_parts) if direccion_parts else None
+
+            es_outlet = "outlet" in title.lower() if title else False
+
+            # Turbo: desde preview o desde fallback GBP
+            preview_tags = extra.get("tags", [])
+            preview_method_id = extra.get("shipping_method_id")
+            es_turbo = (
+                (isinstance(preview_tags, list) and "turbo" in preview_tags)
+                or str(preview_method_id) == TURBO_SHIPPING_METHOD_ID
+                or sid in turbo_ids_gbp
+            )
+
             etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == sid).first()
             if not etiqueta:
                 continue
@@ -358,9 +452,6 @@ async def re_enriquecer_por_http(shipping_ids: List[str]) -> Dict[str, int]:
     errores = 0
 
     try:
-        # Detectar turbo en batch
-        turbo_ids = _detectar_turbo_batch(db, shipping_ids)
-
         for shipping_id in shipping_ids:
             try:
                 data = await fetch_shipment_data(shipping_id)
@@ -372,7 +463,7 @@ async def re_enriquecer_por_http(shipping_ids: List[str]) -> Dict[str, int]:
                 direccion = extraer_direccion_completa(data)
                 comentario = extraer_comentario_direccion(data)
                 es_outlet = extraer_es_outlet(data)
-                es_turbo = shipping_id in turbo_ids
+                es_turbo = _detectar_turbo_desde_json(data)
 
                 if lat is not None or direccion or comentario or es_outlet or es_turbo:
                     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
