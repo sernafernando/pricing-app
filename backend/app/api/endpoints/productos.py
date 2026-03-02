@@ -3822,10 +3822,9 @@ async def exportar_rebate(
             "MLA",
             "",
             "",
-            "FULL",
             "TIPO DE OFERTA",
-            "",
-            "",
+            "DESDE",
+            "HASTA",
             "PVP LLENO",
             "PVP SELLER",
             "",
@@ -3914,16 +3913,16 @@ async def exportar_rebate(
                 continue
 
             if request.formato == "nuevo":
-                # Formato DXI pedido por el usuario (18 columnas)
+                # Formato DXI pedido por el usuario (17 columnas)
                 ws.cell(row=row, column=1, value=mla.mla)
                 ws.cell(row=row, column=2, value="")
                 ws.cell(row=row, column=3, value="")
-                ws.cell(row=row, column=4, value="FALSE")
-                ws.cell(row=row, column=5, value="DXI")
-                ws.cell(row=row, column=6, value="")
-                ws.cell(row=row, column=7, value="")
-                ws.cell(row=row, column=8, value=pvp_lleno)
-                ws.cell(row=row, column=9, value=round(pvp_seller, 2))
+                ws.cell(row=row, column=4, value="DXI")
+                ws.cell(row=row, column=5, value=fecha_desde)
+                ws.cell(row=row, column=6, value=fecha_hasta)
+                ws.cell(row=row, column=7, value=pvp_lleno)
+                ws.cell(row=row, column=8, value=round(pvp_seller, 2))
+                ws.cell(row=row, column=9, value="")
                 ws.cell(row=row, column=10, value="")
                 ws.cell(row=row, column=11, value="")
                 ws.cell(row=row, column=12, value="")
@@ -3931,8 +3930,7 @@ async def exportar_rebate(
                 ws.cell(row=row, column=14, value="")
                 ws.cell(row=row, column=15, value="")
                 ws.cell(row=row, column=16, value="")
-                ws.cell(row=row, column=17, value="")
-                ws.cell(row=row, column=18, value=f"{porcentaje_rebate}%")
+                ws.cell(row=row, column=17, value=f"{porcentaje_rebate}%")
             else:
                 # Formato tradicional
                 ws.cell(row=row, column=1, value=f"{porcentaje_rebate}%")
