@@ -3483,6 +3483,8 @@ class ExportRebateRequest(BaseModel):
     fecha_hasta: Optional[str] = None
     filtros: Optional[dict] = None
     estado_mla: Optional[str] = None
+    formato: Optional[str] = "nuevo"  # nuevo, tradicional
+    tipo_cuotas: Optional[str] = "clasica"  # clasica, 3, 6, 9, 12
 
 
 @router.post("/productos/exportar-rebate")
@@ -3512,6 +3514,10 @@ async def exportar_rebate(
     if not fecha_hasta:
         ultimo_dia = monthrange(hoy.year, hoy.month)[1]
         fecha_hasta = f"{hoy.year}-{hoy.month:02d}-{ultimo_dia:02d}"
+
+    # Determinar pricelist_id según tipo_cuotas
+    pricelist_map = {"clasica": 4, "3": 17, "6": 14, "9": 13, "12": 23}
+    pricelist_id = pricelist_map.get(request.tipo_cuotas, 4)
 
     # Construir query con filtros
     query = (
@@ -3811,21 +3817,38 @@ async def exportar_rebate(
     ws.title = "Rebate Export"
 
     # Headers
-    headers = [
-        "REBATE",
-        "MARCA",
-        "DESDE",
-        "HASTA",
-        "TIPO DE OFERTA",
-        "CATEGORÍA",
-        "DESCRIPCIÓN DE LA PUBLICACIÓN",
-        "TIPO DE PUBLICACIÓN",
-        "STOCK",
-        "FULL",
-        "MLAs",
-        "PVP LLENO",
-        "PVP SELLER",
-    ]
+    if request.formato == "nuevo":
+        headers = [
+            "MLA",
+            "",
+            "FULL",
+            "TIPO DE OFERTA",
+            "",
+            "",
+            "PVP LLENO",
+            "PVP SELLER",
+            "",
+            "",
+            "",
+            "REBATE",
+        ]
+    else:
+        # Formato tradicional (original)
+        headers = [
+            "REBATE",
+            "MARCA",
+            "DESDE",
+            "HASTA",
+            "TIPO DE OFERTA",
+            "CATEGORÍA",
+            "DESCRIPCIÓN DE LA PUBLICACIÓN",
+            "TIPO DE PUBLICACIÓN",
+            "STOCK",
+            "FULL",
+            "MLAs",
+            "PVP LLENO",
+            "PVP SELLER",
+        ]
 
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
@@ -3835,12 +3858,12 @@ async def exportar_rebate(
     # Datos
     row = 2
     for producto_erp, producto_pricing in productos:
-        # Buscar MLAs de lista clásica (pricelist_id = 4)
+        # Buscar MLAs de la lista seleccionada
         mlas = (
             db.query(PublicacionML)
             .filter(
                 PublicacionML.item_id == producto_erp.item_id,
-                PublicacionML.pricelist_id == 4,
+                PublicacionML.pricelist_id == pricelist_id,
                 PublicacionML.activo == True,
             )
             .all()
@@ -3850,26 +3873,33 @@ async def exportar_rebate(
         if not mlas:
             continue
 
-        # Obtener precio de lista clásica (pricelist_id = 4) de PrecioML
+        # Obtener precio de la lista seleccionada de PrecioML
         from app.models.precio_ml import PrecioML
 
-        precio_clasica = (
-            db.query(PrecioML).filter(PrecioML.item_id == producto_erp.item_id, PrecioML.pricelist_id == 4).first()
+        precio_lista = (
+            db.query(PrecioML)
+            .filter(PrecioML.item_id == producto_erp.item_id, PrecioML.pricelist_id == pricelist_id)
+            .first()
         )
 
-        # PVP LLENO = Precio de la lista de precios 4 en MercadoLibre
-        pvp_lleno = float(precio_clasica.precio) if precio_clasica and precio_clasica.precio else 0
+        # PVP LLENO = Precio de la lista de precios seleccionada
+        pvp_lleno = float(precio_lista.precio) if precio_lista and precio_lista.precio else 0
 
         if pvp_lleno == 0:
             continue
 
-        # PVP SELLER = Precio con rebate aplicado (mismo cálculo que en línea 369)
-        # Basado en precio_lista_ml de ProductoPricing
-        if not producto_pricing.precio_lista_ml:
-            continue
-
+        # PVP SELLER = Precio con rebate aplicado
+        # Basado en precio_lista_ml de ProductoPricing si es clásica, o calculado si son cuotas
+        # Para ser consistentes con el resto del sistema, calculamos pvp_seller aplicando el rebate sobre pvp_lleno
         porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
-        pvp_seller = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate / 100)
+
+        # Si es Clásica (4), usamos precio_lista_ml para mantener compatibilidad con lógica original
+        if pricelist_id == 4 and producto_pricing.precio_lista_ml:
+            pvp_seller = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate / 100)
+        else:
+            # Para cuotas, aplicamos el rebate sobre el precio de la lista seleccionada
+            # Nota: El rebate en este sistema se define como (PrecioML / (1 - %/100))
+            pvp_seller = pvp_lleno / (1 - porcentaje_rebate / 100)
 
         # Una fila por cada MLA (excluyendo los baneados)
         for mla in mlas:
@@ -3877,19 +3907,36 @@ async def exportar_rebate(
             if mla.mla in mlas_baneados_set:
                 continue
 
-            ws.cell(row=row, column=1, value=f"{porcentaje_rebate}%")
-            ws.cell(row=row, column=2, value=producto_erp.marca or "")
-            ws.cell(row=row, column=3, value=fecha_desde)
-            ws.cell(row=row, column=4, value=fecha_hasta)
-            ws.cell(row=row, column=5, value="DXI")
-            ws.cell(row=row, column=6, value="")  # Categoría vacía
-            ws.cell(row=row, column=7, value=mla.item_title or producto_erp.descripcion or "")
-            ws.cell(row=row, column=8, value="Clásica")
-            ws.cell(row=row, column=9, value=producto_erp.stock)
-            ws.cell(row=row, column=10, value="FALSE")
-            ws.cell(row=row, column=11, value=mla.mla)
-            ws.cell(row=row, column=12, value=pvp_lleno)
-            ws.cell(row=row, column=13, value=round(pvp_seller, 2))
+            if request.formato == "nuevo":
+                # Formato DXI pedido por el usuario
+                ws.cell(row=row, column=1, value=mla.mla)
+                ws.cell(row=row, column=2, value="")
+                ws.cell(row=row, column=3, value="FALSE")
+                ws.cell(row=row, column=4, value="DXI")
+                ws.cell(row=row, column=5, value="")
+                ws.cell(row=row, column=6, value="")
+                ws.cell(row=row, column=7, value=pvp_lleno)
+                ws.cell(row=row, column=8, value=round(pvp_seller, 2))
+                ws.cell(row=row, column=9, value="")
+                ws.cell(row=row, column=10, value="")
+                ws.cell(row=row, column=11, value="")
+                ws.cell(row=row, column=12, value=f"{porcentaje_rebate}%")
+            else:
+                # Formato tradicional
+                ws.cell(row=row, column=1, value=f"{porcentaje_rebate}%")
+                ws.cell(row=row, column=2, value=producto_erp.marca or "")
+                ws.cell(row=row, column=3, value=fecha_desde)
+                ws.cell(row=row, column=4, value=fecha_hasta)
+                ws.cell(row=row, column=5, value="DXI")
+                ws.cell(row=row, column=6, value="")  # Categoría vacía
+                ws.cell(row=row, column=7, value=mla.item_title or producto_erp.descripcion or "")
+                ws.cell(row=row, column=8, value="Clásica" if pricelist_id == 4 else f"{request.tipo_cuotas} Cuotas")
+                ws.cell(row=row, column=9, value=producto_erp.stock)
+                ws.cell(row=row, column=10, value="FALSE")
+                ws.cell(row=row, column=11, value=mla.mla)
+                ws.cell(row=row, column=12, value=pvp_lleno)
+                ws.cell(row=row, column=13, value=round(pvp_seller, 2))
+
             row += 1
 
     # Guardar en memoria
