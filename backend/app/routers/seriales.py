@@ -829,8 +829,7 @@ QUERY_CLIENTE_BY_ID = text("""
     LEFT JOIN tb_tax_number_type tnt
         ON c.tnt_id = tnt.tnt_id
     LEFT JOIN tb_fiscal_class fc
-        ON c.comp_id = fc.comp_id
-        AND c.fc_id = fc.fc_id
+        ON c.fc_id = fc.fc_id
     WHERE c.cust_id = :cust_id
     LIMIT 1
 """)
@@ -855,8 +854,7 @@ QUERY_CLIENTE_BY_TAXNUMBER = text("""
     LEFT JOIN tb_tax_number_type tnt
         ON c.tnt_id = tnt.tnt_id
     LEFT JOIN tb_fiscal_class fc
-        ON c.comp_id = fc.comp_id
-        AND c.fc_id = fc.fc_id
+        ON c.fc_id = fc.fc_id
     WHERE c.cust_taxnumber = :taxnumber
     LIMIT 1
 """)
@@ -881,8 +879,7 @@ QUERY_CLIENTE_BY_ML_NICKNAME = text("""
     LEFT JOIN tb_tax_number_type tnt
         ON c.tnt_id = tnt.tnt_id
     LEFT JOIN tb_fiscal_class fc
-        ON c.comp_id = fc.comp_id
-        AND c.fc_id = fc.fc_id
+        ON c.fc_id = fc.fc_id
     WHERE LOWER(c.cust_mercadolibrenickname) = LOWER(:nickname)
     LIMIT 1
 """)
