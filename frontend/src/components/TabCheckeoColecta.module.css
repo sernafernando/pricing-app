@@ -34,6 +34,73 @@
   margin-top: 2px;
 }
 
+/* ── Scanner Section ───────────────────────────────────────── */
+
+.scannerSection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 16px 20px;
+  background: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.scannerInput {
+  flex: 1;
+  min-width: 280px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 2px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 15px;
+  font-family: monospace;
+  transition: border-color 0.2s;
+}
+
+.scannerInput:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
+.scannerInput::placeholder {
+  color: var(--text-tertiary);
+  font-family: inherit;
+}
+
+.scanFeedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  animation: feedbackIn 0.2s ease;
+}
+
+.scanFeedbackOk {
+  background: #05966915;
+  color: #059669;
+}
+
+.scanFeedbackDup {
+  background: #f9731615;
+  color: #f97316;
+}
+
+.scanFeedbackError {
+  background: #dc262615;
+  color: #dc2626;
+}
+
+@keyframes feedbackIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ── Toolbar ───────────────────────────────────────────────── */
 
 .toolbar {
@@ -47,30 +114,22 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* ── Upload button ─────────────────────────────────────────── */
+/* ── Tesla buttons (composes) ──────────────────────────────── */
 
-.btnUpload {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  background: var(--brand-primary);
-  color: #fff;
-  border: none;
-  transition: opacity 0.15s;
+.btnRefresh {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
 
-.btnUpload:hover {
-  opacity: 0.85;
+.btnUpload {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
 }
 
 .btnDisabled {
-  opacity: 0.5;
-  pointer-events: none;
+  composes: disabled from '../styles/buttons-tesla.css';
+}
+
+.fileInputHidden {
+  display: none;
 }
 
 /* ── Date inputs ───────────────────────────────────────────── */
@@ -140,31 +199,6 @@
   color: var(--text-tertiary);
 }
 
-/* ── Icon button ───────────────────────────────────────────── */
-
-.btnIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.btnIcon:hover {
-  background: var(--bg-tertiary);
-}
-
-.btnIcon:disabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
 /* ── Vista toggle ──────────────────────────────────────────── */
 
 .vistaToggle {
@@ -204,21 +238,29 @@
 /* ── Upload result ─────────────────────────────────────────── */
 
 .uploadSuccess {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   padding: 12px 16px;
   border-radius: 10px;
   font-size: 13px;
-  background: var(--success-bg, #05966910);
-  color: var(--success-text, #059669);
-  border: 1px solid var(--success-text, #059669);
+  background: #05966910;
+  color: #059669;
+  border: 1px solid #05966940;
 }
 
 .uploadError {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   padding: 12px 16px;
   border-radius: 10px;
   font-size: 13px;
-  background: var(--error-bg, #dc262610);
-  color: var(--error-text, #dc2626);
-  border: 1px solid var(--error-text, #dc2626);
+  background: #dc262610;
+  color: #dc2626;
+  border: 1px solid #dc262640;
 }
 
 .errorList {
@@ -232,21 +274,21 @@
 .errorMsg {
   padding: 12px 16px;
   border-radius: 10px;
-  background: var(--error-bg, #dc262610);
-  color: var(--error-text, #dc2626);
+  background: #dc262610;
+  color: #dc2626;
   font-size: 14px;
 }
 
 .loadingMsg {
   text-align: center;
-  padding: 40px;
+  padding: 48px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .emptyMsg {
   text-align: center;
-  padding: 40px;
+  padding: 48px;
   color: var(--text-tertiary);
   font-size: 14px;
 }
@@ -289,6 +331,10 @@
 
 .table tbody tr:hover {
   background: var(--bg-secondary);
+}
+
+.rowSelected {
+  background-color: var(--bg-hover) !important;
 }
 
 /* ── Shipping cell ─────────────────────────────────────────── */
@@ -371,6 +417,85 @@
   font-weight: 600;
   white-space: nowrap;
   line-height: 1.4;
+}
+
+/* ── Selection Bar (floating) ──────────────────────────────── */
+
+.selectionBar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 35, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 14px 24px;
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  animation: selectionBarIn 0.2s ease;
+}
+
+@keyframes selectionBarIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.selectionCount {
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.selectionActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selectionBtnBorrar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(220, 38, 38, 0.5);
+  background: rgba(220, 38, 38, 0.15);
+  color: #fca5a5;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnBorrar:hover {
+  background: rgba(220, 38, 38, 0.3);
+  border-color: rgba(220, 38, 38, 0.7);
+}
+
+.selectionBtnCancelar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.selectionBtnCancelar:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
 }
 
 /* ── Footer ────────────────────────────────────────────────── */
