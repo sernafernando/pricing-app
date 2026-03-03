@@ -305,6 +305,65 @@ class PedidoCliente(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RmaErpCliente(BaseModel):
+    """Un RMA del ERP (GBP) vinculado al cliente"""
+
+    rmah_id: int
+    rmad_id: int
+    fecha_rma: Optional[str] = None
+    item_codigo: Optional[str] = None
+    item_descripcion: Optional[str] = None
+    serial: Optional[str] = None
+    cantidad: Optional[float] = None
+    precio_original: Optional[float] = None
+    deposito: Optional[str] = None
+    proveedor: Optional[str] = None
+    en_proveedor: bool = False
+    # Etapas
+    fecha_recepcion: Optional[str] = None
+    fecha_diagnostico: Optional[str] = None
+    fecha_procesamiento: Optional[str] = None
+    fecha_entrega: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RmaCasoItemCliente(BaseModel):
+    """Un item dentro de un caso RMA interno"""
+
+    id: int
+    serial_number: Optional[str] = None
+    producto_desc: Optional[str] = None
+    precio: Optional[float] = None
+    estado_recepcion: Optional[str] = None
+    causa_devolucion: Optional[str] = None
+    apto_venta: Optional[str] = None
+    estado_revision: Optional[str] = None
+    estado_proceso: Optional[str] = None
+    estado_proveedor: Optional[str] = None
+    proveedor_nombre: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RmaCasoCliente(BaseModel):
+    """Un caso RMA interno vinculado al cliente"""
+
+    id: int
+    numero_caso: str
+    fecha_caso: Optional[str] = None
+    estado: Optional[str] = None
+    origen: Optional[str] = None
+    ml_id: Optional[str] = None
+    observaciones: Optional[str] = None
+    estado_reclamo_ml: Optional[str] = None
+    cobertura_ml: Optional[str] = None
+    monto_cubierto: Optional[float] = None
+    items: list[RmaCasoItemCliente] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TrazaClienteResponse(BaseModel):
     """Respuesta completa de traza por cliente"""
 
@@ -313,6 +372,8 @@ class TrazaClienteResponse(BaseModel):
     transacciones: list[TransaccionCliente] = []
     total_transacciones: int = 0
     pedidos: list[PedidoCliente] = []
+    rmas_erp: list[RmaErpCliente] = []
+    rmas_internos: list[RmaCasoCliente] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -972,6 +1033,93 @@ QUERY_SERIALES_PEDIDO = text("""
 """)
 
 
+# ── RMA by customer queries ─────────────────────────────────────
+
+QUERY_RMA_BY_CUSTOMER = text("""
+    SELECT
+        d.rmah_id,
+        d.rmad_id,
+        d.rmad_serial,
+        d."rmad_Manual",
+        d.item_id,
+        d."rmad_originalPrice",
+        d.rmad_qty,
+        d."rmad_Date_Reception",
+        d."rmad_Date_Diagnostic",
+        d."rmad_Date_Proc",
+        d."rmad_Date_Delivery",
+        h.rmah_cd,
+        h."rmah_isInSuppplier",
+        supp.supp_name AS proveedor_nombre,
+        stor.stor_desc,
+        pe.codigo AS item_codigo,
+        pe.descripcion AS item_descripcion
+    FROM tb_rma_detail d
+    INNER JOIN tb_rma_header h
+        ON d.comp_id = h.comp_id
+        AND d.rmah_id = h.rmah_id
+        AND d.bra_id = h.bra_id
+    LEFT JOIN tb_supplier supp
+        ON h.comp_id = supp.comp_id
+        AND h.supp_id = supp.supp_id
+    LEFT JOIN tb_storage stor
+        ON d.comp_id = stor.comp_id
+        AND d.stor_id = stor.stor_id
+    LEFT JOIN productos_erp pe
+        ON d.item_id = pe.item_id
+    WHERE h.cust_id = :cust_id
+    ORDER BY h.rmah_cd DESC NULLS LAST, d.rmad_id DESC
+    LIMIT 100
+""")
+
+QUERY_RMA_CASOS_BY_CUSTOMER = text("""
+    SELECT
+        c.id,
+        c.numero_caso,
+        c.fecha_caso,
+        c.estado,
+        c.origen,
+        c.ml_id,
+        c.observaciones,
+        c.monto_cubierto,
+        eml.valor AS estado_reclamo_ml_valor,
+        cml.valor AS cobertura_ml_valor
+    FROM rma_casos c
+    LEFT JOIN rma_seguimiento_opciones eml
+        ON c.estado_reclamo_ml_id = eml.id
+    LEFT JOIN rma_seguimiento_opciones cml
+        ON c.cobertura_ml_id = cml.id
+    WHERE c.cust_id = :cust_id
+    ORDER BY c.created_at DESC NULLS LAST
+    LIMIT 50
+""")
+
+QUERY_RMA_CASO_ITEMS = text("""
+    SELECT
+        i.id,
+        i.serial_number,
+        i.producto_desc,
+        i.precio,
+        i.proveedor_nombre,
+        i.observaciones,
+        er.valor AS estado_recepcion_valor,
+        cd.valor AS causa_devolucion_valor,
+        av.valor AS apto_venta_valor,
+        rev.valor AS estado_revision_valor,
+        ep.valor AS estado_proceso_valor,
+        esp.valor AS estado_proveedor_valor
+    FROM rma_caso_items i
+    LEFT JOIN rma_seguimiento_opciones er ON i.estado_recepcion_id = er.id
+    LEFT JOIN rma_seguimiento_opciones cd ON i.causa_devolucion_id = cd.id
+    LEFT JOIN rma_seguimiento_opciones av ON i.apto_venta_id = av.id
+    LEFT JOIN rma_seguimiento_opciones rev ON i.estado_revision_id = rev.id
+    LEFT JOIN rma_seguimiento_opciones ep ON i.estado_proceso_id = ep.id
+    LEFT JOIN rma_seguimiento_opciones esp ON i.estado_proveedor_id = esp.id
+    WHERE i.caso_id = :caso_id
+    ORDER BY i.id ASC
+""")
+
+
 # =============================================================================
 # HELPERS
 # =============================================================================
@@ -1422,6 +1570,100 @@ def _find_cliente_by_ml_nickname(db: Session, nickname: str) -> tuple[Optional[C
     return None, "ml_nickname"
 
 
+def _build_rmas_erp_cliente(db: Session, cust_id: int) -> list[RmaErpCliente]:
+    """
+    Obtiene los RMAs del ERP (GBP) vinculados al cliente por cust_id.
+    Devuelve hasta 100 registros ordenados por fecha desc.
+    """
+    result = db.execute(QUERY_RMA_BY_CUSTOMER, {"cust_id": cust_id})
+    rows = [dict(r._mapping) for r in result]
+
+    rmas: list[RmaErpCliente] = []
+    for row in rows:
+        serial = row.get("rmad_serial") or row.get("rmad_Manual") or None
+        precio = row.get("rmad_originalPrice")
+        qty = row.get("rmad_qty")
+        fecha_rma = row.get("rmah_cd")
+
+        rmas.append(
+            RmaErpCliente(
+                rmah_id=row["rmah_id"],
+                rmad_id=row["rmad_id"],
+                fecha_rma=str(fecha_rma) if fecha_rma else None,
+                item_codigo=row.get("item_codigo"),
+                item_descripcion=row.get("item_descripcion"),
+                serial=serial,
+                cantidad=float(qty) if qty is not None else None,
+                precio_original=float(precio) if precio is not None else None,
+                deposito=row.get("stor_desc"),
+                proveedor=row.get("proveedor_nombre"),
+                en_proveedor=bool(row.get("rmah_isInSuppplier", False)),
+                fecha_recepcion=(str(row["rmad_Date_Reception"]) if row.get("rmad_Date_Reception") else None),
+                fecha_diagnostico=(str(row["rmad_Date_Diagnostic"]) if row.get("rmad_Date_Diagnostic") else None),
+                fecha_procesamiento=(str(row["rmad_Date_Proc"]) if row.get("rmad_Date_Proc") else None),
+                fecha_entrega=(str(row["rmad_Date_Delivery"]) if row.get("rmad_Date_Delivery") else None),
+            )
+        )
+
+    return rmas
+
+
+def _build_rmas_internos_cliente(db: Session, cust_id: int) -> list[RmaCasoCliente]:
+    """
+    Obtiene los casos RMA internos (rma_casos) vinculados al cliente.
+    Para cada caso, carga sus items con los estados resueltos desde rma_seguimiento_opciones.
+    """
+    result = db.execute(QUERY_RMA_CASOS_BY_CUSTOMER, {"cust_id": cust_id})
+    rows = [dict(r._mapping) for r in result]
+
+    casos: list[RmaCasoCliente] = []
+    for row in rows:
+        caso_id = row["id"]
+        fecha = row.get("fecha_caso")
+        monto = row.get("monto_cubierto")
+
+        # Items del caso
+        result_items = db.execute(QUERY_RMA_CASO_ITEMS, {"caso_id": caso_id})
+        items_rows = [dict(ir._mapping) for ir in result_items]
+
+        items: list[RmaCasoItemCliente] = []
+        for ir in items_rows:
+            precio_item = ir.get("precio")
+            items.append(
+                RmaCasoItemCliente(
+                    id=ir["id"],
+                    serial_number=ir.get("serial_number"),
+                    producto_desc=ir.get("producto_desc"),
+                    precio=float(precio_item) if precio_item is not None else None,
+                    estado_recepcion=ir.get("estado_recepcion_valor"),
+                    causa_devolucion=ir.get("causa_devolucion_valor"),
+                    apto_venta=ir.get("apto_venta_valor"),
+                    estado_revision=ir.get("estado_revision_valor"),
+                    estado_proceso=ir.get("estado_proceso_valor"),
+                    estado_proveedor=ir.get("estado_proveedor_valor"),
+                    proveedor_nombre=ir.get("proveedor_nombre"),
+                )
+            )
+
+        casos.append(
+            RmaCasoCliente(
+                id=caso_id,
+                numero_caso=row.get("numero_caso", ""),
+                fecha_caso=str(fecha) if fecha else None,
+                estado=row.get("estado"),
+                origen=row.get("origen"),
+                ml_id=row.get("ml_id"),
+                observaciones=row.get("observaciones"),
+                estado_reclamo_ml=row.get("estado_reclamo_ml_valor"),
+                cobertura_ml=row.get("cobertura_ml_valor"),
+                monto_cubierto=float(monto) if monto is not None else None,
+                items=items,
+            )
+        )
+
+    return casos
+
+
 def _build_pedidos_cliente(db: Session, cust_id: int) -> list[PedidoCliente]:
     """
     Obtiene los pedidos activos (sale orders no cerrados) de un cliente.
@@ -1619,6 +1861,8 @@ def traza_cliente(
     offset = (max(page, 1) - 1) * page_size
     transacciones, total = _build_transacciones_cliente(db, cust_id, limit=page_size, offset=offset)
     pedidos = _build_pedidos_cliente(db, cust_id)
+    rmas_erp = _build_rmas_erp_cliente(db, cust_id)
+    rmas_internos = _build_rmas_internos_cliente(db, cust_id)
 
     return TrazaClienteResponse(
         busqueda_por="cust_id",
@@ -1626,6 +1870,8 @@ def traza_cliente(
         transacciones=transacciones,
         total_transacciones=total,
         pedidos=pedidos,
+        rmas_erp=rmas_erp,
+        rmas_internos=rmas_internos,
     )
 
 
@@ -1659,10 +1905,13 @@ def traza_cliente_dni(
         )
 
     row_dict = dict(row._mapping)
+    cid = row_dict["cust_id"]
     cliente = _build_cliente_info(row_dict)
     offset = (max(page, 1) - 1) * page_size
-    transacciones, total = _build_transacciones_cliente(db, row_dict["cust_id"], limit=page_size, offset=offset)
-    pedidos = _build_pedidos_cliente(db, row_dict["cust_id"])
+    transacciones, total = _build_transacciones_cliente(db, cid, limit=page_size, offset=offset)
+    pedidos = _build_pedidos_cliente(db, cid)
+    rmas_erp = _build_rmas_erp_cliente(db, cid)
+    rmas_internos = _build_rmas_internos_cliente(db, cid)
 
     return TrazaClienteResponse(
         busqueda_por="taxnumber",
@@ -1670,6 +1919,8 @@ def traza_cliente_dni(
         transacciones=transacciones,
         total_transacciones=total,
         pedidos=pedidos,
+        rmas_erp=rmas_erp,
+        rmas_internos=rmas_internos,
     )
 
 
@@ -1695,9 +1946,12 @@ def traza_cliente_ml(
             detail=f"No se encontró cliente con usuario ML: {nickname}",
         )
 
+    cid = cliente.cust_id
     offset = (max(page, 1) - 1) * page_size
-    transacciones, total = _build_transacciones_cliente(db, cliente.cust_id, limit=page_size, offset=offset)
-    pedidos = _build_pedidos_cliente(db, cliente.cust_id)
+    transacciones, total = _build_transacciones_cliente(db, cid, limit=page_size, offset=offset)
+    pedidos = _build_pedidos_cliente(db, cid)
+    rmas_erp = _build_rmas_erp_cliente(db, cid)
+    rmas_internos = _build_rmas_internos_cliente(db, cid)
 
     return TrazaClienteResponse(
         busqueda_por=busqueda_por,
@@ -1705,6 +1959,8 @@ def traza_cliente_ml(
         transacciones=transacciones,
         total_transacciones=total,
         pedidos=pedidos,
+        rmas_erp=rmas_erp,
+        rmas_internos=rmas_internos,
     )
 
 

@@ -326,6 +326,170 @@
   border-top: 1px solid var(--border-color);
 }
 
+/* -- RMA cards (shared) -------------------------------------------------- */
+
+.rmaList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rmaCard {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--warning);
+}
+
+.rmaCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rmaCardBody {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rmaBadge {
+  font-family: monospace;
+  font-size: 11px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.rmaLine {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.enProveedorBadge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(156, 39, 176, 0.1);
+  color: #9c27b0;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.serialBadgeInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--cf-accent-blue);
+  white-space: nowrap;
+}
+
+.rmaMetaRow {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rmaEtapas {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.etapaChip {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* -- RMA casos (internal) ------------------------------------------------ */
+
+.rmaCasoCard {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  border-left: 3px solid var(--cf-accent-blue);
+  overflow: hidden;
+}
+
+.rmaCasoHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  flex-wrap: wrap;
+  transition: background 0.1s ease;
+}
+
+.rmaCasoHeader:hover {
+  background: var(--bg-hover);
+}
+
+.casoEstadoBadge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+
+.casoAbierto {
+  background: rgba(255, 170, 0, 0.1);
+  color: var(--warning);
+}
+
+.casoCerrado {
+  background: rgba(0, 200, 81, 0.1);
+  color: var(--success);
+}
+
+.casoOrigen {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+
+.rmaCasoBody {
+  padding: 0 14px 12px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: expandIn 0.15s ease;
+}
+
+.casoItemsList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.casoItemRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.casoItemRow:last-child {
+  border-bottom: none;
+}
+
 /* -- Serials list -------------------------------------------------------- */
 
 .serialesList {
