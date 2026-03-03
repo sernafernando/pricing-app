@@ -31,7 +31,10 @@ import {
   ChevronsLeft,
   ChevronsRight,
   AlertCircle,
+  AlertTriangle,
+  Wrench,
   ScanBarcode,
+  Calendar,
 } from 'lucide-react';
 import styles from './TrazaClienteViewer.module.css';
 
@@ -238,6 +241,342 @@ function TransaccionesTable({ transacciones }) {
   );
 }
 
+// -- Pedidos activos (sale orders) -------------------------------------------
+function PedidosSection({ pedidos }) {
+  const [expandedRows, setExpandedRows] = useState(new Set());
+
+  if (!pedidos || pedidos.length === 0) return null;
+
+  const toggleExpand = (sohId) => {
+    const next = new Set(expandedRows);
+    if (next.has(sohId)) {
+      next.delete(sohId);
+    } else {
+      next.add(sohId);
+    }
+    setExpandedRows(next);
+  };
+
+  return (
+    <div className={styles.tableWrapper}>
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th className={styles.thExpand}></th>
+            <th>Fecha</th>
+            <th>Pedido</th>
+            <th>Estado</th>
+            <th>Total</th>
+            <th>Entrega</th>
+            <th>ML</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pedidos.map((p) => {
+            const isExpanded = expandedRows.has(p.soh_id);
+            const allSeriales = (p.lineas || []).flatMap((l) => l.seriales || []);
+
+            return (
+              <Fragment key={p.soh_id}>
+                <tr
+                  className={`${styles.row} ${styles.rowClickable} ${isExpanded ? styles.rowExpanded : ''}`}
+                  onClick={() => toggleExpand(p.soh_id)}
+                >
+                  <td className={styles.tdExpand}>
+                    <ChevronRight
+                      size={14}
+                      className={`${styles.expandIcon} ${isExpanded ? styles.expandIconOpen : ''}`}
+                    />
+                  </td>
+                  <td>{formatFecha(p.fecha)}</td>
+                  <td className={styles.monoCell}>#{p.soh_id}</td>
+                  <td>
+                    {p.estado && (
+                      <span className={styles.estadoBadge}>{p.estado}</span>
+                    )}
+                  </td>
+                  <td className={styles.totalCell}>
+                    {p.total != null ? formatPrecio(p.total) : '\u2014'}
+                  </td>
+                  <td>{formatFecha(p.fecha_entrega)}</td>
+                  <td>
+                    {p.ml_id && (
+                      <a
+                        href={`https://www.mercadolibre.com.ar/ventas/${p.ml_id}/detalle`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.mlLink}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {p.ml_id}
+                      </a>
+                    )}
+                  </td>
+                </tr>
+
+                {/* Expanded: line items + serials */}
+                {isExpanded && (
+                  <tr className={styles.expandedRow}>
+                    <td colSpan={7}>
+                      {(!p.lineas || p.lineas.length === 0) ? (
+                        <div className={styles.expandedEmpty}>Sin lineas de producto</div>
+                      ) : (
+                        <div className={styles.expandedContent}>
+                          {p.lineas.map((linea) => (
+                            <div key={linea.sod_id} className={styles.lineaRow}>
+                              <div className={styles.lineaMain}>
+                                {linea.item_code && (
+                                  <span className={styles.itemCode}>{linea.item_code}</span>
+                                )}
+                                <span className={styles.itemDesc}>
+                                  {linea.item_desc || '\u2014'}
+                                </span>
+                                <span className={styles.itemQty}>
+                                  x{linea.cantidad ?? 0}
+                                </span>
+                                {linea.precio_unitario != null && (
+                                  <span className={styles.itemPrice}>
+                                    {formatPrecio(linea.precio_unitario)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Seriales del pedido */}
+                          {allSeriales.length > 0 && (
+                            <div className={styles.serialesList}>
+                              {allSeriales.map((s) => (
+                                <span
+                                  key={s.is_serial}
+                                  className={`${styles.serialBadge} ${s.is_available ? styles.serialOk : styles.serialNo}`}
+                                >
+                                  <ScanBarcode size={10} />
+                                  {s.is_serial}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {p.observacion && (
+                            <div className={styles.pedidoObs}>{p.observacion}</div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// -- RMAs del ERP (GBP) -----------------------------------------------------
+function RmasErpSection({ rmas }) {
+  if (!rmas || rmas.length === 0) return null;
+
+  return (
+    <div className={styles.rmaList}>
+      {rmas.map((rma) => (
+        <div key={`${rma.rmah_id}-${rma.rmad_id}`} className={styles.rmaCard}>
+          <div className={styles.rmaCardHeader}>
+            <span className={styles.rmaBadge}>RMA #{rma.rmah_id}</span>
+            <span className={styles.rmaLine}>Linea #{rma.rmad_id}</span>
+            {rma.en_proveedor && (
+              <span className={styles.enProveedorBadge}>En proveedor</span>
+            )}
+          </div>
+          <div className={styles.rmaCardBody}>
+            <div className={styles.lineaMain}>
+              {rma.item_codigo && (
+                <span className={styles.itemCode}>{rma.item_codigo}</span>
+              )}
+              <span className={styles.itemDesc}>{rma.item_descripcion || '\u2014'}</span>
+              {rma.serial && (
+                <span className={styles.serialBadgeInline}>
+                  <ScanBarcode size={10} /> {rma.serial}
+                </span>
+              )}
+              {rma.cantidad != null && (
+                <span className={styles.itemQty}>x{rma.cantidad}</span>
+              )}
+              {rma.precio_original != null && (
+                <span className={styles.itemPrice}>{formatPrecio(rma.precio_original)}</span>
+              )}
+            </div>
+            <div className={styles.rmaMetaRow}>
+              {rma.fecha_rma && (
+                <span className={styles.metaItem}>
+                  <Calendar size={11} /> {formatFecha(rma.fecha_rma)}
+                </span>
+              )}
+              {rma.proveedor && (
+                <span className={styles.metaItem}>Prov: {rma.proveedor}</span>
+              )}
+              {rma.deposito && (
+                <span className={styles.metaItem}>Dep: {rma.deposito}</span>
+              )}
+            </div>
+            {/* Etapas timeline */}
+            {(rma.fecha_recepcion || rma.fecha_diagnostico || rma.fecha_procesamiento || rma.fecha_entrega) && (
+              <div className={styles.rmaEtapas}>
+                {rma.fecha_recepcion && (
+                  <span className={styles.etapaChip}>Recepcion {formatFecha(rma.fecha_recepcion)}</span>
+                )}
+                {rma.fecha_diagnostico && (
+                  <span className={styles.etapaChip}>Diagnostico {formatFecha(rma.fecha_diagnostico)}</span>
+                )}
+                {rma.fecha_procesamiento && (
+                  <span className={styles.etapaChip}>Proceso {formatFecha(rma.fecha_procesamiento)}</span>
+                )}
+                {rma.fecha_entrega && (
+                  <span className={styles.etapaChip}>Entrega {formatFecha(rma.fecha_entrega)}</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// -- RMAs internos (rma_casos) -----------------------------------------------
+function RmasInternosSection({ casos }) {
+  const [expandedCasos, setExpandedCasos] = useState(new Set());
+
+  if (!casos || casos.length === 0) return null;
+
+  const toggleCaso = (casoId) => {
+    const next = new Set(expandedCasos);
+    if (next.has(casoId)) {
+      next.delete(casoId);
+    } else {
+      next.add(casoId);
+    }
+    setExpandedCasos(next);
+  };
+
+  return (
+    <div className={styles.rmaList}>
+      {casos.map((caso) => {
+        const isExpanded = expandedCasos.has(caso.id);
+
+        return (
+          <div key={caso.id} className={styles.rmaCasoCard}>
+            <div
+              className={styles.rmaCasoHeader}
+              onClick={() => toggleCaso(caso.id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter') toggleCaso(caso.id); }}
+            >
+              <ChevronRight
+                size={14}
+                className={`${styles.expandIcon} ${isExpanded ? styles.expandIconOpen : ''}`}
+              />
+              <span className={styles.rmaBadge}>{caso.numero_caso}</span>
+              {caso.estado && (
+                <span className={`${styles.casoEstadoBadge} ${caso.estado === 'abierto' ? styles.casoAbierto : styles.casoCerrado}`}>
+                  {caso.estado}
+                </span>
+              )}
+              {caso.origen && (
+                <span className={styles.casoOrigen}>{caso.origen}</span>
+              )}
+              {caso.fecha_caso && (
+                <span className={styles.metaItem}>
+                  <Calendar size={11} /> {formatFecha(caso.fecha_caso)}
+                </span>
+              )}
+              {caso.ml_id && (
+                <a
+                  href={`https://www.mercadolibre.com.ar/ventas/${caso.ml_id}/detalle`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.mlLink}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  ML: {caso.ml_id}
+                </a>
+              )}
+            </div>
+
+            {isExpanded && (
+              <div className={styles.rmaCasoBody}>
+                {/* Meta info */}
+                <div className={styles.rmaMetaRow}>
+                  {caso.estado_reclamo_ml && (
+                    <span className={styles.metaItem}>Reclamo ML: {caso.estado_reclamo_ml}</span>
+                  )}
+                  {caso.cobertura_ml && (
+                    <span className={styles.metaItem}>Cobertura: {caso.cobertura_ml}</span>
+                  )}
+                  {caso.monto_cubierto != null && (
+                    <span className={styles.metaItem}>Monto: {formatPrecio(caso.monto_cubierto)}</span>
+                  )}
+                </div>
+
+                {caso.observaciones && (
+                  <div className={styles.pedidoObs}>{caso.observaciones}</div>
+                )}
+
+                {/* Items del caso */}
+                {caso.items && caso.items.length > 0 && (
+                  <div className={styles.casoItemsList}>
+                    {caso.items.map((item) => (
+                      <div key={item.id} className={styles.casoItemRow}>
+                        <div className={styles.lineaMain}>
+                          {item.serial_number && (
+                            <span className={styles.serialBadgeInline}>
+                              <ScanBarcode size={10} /> {item.serial_number}
+                            </span>
+                          )}
+                          <span className={styles.itemDesc}>{item.producto_desc || '\u2014'}</span>
+                          {item.precio != null && (
+                            <span className={styles.itemPrice}>{formatPrecio(item.precio)}</span>
+                          )}
+                        </div>
+                        <div className={styles.rmaMetaRow}>
+                          {item.estado_recepcion && (
+                            <span className={styles.etapaChip}>Recep: {item.estado_recepcion}</span>
+                          )}
+                          {item.causa_devolucion && (
+                            <span className={styles.etapaChip}>Causa: {item.causa_devolucion}</span>
+                          )}
+                          {item.apto_venta && (
+                            <span className={styles.etapaChip}>Apto: {item.apto_venta}</span>
+                          )}
+                          {item.estado_revision && (
+                            <span className={styles.etapaChip}>Revision: {item.estado_revision}</span>
+                          )}
+                          {item.estado_proceso && (
+                            <span className={styles.etapaChip}>Proceso: {item.estado_proceso}</span>
+                          )}
+                          {item.estado_proveedor && (
+                            <span className={styles.etapaChip}>Prov: {item.estado_proveedor}</span>
+                          )}
+                          {item.proveedor_nombre && (
+                            <span className={styles.metaItem}>Proveedor: {item.proveedor_nombre}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // -- Paginacion simple -------------------------------------------------------
 function Paginacion({ page, pageSize, total, onPageChange }) {
   if (total <= pageSize) return null;
@@ -301,7 +640,18 @@ export default function TrazaClienteViewer({
 }) {
   if (!data) return null;
 
-  const { cliente, transacciones = [], total_transacciones = 0, busqueda_por } = data;
+  const {
+    cliente,
+    transacciones = [],
+    total_transacciones = 0,
+    pedidos = [],
+    rmas_erp = [],
+    rmas_internos = [],
+    busqueda_por,
+  } = data;
+
+  const hasActivity = total_transacciones > 0 || pedidos.length > 0 ||
+    rmas_erp.length > 0 || rmas_internos.length > 0;
 
   return (
     <div className={`${styles.container} ${compact ? styles.compact : ''}`}>
@@ -317,15 +667,58 @@ export default function TrazaClienteViewer({
         </div>
       )}
 
+      {/* Client header always shown — even with no activity */}
       <ClienteHeader cliente={cliente} />
 
-      <div className={styles.section}>
-        <div className={styles.sectionHeader}>
-          <FileText size={14} />
-          <span>Transacciones ({total_transacciones})</span>
+      {!hasActivity && (
+        <div className={styles.emptyState}>
+          El cliente existe en la base de datos pero no tiene actividad registrada
         </div>
-        <TransaccionesTable transacciones={transacciones} />
-      </div>
+      )}
+
+      {/* Pedidos activos (sale orders) — shown first since they're active */}
+      {pedidos.length > 0 && (
+        <div className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <ShoppingCart size={14} />
+            <span>Pedidos activos ({pedidos.length})</span>
+          </div>
+          <PedidosSection pedidos={pedidos} />
+        </div>
+      )}
+
+      {/* RMAs internos (rma_casos) — before transacciones, they're operationally important */}
+      {rmas_internos.length > 0 && (
+        <div className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <Wrench size={14} />
+            <span>Casos RMA ({rmas_internos.length})</span>
+          </div>
+          <RmasInternosSection casos={rmas_internos} />
+        </div>
+      )}
+
+      {/* RMAs del ERP (GBP) */}
+      {rmas_erp.length > 0 && (
+        <div className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <AlertTriangle size={14} />
+            <span>RMAs ERP ({rmas_erp.length})</span>
+          </div>
+          <RmasErpSection rmas={rmas_erp} />
+        </div>
+      )}
+
+      {/* Transacciones (facturas/NC) — at the bottom since they're historical */}
+      {total_transacciones > 0 && (
+        <div className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <FileText size={14} />
+            <span>Transacciones ({total_transacciones})</span>
+          </div>
+          <TransaccionesTable transacciones={transacciones} />
+        </div>
+      )}
 
       {onPageChange && (
         <Paginacion
