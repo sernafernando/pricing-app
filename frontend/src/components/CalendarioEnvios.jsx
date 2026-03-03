@@ -104,7 +104,7 @@ const formatearRangoLabel = (desde, hasta, modo) => {
 };
 
 
-export default function CalendarioEnvios({ onDiaClick, endpointUrl = '/etiquetas-envio/estadisticas-por-dia' }) {
+export default function CalendarioEnvios({ onDiaClick, endpointUrl = '/etiquetas-envio/estadisticas-por-dia', renderDayBadges }) {
   const [modo, setModo] = useState('semana'); // 'semana' | 'quincena' | 'mes'
   const [refDate, setRefDate] = useState(new Date());
   const [datos, setDatos] = useState({}); // { 'YYYY-MM-DD': { total, flex, manuales, ... } }
@@ -262,50 +262,54 @@ export default function CalendarioEnvios({ onDiaClick, endpointUrl = '/etiquetas
                     {/* Total */}
                     <div className={styles.dayTotal}>{dia.total}</div>
 
-                    {/* Tipo: Flex / Manual */}
-                    <div className={styles.badgeRow}>
-                      {dia.flex > 0 && (
-                        <span className={`${styles.badge} ${styles.badgeFlex}`}>
-                          Flex {dia.flex}
-                        </span>
-                      )}
-                      {dia.manuales > 0 && (
-                        <span className={`${styles.badge} ${styles.badgeManual}`}>
-                          Manual {dia.manuales}
-                        </span>
-                      )}
-                    </div>
+                    {renderDayBadges ? renderDayBadges(dia, styles) : (
+                      <>
+                        {/* Tipo: Flex / Manual */}
+                        <div className={styles.badgeRow}>
+                          {dia.flex > 0 && (
+                            <span className={`${styles.badge} ${styles.badgeFlex}`}>
+                              Flex {dia.flex}
+                            </span>
+                          )}
+                          {dia.manuales > 0 && (
+                            <span className={`${styles.badge} ${styles.badgeManual}`}>
+                              Manual {dia.manuales}
+                            </span>
+                          )}
+                        </div>
 
-                    {/* Cordones */}
-                    <div className={styles.badgeRow}>
-                      {Object.entries(dia.por_cordon).map(([cordon, cant]) => (
-                        <span
-                          key={cordon}
-                          className={`${styles.badge} ${CORDON_BADGE_CLASS[cordon] || styles.badgeSinCordon}`}
-                        >
-                          {cordon === 'CABA' ? 'CABA' : cordon.replace('Cordón ', 'C')} {cant}
-                        </span>
-                      ))}
-                      {dia.sin_cordon > 0 && (
-                        <span className={`${styles.badge} ${styles.badgeSinCordon}`}>
-                          S/C {dia.sin_cordon}
-                        </span>
-                      )}
-                    </div>
+                        {/* Cordones */}
+                        <div className={styles.badgeRow}>
+                          {Object.entries(dia.por_cordon || {}).map(([cordon, cant]) => (
+                            <span
+                              key={cordon}
+                              className={`${styles.badge} ${CORDON_BADGE_CLASS[cordon] || styles.badgeSinCordon}`}
+                            >
+                              {cordon === 'CABA' ? 'CABA' : cordon.replace('Cordón ', 'C')} {cant}
+                            </span>
+                          ))}
+                          {dia.sin_cordon > 0 && (
+                            <span className={`${styles.badge} ${styles.badgeSinCordon}`}>
+                              S/C {dia.sin_cordon}
+                            </span>
+                          )}
+                        </div>
 
-                    {/* Logística */}
-                    <div className={styles.badgeRow}>
-                      {dia.con_logistica > 0 && (
-                        <span className={`${styles.badge} ${styles.badgeConLog}`}>
-                          Log {dia.con_logistica}
-                        </span>
-                      )}
-                      {dia.sin_logistica > 0 && (
-                        <span className={`${styles.badge} ${styles.badgeSinLog}`}>
-                          S/Log {dia.sin_logistica}
-                        </span>
-                      )}
-                    </div>
+                        {/* Logística */}
+                        <div className={styles.badgeRow}>
+                          {dia.con_logistica > 0 && (
+                            <span className={`${styles.badge} ${styles.badgeConLog}`}>
+                              Log {dia.con_logistica}
+                            </span>
+                          )}
+                          {dia.sin_logistica > 0 && (
+                            <span className={`${styles.badge} ${styles.badgeSinLog}`}>
+                              S/Log {dia.sin_logistica}
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
