@@ -27,6 +27,7 @@ import Clientes from './pages/Clientes';
 import TurboRouting from './pages/TurboRouting';
 import CuentasCorrientes from './pages/CuentasCorrientes';
 import ConfigOperaciones from './pages/ConfigOperaciones';
+import Rma from './pages/Rma';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
@@ -186,6 +187,11 @@ function App() {
             <Route path="/config-operaciones" element={
               <ProtectedRoute permiso="ordenes.ver_preparacion">
                 <ConfigOperaciones />
+              </ProtectedRoute>
+            } />
+            <Route path="/rma" element={
+              <ProtectedRoute permiso="rma.ver">
+                <Rma />
               </ProtectedRoute>
             } />
           </Route>

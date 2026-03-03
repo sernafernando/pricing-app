@@ -55,8 +55,9 @@ from app.api.endpoints import (
     config_operaciones,
     sounds,
     transportes,
+    etiquetas_colecta,
 )
-from app.routers import alertas, seriales
+from app.routers import alertas, seriales, rma_seguimiento
 from app.core.config import settings
 from app.core.exceptions import http_exception_handler
 from app.core.logging import get_logger
@@ -159,6 +160,8 @@ app.include_router(config_operaciones.router, prefix="/api", tags=["config-opera
 app.include_router(sounds.router, prefix="/api", tags=["sounds"])
 app.include_router(transportes.router, prefix="/api", tags=["transportes"])
 app.include_router(seriales.router, prefix="/api", tags=["seriales"])
+app.include_router(rma_seguimiento.router, prefix="/api", tags=["rma-seguimiento"])
+app.include_router(etiquetas_colecta.router, prefix="/api", tags=["etiquetas-colecta"])
 
 
 @app.get("/")
