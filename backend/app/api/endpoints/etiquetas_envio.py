@@ -36,6 +36,7 @@ from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.etiqueta_envio import EtiquetaEnvio
+from app.models.etiqueta_colecta import EtiquetaColecta
 from app.models.logistica import Logistica
 from app.models.transporte import Transporte
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
@@ -1054,6 +1055,10 @@ def listar_etiquetas(
             | (MercadoLibreUserData.nickname.ilike(search_term))
         )
 
+    # Excluir etiquetas que existen en colecta (son de otro flujo)
+    colecta_ids = db.query(EtiquetaColecta.shipping_id).subquery()
+    query = query.filter(~EtiquetaEnvio.shipping_id.in_(db.query(colecta_ids.c.shipping_id)))
+
     # Ordenar por shipping_id desc (más recientes primero)
     query = query.order_by(EtiquetaEnvio.shipping_id.desc())
 
@@ -1245,6 +1250,10 @@ def estadisticas_etiquetas(
             | (stats_eff_street.ilike(search_term))
             | (stats_eff_city.ilike(search_term))
         )
+
+    # Excluir etiquetas que existen en colecta (son de otro flujo)
+    colecta_ids_stats = db.query(EtiquetaColecta.shipping_id).subquery()
+    filtered_ids_q = filtered_ids_q.filter(~EtiquetaEnvio.shipping_id.in_(db.query(colecta_ids_stats.c.shipping_id)))
 
     filtered_ids_sub = filtered_ids_q.subquery()
 
@@ -1524,6 +1533,8 @@ def estadisticas_por_dia(
         .filter(
             EtiquetaEnvio.fecha_envio >= fecha_desde,
             EtiquetaEnvio.fecha_envio <= fecha_hasta,
+            # Excluir etiquetas que existen en colecta
+            ~EtiquetaEnvio.shipping_id.in_(db.query(EtiquetaColecta.shipping_id)),
         )
         .group_by(
             EtiquetaEnvio.fecha_envio,
