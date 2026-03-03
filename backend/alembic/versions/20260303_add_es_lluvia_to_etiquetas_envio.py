@@ -1,7 +1,7 @@
 """Add es_lluvia column to etiquetas_envio
 
 Revision ID: lluvia_001
-Revises: None (standalone — alembic chain broken, apply directly)
+Revises: 20260303_etiq_colecta
 Create Date: 2026-03-03
 """
 
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "lluvia_001"
-down_revision = None
+down_revision = "20260303_etiq_colecta"
 branch_labels = None
 depends_on = None
 
