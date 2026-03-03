@@ -1,0 +1,896 @@
+"""
+Router del módulo RMA Seguimiento.
+
+Endpoints:
+- CRUD de casos RMA (crear, listar, obtener, actualizar)
+- CRUD de items dentro de un caso
+- Gestión de opciones de dropdowns (admin)
+- Historial de cambios (auditoría)
+- Listado de depósitos desde tb_storage
+- Generación automática de número de caso
+"""
+
+from datetime import datetime, UTC
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func
+from sqlalchemy.orm import Session, selectinload
+
+from app.core.database import get_db
+from app.core.deps import get_current_user
+from app.models.rma_caso import RmaCaso
+from app.models.rma_caso_historial import RmaCasoHistorial
+from app.models.rma_caso_item import RmaCasoItem
+from app.models.rma_seguimiento_opcion import RmaSeguimientoOpcion
+from app.models.tb_storage import TbStorage
+from app.models.usuario import Usuario
+from app.services.permisos_service import PermisosService
+
+router = APIRouter(prefix="/rma-seguimiento", tags=["rma-seguimiento"])
+
+
+# ──────────────────────────────────────────────
+# SCHEMAS
+# ──────────────────────────────────────────────
+
+
+class OpcionResponse(BaseModel):
+    id: int
+    categoria: str
+    valor: str
+    orden: int
+    activo: bool
+    color: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OpcionCreate(BaseModel):
+    categoria: str = Field(min_length=1, max_length=50)
+    valor: str = Field(min_length=1, max_length=200)
+    orden: int = 0
+    color: Optional[str] = None
+
+
+class OpcionUpdate(BaseModel):
+    valor: Optional[str] = None
+    orden: Optional[int] = None
+    activo: Optional[bool] = None
+    color: Optional[str] = None
+
+
+class DepositoResponse(BaseModel):
+    stor_id: int
+    stor_desc: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ItemCreate(BaseModel):
+    serial_number: Optional[str] = None
+    item_id: Optional[int] = None
+    is_id: Optional[int] = None
+    it_transaction: Optional[int] = None
+    ean: Optional[str] = None
+    producto_desc: Optional[str] = None
+    precio: Optional[float] = None
+    estado_facturacion: Optional[str] = None
+    link_ml: Optional[str] = None
+
+
+class ItemUpdate(BaseModel):
+    # Recepción
+    estado_recepcion_id: Optional[int] = None
+    costo_envio: Optional[float] = None
+    causa_devolucion_id: Optional[int] = None
+    # Revisión
+    apto_venta_id: Optional[int] = None
+    requirio_reacondicionamiento: Optional[bool] = None
+    estado_revision_id: Optional[int] = None
+    # Proceso interno
+    estado_proceso_id: Optional[int] = None
+    deposito_destino_id: Optional[int] = None
+    enviado_fisicamente_deposito: Optional[bool] = None
+    corroborar_nc: Optional[bool] = None
+    requirio_rma_interno: Optional[bool] = None
+    # Devolución parcial
+    requiere_nota_credito: Optional[bool] = None
+    debe_facturarse: Optional[bool] = None
+    # Proveedor
+    supp_id: Optional[int] = None
+    proveedor_nombre: Optional[str] = None
+    enviado_proveedor: Optional[bool] = None
+    fecha_envio_proveedor: Optional[str] = None
+    fecha_respuesta_proveedor: Optional[str] = None
+    estado_proveedor_id: Optional[int] = None
+    nc_proveedor: Optional[str] = None
+    monto_nc_proveedor: Optional[float] = None
+    # Observaciones
+    observaciones: Optional[str] = None
+    # ERP
+    rmah_id: Optional[int] = None
+    rmad_id: Optional[int] = None
+
+
+class ItemResponse(BaseModel):
+    id: int
+    caso_id: int
+    serial_number: Optional[str] = None
+    item_id: Optional[int] = None
+    is_id: Optional[int] = None
+    it_transaction: Optional[int] = None
+    ean: Optional[str] = None
+    producto_desc: Optional[str] = None
+    precio: Optional[float] = None
+    estado_facturacion: Optional[str] = None
+    link_ml: Optional[str] = None
+    # Recepción
+    estado_recepcion_id: Optional[int] = None
+    estado_recepcion_valor: Optional[str] = None
+    estado_recepcion_color: Optional[str] = None
+    costo_envio: Optional[float] = None
+    causa_devolucion_id: Optional[int] = None
+    causa_devolucion_valor: Optional[str] = None
+    causa_devolucion_color: Optional[str] = None
+    recepcion_usuario_id: Optional[int] = None
+    recepcion_fecha: Optional[str] = None
+    # Revisión
+    apto_venta_id: Optional[int] = None
+    apto_venta_valor: Optional[str] = None
+    apto_venta_color: Optional[str] = None
+    requirio_reacondicionamiento: Optional[bool] = None
+    estado_revision_id: Optional[int] = None
+    estado_revision_valor: Optional[str] = None
+    estado_revision_color: Optional[str] = None
+    revision_usuario_id: Optional[int] = None
+    revision_fecha: Optional[str] = None
+    # Proceso interno
+    estado_proceso_id: Optional[int] = None
+    estado_proceso_valor: Optional[str] = None
+    estado_proceso_color: Optional[str] = None
+    deposito_destino_id: Optional[int] = None
+    deposito_destino_valor: Optional[str] = None
+    deposito_destino_color: Optional[str] = None
+    enviado_fisicamente_deposito: Optional[bool] = None
+    corroborar_nc: Optional[bool] = None
+    requirio_rma_interno: Optional[bool] = None
+    # Devolución parcial
+    requiere_nota_credito: Optional[bool] = None
+    debe_facturarse: Optional[bool] = None
+    # Proveedor
+    supp_id: Optional[int] = None
+    proveedor_nombre: Optional[str] = None
+    enviado_proveedor: Optional[bool] = None
+    fecha_envio_proveedor: Optional[str] = None
+    fecha_respuesta_proveedor: Optional[str] = None
+    estado_proveedor_id: Optional[int] = None
+    estado_proveedor_valor: Optional[str] = None
+    estado_proveedor_color: Optional[str] = None
+    nc_proveedor: Optional[str] = None
+    monto_nc_proveedor: Optional[float] = None
+    # Observaciones
+    observaciones: Optional[str] = None
+    # ERP
+    rmah_id: Optional[int] = None
+    rmad_id: Optional[int] = None
+    created_at: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CasoCreate(BaseModel):
+    cust_id: Optional[int] = None
+    cliente_nombre: Optional[str] = None
+    cliente_dni: Optional[str] = None
+    cliente_numero: Optional[int] = None
+    ml_id: Optional[str] = None
+    origen: Optional[str] = None
+    items: list[ItemCreate] = []
+
+
+class CasoUpdate(BaseModel):
+    estado: Optional[str] = None
+    # Flag proceso
+    marcado_borrar_pedido: Optional[bool] = None
+    # Reclamo ML
+    estado_reclamo_ml_id: Optional[int] = None
+    cobertura_ml_id: Optional[int] = None
+    monto_cubierto: Optional[float] = None
+    # Observaciones
+    observaciones: Optional[str] = None
+    # Auditoría
+    corroborar_nc: Optional[str] = None
+    fecha_caso: Optional[str] = None
+
+
+class HistorialResponse(BaseModel):
+    id: int
+    caso_id: int
+    caso_item_id: Optional[int] = None
+    campo: str
+    valor_anterior: Optional[str] = None
+    valor_nuevo: Optional[str] = None
+    usuario_id: int
+    usuario_nombre: Optional[str] = None
+    created_at: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CasoResponse(BaseModel):
+    id: int
+    numero_caso: str
+    cust_id: Optional[int] = None
+    cliente_nombre: Optional[str] = None
+    cliente_dni: Optional[str] = None
+    cliente_numero: Optional[int] = None
+    ml_id: Optional[str] = None
+    origen: Optional[str] = None
+    estado: str
+    # Flag proceso
+    marcado_borrar_pedido: Optional[bool] = None
+    # Reclamo ML
+    estado_reclamo_ml_id: Optional[int] = None
+    estado_reclamo_ml_valor: Optional[str] = None
+    estado_reclamo_ml_color: Optional[str] = None
+    cobertura_ml_id: Optional[int] = None
+    cobertura_ml_valor: Optional[str] = None
+    cobertura_ml_color: Optional[str] = None
+    monto_cubierto: Optional[float] = None
+    # Observaciones
+    observaciones: Optional[str] = None
+    # Auditoría
+    corroborar_nc: Optional[str] = None
+    fecha_caso: Optional[str] = None
+    # Sistema
+    creado_por_id: Optional[int] = None
+    creado_por_nombre: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    # Items (solo en detalle)
+    items: list[ItemResponse] = []
+    total_items: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CasoListResponse(BaseModel):
+    items: list[CasoResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+# ──────────────────────────────────────────────
+# HELPERS
+# ──────────────────────────────────────────────
+
+
+def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
+    """Verifica permiso o lanza 403."""
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(user, permiso):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tenés permiso para esta operación",
+        )
+
+
+def _generar_numero_caso(db: Session) -> str:
+    """Genera número de caso auto-incremental: RMA-YYYY-NNNN."""
+    year = datetime.now(UTC).year
+    ultimo_caso = (
+        db.query(RmaCaso.numero_caso)
+        .filter(RmaCaso.numero_caso.like(f"RMA-{year}-%"))
+        .order_by(RmaCaso.id.desc())
+        .first()
+    )
+    if ultimo_caso:
+        try:
+            seq = int(ultimo_caso[0].split("-")[-1]) + 1
+        except (ValueError, IndexError):
+            seq = 1
+    else:
+        seq = 1
+    return f"RMA-{year}-{seq:04d}"
+
+
+def _serialize_item(item: RmaCasoItem) -> dict:
+    """Serializa un item con los valores resueltos de sus opciones."""
+    return {
+        "id": item.id,
+        "caso_id": item.caso_id,
+        "serial_number": item.serial_number,
+        "item_id": item.item_id,
+        "is_id": item.is_id,
+        "it_transaction": item.it_transaction,
+        "ean": item.ean,
+        "producto_desc": item.producto_desc,
+        "precio": float(item.precio) if item.precio else None,
+        "estado_facturacion": item.estado_facturacion,
+        "link_ml": item.link_ml,
+        # Recepción
+        "estado_recepcion_id": item.estado_recepcion_id,
+        "estado_recepcion_valor": item.estado_recepcion.valor if item.estado_recepcion else None,
+        "estado_recepcion_color": item.estado_recepcion.color if item.estado_recepcion else None,
+        "costo_envio": float(item.costo_envio) if item.costo_envio else None,
+        "causa_devolucion_id": item.causa_devolucion_id,
+        "causa_devolucion_valor": item.causa_devolucion.valor if item.causa_devolucion else None,
+        "causa_devolucion_color": item.causa_devolucion.color if item.causa_devolucion else None,
+        "recepcion_usuario_id": item.recepcion_usuario_id,
+        "recepcion_fecha": item.recepcion_fecha.isoformat() if item.recepcion_fecha else None,
+        # Revisión
+        "apto_venta_id": item.apto_venta_id,
+        "apto_venta_valor": item.apto_venta.valor if item.apto_venta else None,
+        "apto_venta_color": item.apto_venta.color if item.apto_venta else None,
+        "requirio_reacondicionamiento": item.requirio_reacondicionamiento,
+        "estado_revision_id": item.estado_revision_id,
+        "estado_revision_valor": item.estado_revision.valor if item.estado_revision else None,
+        "estado_revision_color": item.estado_revision.color if item.estado_revision else None,
+        "revision_usuario_id": item.revision_usuario_id,
+        "revision_fecha": item.revision_fecha.isoformat() if item.revision_fecha else None,
+        # Proceso interno
+        "estado_proceso_id": item.estado_proceso_id,
+        "estado_proceso_valor": item.estado_proceso.valor if item.estado_proceso else None,
+        "estado_proceso_color": item.estado_proceso.color if item.estado_proceso else None,
+        "deposito_destino_id": item.deposito_destino_id,
+        "deposito_destino_valor": item.deposito_destino.valor if item.deposito_destino else None,
+        "deposito_destino_color": item.deposito_destino.color if item.deposito_destino else None,
+        "enviado_fisicamente_deposito": item.enviado_fisicamente_deposito,
+        "corroborar_nc": item.corroborar_nc,
+        "requirio_rma_interno": item.requirio_rma_interno,
+        # Devolución parcial
+        "requiere_nota_credito": item.requiere_nota_credito,
+        "debe_facturarse": item.debe_facturarse,
+        # Proveedor
+        "supp_id": item.supp_id,
+        "proveedor_nombre": item.proveedor_nombre,
+        "enviado_proveedor": item.enviado_proveedor,
+        "fecha_envio_proveedor": (item.fecha_envio_proveedor.isoformat() if item.fecha_envio_proveedor else None),
+        "fecha_respuesta_proveedor": (
+            item.fecha_respuesta_proveedor.isoformat() if item.fecha_respuesta_proveedor else None
+        ),
+        "estado_proveedor_id": item.estado_proveedor_id,
+        "estado_proveedor_valor": item.estado_proveedor.valor if item.estado_proveedor else None,
+        "estado_proveedor_color": item.estado_proveedor.color if item.estado_proveedor else None,
+        "nc_proveedor": item.nc_proveedor,
+        "monto_nc_proveedor": float(item.monto_nc_proveedor) if item.monto_nc_proveedor else None,
+        # Observaciones
+        "observaciones": item.observaciones,
+        # ERP
+        "rmah_id": item.rmah_id,
+        "rmad_id": item.rmad_id,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+    }
+
+
+def _serialize_caso(caso: RmaCaso, include_items: bool = True) -> dict:
+    """Serializa un caso con sus relaciones."""
+    return {
+        "id": caso.id,
+        "numero_caso": caso.numero_caso,
+        "cust_id": caso.cust_id,
+        "cliente_nombre": caso.cliente_nombre,
+        "cliente_dni": caso.cliente_dni,
+        "cliente_numero": caso.cliente_numero,
+        "ml_id": caso.ml_id,
+        "origen": caso.origen,
+        "estado": caso.estado,
+        # Flag proceso
+        "marcado_borrar_pedido": caso.marcado_borrar_pedido,
+        # Reclamo ML
+        "estado_reclamo_ml_id": caso.estado_reclamo_ml_id,
+        "estado_reclamo_ml_valor": (caso.estado_reclamo_ml.valor if caso.estado_reclamo_ml else None),
+        "estado_reclamo_ml_color": (caso.estado_reclamo_ml.color if caso.estado_reclamo_ml else None),
+        "cobertura_ml_id": caso.cobertura_ml_id,
+        "cobertura_ml_valor": (caso.cobertura_ml.valor if caso.cobertura_ml else None),
+        "cobertura_ml_color": (caso.cobertura_ml.color if caso.cobertura_ml else None),
+        "monto_cubierto": float(caso.monto_cubierto) if caso.monto_cubierto else None,
+        # Observaciones
+        "observaciones": caso.observaciones,
+        # Auditoría
+        "corroborar_nc": caso.corroborar_nc,
+        "fecha_caso": caso.fecha_caso.isoformat() if caso.fecha_caso else None,
+        # Sistema
+        "creado_por_id": caso.creado_por_id,
+        "creado_por_nombre": caso.creado_por.nombre if caso.creado_por else None,
+        "created_at": caso.created_at.isoformat() if caso.created_at else None,
+        "updated_at": caso.updated_at.isoformat() if caso.updated_at else None,
+        # Items
+        "items": [_serialize_item(i) for i in caso.items] if include_items else [],
+        "total_items": len(caso.items) if caso.items else 0,
+    }
+
+
+def _registrar_cambio(
+    db: Session,
+    caso_id: int,
+    campo: str,
+    valor_anterior: object,
+    valor_nuevo: object,
+    usuario_id: int,
+    caso_item_id: Optional[int] = None,
+) -> None:
+    """Registra un cambio en el historial de auditoría."""
+    if str(valor_anterior) == str(valor_nuevo):
+        return
+    historial = RmaCasoHistorial(
+        caso_id=caso_id,
+        caso_item_id=caso_item_id,
+        campo=campo,
+        valor_anterior=str(valor_anterior) if valor_anterior is not None else None,
+        valor_nuevo=str(valor_nuevo) if valor_nuevo is not None else None,
+        usuario_id=usuario_id,
+    )
+    db.add(historial)
+
+
+def _build_caso_query(db: Session) -> object:
+    """Construye el query base para casos con todas las relaciones precargadas."""
+    return db.query(RmaCaso).options(
+        selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_recepcion),
+        selectinload(RmaCaso.items).selectinload(RmaCasoItem.causa_devolucion),
+        selectinload(RmaCaso.items).selectinload(RmaCasoItem.apto_venta),
+        selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_revision),
+        selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_proceso),
+        selectinload(RmaCaso.items).selectinload(RmaCasoItem.deposito_destino),
+        selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_proveedor),
+        selectinload(RmaCaso.estado_reclamo_ml),
+        selectinload(RmaCaso.cobertura_ml),
+        selectinload(RmaCaso.creado_por),
+    )
+
+
+def _build_item_query(db: Session) -> object:
+    """Construye el query base para items con todas las relaciones precargadas."""
+    return db.query(RmaCasoItem).options(
+        selectinload(RmaCasoItem.estado_recepcion),
+        selectinload(RmaCasoItem.causa_devolucion),
+        selectinload(RmaCasoItem.apto_venta),
+        selectinload(RmaCasoItem.estado_revision),
+        selectinload(RmaCasoItem.estado_proceso),
+        selectinload(RmaCasoItem.deposito_destino),
+        selectinload(RmaCasoItem.estado_proveedor),
+    )
+
+
+# ──────────────────────────────────────────────
+# OPCIONES (Dropdowns configurables)
+# ──────────────────────────────────────────────
+
+
+@router.get("/opciones", response_model=list[OpcionResponse])
+async def listar_opciones(
+    categoria: Optional[str] = Query(None, description="Filtrar por categoría"),
+    solo_activas: bool = Query(True, description="Solo opciones activas"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[OpcionResponse]:
+    """Lista opciones de dropdowns, opcionalmente filtradas por categoría."""
+    query = db.query(RmaSeguimientoOpcion)
+    if categoria:
+        query = query.filter(RmaSeguimientoOpcion.categoria == categoria)
+    if solo_activas:
+        query = query.filter(RmaSeguimientoOpcion.activo.is_(True))
+    return query.order_by(RmaSeguimientoOpcion.categoria, RmaSeguimientoOpcion.orden).all()
+
+
+@router.get("/opciones/categorias")
+async def listar_categorias(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[str]:
+    """Lista todas las categorías de opciones disponibles."""
+    rows = db.query(RmaSeguimientoOpcion.categoria).distinct().order_by(RmaSeguimientoOpcion.categoria).all()
+    return [r[0] for r in rows]
+
+
+@router.post("/opciones", response_model=OpcionResponse, status_code=status.HTTP_201_CREATED)
+async def crear_opcion(
+    data: OpcionCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> OpcionResponse:
+    """Crea una nueva opción de dropdown. Requiere permiso admin."""
+    _check_permiso(db, current_user, "rma.admin_opciones")
+    existe = (
+        db.query(RmaSeguimientoOpcion)
+        .filter(
+            RmaSeguimientoOpcion.categoria == data.categoria,
+            RmaSeguimientoOpcion.valor == data.valor,
+        )
+        .first()
+    )
+    if existe:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Ya existe la opción '{data.valor}' en la categoría '{data.categoria}'",
+        )
+    opcion = RmaSeguimientoOpcion(
+        categoria=data.categoria,
+        valor=data.valor,
+        orden=data.orden,
+        color=data.color,
+    )
+    db.add(opcion)
+    db.commit()
+    db.refresh(opcion)
+    return opcion
+
+
+@router.put("/opciones/{opcion_id}", response_model=OpcionResponse)
+async def actualizar_opcion(
+    opcion_id: int,
+    data: OpcionUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> OpcionResponse:
+    """Actualiza una opción de dropdown. Requiere permiso admin."""
+    _check_permiso(db, current_user, "rma.admin_opciones")
+    opcion = db.query(RmaSeguimientoOpcion).filter(RmaSeguimientoOpcion.id == opcion_id).first()
+    if not opcion:
+        raise HTTPException(status_code=404, detail="Opción no encontrada")
+    update_data = data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(opcion, key, value)
+    db.commit()
+    db.refresh(opcion)
+    return opcion
+
+
+# ──────────────────────────────────────────────
+# DEPÓSITOS (desde tb_storage del ERP)
+# ──────────────────────────────────────────────
+
+
+@router.get("/depositos", response_model=list[DepositoResponse])
+async def listar_depositos(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[DepositoResponse]:
+    """Lista depósitos activos desde tb_storage. Para el dropdown de destino."""
+    depositos = db.query(TbStorage).filter(TbStorage.stor_disabled.is_(False)).order_by(TbStorage.stor_desc).all()
+    return depositos
+
+
+# ──────────────────────────────────────────────
+# CASOS RMA
+# ──────────────────────────────────────────────
+
+
+@router.get("", response_model=CasoListResponse)
+async def listar_casos(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    search: Optional[str] = Query(None, description="Buscar por nro caso, cliente, ML ID, serial"),
+    estado: Optional[str] = Query(None, description="Filtrar por estado del caso"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> CasoListResponse:
+    """Lista casos RMA con paginación y búsqueda."""
+    _check_permiso(db, current_user, "rma.ver")
+
+    query = _build_caso_query(db)
+
+    if estado:
+        query = query.filter(RmaCaso.estado == estado)
+
+    if search:
+        search_term = f"%{search}%"
+        item_caso_ids = (
+            db.query(RmaCasoItem.caso_id)
+            .filter((RmaCasoItem.serial_number.ilike(search_term)) | (RmaCasoItem.producto_desc.ilike(search_term)))
+            .distinct()
+            .subquery()
+        )
+        query = query.filter(
+            (RmaCaso.numero_caso.ilike(search_term))
+            | (RmaCaso.cliente_nombre.ilike(search_term))
+            | (RmaCaso.ml_id.ilike(search_term))
+            | (RmaCaso.id.in_(item_caso_ids))
+        )
+
+    total = query.count()
+    total_pages = (total + page_size - 1) // page_size
+
+    casos = query.order_by(RmaCaso.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+    return CasoListResponse(
+        items=[_serialize_caso(c, include_items=True) for c in casos],
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
+
+
+@router.get("/{caso_id}", response_model=CasoResponse)
+async def obtener_caso(
+    caso_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> CasoResponse:
+    """Obtiene un caso RMA con todos sus items."""
+    _check_permiso(db, current_user, "rma.ver")
+
+    caso = _build_caso_query(db).filter(RmaCaso.id == caso_id).first()
+    if not caso:
+        raise HTTPException(status_code=404, detail="Caso no encontrado")
+    return _serialize_caso(caso)
+
+
+@router.post("", response_model=CasoResponse, status_code=status.HTTP_201_CREATED)
+async def crear_caso(
+    data: CasoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> CasoResponse:
+    """Crea un nuevo caso RMA con sus items iniciales."""
+    _check_permiso(db, current_user, "rma.gestionar")
+
+    numero_caso = _generar_numero_caso(db)
+
+    caso = RmaCaso(
+        numero_caso=numero_caso,
+        cust_id=data.cust_id,
+        cliente_nombre=data.cliente_nombre,
+        cliente_dni=data.cliente_dni,
+        cliente_numero=data.cliente_numero,
+        ml_id=data.ml_id,
+        origen=data.origen,
+        estado="abierto",
+        creado_por_id=current_user.id,
+        fecha_caso=datetime.now(UTC).date(),
+    )
+    db.add(caso)
+    db.flush()
+
+    for item_data in data.items:
+        item = RmaCasoItem(
+            caso_id=caso.id,
+            serial_number=item_data.serial_number,
+            item_id=item_data.item_id,
+            is_id=item_data.is_id,
+            it_transaction=item_data.it_transaction,
+            ean=item_data.ean,
+            producto_desc=item_data.producto_desc,
+            precio=item_data.precio,
+            estado_facturacion=item_data.estado_facturacion,
+            link_ml=item_data.link_ml,
+        )
+        db.add(item)
+
+    _registrar_cambio(db, caso.id, "caso_creado", None, numero_caso, current_user.id)
+
+    db.commit()
+
+    return await obtener_caso(caso.id, db, current_user)
+
+
+@router.put("/{caso_id}", response_model=CasoResponse)
+async def actualizar_caso(
+    caso_id: int,
+    data: CasoUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> CasoResponse:
+    """Actualiza campos a nivel caso (reclamo ML, observaciones, flags)."""
+    _check_permiso(db, current_user, "rma.gestionar")
+
+    caso = db.query(RmaCaso).filter(RmaCaso.id == caso_id).first()
+    if not caso:
+        raise HTTPException(status_code=404, detail="Caso no encontrado")
+
+    update_data = data.model_dump(exclude_unset=True)
+
+    for key, value in update_data.items():
+        old_value = getattr(caso, key)
+        if key == "fecha_caso" and isinstance(value, str):
+            from datetime import date
+
+            try:
+                value = date.fromisoformat(value)
+            except ValueError:
+                pass
+        setattr(caso, key, value)
+        _registrar_cambio(db, caso_id, key, old_value, value, current_user.id)
+
+    db.commit()
+    return await obtener_caso(caso_id, db, current_user)
+
+
+# ──────────────────────────────────────────────
+# ITEMS DEL CASO
+# ──────────────────────────────────────────────
+
+
+@router.post("/{caso_id}/items", response_model=ItemResponse, status_code=status.HTTP_201_CREATED)
+async def agregar_item(
+    caso_id: int,
+    data: ItemCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ItemResponse:
+    """Agrega un artículo a un caso existente."""
+    _check_permiso(db, current_user, "rma.gestionar")
+
+    caso = db.query(RmaCaso).filter(RmaCaso.id == caso_id).first()
+    if not caso:
+        raise HTTPException(status_code=404, detail="Caso no encontrado")
+
+    item = RmaCasoItem(
+        caso_id=caso_id,
+        serial_number=data.serial_number,
+        item_id=data.item_id,
+        is_id=data.is_id,
+        it_transaction=data.it_transaction,
+        ean=data.ean,
+        producto_desc=data.producto_desc,
+        precio=data.precio,
+        estado_facturacion=data.estado_facturacion,
+        link_ml=data.link_ml,
+    )
+    db.add(item)
+    db.flush()
+
+    _registrar_cambio(
+        db,
+        caso_id,
+        "item_agregado",
+        None,
+        data.producto_desc or data.serial_number,
+        current_user.id,
+        caso_item_id=item.id,
+    )
+    db.commit()
+
+    item = _build_item_query(db).filter(RmaCasoItem.id == item.id).first()
+    return _serialize_item(item)
+
+
+@router.put("/{caso_id}/items/{item_id}", response_model=ItemResponse)
+async def actualizar_item(
+    caso_id: int,
+    item_id: int,
+    data: ItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ItemResponse:
+    """Actualiza un artículo del caso (recepción, revisión, proceso, proveedor)."""
+    _check_permiso(db, current_user, "rma.gestionar")
+
+    item = db.query(RmaCasoItem).filter(RmaCasoItem.id == item_id, RmaCasoItem.caso_id == caso_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item no encontrado en este caso")
+
+    update_data = data.model_dump(exclude_unset=True)
+    now = datetime.now(UTC)
+
+    for key, value in update_data.items():
+        old_value = getattr(item, key)
+
+        if key in ("fecha_envio_proveedor", "fecha_respuesta_proveedor") and isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value)
+            except ValueError:
+                pass
+
+        setattr(item, key, value)
+        _registrar_cambio(db, caso_id, key, old_value, value, current_user.id, caso_item_id=item_id)
+
+    # Auto-set usuario y fecha de etapa si corresponde
+    if "estado_recepcion_id" in update_data and not item.recepcion_usuario_id:
+        item.recepcion_usuario_id = current_user.id
+        item.recepcion_fecha = now
+    if "estado_revision_id" in update_data and not item.revision_usuario_id:
+        item.revision_usuario_id = current_user.id
+        item.revision_fecha = now
+
+    db.commit()
+
+    item = _build_item_query(db).filter(RmaCasoItem.id == item_id).first()
+    return _serialize_item(item)
+
+
+@router.delete("/{caso_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def eliminar_item(
+    caso_id: int,
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> None:
+    """Elimina un artículo de un caso."""
+    _check_permiso(db, current_user, "rma.gestionar")
+
+    item = db.query(RmaCasoItem).filter(RmaCasoItem.id == item_id, RmaCasoItem.caso_id == caso_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item no encontrado en este caso")
+
+    _registrar_cambio(
+        db,
+        caso_id,
+        "item_eliminado",
+        item.producto_desc or item.serial_number,
+        None,
+        current_user.id,
+        caso_item_id=item_id,
+    )
+    db.delete(item)
+    db.commit()
+
+
+# ──────────────────────────────────────────────
+# HISTORIAL (Auditoría)
+# ──────────────────────────────────────────────
+
+
+@router.get("/{caso_id}/historial", response_model=list[HistorialResponse])
+async def obtener_historial(
+    caso_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[HistorialResponse]:
+    """Obtiene el historial completo de cambios de un caso."""
+    _check_permiso(db, current_user, "rma.ver")
+
+    registros = (
+        db.query(RmaCasoHistorial)
+        .options(selectinload(RmaCasoHistorial.usuario))
+        .filter(RmaCasoHistorial.caso_id == caso_id)
+        .order_by(RmaCasoHistorial.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "caso_id": r.caso_id,
+            "caso_item_id": r.caso_item_id,
+            "campo": r.campo,
+            "valor_anterior": r.valor_anterior,
+            "valor_nuevo": r.valor_nuevo,
+            "usuario_id": r.usuario_id,
+            "usuario_nombre": r.usuario.nombre if r.usuario else None,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in registros
+    ]
+
+
+# ──────────────────────────────────────────────
+# ESTADÍSTICAS (para el dashboard del encargado)
+# ──────────────────────────────────────────────
+
+
+@router.get("/stats/resumen")
+async def obtener_resumen(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """Resumen rápido: casos abiertos, cerrados, por estado."""
+    _check_permiso(db, current_user, "rma.ver")
+
+    total = db.query(func.count(RmaCaso.id)).scalar()
+    abiertos = db.query(func.count(RmaCaso.id)).filter(RmaCaso.estado == "abierto").scalar()
+    cerrados = db.query(func.count(RmaCaso.id)).filter(RmaCaso.estado == "cerrado").scalar()
+
+    top_causas = (
+        db.query(
+            RmaSeguimientoOpcion.valor,
+            func.count(RmaCasoItem.id).label("cantidad"),
+        )
+        .join(RmaCasoItem, RmaCasoItem.causa_devolucion_id == RmaSeguimientoOpcion.id)
+        .group_by(RmaSeguimientoOpcion.valor)
+        .order_by(func.count(RmaCasoItem.id).desc())
+        .limit(10)
+        .all()
+    )
+
+    return {
+        "total": total,
+        "abiertos": abiertos,
+        "cerrados": cerrados,
+        "top_causas_devolucion": [{"causa": r[0], "cantidad": r[1]} for r in top_causas],
+    }
