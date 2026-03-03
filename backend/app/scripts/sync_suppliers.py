@@ -25,6 +25,7 @@ load_dotenv(dotenv_path=env_path)
 import argparse
 import asyncio
 import httpx
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 
@@ -124,6 +125,17 @@ def sync_full(db: Session, supp_id: int | None = None) -> None:
 
     print("\n✅ Sincronización finalizada")
     print(f"   Total actualizado: {len(normalized_data)} registros")
+
+
+def sync_suppliers() -> tuple[int, int]:
+    """Entry point para sync_master_tables_small (sin args, maneja su propia session)."""
+    db = SessionLocal()
+    try:
+        sync_full(db)
+        count = db.execute(text("SELECT count(*) FROM tb_supplier")).scalar() or 0
+        return (count, 0)
+    finally:
+        db.close()
 
 
 def main() -> None:
