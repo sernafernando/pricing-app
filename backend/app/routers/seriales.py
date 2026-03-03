@@ -223,6 +223,7 @@ QUERY_TRAZA = text("""
             s.is_available,
             -- Tipo de documento y número
             ct.ct_kindof,
+            ct.ct_pointofsale,
             ct.ct_docnumber,
             ct.ct_date,
             ct.cust_id,
@@ -653,19 +654,24 @@ def determinar_tipo(row: dict) -> str:
 
 
 def construir_nro_documento(row: dict) -> Optional[str]:
-    """Construye el número de documento legible (ej: Fc A 00004-0000128762)"""
+    """Construye el número de documento legible (ej: Fc A 0004-462445)"""
     df_desc = row.get("df_desc") or ""
     kind = row.get("ct_kindof") or ""
+    pv = row.get("ct_pointofsale")
     doc_number = row.get("ct_docnumber") or ""
 
+    pv_str = str(pv).zfill(4) if pv is not None else ""
+
     if df_desc:
-        # df_desc ya incluye el tipo (ej: "01.Fc A 0005")
+        # df_desc ya incluye tipo y a veces PV (ej: "01.Fc A 0005")
+        if pv_str and doc_number:
+            return f"{df_desc}-{doc_number}".strip()
         return f"{df_desc} {doc_number}".strip() or None
     if kind and doc_number:
-        # Fallback: tipo + número (ej: "A 00129887")
-        return f"{kind} {doc_number}".strip()
+        prefix = f"{kind} {pv_str}-" if pv_str else f"{kind} "
+        return f"{prefix}{doc_number}".strip()
     if doc_number:
-        return doc_number
+        return f"{pv_str}-{doc_number}" if pv_str else doc_number
     return None
 
 

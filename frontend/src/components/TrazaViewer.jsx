@@ -46,23 +46,37 @@ function formatPrecio(valor) {
   return `$${Number(valor).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
 }
 
-// ── Sección: Artículo identificado ──────────────────────────────
-function ArticuloSection({ articulo }) {
-  if (!articulo) return null;
+// Derives current serial status from last movement
+function getEstadoSerial(movimientos) {
+  if (!movimientos || movimientos.length === 0) return null;
+  const last = movimientos[movimientos.length - 1];
+  return last.estado || null;
+}
+
+// ── Sección: Artículo identificado + estado del serial ──────────
+function ArticuloSection({ articulo, estado }) {
+  if (!articulo && !estado) return null;
   return (
     <div className={styles.section}>
       <div className={styles.sectionHeader}>
         <Package size={14} />
         <span>Artículo identificado</span>
+        {estado && (
+          <span className={`${styles.estadoBadge} ${estado === 'Disponible' ? styles.estadoOk : styles.estadoNo}`}>
+            {estado}
+          </span>
+        )}
       </div>
-      <div className={styles.articuloCard}>
-        <strong>{articulo.descripcion}</strong>
-        <div className={styles.articuloMeta}>
-          <span className={styles.codeBadge}>{articulo.codigo}</span>
-          {articulo.marca && <span className={styles.metaItem}>{articulo.marca}</span>}
-          {articulo.categoria && <span className={styles.metaItem}>{articulo.categoria}</span>}
+      {articulo && (
+        <div className={styles.articuloCard}>
+          <strong>{articulo.descripcion}</strong>
+          <div className={styles.articuloMeta}>
+            <span className={styles.codeBadge}>{articulo.codigo}</span>
+            {articulo.marca && <span className={styles.metaItem}>{articulo.marca}</span>}
+            {articulo.categoria && <span className={styles.metaItem}>{articulo.categoria}</span>}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -117,7 +131,6 @@ function MovimientosSection({ movimientos }) {
               <th>Referencia</th>
               <th>Depósito</th>
               <th>Días</th>
-              <th>Estado</th>
             </tr>
           </thead>
           <tbody>
@@ -153,17 +166,12 @@ function MovimientosSection({ movimientos }) {
                     <td>{mov.referencia_nombre || '—'}</td>
                     <td>{mov.deposito || '—'}</td>
                     <td className={styles.diasCell}>{mov.dias_a_la_fecha ?? '—'}</td>
-                    <td>
-                      <span className={`${styles.estadoBadge} ${mov.estado === 'Disponible' ? styles.estadoOk : styles.estadoNo}`}>
-                        {mov.estado || '—'}
-                      </span>
-                    </td>
                   </tr>
 
                   {/* Expanded row — invoice line items */}
                   {isExpanded && (
                     <tr className={styles.expandedRow}>
-                      <td colSpan={8}>
+                      <td colSpan={7}>
                         {items === 'loading' && (
                           <div className={styles.expandedLoading}>Cargando detalle de factura...</div>
                         )}
@@ -346,7 +354,7 @@ export default function TrazaViewer({ data, variant = 'serial', compact = false 
       {/* Single serial variant */}
       {variant === 'serial' && (
         <>
-          <ArticuloSection articulo={articulo} />
+          <ArticuloSection articulo={articulo} estado={getEstadoSerial(movimientos)} />
           <MovimientosSection movimientos={movimientos} />
           <PedidosSection pedidos={pedidos} />
           <RmasSection rmaList={rma} title="RMAs del ERP (por serial)" />
@@ -368,7 +376,7 @@ export default function TrazaViewer({ data, variant = 'serial', compact = false 
               <div className={styles.serialSubheader}>
                 Serial: <strong>{s.serial}</strong>
               </div>
-              <ArticuloSection articulo={s.articulo} />
+              <ArticuloSection articulo={s.articulo} estado={getEstadoSerial(s.movimientos)} />
               <MovimientosSection movimientos={s.movimientos} />
               <RmasSection rmaList={s.rma} title="RMAs (por serial)" />
             </div>
@@ -402,7 +410,7 @@ export default function TrazaViewer({ data, variant = 'serial', compact = false 
               <div className={styles.serialSubheader}>
                 Serial: <strong>{s.serial}</strong>
               </div>
-              <ArticuloSection articulo={s.articulo} />
+              <ArticuloSection articulo={s.articulo} estado={getEstadoSerial(s.movimientos)} />
               <MovimientosSection movimientos={s.movimientos} />
               <RmasSection rmaList={s.rma} title="RMAs (por serial)" />
             </div>
