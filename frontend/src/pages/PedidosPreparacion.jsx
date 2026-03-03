@@ -7,7 +7,6 @@ import TabCodigosPostales from '../components/TabCodigosPostales';
 import TabEnviosFlex from '../components/TabEnviosFlex';
 import TabCheckeoColecta from '../components/TabCheckeoColecta';
 import TabPistoleado from '../components/TabPistoleado';
-import TabCheckeoColecta from '../components/TabCheckeoColecta';
 import OperadorPinLock from '../components/OperadorPinLock';
 import useOperador from '../hooks/useOperador';
 import { usePermisos } from '../contexts/PermisosContext';
