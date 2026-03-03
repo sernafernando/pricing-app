@@ -101,17 +101,212 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Toolbar ───────────────────────────────────────────────── */
+/* ── Controls (copied from TabEnviosFlex pattern) ──────────── */
 
-.toolbar {
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.filtros {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
-  padding: 12px 16px;
+}
+
+/* ── Date quick filters (Hoy, Ayer, 3d, 7d + calendario) ──── */
+
+.dateQuickFilters {
+  display: flex;
+  gap: 0;
+  background: var(--bg-secondary);
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid var(--border-secondary);
+  position: relative;
+}
+
+.btnDateQuick {
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--text-tertiary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.btnDateCalendar {
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btnDateQuick:hover {
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary);
+}
+
+.btnDateQuickActive {
+  background: var(--brand-primary-alpha, rgba(59, 130, 246, 0.15));
+  color: var(--brand-primary);
+}
+
+.btnDateQuickActive:hover {
+  background: var(--brand-primary-alpha, rgba(59, 130, 246, 0.2));
+  color: var(--brand-primary);
+}
+
+.dateDropdownOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+}
+
+.dateDropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
   background: var(--bg-primary);
-  border-radius: 12px;
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dateDropdownField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dateDropdownField label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dateDropdownInput {
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dateDropdownInput:hover {
+  border-color: var(--text-tertiary);
+}
+
+.dateDropdownInput:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
+/* ── Search ────────────────────────────────────────────────── */
+
+.searchInput {
+  flex: 1;
+  min-width: 200px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.searchInput::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* ── Selects ───────────────────────────────────────────────── */
+
+.select {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+  min-width: 150px;
+  cursor: pointer;
+}
+
+.selectSm {
+  composes: select;
+  min-width: auto;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+/* ── Actions row ───────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* ── Vista toggle (tabla/calendario) ───────────────────────── */
+
+.vistaToggle {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-right: auto;
+}
+
+.vistaBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 13px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.vistaBtn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.vistaBtnActive {
+  color: var(--brand-primary);
+  background: var(--bg-tertiary);
+  border-color: var(--border-primary);
+  font-weight: var(--font-medium);
+}
+
+.vistaBtnActive:hover {
+  color: var(--brand-primary);
 }
 
 /* ── Tesla buttons (composes) ──────────────────────────────── */
@@ -130,109 +325,6 @@
 
 .fileInputHidden {
   display: none;
-}
-
-/* ── Date inputs ───────────────────────────────────────────── */
-
-.dateGroup {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.dateInput {
-  padding: 7px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.dateSeparator {
-  font-size: 13px;
-  color: var(--text-tertiary);
-}
-
-/* ── Selects ───────────────────────────────────────────────── */
-
-.filterSelect {
-  padding: 7px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 13px;
-  min-width: 130px;
-}
-
-/* ── Search ────────────────────────────────────────────────── */
-
-.searchBox {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-secondary);
-  flex: 1;
-  min-width: 180px;
-}
-
-.searchIcon {
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-
-.searchInput {
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 13px;
-  padding: 7px 0;
-  width: 100%;
-  outline: none;
-}
-
-.searchInput::placeholder {
-  color: var(--text-tertiary);
-}
-
-/* ── Vista toggle ──────────────────────────────────────────── */
-
-.vistaToggle {
-  display: flex;
-  border-radius: 8px;
-  border: 1px solid var(--border-secondary);
-  overflow: hidden;
-}
-
-.vistaBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border: none;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.vistaBtn:hover {
-  background: var(--bg-tertiary);
-}
-
-.vistaBtnActive {
-  background: var(--brand-primary);
-  color: #fff;
-}
-
-.vistaBtnActive:hover {
-  background: var(--brand-primary);
-  color: #fff;
 }
 
 /* ── Upload result ─────────────────────────────────────────── */
@@ -335,6 +427,91 @@
 
 .rowSelected {
   background-color: var(--bg-hover) !important;
+}
+
+.rowClickable {
+  cursor: pointer;
+}
+
+/* ── Expanded row (product details) ────────────────────────── */
+
+.expandedRow td {
+  padding: 0;
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--border-primary);
+}
+
+.expandedContent {
+  padding: 12px 14px 12px 54px;
+  animation: expandIn 0.15s ease;
+}
+
+@keyframes expandIn {
+  from { opacity: 0; max-height: 0; }
+  to { opacity: 1; max-height: 300px; }
+}
+
+.itemsList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.itemRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.itemCode {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.itemDesc {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.itemQty {
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.itemPrice {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.expandedLoading {
+  padding: 12px 14px 12px 54px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.expandedEmpty {
+  padding: 12px 14px 12px 54px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.expandIcon {
+  color: var(--text-tertiary);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.expandIconOpen {
+  transform: rotate(90deg);
 }
 
 /* ── Shipping cell ─────────────────────────────────────────── */
@@ -498,6 +675,42 @@
   color: white;
 }
 
+/* ── Confirm bar (replaces window.confirm) ─────────────────── */
+
+.confirmBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: #dc262610;
+  border: 1px solid #dc262640;
+  animation: feedbackIn 0.2s ease;
+}
+
+.confirmMsg {
+  flex: 1;
+  font-size: 14px;
+  color: #dc2626;
+  font-weight: 500;
+}
+
+.btnConfirmDelete {
+  composes: btn-tesla outline-subtle-danger sm from '../styles/buttons-tesla.css';
+}
+
+.btnConfirmCancel {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+}
+
+/* ── Calendar badges for colecta ───────────────────────────── */
+
+.calBadgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
 /* ── Footer ────────────────────────────────────────────────── */
 
 .footer {
@@ -517,4 +730,21 @@
 
 .spin {
   animation: spin 1s linear infinite;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .filtros {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .selectSm {
+    width: 100%;
+  }
+
+  .actions {
+    justify-content: stretch;
+  }
 }

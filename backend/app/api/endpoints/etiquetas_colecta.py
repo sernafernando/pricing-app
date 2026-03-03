@@ -30,6 +30,8 @@ from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.etiqueta_colecta import EtiquetaColecta
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
+from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
+from app.models.tb_item import TBItem
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_status import SaleOrderStatus
 from app.services.permisos_service import verificar_permiso
@@ -86,12 +88,8 @@ class EstadisticaDiaColectaItem(BaseModel):
 
     fecha: date
     total: int = 0
-    flex: int = 0
-    manuales: int = 0
-    por_cordon: dict[str, int] = {}
-    sin_cordon: int = 0
-    con_logistica: int = 0
-    sin_logistica: int = 0
+    por_estado_erp: dict[str, int] = {}
+    por_estado_ml: dict[str, int] = {}
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -118,6 +116,18 @@ class ScanIndividualResponse(BaseModel):
     shipping_id: str
     nueva: bool
     mensaje: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ItemEnvioColectaResponse(BaseModel):
+    """Item/producto de un envío de colecta."""
+
+    item_id: Optional[int] = None
+    item_code: Optional[str] = None
+    descripcion: str
+    cantidad: float
+    precio_unitario: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -545,31 +555,60 @@ def estadisticas_por_dia_colecta(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> EstadisticasPorDiaColectaResponse:
-    """Recuento de etiquetas de colecta por día."""
+    """Recuento de etiquetas de colecta por día, con desglose por estado ERP y ML."""
     _check_permiso(db, current_user, "envios_flex.ver")
 
-    rows = (
+    shipping_sub = _shipping_dedup_subquery(db)
+    soh_sub = _soh_status_subquery(db)
+
+    # Query base con JOINs para obtener estados
+    base = (
         db.query(
             EtiquetaColecta.fecha_carga,
-            func.count().label("total"),
+            EtiquetaColecta.shipping_id,
+            shipping_sub.c.mlstatus,
+            SaleOrderStatus.ssos_name,
+        )
+        .outerjoin(
+            shipping_sub,
+            EtiquetaColecta.shipping_id == shipping_sub.c.mlshippingid,
+        )
+        .outerjoin(
+            soh_sub,
+            EtiquetaColecta.shipping_id == soh_sub.c.shipping_id_str,
+        )
+        .outerjoin(
+            SaleOrderStatus,
+            soh_sub.c.soh_ssos_id == SaleOrderStatus.ssos_id,
         )
         .filter(
             EtiquetaColecta.fecha_carga >= fecha_desde,
             EtiquetaColecta.fecha_carga <= fecha_hasta,
         )
-        .group_by(EtiquetaColecta.fecha_carga)
-        .order_by(EtiquetaColecta.fecha_carga)
         .all()
     )
 
+    # Agrupar por fecha
+    from collections import defaultdict
+
+    por_fecha: dict[date, dict] = defaultdict(lambda: {"total": 0, "erp": defaultdict(int), "ml": defaultdict(int)})
+
+    for row in base:
+        d = por_fecha[row.fecha_carga]
+        d["total"] += 1
+        if row.ssos_name:
+            d["erp"][row.ssos_name] += 1
+        if row.mlstatus:
+            d["ml"][row.mlstatus] += 1
+
     dias = [
         EstadisticaDiaColectaItem(
-            fecha=row.fecha_carga,
-            total=row.total,
-            flex=row.total,
-            manuales=0,
+            fecha=fecha,
+            total=info["total"],
+            por_estado_erp=dict(info["erp"]),
+            por_estado_ml=dict(info["ml"]),
         )
-        for row in rows
+        for fecha, info in sorted(por_fecha.items())
     ]
 
     return EstadisticasPorDiaColectaResponse(dias=dias)
@@ -653,3 +692,74 @@ def borrar_etiquetas_colecta(
     db.commit()
 
     return {"ok": True, "eliminadas": deleted}
+
+
+@router.get(
+    "/etiquetas-colecta/{shipping_id}/items",
+    response_model=List[ItemEnvioColectaResponse],
+    summary="Items/productos de un envío de colecta",
+)
+def items_envio_colecta(
+    shipping_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[ItemEnvioColectaResponse]:
+    """
+    Devuelve los productos que componen un envío de colecta.
+
+    Cadena: shipping_id → MercadoLibreOrderShipping.mlshippingid → mlo_id
+    → MercadoLibreOrderDetail → mlo_title + item_id → TBItem.item_desc/item_code
+    """
+    _check_permiso(db, current_user, "envios_flex.ver")
+
+    # Verificar que la etiqueta existe
+    etiqueta = db.query(EtiquetaColecta).filter(EtiquetaColecta.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    # Obtener mlo_ids vinculados a este shipping_id (puede haber varios)
+    shipping_rows = (
+        db.query(MercadoLibreOrderShipping.mlo_id)
+        .filter(MercadoLibreOrderShipping.mlshippingid == shipping_id)
+        .distinct()
+        .all()
+    )
+
+    mlo_ids = [r.mlo_id for r in shipping_rows if r.mlo_id]
+    if not mlo_ids:
+        return []
+
+    # Obtener items de MercadoLibreOrderDetail con JOIN a TBItem para código/desc
+    items_query = (
+        db.query(
+            MercadoLibreOrderDetail.item_id,
+            MercadoLibreOrderDetail.mlo_title,
+            MercadoLibreOrderDetail.mlo_quantity,
+            MercadoLibreOrderDetail.mlo_unit_price,
+            TBItem.item_code,
+            TBItem.item_desc,
+        )
+        .outerjoin(
+            TBItem,
+            MercadoLibreOrderDetail.item_id == TBItem.item_id,
+        )
+        .filter(MercadoLibreOrderDetail.mlo_id.in_(mlo_ids))
+        .all()
+    )
+
+    # Agrupar por item_id para evitar duplicados (mismos items en distintas orders)
+    seen: dict[str, dict] = {}
+    for row in items_query:
+        key = f"{row.item_id or 'none'}_{row.mlo_title or ''}"
+        if key in seen:
+            seen[key]["cantidad"] += float(row.mlo_quantity or 0)
+        else:
+            seen[key] = {
+                "item_id": row.item_id,
+                "item_code": row.item_code,
+                "descripcion": row.mlo_title or row.item_desc or "Sin descripción",
+                "cantidad": float(row.mlo_quantity or 0),
+                "precio_unitario": float(row.mlo_unit_price) if row.mlo_unit_price else None,
+            }
+
+    return [ItemEnvioColectaResponse(**item) for item in seen.values()]
