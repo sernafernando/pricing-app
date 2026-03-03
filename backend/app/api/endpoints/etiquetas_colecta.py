@@ -374,15 +374,88 @@ def listar_etiquetas_colecta(
     Lista etiquetas de colecta con JOINs a:
     - tb_mercadolibre_orders_shipping (estado ML, destinatario)
     - tb_sale_order_header + tb_sale_order_status (estado ERP)
+
+    Optimización: primero filtra los shipping_ids por fecha en etiquetas_colecta,
+    luego hace subqueries de dedup acotadas solo a esos IDs (evita escanear
+    tablas completas de orders_shipping y sale_order_header).
     """
     _check_permiso(db, current_user, "envios_flex.ver")
 
-    soh_sub = _soh_status_subquery(db)
-    shipping_sub = _shipping_dedup_subquery(db)
+    # 1) Pre-filtrar shipping_ids de colecta por fecha (query muy rápida sobre tabla pequeña)
+    ids_query = db.query(EtiquetaColecta.shipping_id)
+    if fecha_desde:
+        ids_query = ids_query.filter(EtiquetaColecta.fecha_carga >= fecha_desde)
+    if fecha_hasta:
+        ids_query = ids_query.filter(EtiquetaColecta.fecha_carga <= fecha_hasta)
+    target_ids_sub = ids_query.subquery()
+
+    # 2) Subquery dedup de shipping ACOTADA a los IDs que necesitamos
+    ranked_ship = (
+        db.query(
+            MercadoLibreOrderShipping.mlshippingid.label("mlshippingid"),
+            MercadoLibreOrderShipping.mlo_id,
+            MercadoLibreOrderShipping.mlreceiver_name,
+            MercadoLibreOrderShipping.mlstatus,
+            func.row_number()
+            .over(
+                partition_by=MercadoLibreOrderShipping.mlshippingid,
+                order_by=desc(MercadoLibreOrderShipping.mlm_id),
+            )
+            .label("rn"),
+        )
+        .filter(
+            MercadoLibreOrderShipping.mlshippingid.isnot(None),
+            MercadoLibreOrderShipping.mlshippingid.in_(db.query(target_ids_sub.c.shipping_id)),
+        )
+        .subquery()
+    )
+    shipping_sub = (
+        db.query(
+            ranked_ship.c.mlshippingid,
+            ranked_ship.c.mlo_id,
+            ranked_ship.c.mlreceiver_name,
+            ranked_ship.c.mlstatus,
+        )
+        .filter(ranked_ship.c.rn == 1)
+        .subquery()
+    )
+
+    # 3) Subquery dedup de estado ERP ACOTADA a los IDs que necesitamos
+    ranked_soh = (
+        db.query(
+            MercadoLibreOrderShipping.mlshippingid.label("shipping_id_str"),
+            SaleOrderHeader.ssos_id.label("soh_ssos_id"),
+            func.row_number()
+            .over(
+                partition_by=MercadoLibreOrderShipping.mlshippingid,
+                order_by=desc(SaleOrderHeader.soh_cd),
+            )
+            .label("rn"),
+        )
+        .join(
+            SaleOrderHeader,
+            MercadoLibreOrderShipping.mlo_id == SaleOrderHeader.mlo_id,
+        )
+        .filter(
+            MercadoLibreOrderShipping.mlshippingid.isnot(None),
+            MercadoLibreOrderShipping.mlo_id.isnot(None),
+            SaleOrderHeader.mlo_id.isnot(None),
+            MercadoLibreOrderShipping.mlshippingid.in_(db.query(target_ids_sub.c.shipping_id)),
+        )
+        .subquery()
+    )
+    soh_sub = (
+        db.query(
+            ranked_soh.c.shipping_id_str,
+            ranked_soh.c.soh_ssos_id,
+        )
+        .filter(ranked_soh.c.rn == 1)
+        .subquery()
+    )
 
     from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 
-    # Subquery para ml_order_id
+    # 4) Subquery para ml_order_id (solo los mlo_ids relevantes)
     mlo_sub = (
         db.query(
             MercadoLibreOrderHeader.mlo_id,
@@ -392,6 +465,7 @@ def listar_etiquetas_colecta(
         .subquery()
     )
 
+    # 5) Query principal con JOINs a subqueries acotadas
     query = (
         db.query(
             EtiquetaColecta.shipping_id,
@@ -421,7 +495,7 @@ def listar_etiquetas_colecta(
         )
     )
 
-    # Filtros
+    # 6) Filtros sobre query principal
     if fecha_desde:
         query = query.filter(EtiquetaColecta.fecha_carga >= fecha_desde)
     if fecha_hasta:

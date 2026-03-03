@@ -155,13 +155,18 @@ export default function TabCheckeoColecta() {
       if (filtroSsosId) params.ssos_id = filtroSsosId;
       if (search) params.search = search;
 
-      const [etiqRes, statsRes] = await Promise.all([
-        api.get('/etiquetas-colecta', { params }),
-        api.get('/etiquetas-colecta/estadisticas', { params }),
-      ]);
+      const { data } = await api.get('/etiquetas-colecta', { params });
 
-      setEtiquetas(etiqRes.data);
-      setEstadisticas(statsRes.data);
+      setEtiquetas(data);
+
+      // Compute stats in frontend from listing data (avoids second heavy query)
+      const porEstadoErp = {};
+      const porEstadoMl = {};
+      for (const e of data) {
+        if (e.ssos_name) porEstadoErp[e.ssos_name] = (porEstadoErp[e.ssos_name] || 0) + 1;
+        if (e.mlstatus) porEstadoMl[e.mlstatus] = (porEstadoMl[e.mlstatus] || 0) + 1;
+      }
+      setEstadisticas({ total: data.length, por_estado_erp: porEstadoErp, por_estado_ml: porEstadoMl });
     } catch {
       setError('Error cargando etiquetas de colecta');
     } finally {
