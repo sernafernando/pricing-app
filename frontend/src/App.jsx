@@ -28,6 +28,7 @@ import TurboRouting from './pages/TurboRouting';
 import CuentasCorrientes from './pages/CuentasCorrientes';
 import ConfigOperaciones from './pages/ConfigOperaciones';
 import Rma from './pages/Rma';
+import Traza from './pages/Traza';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
@@ -53,7 +54,7 @@ function App() {
     if (token) {
       checkAuth();
     }
-  }, []);
+  }, [token, checkAuth]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -192,6 +193,11 @@ function App() {
             <Route path="/rma" element={
               <ProtectedRoute permiso="rma.ver">
                 <Rma />
+              </ProtectedRoute>
+            } />
+            <Route path="/traza" element={
+              <ProtectedRoute permiso="traza.ver">
+                <Traza />
               </ProtectedRoute>
             } />
           </Route>

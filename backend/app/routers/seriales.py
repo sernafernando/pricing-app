@@ -37,6 +37,7 @@ class MovimientoSerial(BaseModel):
     """Un movimiento del serial (compra, venta, transferencia, etc.)"""
 
     is_id: int
+    ct_transaction: Optional[int] = None  # ID de transacción comercial (para expandir detalle)
     fecha_documento: Optional[str] = None  # Fecha del documento comercial
     fecha_seriado: Optional[str] = None  # Fecha y hora de serialización
     tipo: Optional[str] = None  # PROVEEDOR, CLIENTE, TRANSFERENCIA
@@ -177,6 +178,31 @@ class TrazaFacturaResponse(BaseModel):
     seriales: list[TrazaMLSerialItem] = []
     rma_por_serial: list[RMASerial] = []  # RMAs encontrados vía serial
     rma_por_factura: list[RMASerial] = []  # RMAs encontrados vía línea de factura
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FacturaDetalleItem(BaseModel):
+    """Una línea de una factura (item transaction)"""
+
+    it_transaction: int
+    item_id: Optional[int] = None
+    item_code: Optional[str] = None
+    item_desc: Optional[str] = None
+    cantidad: Optional[float] = None
+    precio_unitario: Optional[float] = None
+    precio_sin_otros: Optional[float] = None
+    descuento_total: Optional[float] = None
+    cancelled: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FacturaDetalleResponse(BaseModel):
+    """Respuesta del detalle de líneas de una factura"""
+
+    ct_transaction: int
+    items: list[FacturaDetalleItem] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -587,6 +613,27 @@ QUERY_PEDIDOS = text("""
     ORDER BY soh.soh_cd ASC NULLS LAST
 """)
 
+QUERY_FACTURA_DETALLE = text("""
+    SELECT
+        it.it_transaction,
+        it.item_id,
+        ti.item_code,
+        COALESCE(pe.descripcion, ti.item_desc) AS item_desc,
+        it.it_qty AS cantidad,
+        it.it_price AS precio_unitario,
+        it.it_pricewithoothers AS precio_sin_otros,
+        it.it_itemdiscounttotal AS descuento_total,
+        COALESCE(it.it_cancelled, false) AS cancelled
+    FROM tb_item_transactions it
+    LEFT JOIN tb_item ti
+        ON it.comp_id = ti.comp_id
+        AND it.item_id = ti.item_id
+    LEFT JOIN productos_erp pe
+        ON it.item_id = pe.item_id
+    WHERE it.ct_transaction = :ct_transaction
+    ORDER BY it.it_order ASC NULLS LAST, it.it_transaction ASC
+""")
+
 
 # =============================================================================
 # HELPERS
@@ -682,6 +729,7 @@ def _build_movimientos(db: Session, serial: str) -> tuple[list[MovimientoSerial]
         movimientos.append(
             MovimientoSerial(
                 is_id=row["is_id"],
+                ct_transaction=row.get("ct_transaction"),
                 fecha_documento=str(ct_date) if ct_date else None,
                 fecha_seriado=str(is_cd) if is_cd else None,
                 tipo=tipo,
@@ -984,6 +1032,45 @@ def _build_rma_by_ct_transaction(
 # =============================================================================
 # ENDPOINTS
 # =============================================================================
+
+
+@router.get(
+    "/traza/factura-detalle/{ct_transaction}",
+    response_model=FacturaDetalleResponse,
+)
+def traza_factura_detalle(
+    ct_transaction: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> FacturaDetalleResponse:
+    """
+    Devuelve las líneas de producto (item transactions) de una transacción comercial.
+    Usado para expandir el detalle de un movimiento en la traza de seriales.
+    """
+    result = db.execute(QUERY_FACTURA_DETALLE, {"ct_transaction": ct_transaction})
+    rows = [dict(row._mapping) for row in result]
+
+    items = []
+    for row in rows:
+        qty = row.get("cantidad")
+        precio = row.get("precio_unitario")
+        precio_sin = row.get("precio_sin_otros")
+        descuento = row.get("descuento_total")
+        items.append(
+            FacturaDetalleItem(
+                it_transaction=row["it_transaction"],
+                item_id=row.get("item_id"),
+                item_code=row.get("item_code"),
+                item_desc=row.get("item_desc"),
+                cantidad=float(qty) if qty is not None else None,
+                precio_unitario=float(precio) if precio is not None else None,
+                precio_sin_otros=float(precio_sin) if precio_sin is not None else None,
+                descuento_total=float(descuento) if descuento is not None else None,
+                cancelled=bool(row.get("cancelled", False)),
+            )
+        )
+
+    return FacturaDetalleResponse(ct_transaction=ct_transaction, items=items)
 
 
 @router.get("/traza/factura", response_model=TrazaFacturaResponse)

@@ -643,6 +643,20 @@ PERMISOS_SISTEMA = [
         "orden": 109,
         "es_critico": True,
     },
+    {
+        "codigo": "envios_flex.asignar_turbo",
+        "nombre": "Marcar envíos como turbo",
+        "descripcion": "Marcar/desmarcar etiquetas como turbo (individual y masivo)",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 110,
+    },
+    {
+        "codigo": "envios_flex.asignar_lluvia",
+        "nombre": "Marcar envíos como lluvia",
+        "descripcion": "Marcar/desmarcar etiquetas como lluvia (individual y masivo)",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 111,
+    },
 ]
 
 

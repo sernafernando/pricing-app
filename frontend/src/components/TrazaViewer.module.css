@@ -1,0 +1,443 @@
+/* ── TrazaViewer — reusable trace component ──────────────────── */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.compact {
+  gap: 12px;
+}
+
+.emptyState {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: 32px 16px;
+  font-size: 14px;
+}
+
+/* ── Serial / Factura headers ────────────────────────────────── */
+
+.serialHeader {
+  font-size: 14px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.serialBlock {
+  border-left: 3px solid var(--cf-accent-blue);
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.serialSubheader {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.facturaHeader {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.facturaMain {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.facturaMeta {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ── Sections ────────────────────────────────────────────────── */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Artículo card ───────────────────────────────────────────── */
+
+.articuloCard {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.articuloCard strong {
+  font-size: 14px;
+  display: block;
+}
+
+.articuloMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+/* ── Shared badges ───────────────────────────────────────────── */
+
+.codeBadge {
+  font-family: monospace;
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.mlLink {
+  font-size: 12px;
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+}
+
+.mlLink:hover {
+  text-decoration: underline;
+}
+
+/* ── Movimientos table ───────────────────────────────────────── */
+
+.tableWrapper {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table thead {
+  background: var(--bg-tertiary);
+}
+
+.table th {
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.thExpand {
+  width: 32px;
+  padding: 8px 6px 8px 12px;
+}
+
+.table td {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.row {
+  transition: background 0.1s ease;
+}
+
+.rowClickable {
+  cursor: pointer;
+}
+
+.rowClickable:hover {
+  background: var(--bg-hover);
+}
+
+.rowExpanded {
+  background: var(--bg-secondary);
+}
+
+.tdExpand {
+  width: 32px;
+  padding: 8px 6px 8px 12px;
+}
+
+.monoCell {
+  font-family: monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.diasCell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Tipo badge ──────────────────────────────────────────────── */
+
+.tipoBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.tipoPROVEEDOR {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--cf-accent-blue);
+}
+
+.tipoCLIENTE {
+  background: rgba(0, 200, 81, 0.1);
+  color: var(--success);
+}
+
+.tipoTRANSFERENCIA {
+  background: rgba(255, 170, 0, 0.1);
+  color: var(--warning);
+}
+
+/* ── Estado badge ────────────────────────────────────────────── */
+
+.estadoBadge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.estadoOk {
+  background: rgba(0, 200, 81, 0.1);
+  color: var(--success);
+}
+
+.estadoNo {
+  background: rgba(255, 53, 71, 0.1);
+  color: var(--error);
+}
+
+/* ── Expanded row (invoice detail) ───────────────────────────── */
+
+.expandedRow td {
+  padding: 0;
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--border-color);
+}
+
+.expandedContent {
+  padding: 12px 14px 12px 54px;
+  animation: expandIn 0.15s ease;
+}
+
+@keyframes expandIn {
+  from { opacity: 0; max-height: 0; }
+  to { opacity: 1; max-height: 400px; }
+}
+
+.itemsList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.itemRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.itemCode {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.itemDesc {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.itemQty {
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.itemPrice {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.expandedLoading {
+  padding: 12px 14px 12px 54px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.expandedEmpty {
+  padding: 12px 14px 12px 54px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.expandIcon {
+  color: var(--text-tertiary);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.expandIconOpen {
+  transform: rotate(90deg);
+}
+
+/* ── Pedidos cards ───────────────────────────────────────────── */
+
+.pedidosList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pedidoCard {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.pedidoMain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pedidoMeta {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+/* ── RMA cards ───────────────────────────────────────────────── */
+
+.rmaList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rmaCard {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--warning);
+}
+
+.rmaHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rmaBody {
+  margin-top: 6px;
+}
+
+.rmaProduct {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.rmaMeta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.rmaHistorial {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.histStep {
+  font-size: 11px;
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: var(--text-tertiary);
+}
+
+.matchBadge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+}
+
+.matchis_id {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--cf-accent-blue);
+}
+
+.matchrmad_serial {
+  background: rgba(0, 200, 81, 0.1);
+  color: var(--success);
+}
+
+/* eslint-disable-next-line */
+.matchrmad_Manual {
+  background: rgba(255, 170, 0, 0.1);
+  color: var(--warning);
+}

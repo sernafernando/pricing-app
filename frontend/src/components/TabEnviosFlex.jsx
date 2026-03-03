@@ -81,6 +81,8 @@ export default function TabEnviosFlex({ operador = null }) {
   const puedeExportar = tienePermiso('envios_flex.exportar');
   const puedeGestionarLogisticas = tienePermiso('envios_flex.gestionar_logisticas');
   const puedeVerCostos = tienePermiso('envios_flex.config');
+  const puedeAsignarTurbo = tienePermiso('envios_flex.asignar_turbo');
+  const puedeAsignarLluvia = tienePermiso('envios_flex.asignar_lluvia');
 
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
@@ -2366,7 +2368,7 @@ export default function TabEnviosFlex({ operador = null }) {
             </div>
           )}
 
-          {puedeVerCostos && (() => {
+          {puedeAsignarTurbo && (() => {
             const todasTurbo = etiquetas
               .filter(e => selectedIds.has(e.shipping_id))
               .every(e => e.es_turbo);
@@ -2384,7 +2386,7 @@ export default function TabEnviosFlex({ operador = null }) {
             );
           })()}
 
-          {puedeVerCostos && (() => {
+          {puedeAsignarLluvia && (() => {
             const todasLluvia = etiquetas
               .filter(e => selectedIds.has(e.shipping_id))
               .every(e => e.es_lluvia);

@@ -3,17 +3,21 @@
  *
  * Tabs: Info | Recepción | Revisión | Reclamo ML | Proveedor | Proceso | Historial
  *
- * - Caso nuevo: solo tab Info con búsqueda de traza
+ * - Caso nuevo: solo tab Info con 3 formas de agregar items:
+ *   1. Búsqueda de traza (por serie o ML ID) → autocompleta datos de la venta
+ *   2. Búsqueda de producto (por EAN/código/descripción) → busca en catálogo del ERP
+ *   3. Item manual → carga libre sin datos previos
  * - Caso existente: todas las tabs, edición inline por item via PUT
  * - Campos caso-level se guardan con el botón Guardar
  * - Campos item-level se guardan inline (onChange → PUT)
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
+import { useDebounce } from '../hooks/useDebounce';
 import api from '../services/api';
 import ModalTesla, { ModalSection, ModalFooterButtons, ModalLoading } from './ModalTesla';
-import { Search, Plus, Trash2, ExternalLink, Clock, User } from 'lucide-react';
+import { Search, Plus, Trash2, ExternalLink, Clock, User, Package, PenLine } from 'lucide-react';
 
 const labelStyle = { fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' };
 const checkLabel = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' };
@@ -38,6 +42,17 @@ export default function ModalRma({ caso, onClose }) {
   const [trazaResult, setTrazaResult] = useState(null);
   const [buscandoTraza, setBuscandoTraza] = useState(false);
 
+  // Búsqueda de producto por EAN/código/descripción
+  const [searchProducto, setSearchProducto] = useState('');
+  const [productoResults, setProductoResults] = useState([]);
+  const [buscandoProducto, setBuscandoProducto] = useState(false);
+  const debouncedSearchProducto = useDebounce(searchProducto, 400);
+  const productoInputRef = useRef(null);
+
+  // Item manual
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [manualItem, setManualItem] = useState({ producto_desc: '', precio: '', ean: '', serial_number: '' });
+
   useEffect(() => {
     cargarOpciones();
     if (caso?.id) {
@@ -45,6 +60,29 @@ export default function ModalRma({ caso, onClose }) {
       cargarHistorial();
     }
   }, []);
+
+  // Búsqueda de productos con debounce
+  useEffect(() => {
+    if (!esNuevo) return;
+    if (!debouncedSearchProducto || debouncedSearchProducto.length < 2) {
+      setProductoResults([]);
+      return;
+    }
+    const buscarProductos = async () => {
+      setBuscandoProducto(true);
+      try {
+        const { data } = await api.get('/productos', {
+          params: { search: debouncedSearchProducto, page_size: 10, page: 1 },
+        });
+        setProductoResults(data.productos || []);
+      } catch {
+        setProductoResults([]);
+      } finally {
+        setBuscandoProducto(false);
+      }
+    };
+    buscarProductos();
+  }, [debouncedSearchProducto, esNuevo]);
 
   const cargarOpciones = async () => {
     try {
@@ -118,6 +156,42 @@ export default function ModalRma({ caso, onClose }) {
       ml_id: prev.ml_id || pedido?.ml_id || null,
       cliente_nombre: prev.cliente_nombre || pedido?.cliente || null,
     }));
+  };
+
+  const agregarItemDesdeProducto = (producto) => {
+    const nuevoItem = {
+      serial_number: null,
+      item_id: producto.item_id || null,
+      ean: producto.codigo || null,
+      producto_desc: producto.descripcion || 'Sin descripción',
+      precio: producto.precio_lista_ml || producto.costo || null,
+      link_ml: null,
+    };
+
+    setCasoData((prev) => ({
+      ...prev,
+      items: [...(prev.items || []), nuevoItem],
+    }));
+    setSearchProducto('');
+    setProductoResults([]);
+  };
+
+  const agregarItemManual = () => {
+    if (!manualItem.producto_desc.trim()) return;
+    const nuevoItem = {
+      serial_number: manualItem.serial_number || null,
+      item_id: null,
+      ean: manualItem.ean || null,
+      producto_desc: manualItem.producto_desc.trim(),
+      precio: manualItem.precio ? Number(manualItem.precio) : null,
+      link_ml: null,
+    };
+    setCasoData((prev) => ({
+      ...prev,
+      items: [...(prev.items || []), nuevoItem],
+    }));
+    setManualItem({ producto_desc: '', precio: '', ean: '', serial_number: '' });
+    setShowManualForm(false);
   };
 
   const handleGuardar = async () => {
@@ -287,6 +361,135 @@ export default function ModalRma({ caso, onClose }) {
                   )}
                   {trazaResult?.error && (
                     <p style={{ color: 'var(--color-danger)', fontSize: '0.85rem' }}>{trazaResult.error}</p>
+                  )}
+                </ModalSection>
+              )}
+
+              {/* Buscar por EAN / código / descripción (solo nuevo) */}
+              {esNuevo && (
+                <ModalSection title="Buscar producto por EAN / código / descripción">
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <div style={{ flex: 1, position: 'relative' }}>
+                        <input
+                          ref={productoInputRef}
+                          type="text"
+                          placeholder="Escribí un EAN, código o parte de la descripción..."
+                          value={searchProducto}
+                          onChange={(e) => setSearchProducto(e.target.value)}
+                          className="input-tesla"
+                          style={{ width: '100%', paddingLeft: '36px' }}
+                        />
+                        <Search size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
+                      </div>
+                      <button
+                        className="btn-tesla ghost sm"
+                        onClick={() => setShowManualForm(!showManualForm)}
+                        title="Agregar artículo manual"
+                        aria-label="Agregar artículo manual"
+                      >
+                        <PenLine size={14} /> Manual
+                      </button>
+                    </div>
+
+                    {buscandoProducto && (
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '8px' }}>Buscando...</p>
+                    )}
+
+                    {productoResults.length > 0 && (
+                      <div style={{ marginTop: '8px', maxHeight: '240px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {productoResults.map((p) => (
+                          <div
+                            key={p.item_id}
+                            style={{
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: '6px',
+                              cursor: 'pointer', transition: 'background 0.15s',
+                            }}
+                            onClick={() => agregarItemDesdeProducto(p)}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-secondary)'; }}
+                          >
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '0.85rem', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {p.descripcion}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', gap: '12px', marginTop: '2px' }}>
+                                <span>{p.codigo}</span>
+                                {p.marca && <span>{p.marca}</span>}
+                                {p.stock > 0 && <span style={{ color: 'var(--color-success)' }}>Stock: {p.stock}</span>}
+                                {p.stock === 0 && <span style={{ color: 'var(--text-secondary)' }}>Sin stock</span>}
+                              </div>
+                            </div>
+                            {p.precio_lista_ml && (
+                              <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-primary)', marginLeft: '12px', flexShrink: 0 }}>
+                                ${Number(p.precio_lista_ml).toLocaleString('es-AR')}
+                              </span>
+                            )}
+                            <Plus size={16} style={{ marginLeft: '8px', color: 'var(--color-success)', flexShrink: 0 }} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {!buscandoProducto && searchProducto.length >= 2 && productoResults.length === 0 && debouncedSearchProducto === searchProducto && (
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                        No se encontraron productos. Podés agregarlo manualmente.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Formulario de item manual */}
+                  {showManualForm && (
+                    <div style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' }}>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                        Agregar artículo que no está en el sistema:
+                      </p>
+                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '8px' }}>
+                        <input
+                          className="input-tesla"
+                          placeholder="Descripción del producto *"
+                          value={manualItem.producto_desc}
+                          onChange={(e) => setManualItem({ ...manualItem, producto_desc: e.target.value })}
+                          onKeyDown={(e) => e.key === 'Enter' && agregarItemManual()}
+                        />
+                        <input
+                          className="input-tesla"
+                          type="number"
+                          step="0.01"
+                          placeholder="Precio"
+                          value={manualItem.precio}
+                          onChange={(e) => setManualItem({ ...manualItem, precio: e.target.value })}
+                          onKeyDown={(e) => e.key === 'Enter' && agregarItemManual()}
+                        />
+                        <input
+                          className="input-tesla"
+                          placeholder="EAN / Código"
+                          value={manualItem.ean}
+                          onChange={(e) => setManualItem({ ...manualItem, ean: e.target.value })}
+                          onKeyDown={(e) => e.key === 'Enter' && agregarItemManual()}
+                        />
+                        <input
+                          className="input-tesla"
+                          placeholder="Nro. Serie (opcional)"
+                          value={manualItem.serial_number}
+                          onChange={(e) => setManualItem({ ...manualItem, serial_number: e.target.value })}
+                          onKeyDown={(e) => e.key === 'Enter' && agregarItemManual()}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
+                        <button className="btn-tesla ghost sm" onClick={() => setShowManualForm(false)}>
+                          Cancelar
+                        </button>
+                        <button
+                          className="btn-tesla outline-subtle-success sm"
+                          onClick={agregarItemManual}
+                          disabled={!manualItem.producto_desc.trim()}
+                        >
+                          <Plus size={14} /> Agregar
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </ModalSection>
               )}
