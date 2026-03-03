@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, RefreshCw, Calendar, Table, ExternalLink,
   ScanBarcode, Trash2, X, CheckCircle, AlertCircle, ChevronRight,
@@ -71,6 +71,7 @@ export default function TabCheckeoColecta() {
 
   // Scanner individual
   const scannerRef = useRef(null);
+  const scanTimeoutRef = useRef(null);
   const [scanFeedback, setScanFeedback] = useState(null);
 
   // Filtros — date quick filters (copied from TabEnviosFlex)
@@ -172,6 +173,13 @@ export default function TabCheckeoColecta() {
     cargarDatos();
   }, [cargarDatos]);
 
+  // Cleanup scan timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
+    };
+  }, []);
+
   // ── Upload ZPL ───────────────────────────────────────────────
 
   const handleUpload = async (event) => {
@@ -241,7 +249,9 @@ export default function TabCheckeoColecta() {
       scannerRef.current.focus();
     }
 
-    setTimeout(() => setScanFeedback(null), 3000);
+    // Auto-clear feedback with cleanup
+    if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
+    scanTimeoutRef.current = setTimeout(() => setScanFeedback(null), 3000);
   };
 
   const handleScanKeyDown = (e) => {
@@ -345,9 +355,13 @@ export default function TabCheckeoColecta() {
   // ── Derived data ─────────────────────────────────────────────
 
   const erpStatesMap = new Map();
+  const erpColorMap = new Map(); // name → ssos_color
   for (const e of etiquetas) {
     if (e.ssos_id && e.ssos_name && !erpStatesMap.has(e.ssos_id)) {
       erpStatesMap.set(e.ssos_id, e.ssos_name);
+    }
+    if (e.ssos_name && e.ssos_color && !erpColorMap.has(e.ssos_name)) {
+      erpColorMap.set(e.ssos_name, e.ssos_color);
     }
   }
 
@@ -364,12 +378,21 @@ export default function TabCheckeoColecta() {
             <div className={styles.statValue}>{estadisticas.total}</div>
             <div className={styles.statLabel}>Total</div>
           </div>
-          {Object.entries(estadisticas.por_estado_erp || {}).map(([name, count]) => (
-            <div key={name} className={styles.statCard}>
-              <div className={styles.statValue}>{count}</div>
-              <div className={styles.statLabel}>{name}</div>
-            </div>
-          ))}
+          {Object.entries(estadisticas.por_estado_erp || {}).map(([name, count]) => {
+            const color = erpColorMap.get(name);
+            return (
+              <div
+                key={name}
+                className={styles.statCard}
+                style={color ? { borderLeft: `4px solid ${color}` } : undefined}
+              >
+                <div className={styles.statValue} style={color ? { color } : undefined}>
+                  {count}
+                </div>
+                <div className={styles.statLabel}>{name}</div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -649,9 +672,8 @@ export default function TabCheckeoColecta() {
                     const items = rowItems[e.shipping_id];
 
                     return (
-                      <>
+                      <Fragment key={e.shipping_id}>
                         <tr
-                          key={e.shipping_id}
                           className={`${selectedIds.has(e.shipping_id) ? styles.rowSelected : ''} ${styles.rowClickable}`}
                           onClick={() => toggleExpanded(e.shipping_id)}
                         >
@@ -714,7 +736,7 @@ export default function TabCheckeoColecta() {
 
                         {/* Expanded row — product details */}
                         {isExpanded && (
-                          <tr key={`${e.shipping_id}-expanded`} className={styles.expandedRow}>
+                          <tr className={styles.expandedRow}>
                             <td colSpan={6}>
                               {items === 'loading' && (
                                 <div className={styles.expandedLoading}>Cargando productos...</div>
@@ -748,7 +770,7 @@ export default function TabCheckeoColecta() {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })}
                 </tbody>
