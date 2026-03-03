@@ -34,313 +34,285 @@
   margin-top: 2px;
 }
 
-.statSecondary {
-  color: var(--text-tertiary);
-}
+/* ── Toolbar ───────────────────────────────────────────────── */
 
-/* ── Upload Section ────────────────────────────────────────── */
-
-.uploadSection {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  padding: 16px 20px;
-  background: var(--bg-primary);
-  border-radius: 12px;
-  box-shadow: var(--shadow-sm);
-}
-
-.uploadResult {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  animation: fadeIn 0.2s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.uploadSuccess {
-  composes: uploadResult;
-  background: #065f4620;
-  color: #059669;
-  border: 1px solid #059669;
-}
-
-.uploadError {
-  composes: uploadResult;
-  background: #dc262620;
-  color: #dc2626;
-  border: 1px solid #dc2626;
-}
-
-/* ── Controls ──────────────────────────────────────────────── */
-
-.controls {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 20px;
-  background: var(--bg-primary);
-  border-radius: 12px;
-  box-shadow: var(--shadow-sm);
-}
-
-.filtros {
+.toolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
 }
 
-/* ── Date quick filters ────────────────────────────────────── */
+/* ── Upload button ─────────────────────────────────────────── */
 
-.dateQuickFilters {
-  display: flex;
-  gap: 0;
-  background: var(--bg-secondary);
-  padding: 3px;
-  border-radius: 6px;
-  border: 1px solid var(--border-secondary);
-  position: relative;
-}
-
-.btnDateQuick {
-  padding: 6px 12px;
-  background: transparent;
-  color: var(--text-tertiary);
-  border: none;
-  border-radius: 4px;
+.btnUpload {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  transition: all 0.15s;
-  white-space: nowrap;
+  background: var(--brand-primary);
+  color: #fff;
+  border: none;
+  transition: opacity 0.15s;
 }
 
-.btnDateCalendar {
-  padding: 6px 10px;
+.btnUpload:hover {
+  opacity: 0.85;
+}
+
+.btnDisabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ── Date inputs ───────────────────────────────────────────── */
+
+.dateGroup {
   display: flex;
   align-items: center;
-  justify-content: center;
-}
-
-.btnDateQuick:hover {
-  background: var(--bg-tertiary, rgba(255, 255, 255, 0.1));
-  color: var(--text-primary);
-}
-
-.btnDateQuickActive {
-  background: var(--brand-primary-alpha, rgba(59, 130, 246, 0.15));
-  color: var(--brand-primary);
-}
-
-.btnDateQuickActive:hover {
-  background: var(--brand-primary-alpha, rgba(59, 130, 246, 0.2));
-  color: var(--brand-primary);
-}
-
-.dateDropdownOverlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 999;
-}
-
-.dateDropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-secondary);
-  border-radius: 8px;
-  padding: 16px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
-  min-width: 260px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.dateDropdownField {
-  display: flex;
-  flex-direction: column;
   gap: 6px;
 }
 
-.dateDropdownField label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.dateDropdownInput {
-  padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-secondary);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.dateDropdownInput:hover {
-  border-color: var(--text-tertiary);
-}
-
-.dateDropdownInput:focus {
-  outline: none;
-  border-color: var(--brand-primary);
-}
-
-.searchInput {
-  flex: 1;
-  min-width: 200px;
-  padding: 10px 14px;
+.dateInput {
+  padding: 7px 10px;
   border-radius: 8px;
   border: 1px solid var(--border-secondary);
   background: var(--bg-secondary);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
+}
+
+.dateSeparator {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* ── Selects ───────────────────────────────────────────────── */
+
+.filterSelect {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  min-width: 130px;
+}
+
+/* ── Search ────────────────────────────────────────────────── */
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  flex: 1;
+  min-width: 180px;
+}
+
+.searchIcon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.searchInput {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 7px 0;
+  width: 100%;
+  outline: none;
 }
 
 .searchInput::placeholder {
   color: var(--text-tertiary);
 }
 
-.selectSm {
-  padding: 8px 10px;
+/* ── Icon button ───────────────────────────────────────────── */
+
+.btnIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
   border-radius: 8px;
   border: 1px solid var(--border-secondary);
   background: var(--bg-secondary);
   color: var(--text-primary);
-  font-size: 13px;
-  min-width: auto;
   cursor: pointer;
+  transition: background 0.15s;
 }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-  justify-content: flex-end;
+.btnIcon:hover {
+  background: var(--bg-tertiary);
+}
+
+.btnIcon:disabled {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 /* ── Vista toggle ──────────────────────────────────────────── */
 
 .vistaToggle {
   display: flex;
-  gap: var(--spacing-xs);
-  margin-right: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border-secondary);
+  overflow: hidden;
 }
 
 .vistaBtn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  border: 1px solid var(--border-secondary);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-tertiary);
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  transition: all 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 
 .vistaBtn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--bg-tertiary);
 }
 
 .vistaBtnActive {
-  composes: vistaBtn;
-  background: var(--brand-primary-alpha, rgba(59, 130, 246, 0.15));
-  color: var(--brand-primary);
-  border-color: var(--brand-primary);
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+.vistaBtnActive:hover {
+  background: var(--brand-primary);
+  color: #fff;
+}
+
+/* ── Upload result ─────────────────────────────────────────── */
+
+.uploadSuccess {
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  background: var(--success-bg, #05966910);
+  color: var(--success-text, #059669);
+  border: 1px solid var(--success-text, #059669);
+}
+
+.uploadError {
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  background: var(--error-bg, #dc262610);
+  color: var(--error-text, #dc2626);
+  border: 1px solid var(--error-text, #dc2626);
+}
+
+.errorList {
+  margin: 6px 0 0 18px;
+  padding: 0;
+  font-size: 12px;
+}
+
+/* ── Messages ──────────────────────────────────────────────── */
+
+.errorMsg {
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--error-bg, #dc262610);
+  color: var(--error-text, #dc2626);
+  font-size: 14px;
+}
+
+.loadingMsg {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.emptyMsg {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-tertiary);
+  font-size: 14px;
 }
 
 /* ── Table ─────────────────────────────────────────────────── */
 
-.tableContainer {
+.tableWrapper {
   overflow-x: auto;
   border-radius: 12px;
-  background: var(--bg-primary);
   box-shadow: var(--shadow-sm);
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 500px;
-}
-
-.table thead {
-  background: var(--bg-secondary);
-  border-bottom: 2px solid var(--border-primary);
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  background: var(--bg-primary);
+  font-size: 13px;
 }
 
 .table th {
-  padding: 12px 14px;
-  text-align: left;
-  font-weight: 600;
-  font-size: 11px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
   color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
-}
-
-.table tbody tr {
-  border-bottom: 1px solid var(--border-primary);
-  transition: background-color 0.15s;
-}
-
-.table tbody tr:hover {
-  background-color: var(--bg-hover);
+  letter-spacing: 0.04em;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 2px solid var(--border-primary);
 }
 
 .table td {
   padding: 10px 14px;
-  font-size: 13px;
+  border-bottom: 1px solid var(--border-primary);
   color: var(--text-primary);
   vertical-align: middle;
 }
 
-/* ── Cell styles ───────────────────────────────────────────── */
-
-.shippingId {
-  font-family: monospace;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--brand-primary);
+.table tbody tr:hover {
+  background: var(--bg-secondary);
 }
 
-.shippingIdLink {
+/* ── Shipping cell ─────────────────────────────────────────── */
+
+.shippingCell {
   font-family: monospace;
   font-size: 13px;
-  font-weight: 600;
+  white-space: nowrap;
+}
+
+.shippingLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--brand-primary);
   text-decoration: none;
 }
 
-.shippingIdLink:hover {
+.shippingLink:hover {
   text-decoration: underline;
+}
+
+.externalIcon {
+  opacity: 0.6;
 }
 
 /* ── Badges ────────────────────────────────────────────────── */
@@ -353,6 +325,10 @@
   font-weight: 600;
   white-space: nowrap;
   line-height: 1.4;
+}
+
+.cellMuted {
+  color: var(--text-tertiary);
 }
 
 /* Estado ML badges */
@@ -386,7 +362,7 @@
   color: var(--text-tertiary);
 }
 
-/* Estado ERP badge */
+/* Estado ERP badge — color from ssos_color */
 .erpBadge {
   display: inline-block;
   padding: 3px 10px;
@@ -397,41 +373,23 @@
   line-height: 1.4;
 }
 
-.cellMuted {
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-
-/* ── Empty state ───────────────────────────────────────────── */
-
-.empty {
-  text-align: center;
-  padding: 48px;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-
 /* ── Footer ────────────────────────────────────────────────── */
 
 .footer {
-  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 0;
   font-size: 13px;
   color: var(--text-secondary);
-  padding: 8px 0;
 }
 
-/* ── Loading ───────────────────────────────────────────────── */
+/* ── Spin animation ────────────────────────────────────────── */
 
-.loading {
-  text-align: center;
-  padding: 48px;
-  color: var(--text-secondary);
-  font-size: 14px;
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
-.error {
-  text-align: center;
-  padding: 24px;
-  color: #dc2626;
-  font-size: 14px;
+.spin {
+  animation: spin 1s linear infinite;
 }

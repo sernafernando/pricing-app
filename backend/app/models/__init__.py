@@ -60,6 +60,11 @@ from app.models.tb_rma_header import TbRMAHeader
 from app.models.tb_rma_add_items import TbRMAAddItems
 from app.models.tb_rma_detail_attrib_history import TbRMADetailAttribHistory
 from app.models.tb_rma_supplier_cn_pending import TbRMASupplierCNPending
+from app.models.rma_seguimiento_opcion import RmaSeguimientoOpcion
+from app.models.rma_caso import RmaCaso
+from app.models.rma_caso_item import RmaCasoItem
+from app.models.rma_caso_historial import RmaCasoHistorial
+from app.models.etiqueta_colecta import EtiquetaColecta
 
 __all__ = [
     "ProductoERP",
@@ -136,4 +141,9 @@ __all__ = [
     "TbRMAAddItems",
     "TbRMADetailAttribHistory",
     "TbRMASupplierCNPending",
+    "RmaSeguimientoOpcion",
+    "RmaCaso",
+    "RmaCasoItem",
+    "RmaCasoHistorial",
+    "EtiquetaColecta",
 ]

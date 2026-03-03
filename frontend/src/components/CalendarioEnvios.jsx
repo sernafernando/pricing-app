@@ -104,7 +104,7 @@ const formatearRangoLabel = (desde, hasta, modo) => {
 };
 
 
-export default function CalendarioEnvios({ onDiaClick }) {
+export default function CalendarioEnvios({ onDiaClick, endpointUrl = '/etiquetas-envio/estadisticas-por-dia' }) {
   const [modo, setModo] = useState('semana'); // 'semana' | 'quincena' | 'mes'
   const [refDate, setRefDate] = useState(new Date());
   const [datos, setDatos] = useState({}); // { 'YYYY-MM-DD': { total, flex, manuales, ... } }
@@ -120,7 +120,7 @@ export default function CalendarioEnvios({ onDiaClick }) {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.get('/etiquetas-envio/estadisticas-por-dia', {
+      const { data } = await api.get(endpointUrl, {
         params: {
           fecha_desde: desdeStr,
           fecha_hasta: hastaStr,
@@ -137,7 +137,7 @@ export default function CalendarioEnvios({ onDiaClick }) {
     } finally {
       setLoading(false);
     }
-  }, [desdeStr, hastaStr]);
+  }, [desdeStr, hastaStr, endpointUrl]);
 
   useEffect(() => {
     cargarDatos();
