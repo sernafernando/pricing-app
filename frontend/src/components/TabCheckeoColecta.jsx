@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, RefreshCw, Search, Calendar, Table, ExternalLink,
+  ScanBarcode, Trash2, X, CheckCircle, AlertCircle,
 } from 'lucide-react';
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
@@ -31,6 +32,7 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 export default function TabCheckeoColecta() {
   const { tienePermiso } = usePermisos();
   const puedeSubir = tienePermiso('envios_flex.subir_etiquetas');
+  const puedeEliminar = tienePermiso('envios_flex.eliminar');
 
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
@@ -43,6 +45,10 @@ export default function TabCheckeoColecta() {
   const [uploadResult, setUploadResult] = useState(null);
   const fileInputRef = useRef(null);
 
+  // Scanner individual
+  const scannerRef = useRef(null);
+  const [scanFeedback, setScanFeedback] = useState(null); // { type: 'ok'|'dup'|'error', msg }
+
   // Filtros
   const [fechaDesde, setFechaDesde] = useState(todayStr());
   const [fechaHasta, setFechaHasta] = useState(todayStr());
@@ -52,6 +58,10 @@ export default function TabCheckeoColecta() {
 
   // Vista: tabla o calendario
   const [vista, setVista] = useState('tabla');
+
+  // Selección múltiple
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [lastSelected, setLastSelected] = useState(null);
 
   // ── Data fetching ────────────────────────────────────────────
 
@@ -85,7 +95,7 @@ export default function TabCheckeoColecta() {
     cargarDatos();
   }, [cargarDatos]);
 
-  // ── Upload ───────────────────────────────────────────────────
+  // ── Upload ZPL ───────────────────────────────────────────────
 
   const handleUpload = async (event) => {
     const file = event.target.files?.[0];
@@ -117,6 +127,115 @@ export default function TabCheckeoColecta() {
     }
   };
 
+  // ── Scan individual (pistola / QR) ───────────────────────────
+
+  const handleScan = async (value) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+
+    // Extraer JSON del QR — puede venir como JSON directo o como texto con JSON embebido
+    let qrJson = trimmed;
+    if (!trimmed.startsWith('{')) {
+      // Intentar extraer un JSON del texto
+      const match = trimmed.match(/\{[^}]+\}/);
+      if (match) {
+        qrJson = match[0];
+      } else {
+        setScanFeedback({ type: 'error', msg: 'No se encontró JSON en el escaneo' });
+        return;
+      }
+    }
+
+    try {
+      const { data } = await api.post('/etiquetas-colecta/scan', { qr_json: qrJson });
+      if (data.nueva) {
+        setScanFeedback({ type: 'ok', msg: data.mensaje });
+        cargarDatos();
+      } else {
+        setScanFeedback({ type: 'dup', msg: data.mensaje });
+      }
+    } catch (err) {
+      setScanFeedback({
+        type: 'error',
+        msg: err.response?.data?.detail || err.message,
+      });
+    }
+
+    // Limpiar input y re-focus para siguiente escaneo
+    if (scannerRef.current) {
+      scannerRef.current.value = '';
+      scannerRef.current.focus();
+    }
+
+    // Auto-ocultar feedback
+    setTimeout(() => setScanFeedback(null), 3000);
+  };
+
+  const handleScanKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleScan(e.target.value);
+    }
+  };
+
+  // ── Selección ────────────────────────────────────────────────
+
+  const toggleSeleccion = (shippingId, shiftKey) => {
+    const nueva = new Set(selectedIds);
+
+    if (shiftKey && lastSelected !== null) {
+      const ids = etiquetas.map((e) => e.shipping_id);
+      const idxActual = ids.indexOf(shippingId);
+      const idxUltimo = ids.indexOf(lastSelected);
+      const inicio = Math.min(idxActual, idxUltimo);
+      const fin = Math.max(idxActual, idxUltimo);
+      for (let i = inicio; i <= fin; i++) {
+        nueva.add(ids[i]);
+      }
+    } else if (nueva.has(shippingId)) {
+      nueva.delete(shippingId);
+    } else {
+      nueva.add(shippingId);
+    }
+
+    setSelectedIds(nueva);
+    setLastSelected(shippingId);
+  };
+
+  const seleccionarTodos = () => {
+    if (selectedIds.size === etiquetas.length && etiquetas.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(etiquetas.map((e) => e.shipping_id)));
+    }
+  };
+
+  const limpiarSeleccion = () => {
+    setSelectedIds(new Set());
+    setLastSelected(null);
+  };
+
+  // ── Borrar seleccionados ─────────────────────────────────────
+
+  const borrarSeleccionados = async () => {
+    if (selectedIds.size === 0) return;
+    const n = selectedIds.size;
+
+    const ok = window.confirm(`¿Borrar ${n} etiqueta${n !== 1 ? 's' : ''} de colecta? Esta acción no se puede deshacer.`);
+    if (!ok) return;
+
+    try {
+      await api.delete('/etiquetas-colecta', {
+        data: { shipping_ids: Array.from(selectedIds) },
+      });
+      setEtiquetas((prev) => prev.filter((e) => !selectedIds.has(e.shipping_id)));
+      limpiarSeleccion();
+      cargarDatos();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error borrando etiquetas');
+    }
+  };
+
   // ── Calendar day click ───────────────────────────────────────
 
   const handleDiaClick = (dateStr) => {
@@ -127,7 +246,6 @@ export default function TabCheckeoColecta() {
 
   // ── Derived data ─────────────────────────────────────────────
 
-  // Collect unique ERP states from data
   const erpStatesMap = new Map();
   for (const e of etiquetas) {
     if (e.ssos_id && e.ssos_name && !erpStatesMap.has(e.ssos_id)) {
@@ -135,7 +253,6 @@ export default function TabCheckeoColecta() {
     }
   }
 
-  // Collect unique ML statuses from data
   const mlStatuses = [...new Set(etiquetas.map((e) => e.mlstatus).filter(Boolean))];
 
   // ── Render ───────────────────────────────────────────────────
@@ -158,22 +275,60 @@ export default function TabCheckeoColecta() {
         </div>
       )}
 
+      {/* Scanner individual */}
+      {puedeSubir && (
+        <div className={styles.scannerSection}>
+          <ScanBarcode size={20} style={{ color: 'var(--text-tertiary)' }} />
+          <input
+            ref={scannerRef}
+            type="text"
+            className={styles.scannerInput}
+            placeholder="Escaneá el QR de la etiqueta..."
+            onKeyDown={handleScanKeyDown}
+            autoComplete="off"
+          />
+          {scanFeedback && (
+            <div className={`${styles.scanFeedback} ${
+              scanFeedback.type === 'ok' ? styles.scanFeedbackOk
+                : scanFeedback.type === 'dup' ? styles.scanFeedbackDup
+                  : styles.scanFeedbackError
+            }`}>
+              {scanFeedback.type === 'ok' ? <CheckCircle size={16} />
+                : scanFeedback.type === 'dup' ? <AlertCircle size={16} />
+                  : <X size={16} />}
+              {scanFeedback.msg}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className={styles.toolbar}>
-        {/* Upload */}
+        {/* Refresh */}
+        <button onClick={cargarDatos} className={styles.btnRefresh} disabled={loading}>
+          <RefreshCw size={16} className={loading ? styles.spin : ''} />
+          Actualizar
+        </button>
+
+        {/* Upload ZPL */}
         {puedeSubir && (
-          <label className={`${styles.btnUpload} ${uploading ? styles.btnDisabled : ''}`}>
-            <Upload size={16} />
-            {uploading ? 'Subiendo...' : 'Subir ZPL'}
+          <>
             <input
               ref={fileInputRef}
               type="file"
               accept=".zip,.txt"
               onChange={handleUpload}
-              disabled={uploading}
-              hidden
+              className={styles.fileInputHidden}
+              id="colecta-zpl-upload"
             />
-          </label>
+            <label
+              htmlFor="colecta-zpl-upload"
+              className={`${styles.btnUpload} ${uploading ? styles.btnDisabled : ''}`}
+            >
+              <Upload size={16} />
+              {uploading ? 'Subiendo...' : 'Subir ZPL'}
+            </label>
+          </>
         )}
 
         {/* Date filters */}
@@ -228,11 +383,6 @@ export default function TabCheckeoColecta() {
             className={styles.searchInput}
           />
         </div>
-
-        {/* Refresh */}
-        <button onClick={cargarDatos} className={styles.btnIcon} disabled={loading} title="Actualizar">
-          <RefreshCw size={16} className={loading ? styles.spin : ''} />
-        </button>
 
         {/* Vista toggle */}
         <div className={styles.vistaToggle}>
@@ -296,6 +446,13 @@ export default function TabCheckeoColecta() {
               <table className={styles.table}>
                 <thead>
                   <tr>
+                    <th style={{ width: 40 }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.size === etiquetas.length && etiquetas.length > 0}
+                        onChange={seleccionarTodos}
+                      />
+                    </th>
                     <th>Shipping ID</th>
                     <th>Destinatario</th>
                     <th>Estado ERP</th>
@@ -304,7 +461,17 @@ export default function TabCheckeoColecta() {
                 </thead>
                 <tbody>
                   {etiquetas.map((e) => (
-                    <tr key={e.shipping_id}>
+                    <tr
+                      key={e.shipping_id}
+                      className={selectedIds.has(e.shipping_id) ? styles.rowSelected : ''}
+                    >
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(e.shipping_id)}
+                          onChange={(ev) => toggleSeleccion(e.shipping_id, ev.nativeEvent.shiftKey)}
+                        />
+                      </td>
                       <td className={styles.shippingCell}>
                         {e.ml_order_id ? (
                           <a
@@ -360,6 +527,37 @@ export default function TabCheckeoColecta() {
             </div>
           )}
         </>
+      )}
+
+      {/* Selection bar (floating) */}
+      {selectedIds.size > 0 && (
+        <div className={styles.selectionBar}>
+          <span className={styles.selectionCount}>
+            {selectedIds.size} etiqueta{selectedIds.size !== 1 ? 's' : ''}
+          </span>
+
+          <div className={styles.selectionActions}>
+            {puedeEliminar && (
+              <button
+                onClick={borrarSeleccionados}
+                className={styles.selectionBtnBorrar}
+                title="Borrar etiquetas seleccionadas"
+                aria-label="Borrar etiquetas seleccionadas"
+              >
+                <Trash2 size={16} />
+                Borrar
+              </button>
+            )}
+
+            <button
+              onClick={limpiarSeleccion}
+              className={styles.selectionBtnCancelar}
+              aria-label="Cancelar selección"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -20,10 +20,10 @@ from io import BytesIO
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
-from sqlalchemy.orm import Session, aliased
-from sqlalchemy import func, and_, desc
+from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -100,6 +100,32 @@ class EstadisticasPorDiaColectaResponse(BaseModel):
     """Respuesta de estadísticas por día."""
 
     dias: List[EstadisticaDiaColectaItem]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScanIndividualRequest(BaseModel):
+    """Payload para carga individual por escaneo de QR."""
+
+    qr_json: str = Field(..., description="JSON crudo del QR de la etiqueta (tal cual lo lee la pistola)")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScanIndividualResponse(BaseModel):
+    """Resultado de carga individual por escaneo."""
+
+    shipping_id: str
+    nueva: bool
+    mensaje: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BorrarColectaRequest(BaseModel):
+    """Payload para borrar etiquetas de colecta."""
+
+    shipping_ids: List[str] = Field(min_length=1)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -547,3 +573,83 @@ def estadisticas_por_dia_colecta(
     ]
 
     return EstadisticasPorDiaColectaResponse(dias=dias)
+
+
+@router.post(
+    "/etiquetas-colecta/scan",
+    response_model=ScanIndividualResponse,
+    summary="Carga individual por escaneo de QR",
+)
+def scan_individual_colecta(
+    payload: ScanIndividualRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ScanIndividualResponse:
+    """
+    Recibe el JSON crudo del QR (escaneado con pistola) y registra
+    la etiqueta de colecta si no existe.
+    """
+    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
+
+    try:
+        parsed = _parse_qr_json(payload.qr_json)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise HTTPException(400, f"QR inválido: {e}")
+
+    hoy = date.today()
+    insertada = _insertar_etiqueta_colecta(
+        db,
+        shipping_id=parsed["shipping_id"],
+        sender_id=parsed["sender_id"],
+        hash_code=parsed["hash_code"],
+        nombre_archivo="scan_individual",
+        fecha_carga=hoy,
+    )
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error("Error en commit de scan individual colecta: %s", e)
+        raise HTTPException(500, "Error guardando etiqueta")
+
+    if insertada:
+        return ScanIndividualResponse(
+            shipping_id=parsed["shipping_id"],
+            nueva=True,
+            mensaje=f"Etiqueta {parsed['shipping_id']} cargada",
+        )
+    return ScanIndividualResponse(
+        shipping_id=parsed["shipping_id"],
+        nueva=False,
+        mensaje=f"Etiqueta {parsed['shipping_id']} ya existía",
+    )
+
+
+@router.delete(
+    "/etiquetas-colecta",
+    response_model=dict,
+    summary="Borrar etiquetas de colecta",
+)
+def borrar_etiquetas_colecta(
+    payload: BorrarColectaRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """Elimina etiquetas de colecta por shipping_id."""
+    _check_permiso(db, current_user, "envios_flex.eliminar")
+
+    etiquetas = db.query(EtiquetaColecta).filter(EtiquetaColecta.shipping_id.in_(payload.shipping_ids)).all()
+
+    if not etiquetas:
+        raise HTTPException(404, "No se encontraron etiquetas para borrar")
+
+    deleted = (
+        db.query(EtiquetaColecta)
+        .filter(EtiquetaColecta.shipping_id.in_(payload.shipping_ids))
+        .delete(synchronize_session="fetch")
+    )
+
+    db.commit()
+
+    return {"ok": True, "eliminadas": deleted}
