@@ -57,7 +57,7 @@ from app.api.endpoints import (
     transportes,
     etiquetas_colecta,
 )
-from app.routers import alertas, seriales, rma_seguimiento
+from app.routers import alertas, seriales, rma_seguimiento, weather
 from app.core.config import settings
 from app.core.exceptions import http_exception_handler
 from app.core.logging import get_logger
@@ -162,6 +162,7 @@ app.include_router(transportes.router, prefix="/api", tags=["transportes"])
 app.include_router(seriales.router, prefix="/api", tags=["seriales"])
 app.include_router(rma_seguimiento.router, prefix="/api", tags=["rma-seguimiento"])
 app.include_router(etiquetas_colecta.router, prefix="/api", tags=["etiquetas-colecta"])
+app.include_router(weather.router, prefix="/api", tags=["weather"])
 
 
 @app.get("/")

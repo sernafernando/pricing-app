@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useTheme } from '../contexts/ThemeContext';
-import { Menu } from 'lucide-react';
+import { Menu, CloudRain, Droplets, Wind } from 'lucide-react';
 
 import ThemeToggleSimple from './ThemeToggleSimple';
 import NotificationBell from './NotificationBell';
+import { useWeather } from '../hooks/useWeather';
 import api from '../services/api';
 import styles from './TopBar.module.css';
 import logoIcon from '../assets/white-g-logo.png';
@@ -17,6 +18,11 @@ export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [facturadoHoy, setFacturadoHoy] = useState(null);
   const [loadingMetric, setLoadingMetric] = useState(false);
+  const { weather } = useWeather();
+
+  // Determinar si el usuario puede ver facturado ML
+  // Los que ven $0 o no tienen acceso a la métrica, ven el clima
+  const showFacturado = facturadoHoy !== null && Number(facturadoHoy) > 0;
 
   useEffect(() => {
     if (user) {
@@ -26,8 +32,7 @@ export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
         .then(res => {
           setFacturadoHoy(res.data.total_ventas_ml);
         })
-        .catch(err => {
-          console.error('Error cargando facturado:', err);
+        .catch(() => {
           setFacturadoHoy(null);
         })
         .finally(() => {
@@ -95,7 +100,7 @@ export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
         </Link>
       </div>
 
-      {/* Center: Área de métricas */}
+      {/* Center: Área de métricas / Clima */}
       <div className={styles.metrics}>
         {loadingMetric && (
           <div className={styles.metricCard}>
@@ -103,13 +108,44 @@ export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
             <span className={styles.metricValue}>...</span>
           </div>
         )}
-        {!loadingMetric && facturadoHoy !== null && (
+        {!loadingMetric && showFacturado && (
           <Link to="/dashboard-metricas-ml" className={styles.metricCard} title="Facturado ML hoy - Click para ver métricas">
             <span className={styles.metricLabel}>Facturado ML Hoy</span>
             <span className={styles.metricValue}>
               ${Number(facturadoHoy).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
             </span>
           </Link>
+        )}
+        {!loadingMetric && !showFacturado && weather && (
+          <div className={styles.weatherWidget} title={`${weather.city} — ${weather.description}`}>
+            <div className={styles.weatherMain}>
+              <img
+                src={weather.icon_url}
+                alt={weather.description}
+                className={styles.weatherIcon}
+              />
+              <span className={styles.weatherTemp}>{weather.temp}°</span>
+            </div>
+            <div className={styles.weatherDetails}>
+              <span className={styles.weatherDesc}>{weather.description}</span>
+              <div className={styles.weatherMeta}>
+                <span className={styles.weatherMetaItem}>
+                  <Droplets size={12} />
+                  {weather.humidity}%
+                </span>
+                <span className={styles.weatherMetaItem}>
+                  <Wind size={12} />
+                  {weather.wind_speed} m/s
+                </span>
+                {weather.is_rainy && (
+                  <span className={`${styles.weatherMetaItem} ${styles.weatherRain}`}>
+                    <CloudRain size={12} />
+                    Lluvia
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
