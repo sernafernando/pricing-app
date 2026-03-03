@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Package, ClipboardList, MapPin, Truck, ScanBarcode } from 'lucide-react';
+import { Package, ClipboardList, MapPin, Truck, ScanBarcode, ClipboardCheck } from 'lucide-react';
 import api from '../services/api';
 import styles from './PedidosPreparacion.module.css';
 import TabPedidosExport from '../components/TabPedidosExport';
 import TabCodigosPostales from '../components/TabCodigosPostales';
 import TabEnviosFlex from '../components/TabEnviosFlex';
+import TabCheckeoColecta from '../components/TabCheckeoColecta';
 import TabPistoleado from '../components/TabPistoleado';
 import OperadorPinLock from '../components/OperadorPinLock';
 import useOperador from '../hooks/useOperador';
@@ -19,6 +20,7 @@ registrarPagina({
     { tabKey: 'export', label: 'Pedidos Pendientes' },
     { tabKey: 'codigos-postales', label: 'Códigos Postales' },
     { tabKey: 'envios-flex', label: 'Envíos Flex' },
+    { tabKey: 'checkeo-colecta', label: 'Checkeo Colecta' },
     { tabKey: 'pistoleado', label: 'Pistoleado' },
   ],
 });
@@ -133,6 +135,7 @@ export default function PedidosPreparacion() {
   const puedeVerPendientes = tienePermiso('pedidos.ver_pendientes');
   const puedeVerCodigosPostales = tienePermiso('envios_flex.ver_codigos_postales');
   const puedeVerEnviosFlex = tienePermiso('envios_flex.ver');
+  const puedeVerCheckeoColecta = tienePermiso('envios_flex.ver');
   const puedeVerPistoleado = tienePermiso('envios_flex.pistoleado');
 
   // Seleccionar primera tab disponible según permisos
@@ -143,11 +146,12 @@ export default function PedidosPreparacion() {
       { key: 'export', tiene: puedeVerPendientes },
       { key: 'codigos-postales', tiene: puedeVerCodigosPostales },
       { key: 'envios-flex', tiene: puedeVerEnviosFlex },
+      { key: 'checkeo-colecta', tiene: puedeVerCheckeoColecta },
       { key: 'pistoleado', tiene: puedeVerPistoleado },
     ];
     const primera = tabs.find((t) => t.tiene);
     if (primera) setTabActiva(primera.key);
-  }, [tabActiva, puedeVerPreparacion, puedeVerPendientes, puedeVerCodigosPostales, puedeVerEnviosFlex, puedeVerPistoleado]);
+  }, [tabActiva, puedeVerPreparacion, puedeVerPendientes, puedeVerCodigosPostales, puedeVerEnviosFlex, puedeVerCheckeoColecta, puedeVerPistoleado]);
 
   // Abrir modal de pre-armado
   const abrirModalPrearmado = (producto) => {
@@ -496,6 +500,14 @@ export default function PedidosPreparacion() {
             <Truck size={16} /> Envíos Flex
           </button>
         )}
+        {puedeVerCheckeoColecta && (
+          <button
+            className={`${styles.tabBtn} ${tabActiva === 'checkeo-colecta' ? styles.tabActiva : ''}`}
+            onClick={() => setTabActiva('checkeo-colecta')}
+          >
+            <ClipboardCheck size={16} /> Checkeo Colecta
+          </button>
+        )}
         {puedeVerPistoleado && (
           <button
             className={`${styles.tabBtn} ${tabActiva === 'pistoleado' ? styles.tabActiva : ''}`}
@@ -742,6 +754,8 @@ export default function PedidosPreparacion() {
         >
           <TabEnviosFlex operador={operador} />
         </OperadorPinLock>
+      ) : tabActiva === 'checkeo-colecta' ? (
+        <TabCheckeoColecta />
       ) : (
         <OperadorPinLock
           tabKey="pistoleado"
