@@ -20,8 +20,8 @@ from io import BytesIO
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
-from sqlalchemy.orm import Session, aliased
-from sqlalchemy import func, and_, desc
+from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
