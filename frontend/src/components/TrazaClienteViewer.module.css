@@ -294,6 +294,38 @@
   white-space: nowrap;
 }
 
+/* -- Pedidos extras ------------------------------------------------------ */
+
+.estadoBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  background: rgba(255, 170, 0, 0.1);
+  color: var(--warning);
+}
+
+.mlLink {
+  font-size: 12px;
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+  font-family: monospace;
+}
+
+.mlLink:hover {
+  text-decoration: underline;
+}
+
+.pedidoObs {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-style: italic;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-color);
+}
+
 /* -- Serials list -------------------------------------------------------- */
 
 .serialesList {

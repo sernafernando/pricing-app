@@ -238,6 +238,140 @@ function TransaccionesTable({ transacciones }) {
   );
 }
 
+// -- Pedidos activos (sale orders) -------------------------------------------
+function PedidosSection({ pedidos }) {
+  const [expandedRows, setExpandedRows] = useState(new Set());
+
+  if (!pedidos || pedidos.length === 0) return null;
+
+  const toggleExpand = (sohId) => {
+    const next = new Set(expandedRows);
+    if (next.has(sohId)) {
+      next.delete(sohId);
+    } else {
+      next.add(sohId);
+    }
+    setExpandedRows(next);
+  };
+
+  return (
+    <div className={styles.tableWrapper}>
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th className={styles.thExpand}></th>
+            <th>Fecha</th>
+            <th>Pedido</th>
+            <th>Estado</th>
+            <th>Total</th>
+            <th>Entrega</th>
+            <th>ML</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pedidos.map((p) => {
+            const isExpanded = expandedRows.has(p.soh_id);
+            const allSeriales = (p.lineas || []).flatMap((l) => l.seriales || []);
+
+            return (
+              <Fragment key={p.soh_id}>
+                <tr
+                  className={`${styles.row} ${styles.rowClickable} ${isExpanded ? styles.rowExpanded : ''}`}
+                  onClick={() => toggleExpand(p.soh_id)}
+                >
+                  <td className={styles.tdExpand}>
+                    <ChevronRight
+                      size={14}
+                      className={`${styles.expandIcon} ${isExpanded ? styles.expandIconOpen : ''}`}
+                    />
+                  </td>
+                  <td>{formatFecha(p.fecha)}</td>
+                  <td className={styles.monoCell}>#{p.soh_id}</td>
+                  <td>
+                    {p.estado && (
+                      <span className={styles.estadoBadge}>{p.estado}</span>
+                    )}
+                  </td>
+                  <td className={styles.totalCell}>
+                    {p.total != null ? formatPrecio(p.total) : '\u2014'}
+                  </td>
+                  <td>{formatFecha(p.fecha_entrega)}</td>
+                  <td>
+                    {p.ml_id && (
+                      <a
+                        href={`https://www.mercadolibre.com.ar/ventas/${p.ml_id}/detalle`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.mlLink}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {p.ml_id}
+                      </a>
+                    )}
+                  </td>
+                </tr>
+
+                {/* Expanded: line items + serials */}
+                {isExpanded && (
+                  <tr className={styles.expandedRow}>
+                    <td colSpan={7}>
+                      {(!p.lineas || p.lineas.length === 0) ? (
+                        <div className={styles.expandedEmpty}>Sin lineas de producto</div>
+                      ) : (
+                        <div className={styles.expandedContent}>
+                          {p.lineas.map((linea) => (
+                            <div key={linea.sod_id} className={styles.lineaRow}>
+                              <div className={styles.lineaMain}>
+                                {linea.item_code && (
+                                  <span className={styles.itemCode}>{linea.item_code}</span>
+                                )}
+                                <span className={styles.itemDesc}>
+                                  {linea.item_desc || '\u2014'}
+                                </span>
+                                <span className={styles.itemQty}>
+                                  x{linea.cantidad ?? 0}
+                                </span>
+                                {linea.precio_unitario != null && (
+                                  <span className={styles.itemPrice}>
+                                    {formatPrecio(linea.precio_unitario)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Seriales del pedido */}
+                          {allSeriales.length > 0 && (
+                            <div className={styles.serialesList}>
+                              {allSeriales.map((s) => (
+                                <span
+                                  key={s.is_serial}
+                                  className={`${styles.serialBadge} ${s.is_available ? styles.serialOk : styles.serialNo}`}
+                                >
+                                  <ScanBarcode size={10} />
+                                  {s.is_serial}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {p.observacion && (
+                            <div className={styles.pedidoObs}>{p.observacion}</div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // -- Paginacion simple -------------------------------------------------------
 function Paginacion({ page, pageSize, total, onPageChange }) {
   if (total <= pageSize) return null;
@@ -301,7 +435,13 @@ export default function TrazaClienteViewer({
 }) {
   if (!data) return null;
 
-  const { cliente, transacciones = [], total_transacciones = 0, busqueda_por } = data;
+  const {
+    cliente,
+    transacciones = [],
+    total_transacciones = 0,
+    pedidos = [],
+    busqueda_por,
+  } = data;
 
   return (
     <div className={`${styles.container} ${compact ? styles.compact : ''}`}>
@@ -318,6 +458,17 @@ export default function TrazaClienteViewer({
       )}
 
       <ClienteHeader cliente={cliente} />
+
+      {/* Pedidos activos (sale orders) — shown first since they're active */}
+      {pedidos.length > 0 && (
+        <div className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <ShoppingCart size={14} />
+            <span>Pedidos activos ({pedidos.length})</span>
+          </div>
+          <PedidosSection pedidos={pedidos} />
+        </div>
+      )}
 
       <div className={styles.section}>
         <div className={styles.sectionHeader}>

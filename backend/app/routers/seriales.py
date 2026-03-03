@@ -274,6 +274,37 @@ class TransaccionCliente(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class LineaPedidoCliente(BaseModel):
+    """Una línea de producto dentro de un pedido (sale order)"""
+
+    sod_id: int
+    item_id: Optional[int] = None
+    item_code: Optional[str] = None
+    item_desc: Optional[str] = None
+    cantidad: Optional[float] = None
+    precio_unitario: Optional[float] = None
+    seriales: list[SerialEnTransaccion] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PedidoCliente(BaseModel):
+    """Un pedido (sale order) activo del cliente"""
+
+    soh_id: int
+    bra_id: int = 1
+    fecha: Optional[str] = None
+    fecha_entrega: Optional[str] = None
+    estado: Optional[str] = None  # ssos_name
+    total: Optional[float] = None
+    ml_id: Optional[str] = None
+    shipping_id: Optional[int] = None
+    observacion: Optional[str] = None
+    lineas: list[LineaPedidoCliente] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TrazaClienteResponse(BaseModel):
     """Respuesta completa de traza por cliente"""
 
@@ -281,6 +312,7 @@ class TrazaClienteResponse(BaseModel):
     cliente: ClienteInfo
     transacciones: list[TransaccionCliente] = []
     total_transacciones: int = 0
+    pedidos: list[PedidoCliente] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -874,6 +906,72 @@ QUERY_SERIALES_BY_IT_TRANSACTION = text("""
 """)
 
 
+# ── Sale order (pedidos) queries ─────────────────────────────────
+
+QUERY_PEDIDOS_CLIENTE = text("""
+    SELECT
+        soh.soh_id,
+        soh.bra_id,
+        soh.soh_cd,
+        soh.soh_deliverydate,
+        soh.soh_total,
+        soh.soh_mlid,
+        soh.mlshippingid,
+        soh.soh_observation1,
+        soh.ssos_id,
+        ssos.ssos_name
+    FROM tb_sale_order_header soh
+    LEFT JOIN tb_sale_order_status ssos
+        ON soh.ssos_id = ssos.ssos_id
+    WHERE soh.cust_id = :cust_id
+        AND soh.soh_id NOT IN (
+            SELECT sot.soh_id
+            FROM tb_sale_order_times sot
+            WHERE sot.ssot_id = 40
+                AND sot.comp_id = soh.comp_id
+                AND sot.bra_id = soh.bra_id
+        )
+    ORDER BY soh.soh_cd DESC NULLS LAST
+    LIMIT 50
+""")
+
+QUERY_LINEAS_PEDIDO = text("""
+    SELECT
+        sod.sod_id,
+        sod.item_id,
+        ti.item_code,
+        COALESCE(pe.descripcion, sod.sod_itemdesc, ti.item_desc) AS item_desc,
+        sod.sod_qty AS cantidad,
+        sod.sod_price AS precio_unitario
+    FROM tb_sale_order_detail sod
+    LEFT JOIN tb_item ti
+        ON sod.comp_id = ti.comp_id
+        AND sod.item_id = ti.item_id
+    LEFT JOIN productos_erp pe
+        ON sod.item_id = pe.item_id
+    WHERE sod.soh_id = :soh_id
+        AND sod.comp_id = :comp_id
+        AND sod.bra_id = :bra_id
+    ORDER BY sod.sod_id ASC
+""")
+
+QUERY_SERIALES_PEDIDO = text("""
+    SELECT
+        s.is_serial,
+        s.is_available
+    FROM tb_sale_order_serials sos
+    INNER JOIN tb_item_serials s
+        ON sos.is_id = s.is_id
+        AND sos.comp_id = s.comp_id
+    WHERE sos.soh_id = :soh_id
+        AND sos.comp_id = :comp_id
+        AND sos.bra_id = :bra_id
+        AND s.is_serial IS NOT NULL
+        AND s.is_serial != ''
+    ORDER BY s.is_serial
+""")
+
+
 # =============================================================================
 # HELPERS
 # =============================================================================
@@ -1324,6 +1422,89 @@ def _find_cliente_by_ml_nickname(db: Session, nickname: str) -> tuple[Optional[C
     return None, "ml_nickname"
 
 
+def _build_pedidos_cliente(db: Session, cust_id: int) -> list[PedidoCliente]:
+    """
+    Obtiene los pedidos activos (sale orders no cerrados) de un cliente.
+    Un pedido se considera cerrado si tiene un registro en tb_sale_order_times
+    con ssot_id = 40 (Cierre del Pedido).
+    Incluye líneas de detalle y seriales por pedido.
+    """
+    result = db.execute(QUERY_PEDIDOS_CLIENTE, {"cust_id": cust_id})
+    soh_rows = [dict(row._mapping) for row in result]
+
+    pedidos: list[PedidoCliente] = []
+    for soh in soh_rows:
+        soh_id = soh["soh_id"]
+        bra_id = soh.get("bra_id", 1)
+        comp_id = 1  # Single-company app
+
+        # Líneas del pedido
+        result_lineas = db.execute(
+            QUERY_LINEAS_PEDIDO,
+            {"soh_id": soh_id, "comp_id": comp_id, "bra_id": bra_id},
+        )
+        lineas_rows = [dict(r._mapping) for r in result_lineas]
+
+        # Seriales del pedido (a nivel pedido, no por línea)
+        result_seriales = db.execute(
+            QUERY_SERIALES_PEDIDO,
+            {"soh_id": soh_id, "comp_id": comp_id, "bra_id": bra_id},
+        )
+        seriales_pedido = [
+            SerialEnTransaccion(
+                is_serial=dict(sr._mapping)["is_serial"],
+                is_available=bool(dict(sr._mapping).get("is_available", False)),
+            )
+            for sr in result_seriales
+        ]
+
+        lineas: list[LineaPedidoCliente] = []
+        for lr in lineas_rows:
+            qty = lr.get("cantidad")
+            precio = lr.get("precio_unitario")
+
+            lineas.append(
+                LineaPedidoCliente(
+                    sod_id=lr["sod_id"],
+                    item_id=lr.get("item_id"),
+                    item_code=lr.get("item_code"),
+                    item_desc=lr.get("item_desc"),
+                    cantidad=float(qty) if qty is not None else None,
+                    precio_unitario=float(precio) if precio is not None else None,
+                    seriales=[],  # seriales are at pedido level via tb_sale_order_serials
+                )
+            )
+
+        soh_total = soh.get("soh_total")
+        soh_cd = soh.get("soh_cd")
+        soh_dd = soh.get("soh_deliverydate")
+        mlshipping = soh.get("mlshippingid")
+
+        pedidos.append(
+            PedidoCliente(
+                soh_id=soh_id,
+                bra_id=bra_id,
+                fecha=str(soh_cd) if soh_cd else None,
+                fecha_entrega=str(soh_dd) if soh_dd else None,
+                estado=soh.get("ssos_name"),
+                total=float(soh_total) if soh_total is not None else None,
+                ml_id=soh.get("soh_mlid"),
+                shipping_id=int(mlshipping) if mlshipping else None,
+                observacion=soh.get("soh_observation1"),
+                lineas=lineas,
+            )
+        )
+
+        # Attach seriales to the first matching linea or keep at pedido level
+        # For simplicity, we put all seriales on the pedido's first line or distribute
+        # Actually: seriales come from tb_sale_order_serials which is at pedido level,
+        # not per-line. We'll attach them as a flat list on the first line that has items.
+        if seriales_pedido and lineas:
+            lineas[0].seriales = seriales_pedido
+
+    return pedidos
+
+
 def _build_transacciones_cliente(
     db: Session, cust_id: int, limit: int = 50, offset: int = 0
 ) -> tuple[list[TransaccionCliente], int]:
@@ -1437,12 +1618,14 @@ def traza_cliente(
     cliente = _build_cliente_info(dict(row._mapping))
     offset = (max(page, 1) - 1) * page_size
     transacciones, total = _build_transacciones_cliente(db, cust_id, limit=page_size, offset=offset)
+    pedidos = _build_pedidos_cliente(db, cust_id)
 
     return TrazaClienteResponse(
         busqueda_por="cust_id",
         cliente=cliente,
         transacciones=transacciones,
         total_transacciones=total,
+        pedidos=pedidos,
     )
 
 
@@ -1479,12 +1662,14 @@ def traza_cliente_dni(
     cliente = _build_cliente_info(row_dict)
     offset = (max(page, 1) - 1) * page_size
     transacciones, total = _build_transacciones_cliente(db, row_dict["cust_id"], limit=page_size, offset=offset)
+    pedidos = _build_pedidos_cliente(db, row_dict["cust_id"])
 
     return TrazaClienteResponse(
         busqueda_por="taxnumber",
         cliente=cliente,
         transacciones=transacciones,
         total_transacciones=total,
+        pedidos=pedidos,
     )
 
 
@@ -1512,12 +1697,14 @@ def traza_cliente_ml(
 
     offset = (max(page, 1) - 1) * page_size
     transacciones, total = _build_transacciones_cliente(db, cliente.cust_id, limit=page_size, offset=offset)
+    pedidos = _build_pedidos_cliente(db, cliente.cust_id)
 
     return TrazaClienteResponse(
         busqueda_por=busqueda_por,
         cliente=cliente,
         transacciones=transacciones,
         total_transacciones=total,
+        pedidos=pedidos,
     )
 
 
