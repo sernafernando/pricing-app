@@ -65,6 +65,7 @@ from app.models.rma_caso import RmaCaso
 from app.models.rma_caso_item import RmaCasoItem
 from app.models.rma_caso_historial import RmaCasoHistorial
 from app.models.etiqueta_colecta import EtiquetaColecta
+from app.models.weather_history import WeatherHistory
 
 __all__ = [
     "ProductoERP",
@@ -146,4 +147,5 @@ __all__ = [
     "RmaCasoItem",
     "RmaCasoHistorial",
     "EtiquetaColecta",
+    "WeatherHistory",
 ]

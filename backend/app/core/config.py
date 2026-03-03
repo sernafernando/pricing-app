@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     # GBP Parser (internal service) - SIEMPRE localhost porque corre en el mismo servidor
     GBP_PARSER_URL: str = "http://localhost:8002/api/gbp-parser"
 
+    # OpenWeatherMap API (free tier: 1000 calls/day)
+    # Docs: https://openweathermap.org/current
+    OPENWEATHER_API_KEY: Optional[str] = None
+    # Felipe Vallese 1559, CABA (depósito / centro de distribución)
+    OPENWEATHER_LAT: float = -34.61684231394052
+    OPENWEATHER_LON: float = -58.456197873190796
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
 

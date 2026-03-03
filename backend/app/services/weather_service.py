@@ -1,0 +1,186 @@
+"""
+Servicio de clima usando OpenWeatherMap API.
+
+Cache en memoria con TTL de 15 minutos para minimizar llamadas a la API.
+Free tier: 1000 calls/día → con cache de 15min = ~96 calls/día (sobra).
+
+Cada lectura exitosa se persiste en weather_history para poder cruzar
+con envíos despachados y saber qué clima había al momento del despacho.
+"""
+
+import time
+import logging
+from datetime import datetime, timezone
+from typing import Optional
+
+import httpx
+
+from app.core.config import settings
+from app.core.database import SessionLocal
+from app.models.weather_history import WeatherHistory
+
+logger = logging.getLogger(__name__)
+
+# OpenWeatherMap Current Weather API
+# Docs: https://openweathermap.org/current
+OPENWEATHER_API_URL = "https://api.openweathermap.org/data/2.5/weather"
+
+# Cache en memoria: {data, timestamp}
+_weather_cache: dict = {}
+CACHE_TTL_SECONDS = 900  # 15 minutos
+
+
+def _is_cache_valid() -> bool:
+    """Verifica si el cache tiene datos vigentes."""
+    if not _weather_cache:
+        return False
+    elapsed = time.time() - _weather_cache.get("timestamp", 0)
+    return elapsed < CACHE_TTL_SECONDS
+
+
+def _get_cached() -> Optional[dict]:
+    """Retorna datos cacheados si son válidos."""
+    if _is_cache_valid():
+        return _weather_cache.get("data")
+    return None
+
+
+def _set_cache(data: dict) -> None:
+    """Guarda datos en cache con timestamp."""
+    _weather_cache["data"] = data
+    _weather_cache["timestamp"] = time.time()
+
+
+def _persist_weather(data: dict, weather_dt_unix: int) -> None:
+    """
+    Persiste una lectura de clima en la tabla weather_history.
+
+    Se ejecuta en una sesión independiente para no bloquear
+    el response al frontend si la BD tiene un problema.
+    """
+    db = SessionLocal()
+    try:
+        weather_dt = datetime.fromtimestamp(weather_dt_unix, tz=timezone.utc) if weather_dt_unix else None
+
+        record = WeatherHistory(
+            temp=data["temp"],
+            feels_like=data["feels_like"],
+            temp_min=data["temp_min"],
+            temp_max=data["temp_max"],
+            humidity=data["humidity"],
+            description=data["description"],
+            icon=data["icon"],
+            wind_speed=data["wind_speed"],
+            rain_1h=data["rain_1h"],
+            is_rainy=data["is_rainy"],
+            city=data["city"],
+            lat=settings.OPENWEATHER_LAT,
+            lon=settings.OPENWEATHER_LON,
+            weather_dt=weather_dt,
+        )
+        db.add(record)
+        db.commit()
+        logger.debug("Weather persisted to DB: id=%s", record.id)
+    except Exception as e:
+        logger.error("Error persisting weather to DB: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+async def get_current_weather() -> Optional[dict]:
+    """
+    Obtiene el clima actual de la ciudad configurada.
+
+    Returns:
+        Dict con datos de clima o None si hay error.
+        Estructura:
+        {
+            "temp": 22.5,          # Temperatura en °C
+            "feels_like": 21.0,    # Sensación térmica en °C
+            "temp_min": 19.0,      # Mínima del día en °C
+            "temp_max": 25.0,      # Máxima del día en °C
+            "humidity": 65,        # Humedad %
+            "description": "cielo claro",
+            "icon": "01d",         # Código de ícono OpenWeather
+            "icon_url": "https://openweathermap.org/img/wn/01d@2x.png",
+            "wind_speed": 3.5,     # Viento en m/s
+            "city": "Buenos Aires",
+            "rain_1h": 0.0,        # Lluvia última hora en mm (si hay)
+            "is_rainy": False,     # Flag simple para lógica de envíos
+        }
+    """
+    # Verificar cache primero
+    cached = _get_cached()
+    if cached:
+        logger.debug("Weather cache HIT")
+        return cached
+
+    # Verificar API key
+    if not settings.OPENWEATHER_API_KEY:
+        logger.warning("OPENWEATHER_API_KEY no configurada — clima no disponible")
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                OPENWEATHER_API_URL,
+                params={
+                    "lat": settings.OPENWEATHER_LAT,
+                    "lon": settings.OPENWEATHER_LON,
+                    "appid": settings.OPENWEATHER_API_KEY,
+                    "units": "metric",
+                    "lang": "es",
+                },
+            )
+            response.raise_for_status()
+            raw = response.json()
+
+        # Extraer datos relevantes
+        main = raw.get("main", {})
+        weather_info = raw.get("weather", [{}])[0]
+        wind = raw.get("wind", {})
+        rain = raw.get("rain", {})
+
+        icon_code = weather_info.get("icon", "01d")
+
+        data = {
+            "temp": round(main.get("temp", 0), 1),
+            "feels_like": round(main.get("feels_like", 0), 1),
+            "temp_min": round(main.get("temp_min", 0), 1),
+            "temp_max": round(main.get("temp_max", 0), 1),
+            "humidity": main.get("humidity", 0),
+            "description": weather_info.get("description", ""),
+            "icon": icon_code,
+            "icon_url": f"https://openweathermap.org/img/wn/{icon_code}@2x.png",
+            "wind_speed": round(wind.get("speed", 0), 1),
+            "city": raw.get("name", "Buenos Aires"),
+            "rain_1h": rain.get("1h", 0.0),
+            "is_rainy": bool(rain) or "rain" in weather_info.get("main", "").lower(),
+        }
+
+        # Guardar en cache
+        _set_cache(data)
+
+        # Persistir en BD para historial
+        weather_dt_unix = raw.get("dt", 0)
+        _persist_weather(data, weather_dt_unix)
+
+        logger.info(
+            "Weather updated: %s — %.1f°C, %s",
+            data["city"],
+            data["temp"],
+            data["description"],
+        )
+
+        return data
+
+    except httpx.HTTPStatusError as e:
+        logger.error("OpenWeather HTTP error: %s - %s", e.response.status_code, e.response.text)
+        return None
+    except httpx.RequestError as e:
+        logger.error("OpenWeather request error: %s", e)
+        return None
+    except (ValueError, KeyError, IndexError) as e:
+        logger.error("OpenWeather parse error: %s", e)
+        return None

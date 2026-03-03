@@ -108,6 +108,73 @@
   color: var(--cf-accent-green);
 }
 
+/* Weather Widget */
+.weatherWidget {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 16px;
+  border-radius: 8px;
+  transition: all var(--duration-150) var(--ease-in-out);
+}
+
+.weatherWidget:hover {
+  background: var(--cf-hover-overlay);
+}
+
+.weatherMain {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.weatherIcon {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.weatherTemp {
+  font-size: 20px;
+  font-weight: var(--font-bold);
+  color: var(--cf-text-primary);
+  line-height: 1;
+}
+
+.weatherDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.weatherDesc {
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  color: var(--cf-text-secondary);
+  text-transform: capitalize;
+  line-height: 1.2;
+}
+
+.weatherMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weatherMetaItem {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--cf-text-tertiary);
+  font-weight: var(--font-normal);
+}
+
+.weatherRain {
+  color: var(--cf-accent-blue);
+  font-weight: var(--font-semibold);
+}
+
 /* Right Section */
 .right {
   display: flex;
