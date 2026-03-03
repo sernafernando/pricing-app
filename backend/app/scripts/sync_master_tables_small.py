@@ -10,6 +10,7 @@ Tablas sincronizadas:
 - tbFiscalClass (clases fiscales)
 - tbTaxNumberType (tipos de número impositivo)
 - tbItemAssociation (asociaciones de items)
+- tbSupplier (proveedores)
 
 Ejecutar:
     python -m app.scripts.sync_master_tables_small
@@ -40,6 +41,7 @@ from app.scripts.sync_document_files import sync_document_files
 from app.scripts.sync_fiscal_classes import sync_fiscal_classes
 from app.scripts.sync_tax_number_types import sync_tax_number_types
 from app.scripts.sync_item_associations import sync_item_associations
+from app.scripts.sync_suppliers import sync_suppliers
 
 
 def main():
@@ -67,6 +69,7 @@ def main():
             "args": {},
         },
         {"nombre": "Asociaciones de Items", "emoji": "🔗", "funcion": sync_item_associations, "args": {}},
+        {"nombre": "Proveedores (Suppliers)", "emoji": "🏭", "funcion": sync_suppliers, "args": {}},
     ]
 
     for i, sync in enumerate(sincronizaciones, 1):

@@ -1,26 +1,35 @@
 /**
- * Traza — Página standalone de consulta de traza unificada.
+ * Traza -- Pagina standalone de consulta de traza unificada.
  *
  * Permite buscar por:
- * - Número de serie
+ * - Numero de serie
  * - ML ID (venta MercadoLibre)
- * - Número de factura (tipo + punto de venta + número)
+ * - Numero de factura (tipo + punto de venta + numero)
+ * - # de cliente (cust_id)
+ * - DNI/CUIT del cliente
+ * - Usuario de MercadoLibre (nickname)
  *
  * Muestra la historia completa: movimientos, facturas, pedidos, RMAs.
  * Accesible con permiso traza.ver.
  */
 
 import { useState } from 'react';
-import { Search, ScanBarcode, ShoppingCart, FileText } from 'lucide-react';
+import { Search, ScanBarcode, ShoppingCart, FileText, UserSearch, CreditCard, AtSign } from 'lucide-react';
 import api from '../services/api';
 import TrazaViewer from '../components/TrazaViewer';
+import TrazaClienteViewer from '../components/TrazaClienteViewer';
 import styles from './Traza.module.css';
 
 const MODOS = [
-  { id: 'serial', label: 'Serial', icon: ScanBarcode, placeholder: 'Número de serie...' },
-  { id: 'ml', label: 'ML ID', icon: ShoppingCart, placeholder: 'ID de venta MercadoLibre (ej: 2000...)' },
-  { id: 'factura', label: 'Factura', icon: FileText, placeholder: null },
+  { id: 'serial', label: 'Serial', icon: ScanBarcode, placeholder: 'Numero de serie...', group: 'producto' },
+  { id: 'ml', label: 'ML ID', icon: ShoppingCart, placeholder: 'ID de venta MercadoLibre (ej: 2000...)', group: 'producto' },
+  { id: 'factura', label: 'Factura', icon: FileText, placeholder: null, group: 'producto' },
+  { id: 'cliente', label: '# Cliente', icon: UserSearch, placeholder: 'Numero de cliente...', group: 'cliente' },
+  { id: 'dni', label: 'DNI/CUIT', icon: CreditCard, placeholder: 'DNI o CUIT (ej: 20123456789)', group: 'cliente' },
+  { id: 'ml_user', label: 'Usuario ML', icon: AtSign, placeholder: 'Nickname de MercadoLibre...', group: 'cliente' },
 ];
+
+const MODOS_CLIENTE = new Set(['cliente', 'dni', 'ml_user']);
 
 export default function Traza() {
   const [modo, setModo] = useState('serial');
@@ -34,10 +43,15 @@ export default function Traza() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const buscar = async () => {
+  // Pagination for client results
+  const [page, setPage] = useState(1);
+  const pageSize = 50;
+
+  const buscar = async (overridePage = null) => {
+    const currentPage = overridePage ?? page;
     setLoading(true);
     setError(null);
-    setResult(null);
+    if (overridePage === null) setResult(null);
 
     try {
       let data;
@@ -55,6 +69,24 @@ export default function Traza() {
           params: { tipo: facTipo, punto_venta: facPV.trim(), nro_documento: facNro.trim() },
         });
         data = res.data;
+      } else if (modo === 'cliente') {
+        if (!query.trim()) return;
+        const res = await api.get(`/seriales/traza/cliente/${encodeURIComponent(query.trim())}`, {
+          params: { page: currentPage, page_size: pageSize },
+        });
+        data = res.data;
+      } else if (modo === 'dni') {
+        if (!query.trim()) return;
+        const res = await api.get(`/seriales/traza/cliente-dni/${encodeURIComponent(query.trim())}`, {
+          params: { page: currentPage, page_size: pageSize },
+        });
+        data = res.data;
+      } else if (modo === 'ml_user') {
+        if (!query.trim()) return;
+        const res = await api.get(`/seriales/traza/cliente-ml/${encodeURIComponent(query.trim())}`, {
+          params: { page: currentPage, page_size: pageSize },
+        });
+        data = res.data;
       }
       setResult(data);
     } catch (err) {
@@ -66,7 +98,20 @@ export default function Traza() {
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter') buscar();
+    if (e.key === 'Enter') {
+      setPage(1);
+      buscar(1);
+    }
+  };
+
+  const handleBuscar = () => {
+    setPage(1);
+    buscar(1);
+  };
+
+  const handlePageChange = (newPage) => {
+    setPage(newPage);
+    buscar(newPage);
   };
 
   const limpiar = () => {
@@ -76,34 +121,60 @@ export default function Traza() {
     setFacNro('');
     setResult(null);
     setError(null);
+    setPage(1);
   };
 
   const currentModo = MODOS.find((m) => m.id === modo);
+  const isClienteMode = MODOS_CLIENTE.has(modo);
+
+  // Group modes for rendering
+  const productoModos = MODOS.filter((m) => m.group === 'producto');
+  const clienteModos = MODOS.filter((m) => m.group === 'cliente');
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>Traza</h1>
-        <p className={styles.subtitle}>Consulta el historial completo de un producto por serial, venta ML o factura</p>
+        <p className={styles.subtitle}>
+          Consulta el historial completo por serial, venta ML, factura, o cliente
+        </p>
       </div>
 
       {/* Search bar */}
       <div className={styles.searchSection}>
         {/* Mode selector */}
-        <div className={styles.modeSelector}>
-          {MODOS.map((m) => {
-            const Icon = m.icon;
-            return (
-              <button
-                key={m.id}
-                className={`${styles.modeBtn} ${modo === m.id ? styles.modeBtnActive : ''}`}
-                onClick={() => { setModo(m.id); setResult(null); setError(null); }}
-              >
-                <Icon size={14} />
-                {m.label}
-              </button>
-            );
-          })}
+        <div className={styles.modeSelectorRow}>
+          <div className={styles.modeGroup}>
+            {productoModos.map((m) => {
+              const Icon = m.icon;
+              return (
+                <button
+                  key={m.id}
+                  className={`${styles.modeBtn} ${modo === m.id ? styles.modeBtnActive : ''}`}
+                  onClick={() => { setModo(m.id); setResult(null); setError(null); setPage(1); }}
+                >
+                  <Icon size={14} />
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+          <span className={styles.modeDivider} />
+          <div className={styles.modeGroup}>
+            {clienteModos.map((m) => {
+              const Icon = m.icon;
+              return (
+                <button
+                  key={m.id}
+                  className={`${styles.modeBtn} ${modo === m.id ? styles.modeBtnActive : ''}`}
+                  onClick={() => { setModo(m.id); setResult(null); setError(null); setPage(1); }}
+                >
+                  <Icon size={14} />
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Input fields */}
@@ -159,7 +230,7 @@ export default function Traza() {
 
           <button
             className="btn-tesla outline-subtle-primary"
-            onClick={buscar}
+            onClick={handleBuscar}
             disabled={loading}
           >
             <Search size={14} />
@@ -182,7 +253,16 @@ export default function Traza() {
       {/* Results */}
       {result && (
         <div className={styles.resultsSection}>
-          <TrazaViewer data={result} variant={modo} />
+          {isClienteMode ? (
+            <TrazaClienteViewer
+              data={result}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={handlePageChange}
+            />
+          ) : (
+            <TrazaViewer data={result} variant={modo} />
+          )}
         </div>
       )}
 
@@ -190,7 +270,7 @@ export default function Traza() {
       {!result && !error && !loading && (
         <div className={styles.emptyState}>
           <ScanBarcode size={48} strokeWidth={1} />
-          <p>Ingresá un serial, ML ID o número de factura para consultar la traza</p>
+          <p>Ingresa un serial, ML ID, factura, o datos de cliente para consultar la traza</p>
         </div>
       )}
     </div>
