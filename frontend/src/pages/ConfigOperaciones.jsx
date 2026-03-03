@@ -550,18 +550,32 @@ function TabCostosEnvio() {
   const [origVigenteMap, setOrigVigenteMap] = useState({});
   const defaultDate = () => new Date().toISOString().split('T')[0];
 
+  // ── Lluvia offset config ──────────────────────────────────────
+  const [lluviaTipo, setLluviaTipo] = useState('fijo');
+  const [lluviaValor, setLluviaValor] = useState('');
+  const [lluviaOrigTipo, setLluviaOrigTipo] = useState('fijo');
+  const [lluviaOrigValor, setLluviaOrigValor] = useState('');
+  const [lluviaSaving, setLluviaSaving] = useState(false);
+
   const { toast, showToast, hideToast } = useToast();
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [costosRes, logisticasRes] = await Promise.all([
+      const [costosRes, logisticasRes, lluviaRes] = await Promise.all([
         api.get('/config-operaciones/costos'),
         api.get('/logisticas?incluir_inactivas=false'),
+        api.get('/config-operaciones/lluvia-offset'),
       ]);
       setCostos(costosRes.data);
       setLogisticas(logisticasRes.data);
+
+      // Lluvia offset
+      setLluviaTipo(lluviaRes.data.tipo || 'fijo');
+      setLluviaValor(String(lluviaRes.data.valor || 0));
+      setLluviaOrigTipo(lluviaRes.data.tipo || 'fijo');
+      setLluviaOrigValor(String(lluviaRes.data.valor || 0));
 
       // Construir matrices desde datos existentes
       const m = {};
@@ -739,6 +753,32 @@ function TabCostosEnvio() {
     }
   };
 
+  // ── Lluvia helpers ───────────────────────────────────────────
+  const lluviaHasChanges = lluviaTipo !== lluviaOrigTipo || lluviaValor !== lluviaOrigValor;
+
+  const guardarLluvia = async () => {
+    const val = parseFloat(lluviaValor);
+    if (isNaN(val) || val < 0) {
+      setError('Valor de lluvia inválido');
+      return;
+    }
+    setLluviaSaving(true);
+    setError(null);
+    try {
+      await api.put('/config-operaciones/lluvia-offset', {
+        tipo: lluviaTipo,
+        valor: val,
+      });
+      setLluviaOrigTipo(lluviaTipo);
+      setLluviaOrigValor(lluviaValor);
+      showToast('Offset lluvia guardado');
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al guardar offset lluvia');
+    } finally {
+      setLluviaSaving(false);
+    }
+  };
+
   if (loading) {
     return <div className={styles.loading}>Cargando costos de envío...</div>;
   }
@@ -896,6 +936,73 @@ function TabCostosEnvio() {
             </table>
           </div>
         )}
+      </section>
+
+      {/* ── Lluvia Offset ──────────────────────────────────────── */}
+      <section className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <h2 className={styles.sectionTitle}>
+            <DollarSign size={20} /> Offset por Lluvia
+          </h2>
+          <div className={styles.sectionActions}>
+            {lluviaHasChanges && (
+              <button
+                onClick={guardarLluvia}
+                className="btn-tesla outline-subtle-primary"
+                disabled={lluviaSaving}
+                aria-label="Guardar offset lluvia"
+              >
+                <Save size={16} />
+                {lluviaSaving ? 'Guardando...' : 'Guardar'}
+              </button>
+            )}
+          </div>
+        </div>
+        <p className={styles.sectionDesc}>
+          Recargo adicional sobre el costo turbo cuando hay lluvia.
+          Solo se aplica a envíos marcados como turbo + lluvia.
+        </p>
+        <div className={styles.lluviaRow}>
+          <label className={styles.lluviaLabel}>Tipo:</label>
+          <select
+            value={lluviaTipo}
+            onChange={(e) => setLluviaTipo(e.target.value)}
+            className={styles.lluviaSelect}
+          >
+            <option value="fijo">Fijo ($)</option>
+            <option value="porcentaje">Porcentaje (%)</option>
+          </select>
+          <label className={styles.lluviaLabel}>Valor:</label>
+          <div className={styles.costoInputGroup}>
+            <span className={styles.costoPrefix}>
+              {lluviaTipo === 'fijo' ? '$' : '%'}
+            </span>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={lluviaValor}
+              onChange={(e) => setLluviaValor(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && lluviaHasChanges) {
+                  e.preventDefault();
+                  guardarLluvia();
+                }
+              }}
+              className={styles.costoInput}
+              placeholder="0"
+            />
+          </div>
+          {lluviaValor && parseFloat(lluviaValor) > 0 && (
+            <span className={styles.lluviaPreview}>
+              Ej: turbo $3400 →{' '}
+              {lluviaTipo === 'fijo'
+                ? `$${(3400 + parseFloat(lluviaValor || 0)).toLocaleString('es-AR')}`
+                : `$${(3400 * (1 + parseFloat(lluviaValor || 0) / 100)).toLocaleString('es-AR')}`
+              }
+            </span>
+          )}
+        </div>
       </section>
 
       <Toast toast={toast} onClose={hideToast} />

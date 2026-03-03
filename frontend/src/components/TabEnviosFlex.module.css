@@ -755,6 +755,22 @@
   line-height: 1.6;
 }
 
+/* Lluvia badge — teal inline pill */
+.lluviaBadge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: #0d948820;
+  color: #0d9488;
+  vertical-align: middle;
+  line-height: 1.6;
+}
+
 /* Creado por usuario badge — purple inline pill */
 .creadoPorBadge {
   display: inline-block;
@@ -1298,6 +1314,58 @@
 }
 
 .selectionBtnTurboActive:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.selectionBtnLluvia {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(13, 148, 136, 0.5);
+  background: rgba(13, 148, 136, 0.15);
+  color: #5eead4;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnLluvia:hover:not(:disabled) {
+  background: rgba(13, 148, 136, 0.3);
+  border-color: rgba(13, 148, 136, 0.7);
+}
+
+.selectionBtnLluvia:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.selectionBtnLluviaActive {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(13, 148, 136, 0.8);
+  background: rgba(13, 148, 136, 0.4);
+  color: #99f6e4;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnLluviaActive:hover:not(:disabled) {
+  background: rgba(13, 148, 136, 0.25);
+  border-color: rgba(13, 148, 136, 0.5);
+}
+
+.selectionBtnLluviaActive:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }

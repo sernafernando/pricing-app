@@ -208,6 +208,11 @@
   color: #f59e0b;
 }
 
+.popupLluviaIcon {
+  color: #0d9488;
+  margin-left: 2px;
+}
+
 .popup p {
   margin: var(--spacing-xs) 0;
   font-size: var(--font-sm);
