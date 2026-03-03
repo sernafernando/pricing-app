@@ -20,7 +20,7 @@ export const useWeather = () => {
 
     const fetchWeather = async () => {
       try {
-        const { data } = await api.get('/api/weather/current');
+        const { data } = await api.get('/weather/current');
         if (!cancelled) {
           setWeather(data);
           setError(null);
