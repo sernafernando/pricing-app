@@ -918,7 +918,7 @@ QUERY_TRANSACCIONES_CLIENTE = text("""
         ON ct.comp_id = supp.comp_id
         AND ct.supp_id = supp.supp_id
     WHERE ct.cust_id = :cust_id
-        AND COALESCE(ct."ct_isCancelled", false) = false
+        AND COALESCE(ct.ct_iscancelled, false) = false
     ORDER BY ct.ct_date DESC NULLS LAST, ct.ct_transaction DESC
     LIMIT :limit
     OFFSET :offset
@@ -928,7 +928,7 @@ QUERY_TRANSACCIONES_CLIENTE_COUNT = text("""
     SELECT COUNT(*) AS total
     FROM tb_commercial_transactions ct
     WHERE ct.cust_id = :cust_id
-        AND COALESCE(ct."ct_isCancelled", false) = false
+        AND COALESCE(ct.ct_iscancelled, false) = false
 """)
 
 QUERY_LINEAS_TRANSACCION = text("""
