@@ -29,7 +29,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFi
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy import func, cast, case, and_, or_, desc, Numeric
-from typing import List, Optional
+from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.database import get_db
@@ -58,6 +58,7 @@ from app.models.sale_order_detail import SaleOrderDetail
 from app.models.tb_item import TBItem
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 from app.models.mercadolibre_user_data import MercadoLibreUserData
+from app.models.configuracion import Configuracion
 from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
@@ -76,6 +77,70 @@ def _check_permiso(db: Session, user: Usuario, codigo: str) -> None:
             status_code=403,
             detail=f"No tenés permiso: {codigo}",
         )
+
+
+def _get_lluvia_config(db: Session) -> tuple[str, float]:
+    """Lee la configuración de offset por lluvia desde la tabla configuracion.
+
+    Returns:
+        (tipo, valor) — ej: ("fijo", 1800.0) o ("porcentaje", 50.0)
+        Si no existe, devuelve ("fijo", 0.0) (sin offset).
+    """
+    tipo_row = db.query(Configuracion.valor).filter(Configuracion.clave == "lluvia_offset_tipo").first()
+    valor_row = db.query(Configuracion.valor).filter(Configuracion.clave == "lluvia_offset_valor").first()
+    tipo = tipo_row[0] if tipo_row else "fijo"
+    try:
+        valor = float(valor_row[0]) if valor_row else 0.0
+    except (ValueError, TypeError):
+        valor = 0.0
+    return tipo, valor
+
+
+def _build_costo_case(
+    costo_turbo_col: Any,
+    costo_normal_col: Any,
+    lluvia_tipo: str,
+    lluvia_valor: float,
+) -> Any:
+    """Construye la CASE expression de costo_envio con soporte lluvia.
+
+    Lógica:
+    1. turbo + lluvia → costo_turbo + offset (fijo o %)
+    2. turbo           → costo_turbo (o fallback a normal si no hay turbo)
+    3. else            → costo_normal
+
+    El costo_override (manual) se aplica en el COALESCE externo.
+    """
+    costo_turbo_eff = func.coalesce(costo_turbo_col, costo_normal_col)
+
+    if lluvia_valor > 0:
+        if lluvia_tipo == "porcentaje":
+            # costo_turbo * (1 + pct/100)
+            costo_lluvia = cast(
+                costo_turbo_eff * (1 + lluvia_valor / 100),
+                Numeric(12, 2),
+            )
+        else:
+            # costo_turbo + monto fijo
+            costo_lluvia = cast(
+                costo_turbo_eff + lluvia_valor,
+                Numeric(12, 2),
+            )
+    else:
+        # Sin offset → lluvia = turbo
+        costo_lluvia = cast(costo_turbo_eff, Numeric(12, 2))
+
+    return case(
+        (
+            and_(EtiquetaEnvio.es_turbo.is_(True), EtiquetaEnvio.es_lluvia.is_(True)),
+            costo_lluvia,
+        ),
+        (
+            EtiquetaEnvio.es_turbo.is_(True),
+            cast(costo_turbo_eff, Numeric(12, 2)),
+        ),
+        else_=cast(costo_normal_col, Numeric(12, 2)),
+    )
 
 
 async def _geocode_envio_manual(
@@ -234,6 +299,9 @@ class EtiquetaEnvioResponse(BaseModel):
 
     # Turbo (mlshipping_method_id == "515282")
     es_turbo: bool = False
+
+    # Lluvia — recargo extra sobre turbo
+    es_lluvia: bool = False
 
     # Creado por usuario del sistema (cuando viene de Pedidos Pendientes)
     creado_por_usuario_nombre: Optional[str] = None
@@ -885,6 +953,9 @@ def listar_etiquetas(
     # el CP del cliente — esto solo afecta la resolución de cordón/costo.
     eff_zip_for_cordon = func.coalesce(Transporte.cp, eff_zip)
 
+    # Lluvia offset config
+    lluvia_tipo, lluvia_valor = _get_lluvia_config(db)
+
     query = (
         db.query(
             EtiquetaEnvio.shipping_id,
@@ -907,6 +978,7 @@ def listar_etiquetas(
             EtiquetaEnvio.manual_phone,
             EtiquetaEnvio.es_outlet,
             EtiquetaEnvio.es_turbo,
+            EtiquetaEnvio.es_lluvia,
             Operador.nombre.label("pistoleado_operador_nombre"),
             Logistica.nombre.label("logistica_nombre"),
             Logistica.color.label("logistica_color"),
@@ -929,18 +1001,11 @@ def listar_etiquetas(
             func.coalesce(SaleOrderStatus.ssos_color, ManualSaleOrderStatus.ssos_color).label("ssos_color"),
             func.coalesce(
                 cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
-                case(
-                    (
-                        EtiquetaEnvio.es_turbo.is_(True),
-                        cast(
-                            func.coalesce(
-                                costo_sub.c.costo_turbo_valor,
-                                costo_sub.c.costo_valor,
-                            ),
-                            Numeric(12, 2),
-                        ),
-                    ),
-                    else_=cast(costo_sub.c.costo_valor, Numeric(12, 2)),
+                _build_costo_case(
+                    costo_sub.c.costo_turbo_valor,
+                    costo_sub.c.costo_valor,
+                    lluvia_tipo,
+                    lluvia_valor,
                 ),
             ).label("costo_envio"),
             EtiquetaEnvio.costo_override,
@@ -1101,6 +1166,7 @@ def listar_etiquetas(
             manual_phone=row.manual_phone,
             es_outlet=row.es_outlet,
             es_turbo=row.es_turbo,
+            es_lluvia=row.es_lluvia,
             creado_por_usuario_nombre=row.creado_por_usuario_nombre,
             transporte_id=row.transporte_id,
             transporte_nombre=row.transporte_nombre,
@@ -1394,20 +1460,16 @@ def estadisticas_etiquetas(
 
     cordon_norm = func.replace(CodigoPostalCordon.cordon, "ó", "o")
 
+    # Lluvia offset config
+    lluvia_tipo_s, lluvia_valor_s = _get_lluvia_config(db)
+
     costo_efectivo = func.coalesce(
         cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
-        case(
-            (
-                EtiquetaEnvio.es_turbo.is_(True),
-                cast(
-                    func.coalesce(
-                        costo_stats.c.costo_turbo_valor,
-                        costo_stats.c.costo_valor,
-                    ),
-                    Numeric(12, 2),
-                ),
-            ),
-            else_=cast(costo_stats.c.costo_valor, Numeric(12, 2)),
+        _build_costo_case(
+            costo_stats.c.costo_turbo_valor,
+            costo_stats.c.costo_valor,
+            lluvia_tipo_s,
+            lluvia_valor_s,
         ),
     )
 
@@ -1672,6 +1734,9 @@ def exportar_etiquetas(
 
     cordon_norm_exp = func.replace(CodigoPostalCordon.cordon, "ó", "o")
 
+    # Lluvia offset config
+    lluvia_tipo_e, lluvia_valor_e = _get_lluvia_config(db)
+
     # Subquery deduplicada: una fila por mlshippingid (evita duplicados por items)
     shipping_exp = _shipping_dedup_subquery(db)
 
@@ -1701,18 +1766,11 @@ def exportar_etiquetas(
             func.coalesce(SaleOrderStatus.ssos_name, ManualSaleOrderStatus.ssos_name).label("ssos_name"),
             func.coalesce(
                 cast(EtiquetaEnvio.costo_override, Numeric(12, 2)),
-                case(
-                    (
-                        EtiquetaEnvio.es_turbo.is_(True),
-                        cast(
-                            func.coalesce(
-                                costo_exp.c.costo_turbo_valor,
-                                costo_exp.c.costo_valor,
-                            ),
-                            Numeric(12, 2),
-                        ),
-                    ),
-                    else_=cast(costo_exp.c.costo_valor, Numeric(12, 2)),
+                _build_costo_case(
+                    costo_exp.c.costo_turbo_valor,
+                    costo_exp.c.costo_valor,
+                    lluvia_tipo_e,
+                    lluvia_valor_e,
                 ),
             ).label("costo_envio"),
             EtiquetaEnvio.es_turbo,
@@ -2745,6 +2803,74 @@ def toggle_turbo_masivo(
     return {
         "ok": True,
         "es_turbo": es_turbo,
+        "actualizados": updated,
+        "solicitados": len(payload.shipping_ids),
+    }
+
+
+@router.put(
+    "/etiquetas-envio/{shipping_id}/lluvia",
+    response_model=dict,
+    summary="Marcar o desmarcar envío como lluvia",
+)
+def toggle_lluvia(
+    shipping_id: str,
+    es_lluvia: bool = Query(..., description="True para marcar como lluvia, False para desmarcar"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Marca o desmarca una etiqueta como lluvia (offset sobre costo turbo).
+
+    Solo aplica cuando la etiqueta también es turbo.
+    Requiere permiso envios_flex.config.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    valor_anterior = etiqueta.es_lluvia
+    etiqueta.es_lluvia = es_lluvia
+    db.commit()
+
+    return {
+        "ok": True,
+        "shipping_id": shipping_id,
+        "es_lluvia": es_lluvia,
+        "valor_anterior": valor_anterior,
+    }
+
+
+@router.put(
+    "/etiquetas-envio/lluvia-masivo",
+    response_model=dict,
+    summary="Marcar o desmarcar lluvia en múltiples etiquetas",
+)
+def toggle_lluvia_masivo(
+    payload: ShippingIdsRequest,
+    es_lluvia: bool = Query(..., description="True para marcar como lluvia, False para desmarcar"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Marca o desmarca múltiples etiquetas como lluvia en una sola operación.
+
+    Requiere permiso envios_flex.config.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    updated = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
+        .update({EtiquetaEnvio.es_lluvia: es_lluvia}, synchronize_session="fetch")
+    )
+    db.commit()
+
+    return {
+        "ok": True,
+        "es_lluvia": es_lluvia,
         "actualizados": updated,
         "solicitados": len(payload.shipping_ids),
     }

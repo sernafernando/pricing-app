@@ -3,7 +3,7 @@ import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
   Truck, Search, Printer, Pencil, Bike, Building, Calendar,
-  Table, Map,
+  Table, Map, CloudRain,
 } from 'lucide-react';
 import MapaEnviosFlex from './MapaEnviosFlex';
 import CalendarioEnvios from './CalendarioEnvios';
@@ -31,6 +31,7 @@ const EXPORT_COLUMNS = {
   pistoleado: 'Pistoleado',
   caja: 'Caja',
   turbo: 'Turbo',
+  lluvia: 'Lluvia',
 };
 
 const ML_STATUS_LABELS = {
@@ -1106,6 +1107,35 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
+  const toggleLluviaMasivo = async (marcar) => {
+    if (selectedIds.size === 0) return;
+
+    setBulkActualizando(true);
+    try {
+      await api.put(`/etiquetas-envio/lluvia-masivo?es_lluvia=${marcar}`, {
+        shipping_ids: Array.from(selectedIds),
+      });
+
+      // Actualizar localmente
+      setEtiquetas(prev =>
+        prev.map(e =>
+          selectedIds.has(e.shipping_id)
+            ? { ...e, es_lluvia: marcar }
+            : e
+        )
+      );
+
+      limpiarSeleccion();
+      // Refresh stats (cost may change)
+      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
+      setEstadisticas(statsData);
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setBulkActualizando(false);
+    }
+  };
+
   const geocodificarSeleccionados = async (ids = null) => {
     const shipping_ids = ids || Array.from(selectedIds);
     if (shipping_ids.length === 0) return;
@@ -2017,6 +2047,9 @@ export default function TabEnviosFlex({ operador = null }) {
                       {e.es_turbo && (
                         <span className={styles.turboBadge}>Turbo</span>
                       )}
+                      {e.es_lluvia && (
+                        <span className={styles.lluviaBadge}>Lluvia</span>
+                      )}
                       {e.creado_por_usuario_nombre && (
                         <span className={styles.creadoPorBadge} title={`Creado por ${e.creado_por_usuario_nombre} desde Pedidos`}>
                           {e.creado_por_usuario_nombre}
@@ -2347,6 +2380,24 @@ export default function TabEnviosFlex({ operador = null }) {
               >
                 <Bike size={16} />
                 {todasTurbo ? 'Quitar turbo' : 'Turbo'}
+              </button>
+            );
+          })()}
+
+          {puedeVerCostos && (() => {
+            const todasLluvia = etiquetas
+              .filter(e => selectedIds.has(e.shipping_id))
+              .every(e => e.es_lluvia);
+            return (
+              <button
+                onClick={() => toggleLluviaMasivo(!todasLluvia)}
+                disabled={bulkActualizando}
+                className={todasLluvia ? styles.selectionBtnLluviaActive : styles.selectionBtnLluvia}
+                title={todasLluvia ? 'Desmarcar lluvia' : 'Marcar como lluvia'}
+                aria-label={todasLluvia ? 'Desmarcar lluvia' : 'Marcar como lluvia'}
+              >
+                <CloudRain size={16} />
+                {todasLluvia ? 'Quitar lluvia' : 'Lluvia'}
               </button>
             );
           })()}

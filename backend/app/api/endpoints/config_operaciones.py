@@ -25,6 +25,7 @@ from app.models.operador_config_tab import OperadorConfigTab
 from app.models.operador_actividad import OperadorActividad
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.logistica import Logistica
+from app.models.configuracion import Configuracion
 from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
@@ -775,3 +776,106 @@ def historial_costos(
         )
         for row in rows
     ]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Endpoints — Lluvia Offset Config
+# ══════════════════════════════════════════════════════════════════════
+
+
+class LluviaOffsetResponse(BaseModel):
+    """Configuración actual del offset por lluvia."""
+
+    tipo: str = Field(description="'fijo' o 'porcentaje'")
+    valor: float = Field(description="Valor del offset ($ o %)")
+
+
+class LluviaOffsetUpdate(BaseModel):
+    """Payload para actualizar el offset por lluvia."""
+
+    tipo: str = Field(description="'fijo' o 'porcentaje'")
+    valor: float = Field(ge=0, description="Valor del offset (>= 0)")
+
+
+@router.get(
+    "/config-operaciones/lluvia-offset",
+    response_model=LluviaOffsetResponse,
+    summary="Obtener configuración de offset por lluvia",
+)
+def get_lluvia_offset(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> LluviaOffsetResponse:
+    """
+    Devuelve la configuración actual de offset por lluvia.
+
+    Dos claves en la tabla configuracion:
+    - lluvia_offset_tipo: "fijo" o "porcentaje"
+    - lluvia_offset_valor: valor numérico
+    """
+    _check_config_permiso(db, current_user)
+
+    tipo_row = db.query(Configuracion).filter(Configuracion.clave == "lluvia_offset_tipo").first()
+    valor_row = db.query(Configuracion).filter(Configuracion.clave == "lluvia_offset_valor").first()
+
+    return LluviaOffsetResponse(
+        tipo=tipo_row.valor if tipo_row else "fijo",
+        valor=float(valor_row.valor) if valor_row else 0.0,
+    )
+
+
+@router.put(
+    "/config-operaciones/lluvia-offset",
+    response_model=LluviaOffsetResponse,
+    summary="Actualizar configuración de offset por lluvia",
+)
+def update_lluvia_offset(
+    payload: LluviaOffsetUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> LluviaOffsetResponse:
+    """
+    Crea o actualiza la configuración de offset por lluvia.
+
+    - tipo: "fijo" (suma un monto fijo) o "porcentaje" (suma un % sobre costo_turbo)
+    - valor: monto en $ o porcentaje (ej: 50 = 50%)
+    """
+    _check_config_permiso(db, current_user)
+
+    if payload.tipo not in ("fijo", "porcentaje"):
+        raise HTTPException(400, "tipo debe ser 'fijo' o 'porcentaje'")
+
+    # Upsert tipo
+    tipo_row = db.query(Configuracion).filter(Configuracion.clave == "lluvia_offset_tipo").first()
+    if tipo_row:
+        tipo_row.valor = payload.tipo
+    else:
+        db.add(
+            Configuracion(
+                clave="lluvia_offset_tipo",
+                valor=payload.tipo,
+                descripcion="Tipo de offset por lluvia: fijo o porcentaje",
+                tipo="string",
+            )
+        )
+
+    # Upsert valor
+    valor_row = db.query(Configuracion).filter(Configuracion.clave == "lluvia_offset_valor").first()
+    if valor_row:
+        valor_row.valor = str(payload.valor)
+    else:
+        db.add(
+            Configuracion(
+                clave="lluvia_offset_valor",
+                valor=str(payload.valor),
+                descripcion="Valor del offset por lluvia ($ o %)",
+                tipo="number",
+            )
+        )
+
+    db.commit()
+
+    return LluviaOffsetResponse(
+        tipo=payload.tipo,
+        valor=payload.valor,
+    )

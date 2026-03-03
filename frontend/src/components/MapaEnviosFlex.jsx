@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { MapPin, AlertTriangle, Zap } from 'lucide-react';
+import { MapPin, AlertTriangle, Zap, CloudRain } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import styles from './MapaEnviosFlex.module.css';
 
@@ -177,6 +177,7 @@ export default function MapaEnviosFlex({ envios = [], onGeolocalizar, geocodific
                 <h4>
                   Envío #{envio.shipping_id}
                   {envio.es_turbo && <Zap size={14} className={styles.popupTurboIcon} />}
+                  {envio.es_lluvia && <CloudRain size={14} className={styles.popupLluviaIcon} />}
                 </h4>
                 <p><strong>Destinatario:</strong> {envio.mlreceiver_name}</p>
                 <p><strong>Dirección:</strong> {envio.direccion_completa}</p>
