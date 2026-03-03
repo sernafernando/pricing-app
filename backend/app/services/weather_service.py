@@ -4,17 +4,20 @@ Servicio de clima usando OpenWeatherMap API.
 Cache en memoria con TTL de 15 minutos para minimizar llamadas a la API.
 Free tier: 1000 calls/día → con cache de 15min = ~96 calls/día (sobra).
 
-El dato se expone en el TopBar del frontend para depósito, y a futuro
-se puede persistir en BD para cruzar con envíos (pronóstico de lluvia).
+Cada lectura exitosa se persiste en weather_history para poder cruzar
+con envíos despachados y saber qué clima había al momento del despacho.
 """
 
 import time
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 
 from app.core.config import settings
+from app.core.database import SessionLocal
+from app.models.weather_history import WeatherHistory
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,43 @@ def _set_cache(data: dict) -> None:
     """Guarda datos en cache con timestamp."""
     _weather_cache["data"] = data
     _weather_cache["timestamp"] = time.time()
+
+
+def _persist_weather(data: dict, weather_dt_unix: int) -> None:
+    """
+    Persiste una lectura de clima en la tabla weather_history.
+
+    Se ejecuta en una sesión independiente para no bloquear
+    el response al frontend si la BD tiene un problema.
+    """
+    db = SessionLocal()
+    try:
+        weather_dt = datetime.fromtimestamp(weather_dt_unix, tz=timezone.utc) if weather_dt_unix else None
+
+        record = WeatherHistory(
+            temp=data["temp"],
+            feels_like=data["feels_like"],
+            temp_min=data["temp_min"],
+            temp_max=data["temp_max"],
+            humidity=data["humidity"],
+            description=data["description"],
+            icon=data["icon"],
+            wind_speed=data["wind_speed"],
+            rain_1h=data["rain_1h"],
+            is_rainy=data["is_rainy"],
+            city=data["city"],
+            lat=settings.OPENWEATHER_LAT,
+            lon=settings.OPENWEATHER_LON,
+            weather_dt=weather_dt,
+        )
+        db.add(record)
+        db.commit()
+        logger.debug("Weather persisted to DB: id=%s", record.id)
+    except Exception as e:
+        logger.error("Error persisting weather to DB: %s", e)
+        db.rollback()
+    finally:
+        db.close()
 
 
 async def get_current_weather() -> Optional[dict]:
@@ -121,6 +161,11 @@ async def get_current_weather() -> Optional[dict]:
 
         # Guardar en cache
         _set_cache(data)
+
+        # Persistir en BD para historial
+        weather_dt_unix = raw.get("dt", 0)
+        _persist_weather(data, weather_dt_unix)
+
         logger.info(
             "Weather updated: %s — %.1f°C, %s",
             data["city"],
