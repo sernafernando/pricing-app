@@ -1,0 +1,379 @@
+/* == TrazaClienteViewer -- customer trace component ======================= */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.compact {
+  gap: 12px;
+}
+
+.emptyState {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: 32px 16px;
+  font-size: 14px;
+}
+
+/* -- Search info --------------------------------------------------------- */
+
+.searchInfo {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* -- Cliente card -------------------------------------------------------- */
+
+.clienteCard {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.clienteMain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.clienteNombre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  color: var(--text-primary);
+  flex-wrap: wrap;
+}
+
+.nombreAlt {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.custIdBadge {
+  font-family: monospace;
+  font-size: 11px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.inactivoBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 53, 71, 0.1);
+  color: var(--error);
+  white-space: nowrap;
+}
+
+.clienteMeta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.mlBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--cf-accent-blue);
+  background: rgba(59, 130, 246, 0.08);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* -- Sections ------------------------------------------------------------ */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* -- Transacciones table ------------------------------------------------- */
+
+.tableWrapper {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table thead {
+  background: var(--bg-tertiary);
+}
+
+.table th {
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.thExpand {
+  width: 32px;
+  padding: 8px 6px 8px 12px;
+}
+
+.table td {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.row {
+  transition: background 0.1s ease;
+}
+
+.rowClickable {
+  cursor: pointer;
+}
+
+.rowClickable:hover {
+  background: var(--bg-hover);
+}
+
+.rowExpanded {
+  background: var(--bg-secondary);
+}
+
+.tdExpand {
+  width: 32px;
+  padding: 8px 6px 8px 12px;
+}
+
+.monoCell {
+  font-family: monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.totalCell {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.countBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
+/* -- Expand icon --------------------------------------------------------- */
+
+.expandIcon {
+  color: var(--text-tertiary);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.expandIconOpen {
+  transform: rotate(90deg);
+}
+
+/* -- Expanded row (line items + serials) --------------------------------- */
+
+.expandedRow td {
+  padding: 0;
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--border-color);
+}
+
+.expandedContent {
+  padding: 12px 14px 12px 54px;
+  animation: expandIn 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@keyframes expandIn {
+  from { opacity: 0; max-height: 0; }
+  to { opacity: 1; max-height: 600px; }
+}
+
+.expandedEmpty {
+  padding: 12px 14px 12px 54px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* -- Line item row ------------------------------------------------------- */
+
+.lineaRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.lineaRow:last-child {
+  border-bottom: none;
+}
+
+.lineaMain {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.itemCode {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.itemDesc {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.itemQty {
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.itemPrice {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* -- Serials list -------------------------------------------------------- */
+
+.serialesList {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-left: 4px;
+}
+
+.serialBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.serialOk {
+  background: rgba(0, 200, 81, 0.08);
+  color: var(--success);
+}
+
+.serialNo {
+  background: rgba(255, 53, 71, 0.08);
+  color: var(--error);
+}
+
+/* -- Paginacion ---------------------------------------------------------- */
+
+.paginacion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.pageInfo {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pageButtons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pageBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pageBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.pageBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.currentPage {
+  font-size: 13px;
+  color: var(--text-primary);
+  padding: 0 8px;
+  font-variant-numeric: tabular-nums;
+}

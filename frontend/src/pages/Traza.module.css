@@ -37,6 +37,25 @@
   gap: 4px;
 }
 
+.modeSelectorRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.modeGroup {
+  display: flex;
+  gap: 4px;
+}
+
+.modeDivider {
+  width: 1px;
+  height: 24px;
+  background: var(--border-color);
+  flex-shrink: 0;
+}
+
 .modeBtn {
   display: inline-flex;
   align-items: center;

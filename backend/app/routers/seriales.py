@@ -207,6 +207,84 @@ class FacturaDetalleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ── Customer traza schemas ───────────────────────────────────────
+
+
+class ClienteInfo(BaseModel):
+    """Info del cliente encontrado"""
+
+    cust_id: int
+    nombre: str
+    nombre_alt: Optional[str] = None
+    cuit_dni: Optional[str] = None
+    tipo_documento: Optional[str] = None  # "CUIT", "DNI", etc.
+    clase_fiscal: Optional[str] = None  # "Resp. Inscripto", etc.
+    direccion: Optional[str] = None
+    ciudad: Optional[str] = None
+    telefono: Optional[str] = None
+    celular: Optional[str] = None
+    email: Optional[str] = None
+    ml_nickname: Optional[str] = None
+    ml_id: Optional[str] = None
+    inactivo: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SerialEnTransaccion(BaseModel):
+    """Un serial encontrado en una línea de una transacción"""
+
+    is_serial: str
+    is_available: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LineaTransaccionCliente(BaseModel):
+    """Una línea de producto dentro de una transacción del cliente"""
+
+    it_transaction: int
+    item_id: Optional[int] = None
+    item_code: Optional[str] = None
+    item_desc: Optional[str] = None
+    cantidad: Optional[float] = None
+    precio_unitario: Optional[float] = None
+    descuento_total: Optional[float] = None
+    cancelled: bool = False
+    seriales: list[SerialEnTransaccion] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TransaccionCliente(BaseModel):
+    """Una transacción comercial (factura/NC/remito) del cliente"""
+
+    ct_transaction: int
+    fecha: Optional[str] = None
+    tipo_doc: Optional[str] = None  # df_desc (ej: "Fc A 0005")
+    kindof: Optional[str] = None  # A, B, C...
+    punto_venta: Optional[int] = None
+    nro_documento: Optional[str] = None  # formatted
+    total: Optional[float] = None
+    supp_id: Optional[int] = None
+    proveedor: Optional[str] = None
+    soh_id: Optional[int] = None
+    lineas: list[LineaTransaccionCliente] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TrazaClienteResponse(BaseModel):
+    """Respuesta completa de traza por cliente"""
+
+    busqueda_por: str  # "cust_id", "taxnumber", "ml_nickname", "ml_fallback"
+    cliente: ClienteInfo
+    transacciones: list[TransaccionCliente] = []
+    total_transacciones: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # =============================================================================
 # QUERIES
 # =============================================================================
@@ -636,6 +714,166 @@ QUERY_FACTURA_DETALLE = text("""
 """)
 
 
+# ── Customer traza queries ───────────────────────────────────────
+
+QUERY_CLIENTE_BY_ID = text("""
+    SELECT
+        c.cust_id,
+        c.cust_name,
+        c.cust_name1,
+        c.cust_taxnumber,
+        tnt.tnt_desc AS tipo_documento,
+        fc.fc_desc AS clase_fiscal,
+        c.cust_address,
+        c.cust_city,
+        c.cust_phone1,
+        c.cust_cellphone,
+        c.cust_email,
+        c.cust_mercadolibrenickname,
+        c.cust_mercadolibreid,
+        COALESCE(c.cust_inactive, false) AS cust_inactive
+    FROM tb_customer c
+    LEFT JOIN tb_tax_number_type tnt
+        ON c.tnt_id = tnt.tnt_id
+    LEFT JOIN tb_fiscal_class fc
+        ON c.comp_id = fc.comp_id
+        AND c.fc_id = fc.fc_id
+    WHERE c.cust_id = :cust_id
+    LIMIT 1
+""")
+
+QUERY_CLIENTE_BY_TAXNUMBER = text("""
+    SELECT
+        c.cust_id,
+        c.cust_name,
+        c.cust_name1,
+        c.cust_taxnumber,
+        tnt.tnt_desc AS tipo_documento,
+        fc.fc_desc AS clase_fiscal,
+        c.cust_address,
+        c.cust_city,
+        c.cust_phone1,
+        c.cust_cellphone,
+        c.cust_email,
+        c.cust_mercadolibrenickname,
+        c.cust_mercadolibreid,
+        COALESCE(c.cust_inactive, false) AS cust_inactive
+    FROM tb_customer c
+    LEFT JOIN tb_tax_number_type tnt
+        ON c.tnt_id = tnt.tnt_id
+    LEFT JOIN tb_fiscal_class fc
+        ON c.comp_id = fc.comp_id
+        AND c.fc_id = fc.fc_id
+    WHERE c.cust_taxnumber = :taxnumber
+    LIMIT 1
+""")
+
+QUERY_CLIENTE_BY_ML_NICKNAME = text("""
+    SELECT
+        c.cust_id,
+        c.cust_name,
+        c.cust_name1,
+        c.cust_taxnumber,
+        tnt.tnt_desc AS tipo_documento,
+        fc.fc_desc AS clase_fiscal,
+        c.cust_address,
+        c.cust_city,
+        c.cust_phone1,
+        c.cust_cellphone,
+        c.cust_email,
+        c.cust_mercadolibrenickname,
+        c.cust_mercadolibreid,
+        COALESCE(c.cust_inactive, false) AS cust_inactive
+    FROM tb_customer c
+    LEFT JOIN tb_tax_number_type tnt
+        ON c.tnt_id = tnt.tnt_id
+    LEFT JOIN tb_fiscal_class fc
+        ON c.comp_id = fc.comp_id
+        AND c.fc_id = fc.fc_id
+    WHERE LOWER(c.cust_mercadolibrenickname) = LOWER(:nickname)
+    LIMIT 1
+""")
+
+QUERY_CLIENTE_FALLBACK_ML = text("""
+    SELECT DISTINCT
+        moh.cust_id
+    FROM tb_mercadolibre_users_data mud
+    INNER JOIN tb_mercadolibre_orders_header moh
+        ON mud.mluser_id = moh.mluser_id
+    WHERE LOWER(mud.nickname) = LOWER(:nickname)
+        AND moh.cust_id IS NOT NULL
+        AND moh.cust_id > 0
+    LIMIT 1
+""")
+
+QUERY_TRANSACCIONES_CLIENTE = text("""
+    SELECT
+        ct.ct_transaction,
+        ct.ct_date,
+        ct.ct_kindof,
+        ct.ct_pointofsale,
+        ct.ct_docnumber,
+        ct.ct_total,
+        ct.ct_soh_id,
+        ct.supp_id,
+        ct.df_id,
+        df.df_desc,
+        supp.supp_name AS proveedor_nombre
+    FROM tb_commercial_transactions ct
+    LEFT JOIN tb_document_file df
+        ON ct.comp_id = df.comp_id
+        AND ct.bra_id = df.bra_id
+        AND ct.df_id = df.df_id
+    LEFT JOIN tb_supplier supp
+        ON ct.comp_id = supp.comp_id
+        AND ct.supp_id = supp.supp_id
+    WHERE ct.cust_id = :cust_id
+        AND COALESCE(ct."ct_isCancelled", false) = false
+    ORDER BY ct.ct_date DESC NULLS LAST, ct.ct_transaction DESC
+    LIMIT :limit
+    OFFSET :offset
+""")
+
+QUERY_TRANSACCIONES_CLIENTE_COUNT = text("""
+    SELECT COUNT(*) AS total
+    FROM tb_commercial_transactions ct
+    WHERE ct.cust_id = :cust_id
+        AND COALESCE(ct."ct_isCancelled", false) = false
+""")
+
+QUERY_LINEAS_TRANSACCION = text("""
+    SELECT
+        it.it_transaction,
+        it.item_id,
+        ti.item_code,
+        COALESCE(pe.descripcion, ti.item_desc) AS item_desc,
+        it.it_qty AS cantidad,
+        it.it_price AS precio_unitario,
+        it.it_itemdiscounttotal AS descuento_total,
+        COALESCE(it.it_cancelled, false) AS cancelled
+    FROM tb_item_transactions it
+    LEFT JOIN tb_item ti
+        ON it.comp_id = ti.comp_id
+        AND it.item_id = ti.item_id
+    LEFT JOIN productos_erp pe
+        ON it.item_id = pe.item_id
+    WHERE it.ct_transaction = :ct_transaction
+    ORDER BY it.it_order ASC NULLS LAST, it.it_transaction ASC
+""")
+
+QUERY_SERIALES_BY_IT_TRANSACTION = text("""
+    SELECT
+        s.is_serial,
+        s.is_available
+    FROM tb_item_serials s
+    WHERE s.ct_transaction = :ct_transaction
+        AND s.it_transaction = :it_transaction
+        AND s.is_serial IS NOT NULL
+        AND s.is_serial != ''
+    ORDER BY s.is_serial
+""")
+
+
 # =============================================================================
 # HELPERS
 # =============================================================================
@@ -1036,8 +1274,251 @@ def _build_rma_by_ct_transaction(
 
 
 # =============================================================================
+# CUSTOMER TRAZA BUILDERS
+# =============================================================================
+
+
+def _build_cliente_info(row: dict) -> ClienteInfo:
+    """Construye ClienteInfo desde un row de tb_customer."""
+    return ClienteInfo(
+        cust_id=row["cust_id"],
+        nombre=row.get("cust_name") or "",
+        nombre_alt=row.get("cust_name1"),
+        cuit_dni=row.get("cust_taxnumber"),
+        tipo_documento=row.get("tipo_documento"),
+        clase_fiscal=row.get("clase_fiscal"),
+        direccion=row.get("cust_address"),
+        ciudad=row.get("cust_city"),
+        telefono=row.get("cust_phone1"),
+        celular=row.get("cust_cellphone"),
+        email=row.get("cust_email"),
+        ml_nickname=row.get("cust_mercadolibrenickname"),
+        ml_id=row.get("cust_mercadolibreid"),
+        inactivo=bool(row.get("cust_inactive", False)),
+    )
+
+
+def _find_cliente_by_ml_nickname(db: Session, nickname: str) -> tuple[Optional[ClienteInfo], str]:
+    """
+    Busca cliente por ML nickname:
+    1. Primero en tb_customer.cust_mercadolibrenickname
+    2. Fallback: tb_mercadolibre_users_data.nickname → orders → cust_id → tb_customer
+    Retorna (cliente_info, busqueda_por)
+    """
+    # Paso 1: Búsqueda directa en tb_customer
+    result = db.execute(QUERY_CLIENTE_BY_ML_NICKNAME, {"nickname": nickname})
+    row = result.fetchone()
+    if row:
+        return _build_cliente_info(dict(row._mapping)), "ml_nickname"
+
+    # Paso 2: Fallback vía tabla de usuarios ML
+    result_fb = db.execute(QUERY_CLIENTE_FALLBACK_ML, {"nickname": nickname})
+    fb_row = result_fb.fetchone()
+    if fb_row:
+        cust_id = dict(fb_row._mapping)["cust_id"]
+        result_cust = db.execute(QUERY_CLIENTE_BY_ID, {"cust_id": cust_id})
+        cust_row = result_cust.fetchone()
+        if cust_row:
+            return _build_cliente_info(dict(cust_row._mapping)), "ml_fallback"
+
+    return None, "ml_nickname"
+
+
+def _build_transacciones_cliente(
+    db: Session, cust_id: int, limit: int = 50, offset: int = 0
+) -> tuple[list[TransaccionCliente], int]:
+    """
+    Obtiene las transacciones comerciales de un cliente con sus líneas y seriales.
+    Retorna (transacciones, total_count).
+    """
+    # Total count
+    count_result = db.execute(QUERY_TRANSACCIONES_CLIENTE_COUNT, {"cust_id": cust_id})
+    total = count_result.scalar() or 0
+
+    # Transacciones paginadas
+    result = db.execute(
+        QUERY_TRANSACCIONES_CLIENTE,
+        {"cust_id": cust_id, "limit": limit, "offset": offset},
+    )
+    ct_rows = [dict(row._mapping) for row in result]
+
+    transacciones: list[TransaccionCliente] = []
+    for ct_row in ct_rows:
+        ct_id = ct_row["ct_transaction"]
+        ct_date = ct_row.get("ct_date")
+        ct_total = ct_row.get("ct_total")
+
+        # Líneas de esta transacción
+        result_lineas = db.execute(QUERY_LINEAS_TRANSACCION, {"ct_transaction": ct_id})
+        lineas_rows = [dict(r._mapping) for r in result_lineas]
+
+        lineas: list[LineaTransaccionCliente] = []
+        for lr in lineas_rows:
+            qty = lr.get("cantidad")
+            precio = lr.get("precio_unitario")
+            descuento = lr.get("descuento_total")
+
+            # Seriales de esta línea
+            result_seriales = db.execute(
+                QUERY_SERIALES_BY_IT_TRANSACTION,
+                {
+                    "ct_transaction": ct_id,
+                    "it_transaction": lr["it_transaction"],
+                },
+            )
+            seriales = [
+                SerialEnTransaccion(
+                    is_serial=dict(sr._mapping)["is_serial"],
+                    is_available=bool(dict(sr._mapping).get("is_available", False)),
+                )
+                for sr in result_seriales
+            ]
+
+            lineas.append(
+                LineaTransaccionCliente(
+                    it_transaction=lr["it_transaction"],
+                    item_id=lr.get("item_id"),
+                    item_code=lr.get("item_code"),
+                    item_desc=lr.get("item_desc"),
+                    cantidad=float(qty) if qty is not None else None,
+                    precio_unitario=float(precio) if precio is not None else None,
+                    descuento_total=float(descuento) if descuento is not None else None,
+                    cancelled=bool(lr.get("cancelled", False)),
+                    seriales=seriales,
+                )
+            )
+
+        transacciones.append(
+            TransaccionCliente(
+                ct_transaction=ct_id,
+                fecha=str(ct_date) if ct_date else None,
+                tipo_doc=ct_row.get("df_desc"),
+                kindof=ct_row.get("ct_kindof"),
+                punto_venta=ct_row.get("ct_pointofsale"),
+                nro_documento=construir_nro_documento(ct_row),
+                total=float(ct_total) if ct_total is not None else None,
+                supp_id=ct_row.get("supp_id"),
+                proveedor=ct_row.get("proveedor_nombre"),
+                soh_id=ct_row.get("ct_soh_id"),
+                lineas=lineas,
+            )
+        )
+
+    return transacciones, total
+
+
+# =============================================================================
 # ENDPOINTS
 # =============================================================================
+
+
+@router.get("/traza/cliente/{cust_id}", response_model=TrazaClienteResponse)
+def traza_cliente(
+    cust_id: int,
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TrazaClienteResponse:
+    """
+    Obtiene la traza de transacciones por # de cliente (cust_id).
+    Devuelve info del cliente + sus transacciones con líneas y seriales.
+    Paginado: page (1-indexed), page_size (default 50).
+    """
+    result = db.execute(QUERY_CLIENTE_BY_ID, {"cust_id": cust_id})
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No se encontró el cliente #{cust_id}",
+        )
+
+    cliente = _build_cliente_info(dict(row._mapping))
+    offset = (max(page, 1) - 1) * page_size
+    transacciones, total = _build_transacciones_cliente(db, cust_id, limit=page_size, offset=offset)
+
+    return TrazaClienteResponse(
+        busqueda_por="cust_id",
+        cliente=cliente,
+        transacciones=transacciones,
+        total_transacciones=total,
+    )
+
+
+@router.get("/traza/cliente-dni/{taxnumber}", response_model=TrazaClienteResponse)
+def traza_cliente_dni(
+    taxnumber: str,
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TrazaClienteResponse:
+    """
+    Obtiene la traza de transacciones por DNI/CUIT del cliente.
+    Busca en tb_customer.cust_taxnumber (match exacto).
+    Paginado: page (1-indexed), page_size (default 50).
+    """
+    # Limpiar el taxnumber: sacar guiones para normalizar
+    clean_tax = taxnumber.strip().replace("-", "")
+    result = db.execute(QUERY_CLIENTE_BY_TAXNUMBER, {"taxnumber": clean_tax})
+    row = result.fetchone()
+
+    if not row:
+        # Intentar con el valor original (por si está guardado con guiones)
+        result = db.execute(QUERY_CLIENTE_BY_TAXNUMBER, {"taxnumber": taxnumber.strip()})
+        row = result.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No se encontró cliente con DNI/CUIT: {taxnumber}",
+        )
+
+    row_dict = dict(row._mapping)
+    cliente = _build_cliente_info(row_dict)
+    offset = (max(page, 1) - 1) * page_size
+    transacciones, total = _build_transacciones_cliente(db, row_dict["cust_id"], limit=page_size, offset=offset)
+
+    return TrazaClienteResponse(
+        busqueda_por="taxnumber",
+        cliente=cliente,
+        transacciones=transacciones,
+        total_transacciones=total,
+    )
+
+
+@router.get("/traza/cliente-ml/{nickname}", response_model=TrazaClienteResponse)
+def traza_cliente_ml(
+    nickname: str,
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> TrazaClienteResponse:
+    """
+    Obtiene la traza de transacciones por usuario de MercadoLibre.
+    1. Busca en tb_customer.cust_mercadolibrenickname (match exacto case-insensitive).
+    2. Fallback: busca en tb_mercadolibre_users_data.nickname → orders → cust_id.
+    Paginado: page (1-indexed), page_size (default 50).
+    """
+    cliente, busqueda_por = _find_cliente_by_ml_nickname(db, nickname.strip())
+
+    if not cliente:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No se encontró cliente con usuario ML: {nickname}",
+        )
+
+    offset = (max(page, 1) - 1) * page_size
+    transacciones, total = _build_transacciones_cliente(db, cliente.cust_id, limit=page_size, offset=offset)
+
+    return TrazaClienteResponse(
+        busqueda_por=busqueda_por,
+        cliente=cliente,
+        transacciones=transacciones,
+        total_transacciones=total,
+    )
 
 
 @router.get(
