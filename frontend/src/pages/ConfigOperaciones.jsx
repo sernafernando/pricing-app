@@ -4,6 +4,7 @@ import {
   Trash2, Save, RefreshCw, Clock, Hash, ChevronDown, Building, Pencil, X,
 } from 'lucide-react';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import { registrarPagina, getPaginas } from '../registry/tabRegistry';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
@@ -548,7 +549,7 @@ function TabCostosEnvio() {
   // Per-logística vigente dates: { logistica_id: 'YYYY-MM-DD' }
   const [vigenteMap, setVigenteMap] = useState({});
   const [origVigenteMap, setOrigVigenteMap] = useState({});
-  const defaultDate = () => new Date().toISOString().split('T')[0];
+  const defaultDate = () => toLocalDateString();
 
   // ── Lluvia offset config ──────────────────────────────────────
   const [lluviaTipo, setLluviaTipo] = useState('fijo');

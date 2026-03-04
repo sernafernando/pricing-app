@@ -8,6 +8,7 @@ import {
 import MapaEnviosFlex from './MapaEnviosFlex';
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import { printZpl } from '../services/zebraPrint';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
@@ -42,7 +43,7 @@ const ML_STATUS_LABELS = {
   not_delivered: 'No entregado',
 };
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+const todayStr = () => toLocalDateString();
 
 // ── Helper: badge classes ───────────────────────────────────────
 
@@ -133,7 +134,7 @@ export default function TabEnviosFlex({ operador = null }) {
   // Filtros rápidos de fecha (copiados del Dashboard)
   const aplicarFiltroRapido = (filtro) => {
     const hoy = new Date();
-    const fmt = (d) => d.toISOString().split('T')[0];
+    const fmt = (d) => toLocalDateString(d);
     let desde;
     let hasta = hoy;
 

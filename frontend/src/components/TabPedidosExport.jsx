@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText, Truck, Search, CheckCircle, Clock, ScanBarcode } from 'lucide-react';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import { useToast } from '../hooks/useToast';
 import Toast from './Toast';
 import styles from './TabPedidosExport.module.css';
@@ -37,7 +38,7 @@ export default function TabPedidosExport() {
   // Modal Enviar a Flex (completo)
   const [showFlexModal, setShowFlexModal] = useState(false);
   const [flexForm, setFlexForm] = useState({
-    fecha_envio: new Date().toISOString().split('T')[0],
+    fecha_envio: toLocalDateString(),
     soh_id: '',
     bra_id: '',
     receiver_name: '',
@@ -466,7 +467,7 @@ export default function TabPedidosExport() {
     setFlexLoading(true);
     try {
       const { data } = await api.post('/etiquetas-envio/desde-pedido', {
-        fecha_envio: new Date().toISOString().split('T')[0],
+        fecha_envio: toLocalDateString(),
         soh_id: pedido.soh_id,
         bra_id: pedido.bra_id,
         receiver_name: dir.destinatario || pedido.nombre_cliente || 'Sin nombre',
@@ -602,7 +603,7 @@ export default function TabPedidosExport() {
       }
 
       setFlexForm({
-        fecha_envio: new Date().toISOString().split('T')[0],
+        fecha_envio: toLocalDateString(),
         soh_id: pedido.soh_id || '',
         bra_id: pedido.bra_id || '',
         receiver_name: dir.destinatario || pedido.nombre_cliente || '',
@@ -624,7 +625,7 @@ export default function TabPedidosExport() {
     } else {
       // Modal vacío — envío manual puro
       setFlexForm({
-        fecha_envio: new Date().toISOString().split('T')[0],
+        fecha_envio: toLocalDateString(),
         soh_id: '',
         bra_id: '',
         receiver_name: '',

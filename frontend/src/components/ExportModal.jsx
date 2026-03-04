@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
+import { toLocalTimestamp } from '../utils/dateUtils';
 import styles from './ExportModal.module.css';
 import { usePermisos } from '../contexts/PermisosContext';
 
@@ -284,8 +285,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       });
       const link = document.createElement('a');
       link.href = window.URL.createObjectURL(blob);
-      const ahora = new Date();
-      const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const timestamp = toLocalTimestamp();
       const nombreArchivo = `vista_actual_${timestamp}.xlsx`;
       link.setAttribute('download', nombreArchivo);
       document.body.appendChild(link);
@@ -328,8 +328,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      const ahora = new Date();
-      const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const timestamp = toLocalTimestamp();
       const nombreArchivo = `rebate_export_${timestamp}.xlsx`;
       link.setAttribute('download', nombreArchivo);
       document.body.appendChild(link);
@@ -403,8 +402,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      const ahora = new Date();
-      const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const timestamp = toLocalTimestamp();
 
       // Determinar nombre del archivo según tipo de cuotas
       let nombreBase = 'clasica';
@@ -456,8 +454,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      const ahora = new Date();
-      const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const timestamp = toLocalTimestamp();
       const monedaSufijo = monedaGremio === 'USD' ? '_USD' : '_ARS';
       const nombreArchivo = `lista_gremio${monedaSufijo}_${timestamp}.xlsx`;
       link.setAttribute('download', nombreArchivo);
@@ -532,8 +529,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      const ahora = new Date();
-      const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const timestamp = toLocalTimestamp();
       const nombreArchivo = `web_transferencia_${timestamp}.xlsx`;
       link.setAttribute('download', nombreArchivo);
       document.body.appendChild(link);
@@ -607,8 +603,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      const ahora = new Date();
-      const timestamp = ahora.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const timestamp = toLocalTimestamp();
 
       // Determinar nombre del archivo según tipo de cuotas
       let nombreBase = 'pvp';

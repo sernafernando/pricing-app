@@ -8,6 +8,7 @@ import ThemeToggleSimple from './ThemeToggleSimple';
 import NotificationBell from './NotificationBell';
 import { useWeather } from '../hooks/useWeather';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import styles from './TopBar.module.css';
 import logoIcon from '../assets/white-g-logo.png';
 
@@ -27,7 +28,7 @@ export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
   useEffect(() => {
     if (user) {
       setLoadingMetric(true);
-      const hoy = new Date().toISOString().split('T')[0];
+      const hoy = toLocalDateString();
       api.get(`/dashboard-ml/metricas-generales?fecha_desde=${hoy}&fecha_hasta=${hoy}`)
         .then(res => {
           setFacturadoHoy(res.data.total_ventas_ml);

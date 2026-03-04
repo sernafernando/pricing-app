@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import styles from './DashboardMetricasML.module.css';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
@@ -12,12 +13,11 @@ import { useServerPagination } from '../hooks/useServerPagination';
 const getDefaultFechaDesde = () => {
   const hoy = new Date();
   const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-  return primerDiaMes.toISOString().split('T')[0];
+  return toLocalDateString(primerDiaMes);
 };
 
 const getDefaultFechaHasta = () => {
-  const hoy = new Date();
-  return hoy.toISOString().split('T')[0];
+  return toLocalDateString();
 };
 
 export default function DashboardMetricasML() {
@@ -252,7 +252,7 @@ export default function DashboardMetricasML() {
 
   const aplicarFiltroRapido = (filtro) => {
     const hoy = new Date();
-    const formatearFechaISO = (fecha) => fecha.toISOString().split('T')[0];
+    const formatearFechaISO = (fecha) => toLocalDateString(fecha);
 
     let desde, hasta = hoy;
 
