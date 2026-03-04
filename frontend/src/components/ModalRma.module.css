@@ -1,0 +1,388 @@
+/* ModalRma.module.css — Tesla Design System + CSS Modules */
+
+/* ═══════════ Layouts ═══════════ */
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.grid3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+/* ═══════════ Form Labels ═══════════ */
+
+.label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.checkLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+/* ═══════════ Meta (auditoría) ═══════════ */
+
+.meta {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ═══════════ Búsqueda de traza ═══════════ */
+
+.searchRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.searchInputWrapper {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+}
+
+/* Resultados de traza */
+
+.trazaResults {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.trazaResultsLabel {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.trazaItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  transition: border-color 0.15s ease;
+}
+
+.trazaItem + .trazaItem {
+  margin-top: 4px;
+}
+
+.trazaItem:hover {
+  border-color: var(--color-success);
+}
+
+.trazaItemDesc {
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.trazaItemMeta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.trazaError {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+}
+
+/* ═══════════ Búsqueda de producto ═══════════ */
+
+.productoSearchContainer {
+  position: relative;
+}
+
+.productoSearchRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.productoInputWrapper {
+  flex: 1;
+  position: relative;
+}
+
+.productoSearchIcon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.productoInputWithIcon {
+  width: 100%;
+  padding-left: 36px !important;
+}
+
+.searchHint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+/* Resultados de búsqueda de producto — dropdown overlay */
+
+.productoResults {
+  margin-top: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  padding: 4px;
+}
+
+.productoResultItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.productoResultItem:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--color-success);
+}
+
+.productoResultInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.productoResultDesc {
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+
+.productoResultMeta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.productoResultStock {
+  color: var(--color-success);
+}
+
+.productoResultNoStock {
+  color: var(--text-secondary);
+}
+
+.productoResultPrice {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+
+.productoResultAdd {
+  margin-left: 8px;
+  color: var(--color-success);
+  flex-shrink: 0;
+}
+
+.noResults {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+/* ═══════════ Formulario manual ═══════════ */
+
+.manualForm {
+  margin-top: 12px;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.manualFormLabel {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.manualFormGrid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 8px;
+}
+
+.manualFormActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  justify-content: flex-end;
+}
+
+/* ═══════════ Items list ═══════════ */
+
+.itemsList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.itemCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  transition: border-color 0.15s ease;
+}
+
+.itemCard:hover {
+  border-color: var(--text-secondary);
+}
+
+.itemInfo {
+  flex: 1;
+}
+
+.itemDesc {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.itemMeta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.emptyItems {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 20px 0;
+}
+
+/* ═══════════ Historial ═══════════ */
+
+.historialEmpty {
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 24px;
+}
+
+.historialList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.historialRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  border: 1px solid var(--border-color);
+}
+
+.historialIcon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.historialFecha {
+  color: var(--text-secondary);
+  min-width: 130px;
+}
+
+.historialUsuario {
+  font-weight: 500;
+  min-width: 80px;
+  color: var(--text-primary);
+}
+
+.historialCampo {
+  color: var(--text-secondary);
+}
+
+.historialViejo {
+  text-decoration: line-through;
+  color: var(--color-danger);
+}
+
+.historialNuevo {
+  color: var(--color-success);
+}
+
+/* ═══════════ Responsive ═══════════ */
+
+@media (max-width: 768px) {
+  .grid2,
+  .grid3 {
+    grid-template-columns: 1fr;
+  }
+
+  .searchInputWrapper {
+    flex-direction: column;
+  }
+
+  .productoSearchRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .manualFormGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .historialRow {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .historialFecha {
+    min-width: auto;
+    width: 100%;
+  }
+}
