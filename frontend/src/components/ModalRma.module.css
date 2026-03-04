@@ -345,6 +345,160 @@
   font-style: italic;
 }
 
+/* Claim — description (from /detail) */
+
+.trazaClaimDescription {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  line-height: 1.4;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--cf-border-default);
+}
+
+/* Claim — reputation and incentive badges */
+
+.trazaClaimRepBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--cf-accent-orange);
+}
+
+.trazaClaimIncentiveBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-accent-green);
+  color: #fff;
+  font-weight: var(--font-medium);
+}
+
+/* Claim — message count badge */
+
+.trazaClaimMsgBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  border: 1px solid var(--cf-border-default);
+  font-weight: var(--font-medium);
+}
+
+/* Claim — sub-sections (return, change, expected resolutions) */
+
+.trazaClaimReturnSection,
+.trazaClaimChangeSection,
+.trazaClaimExpResSection {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--cf-border-default);
+}
+
+.trazaClaimSubHeader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  margin-bottom: 4px;
+}
+
+.trazaClaimSubBadge {
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-accent-blue);
+  color: #fff;
+  font-weight: var(--font-medium);
+  margin-left: auto;
+}
+
+.trazaClaimSubDetails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.trazaClaimSubDetails span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Claim — shipments within return */
+
+.trazaClaimShipments {
+  margin-top: 4px;
+}
+
+.trazaClaimShipment {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  padding: 2px 0;
+}
+
+.trazaClaimTracking {
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--cf-text-tertiary);
+}
+
+/* Claim — expected resolutions detail (negotiation) */
+
+.trazaClaimExpRes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  padding: 2px 0;
+}
+
+.trazaClaimExpResRole {
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+}
+
+.trazaClaimExpResBadge {
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  margin-left: auto;
+}
+
+.trazaClaimExpResAccepted {
+  background: var(--cf-accent-green);
+  color: #fff;
+  border-color: var(--cf-accent-green);
+}
+
+.trazaClaimExpResRejected {
+  background: var(--cf-accent-red);
+  color: #fff;
+  border-color: var(--cf-accent-red);
+}
+
 /* Artículo resultado de traza */
 
 .trazaItem {
