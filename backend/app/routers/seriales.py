@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -3557,3 +3557,71 @@ def get_order_messages(
         )
 
     return []
+
+
+# ── ML attachment proxy ─────────────────────────────────────────────────────
+
+# Map file extensions to MIME types
+_EXT_TO_MIME = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+}
+
+
+@router.get("/ml-attachment/{attachment_id:path}")
+def get_ml_attachment(
+    attachment_id: str,
+    current_user: Usuario = Depends(get_current_user),
+) -> Response:
+    """
+    Proxy para descargar adjuntos de mensajes de ML.
+    Fetchea /messages/attachments/{id}?tag=post_sale&site_id=MLA
+    y devuelve el binario con el content-type correcto.
+    """
+    resource = f"/messages/attachments/{attachment_id}?tag=post_sale&site_id=MLA"
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            r = client.get(
+                ML_WEBHOOK_RENDER_URL,
+                params={"resource": resource},
+            )
+            if r.status_code != 200:
+                raise HTTPException(
+                    status_code=r.status_code,
+                    detail=f"ML returned {r.status_code}",
+                )
+
+            # Determine content type from ML response or file extension
+            content_type = r.headers.get("content-type", "application/octet-stream")
+            if "json" in content_type or "text/html" in content_type:
+                # Proxy returned an error page or JSON error, not the file
+                # Try to guess from extension
+                ext = ""
+                for e in _EXT_TO_MIME:
+                    if attachment_id.lower().endswith(e):
+                        ext = e
+                        break
+                content_type = _EXT_TO_MIME.get(ext, "application/octet-stream")
+
+            return Response(
+                content=r.content,
+                media_type=content_type,
+                headers={
+                    "Cache-Control": "public, max-age=86400",
+                    "Content-Disposition": f'inline; filename="{attachment_id.split("/")[-1]}"',
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.warning(
+            "[ml-attachment] Failed to fetch attachment %s",
+            attachment_id,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=502, detail="Failed to fetch attachment")

@@ -186,6 +186,15 @@ const sanitizeMessageHtml = (html) => {
   return div.innerHTML;
 };
 
+const IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+const isImageAttachment = (key) => {
+  if (!key) return false;
+  const lower = typeof key === 'string' ? key.toLowerCase() : '';
+  return IMG_EXTENSIONS.some((ext) => lower.endsWith(ext));
+};
+
+const attachmentProxyUrl = (key) => `/api/seriales/ml-attachment/${encodeURIComponent(key)}`;
+
 export default function ModalRma({ caso, onClose }) {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rma.gestionar');
@@ -220,6 +229,7 @@ export default function ModalRma({ caso, onClose }) {
   const [orderMsgs, setOrderMsgs] = useState([]);
   const [claimMsgsLoading, setClaimMsgsLoading] = useState(false);
   const [claimMsgsClaimId, setClaimMsgsClaimId] = useState(null);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
 
   useEffect(() => {
     cargarOpciones();
@@ -1326,7 +1336,7 @@ export default function ModalRma({ caso, onClose }) {
                   <MessageSquare size={12} />
                   Conversación de la venta ({orderMsgs.length})
                 </div>
-                {orderMsgs.map((msg) => (
+                {[...orderMsgs].reverse().map((msg) => (
                   <div
                     key={msg.message_id}
                     className={`${styles.claimMsgBubble} ${msg.is_seller ? styles.claimMsgSeller : ''}`}
@@ -1344,10 +1354,47 @@ export default function ModalRma({ caso, onClose }) {
                         </span>
                       )}
                     </div>
-                    <div
-                      className={styles.claimMsgText}
-                      dangerouslySetInnerHTML={{ __html: sanitizeMessageHtml(msg.text) || '(sin texto)' }}
-                    />
+                    {msg.text && (
+                      <div
+                        className={styles.claimMsgText}
+                        dangerouslySetInnerHTML={{ __html: sanitizeMessageHtml(msg.text) }}
+                      />
+                    )}
+                    {msg.attachments && msg.attachments.length > 0 && (
+                      <div className={styles.claimMsgAttachments}>
+                        {msg.attachments.map((att, i) => {
+                          const key = typeof att === 'string' ? att : att?.id || att?.filename || '';
+                          if (isImageAttachment(key)) {
+                            return (
+                              <button
+                                key={i}
+                                type="button"
+                                className={styles.claimMsgImgThumb}
+                                onClick={() => setLightboxUrl(attachmentProxyUrl(key))}
+                                aria-label="Ver imagen adjunta"
+                              >
+                                <img
+                                  src={attachmentProxyUrl(key)}
+                                  alt="Adjunto"
+                                  loading="lazy"
+                                />
+                              </button>
+                            );
+                          }
+                          return (
+                            <a
+                              key={i}
+                              href={attachmentProxyUrl(key)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.claimMsgAttachment}
+                            >
+                              <Package size={10} /> {key.split('_').pop() || 'Adjunto'}
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 ))}
               </>
@@ -1402,6 +1449,31 @@ export default function ModalRma({ caso, onClose }) {
           </div>
         )}
       </ModalTesla>
+
+      {/* ── Lightbox: imagen adjunta ampliada ── */}
+      {lightboxUrl && (
+        <div
+          className={styles.lightboxOverlay}
+          onClick={() => setLightboxUrl(null)}
+          role="dialog"
+          aria-label="Imagen adjunta ampliada"
+        >
+          <button
+            type="button"
+            className={styles.lightboxClose}
+            onClick={() => setLightboxUrl(null)}
+            aria-label="Cerrar imagen"
+          >
+            &times;
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Adjunto ampliado"
+            className={styles.lightboxImg}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </>
   );
 }
