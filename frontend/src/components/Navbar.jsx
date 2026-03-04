@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import styles from './Navbar.module.css';
 import logo from '../assets/white-g-logo.png';
 import { useAuthStore } from '../store/authStore';
@@ -37,7 +38,7 @@ export default function Navbar() {
   // Cargar facturado del día para todos los usuarios (el backend filtra por marcas del PM)
   useEffect(() => {
     if (user) {
-      const hoy = new Date().toISOString().split('T')[0];
+      const hoy = toLocalDateString();
       api.get(`/dashboard-ml/metricas-generales?fecha_desde=${hoy}&fecha_hasta=${hoy}`)
         .then(res => {
           setFacturadoHoy(res.data.total_ventas_ml);

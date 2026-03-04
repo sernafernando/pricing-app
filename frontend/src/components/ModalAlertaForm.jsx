@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
+import { toLocalDateTimeString } from '../utils/dateUtils';
 import styles from './ModalAlertaForm.module.css';
 import AlertBanner from './AlertBanner';
 
@@ -18,7 +19,7 @@ export default function ModalAlertaForm({ alerta, onClose }) {
     roles_destinatarios: [],
     usuarios_destinatarios_ids: [],
     activo: false,
-    fecha_desde: new Date().toISOString().slice(0, 16),
+    fecha_desde: toLocalDateTimeString(),
     fecha_hasta: '',
     prioridad: 0,
     duracion_segundos: 5
@@ -45,8 +46,8 @@ export default function ModalAlertaForm({ alerta, onClose }) {
         roles_destinatarios: alerta.roles_destinatarios || [],
         usuarios_destinatarios_ids: alerta.usuarios_destinatarios?.map(u => u.id) || [],
         activo: alerta.activo !== undefined ? alerta.activo : false,
-        fecha_desde: alerta.fecha_desde ? new Date(alerta.fecha_desde).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16),
-        fecha_hasta: alerta.fecha_hasta ? new Date(alerta.fecha_hasta).toISOString().slice(0, 16) : '',
+        fecha_desde: alerta.fecha_desde ? toLocalDateTimeString(new Date(alerta.fecha_desde)) : toLocalDateTimeString(),
+        fecha_hasta: alerta.fecha_hasta ? toLocalDateTimeString(new Date(alerta.fecha_hasta)) : '',
         prioridad: alerta.prioridad ?? 0,
         duracion_segundos: alerta.duracion_segundos ?? 5
       });

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import styles from './CalendarioEnvios.module.css';
 
 const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
@@ -12,9 +13,9 @@ const CORDON_BADGE_CLASS = {
   'Cordón 3': styles.badgeCordon3,
 };
 
-const fmt = (d) => d.toISOString().split('T')[0];
+const fmt = (d) => toLocalDateString(d);
 
-const todayStr = () => fmt(new Date());
+const todayStr = () => toLocalDateString();
 
 /**
  * Calcula el rango de fechas para el modo seleccionado.

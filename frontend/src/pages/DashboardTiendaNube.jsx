@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
 import TabRentabilidadTiendaNube from '../components/TabRentabilidadTiendaNube';
 import EditableCell from '../components/EditableCell';
@@ -9,12 +10,11 @@ import { useQueryFilters } from '../hooks/useQueryFilters';
 const getDefaultFechaDesde = () => {
   const hoy = new Date();
   const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-  return primerDiaMes.toISOString().split('T')[0];
+  return toLocalDateString(primerDiaMes);
 };
 
 const getDefaultFechaHasta = () => {
-  const hoy = new Date();
-  return hoy.toISOString().split('T')[0];
+  return toLocalDateString();
 };
 
 export default function DashboardTiendaNube() {
@@ -274,7 +274,7 @@ export default function DashboardTiendaNube() {
 
   const aplicarFiltroRapido = (filtro) => {
     const hoy = new Date();
-    const formatearFechaISO = (fecha) => fecha.toISOString().split('T')[0];
+    const formatearFechaISO = (fecha) => toLocalDateString(fecha);
 
     let desde, hasta = hoy;
 
