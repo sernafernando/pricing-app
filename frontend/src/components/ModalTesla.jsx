@@ -197,12 +197,12 @@ export function ModalLoading({ message = 'Cargando...' }) {
   );
 }
 
-export function ModalFooterButtons({ onCancel, onConfirm, confirmText = 'Guardar', cancelText = 'Cancelar', confirmLoading, confirmDisabled, confirmVariant = 'primary' }) {
+export function ModalFooterButtons({ onCancel, onConfirm, confirmText = 'Guardar', cancelText = 'Cancelar', confirmLoading, confirmDisabled, confirmVariant = 'outline-subtle-primary' }) {
   return (
     <div className="btn-group-tesla right">
       {onCancel && (
         <button 
-          className="btn-tesla secondary" 
+          className="btn-tesla ghost" 
           onClick={onCancel}
           disabled={confirmLoading}
         >
