@@ -2451,11 +2451,18 @@ def _build_claim_from_ml_api(
     # Detail (from /claims/{id}/detail endpoint)
     det = detail_data or {}
 
-    # Related entities
+    # Related entities — ML returns either ["return", "change"] or
+    # [{"entity_type": "return", "entity_id": 123}] depending on the endpoint
     related_entities: Optional[list[str]] = None
     raw_related = claim_data.get("related_entities") or []
     if raw_related:
-        related_entities = [e.get("entity_type") for e in raw_related if e.get("entity_type")]
+        parsed: list[str] = []
+        for e in raw_related:
+            if isinstance(e, str):
+                parsed.append(e)
+            elif isinstance(e, dict) and e.get("entity_type"):
+                parsed.append(e["entity_type"])
+        related_entities = parsed or None
 
     # Expected resolutions detail (from /expected-resolutions endpoint)
     exp_res_detail: Optional[list[ClaimExpectedResolution]] = None
@@ -2630,7 +2637,7 @@ def _fetch_all_ml_endpoints(
 
     # 4. /v2/claims/{id}/returns (only if related_entities indicates return)
     related = claim_data.get("related_entities") or []
-    has_return = any(e.get("entity_type") == "return" for e in related)
+    has_return = any((e == "return" if isinstance(e, str) else e.get("entity_type") == "return") for e in related)
     if has_return:
         try:
             r = client.get(
@@ -2643,7 +2650,7 @@ def _fetch_all_ml_endpoints(
             pass
 
     # 5. /v1/claims/{id}/changes (only if related_entities indicates change)
-    has_change = any(e.get("entity_type") == "change" for e in related)
+    has_change = any((e == "change" if isinstance(e, str) else e.get("entity_type") == "change") for e in related)
     if has_change:
         try:
             r = client.get(
