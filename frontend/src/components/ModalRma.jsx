@@ -49,7 +49,9 @@ export default function ModalRma({ caso, onClose }) {
   const [showManualForm, setShowManualForm] = useState(false);
   const [manualItem, setManualItem] = useState({ producto_desc: '', precio: '', ean: '', serial_number: '' });
 
-  // (Claim messages modal is now handled by ClaimCards component)
+  // Claims de ML para el tab "Reclamo ML"
+  const [casoClaims, setCasoClaims] = useState([]);
+  const [claimsLoading, setClaimsLoading] = useState(false);
 
   useEffect(() => {
     cargarOpciones();
@@ -58,6 +60,26 @@ export default function ModalRma({ caso, onClose }) {
       cargarHistorial();
     }
   }, []);
+
+  // Cargar claims de ML cuando el caso tiene ml_id
+  useEffect(() => {
+    const mlId = casoData?.ml_id;
+    if (!mlId) return;
+    let cancelled = false;
+    const fetchClaims = async () => {
+      setClaimsLoading(true);
+      try {
+        const { data } = await api.get(`/seriales/traza/ml/${encodeURIComponent(mlId)}`);
+        if (!cancelled) setCasoClaims(data.claims || []);
+      } catch {
+        if (!cancelled) setCasoClaims([]);
+      } finally {
+        if (!cancelled) setClaimsLoading(false);
+      }
+    };
+    fetchClaims();
+    return () => { cancelled = true; };
+  }, [casoData?.ml_id]);
 
   // Búsqueda de productos con debounce
   useEffect(() => {
@@ -143,6 +165,8 @@ export default function ModalRma({ caso, onClose }) {
   const agregarItemDesdeTraza = (serial, articulo, pedido, movimientos = []) => {
     // Buscar movimiento tipo CLIENTE para obtener factura y precio
     const movCliente = movimientos?.find((m) => m.tipo === 'CLIENTE');
+    // Buscar movimiento tipo PROVEEDOR para obtener datos del proveedor (compra)
+    const movProveedor = movimientos?.find((m) => m.tipo === 'PROVEEDOR');
 
     const nuevoItem = {
       serial_number: serial || null,
@@ -154,6 +178,9 @@ export default function ModalRma({ caso, onClose }) {
       // Datos extra de la operación para referencia
       is_id: movCliente?.is_id || null,
       it_transaction: movCliente?.ct_transaction || null,
+      // Auto-completar proveedor desde la traza de compra
+      proveedor_nombre: movProveedor?.referencia_nombre || null,
+      supp_id: movProveedor?.referencia_id || null,
     };
 
     // Determinar origen basado en si hay ML ID
@@ -781,22 +808,29 @@ export default function ModalRma({ caso, onClose }) {
 
           {/* ═══════════ TAB: Reclamo ML ═══════════ */}
           {activeTab === 'reclamo' && (
-            <ModalSection title="Reclamo MercadoLibre">
-              <div className={styles.grid3}>
-                <label>
-                  <span className={styles.label}>Estado del reclamo</span>
-                  {renderDropdown('estado_reclamo_ml', casoData.estado_reclamo_ml_id, (v) => setCasoData({ ...casoData, estado_reclamo_ml_id: v }), !puedeGestionar)}
-                </label>
-                <label>
-                  <span className={styles.label}>ML cubrió el producto</span>
-                  {renderDropdown('cobertura_ml', casoData.cobertura_ml_id, (v) => setCasoData({ ...casoData, cobertura_ml_id: v }), !puedeGestionar)}
-                </label>
-                <label>
-                  <span className={styles.label}>Monto cubierto</span>
-                  <input className={styles.input} type="number" step="0.01" value={casoData.monto_cubierto || ''} onChange={(e) => setCasoData({ ...casoData, monto_cubierto: e.target.value ? Number(e.target.value) : null })} disabled={!puedeGestionar} />
-                </label>
-              </div>
-            </ModalSection>
+            <>
+              <ModalSection title="Reclamo MercadoLibre">
+                <div className={styles.grid3}>
+                  <label>
+                    <span className={styles.label}>Estado del reclamo</span>
+                    {renderDropdown('estado_reclamo_ml', casoData.estado_reclamo_ml_id, (v) => setCasoData({ ...casoData, estado_reclamo_ml_id: v }), !puedeGestionar)}
+                  </label>
+                  <label>
+                    <span className={styles.label}>ML cubrió el producto</span>
+                    {renderDropdown('cobertura_ml', casoData.cobertura_ml_id, (v) => setCasoData({ ...casoData, cobertura_ml_id: v }), !puedeGestionar)}
+                  </label>
+                  <label>
+                    <span className={styles.label}>Monto cubierto</span>
+                    <input className={styles.input} type="number" step="0.01" value={casoData.monto_cubierto || ''} onChange={(e) => setCasoData({ ...casoData, monto_cubierto: e.target.value ? Number(e.target.value) : null })} disabled={!puedeGestionar} />
+                  </label>
+                </div>
+              </ModalSection>
+              {casoData.ml_id && (
+                claimsLoading
+                  ? <ModalLoading />
+                  : casoClaims.length > 0 && <ClaimCards claims={casoClaims} />
+              )}
+            </>
           )}
 
           {/* ═══════════ TAB: Proveedor ═══════════ */}
