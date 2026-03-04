@@ -938,3 +938,67 @@
 .claimMsgsSectionHeader:not(:first-child) {
   margin-top: var(--spacing-md);
 }
+
+/* Attachment image thumbnail */
+.claimMsgImgThumb {
+  display: block;
+  max-width: 240px;
+  margin-top: 4px;
+  padding: 0;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  background: none;
+  transition: border-color var(--duration-200) var(--ease-out);
+}
+
+.claimMsgImgThumb:hover {
+  border-color: var(--cf-accent-blue);
+}
+
+.claimMsgImgThumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+
+/* Lightbox overlay */
+.lightboxOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+  cursor: pointer;
+}
+
+.lightboxClose {
+  position: absolute;
+  top: 16px;
+  right: 24px;
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 32px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+  opacity: 0.7;
+  transition: opacity var(--duration-200) var(--ease-out);
+}
+
+.lightboxClose:hover {
+  opacity: 1;
+}
+
+.lightboxImg {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  cursor: default;
+}
