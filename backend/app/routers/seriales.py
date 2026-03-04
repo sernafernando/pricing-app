@@ -3588,7 +3588,7 @@ def get_ml_attachment(
         with httpx.Client(timeout=15.0) as client:
             r = client.get(
                 ML_WEBHOOK_RENDER_URL,
-                params={"resource": resource},
+                params={"resource": resource, "format": "json"},
             )
             if r.status_code != 200:
                 raise HTTPException(
