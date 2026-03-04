@@ -187,7 +187,7 @@ class TrazaMLResponse(BaseModel):
     """Respuesta completa de traza por venta ML"""
 
     ml_id: str
-    busqueda_por: str = "soh_mlid"  # "soh_mlid" o "mlshippingid"
+    busqueda_por: str = "soh_mlid"  # soh_mlid | ml_pack_id | soh_mlguia | mlshippingid
     pedidos: list[PedidoSerial] = []
     seriales: list[TrazaMLSerialItem] = []
     rma_por_factura: list[RMASerial] = []  # RMAs encontrados vía factura (no por serial)
@@ -631,6 +631,32 @@ QUERY_PEDIDOS_BY_SHIPPINGID = text("""
     LEFT JOIN tb_sale_order_status ssos
         ON soh.ssos_id = ssos.ssos_id
     WHERE ship.mlshippingid = :shipping_id
+    ORDER BY soh.soh_cd ASC NULLS LAST
+""")
+
+QUERY_PEDIDOS_BY_PACKID = text("""
+    SELECT DISTINCT
+        soh.soh_id,
+        soh.bra_id,
+        soh.comp_id,
+        soh.soh_cd,
+        soh.cust_id,
+        cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
+        soh.soh_mlid,
+        soh.mlshippingid,
+        ssos.ssos_name AS estado_nombre
+    FROM tb_mercadolibre_orders_header mlo
+    INNER JOIN tb_sale_order_header soh
+        ON mlo.mlo_id = soh.mlo_id
+    LEFT JOIN tb_customer cust
+        ON soh.comp_id = cust.comp_id
+        AND soh.cust_id = cust.cust_id
+    LEFT JOIN tb_sale_order_status ssos
+        ON soh.ssos_id = ssos.ssos_id
+    WHERE mlo.ml_pack_id = :pack_id
     ORDER BY soh.soh_cd ASC NULLS LAST
 """)
 
@@ -2304,9 +2330,16 @@ def traza_ml(
     # Si no y es numérico → soh_mlguia → shipping table → soh_mlid (fallbacks)
     # Si no es numérico → buscar como soh_mlid
     if ml_id.startswith("2000"):
+        # Buscar por order_id (soh_mlid) primero
         busqueda_por = "soh_mlid"
         result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
         pedidos_rows = [dict(row._mapping) for row in result_pedidos]
+
+        # Fallback: puede ser un pack_id (ML muestra pack_id en la UI de ventas)
+        if not pedidos_rows:
+            busqueda_por = "ml_pack_id"
+            result_pedidos = db.execute(QUERY_PEDIDOS_BY_PACKID, {"pack_id": ml_id})
+            pedidos_rows = [dict(row._mapping) for row in result_pedidos]
     elif ml_id.isdigit():
         # Intentar soh_mlguia primero (campo directo en el pedido)
         busqueda_por = "soh_mlguia"
@@ -2319,10 +2352,16 @@ def traza_ml(
             result_pedidos = db.execute(QUERY_PEDIDOS_BY_SHIPPINGID, {"shipping_id": ml_id})
             pedidos_rows = [dict(row._mapping) for row in result_pedidos]
 
-        # Fallback final: buscar como soh_mlid
+        # Fallback: buscar como soh_mlid
         if not pedidos_rows:
             busqueda_por = "soh_mlid"
             result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
+            pedidos_rows = [dict(row._mapping) for row in result_pedidos]
+
+        # Fallback final: buscar como pack_id
+        if not pedidos_rows:
+            busqueda_por = "ml_pack_id"
+            result_pedidos = db.execute(QUERY_PEDIDOS_BY_PACKID, {"pack_id": ml_id})
             pedidos_rows = [dict(row._mapping) for row in result_pedidos]
     else:
         busqueda_por = "soh_mlid"

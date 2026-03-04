@@ -119,17 +119,17 @@ export default function ModalRma({ caso, onClose }) {
     setBuscandoTraza(true);
     setTrazaResult(null);
     try {
-      let data;
-      if (searchSerial.startsWith('2000')) {
-        const res = await api.get(`/seriales/traza/ml/${searchSerial}`);
-        data = res.data;
-      } else {
-        const res = await api.get(`/seriales/traza/${searchSerial}`);
-        data = res.data;
-      }
-      setTrazaResult(data);
+      // Siempre buscar primero como serial
+      const res = await api.get(`/seriales/traza/${searchSerial}`);
+      setTrazaResult(res.data);
     } catch {
-      setTrazaResult({ error: 'No se encontraron resultados' });
+      // No es serial — intentar como ML (order_id, pack_id, shipping_id)
+      try {
+        const res = await api.get(`/seriales/traza/ml/${searchSerial}`);
+        setTrazaResult(res.data);
+      } catch {
+        setTrazaResult({ error: 'No se encontraron resultados' });
+      }
     } finally {
       setBuscandoTraza(false);
     }
