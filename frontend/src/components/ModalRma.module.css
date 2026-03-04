@@ -159,6 +159,21 @@
   font-weight: var(--font-semibold);
 }
 
+.trazaOperacionLink {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color var(--duration-150) var(--ease-out);
+}
+
+.trazaOperacionLink:hover {
+  text-decoration: underline;
+}
+
 .trazaOperacionBadge {
   font-size: 10px;
   padding: 1px 6px;

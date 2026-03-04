@@ -352,9 +352,18 @@ export default function ModalRma({ caso, onClose }) {
                             <div key={pedido.soh_id} className={styles.trazaOperacionCard}>
                               <div className={styles.trazaOperacionHeader}>
                                 <ShoppingCart size={14} />
-                                <span className={styles.trazaOperacionTitle}>
-                                  {pedido.ml_id ? `Venta ML #${pedido.ml_id}` : `Pedido #${pedido.soh_id}`}
-                                </span>
+                                {pedido.ml_id ? (
+                                  <a
+                                    href={`https://www.mercadolibre.com.ar/ventas/${pedido.ml_id}/detalle`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={styles.trazaOperacionLink}
+                                  >
+                                    Venta ML #{pedido.ml_id} <ExternalLink size={12} />
+                                  </a>
+                                ) : (
+                                  <span className={styles.trazaOperacionTitle}>Pedido #{pedido.soh_id}</span>
+                                )}
                                 {pedido.estado && (
                                   <span className={styles.trazaOperacionBadge}>{pedido.estado}</span>
                                 )}
