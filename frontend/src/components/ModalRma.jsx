@@ -193,7 +193,7 @@ const isImageAttachment = (key) => {
   return IMG_EXTENSIONS.some((ext) => lower.endsWith(ext));
 };
 
-const attachmentProxyUrl = (key) => `/api/seriales/ml-attachment/${encodeURIComponent(key)}`;
+const attachmentProxyUrl = (key) => `/api/seriales/ml-attachment?id=${encodeURIComponent(key)}`;
 
 export default function ModalRma({ caso, onClose }) {
   const { tienePermiso } = usePermisos();
