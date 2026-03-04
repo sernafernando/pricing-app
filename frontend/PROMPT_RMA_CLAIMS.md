@@ -387,7 +387,10 @@ Solo se llama si `related_entities` contiene `"change"`.
 
 Conversación entre comprador, vendedor y mediador. En el fetch automático solo se pide `?limit=1` para obtener el count total. Los mensajes completos se guardan en `rma_claims_ml_messages` cuando están disponibles.
 
+> **ATENCIÓN**: ML devuelve formatos inconsistentes. Puede ser un dict con `{paging, data}` O una lista plana directamente. El backend maneja ambos con `isinstance(messages_data, list)`.
+
 ```jsonc
+// Formato 1: dict con paging (según docs oficiales de ML)
 {
   "paging": {
     "total": 5,
@@ -414,16 +417,40 @@ Conversación entre comprador, vendedor y mediador. En el fetch automático solo
     }
   ]
 }
+
+// Formato 2: lista plana (observado en producción 2026-03-04)
+[
+  {
+    "sender_role": "complainant",
+    "receiver_role": "respondent",
+    "message": "El producto llegó pero no funciona...",
+    "status": "available",
+    "stage": "claim",
+    "attachments": [],
+    "message_moderation": null,
+    "date_created": "2026-03-04T08:30:00.000-04:00",
+    "date_read": "2026-03-04T09:00:00.000-04:00"
+  }
+]
 ```
 
 ---
 
 #### 8. Afecta reputación — `/post-purchase/v1/claims/{claim_id}/affects-reputation`
 
+> **ATENCIÓN**: `affects_reputation` puede ser `boolean` O `string`. ML devuelve `"not_affected"` / `"affected"` en vez de `true`/`false` en producción. El backend maneja ambos con `isinstance()`.
+
 ```jsonc
+// Formato según docs oficiales de ML:
 {
   "affects_reputation": true,
-  "has_incentive": true          // incentivo de 48hs para resolver sin impacto en reputación
+  "has_incentive": true
+}
+
+// Formato real observado en producción (2026-03-04):
+{
+  "affects_reputation": "not_affected",   // "affected" | "not_affected" (string, no bool!)
+  "has_incentive": true                   // este sí viene como bool (por ahora)
 }
 ```
 
