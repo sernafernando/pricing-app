@@ -2675,12 +2675,12 @@ def _fetch_all_ml_endpoints(
         except Exception:
             pass
 
-    # 6. /claims/{id}/messages?limit=1 (just to get total count)
+    # 6. /claims/{id}/messages (fetch all — cached in rma_claims_ml_messages)
     try:
         r = client.get(
             ML_WEBHOOK_RENDER_URL,
             params={
-                "resource": f"/post-purchase/v1/claims/{claim_id}/messages?limit=1",
+                "resource": f"/post-purchase/v1/claims/{claim_id}/messages",
                 "format": "json",
             },
         )
@@ -3370,3 +3370,76 @@ def traza_ml(
         rma_por_factura=rma_por_factura,
         claims=claims,
     )
+
+
+# ── Claim messages ──────────────────────────────────────────────────────────
+
+
+class ClaimMessageResponse(BaseModel):
+    """Mensaje individual de un reclamo ML."""
+
+    id: int
+    claim_id: int
+    sender_role: Optional[str] = None
+    receiver_role: Optional[str] = None
+    message: Optional[str] = None
+    status: Optional[str] = None
+    stage: Optional[str] = None
+    attachments: Optional[list] = None
+    date_read: Optional[str] = None
+    ml_date_created: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get(
+    "/claims/{claim_id}/messages",
+    response_model=list[ClaimMessageResponse],
+)
+def get_claim_messages(
+    claim_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[ClaimMessageResponse]:
+    """
+    Devuelve los mensajes cacheados de un reclamo de ML.
+    Si no hay mensajes en cache, intenta fetchearlos de la API de ML,
+    los guarda en cache y los devuelve.
+    """
+    # 1. Try local cache first
+    rows = (
+        db.query(RmaClaimMLMessage)
+        .filter(RmaClaimMLMessage.claim_id == claim_id)
+        .order_by(RmaClaimMLMessage.ml_date_created.asc())
+        .all()
+    )
+    if rows:
+        return rows
+
+    # 2. Fetch from ML API and save to cache
+    claim_id_str = str(claim_id)
+    try:
+        with httpx.Client(timeout=_HTTPX_TIMEOUT) as client:
+            r = client.get(
+                ML_WEBHOOK_RENDER_URL,
+                params={
+                    "resource": f"/post-purchase/v1/claims/{claim_id_str}/messages",
+                    "format": "json",
+                },
+            )
+            if r.status_code == 200:
+                messages_data = r.json()
+                _save_messages_to_cache(claim_id_str, messages_data)
+
+                # Re-query after save
+                rows = (
+                    db.query(RmaClaimMLMessage)
+                    .filter(RmaClaimMLMessage.claim_id == claim_id)
+                    .order_by(RmaClaimMLMessage.ml_date_created.asc())
+                    .all()
+                )
+                return rows
+    except Exception:
+        logger.warning("[claims] Failed to fetch messages for claim %s", claim_id, exc_info=True)
+
+    return []
