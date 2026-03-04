@@ -17,7 +17,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import { useDebounce } from '../hooks/useDebounce';
 import api from '../services/api';
 import ModalTesla, { ModalSection, ModalFooterButtons, ModalLoading } from './ModalTesla';
-import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine, ShoppingCart, FileText, CalendarDays, Tag, Phone, Mail } from 'lucide-react';
+import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine, ShoppingCart, FileText, CalendarDays, Tag, Phone, Mail, AlertTriangle, Shield, Hash } from 'lucide-react';
 import styles from './ModalRma.module.css';
 
 export default function ModalRma({ caso, onClose }) {
@@ -119,17 +119,17 @@ export default function ModalRma({ caso, onClose }) {
     setBuscandoTraza(true);
     setTrazaResult(null);
     try {
-      let data;
-      if (searchSerial.startsWith('2000')) {
-        const res = await api.get(`/seriales/traza/ml/${searchSerial}`);
-        data = res.data;
-      } else {
-        const res = await api.get(`/seriales/traza/${searchSerial}`);
-        data = res.data;
-      }
-      setTrazaResult(data);
+      // Siempre buscar primero como serial
+      const res = await api.get(`/seriales/traza/${searchSerial}`);
+      setTrazaResult(res.data);
     } catch {
-      setTrazaResult({ error: 'No se encontraron resultados' });
+      // No es serial — intentar como ML (order_id, pack_id, shipping_id)
+      try {
+        const res = await api.get(`/seriales/traza/ml/${searchSerial}`);
+        setTrazaResult(res.data);
+      } catch {
+        setTrazaResult({ error: 'No se encontraron resultados' });
+      }
     } finally {
       setBuscandoTraza(false);
     }
@@ -369,10 +369,22 @@ export default function ModalRma({ caso, onClose }) {
                                 )}
                               </div>
                               <div className={styles.trazaOperacionDetails}>
+                                {pedido.cust_id && (
+                                  <div className={styles.trazaOperacionDetail}>
+                                    <Hash size={12} />
+                                    <span>Cliente #{pedido.cust_id}</span>
+                                  </div>
+                                )}
                                 {pedido.cliente && (
                                   <div className={styles.trazaOperacionDetail}>
                                     <User size={12} />
                                     <span>{pedido.cliente}</span>
+                                  </div>
+                                )}
+                                {pedido.soh_id && pedido.ml_id && (
+                                  <div className={styles.trazaOperacionDetail}>
+                                    <ShoppingCart size={12} />
+                                    <span>Pedido #{pedido.soh_id}</span>
                                   </div>
                                 )}
                                 {pedido.fecha && (
@@ -432,6 +444,86 @@ export default function ModalRma({ caso, onClose }) {
                                 )}
                               </div>
                             ))}
+                        </div>
+                      )}
+
+                      {/* Claims de MercadoLibre asociados */}
+                      {(trazaResult.claims || []).length > 0 && (
+                        <div className={styles.trazaClaims}>
+                          {trazaResult.claims.map((claim) => (
+                            <div
+                              key={claim.claim_id}
+                              className={`${styles.trazaClaimCard} ${claim.status === 'opened' ? styles.trazaClaimOpen : styles.trazaClaimClosed}`}
+                            >
+                              <div className={styles.trazaClaimHeader}>
+                                <AlertTriangle size={14} />
+                                <span className={styles.trazaClaimTitle}>
+                                  Reclamo #{claim.claim_id}
+                                </span>
+                                <span className={`${styles.trazaClaimBadge} ${claim.status === 'opened' ? styles.trazaClaimBadgeOpen : styles.trazaClaimBadgeClosed}`}>
+                                  {claim.status === 'opened' ? 'Abierto' : 'Cerrado'}
+                                </span>
+                              </div>
+
+                              {/* Motivo */}
+                              <div className={styles.trazaClaimMotivo}>
+                                {claim.reason_detail || claim.reason_category || 'Sin motivo'}
+                              </div>
+
+                              {/* Tags y resoluciones esperadas */}
+                              <div className={styles.trazaClaimTags}>
+                                {(claim.triage_tags || []).map((tag) => (
+                                  <span key={tag} className={styles.trazaClaimTag}>{tag}</span>
+                                ))}
+                                {(claim.expected_resolutions || []).map((res) => (
+                                  <span key={res} className={styles.trazaClaimResolution}>{res.replace(/_/g, ' ')}</span>
+                                ))}
+                              </div>
+
+                              {/* Detalles */}
+                              <div className={styles.trazaClaimDetails}>
+                                {claim.claim_stage && (
+                                  <div className={styles.trazaClaimDetail}>
+                                    <Shield size={12} />
+                                    <span>Etapa: {claim.claim_stage}</span>
+                                  </div>
+                                )}
+                                {claim.action_responsible === 'seller' && claim.status === 'opened' && (
+                                  <div className={`${styles.trazaClaimDetail} ${styles.trazaClaimUrgent}`}>
+                                    <AlertTriangle size={12} />
+                                    <span>Requiere acción del vendedor</span>
+                                  </div>
+                                )}
+                                {claim.nearest_due_date && claim.status === 'opened' && (
+                                  <div className={`${styles.trazaClaimDetail} ${styles.trazaClaimUrgent}`}>
+                                    <Clock size={12} />
+                                    <span>Vence: {new Date(claim.nearest_due_date).toLocaleDateString('es-AR')}</span>
+                                  </div>
+                                )}
+                                {claim.date_created && (
+                                  <div className={styles.trazaClaimDetail}>
+                                    <CalendarDays size={12} />
+                                    <span>Creado: {new Date(claim.date_created).toLocaleDateString('es-AR')}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Acciones obligatorias */}
+                              {(claim.mandatory_actions || []).length > 0 && claim.status === 'opened' && (
+                                <div className={styles.trazaClaimMandatory}>
+                                  Acciones obligatorias: {claim.mandatory_actions.join(', ')}
+                                </div>
+                              )}
+
+                              {/* Resolución (si cerrado) */}
+                              {claim.status === 'closed' && claim.resolution_reason && (
+                                <div className={styles.trazaClaimResolved}>
+                                  Resolución: {claim.resolution_reason.replace(/_/g, ' ')}
+                                  {claim.resolution_closed_by && ` (por ${claim.resolution_closed_by})`}
+                                </div>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       )}
 
@@ -594,7 +686,7 @@ export default function ModalRma({ caso, onClose }) {
 
               {/* Datos del caso */}
               <ModalSection title="Datos del caso">
-                <div className={styles.grid2}>
+                <div className={styles.grid3}>
                   <label>
                     <span className={styles.label}>Cliente</span>
                     <input className={styles.input} value={casoData.cliente_nombre || ''} onChange={(e) => setCasoData({ ...casoData, cliente_nombre: e.target.value })} disabled={!puedeGestionar} />
@@ -602,6 +694,10 @@ export default function ModalRma({ caso, onClose }) {
                   <label>
                     <span className={styles.label}>DNI / CUIT</span>
                     <input className={styles.input} value={casoData.cliente_dni || ''} onChange={(e) => setCasoData({ ...casoData, cliente_dni: e.target.value })} disabled={!puedeGestionar} />
+                  </label>
+                  <label>
+                    <span className={styles.label}>N° Cliente (ERP)</span>
+                    <input className={styles.input} type="number" value={casoData.cust_id || ''} onChange={(e) => setCasoData({ ...casoData, cust_id: e.target.value ? Number(e.target.value) : null })} disabled={!puedeGestionar} placeholder="ID del cliente en ERP" />
                   </label>
                   <label>
                     <span className={styles.label}>Teléfono de contacto</span>
