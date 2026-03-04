@@ -17,7 +17,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import { useDebounce } from '../hooks/useDebounce';
 import api from '../services/api';
 import ModalTesla, { ModalSection, ModalFooterButtons, ModalLoading } from './ModalTesla';
-import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine } from 'lucide-react';
+import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine, ShoppingCart, FileText, CalendarDays, Tag, Phone, Mail } from 'lucide-react';
 import styles from './ModalRma.module.css';
 
 export default function ModalRma({ caso, onClose }) {
@@ -135,7 +135,10 @@ export default function ModalRma({ caso, onClose }) {
     }
   };
 
-  const agregarItemDesdeTraza = (serial, articulo, pedido) => {
+  const agregarItemDesdeTraza = (serial, articulo, pedido, movimientos = []) => {
+    // Buscar movimiento tipo CLIENTE para obtener factura y precio
+    const movCliente = movimientos?.find((m) => m.tipo === 'CLIENTE');
+
     const nuevoItem = {
       serial_number: serial || null,
       item_id: articulo?.item_id || null,
@@ -143,13 +146,27 @@ export default function ModalRma({ caso, onClose }) {
       producto_desc: articulo?.descripcion || 'Sin descripción',
       precio: null,
       link_ml: pedido?.ml_id ? `https://www.mercadolibre.com.ar/ventas/${pedido.ml_id}/detalle` : null,
+      // Datos extra de la operación para referencia
+      is_id: movCliente?.is_id || null,
+      it_transaction: movCliente?.ct_transaction || null,
     };
+
+    // Determinar origen basado en si hay ML ID
+    const origenDetectado = pedido?.ml_id ? 'mercadolibre' : null;
+
+    // Extraer teléfono como número (el campo cliente_numero es int en el backend)
+    const telRaw = pedido?.cliente_telefono?.replace(/\D/g, '');
+    const telNumero = telRaw ? Number(telRaw) : null;
 
     setCasoData((prev) => ({
       ...prev,
       items: [...(prev.items || []), nuevoItem],
       ml_id: prev.ml_id || pedido?.ml_id || null,
       cliente_nombre: prev.cliente_nombre || pedido?.cliente || null,
+      cliente_dni: prev.cliente_dni || pedido?.cliente_dni || null,
+      cliente_numero: prev.cliente_numero || telNumero,
+      cust_id: prev.cust_id || pedido?.cust_id || null,
+      origen: prev.origen || origenDetectado,
     }));
   };
 
@@ -327,6 +344,89 @@ export default function ModalRma({ caso, onClose }) {
                   {trazaResult && !trazaResult.error && (
                     <div className={styles.trazaResults}>
                       <p className={styles.trazaResultsLabel}>Resultados de traza:</p>
+
+                      {/* Datos de la operación (pedidos asociados) */}
+                      {(trazaResult.pedidos || []).length > 0 && (
+                        <div className={styles.trazaOperacion}>
+                          {trazaResult.pedidos.map((pedido) => (
+                            <div key={pedido.soh_id} className={styles.trazaOperacionCard}>
+                              <div className={styles.trazaOperacionHeader}>
+                                <ShoppingCart size={14} />
+                                <span className={styles.trazaOperacionTitle}>
+                                  {pedido.ml_id ? `Venta ML #${pedido.ml_id}` : `Pedido #${pedido.soh_id}`}
+                                </span>
+                                {pedido.estado && (
+                                  <span className={styles.trazaOperacionBadge}>{pedido.estado}</span>
+                                )}
+                              </div>
+                              <div className={styles.trazaOperacionDetails}>
+                                {pedido.cliente && (
+                                  <div className={styles.trazaOperacionDetail}>
+                                    <User size={12} />
+                                    <span>{pedido.cliente}</span>
+                                  </div>
+                                )}
+                                {pedido.fecha && (
+                                  <div className={styles.trazaOperacionDetail}>
+                                    <CalendarDays size={12} />
+                                    <span>{new Date(pedido.fecha).toLocaleDateString('es-AR')}</span>
+                                  </div>
+                                )}
+                                {pedido.shipping_id && (
+                                  <div className={styles.trazaOperacionDetail}>
+                                    <Tag size={12} />
+                                    <span>Envío #{pedido.shipping_id}</span>
+                                  </div>
+                                )}
+                                {pedido.cliente_dni && (
+                                  <div className={styles.trazaOperacionDetail}>
+                                    <FileText size={12} />
+                                    <span>{pedido.cliente_dni}</span>
+                                  </div>
+                                )}
+                                {pedido.cliente_telefono && (
+                                  <div className={styles.trazaOperacionDetail}>
+                                    <Phone size={12} />
+                                    <span>{pedido.cliente_telefono}</span>
+                                  </div>
+                                )}
+                                {pedido.cliente_email && (
+                                  <div className={styles.trazaOperacionDetail}>
+                                    <Mail size={12} />
+                                    <span>{pedido.cliente_email}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Factura/documento de venta (del movimiento tipo CLIENTE) */}
+                      {(trazaResult.movimientos || []).some((m) => m.tipo === 'CLIENTE') && (
+                        <div className={styles.trazaFactura}>
+                          {trazaResult.movimientos
+                            .filter((m) => m.tipo === 'CLIENTE')
+                            .map((mov) => (
+                              <div key={mov.is_id} className={styles.trazaFacturaItem}>
+                                <FileText size={12} />
+                                <span>{mov.nro_documento || 'Sin documento'}</span>
+                                {mov.fecha_documento && (
+                                  <span className={styles.trazaFacturaFecha}>
+                                    {new Date(mov.fecha_documento).toLocaleDateString('es-AR')}
+                                  </span>
+                                )}
+                                {mov.dias_a_la_fecha != null && (
+                                  <span className={styles.trazaFacturaDias}>
+                                    hace {mov.dias_a_la_fecha} días
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+
+                      {/* Artículo encontrado (búsqueda por serial) */}
                       {trazaResult.articulo && (
                         <div className={styles.trazaItem}>
                           <div>
@@ -335,18 +435,20 @@ export default function ModalRma({ caso, onClose }) {
                               {trazaResult.serial} — {trazaResult.articulo.codigo}
                             </div>
                           </div>
-                          <button className="btn-tesla outline-subtle-success sm" onClick={() => agregarItemDesdeTraza(trazaResult.serial, trazaResult.articulo, trazaResult.pedidos?.[0])}>
+                          <button className="btn-tesla outline-subtle-success sm" onClick={() => agregarItemDesdeTraza(trazaResult.serial, trazaResult.articulo, trazaResult.pedidos?.[0], trazaResult.movimientos)}>
                             <Plus size={14} /> Agregar
                           </button>
                         </div>
                       )}
+
+                      {/* Seriales encontrados (búsqueda por ML ID) */}
                       {trazaResult.seriales?.map((s, idx) => (
                         <div key={idx} className={styles.trazaItem}>
                           <div>
                             <div className={styles.trazaItemDesc}>{s.articulo?.descripcion || 'Sin descripción'}</div>
                             <div className={styles.trazaItemMeta}>{s.serial}</div>
                           </div>
-                          <button className="btn-tesla outline-subtle-success sm" onClick={() => agregarItemDesdeTraza(s.serial, s.articulo, trazaResult.pedidos?.[0])}>
+                          <button className="btn-tesla outline-subtle-success sm" onClick={() => agregarItemDesdeTraza(s.serial, s.articulo, trazaResult.pedidos?.[0], s.movimientos)}>
                             <Plus size={14} /> Agregar
                           </button>
                         </div>
@@ -489,8 +591,12 @@ export default function ModalRma({ caso, onClose }) {
                     <input className={styles.input} value={casoData.cliente_nombre || ''} onChange={(e) => setCasoData({ ...casoData, cliente_nombre: e.target.value })} disabled={!puedeGestionar} />
                   </label>
                   <label>
-                    <span className={styles.label}>DNI</span>
+                    <span className={styles.label}>DNI / CUIT</span>
                     <input className={styles.input} value={casoData.cliente_dni || ''} onChange={(e) => setCasoData({ ...casoData, cliente_dni: e.target.value })} disabled={!puedeGestionar} />
+                  </label>
+                  <label>
+                    <span className={styles.label}>Teléfono de contacto</span>
+                    <input className={styles.input} type="tel" value={casoData.cliente_numero || ''} onChange={(e) => setCasoData({ ...casoData, cliente_numero: e.target.value ? Number(e.target.value.replace(/\D/g, '')) : null })} disabled={!puedeGestionar} placeholder="Ej: 1155443322" />
                   </label>
                   <label>
                     <span className={styles.label}>ML ID</span>

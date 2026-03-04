@@ -61,6 +61,9 @@ class PedidoSerial(BaseModel):
     estado: Optional[str] = None
     cust_id: Optional[int] = None
     cliente: Optional[str] = None
+    cliente_dni: Optional[str] = None
+    cliente_telefono: Optional[str] = None
+    cliente_email: Optional[str] = None
     ml_id: Optional[str] = None
     shipping_id: Optional[int] = None
 
@@ -522,6 +525,9 @@ QUERY_PEDIDOS_BY_MLID = text("""
         soh.soh_cd,
         soh.cust_id,
         cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
         soh.soh_mlid,
         soh.mlshippingid,
         ssos.ssos_name AS estado_nombre
@@ -543,6 +549,9 @@ QUERY_PEDIDOS_BY_MLGUIA = text("""
         soh.soh_cd,
         soh.cust_id,
         cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
         soh.soh_mlid,
         soh.mlshippingid,
         soh.soh_mlguia AS shipping_id_real,
@@ -565,6 +574,9 @@ QUERY_PEDIDOS_BY_SHIPPINGID = text("""
         soh.soh_cd,
         soh.cust_id,
         cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
         soh.soh_mlid,
         soh.mlshippingid,
         ship.mlshippingid AS shipping_id_real,
@@ -764,6 +776,9 @@ QUERY_PEDIDOS = text("""
         soh.soh_cd,
         soh.cust_id,
         cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
         soh.soh_mlid,
         soh.mlshippingid,
         ssos.ssos_name AS estado_nombre
@@ -2122,6 +2137,9 @@ def traza_serial(
             estado=row.get("estado_nombre"),
             cust_id=row.get("cust_id"),
             cliente=row.get("cliente_nombre"),
+            cliente_dni=row.get("cliente_dni"),
+            cliente_telefono=row.get("cliente_telefono"),
+            cliente_email=row.get("cliente_email"),
             ml_id=row.get("soh_mlid"),
             shipping_id=row.get("mlshippingid"),
         )
@@ -2203,6 +2221,9 @@ def traza_ml(
             estado=row.get("estado_nombre"),
             cust_id=row.get("cust_id"),
             cliente=row.get("cliente_nombre"),
+            cliente_dni=row.get("cliente_dni"),
+            cliente_telefono=row.get("cliente_telefono"),
+            cliente_email=row.get("cliente_email"),
             ml_id=row.get("soh_mlid"),
             shipping_id=row.get("shipping_id_real") or row.get("mlshippingid"),
         )

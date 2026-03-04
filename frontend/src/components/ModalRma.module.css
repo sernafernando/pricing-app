@@ -128,6 +128,87 @@
   margin-bottom: var(--spacing-sm);
 }
 
+/* Datos de la operación (pedido/venta asociada) */
+
+.trazaOperacion {
+  margin-bottom: var(--spacing-sm);
+}
+
+.trazaOperacionCard {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--cf-bg-card);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--cf-border-default);
+  border-left: 3px solid var(--cf-accent-blue);
+}
+
+.trazaOperacionCard + .trazaOperacionCard {
+  margin-top: 4px;
+}
+
+.trazaOperacionHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-bottom: 4px;
+  color: var(--cf-text-primary);
+}
+
+.trazaOperacionTitle {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+}
+
+.trazaOperacionBadge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-accent-blue);
+  color: #fff;
+  font-weight: var(--font-medium);
+  margin-left: auto;
+}
+
+.trazaOperacionDetails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+}
+
+.trazaOperacionDetail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+/* Factura / documento de venta */
+
+.trazaFactura {
+  margin-bottom: var(--spacing-sm);
+}
+
+.trazaFacturaItem {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 4px var(--spacing-md);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.trazaFacturaFecha {
+  color: var(--cf-text-tertiary);
+}
+
+.trazaFacturaDias {
+  color: var(--cf-accent-orange);
+  font-weight: var(--font-medium);
+}
+
+/* Artículo resultado de traza */
+
 .trazaItem {
   display: flex;
   justify-content: space-between;
