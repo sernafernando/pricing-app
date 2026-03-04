@@ -3,15 +3,23 @@ Router para traza de números de serie (módulo RMA)
 Permite consultar el historial completo de movimientos de un serial.
 """
 
+import logging
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import text
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.core.database import get_db, get_mlwebhook_engine
 from app.core.deps import get_current_user
 from app.models.usuario import Usuario
+
+logger = logging.getLogger(__name__)
+
+ML_WEBHOOK_RENDER_URL = "https://ml-webhook.gaussonline.com.ar/api/ml/render"
+_HTTPX_TIMEOUT = 10.0  # seconds per request to ML webhook proxy
 
 router = APIRouter(prefix="/seriales", tags=["Seriales"])
 
@@ -2181,79 +2189,283 @@ def traza_factura(
 
 
 # =============================================================================
-# CLAIMS ML — Consulta a la DB de webhooks
+# CLAIMS ML — 3-step lookup: DB enriched → DB raw + HTTP enrich → ML API search
 # =============================================================================
+
+
+def _build_claim_from_enriched_extra(
+    ed: dict, status_override: Optional[str] = None, title_fallback: Optional[str] = None
+) -> ClaimML:
+    """Build ClaimML from extra_data that was enriched by the webhook service."""
+    return ClaimML(
+        claim_id=str(ed.get("claim_id", "")),
+        claim_type=ed.get("claim_type"),
+        claim_stage=ed.get("claim_stage"),
+        status=status_override or ed.get("status"),
+        reason_id=ed.get("reason_id"),
+        reason_category=ed.get("reason_category"),
+        reason_detail=ed.get("reason_detail") or title_fallback,
+        triage_tags=ed.get("triage_tags"),
+        expected_resolutions=ed.get("expected_resolutions"),
+        fulfilled=ed.get("fulfilled"),
+        quantity_type=ed.get("quantity_type"),
+        claimed_quantity=ed.get("claimed_quantity"),
+        seller_actions=ed.get("seller_actions"),
+        mandatory_actions=ed.get("mandatory_actions"),
+        nearest_due_date=ed.get("nearest_due_date"),
+        action_responsible=ed.get("action_responsible"),
+        detail_title=ed.get("detail_title"),
+        detail_problem=ed.get("detail_problem"),
+        resolution_reason=ed.get("resolution_reason"),
+        resolution_closed_by=ed.get("resolution_closed_by"),
+        resolution_coverage=ed.get("resolution_coverage"),
+        date_created=ed.get("date_created"),
+        last_updated=ed.get("last_updated"),
+        resource_id=str(ed.get("resource_id", "")),
+    )
+
+
+def _build_claim_from_ml_api(
+    claim_data: dict, detail_data: Optional[dict] = None, reason_data: Optional[dict] = None
+) -> ClaimML:
+    """
+    Build ClaimML from raw ML API data (3 endpoints combined).
+    - claim_data: from /claims/{id}
+    - detail_data: from /claims/{id}/detail
+    - reason_data: from /claims/reasons/{reason_id}
+    """
+    # Extract players info
+    seller_actions: list[str] = []
+    mandatory_actions: list[str] = []
+    nearest_due_date: Optional[str] = None
+    for player in claim_data.get("players") or []:
+        if player.get("role") == "respondent":
+            for action in player.get("available_actions") or []:
+                action_name = action.get("action")
+                if action_name:
+                    seller_actions.append(action_name)
+                if action.get("mandatory"):
+                    if action_name:
+                        mandatory_actions.append(action_name)
+                    if action.get("due_date") and not nearest_due_date:
+                        nearest_due_date = action["due_date"]
+
+    # Resolution
+    resolution = claim_data.get("resolution") or {}
+
+    # Reason details (from /reasons/{id} endpoint)
+    reason_settings = (reason_data or {}).get("settings") or {}
+    triage_tags = reason_settings.get("rules_engine_triage")
+    expected_resolutions = reason_settings.get("expected_resolutions")
+    reason_detail = (reason_data or {}).get("detail")
+    reason_name = (reason_data or {}).get("name")
+
+    # Detail (from /claims/{id}/detail endpoint)
+    det = detail_data or {}
+
+    return ClaimML(
+        claim_id=str(claim_data.get("id", "")),
+        claim_type=claim_data.get("type"),
+        claim_stage=claim_data.get("stage"),
+        status=claim_data.get("status"),
+        reason_id=claim_data.get("reason_id"),
+        reason_category=(claim_data.get("reason_id") or "")[:3] or None,  # PDD, PNR, CS
+        reason_detail=reason_detail or det.get("problem") or reason_name,
+        triage_tags=triage_tags,
+        expected_resolutions=expected_resolutions,
+        fulfilled=claim_data.get("fulfilled"),
+        quantity_type=claim_data.get("quantity_type"),
+        claimed_quantity=claim_data.get("claimed_quantity"),
+        seller_actions=seller_actions or None,
+        mandatory_actions=mandatory_actions or None,
+        nearest_due_date=nearest_due_date or det.get("due_date"),
+        action_responsible=det.get("action_responsible"),
+        detail_title=det.get("title"),
+        detail_problem=det.get("problem"),
+        resolution_reason=resolution.get("reason"),
+        resolution_closed_by=resolution.get("closed_by"),
+        resolution_coverage=resolution.get("applied_coverage"),
+        date_created=claim_data.get("date_created"),
+        last_updated=claim_data.get("last_updated"),
+        resource_id=str(claim_data.get("resource_id", "")),
+    )
+
+
+def _enrich_claim_via_http(claim_id: str) -> Optional[ClaimML]:
+    """
+    Enrich a single claim by calling the ML API via webhook proxy.
+    Makes 3 calls: /claims/{id}, /claims/{id}/detail, /claims/reasons/{reason_id}.
+    Returns ClaimML or None if the API call fails.
+    """
+    try:
+        with httpx.Client(timeout=_HTTPX_TIMEOUT) as client:
+            # 1. Claim base data
+            r1 = client.get(
+                ML_WEBHOOK_RENDER_URL,
+                params={
+                    "resource": f"/post-purchase/v1/claims/{claim_id}",
+                    "format": "json",
+                },
+            )
+            if r1.status_code != 200:
+                return None
+            claim_data = r1.json()
+
+            # 2. Claim detail
+            detail_data = None
+            try:
+                r2 = client.get(
+                    ML_WEBHOOK_RENDER_URL,
+                    params={
+                        "resource": f"/post-purchase/v1/claims/{claim_id}/detail",
+                        "format": "json",
+                    },
+                )
+                if r2.status_code == 200:
+                    detail_data = r2.json()
+            except Exception:
+                pass  # detail is optional, don't fail the whole claim
+
+            # 3. Reason details (triage_tags, expected_resolutions)
+            reason_data = None
+            reason_id = claim_data.get("reason_id")
+            if reason_id:
+                try:
+                    r3 = client.get(
+                        ML_WEBHOOK_RENDER_URL,
+                        params={
+                            "resource": f"/post-purchase/v1/claims/reasons/{reason_id}",
+                            "format": "json",
+                        },
+                    )
+                    if r3.status_code == 200:
+                        reason_data = r3.json()
+                except Exception:
+                    pass  # reason is optional
+
+            return _build_claim_from_ml_api(claim_data, detail_data, reason_data)
+    except Exception:
+        logger.debug("Failed to enrich claim %s via HTTP", claim_id, exc_info=True)
+        return None
+
+
+def _search_claims_via_api(order_ids: list[str], exclude_claim_ids: set[str]) -> list[ClaimML]:
+    """
+    Search for claims via ML API (through webhook proxy) by order_id.
+    Skips claims already found in the DB (by claim_id).
+    Returns list of ClaimML.
+    """
+    claims: list[ClaimML] = []
+    try:
+        with httpx.Client(timeout=_HTTPX_TIMEOUT) as client:
+            for order_id in order_ids:
+                try:
+                    r = client.get(
+                        ML_WEBHOOK_RENDER_URL,
+                        params={
+                            "resource": f"/post-purchase/v1/claims/search?order_id={order_id}",
+                            "format": "json",
+                        },
+                    )
+                    if r.status_code != 200:
+                        continue
+                    search_data = r.json()
+                    for claim_data in search_data.get("data") or []:
+                        cid = str(claim_data.get("id", ""))
+                        if cid in exclude_claim_ids:
+                            continue
+                        exclude_claim_ids.add(cid)
+                        # Enrich with detail + reasons
+                        enriched = _enrich_claim_via_http(cid)
+                        if enriched:
+                            claims.append(enriched)
+                except Exception:
+                    logger.debug(
+                        "Failed to search claims for order %s",
+                        order_id,
+                        exc_info=True,
+                    )
+                    continue
+    except Exception:
+        logger.debug("Failed to create HTTP client for claims search", exc_info=True)
+    return claims
 
 
 def _fetch_claims_by_order_ids(order_ids: list[str]) -> list[ClaimML]:
     """
-    Busca claims de MercadoLibre en la DB de webhooks (ml_previews)
-    cuyo resource_id coincida con alguno de los order IDs dados.
+    Busca claims de MercadoLibre por order IDs con 3 niveles de fallback:
 
-    Retorna lista de ClaimML con los datos relevantes para RMA.
-    Silencioso: si la DB no está disponible o no hay claims, retorna [].
+    1. DB (ml_previews) con extra_data completo → mapeo directo
+    2. DB (ml_previews) con extra_data vacío/null → enriquecer vía HTTP proxy
+    3. API de ML (search por order_id) → para claims que no llegaron como webhook
+
+    Silencioso: si algún paso falla, continúa con el siguiente. Retorna [].
     """
     if not order_ids:
         return []
 
+    claims: list[ClaimML] = []
+    seen_claim_ids: set[str] = set()
+
+    # ── Step 1 & 2: DB lookup (ml_previews with extra_data) ────────────────
     try:
         engine = get_mlwebhook_engine()
-    except RuntimeError:
-        # ML_WEBHOOK_DB_URL no configurada — silencioso
-        return []
-
-    try:
         with engine.connect() as conn:
             rows = conn.execute(
                 text("""
                     SELECT
+                        p.resource,
                         p.status,
                         p.title,
                         p.extra_data
                     FROM ml_previews p
                     WHERE p.resource LIKE '/post-purchase/v1/claims/%'
+                      AND p.resource NOT LIKE '%/detail'
+                      AND p.resource NOT LIKE '%/reasons/%'
+                      AND p.resource NOT LIKE '%/search%'
+                      AND p.resource NOT LIKE '%/actions-history'
+                      AND p.resource NOT LIKE '%/status-history'
                       AND (p.extra_data->>'resource_id')::text = ANY(:order_ids)
                     ORDER BY p.last_updated DESC
                 """),
                 {"order_ids": order_ids},
             ).fetchall()
 
-        claims = []
         for row in rows:
-            status, title, extra = row
+            resource, db_status, title, extra = row
             ed = extra or {}
-            claims.append(
-                ClaimML(
-                    claim_id=str(ed.get("claim_id", "")),
-                    claim_type=ed.get("claim_type"),
-                    claim_stage=ed.get("claim_stage"),
-                    status=status,
-                    reason_id=ed.get("reason_id"),
-                    reason_category=ed.get("reason_category"),
-                    reason_detail=ed.get("reason_detail") or title,
-                    triage_tags=ed.get("triage_tags"),
-                    expected_resolutions=ed.get("expected_resolutions"),
-                    fulfilled=ed.get("fulfilled"),
-                    quantity_type=ed.get("quantity_type"),
-                    claimed_quantity=ed.get("claimed_quantity"),
-                    seller_actions=ed.get("seller_actions"),
-                    mandatory_actions=ed.get("mandatory_actions"),
-                    nearest_due_date=ed.get("nearest_due_date"),
-                    action_responsible=ed.get("action_responsible"),
-                    detail_title=ed.get("detail_title"),
-                    detail_problem=ed.get("detail_problem"),
-                    resolution_reason=ed.get("resolution_reason"),
-                    resolution_closed_by=ed.get("resolution_closed_by"),
-                    resolution_coverage=ed.get("resolution_coverage"),
-                    date_created=ed.get("date_created"),
-                    last_updated=ed.get("last_updated"),
-                    resource_id=str(ed.get("resource_id", "")),
-                )
-            )
-        return claims
+
+            # Extract claim_id from extra_data or resource path
+            claim_id = str(ed.get("claim_id", ""))
+            if not claim_id:
+                parts = resource.rstrip("/").split("/")
+                claim_id = parts[-1] if parts[-1].isdigit() else ""
+
+            if not claim_id or claim_id in seen_claim_ids:
+                continue
+            seen_claim_ids.add(claim_id)
+
+            # Step 1: extra_data is fully enriched (has triage_tags from webhook)
+            if ed.get("claim_id") and ed.get("triage_tags"):
+                claims.append(_build_claim_from_enriched_extra(ed, status_override=db_status, title_fallback=title))
+                continue
+
+            # Step 2: extra_data incomplete → enrich via HTTP (3 ML API calls)
+            enriched = _enrich_claim_via_http(claim_id)
+            if enriched:
+                claims.append(enriched)
+
+    except RuntimeError:
+        # ML_WEBHOOK_DB_URL not configured — skip DB steps
+        pass
     except Exception:
-        # DB de webhooks no disponible o error de query — silencioso
-        return []
+        logger.debug("Failed to fetch claims from DB", exc_info=True)
+
+    # ── Step 3: Search ML API for claims not in DB ──────────────────────────
+    api_claims = _search_claims_via_api(order_ids, seen_claim_ids)
+    claims.extend(api_claims)
+
+    return claims
 
 
 @router.get("/traza/{serial}", response_model=TrazaSerialResponse)
