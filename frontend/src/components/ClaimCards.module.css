@@ -1,0 +1,451 @@
+/* ── Claim cards ──────────────────────────────────────────────────────────── */
+
+.claimsList {
+  margin-bottom: var(--spacing-sm);
+}
+
+.claimCard {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+}
+
+.claimCard + .claimCard {
+  margin-top: 4px;
+}
+
+.claimOpen {
+  border-left: 3px solid var(--cf-accent-orange);
+}
+
+.claimClosed {
+  border-left: 3px solid var(--cf-text-tertiary);
+  opacity: 0.7;
+}
+
+.claimHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-bottom: 4px;
+  color: var(--cf-text-primary);
+}
+
+.claimTitle {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+}
+
+.claimBadge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-medium);
+  margin-left: auto;
+}
+
+.claimBadgeOpen {
+  background: var(--cf-accent-orange);
+  color: #fff;
+}
+
+.claimBadgeClosed {
+  background: var(--cf-text-tertiary);
+  color: #fff;
+}
+
+.claimMotivo {
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.claimTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.claimTag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-accent-red);
+  color: #fff;
+  font-weight: var(--font-medium);
+}
+
+.claimResolution {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-accent-blue);
+  color: #fff;
+  font-weight: var(--font-medium);
+}
+
+.claimDetails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  margin-bottom: 4px;
+}
+
+.claimDetail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.claimUrgent {
+  color: var(--cf-accent-orange);
+  font-weight: var(--font-medium);
+}
+
+.claimMandatory {
+  font-size: var(--font-xs);
+  color: var(--cf-accent-red);
+  font-weight: var(--font-medium);
+  padding: 4px 0;
+}
+
+.claimResolved {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  padding: 4px 0;
+  font-style: italic;
+}
+
+.claimDescription {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  line-height: 1.4;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--cf-border-default);
+}
+
+.claimRepBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--cf-accent-orange);
+}
+
+.claimIncentiveBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-accent-green);
+  color: #fff;
+  font-weight: var(--font-medium);
+}
+
+.claimMsgBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  border: 1px solid var(--cf-border-default);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.claimMsgBadge:hover {
+  background: var(--cf-accent-blue);
+  color: #fff;
+  border-color: var(--cf-accent-blue);
+}
+
+/* ── Sub-sections (return, change, expected resolutions) ──────────────── */
+
+.claimReturnSection,
+.claimChangeSection,
+.claimExpResSection {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--cf-border-default);
+}
+
+.claimSubHeader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  margin-bottom: 4px;
+}
+
+.claimSubBadge {
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-accent-blue);
+  color: #fff;
+  font-weight: var(--font-medium);
+  margin-left: auto;
+}
+
+.claimSubDetails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.claimSubDetails span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.claimShipments {
+  margin-top: 4px;
+}
+
+.claimShipment {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  padding: 2px 0;
+}
+
+.claimTracking {
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--cf-text-tertiary);
+}
+
+.claimExpRes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  padding: 2px 0;
+}
+
+.claimExpResRole {
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+}
+
+.claimExpResBadge {
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  margin-left: auto;
+}
+
+.claimExpResAccepted {
+  background: var(--cf-accent-green);
+  color: #fff;
+  border-color: var(--cf-accent-green);
+}
+
+.claimExpResRejected {
+  background: var(--cf-accent-red);
+  color: #fff;
+  border-color: var(--cf-accent-red);
+}
+
+/* ── Messages modal ──────────────────────────────────────────────────── */
+
+.claimMsgsEmpty {
+  color: var(--cf-text-tertiary);
+  text-align: center;
+  padding: var(--spacing-lg);
+  font-size: var(--font-sm);
+}
+
+.claimMsgsList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  max-height: 480px;
+  overflow-y: auto;
+  padding: var(--spacing-xs) 0;
+}
+
+.claimMsgBubble {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-hover);
+  border-left: 3px solid var(--cf-accent-blue);
+  max-width: 85%;
+  align-self: flex-start;
+}
+
+.claimMsgSeller {
+  align-self: flex-end;
+  border-left: none;
+  border-right: 3px solid var(--cf-accent-green);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.claimMsgMediator {
+  align-self: center;
+  border-left: none;
+  border-right: none;
+  border-top: 1px solid var(--cf-accent-orange);
+  border-bottom: 1px solid var(--cf-accent-orange);
+  background: rgba(245, 158, 11, 0.06);
+  max-width: 95%;
+}
+
+.claimMsgHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.claimMsgRole {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.claimMsgDate {
+  font-size: 10px;
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+.claimMsgText {
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.claimMsgAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.claimMsgAttachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-tertiary);
+  border: 1px solid var(--cf-border-subtle);
+}
+
+.claimMsgsSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--spacing-sm) 0 4px;
+  border-bottom: 1px solid var(--cf-border-subtle);
+  margin-bottom: 4px;
+}
+
+.claimMsgsSectionHeader:not(:first-child) {
+  margin-top: var(--spacing-md);
+}
+
+.claimMsgImgThumb {
+  display: block;
+  max-width: 240px;
+  margin-top: 4px;
+  padding: 0;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  background: none;
+  transition: border-color var(--duration-200) var(--ease-out);
+}
+
+.claimMsgImgThumb:hover {
+  border-color: var(--cf-accent-blue);
+}
+
+.claimMsgImgThumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+
+/* ── Lightbox ────────────────────────────────────────────────────────── */
+
+.lightboxOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+  cursor: pointer;
+}
+
+.lightboxClose {
+  position: absolute;
+  top: 16px;
+  right: 24px;
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 32px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+  opacity: 0.7;
+  transition: opacity var(--duration-200) var(--ease-out);
+}
+
+.lightboxClose:hover {
+  opacity: 1;
+}
+
+.lightboxImg {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  cursor: default;
+}
