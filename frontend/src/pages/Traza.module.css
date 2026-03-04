@@ -76,14 +76,14 @@
 }
 
 .modeBtnActive {
-  background: var(--cf-accent-blue);
-  color: #fff;
+  background: var(--cf-accent-blue-subtle, rgba(59, 130, 246, 0.08));
+  color: var(--cf-accent-blue);
   border-color: var(--cf-accent-blue);
 }
 
 .modeBtnActive:hover {
-  background: var(--cf-accent-blue-hover);
-  color: #fff;
+  background: var(--cf-accent-blue-subtle-hover, rgba(59, 130, 246, 0.14));
+  color: var(--cf-accent-blue);
 }
 
 .inputRow {
