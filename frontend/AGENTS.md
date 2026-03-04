@@ -61,7 +61,7 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 
 ### Styling
 - ALWAYS: CSS Modules: `import styles from './Component.module.css'`
-- ALWAYS: Design tokens: `var(--bg-primary)`, `var(--text-primary)`
+- ALWAYS: Design tokens: prefer **CF (Cloudflare) tokens** for new/refactored code (see table below)
 - ALWAYS: Tesla components when available (`buttons-tesla.css`, `modals-tesla.css`, `table-tesla.css`)
 - ALWAYS: Use `composes` for composition: `composes: btn-primary from '../../styles/buttons-tesla.css'`
 - ALWAYS: CamelCase class names: `.modalHeader`, `.btnPrimary`
@@ -69,6 +69,66 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 - NEVER: Hardcoded colors — always use design tokens
 - NEVER: Tailwind utilities (project uses CSS Modules)
 - NEVER: Deeply nested selectors — keep CSS flat
+- NEVER: Invent global CSS classes like `input-tesla` or `select-tesla` — they don't exist and never did
+- NEVER: Use `className="input-tesla"` or `className="select-tesla"` — these are phantom classes with NO styles
+
+### Form Inputs / Selects / Textareas
+
+There are **NO global CSS classes** for form inputs. Each component defines its own `.input`, `.select`, `.textarea` in its CSS Module, following the **CF token pattern** from `ModalAlertaForm.module.css`:
+
+```css
+/* Canonical pattern — copy this into your CSS Module */
+.input,
+.select,
+.textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+```
+
+Then in JSX: `className={styles.input}`, `className={styles.select}`, `className={styles.textarea}`
+
+### Design Token Preference (CF > legacy)
+
+When writing NEW CSS or refactoring existing CSS, prefer CF tokens over legacy tokens:
+
+| Legacy token (avoid) | CF token (prefer) |
+|---|---|
+| `var(--bg-primary)` | `var(--cf-bg-app)` |
+| `var(--bg-secondary)` | `var(--cf-bg-card)` |
+| `var(--bg-tertiary)` | `var(--cf-bg-hover)` |
+| `var(--border-color)` | `var(--cf-border-default)` |
+| `var(--text-primary)` | `var(--cf-text-primary)` |
+| `var(--text-secondary)` | `var(--cf-text-secondary)` |
+| `var(--text-tertiary)` | `var(--cf-text-tertiary)` |
+| `#3b82f6` (blue) | `var(--cf-accent-blue)` |
+| `#22c55e` (green) | `var(--cf-accent-green)` |
+| `#ef4444` (red) | `var(--cf-accent-red)` |
+| `#f59e0b` (orange) | `var(--cf-accent-orange)` |
+
+**Why CF tokens?** They have proper light/dark mode variants in `design-tokens.css`, consistent naming, and better semantic separation (bg-card vs bg-hover vs bg-app). Legacy tokens still work but are less granular.
+
+**Migration note**: Legacy code still uses old tokens. When touching a file's CSS, migrate to CF tokens.
 
 ### API Calls
 - ALWAYS: Use axios from `services/api.js`
