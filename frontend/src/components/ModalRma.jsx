@@ -121,6 +121,11 @@ const SHIPMENT_STATUS_ES = {
   not_delivered: 'No entregado',
 };
 
+const REFUND_AT_ES = {
+  shipped: 'Al despachar devolución',
+  delivered: 'Al recibir devolución',
+};
+
 // ── Traducciones de cambio (change) ──────────────────────────────────────────
 const CHANGE_TYPE_ES = {
   change: 'Cambio',
@@ -774,7 +779,7 @@ export default function ModalRma({ caso, onClose }) {
                                       </span>
                                     )}
                                     {claim.claim_return.refund_at && claim.claim_return.refund_at !== 'n/a' && (
-                                      <span>Reembolso al: {SHIPMENT_STATUS_ES[claim.claim_return.refund_at] || claim.claim_return.refund_at}</span>
+                                      <span>Reembolso: {REFUND_AT_ES[claim.claim_return.refund_at] || claim.claim_return.refund_at}</span>
                                     )}
                                   </div>
                                   {/* Shipments de la devolución */}
