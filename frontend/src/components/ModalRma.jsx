@@ -366,6 +366,7 @@ export default function ModalRma({ caso, onClose }) {
     <ModalTesla
       isOpen={true}
       onClose={() => onClose(false)}
+      closeOnOverlay={false}
       title={esNuevo ? 'Nuevo Caso RMA' : `Caso ${casoData.numero_caso || ''}`}
       subtitle={casoData.cliente_nombre || 'Sin cliente'}
       size="xl"
