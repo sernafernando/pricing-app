@@ -2822,11 +2822,11 @@ def _save_claim_to_cache(
             session.commit()
         except Exception:
             session.rollback()
-            logger.debug("Failed to save claim %s to cache", claim.claim_id, exc_info=True)
+            logger.warning("Failed to save claim %s to cache", claim.claim_id, exc_info=True)
         finally:
             session.close()
     except Exception:
-        logger.debug("Failed to create session for claim cache", exc_info=True)
+        logger.warning("Failed to create session for claim cache", exc_info=True)
 
 
 def _save_messages_to_cache(claim_id: str, messages_data: Optional[dict]) -> None:
@@ -2874,11 +2874,11 @@ def _save_messages_to_cache(claim_id: str, messages_data: Optional[dict]) -> Non
             session.commit()
         except Exception:
             session.rollback()
-            logger.debug("Failed to save messages for claim %s", claim_id, exc_info=True)
+            logger.warning("Failed to save messages for claim %s", claim_id, exc_info=True)
         finally:
             session.close()
     except Exception:
-        logger.debug("Failed to create session for messages cache", exc_info=True)
+        logger.warning("Failed to create session for messages cache", exc_info=True)
 
 
 def _enrich_claim_via_http(claim_id: str) -> Optional[ClaimML]:
@@ -2898,8 +2898,10 @@ def _enrich_claim_via_http(claim_id: str) -> Optional[ClaimML]:
                 },
             )
             if r1.status_code != 200:
+                logger.warning("[claims] Base claim %s returned status %s", claim_id, r1.status_code)
                 return None
             claim_data = r1.json()
+            logger.info("[claims] Fetched base claim %s (status=%s)", claim_id, claim_data.get("status"))
 
             # 2-7. All secondary endpoints
             (
@@ -2923,8 +2925,9 @@ def _enrich_claim_via_http(claim_id: str) -> Optional[ClaimML]:
                 messages_data=messages_data,
                 affects_rep_data=affects_rep_data,
             )
+            logger.info("[claims] Built ClaimML %s OK", claim_id)
 
-            # Save to local cache (async-safe: uses its own session)
+            # Save to local cache (fire-and-forget: uses its own session)
             _save_claim_to_cache(
                 claim,
                 raw_claim=claim_data,
@@ -2943,7 +2946,7 @@ def _enrich_claim_via_http(claim_id: str) -> Optional[ClaimML]:
 
             return claim
     except Exception:
-        logger.debug("Failed to enrich claim %s via HTTP", claim_id, exc_info=True)
+        logger.warning("[claims] EXCEPTION enriching claim %s", claim_id, exc_info=True)
         return None
 
 
@@ -2985,7 +2988,7 @@ def _search_claims_via_api(order_ids: list[str], exclude_claim_ids: set[str]) ->
                     )
                     continue
     except Exception:
-        logger.debug("Failed to create HTTP client for claims search", exc_info=True)
+        logger.warning("Failed to create HTTP client for claims search", exc_info=True)
     return claims
 
 
@@ -3011,6 +3014,8 @@ def _fetch_claims_by_order_ids(order_ids: list[str]) -> list[ClaimML]:
     if not order_ids:
         return []
 
+    logger.info("[claims] _fetch_claims_by_order_ids called with order_ids=%s", order_ids)
+
     claims: list[ClaimML] = []
     seen_claim_ids: set[str] = set()
     # Cache rows indexed by claim_id (str) for comparison in Step 2
@@ -3035,11 +3040,11 @@ def _fetch_claims_by_order_ids(order_ids: list[str]) -> list[ClaimML]:
                     cid = str(row.claim_id)
                     cache_by_claim_id[cid] = row
         except Exception:
-            logger.debug("Failed to read claims from local cache", exc_info=True)
+            logger.warning("Failed to read claims from local cache", exc_info=True)
         finally:
             session.close()
     except Exception:
-        logger.debug("Failed to create session for claims cache read", exc_info=True)
+        logger.warning("Failed to create session for claims cache read", exc_info=True)
 
     # ── Step 2: Webhook DB (ml_previews) — invalidation source ──────────────
     webhook_db_available = False
@@ -3126,7 +3131,7 @@ def _fetch_claims_by_order_ids(order_ids: list[str]) -> list[ClaimML]:
         # ML_WEBHOOK_DB_URL not configured — skip webhook DB
         pass
     except Exception:
-        logger.debug("Failed to fetch claims from webhook DB", exc_info=True)
+        logger.warning("Failed to fetch claims from webhook DB", exc_info=True)
 
     # ── Step 3: Cached claims NOT seen in ml_previews ───────────────────────
     for cid, cached_row in cache_by_claim_id.items():
