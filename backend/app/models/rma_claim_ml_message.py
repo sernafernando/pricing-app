@@ -11,14 +11,11 @@ from sqlalchemy import (
     Integer,
     BigInteger,
     String,
-    Boolean,
     DateTime,
     Text,
-    ForeignKey,
     Index,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
 
