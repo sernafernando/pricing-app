@@ -3576,7 +3576,6 @@ _EXT_TO_MIME = {
 @router.get("/ml-attachment")
 def get_ml_attachment(
     id: str = Query(..., description="Attachment key from ML message_attachments"),
-    current_user: Usuario = Depends(get_current_user),
 ) -> Response:
     """
     Proxy para descargar adjuntos de mensajes de ML.
