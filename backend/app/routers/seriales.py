@@ -9,7 +9,7 @@ from sqlalchemy import text
 from pydantic import BaseModel, ConfigDict
 from typing import Optional
 
-from app.core.database import get_db
+from app.core.database import get_db, get_mlwebhook_engine
 from app.core.deps import get_current_user
 from app.models.usuario import Usuario
 
@@ -120,6 +120,45 @@ class RMASerial(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ClaimML(BaseModel):
+    """Claim de MercadoLibre asociado a una orden"""
+
+    claim_id: Optional[str] = None
+    claim_type: Optional[str] = None  # mediations, return, fulfillment, etc.
+    claim_stage: Optional[str] = None  # claim, dispute, recontact, stale
+    status: Optional[str] = None  # opened, closed
+    # Motivo
+    reason_id: Optional[str] = None
+    reason_category: Optional[str] = None  # PDD, PNR, CS
+    reason_detail: Optional[str] = None  # Texto legible del motivo
+    # Clasificación
+    triage_tags: Optional[list] = None  # ["defective", "repentant", etc.]
+    expected_resolutions: Optional[list] = None  # ["return_product", "refund", etc.]
+    # Estado de entrega
+    fulfilled: Optional[bool] = None
+    quantity_type: Optional[str] = None  # total, partial
+    claimed_quantity: Optional[int] = None
+    # Acciones pendientes
+    seller_actions: Optional[list] = None
+    mandatory_actions: Optional[list] = None
+    nearest_due_date: Optional[str] = None
+    action_responsible: Optional[str] = None  # seller, buyer, mediator
+    # Detail legible
+    detail_title: Optional[str] = None
+    detail_problem: Optional[str] = None
+    # Resolución (solo si cerrado)
+    resolution_reason: Optional[str] = None
+    resolution_closed_by: Optional[str] = None
+    resolution_coverage: Optional[bool] = None
+    # Fechas
+    date_created: Optional[str] = None
+    last_updated: Optional[str] = None
+    # Recurso asociado
+    resource_id: Optional[str] = None  # order_id
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TrazaSerialResponse(BaseModel):
     """Respuesta completa de traza de un serial"""
 
@@ -128,6 +167,7 @@ class TrazaSerialResponse(BaseModel):
     movimientos: list[MovimientoSerial] = []
     pedidos: list[PedidoSerial] = []
     rma: list[RMASerial] = []
+    claims: list[ClaimML] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -151,6 +191,7 @@ class TrazaMLResponse(BaseModel):
     pedidos: list[PedidoSerial] = []
     seriales: list[TrazaMLSerialItem] = []
     rma_por_factura: list[RMASerial] = []  # RMAs encontrados vía factura (no por serial)
+    claims: list[ClaimML] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -2113,6 +2154,82 @@ def traza_factura(
     )
 
 
+# =============================================================================
+# CLAIMS ML — Consulta a la DB de webhooks
+# =============================================================================
+
+
+def _fetch_claims_by_order_ids(order_ids: list[str]) -> list[ClaimML]:
+    """
+    Busca claims de MercadoLibre en la DB de webhooks (ml_previews)
+    cuyo resource_id coincida con alguno de los order IDs dados.
+
+    Retorna lista de ClaimML con los datos relevantes para RMA.
+    Silencioso: si la DB no está disponible o no hay claims, retorna [].
+    """
+    if not order_ids:
+        return []
+
+    try:
+        engine = get_mlwebhook_engine()
+    except RuntimeError:
+        # ML_WEBHOOK_DB_URL no configurada — silencioso
+        return []
+
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT
+                        p.status,
+                        p.title,
+                        p.extra_data
+                    FROM ml_previews p
+                    WHERE p.resource LIKE '/post-purchase/v1/claims/%'
+                      AND (p.extra_data->>'resource_id')::text = ANY(:order_ids)
+                    ORDER BY p.last_updated DESC
+                """),
+                {"order_ids": order_ids},
+            ).fetchall()
+
+        claims = []
+        for row in rows:
+            status, title, extra = row
+            ed = extra or {}
+            claims.append(
+                ClaimML(
+                    claim_id=str(ed.get("claim_id", "")),
+                    claim_type=ed.get("claim_type"),
+                    claim_stage=ed.get("claim_stage"),
+                    status=status,
+                    reason_id=ed.get("reason_id"),
+                    reason_category=ed.get("reason_category"),
+                    reason_detail=ed.get("reason_detail") or title,
+                    triage_tags=ed.get("triage_tags"),
+                    expected_resolutions=ed.get("expected_resolutions"),
+                    fulfilled=ed.get("fulfilled"),
+                    quantity_type=ed.get("quantity_type"),
+                    claimed_quantity=ed.get("claimed_quantity"),
+                    seller_actions=ed.get("seller_actions"),
+                    mandatory_actions=ed.get("mandatory_actions"),
+                    nearest_due_date=ed.get("nearest_due_date"),
+                    action_responsible=ed.get("action_responsible"),
+                    detail_title=ed.get("detail_title"),
+                    detail_problem=ed.get("detail_problem"),
+                    resolution_reason=ed.get("resolution_reason"),
+                    resolution_closed_by=ed.get("resolution_closed_by"),
+                    resolution_coverage=ed.get("resolution_coverage"),
+                    date_created=ed.get("date_created"),
+                    last_updated=ed.get("last_updated"),
+                    resource_id=str(ed.get("resource_id", "")),
+                )
+            )
+        return claims
+    except Exception:
+        # DB de webhooks no disponible o error de query — silencioso
+        return []
+
+
 @router.get("/traza/{serial}", response_model=TrazaSerialResponse)
 def traza_serial(
     serial: str,
@@ -2155,12 +2272,17 @@ def traza_serial(
             detail=f"No se encontró el serial: {serial}",
         )
 
+    # 4. Claims de ML (por order_id de los pedidos)
+    ml_order_ids = [p.ml_id for p in pedidos if p.ml_id]
+    claims = _fetch_claims_by_order_ids(ml_order_ids)
+
     return TrazaSerialResponse(
         serial=serial,
         articulo=articulo,
         movimientos=movimientos,
         pedidos=pedidos,
         rma=rma_list,
+        claims=claims,
     )
 
 
@@ -2275,10 +2397,15 @@ def traza_ml(
     soh_ids = [row["soh_id"] for row in pedidos_rows]
     rma_por_factura = _build_rma_by_invoice(db, soh_ids, exclude_rmad_ids=rma_ids_por_serial)
 
+    # 4. Claims de ML (por order_id de los pedidos)
+    ml_order_ids = [p.ml_id for p in pedidos if p.ml_id]
+    claims = _fetch_claims_by_order_ids(ml_order_ids)
+
     return TrazaMLResponse(
         ml_id=ml_id,
         busqueda_por=busqueda_por,
         pedidos=pedidos,
         seriales=seriales_list,
         rma_por_factura=rma_por_factura,
+        claims=claims,
     )
