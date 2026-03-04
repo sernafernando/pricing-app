@@ -217,6 +217,7 @@ export default function ModalRma({ caso, onClose }) {
   // Claim messages modal
   const [claimMsgsOpen, setClaimMsgsOpen] = useState(false);
   const [claimMsgs, setClaimMsgs] = useState([]);
+  const [orderMsgs, setOrderMsgs] = useState([]);
   const [claimMsgsLoading, setClaimMsgsLoading] = useState(false);
   const [claimMsgsClaimId, setClaimMsgsClaimId] = useState(null);
 
@@ -286,16 +287,28 @@ export default function ModalRma({ caso, onClose }) {
     }
   };
 
-  const abrirMensajesClaim = async (claimId) => {
+  const abrirMensajesClaim = async (claimId, orderId) => {
     setClaimMsgsClaimId(claimId);
     setClaimMsgsOpen(true);
     setClaimMsgsLoading(true);
     setClaimMsgs([]);
+    setOrderMsgs([]);
     try {
-      const { data } = await api.get(`/seriales/claims/${claimId}/messages`);
-      setClaimMsgs(data);
+      // Fetch both in parallel: claim messages + order (pack) messages
+      const promises = [
+        api.get(`/seriales/claims/${claimId}/messages`).catch(() => ({ data: [] })),
+      ];
+      if (orderId) {
+        promises.push(
+          api.get(`/seriales/orders/${orderId}/messages`).catch(() => ({ data: [] })),
+        );
+      }
+      const results = await Promise.all(promises);
+      setClaimMsgs(results[0].data || []);
+      if (results[1]) setOrderMsgs(results[1].data || []);
     } catch {
       setClaimMsgs([]);
+      setOrderMsgs([]);
     } finally {
       setClaimMsgsLoading(false);
     }
@@ -688,7 +701,7 @@ export default function ModalRma({ caso, onClose }) {
                                   <button
                                     type="button"
                                     className={styles.trazaClaimMsgBadge}
-                                    onClick={() => abrirMensajesClaim(claim.claim_id)}
+                                    onClick={() => abrirMensajesClaim(claim.claim_id, claim.resource_id)}
                                     aria-label={`Ver ${claim.messages_total} mensaje${claim.messages_total > 1 ? 's' : ''}`}
                                   >
                                     <MessageSquare size={10} /> {claim.messages_total}
@@ -1302,47 +1315,90 @@ export default function ModalRma({ caso, onClose }) {
       >
         {claimMsgsLoading ? (
           <ModalLoading message="Cargando mensajes..." />
-        ) : claimMsgs.length === 0 ? (
-          <p className={styles.claimMsgsEmpty}>Sin mensajes en cache</p>
+        ) : (orderMsgs.length === 0 && claimMsgs.length === 0) ? (
+          <p className={styles.claimMsgsEmpty}>Sin mensajes</p>
         ) : (
           <div className={styles.claimMsgsList}>
-            {claimMsgs.map((msg) => {
-              const isSeller = msg.sender_role === 'respondent';
-              const isMediator = msg.sender_role === 'mediator';
-              return (
-                <div
-                  key={msg.id}
-                  className={`${styles.claimMsgBubble} ${isSeller ? styles.claimMsgSeller : ''} ${isMediator ? styles.claimMsgMediator : ''}`}
-                >
-                  <div className={styles.claimMsgHeader}>
-                    <span className={styles.claimMsgRole}>
-                      {PLAYER_ROLE_ES[msg.sender_role] || msg.sender_role}
-                    </span>
-                    {msg.ml_date_created && (
-                      <span className={styles.claimMsgDate}>
-                        {new Date(msg.ml_date_created).toLocaleString('es-AR', {
-                          day: '2-digit', month: '2-digit', year: 'numeric',
-                          hour: '2-digit', minute: '2-digit',
-                        })}
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    className={styles.claimMsgText}
-                    dangerouslySetInnerHTML={{ __html: sanitizeMessageHtml(msg.message) || '(sin texto)' }}
-                  />
-                  {msg.attachments && msg.attachments.length > 0 && (
-                    <div className={styles.claimMsgAttachments}>
-                      {msg.attachments.map((att, i) => (
-                        <span key={i} className={styles.claimMsgAttachment}>
-                          <Package size={10} /> {att.original_filename || att.filename}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+            {/* Mensajes de la venta (conversación posventa) */}
+            {orderMsgs.length > 0 && (
+              <>
+                <div className={styles.claimMsgsSectionHeader}>
+                  <MessageSquare size={12} />
+                  Conversación de la venta ({orderMsgs.length})
                 </div>
-              );
-            })}
+                {orderMsgs.map((msg) => (
+                  <div
+                    key={msg.message_id}
+                    className={`${styles.claimMsgBubble} ${msg.is_seller ? styles.claimMsgSeller : ''}`}
+                  >
+                    <div className={styles.claimMsgHeader}>
+                      <span className={styles.claimMsgRole}>
+                        {msg.is_seller ? 'Vendedor' : 'Comprador'}
+                      </span>
+                      {msg.date_created && (
+                        <span className={styles.claimMsgDate}>
+                          {new Date(msg.date_created).toLocaleString('es-AR', {
+                            day: '2-digit', month: '2-digit', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit',
+                          })}
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      className={styles.claimMsgText}
+                      dangerouslySetInnerHTML={{ __html: sanitizeMessageHtml(msg.text) || '(sin texto)' }}
+                    />
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Mensajes del reclamo */}
+            {claimMsgs.length > 0 && (
+              <>
+                <div className={styles.claimMsgsSectionHeader}>
+                  <AlertTriangle size={12} />
+                  Mensajes del reclamo ({claimMsgs.length})
+                </div>
+                {claimMsgs.map((msg) => {
+                  const isSeller = msg.sender_role === 'respondent';
+                  const isMediator = msg.sender_role === 'mediator';
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`${styles.claimMsgBubble} ${isSeller ? styles.claimMsgSeller : ''} ${isMediator ? styles.claimMsgMediator : ''}`}
+                    >
+                      <div className={styles.claimMsgHeader}>
+                        <span className={styles.claimMsgRole}>
+                          {PLAYER_ROLE_ES[msg.sender_role] || msg.sender_role}
+                        </span>
+                        {msg.ml_date_created && (
+                          <span className={styles.claimMsgDate}>
+                            {new Date(msg.ml_date_created).toLocaleString('es-AR', {
+                              day: '2-digit', month: '2-digit', year: 'numeric',
+                              hour: '2-digit', minute: '2-digit',
+                            })}
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        className={styles.claimMsgText}
+                        dangerouslySetInnerHTML={{ __html: sanitizeMessageHtml(msg.message) || '(sin texto)' }}
+                      />
+                      {msg.attachments && msg.attachments.length > 0 && (
+                        <div className={styles.claimMsgAttachments}>
+                          {msg.attachments.map((att, i) => (
+                            <span key={i} className={styles.claimMsgAttachment}>
+                              <Package size={10} /> {att.original_filename || att.filename}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </div>
         )}
       </ModalTesla>

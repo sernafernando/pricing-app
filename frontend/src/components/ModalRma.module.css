@@ -920,3 +920,21 @@
   color: var(--cf-text-tertiary);
   border: 1px solid var(--cf-border-subtle);
 }
+
+.claimMsgsSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--spacing-sm) 0 4px;
+  border-bottom: 1px solid var(--cf-border-subtle);
+  margin-bottom: 4px;
+}
+
+.claimMsgsSectionHeader:not(:first-child) {
+  margin-top: var(--spacing-md);
+}
