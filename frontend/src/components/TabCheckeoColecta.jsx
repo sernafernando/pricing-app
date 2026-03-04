@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import { usePermisos } from '../contexts/PermisosContext';
 import styles from './TabCheckeoColecta.module.css';
 
@@ -27,7 +28,7 @@ const getMlStatusClass = (status) => {
   }
 };
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+const todayStr = () => toLocalDateString();
 
 // ── Calendar badge renderer for colecta ───────────────────────
 const renderColectaDayBadges = (dia, calStyles) => (
@@ -102,7 +103,7 @@ export default function TabCheckeoColecta() {
 
   const aplicarFiltroRapido = (filtro) => {
     const hoy = new Date();
-    const fmt = (d) => d.toISOString().split('T')[0];
+    const fmt = (d) => toLocalDateString(d);
     let desde;
     let hasta = hoy;
 

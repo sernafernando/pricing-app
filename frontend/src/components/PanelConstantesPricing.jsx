@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Pencil } from 'lucide-react';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import './PanelConstantesPricing.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 
@@ -28,7 +29,7 @@ export default function PanelConstantesPricing() {
     comision_tienda_nube: 1.0,
     comision_tienda_nube_tarjeta: 3.0,
     offset_flex: '',
-    fecha_desde: new Date().toISOString().split('T')[0]
+    fecha_desde: toLocalDateString()
   });
 
   useEffect(() => {
@@ -59,7 +60,7 @@ export default function PanelConstantesPricing() {
     setNuevaVersion({
       ...constanteActual,
       offset_flex: constanteActual.offset_flex ?? '',
-      fecha_desde: new Date().toISOString().split('T')[0]
+      fecha_desde: toLocalDateString()
     });
   };
 

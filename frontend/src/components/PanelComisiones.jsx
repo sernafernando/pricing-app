@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import './PanelComisiones.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 
@@ -18,7 +19,7 @@ export default function PanelComisiones() {
   const [nuevaVersion, setNuevaVersion] = useState({
     nombre: '',
     descripcion: '',
-    fecha_desde: new Date().toISOString().split('T')[0],
+    fecha_desde: toLocalDateString(),
     comisiones_base: Array(13).fill(null).map((_, i) => ({
       grupo_id: i + 1,
       comision_base: 0
@@ -64,7 +65,7 @@ export default function PanelComisiones() {
     setNuevaVersion({
       nombre: `Actualización ${new Date().toLocaleDateString('es-AR')}`,
       descripcion: '',
-      fecha_desde: new Date().toISOString().split('T')[0],
+      fecha_desde: toLocalDateString(),
       comisiones_base: versionActual.comisiones_base.map(cb => ({
         grupo_id: cb.grupo_id,
         comision_base: cb.comision_base

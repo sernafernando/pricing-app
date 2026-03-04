@@ -4,6 +4,7 @@ import {
   Volume2, VolumeX, Undo2, Clock,
 } from 'lucide-react';
 import api from '../services/api';
+import { toLocalDateString } from '../utils/dateUtils';
 import styles from './TabPistoleado.module.css';
 
 // ── Comandos QR (texto plano escaneado) ─────────────────────────────
@@ -193,7 +194,7 @@ export default function TabPistoleado({ operador = null }) {
     try {
       const { data } = await api.get('/etiquetas-envio/pistoleado/stats', {
         params: {
-          fecha: new Date().toISOString().split('T')[0],
+          fecha: toLocalDateString(),
           logistica_id: logisticaId,
         },
       });
