@@ -17,7 +17,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import { useDebounce } from '../hooks/useDebounce';
 import api from '../services/api';
 import ModalTesla, { ModalSection, ModalFooterButtons, ModalLoading } from './ModalTesla';
-import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine, ShoppingCart, FileText, CalendarDays, Tag, Phone, Mail, AlertTriangle, Shield, Hash } from 'lucide-react';
+import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine, ShoppingCart, FileText, CalendarDays, Tag, Phone, Mail, AlertTriangle, Shield, Hash, Package, RotateCcw, MessageSquare, Star, Truck, ArrowLeftRight, DollarSign } from 'lucide-react';
 import styles from './ModalRma.module.css';
 
 // ── Traducciones de campos de claims ML ──────────────────────────────────────
@@ -84,6 +84,68 @@ const CLOSED_BY_ES = {
   seller: 'vendedor',
   buyer: 'comprador',
   mediator: 'mediador',
+};
+
+// ── Traducciones de devolución (return) ──────────────────────────────────────
+const RETURN_STATUS_ES = {
+  pending: 'Pendiente',
+  label_generated: 'Etiqueta generada',
+  ready_to_ship: 'Listo para enviar',
+  shipped: 'Enviado',
+  delivered: 'Entregado',
+  expired: 'Vencido',
+  cancelled: 'Cancelado',
+  not_returned: 'No devuelto',
+  waiting_for_return: 'Esperando devolución',
+};
+
+const RETURN_SUBTYPE_ES = {
+  low_cost: 'Bajo costo',
+  return_partial: 'Devolución parcial',
+  return_total: 'Devolución total',
+};
+
+const RETURN_MONEY_STATUS_ES = {
+  retained: 'Retenido',
+  refunded: 'Reembolsado',
+  available: 'Disponible',
+  pending: 'Pendiente',
+};
+
+const SHIPMENT_STATUS_ES = {
+  pending: 'Pendiente',
+  ready_to_ship: 'Listo para enviar',
+  shipped: 'En tránsito',
+  delivered: 'Entregado',
+  cancelled: 'Cancelado',
+  not_delivered: 'No entregado',
+};
+
+// ── Traducciones de cambio (change) ──────────────────────────────────────────
+const CHANGE_TYPE_ES = {
+  change: 'Cambio',
+  replace: 'Reemplazo',
+};
+
+const CHANGE_STATUS_ES = {
+  pending: 'Pendiente',
+  processing: 'En proceso',
+  completed: 'Completado',
+  cancelled: 'Cancelado',
+  expired: 'Vencido',
+};
+
+// ── Traducciones de resoluciones esperadas ───────────────────────────────────
+const EXPECTED_RES_STATUS_ES = {
+  pending: 'Pendiente',
+  accepted: 'Aceptada',
+  rejected: 'Rechazada',
+};
+
+const PLAYER_ROLE_ES = {
+  complainant: 'Comprador',
+  respondent: 'Vendedor',
+  mediator: 'Mediador',
 };
 
 export default function ModalRma({ caso, onClose }) {
@@ -366,6 +428,7 @@ export default function ModalRma({ caso, onClose }) {
     <ModalTesla
       isOpen={true}
       onClose={() => onClose(false)}
+      closeOnOverlay={false}
       title={esNuevo ? 'Nuevo Caso RMA' : `Caso ${casoData.numero_caso || ''}`}
       subtitle={casoData.cliente_nombre || 'Sin cliente'}
       size="xl"
@@ -526,6 +589,16 @@ export default function ModalRma({ caso, onClose }) {
                                 <span className={styles.trazaClaimTitle}>
                                   Reclamo #{claim.claim_id}
                                 </span>
+                                {claim.affects_reputation && (
+                                  <span className={styles.trazaClaimRepBadge} title="Afecta reputación">
+                                    <Star size={10} />
+                                  </span>
+                                )}
+                                {claim.has_incentive && claim.status === 'opened' && (
+                                  <span className={styles.trazaClaimIncentiveBadge} title="Incentivo 48hs para resolver">
+                                    <Clock size={10} /> 48hs
+                                  </span>
+                                )}
                                 <span className={`${styles.trazaClaimBadge} ${claim.status === 'opened' ? styles.trazaClaimBadgeOpen : styles.trazaClaimBadgeClosed}`}>
                                   {claim.status === 'opened' ? 'Abierto' : 'Cerrado'}
                                 </span>
@@ -536,6 +609,13 @@ export default function ModalRma({ caso, onClose }) {
                                 {claim.reason_detail || claim.reason_category || 'Sin motivo'}
                               </div>
 
+                              {/* Descripción del detalle (de /detail) */}
+                              {claim.detail_description && (
+                                <div className={styles.trazaClaimDescription}>
+                                  {claim.detail_description}
+                                </div>
+                              )}
+
                               {/* Tags y resoluciones esperadas */}
                               <div className={styles.trazaClaimTags}>
                                 {(claim.triage_tags || []).map((tag) => (
@@ -544,6 +624,11 @@ export default function ModalRma({ caso, onClose }) {
                                 {(claim.expected_resolutions || []).map((res) => (
                                   <span key={res} className={styles.trazaClaimResolution}>{EXPECTED_RESOLUTIONS_ES[res] || res.replace(/_/g, ' ')}</span>
                                 ))}
+                                {claim.messages_total != null && claim.messages_total > 0 && (
+                                  <span className={styles.trazaClaimMsgBadge}>
+                                    <MessageSquare size={10} /> {claim.messages_total}
+                                  </span>
+                                )}
                               </div>
 
                               {/* Detalles */}
@@ -578,6 +663,91 @@ export default function ModalRma({ caso, onClose }) {
                               {(claim.mandatory_actions || []).length > 0 && claim.status === 'opened' && (
                                 <div className={styles.trazaClaimMandatory}>
                                   Acciones obligatorias: {claim.mandatory_actions.map((a) => CLAIM_ACTIONS_ES[a] || a.replace(/_/g, ' ')).join(', ')}
+                                </div>
+                              )}
+
+                              {/* Devolución (return) */}
+                              {claim.claim_return && (
+                                <div className={styles.trazaClaimReturnSection}>
+                                  <div className={styles.trazaClaimSubHeader}>
+                                    <RotateCcw size={12} />
+                                    <span>Devolución</span>
+                                    <span className={styles.trazaClaimSubBadge}>
+                                      {RETURN_STATUS_ES[claim.claim_return.status] || claim.claim_return.status}
+                                    </span>
+                                  </div>
+                                  <div className={styles.trazaClaimSubDetails}>
+                                    {claim.claim_return.subtype && (
+                                      <span>{RETURN_SUBTYPE_ES[claim.claim_return.subtype] || claim.claim_return.subtype}</span>
+                                    )}
+                                    {claim.claim_return.status_money && (
+                                      <span>
+                                        <DollarSign size={10} /> {RETURN_MONEY_STATUS_ES[claim.claim_return.status_money] || claim.claim_return.status_money}
+                                      </span>
+                                    )}
+                                    {claim.claim_return.refund_at && claim.claim_return.refund_at !== 'n/a' && (
+                                      <span>Reembolso al: {SHIPMENT_STATUS_ES[claim.claim_return.refund_at] || claim.claim_return.refund_at}</span>
+                                    )}
+                                  </div>
+                                  {/* Shipments de la devolución */}
+                                  {(claim.claim_return.shipments || []).length > 0 && (
+                                    <div className={styles.trazaClaimShipments}>
+                                      {claim.claim_return.shipments.map((s, idx) => (
+                                        <div key={s.shipment_id || idx} className={styles.trazaClaimShipment}>
+                                          <Truck size={10} />
+                                          <span>
+                                            {s.shipment_type === 'return' ? 'Devolución' : s.shipment_type === 'return_from_triage' ? 'Desde triage' : s.shipment_type || 'Envío'}
+                                            {' — '}
+                                            {SHIPMENT_STATUS_ES[s.status] || s.status}
+                                          </span>
+                                          {s.tracking_number && (
+                                            <span className={styles.trazaClaimTracking}>#{s.tracking_number}</span>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Cambio/reemplazo (change) */}
+                              {claim.claim_change && (
+                                <div className={styles.trazaClaimChangeSection}>
+                                  <div className={styles.trazaClaimSubHeader}>
+                                    <ArrowLeftRight size={12} />
+                                    <span>{CHANGE_TYPE_ES[claim.claim_change.change_type] || claim.claim_change.change_type || 'Cambio'}</span>
+                                    <span className={styles.trazaClaimSubBadge}>
+                                      {CHANGE_STATUS_ES[claim.claim_change.status] || claim.claim_change.status}
+                                    </span>
+                                  </div>
+                                  {(claim.claim_change.new_order_ids || []).length > 0 && (
+                                    <div className={styles.trazaClaimSubDetails}>
+                                      <span>Nueva orden: {claim.claim_change.new_order_ids.join(', ')}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Resoluciones esperadas detalladas (negociación) */}
+                              {(claim.expected_resolutions_detail || []).length > 0 && (
+                                <div className={styles.trazaClaimExpResSection}>
+                                  <div className={styles.trazaClaimSubHeader}>
+                                    <FileText size={12} />
+                                    <span>Negociación</span>
+                                  </div>
+                                  {claim.expected_resolutions_detail.map((er, idx) => (
+                                    <div key={idx} className={styles.trazaClaimExpRes}>
+                                      <span className={styles.trazaClaimExpResRole}>
+                                        {PLAYER_ROLE_ES[er.player_role] || er.player_role}:
+                                      </span>
+                                      <span>
+                                        {EXPECTED_RESOLUTIONS_ES[er.expected_resolution] || er.expected_resolution?.replace(/_/g, ' ')}
+                                      </span>
+                                      <span className={`${styles.trazaClaimExpResBadge} ${er.status === 'accepted' ? styles.trazaClaimExpResAccepted : er.status === 'rejected' ? styles.trazaClaimExpResRejected : ''}`}>
+                                        {EXPECTED_RES_STATUS_ES[er.status] || er.status}
+                                      </span>
+                                    </div>
+                                  ))}
                                 </div>
                               )}
 

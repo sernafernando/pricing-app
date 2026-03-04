@@ -64,6 +64,8 @@ from app.models.rma_seguimiento_opcion import RmaSeguimientoOpcion
 from app.models.rma_caso import RmaCaso
 from app.models.rma_caso_item import RmaCasoItem
 from app.models.rma_caso_historial import RmaCasoHistorial
+from app.models.rma_claim_ml import RmaClaimML
+from app.models.rma_claim_ml_message import RmaClaimMLMessage
 from app.models.etiqueta_colecta import EtiquetaColecta
 from app.models.weather_history import WeatherHistory
 
@@ -146,6 +148,8 @@ __all__ = [
     "RmaCaso",
     "RmaCasoItem",
     "RmaCasoHistorial",
+    "RmaClaimML",
+    "RmaClaimMLMessage",
     "EtiquetaColecta",
     "WeatherHistory",
 ]
