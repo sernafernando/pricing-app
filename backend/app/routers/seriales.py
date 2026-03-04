@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -3573,16 +3573,18 @@ _EXT_TO_MIME = {
 }
 
 
-@router.get("/ml-attachment/{attachment_id:path}")
+@router.get("/ml-attachment")
 def get_ml_attachment(
-    attachment_id: str,
+    id: str = Query(..., description="Attachment key from ML message_attachments"),
     current_user: Usuario = Depends(get_current_user),
 ) -> Response:
     """
     Proxy para descargar adjuntos de mensajes de ML.
     Fetchea /messages/attachments/{id}?tag=post_sale&site_id=MLA
     y devuelve el binario con el content-type correcto.
+    Usa query param para evitar que nginx/CDN intercepte la extensión como archivo estático.
     """
+    attachment_id = id
     resource = f"/messages/attachments/{attachment_id}?tag=post_sale&site_id=MLA"
     try:
         with httpx.Client(timeout=15.0) as client:
