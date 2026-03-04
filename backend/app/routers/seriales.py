@@ -2533,11 +2533,21 @@ def _build_claim_from_ml_api(
                 messages_total = len(messages_data.get("data") or [])
 
     # Affects reputation (from /affects-reputation endpoint)
+    # NOTE: ML may return bool (True/False) OR string ("affected"/"not_affected").
     affects_reputation: Optional[bool] = None
     has_incentive: Optional[bool] = None
     if affects_rep_data is not None:
-        affects_reputation = affects_rep_data.get("affects_reputation")
-        has_incentive = affects_rep_data.get("has_incentive")
+        raw_ar = affects_rep_data.get("affects_reputation")
+        if isinstance(raw_ar, bool):
+            affects_reputation = raw_ar
+        elif isinstance(raw_ar, str):
+            affects_reputation = raw_ar.lower() in ("affected", "true")
+        raw_hi = affects_rep_data.get("has_incentive")
+        if isinstance(raw_hi, bool):
+            has_incentive = raw_hi
+        elif isinstance(raw_hi, str):
+            has_incentive = raw_hi.lower() in ("true", "yes")
+        # else: remains None
 
     return ClaimML(
         claim_id=str(claim_data.get("id", "")),
