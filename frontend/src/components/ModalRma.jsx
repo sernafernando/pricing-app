@@ -247,7 +247,7 @@ export default function ModalRma({ caso, onClose }) {
   const renderDropdown = (categoria, value, onChange, disabled = false) => {
     const opts = opciones[categoria] || [];
     return (
-      <select value={value || ''} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} disabled={disabled} className="select-tesla">
+      <select value={value || ''} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)} disabled={disabled} className={styles.select}>
         <option value="">— Seleccionar —</option>
         {opts.map((op) => (
           <option key={op.id} value={op.id}>{op.valor}</option>
@@ -316,7 +316,7 @@ export default function ModalRma({ caso, onClose }) {
                         value={searchSerial}
                         onChange={(e) => setSearchSerial(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && buscarTraza()}
-                        className="input-tesla"
+                        className={styles.input}
                       />
                       <button className="btn-tesla outline-subtle-primary sm" onClick={buscarTraza} disabled={buscandoTraza}>
                         <Search size={14} /> {buscandoTraza ? 'Buscando...' : 'Buscar'}
@@ -371,7 +371,7 @@ export default function ModalRma({ caso, onClose }) {
                           placeholder="Escribí un EAN, código o parte de la descripción..."
                           value={searchProducto}
                           onChange={(e) => setSearchProducto(e.target.value)}
-                          className={`input-tesla ${styles.productoInputWithIcon}`}
+                          className={`${styles.input} ${styles.productoInputWithIcon}`}
                         />
                         <Search size={14} className={styles.productoSearchIcon} />
                       </div>
@@ -434,14 +434,14 @@ export default function ModalRma({ caso, onClose }) {
                       </p>
                       <div className={styles.manualFormGrid}>
                         <input
-                          className="input-tesla"
+                          className={styles.input}
                           placeholder="Descripción del producto *"
                           value={manualItem.producto_desc}
                           onChange={(e) => setManualItem({ ...manualItem, producto_desc: e.target.value })}
                           onKeyDown={(e) => e.key === 'Enter' && agregarItemManual()}
                         />
                         <input
-                          className="input-tesla"
+                          className={styles.input}
                           type="number"
                           step="0.01"
                           placeholder="Precio"
@@ -450,14 +450,14 @@ export default function ModalRma({ caso, onClose }) {
                           onKeyDown={(e) => e.key === 'Enter' && agregarItemManual()}
                         />
                         <input
-                          className="input-tesla"
+                          className={styles.input}
                           placeholder="EAN / Código"
                           value={manualItem.ean}
                           onChange={(e) => setManualItem({ ...manualItem, ean: e.target.value })}
                           onKeyDown={(e) => e.key === 'Enter' && agregarItemManual()}
                         />
                         <input
-                          className="input-tesla"
+                          className={styles.input}
                           placeholder="Nro. Serie (opcional)"
                           value={manualItem.serial_number}
                           onChange={(e) => setManualItem({ ...manualItem, serial_number: e.target.value })}
@@ -486,19 +486,19 @@ export default function ModalRma({ caso, onClose }) {
                 <div className={styles.grid2}>
                   <label>
                     <span className={styles.label}>Cliente</span>
-                    <input className="input-tesla" value={casoData.cliente_nombre || ''} onChange={(e) => setCasoData({ ...casoData, cliente_nombre: e.target.value })} disabled={!puedeGestionar} />
+                    <input className={styles.input} value={casoData.cliente_nombre || ''} onChange={(e) => setCasoData({ ...casoData, cliente_nombre: e.target.value })} disabled={!puedeGestionar} />
                   </label>
                   <label>
                     <span className={styles.label}>DNI</span>
-                    <input className="input-tesla" value={casoData.cliente_dni || ''} onChange={(e) => setCasoData({ ...casoData, cliente_dni: e.target.value })} disabled={!puedeGestionar} />
+                    <input className={styles.input} value={casoData.cliente_dni || ''} onChange={(e) => setCasoData({ ...casoData, cliente_dni: e.target.value })} disabled={!puedeGestionar} />
                   </label>
                   <label>
                     <span className={styles.label}>ML ID</span>
-                    <input className="input-tesla" value={casoData.ml_id || ''} onChange={(e) => setCasoData({ ...casoData, ml_id: e.target.value })} disabled={!puedeGestionar} />
+                    <input className={styles.input} value={casoData.ml_id || ''} onChange={(e) => setCasoData({ ...casoData, ml_id: e.target.value })} disabled={!puedeGestionar} />
                   </label>
                   <label>
                     <span className={styles.label}>Origen</span>
-                    <select className="select-tesla" value={casoData.origen || ''} onChange={(e) => setCasoData({ ...casoData, origen: e.target.value })} disabled={!puedeGestionar}>
+                    <select className={styles.select} value={casoData.origen || ''} onChange={(e) => setCasoData({ ...casoData, origen: e.target.value })} disabled={!puedeGestionar}>
                       <option value="">— Seleccionar —</option>
                       <option value="mercadolibre">MercadoLibre</option>
                       <option value="tienda_nube">Tienda Nube</option>
@@ -547,7 +547,7 @@ export default function ModalRma({ caso, onClose }) {
                     <div className={styles.grid2}>
                       <label>
                         <span className={styles.label}>Estado del caso</span>
-                        <select className="select-tesla" value={casoData.estado || 'abierto'} onChange={(e) => setCasoData({ ...casoData, estado: e.target.value })} disabled={!puedeGestionar}>
+                        <select className={styles.select} value={casoData.estado || 'abierto'} onChange={(e) => setCasoData({ ...casoData, estado: e.target.value })} disabled={!puedeGestionar}>
                           <option value="abierto">Abierto</option>
                           <option value="en_espera">En espera</option>
                           <option value="cerrado">Cerrado</option>
@@ -562,7 +562,7 @@ export default function ModalRma({ caso, onClose }) {
 
                   <ModalSection title="Observaciones">
                     <textarea
-                      className="input-tesla"
+                      className={styles.textarea}
                       rows={3}
                       value={casoData.observaciones || ''}
                       onChange={(e) => setCasoData({ ...casoData, observaciones: e.target.value })}
@@ -575,7 +575,7 @@ export default function ModalRma({ caso, onClose }) {
                     <div className={styles.grid2}>
                       <label>
                         <span className={styles.label}>Corroborar NC</span>
-                        <input className="input-tesla" value={casoData.corroborar_nc || ''} onChange={(e) => setCasoData({ ...casoData, corroborar_nc: e.target.value })} disabled={!puedeGestionar} />
+                        <input className={styles.input} value={casoData.corroborar_nc || ''} onChange={(e) => setCasoData({ ...casoData, corroborar_nc: e.target.value })} disabled={!puedeGestionar} />
                       </label>
                       <div>
                         <span className={styles.label}>Fecha</span>
@@ -600,7 +600,7 @@ export default function ModalRma({ caso, onClose }) {
                     </label>
                     <label>
                       <span className={styles.label}>Costo de envío</span>
-                      <input className="input-tesla" type="number" step="0.01" value={item.costo_envio || ''} onChange={(e) => handleItemUpdate(item.id, 'costo_envio', e.target.value ? Number(e.target.value) : null)} disabled={!puedeGestionar} />
+                      <input className={styles.input} type="number" step="0.01" value={item.costo_envio || ''} onChange={(e) => handleItemUpdate(item.id, 'costo_envio', e.target.value ? Number(e.target.value) : null)} disabled={!puedeGestionar} />
                     </label>
                     <label>
                       <span className={styles.label}>Causa de devolución</span>
@@ -652,7 +652,7 @@ export default function ModalRma({ caso, onClose }) {
                 </label>
                 <label>
                   <span className={styles.label}>Monto cubierto</span>
-                  <input className="input-tesla" type="number" step="0.01" value={casoData.monto_cubierto || ''} onChange={(e) => setCasoData({ ...casoData, monto_cubierto: e.target.value ? Number(e.target.value) : null })} disabled={!puedeGestionar} />
+                  <input className={styles.input} type="number" step="0.01" value={casoData.monto_cubierto || ''} onChange={(e) => setCasoData({ ...casoData, monto_cubierto: e.target.value ? Number(e.target.value) : null })} disabled={!puedeGestionar} />
                 </label>
               </div>
             </ModalSection>
@@ -666,7 +666,7 @@ export default function ModalRma({ caso, onClose }) {
                   <div className={styles.grid2}>
                     <label>
                       <span className={styles.label}>Proveedor</span>
-                      <input className="input-tesla" value={item.proveedor_nombre || ''} onChange={(e) => handleItemUpdate(item.id, 'proveedor_nombre', e.target.value)} disabled={!puedeGestionar} />
+                      <input className={styles.input} value={item.proveedor_nombre || ''} onChange={(e) => handleItemUpdate(item.id, 'proveedor_nombre', e.target.value)} disabled={!puedeGestionar} />
                     </label>
                     <label>
                       <span className={styles.label}>Estado proveedor</span>
@@ -678,19 +678,19 @@ export default function ModalRma({ caso, onClose }) {
                     </label>
                     <label>
                       <span className={styles.label}>NC Proveedor</span>
-                      <input className="input-tesla" value={item.nc_proveedor || ''} onChange={(e) => handleItemUpdate(item.id, 'nc_proveedor', e.target.value)} disabled={!puedeGestionar} />
+                      <input className={styles.input} value={item.nc_proveedor || ''} onChange={(e) => handleItemUpdate(item.id, 'nc_proveedor', e.target.value)} disabled={!puedeGestionar} />
                     </label>
                     <label>
                       <span className={styles.label}>Monto NC Proveedor</span>
-                      <input className="input-tesla" type="number" step="0.01" value={item.monto_nc_proveedor || ''} onChange={(e) => handleItemUpdate(item.id, 'monto_nc_proveedor', e.target.value ? Number(e.target.value) : null)} disabled={!puedeGestionar} />
+                      <input className={styles.input} type="number" step="0.01" value={item.monto_nc_proveedor || ''} onChange={(e) => handleItemUpdate(item.id, 'monto_nc_proveedor', e.target.value ? Number(e.target.value) : null)} disabled={!puedeGestionar} />
                     </label>
                     <label>
                       <span className={styles.label}>Fecha envío</span>
-                      <input className="input-tesla" type="date" value={item.fecha_envio_proveedor ? item.fecha_envio_proveedor.split('T')[0] : ''} onChange={(e) => handleItemUpdate(item.id, 'fecha_envio_proveedor', e.target.value || null)} disabled={!puedeGestionar} />
+                      <input className={styles.input} type="date" value={item.fecha_envio_proveedor ? item.fecha_envio_proveedor.split('T')[0] : ''} onChange={(e) => handleItemUpdate(item.id, 'fecha_envio_proveedor', e.target.value || null)} disabled={!puedeGestionar} />
                     </label>
                     <label>
                       <span className={styles.label}>Fecha respuesta</span>
-                      <input className="input-tesla" type="date" value={item.fecha_respuesta_proveedor ? item.fecha_respuesta_proveedor.split('T')[0] : ''} onChange={(e) => handleItemUpdate(item.id, 'fecha_respuesta_proveedor', e.target.value || null)} disabled={!puedeGestionar} />
+                      <input className={styles.input} type="date" value={item.fecha_respuesta_proveedor ? item.fecha_respuesta_proveedor.split('T')[0] : ''} onChange={(e) => handleItemUpdate(item.id, 'fecha_respuesta_proveedor', e.target.value || null)} disabled={!puedeGestionar} />
                     </label>
                   </div>
                 </ModalSection>
@@ -739,7 +739,7 @@ export default function ModalRma({ caso, onClose }) {
                     <label>
                       <span className={styles.label}>Observaciones</span>
                       <textarea
-                        className="input-tesla"
+                        className={styles.textarea}
                         rows={2}
                         value={item.observaciones || ''}
                         onChange={(e) => handleItemUpdate(item.id, 'observaciones', e.target.value)}
