@@ -2521,13 +2521,16 @@ def _build_claim_from_ml_api(
         )
 
     # Messages count (from /messages endpoint)
+    # NOTE: ML may return a list directly OR a dict with {paging, data}.
     messages_total: Optional[int] = None
     if messages_data is not None:
-        # paging.total or len of data
-        paging = messages_data.get("paging") or {}
-        messages_total = paging.get("total")
-        if messages_total is None:
-            messages_total = len(messages_data.get("data") or [])
+        if isinstance(messages_data, list):
+            messages_total = len(messages_data)
+        else:
+            paging = messages_data.get("paging") or {}
+            messages_total = paging.get("total")
+            if messages_total is None:
+                messages_total = len(messages_data.get("data") or [])
 
     # Affects reputation (from /affects-reputation endpoint)
     affects_reputation: Optional[bool] = None
@@ -2829,14 +2832,18 @@ def _save_claim_to_cache(
         logger.warning("Failed to create session for claim cache", exc_info=True)
 
 
-def _save_messages_to_cache(claim_id: str, messages_data: Optional[dict]) -> None:
+def _save_messages_to_cache(claim_id: str, messages_data: Optional[dict | list]) -> None:
     """
     Save messages from /claims/{id}/messages into rma_claims_ml_messages.
     Only saves messages not already in the DB (by claim_id + ml_date_created).
+    ML may return a list directly OR a dict with {paging, data}.
     """
     if not messages_data:
         return
-    messages = messages_data.get("data") or []
+    if isinstance(messages_data, list):
+        messages = messages_data
+    else:
+        messages = messages_data.get("data") or []
     if not messages:
         return
 
@@ -2940,9 +2947,13 @@ def _enrich_claim_via_http(claim_id: str) -> Optional[ClaimML]:
                 affects_rep_data=affects_rep_data,
             )
 
-            # Save messages to cache (only if we got full messages, not just count)
-            if messages_data and messages_data.get("data"):
-                _save_messages_to_cache(claim_id, messages_data)
+            # Save messages to cache (only if we got messages)
+            if messages_data:
+                has_messages = (isinstance(messages_data, list) and len(messages_data) > 0) or (
+                    isinstance(messages_data, dict) and messages_data.get("data")
+                )
+                if has_messages:
+                    _save_messages_to_cache(claim_id, messages_data)
 
             return claim
     except Exception:
