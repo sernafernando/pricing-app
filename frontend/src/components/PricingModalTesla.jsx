@@ -187,7 +187,7 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
             onConfirm={guardar}
             confirmText="Guardar Precio"
             confirmLoading={guardando}
-            confirmVariant="success"
+            confirmVariant="outline-subtle-success"
           />
         )
       }
