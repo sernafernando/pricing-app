@@ -148,6 +148,44 @@ const PLAYER_ROLE_ES = {
   mediator: 'Mediador',
 };
 
+/**
+ * Sanitiza HTML permitiendo solo tags seguros para mensajes de ML.
+ * Remueve scripts, event handlers y tags peligrosos.
+ */
+const sanitizeMessageHtml = (html) => {
+  if (!html) return '';
+  const ALLOWED_TAGS = ['strong', 'b', 'em', 'i', 'u', 'br', 'p', 'ul', 'ol', 'li', 'a'];
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  // Remove scripts and event handlers
+  for (const el of div.querySelectorAll('script, style, iframe, object, embed')) {
+    el.remove();
+  }
+  for (const el of div.querySelectorAll('*')) {
+    // Strip event handlers (onclick, onerror, etc.)
+    for (const attr of [...el.attributes]) {
+      if (attr.name.startsWith('on') || attr.name === 'style') {
+        el.removeAttribute(attr.name);
+      }
+    }
+    // Strip disallowed tags but keep their text content
+    if (!ALLOWED_TAGS.includes(el.tagName.toLowerCase())) {
+      el.replaceWith(...el.childNodes);
+    }
+  }
+  // Sanitize <a> tags — only allow href, add safety attrs
+  for (const a of div.querySelectorAll('a')) {
+    const href = a.getAttribute('href') || '';
+    if (!href.startsWith('http')) {
+      a.replaceWith(...a.childNodes);
+    } else {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    }
+  }
+  return div.innerHTML;
+};
+
 export default function ModalRma({ caso, onClose }) {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rma.gestionar');
@@ -1289,7 +1327,10 @@ export default function ModalRma({ caso, onClose }) {
                       </span>
                     )}
                   </div>
-                  <div className={styles.claimMsgText}>{msg.message || '(sin texto)'}</div>
+                  <div
+                    className={styles.claimMsgText}
+                    dangerouslySetInnerHTML={{ __html: sanitizeMessageHtml(msg.message) || '(sin texto)' }}
+                  />
                   {msg.attachments && msg.attachments.length > 0 && (
                     <div className={styles.claimMsgAttachments}>
                       {msg.attachments.map((att, i) => (
