@@ -393,6 +393,14 @@
   color: var(--cf-text-secondary);
   border: 1px solid var(--cf-border-default);
   font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.trazaClaimMsgBadge:hover {
+  background: var(--cf-accent-blue);
+  color: #fff;
+  border-color: var(--cf-accent-blue);
 }
 
 /* Claim — sub-sections (return, change, expected resolutions) */
@@ -816,4 +824,99 @@
     min-width: auto;
     width: 100%;
   }
+}
+
+/* ── Claim messages modal ────────────────────────────────────────────── */
+
+.claimMsgsEmpty {
+  color: var(--cf-text-tertiary);
+  text-align: center;
+  padding: var(--spacing-lg);
+  font-size: var(--font-sm);
+}
+
+.claimMsgsList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  max-height: 480px;
+  overflow-y: auto;
+  padding: var(--spacing-xs) 0;
+}
+
+.claimMsgBubble {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-hover);
+  border-left: 3px solid var(--cf-accent-blue);
+  max-width: 85%;
+  align-self: flex-start;
+}
+
+.claimMsgSeller {
+  align-self: flex-end;
+  border-left: none;
+  border-right: 3px solid var(--cf-accent-green);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.claimMsgMediator {
+  align-self: center;
+  border-left: none;
+  border-right: none;
+  border-top: 1px solid var(--cf-accent-orange);
+  border-bottom: 1px solid var(--cf-accent-orange);
+  background: rgba(245, 158, 11, 0.06);
+  max-width: 95%;
+}
+
+.claimMsgHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.claimMsgRole {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.claimMsgDate {
+  font-size: 10px;
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+.claimMsgText {
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.claimMsgAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.claimMsgAttachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-tertiary);
+  border: 1px solid var(--cf-border-subtle);
 }

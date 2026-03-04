@@ -176,6 +176,12 @@ export default function ModalRma({ caso, onClose }) {
   const [showManualForm, setShowManualForm] = useState(false);
   const [manualItem, setManualItem] = useState({ producto_desc: '', precio: '', ean: '', serial_number: '' });
 
+  // Claim messages modal
+  const [claimMsgsOpen, setClaimMsgsOpen] = useState(false);
+  const [claimMsgs, setClaimMsgs] = useState([]);
+  const [claimMsgsLoading, setClaimMsgsLoading] = useState(false);
+  const [claimMsgsClaimId, setClaimMsgsClaimId] = useState(null);
+
   useEffect(() => {
     cargarOpciones();
     if (caso?.id) {
@@ -239,6 +245,21 @@ export default function ModalRma({ caso, onClose }) {
       setHistorial(data);
     } catch {
       // historial vacío
+    }
+  };
+
+  const abrirMensajesClaim = async (claimId) => {
+    setClaimMsgsClaimId(claimId);
+    setClaimMsgsOpen(true);
+    setClaimMsgsLoading(true);
+    setClaimMsgs([]);
+    try {
+      const { data } = await api.get(`/seriales/claims/${claimId}/messages`);
+      setClaimMsgs(data);
+    } catch {
+      setClaimMsgs([]);
+    } finally {
+      setClaimMsgsLoading(false);
     }
   };
 
@@ -425,6 +446,7 @@ export default function ModalRma({ caso, onClose }) {
   ];
 
   return (
+    <>
     <ModalTesla
       isOpen={true}
       onClose={() => onClose(false)}
@@ -625,9 +647,14 @@ export default function ModalRma({ caso, onClose }) {
                                   <span key={res} className={styles.trazaClaimResolution}>{EXPECTED_RESOLUTIONS_ES[res] || res.replace(/_/g, ' ')}</span>
                                 ))}
                                 {claim.messages_total != null && claim.messages_total > 0 && (
-                                  <span className={styles.trazaClaimMsgBadge}>
+                                  <button
+                                    type="button"
+                                    className={styles.trazaClaimMsgBadge}
+                                    onClick={() => abrirMensajesClaim(claim.claim_id)}
+                                    aria-label={`Ver ${claim.messages_total} mensaje${claim.messages_total > 1 ? 's' : ''}`}
+                                  >
                                     <MessageSquare size={10} /> {claim.messages_total}
-                                  </span>
+                                  </button>
                                 )}
                               </div>
 
@@ -1226,5 +1253,58 @@ export default function ModalRma({ caso, onClose }) {
         </>
       )}
     </ModalTesla>
+
+      {/* ── Sub-modal: Mensajes del reclamo ML ── */}
+      <ModalTesla
+        isOpen={claimMsgsOpen}
+        onClose={() => setClaimMsgsOpen(false)}
+        title={`Mensajes — Reclamo #${claimMsgsClaimId || ''}`}
+        size="md"
+        closeOnOverlay
+      >
+        {claimMsgsLoading ? (
+          <ModalLoading message="Cargando mensajes..." />
+        ) : claimMsgs.length === 0 ? (
+          <p className={styles.claimMsgsEmpty}>Sin mensajes en cache</p>
+        ) : (
+          <div className={styles.claimMsgsList}>
+            {claimMsgs.map((msg) => {
+              const isSeller = msg.sender_role === 'respondent';
+              const isMediator = msg.sender_role === 'mediator';
+              return (
+                <div
+                  key={msg.id}
+                  className={`${styles.claimMsgBubble} ${isSeller ? styles.claimMsgSeller : ''} ${isMediator ? styles.claimMsgMediator : ''}`}
+                >
+                  <div className={styles.claimMsgHeader}>
+                    <span className={styles.claimMsgRole}>
+                      {PLAYER_ROLE_ES[msg.sender_role] || msg.sender_role}
+                    </span>
+                    {msg.ml_date_created && (
+                      <span className={styles.claimMsgDate}>
+                        {new Date(msg.ml_date_created).toLocaleString('es-AR', {
+                          day: '2-digit', month: '2-digit', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                        })}
+                      </span>
+                    )}
+                  </div>
+                  <div className={styles.claimMsgText}>{msg.message || '(sin texto)'}</div>
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div className={styles.claimMsgAttachments}>
+                      {msg.attachments.map((att, i) => (
+                        <span key={i} className={styles.claimMsgAttachment}>
+                          <Package size={10} /> {att.original_filename || att.filename}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </ModalTesla>
+    </>
   );
 }
