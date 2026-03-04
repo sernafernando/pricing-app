@@ -17,6 +17,7 @@
 import { useState, Fragment } from 'react';
 import { ChevronRight, Package, FileText, ArrowRightLeft, Truck, AlertTriangle, User, Calendar } from 'lucide-react';
 import api from '../services/api';
+import ClaimCards from './ClaimCards';
 import styles from './TrazaViewer.module.css';
 
 const TIPO_ICONS = {
@@ -327,12 +328,13 @@ export default function TrazaViewer({ data, variant = 'serial', compact = false 
   const pedidos = data.pedidos || [];
   const rma = data.rma || [];
   const rma_por_factura = data.rma_por_factura || [];
+  const claims = data.claims || [];
 
   // ML variant: data has seriales[] array (multiple serials per sale)
   const seriales = data.seriales || [];
 
   const hasContent = articulo || movimientos.length > 0 || pedidos.length > 0 ||
-    rma.length > 0 || rma_por_factura.length > 0 || seriales.length > 0;
+    rma.length > 0 || rma_por_factura.length > 0 || seriales.length > 0 || claims.length > 0;
 
   if (!hasContent) {
     return (
@@ -358,6 +360,15 @@ export default function TrazaViewer({ data, variant = 'serial', compact = false 
           <MovimientosSection movimientos={movimientos} />
           <PedidosSection pedidos={pedidos} />
           <RmasSection rmaList={rma} title="RMAs del ERP (por serial)" />
+          {claims.length > 0 && (
+            <div className={styles.section}>
+              <div className={styles.sectionHeader}>
+                <AlertTriangle size={14} />
+                <span>Reclamos ML ({claims.length})</span>
+              </div>
+              <ClaimCards claims={claims} />
+            </div>
+          )}
         </>
       )}
 
@@ -382,6 +393,15 @@ export default function TrazaViewer({ data, variant = 'serial', compact = false 
             </div>
           ))}
           <RmasSection rmaList={rma_por_factura} title="RMAs (por factura)" />
+          {claims.length > 0 && (
+            <div className={styles.section}>
+              <div className={styles.sectionHeader}>
+                <AlertTriangle size={14} />
+                <span>Reclamos ML ({claims.length})</span>
+              </div>
+              <ClaimCards claims={claims} />
+            </div>
+          )}
         </>
       )}
 
