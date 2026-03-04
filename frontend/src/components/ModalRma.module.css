@@ -1002,3 +1002,12 @@
   border-radius: var(--radius-md);
   cursor: default;
 }
+
+/* ── Footer row: delete button left + save/cancel right ── */
+.footerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: var(--spacing-md);
+}

@@ -573,7 +573,7 @@ async def listar_casos(
     """Lista casos RMA con paginación y búsqueda."""
     _check_permiso(db, current_user, "rma.ver")
 
-    query = _build_caso_query(db)
+    query = _build_caso_query(db).filter(RmaCaso.activo == True)  # noqa: E712
 
     if estado:
         query = query.filter(RmaCaso.estado == estado)
@@ -823,6 +823,54 @@ async def eliminar_item(
 
 
 # ──────────────────────────────────────────────
+# SOFT DELETE (Caso completo)
+# ──────────────────────────────────────────────
+
+
+class EliminarCasoBody(BaseModel):
+    motivo: Optional[str] = Field(None, max_length=500)
+
+
+@router.delete("/{caso_id}", status_code=status.HTTP_200_OK)
+async def eliminar_caso(
+    caso_id: int,
+    body: EliminarCasoBody = EliminarCasoBody(),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """Soft-delete de un caso RMA. Marca activo=False y registra auditoría."""
+    _check_permiso(db, current_user, "rma.eliminar")
+
+    caso = db.query(RmaCaso).filter(RmaCaso.id == caso_id).first()
+    if not caso:
+        raise HTTPException(status_code=404, detail="Caso no encontrado")
+
+    if not caso.activo:
+        raise HTTPException(status_code=400, detail="El caso ya fue eliminado")
+
+    # Registrar en historial ANTES de marcar como inactivo
+    motivo = body.motivo or "Sin motivo"
+    _registrar_cambio(
+        db,
+        caso_id,
+        "caso_eliminado",
+        caso.numero_caso,
+        f"Eliminado: {motivo}",
+        current_user.id,
+    )
+
+    # Soft delete
+    caso.activo = False
+    caso.eliminado_por_id = current_user.id
+    caso.eliminado_at = datetime.now(UTC)
+    caso.eliminado_motivo = motivo
+
+    db.commit()
+
+    return {"ok": True, "numero_caso": caso.numero_caso}
+
+
+# ──────────────────────────────────────────────
 # HISTORIAL (Auditoría)
 # ──────────────────────────────────────────────
 
@@ -872,9 +920,10 @@ async def obtener_resumen(
     """Resumen rápido: casos abiertos, cerrados, por estado."""
     _check_permiso(db, current_user, "rma.ver")
 
-    total = db.query(func.count(RmaCaso.id)).scalar()
-    abiertos = db.query(func.count(RmaCaso.id)).filter(RmaCaso.estado == "abierto").scalar()
-    cerrados = db.query(func.count(RmaCaso.id)).filter(RmaCaso.estado == "cerrado").scalar()
+    base = db.query(func.count(RmaCaso.id)).filter(RmaCaso.activo == True)  # noqa: E712
+    total = base.scalar()
+    abiertos = base.filter(RmaCaso.estado == "abierto").scalar()
+    cerrados = base.filter(RmaCaso.estado == "cerrado").scalar()
 
     top_causas = (
         db.query(
@@ -882,6 +931,8 @@ async def obtener_resumen(
             func.count(RmaCasoItem.id).label("cantidad"),
         )
         .join(RmaCasoItem, RmaCasoItem.causa_devolucion_id == RmaSeguimientoOpcion.id)
+        .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+        .filter(RmaCaso.activo == True)  # noqa: E712
         .group_by(RmaSeguimientoOpcion.valor)
         .order_by(func.count(RmaCasoItem.id).desc())
         .limit(10)

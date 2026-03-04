@@ -58,6 +58,12 @@ class RmaCaso(Base):
     corroborar_nc = Column(String(100), nullable=True)
     fecha_caso = Column(Date, nullable=True)
 
+    # --- Soft delete ---
+    activo = Column(Boolean, nullable=False, default=True, server_default="true", index=True)
+    eliminado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    eliminado_at = Column(DateTime(timezone=True), nullable=True)
+    eliminado_motivo = Column(Text, nullable=True)
+
     # --- Sistema ---
     creado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -67,6 +73,7 @@ class RmaCaso(Base):
     items = relationship("RmaCasoItem", back_populates="caso", cascade="all, delete-orphan")
     historial = relationship("RmaCasoHistorial", back_populates="caso", cascade="all, delete-orphan")
     creado_por = relationship("Usuario", foreign_keys=[creado_por_id])
+    eliminado_por = relationship("Usuario", foreign_keys=[eliminado_por_id])
     estado_reclamo_ml = relationship("RmaSeguimientoOpcion", foreign_keys=[estado_reclamo_ml_id])
     cobertura_ml = relationship("RmaSeguimientoOpcion", foreign_keys=[cobertura_ml_id])
 
