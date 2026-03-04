@@ -20,6 +20,72 @@ import ModalTesla, { ModalSection, ModalFooterButtons, ModalLoading } from './Mo
 import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine, ShoppingCart, FileText, CalendarDays, Tag, Phone, Mail, AlertTriangle, Shield, Hash } from 'lucide-react';
 import styles from './ModalRma.module.css';
 
+// ── Traducciones de campos de claims ML ──────────────────────────────────────
+const TRIAGE_TAGS_ES = {
+  repentant: 'Arrepentimiento',
+  defective: 'Defectuoso',
+  not_working: 'No funciona',
+  different: 'Producto diferente',
+  incomplete: 'Incompleto',
+};
+
+const EXPECTED_RESOLUTIONS_ES = {
+  return_product: 'Devolución',
+  change_product: 'Cambio',
+  refund: 'Reembolso',
+  product: 'Producto',
+  other: 'Otro',
+};
+
+const CLAIM_STAGE_ES = {
+  claim: 'Reclamo',
+  dispute: 'Mediación',
+  recontact: 'Recontacto',
+  stale: 'Estancado',
+  none: 'N/A',
+};
+
+const CLAIM_ACTIONS_ES = {
+  refund: 'Reembolso',
+  allow_return: 'Autorizar devolución',
+  allow_return_label: 'Generar etiqueta de devolución',
+  allow_partial_refund: 'Reembolso parcial',
+  open_dispute: 'Abrir mediación',
+  send_message_to_complainant: 'Enviar mensaje al comprador',
+  send_message_to_mediator: 'Enviar mensaje al mediador',
+  send_potential_shipping: 'Promesa de envío',
+  add_shipping_evidence: 'Evidencia de envío',
+  send_tracking_number: 'Enviar tracking',
+  send_attachments: 'Enviar adjuntos',
+  return_review: 'Revisar devolución',
+};
+
+const RESOLUTION_REASON_ES = {
+  payment_refunded: 'Pago devuelto',
+  item_returned: 'Producto devuelto',
+  prefered_to_keep_product: 'Prefirió quedarse el producto',
+  partial_refunded: 'Reembolso parcial',
+  opened_claim_by_mistake: 'Reclamo por error',
+  worked_out_with_seller: 'Arregló con el vendedor',
+  seller_sent_product: 'Vendedor envió el producto',
+  seller_explained_functions: 'Vendedor explicó funcionamiento',
+  respondent_timeout: 'Vendedor no respondió',
+  coverage_decision: 'Cobertura de ML',
+  item_changed: 'Producto cambiado',
+  change_expired: 'Cambio expirado',
+  low_cost: 'Bajo costo (envío > producto)',
+  already_shipped: 'Ya fue enviado',
+  not_delivered: 'No entregado',
+  return_expired: 'Devolución vencida',
+  return_canceled: 'Devolución cancelada',
+};
+
+const CLOSED_BY_ES = {
+  seller: 'vendedor',
+  buyer: 'comprador',
+  mediator: 'mediador',
+};
+
 export default function ModalRma({ caso, onClose }) {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rma.gestionar');
@@ -473,10 +539,10 @@ export default function ModalRma({ caso, onClose }) {
                               {/* Tags y resoluciones esperadas */}
                               <div className={styles.trazaClaimTags}>
                                 {(claim.triage_tags || []).map((tag) => (
-                                  <span key={tag} className={styles.trazaClaimTag}>{tag}</span>
+                                  <span key={tag} className={styles.trazaClaimTag}>{TRIAGE_TAGS_ES[tag] || tag}</span>
                                 ))}
                                 {(claim.expected_resolutions || []).map((res) => (
-                                  <span key={res} className={styles.trazaClaimResolution}>{res.replace(/_/g, ' ')}</span>
+                                  <span key={res} className={styles.trazaClaimResolution}>{EXPECTED_RESOLUTIONS_ES[res] || res.replace(/_/g, ' ')}</span>
                                 ))}
                               </div>
 
@@ -485,7 +551,7 @@ export default function ModalRma({ caso, onClose }) {
                                 {claim.claim_stage && (
                                   <div className={styles.trazaClaimDetail}>
                                     <Shield size={12} />
-                                    <span>Etapa: {claim.claim_stage}</span>
+                                    <span>Etapa: {CLAIM_STAGE_ES[claim.claim_stage] || claim.claim_stage}</span>
                                   </div>
                                 )}
                                 {claim.action_responsible === 'seller' && claim.status === 'opened' && (
@@ -511,15 +577,15 @@ export default function ModalRma({ caso, onClose }) {
                               {/* Acciones obligatorias */}
                               {(claim.mandatory_actions || []).length > 0 && claim.status === 'opened' && (
                                 <div className={styles.trazaClaimMandatory}>
-                                  Acciones obligatorias: {claim.mandatory_actions.join(', ')}
+                                  Acciones obligatorias: {claim.mandatory_actions.map((a) => CLAIM_ACTIONS_ES[a] || a.replace(/_/g, ' ')).join(', ')}
                                 </div>
                               )}
 
                               {/* Resolución (si cerrado) */}
                               {claim.status === 'closed' && claim.resolution_reason && (
                                 <div className={styles.trazaClaimResolved}>
-                                  Resolución: {claim.resolution_reason.replace(/_/g, ' ')}
-                                  {claim.resolution_closed_by && ` (por ${claim.resolution_closed_by})`}
+                                  Resolución: {RESOLUTION_REASON_ES[claim.resolution_reason] || claim.resolution_reason.replace(/_/g, ' ')}
+                                  {claim.resolution_closed_by && ` (por ${CLOSED_BY_ES[claim.resolution_closed_by] || claim.resolution_closed_by})`}
                                 </div>
                               )}
                             </div>
