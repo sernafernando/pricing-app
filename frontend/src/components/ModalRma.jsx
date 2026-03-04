@@ -17,13 +17,8 @@ import { usePermisos } from '../contexts/PermisosContext';
 import { useDebounce } from '../hooks/useDebounce';
 import api from '../services/api';
 import ModalTesla, { ModalSection, ModalFooterButtons, ModalLoading } from './ModalTesla';
-import { Search, Plus, Trash2, ExternalLink, Clock, User, Package, PenLine } from 'lucide-react';
-
-const labelStyle = { fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' };
-const checkLabel = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' };
-const grid2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' };
-const grid3 = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' };
-const metaStyle = { marginTop: '8px', fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' };
+import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine } from 'lucide-react';
+import styles from './ModalRma.module.css';
 
 export default function ModalRma({ caso, onClose }) {
   const { tienePermiso } = usePermisos();
@@ -266,7 +261,7 @@ export default function ModalRma({ caso, onClose }) {
     const fecha = item[tipoFecha];
     if (!fecha) return null;
     return (
-      <div style={metaStyle}>
+      <div className={styles.meta}>
         <User size={12} /> Usuario #{userId} <Clock size={12} /> {new Date(fecha).toLocaleString('es-AR')}
       </div>
     );
@@ -313,8 +308,8 @@ export default function ModalRma({ caso, onClose }) {
               {/* Búsqueda de traza (solo nuevo) */}
               {esNuevo && (
                 <ModalSection title="Buscar artículo por serie o ML ID">
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                    <div style={{ flex: 1, display: 'flex', gap: '8px' }}>
+                  <div className={styles.searchRow}>
+                    <div className={styles.searchInputWrapper}>
                       <input
                         type="text"
                         placeholder="Ingresar serie o ID de venta ML..."
@@ -322,7 +317,6 @@ export default function ModalRma({ caso, onClose }) {
                         onChange={(e) => setSearchSerial(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && buscarTraza()}
                         className="input-tesla"
-                        style={{ flex: 1 }}
                       />
                       <button className="btn-tesla outline-subtle-primary sm" onClick={buscarTraza} disabled={buscandoTraza}>
                         <Search size={14} /> {buscandoTraza ? 'Buscando...' : 'Buscar'}
@@ -331,13 +325,13 @@ export default function ModalRma({ caso, onClose }) {
                   </div>
 
                   {trazaResult && !trazaResult.error && (
-                    <div style={{ background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Resultados de traza:</p>
+                    <div className={styles.trazaResults}>
+                      <p className={styles.trazaResultsLabel}>Resultados de traza:</p>
                       {trazaResult.articulo && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: 'var(--bg-secondary)', borderRadius: '6px' }}>
+                        <div className={styles.trazaItem}>
                           <div>
-                            <strong>{trazaResult.articulo.descripcion}</strong>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                            <div className={styles.trazaItemDesc}>{trazaResult.articulo.descripcion}</div>
+                            <div className={styles.trazaItemMeta}>
                               {trazaResult.serial} — {trazaResult.articulo.codigo}
                             </div>
                           </div>
@@ -347,10 +341,10 @@ export default function ModalRma({ caso, onClose }) {
                         </div>
                       )}
                       {trazaResult.seriales?.map((s, idx) => (
-                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: 'var(--bg-secondary)', borderRadius: '6px', marginTop: '4px' }}>
+                        <div key={idx} className={styles.trazaItem}>
                           <div>
-                            <strong>{s.articulo?.descripcion || 'Sin descripción'}</strong>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{s.serial}</div>
+                            <div className={styles.trazaItemDesc}>{s.articulo?.descripcion || 'Sin descripción'}</div>
+                            <div className={styles.trazaItemMeta}>{s.serial}</div>
                           </div>
                           <button className="btn-tesla outline-subtle-success sm" onClick={() => agregarItemDesdeTraza(s.serial, s.articulo, trazaResult.pedidos?.[0])}>
                             <Plus size={14} /> Agregar
@@ -360,7 +354,7 @@ export default function ModalRma({ caso, onClose }) {
                     </div>
                   )}
                   {trazaResult?.error && (
-                    <p style={{ color: 'var(--color-danger)', fontSize: '0.85rem' }}>{trazaResult.error}</p>
+                    <p className={styles.trazaError}>{trazaResult.error}</p>
                   )}
                 </ModalSection>
               )}
@@ -368,19 +362,18 @@ export default function ModalRma({ caso, onClose }) {
               {/* Buscar por EAN / código / descripción (solo nuevo) */}
               {esNuevo && (
                 <ModalSection title="Buscar producto por EAN / código / descripción">
-                  <div style={{ position: 'relative' }}>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <div style={{ flex: 1, position: 'relative' }}>
+                  <div className={styles.productoSearchContainer}>
+                    <div className={styles.productoSearchRow}>
+                      <div className={styles.productoInputWrapper}>
                         <input
                           ref={productoInputRef}
                           type="text"
                           placeholder="Escribí un EAN, código o parte de la descripción..."
                           value={searchProducto}
                           onChange={(e) => setSearchProducto(e.target.value)}
-                          className="input-tesla"
-                          style={{ width: '100%', paddingLeft: '36px' }}
+                          className={`input-tesla ${styles.productoInputWithIcon}`}
                         />
-                        <Search size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
+                        <Search size={14} className={styles.productoSearchIcon} />
                       </div>
                       <button
                         className="btn-tesla ghost sm"
@@ -393,47 +386,41 @@ export default function ModalRma({ caso, onClose }) {
                     </div>
 
                     {buscandoProducto && (
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '8px' }}>Buscando...</p>
+                      <p className={styles.searchHint}>Buscando...</p>
                     )}
 
                     {productoResults.length > 0 && (
-                      <div style={{ marginTop: '8px', maxHeight: '240px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div className={styles.productoResults}>
                         {productoResults.map((p) => (
                           <div
                             key={p.item_id}
-                            style={{
-                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                              padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: '6px',
-                              cursor: 'pointer', transition: 'background 0.15s',
-                            }}
+                            className={styles.productoResultItem}
                             onClick={() => agregarItemDesdeProducto(p)}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-secondary)'; }}
                           >
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: '0.85rem', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <div className={styles.productoResultInfo}>
+                              <div className={styles.productoResultDesc}>
                                 {p.descripcion}
                               </div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', gap: '12px', marginTop: '2px' }}>
+                              <div className={styles.productoResultMeta}>
                                 <span>{p.codigo}</span>
                                 {p.marca && <span>{p.marca}</span>}
-                                {p.stock > 0 && <span style={{ color: 'var(--color-success)' }}>Stock: {p.stock}</span>}
-                                {p.stock === 0 && <span style={{ color: 'var(--text-secondary)' }}>Sin stock</span>}
+                                {p.stock > 0 && <span className={styles.productoResultStock}>Stock: {p.stock}</span>}
+                                {p.stock === 0 && <span className={styles.productoResultNoStock}>Sin stock</span>}
                               </div>
                             </div>
                             {p.precio_lista_ml && (
-                              <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-primary)', marginLeft: '12px', flexShrink: 0 }}>
+                              <span className={styles.productoResultPrice}>
                                 ${Number(p.precio_lista_ml).toLocaleString('es-AR')}
                               </span>
                             )}
-                            <Plus size={16} style={{ marginLeft: '8px', color: 'var(--color-success)', flexShrink: 0 }} />
+                            <Plus size={16} className={styles.productoResultAdd} />
                           </div>
                         ))}
                       </div>
                     )}
 
                     {!buscandoProducto && searchProducto.length >= 2 && productoResults.length === 0 && debouncedSearchProducto === searchProducto && (
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                      <p className={styles.noResults}>
                         No se encontraron productos. Podés agregarlo manualmente.
                       </p>
                     )}
@@ -441,11 +428,11 @@ export default function ModalRma({ caso, onClose }) {
 
                   {/* Formulario de item manual */}
                   {showManualForm && (
-                    <div style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' }}>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    <div className={styles.manualForm}>
+                      <p className={styles.manualFormLabel}>
                         Agregar artículo que no está en el sistema:
                       </p>
-                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '8px' }}>
+                      <div className={styles.manualFormGrid}>
                         <input
                           className="input-tesla"
                           placeholder="Descripción del producto *"
@@ -477,7 +464,7 @@ export default function ModalRma({ caso, onClose }) {
                           onKeyDown={(e) => e.key === 'Enter' && agregarItemManual()}
                         />
                       </div>
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
+                      <div className={styles.manualFormActions}>
                         <button className="btn-tesla ghost sm" onClick={() => setShowManualForm(false)}>
                           Cancelar
                         </button>
@@ -496,21 +483,21 @@ export default function ModalRma({ caso, onClose }) {
 
               {/* Datos del caso */}
               <ModalSection title="Datos del caso">
-                <div style={grid2}>
+                <div className={styles.grid2}>
                   <label>
-                    <span style={labelStyle}>Cliente</span>
+                    <span className={styles.label}>Cliente</span>
                     <input className="input-tesla" value={casoData.cliente_nombre || ''} onChange={(e) => setCasoData({ ...casoData, cliente_nombre: e.target.value })} disabled={!puedeGestionar} />
                   </label>
                   <label>
-                    <span style={labelStyle}>DNI</span>
+                    <span className={styles.label}>DNI</span>
                     <input className="input-tesla" value={casoData.cliente_dni || ''} onChange={(e) => setCasoData({ ...casoData, cliente_dni: e.target.value })} disabled={!puedeGestionar} />
                   </label>
                   <label>
-                    <span style={labelStyle}>ML ID</span>
+                    <span className={styles.label}>ML ID</span>
                     <input className="input-tesla" value={casoData.ml_id || ''} onChange={(e) => setCasoData({ ...casoData, ml_id: e.target.value })} disabled={!puedeGestionar} />
                   </label>
                   <label>
-                    <span style={labelStyle}>Origen</span>
+                    <span className={styles.label}>Origen</span>
                     <select className="select-tesla" value={casoData.origen || ''} onChange={(e) => setCasoData({ ...casoData, origen: e.target.value })} disabled={!puedeGestionar}>
                       <option value="">— Seleccionar —</option>
                       <option value="mercadolibre">MercadoLibre</option>
@@ -524,14 +511,14 @@ export default function ModalRma({ caso, onClose }) {
               {/* Items */}
               <ModalSection title={`Artículos (${(casoData.items || []).length})`}>
                 {(casoData.items || []).length === 0 ? (
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No hay artículos. Usá la búsqueda de traza para agregar.</p>
+                  <p className={styles.emptyItems}>No hay artículos. Usá la búsqueda de traza para agregar.</p>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div className={styles.itemsList}>
                     {(casoData.items || []).map((item, idx) => (
-                      <div key={item.id || idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', background: 'var(--bg-tertiary)', borderRadius: '8px' }}>
-                        <div style={{ flex: 1 }}>
-                          <strong style={{ fontSize: '0.85rem' }}>{item.producto_desc || '—'}</strong>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', gap: '12px', marginTop: '2px' }}>
+                      <div key={item.id || idx} className={styles.itemCard}>
+                        <div className={styles.itemInfo}>
+                          <div className={styles.itemDesc}>{item.producto_desc || '—'}</div>
+                          <div className={styles.itemMeta}>
                             {item.serial_number && <span>S/N: {item.serial_number}</span>}
                             {item.precio && <span>${Number(item.precio).toLocaleString('es-AR')}</span>}
                             {item.estado_facturacion && <span>{item.estado_facturacion}</span>}
@@ -557,16 +544,16 @@ export default function ModalRma({ caso, onClose }) {
               {!esNuevo && (
                 <>
                   <ModalSection title="Estado del caso">
-                    <div style={grid2}>
+                    <div className={styles.grid2}>
                       <label>
-                        <span style={labelStyle}>Estado del caso</span>
+                        <span className={styles.label}>Estado del caso</span>
                         <select className="select-tesla" value={casoData.estado || 'abierto'} onChange={(e) => setCasoData({ ...casoData, estado: e.target.value })} disabled={!puedeGestionar}>
                           <option value="abierto">Abierto</option>
                           <option value="en_espera">En espera</option>
                           <option value="cerrado">Cerrado</option>
                         </select>
                       </label>
-                      <label style={{ ...checkLabel, paddingTop: '20px' }}>
+                      <label className={styles.checkLabel}>
                         <input type="checkbox" checked={casoData.marcado_borrar_pedido || false} onChange={(e) => setCasoData({ ...casoData, marcado_borrar_pedido: e.target.checked })} disabled={!puedeGestionar} />
                         Marcado para borrar pedido
                       </label>
@@ -581,19 +568,18 @@ export default function ModalRma({ caso, onClose }) {
                       onChange={(e) => setCasoData({ ...casoData, observaciones: e.target.value })}
                       placeholder="Observaciones generales del caso..."
                       disabled={!puedeGestionar}
-                      style={{ width: '100%', resize: 'vertical' }}
                     />
                   </ModalSection>
 
                   <ModalSection title="Auditoría">
-                    <div style={grid2}>
+                    <div className={styles.grid2}>
                       <label>
-                        <span style={labelStyle}>Corroborar NC</span>
+                        <span className={styles.label}>Corroborar NC</span>
                         <input className="input-tesla" value={casoData.corroborar_nc || ''} onChange={(e) => setCasoData({ ...casoData, corroborar_nc: e.target.value })} disabled={!puedeGestionar} />
                       </label>
                       <div>
-                        <span style={labelStyle}>Fecha</span>
-                        <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{casoData.fecha_caso || '—'}</span>
+                        <span className={styles.label}>Fecha</span>
+                        <span className={styles.itemDesc}>{casoData.fecha_caso || '—'}</span>
                       </div>
                     </div>
                   </ModalSection>
@@ -607,17 +593,17 @@ export default function ModalRma({ caso, onClose }) {
             <div>
               {(casoData.items || []).map((item) => (
                 <ModalSection key={item.id} title={item.producto_desc || `Item #${item.id}`}>
-                  <div style={grid3}>
+                  <div className={styles.grid3}>
                     <label>
-                      <span style={labelStyle}>Estado de recepción</span>
+                      <span className={styles.label}>Estado de recepción</span>
                       {renderDropdown('estado_recepcion', item.estado_recepcion_id, (v) => handleItemUpdate(item.id, 'estado_recepcion_id', v), !puedeGestionar)}
                     </label>
                     <label>
-                      <span style={labelStyle}>Costo de envío</span>
+                      <span className={styles.label}>Costo de envío</span>
                       <input className="input-tesla" type="number" step="0.01" value={item.costo_envio || ''} onChange={(e) => handleItemUpdate(item.id, 'costo_envio', e.target.value ? Number(e.target.value) : null)} disabled={!puedeGestionar} />
                     </label>
                     <label>
-                      <span style={labelStyle}>Causa de devolución</span>
+                      <span className={styles.label}>Causa de devolución</span>
                       {renderDropdown('causa_devolucion', item.causa_devolucion_id, (v) => handleItemUpdate(item.id, 'causa_devolucion_id', v), !puedeGestionar)}
                     </label>
                   </div>
@@ -632,17 +618,17 @@ export default function ModalRma({ caso, onClose }) {
             <div>
               {(casoData.items || []).map((item) => (
                 <ModalSection key={item.id} title={item.producto_desc || `Item #${item.id}`}>
-                  <div style={grid3}>
+                  <div className={styles.grid3}>
                     <label>
-                      <span style={labelStyle}>Apto para la venta</span>
+                      <span className={styles.label}>Apto para la venta</span>
                       {renderDropdown('apto_venta', item.apto_venta_id, (v) => handleItemUpdate(item.id, 'apto_venta_id', v), !puedeGestionar)}
                     </label>
-                    <label style={{ ...checkLabel, paddingTop: '18px' }}>
+                    <label className={styles.checkLabel}>
                       <input type="checkbox" checked={item.requirio_reacondicionamiento || false} onChange={(e) => handleItemUpdate(item.id, 'requirio_reacondicionamiento', e.target.checked)} disabled={!puedeGestionar} />
                       Requirió reacondicionamiento
                     </label>
                     <label>
-                      <span style={labelStyle}>Estado (ERP)</span>
+                      <span className={styles.label}>Estado (ERP)</span>
                       {renderDropdown('estado_revision', item.estado_revision_id, (v) => handleItemUpdate(item.id, 'estado_revision_id', v), !puedeGestionar)}
                     </label>
                   </div>
@@ -655,17 +641,17 @@ export default function ModalRma({ caso, onClose }) {
           {/* ═══════════ TAB: Reclamo ML ═══════════ */}
           {activeTab === 'reclamo' && (
             <ModalSection title="Reclamo MercadoLibre">
-              <div style={grid3}>
+              <div className={styles.grid3}>
                 <label>
-                  <span style={labelStyle}>Estado del reclamo</span>
+                  <span className={styles.label}>Estado del reclamo</span>
                   {renderDropdown('estado_reclamo_ml', casoData.estado_reclamo_ml_id, (v) => setCasoData({ ...casoData, estado_reclamo_ml_id: v }), !puedeGestionar)}
                 </label>
                 <label>
-                  <span style={labelStyle}>ML cubrió el producto</span>
+                  <span className={styles.label}>ML cubrió el producto</span>
                   {renderDropdown('cobertura_ml', casoData.cobertura_ml_id, (v) => setCasoData({ ...casoData, cobertura_ml_id: v }), !puedeGestionar)}
                 </label>
                 <label>
-                  <span style={labelStyle}>Monto cubierto</span>
+                  <span className={styles.label}>Monto cubierto</span>
                   <input className="input-tesla" type="number" step="0.01" value={casoData.monto_cubierto || ''} onChange={(e) => setCasoData({ ...casoData, monto_cubierto: e.target.value ? Number(e.target.value) : null })} disabled={!puedeGestionar} />
                 </label>
               </div>
@@ -677,33 +663,33 @@ export default function ModalRma({ caso, onClose }) {
             <div>
               {(casoData.items || []).map((item) => (
                 <ModalSection key={item.id} title={item.producto_desc || `Item #${item.id}`}>
-                  <div style={grid2}>
+                  <div className={styles.grid2}>
                     <label>
-                      <span style={labelStyle}>Proveedor</span>
+                      <span className={styles.label}>Proveedor</span>
                       <input className="input-tesla" value={item.proveedor_nombre || ''} onChange={(e) => handleItemUpdate(item.id, 'proveedor_nombre', e.target.value)} disabled={!puedeGestionar} />
                     </label>
                     <label>
-                      <span style={labelStyle}>Estado proveedor</span>
+                      <span className={styles.label}>Estado proveedor</span>
                       {renderDropdown('estado_proveedor', item.estado_proveedor_id, (v) => handleItemUpdate(item.id, 'estado_proveedor_id', v), !puedeGestionar)}
                     </label>
-                    <label style={checkLabel}>
+                    <label className={styles.checkLabel}>
                       <input type="checkbox" checked={item.enviado_proveedor || false} onChange={(e) => handleItemUpdate(item.id, 'enviado_proveedor', e.target.checked)} disabled={!puedeGestionar} />
                       Enviado a proveedor
                     </label>
                     <label>
-                      <span style={labelStyle}>NC Proveedor</span>
+                      <span className={styles.label}>NC Proveedor</span>
                       <input className="input-tesla" value={item.nc_proveedor || ''} onChange={(e) => handleItemUpdate(item.id, 'nc_proveedor', e.target.value)} disabled={!puedeGestionar} />
                     </label>
                     <label>
-                      <span style={labelStyle}>Monto NC Proveedor</span>
+                      <span className={styles.label}>Monto NC Proveedor</span>
                       <input className="input-tesla" type="number" step="0.01" value={item.monto_nc_proveedor || ''} onChange={(e) => handleItemUpdate(item.id, 'monto_nc_proveedor', e.target.value ? Number(e.target.value) : null)} disabled={!puedeGestionar} />
                     </label>
                     <label>
-                      <span style={labelStyle}>Fecha envío</span>
+                      <span className={styles.label}>Fecha envío</span>
                       <input className="input-tesla" type="date" value={item.fecha_envio_proveedor ? item.fecha_envio_proveedor.split('T')[0] : ''} onChange={(e) => handleItemUpdate(item.id, 'fecha_envio_proveedor', e.target.value || null)} disabled={!puedeGestionar} />
                     </label>
                     <label>
-                      <span style={labelStyle}>Fecha respuesta</span>
+                      <span className={styles.label}>Fecha respuesta</span>
                       <input className="input-tesla" type="date" value={item.fecha_respuesta_proveedor ? item.fecha_respuesta_proveedor.split('T')[0] : ''} onChange={(e) => handleItemUpdate(item.id, 'fecha_respuesta_proveedor', e.target.value || null)} disabled={!puedeGestionar} />
                     </label>
                   </div>
@@ -717,41 +703,41 @@ export default function ModalRma({ caso, onClose }) {
             <div>
               {(casoData.items || []).map((item) => (
                 <ModalSection key={item.id} title={item.producto_desc || `Item #${item.id}`}>
-                  <div style={grid3}>
+                  <div className={styles.grid3}>
                     <label>
-                      <span style={labelStyle}>Estado proceso</span>
+                      <span className={styles.label}>Estado proceso</span>
                       {renderDropdown('estado_proceso', item.estado_proceso_id, (v) => handleItemUpdate(item.id, 'estado_proceso_id', v), !puedeGestionar)}
                     </label>
                     <label>
-                      <span style={labelStyle}>Depósito destino</span>
+                      <span className={styles.label}>Depósito destino</span>
                       {renderDropdown('deposito_destino', item.deposito_destino_id, (v) => handleItemUpdate(item.id, 'deposito_destino_id', v), !puedeGestionar)}
                     </label>
-                    <label style={{ ...checkLabel, paddingTop: '18px' }}>
+                    <label className={styles.checkLabel}>
                       <input type="checkbox" checked={item.enviado_fisicamente_deposito || false} onChange={(e) => handleItemUpdate(item.id, 'enviado_fisicamente_deposito', e.target.checked)} disabled={!puedeGestionar} />
                       Enviado físicamente
                     </label>
                   </div>
-                  <div style={{ ...grid3, marginTop: '12px' }}>
-                    <label style={checkLabel}>
+                  <div className={styles.grid3}>
+                    <label className={styles.checkLabel}>
                       <input type="checkbox" checked={item.corroborar_nc || false} onChange={(e) => handleItemUpdate(item.id, 'corroborar_nc', e.target.checked)} disabled={!puedeGestionar} />
                       Corroborar NC
                     </label>
-                    <label style={checkLabel}>
+                    <label className={styles.checkLabel}>
                       <input type="checkbox" checked={item.requirio_rma_interno || false} onChange={(e) => handleItemUpdate(item.id, 'requirio_rma_interno', e.target.checked)} disabled={!puedeGestionar} />
                       Requirió RMA Interno
                     </label>
-                    <label style={checkLabel}>
+                    <label className={styles.checkLabel}>
                       <input type="checkbox" checked={item.requiere_nota_credito || false} onChange={(e) => handleItemUpdate(item.id, 'requiere_nota_credito', e.target.checked)} disabled={!puedeGestionar} />
                       Requiere nota de crédito
                     </label>
                   </div>
-                  <div style={{ ...grid2, marginTop: '12px' }}>
-                    <label style={checkLabel}>
+                  <div className={styles.grid2}>
+                    <label className={styles.checkLabel}>
                       <input type="checkbox" checked={item.debe_facturarse || false} onChange={(e) => handleItemUpdate(item.id, 'debe_facturarse', e.target.checked)} disabled={!puedeGestionar} />
                       Otros items deben facturarse
                     </label>
                     <label>
-                      <span style={labelStyle}>Observaciones</span>
+                      <span className={styles.label}>Observaciones</span>
                       <textarea
                         className="input-tesla"
                         rows={2}
@@ -759,7 +745,6 @@ export default function ModalRma({ caso, onClose }) {
                         onChange={(e) => handleItemUpdate(item.id, 'observaciones', e.target.value)}
                         placeholder="Observaciones del artículo..."
                         disabled={!puedeGestionar}
-                        style={{ width: '100%', resize: 'vertical' }}
                       />
                     </label>
                   </div>
@@ -772,19 +757,19 @@ export default function ModalRma({ caso, onClose }) {
           {activeTab === 'historial' && (
             <div>
               {historial.length === 0 ? (
-                <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '24px' }}>Sin cambios registrados</p>
+                <p className={styles.historialEmpty}>Sin cambios registrados</p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div className={styles.historialList}>
                   {historial.map((h) => (
-                    <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: '6px', fontSize: '0.8rem' }}>
-                      <Clock size={12} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-                      <span style={{ color: 'var(--text-secondary)', minWidth: '130px' }}>
+                    <div key={h.id} className={styles.historialRow}>
+                      <Clock size={12} className={styles.historialIcon} />
+                      <span className={styles.historialFecha}>
                         {h.created_at ? new Date(h.created_at).toLocaleString('es-AR') : '—'}
                       </span>
-                      <strong style={{ minWidth: '80px' }}>{h.usuario_nombre || `#${h.usuario_id}`}</strong>
-                      <span style={{ color: 'var(--text-secondary)' }}>{h.campo}:</span>
-                      {h.valor_anterior && <span style={{ textDecoration: 'line-through', color: 'var(--color-danger)' }}>{h.valor_anterior}</span>}
-                      <span style={{ color: 'var(--color-success)' }}>{h.valor_nuevo}</span>
+                      <strong className={styles.historialUsuario}>{h.usuario_nombre || `#${h.usuario_id}`}</strong>
+                      <span className={styles.historialCampo}>{h.campo}:</span>
+                      {h.valor_anterior && <span className={styles.historialViejo}>{h.valor_anterior}</span>}
+                      <span className={styles.historialNuevo}>{h.valor_nuevo}</span>
                     </div>
                   ))}
                 </div>
