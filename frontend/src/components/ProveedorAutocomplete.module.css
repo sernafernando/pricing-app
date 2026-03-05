@@ -1,0 +1,108 @@
+/* ProveedorAutocomplete — search input with dropdown */
+
+.wrapper {
+  position: relative;
+}
+
+.inputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  color: var(--cf-text-tertiary);
+  pointer-events: none;
+}
+
+.input {
+  padding-left: 30px !important;
+  padding-right: 30px !important;
+}
+
+.clearBtn {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cf-text-tertiary);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+}
+
+.clearBtn:hover {
+  color: var(--cf-accent-red);
+  background: color-mix(in srgb, var(--cf-accent-red) 10%, transparent);
+}
+
+.linkedBadge {
+  position: absolute;
+  right: 32px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.65rem;
+  color: var(--cf-text-tertiary);
+  font-family: var(--font-mono, monospace);
+  pointer-events: none;
+}
+
+/* Dropdown */
+.dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 4px 6px rgba(0,0,0,0.1));
+  margin-top: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  list-style: none;
+  padding: 4px;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--cf-text-primary);
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-200, 200ms) var(--ease-out, ease-out);
+}
+
+.option:hover {
+  background: var(--cf-bg-hover);
+}
+
+.optName {
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.optDetail {
+  font-size: 0.75rem;
+  color: var(--cf-text-tertiary);
+}
+
+.loadingMsg,
+.emptyMsg {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--cf-text-secondary);
+}
