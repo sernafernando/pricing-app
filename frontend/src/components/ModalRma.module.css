@@ -1011,3 +1011,9 @@
   width: 100%;
   gap: var(--spacing-md);
 }
+
+.footerError {
+  color: var(--cf-accent-red);
+  font-size: var(--font-sm);
+  margin-left: auto;
+}
