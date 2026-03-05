@@ -333,6 +333,21 @@ async def marcar_todas_no_leidas(
     return {"mensaje": f"{count} notificaciones marcadas como no leídas"}
 
 
+@router.delete("/notificaciones/limpiar")
+async def limpiar_notificaciones_leidas(
+    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Elimina todas las notificaciones leídas del usuario actual.
+    IMPORTANTE: Esta ruta DEBE estar antes de /notificaciones/{notificacion_id}
+    para evitar que FastAPI matchee "limpiar" como notificacion_id (422).
+    """
+    count = db.query(Notificacion).filter(Notificacion.user_id == current_user.id, Notificacion.leida == True).delete()
+    db.commit()
+
+    return {"mensaje": f"{count} notificaciones leídas eliminadas"}
+
+
 @router.delete("/notificaciones/{notificacion_id}")
 async def eliminar_notificacion(
     notificacion_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
@@ -353,19 +368,6 @@ async def eliminar_notificacion(
     db.commit()
 
     return {"mensaje": "Notificación eliminada"}
-
-
-@router.delete("/notificaciones/limpiar")
-async def limpiar_notificaciones_leidas(
-    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
-    """
-    Elimina todas las notificaciones leídas del usuario actual
-    """
-    count = db.query(Notificacion).filter(Notificacion.user_id == current_user.id, Notificacion.leida == True).delete()
-    db.commit()
-
-    return {"mensaje": f"{count} notificaciones leídas eliminadas"}
 
 
 # ========== NUEVOS ENDPOINTS DE GESTIÓN ==========
