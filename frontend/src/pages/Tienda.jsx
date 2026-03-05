@@ -21,6 +21,7 @@ import CalcularWebModal from '../components/CalcularWebModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import SetupMarkups from '../components/SetupMarkups';
 import StatCard from '../components/StatCard';
+import { DollarSign, BarChart3, Check, X, RotateCcw } from 'lucide-react';
 
 export default function Tienda() {
   const { tienePermiso } = usePermisos();
@@ -1591,7 +1592,10 @@ export default function Tienda() {
                         <div className={`inline-edit ${modoEdicionGremio === 'precio' ? 'gremio-edit-precio' : 'gremio-edit-markup'}`}>
                           {/* Indicador de modo */}
                           <div className="info-text-sm font-semibold mb-6">
-                            {modoEdicionGremio === 'precio' ? '💰 Modo Precio' : '📊 Modo Markup'}
+                            {modoEdicionGremio === 'precio'
+                              ? <><DollarSign size={12} style={{ display: 'inline', verticalAlign: 'middle' }} /> Modo Precio</>
+                              : <><BarChart3 size={12} style={{ display: 'inline', verticalAlign: 'middle' }} /> Modo Markup</>
+                            }
                           </div>
                           
                           {modoEdicionGremio === 'precio' ? (
@@ -1653,28 +1657,28 @@ export default function Tienda() {
                               <div className="flex gap-4 mt-4">
                                 <button 
                                   onClick={() => guardarPrecioGremio(p.item_id)} 
-                                  className="btn-tesla success"
+                                  className="btn-tesla outline-subtle-success icon-only sm"
                                   title="Guardar (Enter)"
                                   aria-label="Guardar precio gremio"
                                 >
-                                  ✓
+                                  <Check size={14} />
                                 </button>
                                 <button 
                                   onClick={() => setEditandoPrecioGremio(null)} 
-                                  className="btn-tesla danger"
+                                  className="btn-tesla outline-subtle-danger icon-only sm"
                                   title="Cancelar (Esc)"
                                   aria-label="Cancelar edición"
                                 >
-                                  ✗
+                                  <X size={14} />
                                 </button>
                                 {p.tiene_override_gremio && (
                                   <button 
                                     onClick={() => eliminarPrecioGremioManual(p.item_id)} 
-                                    className="btn-tesla secondary"
+                                    className="btn-tesla outline-subtle-warning icon-only sm"
                                     title="Volver al cálculo automático"
                                     aria-label="Volver al cálculo automático"
                                   >
-                                    ⟲
+                                    <RotateCcw size={14} />
                                   </button>
                                 )}
                               </div>
@@ -1712,28 +1716,28 @@ export default function Tienda() {
                               <div className="flex gap-4 mt-4">
                                 <button 
                                   onClick={() => guardarPrecioGremio(p.item_id)} 
-                                  className="btn-tesla success"
+                                  className="btn-tesla outline-subtle-success icon-only sm"
                                   title="Guardar (Enter)"
                                   aria-label="Guardar precio gremio"
                                 >
-                                  ✓
+                                  <Check size={14} />
                                 </button>
                                 <button 
                                   onClick={() => setEditandoPrecioGremio(null)} 
-                                  className="btn-tesla danger"
+                                  className="btn-tesla outline-subtle-danger icon-only sm"
                                   title="Cancelar (Esc)"
                                   aria-label="Cancelar edición"
                                 >
-                                  ✗
+                                  <X size={14} />
                                 </button>
                                 {p.tiene_override_gremio && (
                                   <button 
                                     onClick={() => eliminarPrecioGremioManual(p.item_id)} 
-                                    className="btn-tesla secondary"
+                                    className="btn-tesla outline-subtle-warning icon-only sm"
                                     title="Volver al cálculo automático"
                                     aria-label="Volver al cálculo automático"
                                   >
-                                    ⟲
+                                    <RotateCcw size={14} />
                                   </button>
                                 )}
                               </div>
