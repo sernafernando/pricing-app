@@ -29,7 +29,8 @@ export default function SmartRedirect() {
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
-        color: 'var(--text-color, #fff)'
+        background: 'var(--cf-bg-app)',
+        color: 'var(--cf-text-primary)'
       }}>
         <div>Cargando permisos...</div>
       </div>
@@ -75,7 +76,8 @@ export default function SmartRedirect() {
       justifyContent: 'center',
       alignItems: 'center',
       height: '100vh',
-      color: 'var(--text-color, #fff)',
+      background: 'var(--cf-bg-app)',
+      color: 'var(--cf-text-primary)',
       textAlign: 'center',
       padding: '20px'
     }}>
