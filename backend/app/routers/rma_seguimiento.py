@@ -23,6 +23,7 @@ from app.core.deps import get_current_user
 from app.models.rma_caso import RmaCaso
 from app.models.rma_caso_historial import RmaCasoHistorial
 from app.models.rma_caso_item import RmaCasoItem
+from app.models.rma_proveedor import RmaProveedor
 from app.models.rma_seguimiento_opcion import RmaSeguimientoOpcion
 from app.models.tb_storage import TbStorage
 from app.models.usuario import Usuario
@@ -1010,3 +1011,104 @@ async def obtener_resumen(
         "por_estado": [{"id": r.id, "valor": r.valor, "color": r.color, "cantidad": r.cantidad} for r in por_estado],
         "top_causas_devolucion": [{"causa": r[0], "cantidad": r[1]} for r in top_causas],
     }
+
+
+# ──────────────────────────────────────────────
+# ENVÍOS A PROVEEDOR (items agrupados por proveedor)
+# ──────────────────────────────────────────────
+
+
+def _serialize_proveedor(prov: Optional[RmaProveedor], fallback_nombre: Optional[str]) -> dict:
+    """Serializa datos del proveedor para envíos."""
+    if not prov:
+        return {"id": None, "nombre": fallback_nombre}
+    return {
+        "id": prov.id,
+        "nombre": prov.nombre,
+        "direccion": prov.direccion,
+        "cp": prov.cp,
+        "ciudad": prov.ciudad,
+        "provincia": prov.provincia,
+        "telefono": prov.telefono,
+        "email": prov.email,
+        "representante": prov.representante,
+        "horario": prov.horario,
+        "unidades_minimas_rma": prov.unidades_minimas_rma,
+    }
+
+
+@router.get("/envios-proveedor/pendientes")
+async def listar_items_envio_proveedor(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list:
+    """Items pendientes de envío a proveedor, agrupados por supp_id.
+
+    Incluye items que tienen supp_id seteado y enviado_proveedor != true,
+    de casos activos. Cada grupo trae datos del proveedor desde rma_proveedores.
+    """
+    _check_permiso(db, current_user, "rma.ver")
+
+    # Items with supp_id set, not yet sent, from active cases
+    items = (
+        _build_item_query(db)
+        .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+        .filter(
+            RmaCaso.activo == True,  # noqa: E712
+            RmaCasoItem.supp_id.isnot(None),
+            (RmaCasoItem.enviado_proveedor.is_(None)) | (RmaCasoItem.enviado_proveedor == False),  # noqa: E712
+        )
+        .order_by(RmaCasoItem.supp_id, RmaCasoItem.id)
+        .all()
+    )
+
+    # Group by supp_id
+    from collections import defaultdict
+
+    groups: dict = defaultdict(list)
+    caso_cache: dict = {}
+    for item in items:
+        groups[item.supp_id].append(item)
+        if item.caso_id not in caso_cache:
+            caso_cache[item.caso_id] = item.caso
+
+    # Fetch supplier extended data
+    supp_ids = list(groups.keys())
+    proveedores = {
+        p.supp_id: p
+        for p in db.query(RmaProveedor)
+        .filter(RmaProveedor.supp_id.in_(supp_ids), RmaProveedor.activo == True)  # noqa: E712
+        .all()
+    }
+
+    result = []
+    for supp_id, supp_items in groups.items():
+        prov = proveedores.get(supp_id)
+        result.append(
+            {
+                "supp_id": supp_id,
+                "proveedor_nombre": supp_items[0].proveedor_nombre,
+                "proveedor": _serialize_proveedor(prov, supp_items[0].proveedor_nombre),
+                "cantidad_items": len(supp_items),
+                "items": [
+                    {
+                        "id": i.id,
+                        "caso_id": i.caso_id,
+                        "numero_caso": caso_cache.get(i.caso_id).numero_caso if caso_cache.get(i.caso_id) else None,
+                        "serial_number": i.serial_number,
+                        "producto_desc": i.producto_desc,
+                        "ean": i.ean,
+                        "precio": float(i.precio) if i.precio else None,
+                        "descripcion_falla": i.descripcion_falla,
+                        "estado_proveedor_valor": i.estado_proveedor.valor if i.estado_proveedor else None,
+                        "estado_proveedor_color": i.estado_proveedor.color if i.estado_proveedor else None,
+                    }
+                    for i in supp_items
+                ],
+            }
+        )
+
+    # Sort by quantity desc (biggest groups first)
+    result.sort(key=lambda g: g["cantidad_items"], reverse=True)
+
+    return result

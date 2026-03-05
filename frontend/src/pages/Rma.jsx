@@ -6,7 +6,8 @@ import api from '../services/api';
 import ModalRma from '../components/ModalRma';
 import RmaAdminOpciones from '../components/RmaAdminOpciones';
 import RmaProveedores from '../components/RmaProveedores';
-import { Plus, Search, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck } from 'lucide-react';
+import RmaEnviosProveedor from '../components/RmaEnviosProveedor';
+import { Plus, Search, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, ClipboardList } from 'lucide-react';
 import styles from './Rma.module.css';
 
 export default function Rma() {
@@ -35,6 +36,7 @@ export default function Rma() {
   const [casoSeleccionado, setCasoSeleccionado] = useState(null);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showProveedores, setShowProveedores] = useState(false);
+  const [activeTab, setActiveTab] = useState('casos');
 
   const cargarCasos = useCallback(async () => {
     setLoading(true);
@@ -161,29 +163,6 @@ export default function Rma() {
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className={styles.filtros}>
-        <div className={styles.searchBox}>
-          <Search size={16} />
-          <input
-            type="text"
-            placeholder="Buscar por caso, cliente, ML ID, serie..."
-            value={search}
-            onChange={(e) => updateFilters({ search: e.target.value, page: 1 })}
-          />
-        </div>
-        <select
-          value={estadoCasoId}
-          onChange={(e) => updateFilters({ estado_caso_id: e.target.value, page: 1 })}
-          className={styles.selectFiltro}
-        >
-          <option value="">Todos los estados</option>
-          {estadosCaso.map((op) => (
-            <option key={op.id} value={op.id}>{op.valor}</option>
-          ))}
-        </select>
-      </div>
-
       {/* Admin Panel */}
       {showAdmin && puedeAdminOpciones && (
         <div className={styles.adminPanel}>
@@ -198,96 +177,149 @@ export default function Rma() {
         </div>
       )}
 
-      {/* Tabla */}
-      <div className="table-container-tesla">
-        <table className="table-tesla striped">
-          <thead className="table-tesla-head">
-            <tr>
-              <th>Caso</th>
-              <th>Fecha</th>
-              <th>Cliente</th>
-              <th>ML ID</th>
-              <th>Items</th>
-              <th>Estado</th>
-              <th>Reclamo ML</th>
-              <th>Observaciones</th>
-            </tr>
-          </thead>
-          <tbody className="table-tesla-body">
-            {loading ? (
-              <tr><td colSpan={8} className={styles.loadingCell}>Cargando...</td></tr>
-            ) : casos.length === 0 ? (
-              <tr><td colSpan={8} className={styles.emptyCell}>No se encontraron casos RMA</td></tr>
-            ) : (
-              casos.map((caso) => (
-                <tr key={caso.id} onClick={() => handleEditar(caso)} className={styles.clickableRow}>
-                  <td className={styles.cellCaso}>{caso.numero_caso}</td>
-                  <td>{caso.fecha_caso || '\u2014'}</td>
-                  <td>
-                    <div className={styles.clienteCell}>
-                      <span className={styles.clienteNombre}>{caso.cliente_nombre || '\u2014'}</span>
-                      {caso.cliente_numero && (
-                        <span className={styles.clienteNumero}>#{caso.cliente_numero}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className={styles.cellMono}>{caso.ml_id || '\u2014'}</td>
-                  <td className={styles.cellCenter}>{caso.total_items}</td>
-                  <td>
-                    {caso.estado_caso_color ? (
-                      <span
-                        className={styles.badgeOpcion}
-                        style={{ '--badge-color': `var(--color-${caso.estado_caso_color})` }}
-                      >
-                        {caso.estado}
-                      </span>
-                    ) : (
-                      <span className={`${styles.badge} ${styles[`badge_${caso.estado}`] || ''}`}>
-                        {caso.estado}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    {caso.estado_reclamo_ml_valor ? (
-                      <span
-                        className={styles.badgeOpcion}
-                        style={{ '--badge-color': `var(--color-${caso.estado_reclamo_ml_color || 'gray'})` }}
-                      >
-                        {caso.estado_reclamo_ml_valor}
-                      </span>
-                    ) : '\u2014'}
-                  </td>
-                  <td className={styles.cellObs}>
-                    {caso.observaciones ? caso.observaciones.substring(0, 60) + (caso.observaciones.length > 60 ? '...' : '') : '\u2014'}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      {/* Tabs */}
+      <div className={styles.tabBar}>
+        <button
+          className={`${styles.tab} ${activeTab === 'casos' ? styles.tabActive : ''}`}
+          onClick={() => setActiveTab('casos')}
+        >
+          <ClipboardList size={15} />
+          Casos
+        </button>
+        {puedeGestionar && (
+          <button
+            className={`${styles.tab} ${activeTab === 'envios_proveedor' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('envios_proveedor')}
+          >
+            <Truck size={15} />
+            Envios a Proveedor
+          </button>
+        )}
       </div>
 
-      {/* Paginacion */}
-      {totalPages > 1 && (
-        <div className={styles.pagination}>
-          <button
-            className="btn-tesla ghost sm"
-            disabled={page <= 1}
-            onClick={() => updateFilters({ page: page - 1 })}
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <span className={styles.pageInfo}>
-            Pagina {page} de {totalPages} ({totalItems} casos)
-          </span>
-          <button
-            className="btn-tesla ghost sm"
-            disabled={page >= totalPages}
-            onClick={() => updateFilters({ page: page + 1 })}
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
+      {/* Tab: Casos */}
+      {activeTab === 'casos' && (
+        <>
+          {/* Filtros */}
+          <div className={styles.filtros}>
+            <div className={styles.searchBox}>
+              <Search size={16} />
+              <input
+                type="text"
+                placeholder="Buscar por caso, cliente, ML ID, serie..."
+                value={search}
+                onChange={(e) => updateFilters({ search: e.target.value, page: 1 })}
+              />
+            </div>
+            <select
+              value={estadoCasoId}
+              onChange={(e) => updateFilters({ estado_caso_id: e.target.value, page: 1 })}
+              className={styles.selectFiltro}
+            >
+              <option value="">Todos los estados</option>
+              {estadosCaso.map((op) => (
+                <option key={op.id} value={op.id}>{op.valor}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Tabla */}
+          <div className="table-container-tesla">
+            <table className="table-tesla striped">
+              <thead className="table-tesla-head">
+                <tr>
+                  <th>Caso</th>
+                  <th>Fecha</th>
+                  <th>Cliente</th>
+                  <th>ML ID</th>
+                  <th>Items</th>
+                  <th>Estado</th>
+                  <th>Reclamo ML</th>
+                  <th>Observaciones</th>
+                </tr>
+              </thead>
+              <tbody className="table-tesla-body">
+                {loading ? (
+                  <tr><td colSpan={8} className={styles.loadingCell}>Cargando...</td></tr>
+                ) : casos.length === 0 ? (
+                  <tr><td colSpan={8} className={styles.emptyCell}>No se encontraron casos RMA</td></tr>
+                ) : (
+                  casos.map((caso) => (
+                    <tr key={caso.id} onClick={() => handleEditar(caso)} className={styles.clickableRow}>
+                      <td className={styles.cellCaso}>{caso.numero_caso}</td>
+                      <td>{caso.fecha_caso || '\u2014'}</td>
+                      <td>
+                        <div className={styles.clienteCell}>
+                          <span className={styles.clienteNombre}>{caso.cliente_nombre || '\u2014'}</span>
+                          {caso.cliente_numero && (
+                            <span className={styles.clienteNumero}>#{caso.cliente_numero}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className={styles.cellMono}>{caso.ml_id || '\u2014'}</td>
+                      <td className={styles.cellCenter}>{caso.total_items}</td>
+                      <td>
+                        {caso.estado_caso_color ? (
+                          <span
+                            className={styles.badgeOpcion}
+                            style={{ '--badge-color': `var(--color-${caso.estado_caso_color})` }}
+                          >
+                            {caso.estado}
+                          </span>
+                        ) : (
+                          <span className={`${styles.badge} ${styles[`badge_${caso.estado}`] || ''}`}>
+                            {caso.estado}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {caso.estado_reclamo_ml_valor ? (
+                          <span
+                            className={styles.badgeOpcion}
+                            style={{ '--badge-color': `var(--color-${caso.estado_reclamo_ml_color || 'gray'})` }}
+                          >
+                            {caso.estado_reclamo_ml_valor}
+                          </span>
+                        ) : '\u2014'}
+                      </td>
+                      <td className={styles.cellObs}>
+                        {caso.observaciones ? caso.observaciones.substring(0, 60) + (caso.observaciones.length > 60 ? '...' : '') : '\u2014'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Paginacion */}
+          {totalPages > 1 && (
+            <div className={styles.pagination}>
+              <button
+                className="btn-tesla ghost sm"
+                disabled={page <= 1}
+                onClick={() => updateFilters({ page: page - 1 })}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className={styles.pageInfo}>
+                Pagina {page} de {totalPages} ({totalItems} casos)
+              </span>
+              <button
+                className="btn-tesla ghost sm"
+                disabled={page >= totalPages}
+                onClick={() => updateFilters({ page: page + 1 })}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Tab: Envios a Proveedor */}
+      {activeTab === 'envios_proveedor' && puedeGestionar && (
+        <RmaEnviosProveedor />
       )}
 
       {/* Modal */}
