@@ -80,7 +80,7 @@ class ProveedorListResponse(BaseModel):
 
 def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
     svc = PermisosService(db)
-    if not svc.tiene_permiso(user.id, permiso):
+    if not svc.tiene_permiso(user, permiso):
         raise HTTPException(status_code=403, detail=f"Sin permiso: {permiso}")
 
 

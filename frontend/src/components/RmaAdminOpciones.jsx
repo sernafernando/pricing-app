@@ -22,6 +22,7 @@ const COLORES_DISPONIBLES = [
 ];
 
 const CATEGORIA_LABELS = {
+  estado_caso: 'Estado del Caso',
   estado_recepcion: 'Estado de Recepción',
   causa_devolucion: 'Causa de Devolución',
   apto_venta: 'Apto para la Venta',

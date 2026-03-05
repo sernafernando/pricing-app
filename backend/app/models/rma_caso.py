@@ -40,8 +40,11 @@ class RmaCaso(Base):
     ml_id = Column(String(50), nullable=True, index=True)
     origen = Column(String(50), nullable=True)  # "mercadolibre", "tienda_nube", "mostrador"
 
-    # Estado general del caso
+    # Estado general del caso (legacy string — kept for backward compat)
     estado = Column(String(50), default="abierto", nullable=False, index=True)
+
+    # Estado dinámico del caso (FK a rma_seguimiento_opciones, categoría 'estado_caso')
+    estado_caso_id = Column(Integer, ForeignKey("rma_seguimiento_opciones.id"), nullable=True, index=True)
 
     # --- Flag de proceso (se setea cuando el transporte pasa a "BORRAR PEDIDO" en ERP) ---
     marcado_borrar_pedido = Column(Boolean, nullable=True)
@@ -74,6 +77,7 @@ class RmaCaso(Base):
     historial = relationship("RmaCasoHistorial", back_populates="caso", cascade="all, delete-orphan")
     creado_por = relationship("Usuario", foreign_keys=[creado_por_id])
     eliminado_por = relationship("Usuario", foreign_keys=[eliminado_por_id])
+    estado_caso = relationship("RmaSeguimientoOpcion", foreign_keys=[estado_caso_id])
     estado_reclamo_ml = relationship("RmaSeguimientoOpcion", foreign_keys=[estado_reclamo_ml_id])
     cobertura_ml = relationship("RmaSeguimientoOpcion", foreign_keys=[cobertura_ml_id])
 
