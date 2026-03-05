@@ -4,7 +4,7 @@ Seeds estado_caso options, adds estado_caso_id FK to rma_casos,
 and migrates existing hardcoded estado values to their option IDs.
 Keeps the old `estado` column for backward compatibility (read-only).
 
-Revision ID: 20260305_rma_estado_caso_dinamico
+Revision ID: 20260305_rma_estado_caso
 Revises: 20260305_rma_proveedores
 Create Date: 2026-03-05
 
@@ -13,7 +13,7 @@ Create Date: 2026-03-05
 import sqlalchemy as sa
 from alembic import op
 
-revision = "20260305_rma_estado_caso_dinamico"
+revision = "20260305_rma_estado_caso"
 down_revision = "20260305_rma_proveedores"
 branch_labels = None
 depends_on = None
