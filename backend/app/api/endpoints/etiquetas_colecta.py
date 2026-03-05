@@ -6,10 +6,12 @@ Permite:
 - Listar etiquetas con estados ERP y ML (solo lectura)
 - Estadísticas totales y por día
 
-Los archivos ZPL contienen JSONs embebidos en los QR codes con formato:
-{"id":"46458064834","sender_id":413658225,"hash_code":"...","security_digit":"0"}
+Los archivos ZPL contienen JSONs embebidos en los QR codes con formatos:
+{"id":"46458064834","t":"lm"}
+{"carrier_data":"HE023919525|Domicilio|3460|","id":"46585811359","t":"lm"}
 
 El campo "id" del QR = mlshippingid en tb_mercadolibre_orders_shipping.
+Nota: "id" puede NO ser el primer campo del JSON (ej: carrier_data va primero).
 """
 
 import logging
@@ -38,7 +40,7 @@ from app.services.permisos_service import verificar_permiso
 
 router = APIRouter()
 
-QR_JSON_REGEX = re.compile(r'\{"id":"[^}]+\}')
+QR_JSON_REGEX = re.compile(r'\{[^}]*"id":"[^}]+\}')
 
 logger = logging.getLogger(__name__)
 
