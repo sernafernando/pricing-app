@@ -18,14 +18,32 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade():
-    # 1. Drop FK constraint on deposito_destino_id
-    # The constraint was auto-named by SQLAlchemy following PostgreSQL convention
-    op.drop_constraint(
-        "rma_caso_items_deposito_destino_id_fkey",
-        "rma_caso_items",
-        type_="foreignkey",
+def _find_fk_constraint_name() -> str | None:
+    """Find the actual FK constraint name on deposito_destino_id dynamically."""
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text("""
+            SELECT con.conname
+            FROM pg_catalog.pg_constraint con
+            JOIN pg_catalog.pg_class rel ON rel.oid = con.conrelid
+            JOIN pg_catalog.pg_namespace nsp ON nsp.oid = rel.relnamespace
+            JOIN pg_catalog.pg_attribute att ON att.attrelid = rel.oid
+                AND att.attnum = ANY(con.conkey)
+            WHERE rel.relname = 'rma_caso_items'
+              AND att.attname = 'deposito_destino_id'
+              AND con.contype = 'f'
+            LIMIT 1
+        """)
     )
+    row = result.fetchone()
+    return row[0] if row else None
+
+
+def upgrade():
+    # 1. Drop FK constraint on deposito_destino_id (find actual name dynamically)
+    fk_name = _find_fk_constraint_name()
+    if fk_name:
+        op.drop_constraint(fk_name, "rma_caso_items", type_="foreignkey")
 
     # 2. Add descripcion_falla text column for defect descriptions
     op.add_column(
