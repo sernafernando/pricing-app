@@ -18,6 +18,7 @@ import { useDebounce } from '../hooks/useDebounce';
 import api from '../services/api';
 import ModalTesla, { ModalSection, ModalFooterButtons, ModalLoading } from './ModalTesla';
 import ClaimCards from './ClaimCards';
+import ProveedorAutocomplete from './ProveedorAutocomplete';
 import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine, ShoppingCart, FileText, CalendarDays, Tag, Phone, Mail, AlertTriangle, Hash, Package } from 'lucide-react';
 import styles from './ModalRma.module.css';
 
@@ -392,7 +393,8 @@ export default function ModalRma({ caso, onClose }) {
   const handleItemUpdate = async (itemId, field, value) => {
     if (!caso?.id) return;
     try {
-      const { data } = await api.put(`/rma-seguimiento/${caso.id}/items/${itemId}`, { [field]: value });
+      const payload = typeof field === 'object' ? field : { [field]: value };
+      const { data } = await api.put(`/rma-seguimiento/${caso.id}/items/${itemId}`, payload);
       setCasoData((prev) => ({
         ...prev,
         items: prev.items.map((i) => (i.id === itemId ? data : i)),
@@ -970,7 +972,13 @@ export default function ModalRma({ caso, onClose }) {
                   <div className={styles.grid2}>
                     <label>
                       <span className={styles.label}>Proveedor</span>
-                      <DeferredField className={styles.input} value={item.proveedor_nombre || ''} onCommit={(v) => handleItemUpdate(item.id, 'proveedor_nombre', v)} disabled={!puedeGestionar} />
+                      <ProveedorAutocomplete
+                        value={item.proveedor_nombre || ''}
+                        suppId={item.supp_id}
+                        onSelect={({ supp_id, nombre }) => handleItemUpdate(item.id, { supp_id, proveedor_nombre: nombre })}
+                        disabled={!puedeGestionar}
+                        inputClass={styles.input}
+                      />
                     </label>
                     <label>
                       <span className={styles.label}>Estado proveedor</span>
