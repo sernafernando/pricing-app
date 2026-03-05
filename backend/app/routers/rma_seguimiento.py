@@ -78,6 +78,9 @@ class ItemCreate(BaseModel):
     precio: Optional[float] = None
     estado_facturacion: Optional[str] = None
     link_ml: Optional[str] = None
+    # Proveedor (auto-completado desde traza de compra)
+    supp_id: Optional[int] = None
+    proveedor_nombre: Optional[str] = None
 
 
 class ItemUpdate(BaseModel):
@@ -663,6 +666,8 @@ async def crear_caso(
             precio=item_data.precio,
             estado_facturacion=item_data.estado_facturacion,
             link_ml=item_data.link_ml,
+            supp_id=item_data.supp_id,
+            proveedor_nombre=item_data.proveedor_nombre,
         )
         db.add(item)
 
@@ -735,6 +740,8 @@ async def agregar_item(
         precio=data.precio,
         estado_facturacion=data.estado_facturacion,
         link_ml=data.link_ml,
+        supp_id=data.supp_id,
+        proveedor_nombre=data.proveedor_nombre,
     )
     db.add(item)
     db.flush()
