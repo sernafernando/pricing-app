@@ -71,6 +71,12 @@ class RmaCasoItem(Base):
     nc_proveedor = Column(String(100), nullable=True)  # nro de NC del proveedor
     monto_nc_proveedor = Column(Numeric(15, 2), nullable=True)
 
+    # --- Tab: Envío a cliente (devolver producto al comprador) ---
+    listo_envio_cliente = Column(Boolean, nullable=True)  # marcado como listo para devolver al cliente
+    enviado_cliente = Column(Boolean, nullable=True)  # ya fue enviado al cliente
+    shipping_cliente_id = Column(String(50), ForeignKey("etiquetas_envio.shipping_id"), nullable=True, index=True)
+    fecha_envio_cliente = Column(DateTime(timezone=True), nullable=True)
+
     # --- Observaciones por artículo ---
     observaciones = Column(Text, nullable=True)
 
@@ -92,6 +98,7 @@ class RmaCasoItem(Base):
     # deposito_destino: almacena stor_id de tb_storage directamente (sin FK ni relationship)
     estado_proveedor = relationship("RmaSeguimientoOpcion", foreign_keys=[estado_proveedor_id])
     envio = relationship("EtiquetaEnvio", foreign_keys=[shipping_id], lazy="joined")
+    envio_cliente = relationship("EtiquetaEnvio", foreign_keys=[shipping_cliente_id], lazy="joined")
     recepcion_usuario = relationship("Usuario", foreign_keys=[recepcion_usuario_id])
     revision_usuario = relationship("Usuario", foreign_keys=[revision_usuario_id])
 

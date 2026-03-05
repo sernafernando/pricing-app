@@ -1047,11 +1047,21 @@ export default function ModalRma({ caso, onClose }) {
                       Requiere nota de crédito
                     </label>
                   </div>
-                  <div className={styles.grid2}>
+                  <div className={styles.grid3}>
                     <label className={styles.checkLabel}>
                       <input type="checkbox" checked={item.debe_facturarse || false} onChange={(e) => handleItemUpdate(item.id, 'debe_facturarse', e.target.checked)} disabled={!puedeGestionar} />
                       Otros items deben facturarse
                     </label>
+                    <label className={styles.checkLabel}>
+                      <input type="checkbox" checked={item.listo_envio_cliente || false} onChange={(e) => handleItemUpdate(item.id, 'listo_envio_cliente', e.target.checked)} disabled={!puedeGestionar || item.enviado_cliente} />
+                      Listo para envio a cliente
+                    </label>
+                    <label className={styles.checkLabel}>
+                      <input type="checkbox" checked={item.enviado_cliente || false} onChange={(e) => handleItemUpdate(item.id, 'enviado_cliente', e.target.checked)} disabled={!puedeGestionar || !!item.shipping_cliente_id} title={item.shipping_cliente_id ? `Envio: ${item.shipping_cliente_id}` : ''} />
+                      Enviado a cliente {item.shipping_cliente_id && <span className={styles.shippingRef}>({item.shipping_cliente_id})</span>}
+                    </label>
+                  </div>
+                  <div className={styles.grid2}>
                     <label>
                       <span className={styles.label}>Observaciones</span>
                       <DeferredField
