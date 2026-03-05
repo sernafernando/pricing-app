@@ -21,6 +21,41 @@ import ClaimCards from './ClaimCards';
 import { Search, Plus, Trash2, ExternalLink, Clock, User, PenLine, ShoppingCart, FileText, CalendarDays, Tag, Phone, Mail, AlertTriangle, Hash, Package } from 'lucide-react';
 import styles from './ModalRma.module.css';
 
+
+/**
+ * DeferredField — accumulates text locally and only fires onCommit on blur.
+ * Prevents per-keystroke API calls / audit entries for text fields.
+ */
+function DeferredField({ value, onCommit, tag = 'input', disabled = false, ...props }) {
+  const [local, setLocal] = useState(value ?? '');
+  const committedRef = useRef(value ?? '');
+
+  // Sync from parent when external data changes (e.g. after reload)
+  useEffect(() => {
+    setLocal(value ?? '');
+    committedRef.current = value ?? '';
+  }, [value]);
+
+  const handleBlur = () => {
+    if (local !== committedRef.current) {
+      committedRef.current = local;
+      onCommit(local);
+    }
+  };
+
+  const Tag = tag === 'textarea' ? 'textarea' : 'input';
+  return (
+    <Tag
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={handleBlur}
+      disabled={disabled}
+      {...props}
+    />
+  );
+}
+
+
 export default function ModalRma({ caso, onClose }) {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rma.gestionar');
@@ -884,11 +919,12 @@ export default function ModalRma({ caso, onClose }) {
                   </div>
                   <label>
                     <span className={styles.label}>Descripción de falla</span>
-                    <textarea
+                    <DeferredField
+                      tag="textarea"
                       className={styles.textarea}
                       rows={3}
                       value={item.descripcion_falla || ''}
-                      onChange={(e) => handleItemUpdate(item.id, 'descripcion_falla', e.target.value)}
+                      onCommit={(v) => handleItemUpdate(item.id, 'descripcion_falla', v)}
                       disabled={!puedeGestionar}
                       placeholder="Describir la falla encontrada en el producto..."
                     />
@@ -934,7 +970,7 @@ export default function ModalRma({ caso, onClose }) {
                   <div className={styles.grid2}>
                     <label>
                       <span className={styles.label}>Proveedor</span>
-                      <input className={styles.input} value={item.proveedor_nombre || ''} onChange={(e) => handleItemUpdate(item.id, 'proveedor_nombre', e.target.value)} disabled={!puedeGestionar} />
+                      <DeferredField className={styles.input} value={item.proveedor_nombre || ''} onCommit={(v) => handleItemUpdate(item.id, 'proveedor_nombre', v)} disabled={!puedeGestionar} />
                     </label>
                     <label>
                       <span className={styles.label}>Estado proveedor</span>
@@ -946,7 +982,7 @@ export default function ModalRma({ caso, onClose }) {
                     </label>
                     <label>
                       <span className={styles.label}>NC Proveedor</span>
-                      <input className={styles.input} value={item.nc_proveedor || ''} onChange={(e) => handleItemUpdate(item.id, 'nc_proveedor', e.target.value)} disabled={!puedeGestionar} />
+                      <DeferredField className={styles.input} value={item.nc_proveedor || ''} onCommit={(v) => handleItemUpdate(item.id, 'nc_proveedor', v)} disabled={!puedeGestionar} />
                     </label>
                     <label>
                       <span className={styles.label}>Monto NC Proveedor</span>
@@ -1006,11 +1042,12 @@ export default function ModalRma({ caso, onClose }) {
                     </label>
                     <label>
                       <span className={styles.label}>Observaciones</span>
-                      <textarea
+                      <DeferredField
+                        tag="textarea"
                         className={styles.textarea}
                         rows={2}
                         value={item.observaciones || ''}
-                        onChange={(e) => handleItemUpdate(item.id, 'observaciones', e.target.value)}
+                        onCommit={(v) => handleItemUpdate(item.id, 'observaciones', v)}
                         placeholder="Observaciones del artículo..."
                         disabled={!puedeGestionar}
                       />

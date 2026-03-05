@@ -12,6 +12,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -107,9 +108,19 @@ async def listar_proveedores(
         query = query.filter(RmaProveedor.activo == True)  # noqa: E712
 
     if search:
+        import re
+
         like = f"%{search}%"
+
+        # Normalized search: strip non-alphanumeric chars for acronym matching
+        # e.g. "bgh" matches "B.G.H.", "B G H", "B-G-H S.A."
+        norm_term = re.sub(r"[^a-zA-Z0-9]", "", search).lower()
+        strip_re = "[^a-zA-Z0-9]"
+        norm_nombre = sa_func.lower(sa_func.regexp_replace(RmaProveedor.nombre, strip_re, "", "g"))
+
         query = query.filter(
-            (RmaProveedor.nombre.ilike(like))
+            norm_nombre.like(f"%{norm_term}%")
+            | (RmaProveedor.nombre.ilike(like))
             | (RmaProveedor.cuit.ilike(like))
             | (RmaProveedor.ciudad.ilike(like))
             | (RmaProveedor.representante.ilike(like))
