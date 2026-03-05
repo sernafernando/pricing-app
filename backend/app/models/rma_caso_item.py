@@ -62,7 +62,9 @@ class RmaCasoItem(Base):
     # --- Tab: Envío a proveedor ---
     supp_id = Column(BigInteger, nullable=True, index=True)  # FK lógica a tb_supplier
     proveedor_nombre = Column(String(255), nullable=True)  # desnormalizado
-    enviado_proveedor = Column(Boolean, nullable=True)
+    listo_envio_proveedor = Column(Boolean, nullable=True)  # marcado como listo para incluir en envío
+    enviado_proveedor = Column(Boolean, nullable=True)  # ya fue enviado físicamente
+    shipping_id = Column(String(50), ForeignKey("etiquetas_envio.shipping_id"), nullable=True, index=True)
     fecha_envio_proveedor = Column(DateTime(timezone=True), nullable=True)
     fecha_respuesta_proveedor = Column(DateTime(timezone=True), nullable=True)
     estado_proveedor_id = Column(Integer, ForeignKey("rma_seguimiento_opciones.id"), nullable=True, index=True)
@@ -89,6 +91,7 @@ class RmaCasoItem(Base):
     estado_proceso = relationship("RmaSeguimientoOpcion", foreign_keys=[estado_proceso_id])
     # deposito_destino: almacena stor_id de tb_storage directamente (sin FK ni relationship)
     estado_proveedor = relationship("RmaSeguimientoOpcion", foreign_keys=[estado_proveedor_id])
+    envio = relationship("EtiquetaEnvio", foreign_keys=[shipping_id], lazy="joined")
     recepcion_usuario = relationship("Usuario", foreign_keys=[recepcion_usuario_id])
     revision_usuario = relationship("Usuario", foreign_keys=[revision_usuario_id])
 
