@@ -113,12 +113,21 @@ export default function ModalRma({ caso, onClose }) {
 
   const cargarOpciones = async () => {
     try {
-      const { data } = await api.get('/rma-seguimiento/opciones', { params: { solo_activas: true } });
+      const [opcionesRes, depositosRes] = await Promise.all([
+        api.get('/rma-seguimiento/opciones', { params: { solo_activas: true } }),
+        api.get('/rma-seguimiento/depositos'),
+      ]);
       const grouped = {};
-      for (const op of data) {
+      for (const op of opcionesRes.data) {
         if (!grouped[op.categoria]) grouped[op.categoria] = [];
         grouped[op.categoria].push(op);
       }
+      // Depósitos reales de tb_storage se usan para el dropdown deposito_destino
+      // Se guardan como opciones con id=stor_id y valor=stor_desc
+      grouped.deposito_destino = depositosRes.data.map((d) => ({
+        id: d.stor_id,
+        valor: d.stor_desc,
+      }));
       setOpciones(grouped);
     } catch {
       // opciones vacías
@@ -864,6 +873,17 @@ export default function ModalRma({ caso, onClose }) {
                       {renderDropdown('estado_revision', item.estado_revision_id, (v) => handleItemUpdate(item.id, 'estado_revision_id', v), !puedeGestionar)}
                     </label>
                   </div>
+                  <label>
+                    <span className={styles.label}>Descripción de falla</span>
+                    <textarea
+                      className={styles.textarea}
+                      rows={3}
+                      value={item.descripcion_falla || ''}
+                      onChange={(e) => handleItemUpdate(item.id, 'descripcion_falla', e.target.value)}
+                      disabled={!puedeGestionar}
+                      placeholder="Describir la falla encontrada en el producto..."
+                    />
+                  </label>
                   {renderItemMeta(item, 'revision_usuario_id', 'revision_fecha')}
                 </ModalSection>
               ))}

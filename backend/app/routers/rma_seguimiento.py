@@ -89,6 +89,7 @@ class ItemUpdate(BaseModel):
     apto_venta_id: Optional[int] = None
     requirio_reacondicionamiento: Optional[bool] = None
     estado_revision_id: Optional[int] = None
+    descripcion_falla: Optional[str] = None
     # Proceso interno
     estado_proceso_id: Optional[int] = None
     deposito_destino_id: Optional[int] = None
@@ -144,6 +145,7 @@ class ItemResponse(BaseModel):
     estado_revision_id: Optional[int] = None
     estado_revision_valor: Optional[str] = None
     estado_revision_color: Optional[str] = None
+    descripcion_falla: Optional[str] = None
     revision_usuario_id: Optional[int] = None
     revision_fecha: Optional[str] = None
     # Proceso interno
@@ -330,6 +332,7 @@ def _serialize_item(item: RmaCasoItem) -> dict:
         "estado_revision_id": item.estado_revision_id,
         "estado_revision_valor": item.estado_revision.valor if item.estado_revision else None,
         "estado_revision_color": item.estado_revision.color if item.estado_revision else None,
+        "descripcion_falla": item.descripcion_falla,
         "revision_usuario_id": item.revision_usuario_id,
         "revision_fecha": item.revision_fecha.isoformat() if item.revision_fecha else None,
         # Proceso interno
@@ -337,8 +340,8 @@ def _serialize_item(item: RmaCasoItem) -> dict:
         "estado_proceso_valor": item.estado_proceso.valor if item.estado_proceso else None,
         "estado_proceso_color": item.estado_proceso.color if item.estado_proceso else None,
         "deposito_destino_id": item.deposito_destino_id,
-        "deposito_destino_valor": item.deposito_destino.valor if item.deposito_destino else None,
-        "deposito_destino_color": item.deposito_destino.color if item.deposito_destino else None,
+        "deposito_destino_valor": None,  # stor_id directo, nombre se resuelve en frontend
+        "deposito_destino_color": None,
         "enviado_fisicamente_deposito": item.enviado_fisicamente_deposito,
         "corroborar_nc": item.corroborar_nc,
         "requirio_rma_interno": item.requirio_rma_interno,
@@ -436,7 +439,7 @@ def _build_caso_query(db: Session) -> object:
         selectinload(RmaCaso.items).selectinload(RmaCasoItem.apto_venta),
         selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_revision),
         selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_proceso),
-        selectinload(RmaCaso.items).selectinload(RmaCasoItem.deposito_destino),
+        # deposito_destino: ya no es relationship, se almacena stor_id directamente
         selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_proveedor),
         selectinload(RmaCaso.estado_reclamo_ml),
         selectinload(RmaCaso.cobertura_ml),
@@ -452,7 +455,7 @@ def _build_item_query(db: Session) -> object:
         selectinload(RmaCasoItem.apto_venta),
         selectinload(RmaCasoItem.estado_revision),
         selectinload(RmaCasoItem.estado_proceso),
-        selectinload(RmaCasoItem.deposito_destino),
+        # deposito_destino: ya no es relationship, se almacena stor_id directamente
         selectinload(RmaCasoItem.estado_proveedor),
     )
 
