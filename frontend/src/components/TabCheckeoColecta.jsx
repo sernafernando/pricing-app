@@ -189,15 +189,17 @@ export default function TabCheckeoColecta() {
   // ── Upload ZPL ───────────────────────────────────────────────
 
   const handleUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const fileList = event.target.files;
+    if (!fileList || fileList.length === 0) return;
 
     setUploading(true);
     setUploadResult(null);
 
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      for (const file of fileList) {
+        formData.append('files', file);
+      }
 
       const { data } = await api.post('/etiquetas-colecta/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -582,6 +584,7 @@ export default function TabCheckeoColecta() {
                 ref={fileInputRef}
                 type="file"
                 accept=".zip,.txt"
+                multiple
                 onChange={handleUpload}
                 className={styles.fileInputHidden}
                 id="colecta-zpl-upload"
@@ -591,7 +594,7 @@ export default function TabCheckeoColecta() {
                 className={`${styles.btnUpload} ${uploading ? styles.btnDisabled : ''}`}
               >
                 <Upload size={16} />
-                {uploading ? 'Subiendo...' : 'Subir ZPL'}
+                {uploading ? 'Subiendo...' : 'Subir ZPLs'}
               </label>
             </>
           )}

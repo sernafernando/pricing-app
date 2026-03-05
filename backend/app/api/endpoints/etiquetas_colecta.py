@@ -275,52 +275,39 @@ def _shipping_dedup_subquery(db: Session):
 # ── Endpoints ────────────────────────────────────────────────────
 
 
-@router.post(
-    "/etiquetas-colecta/upload",
-    response_model=UploadResultResponse,
-    summary="Subir archivo ZPL de colecta",
-)
-async def upload_etiquetas_colecta(
-    file: UploadFile = File(..., description="Archivo .zip o .txt con etiquetas ZPL de colecta"),
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
-) -> UploadResultResponse:
+def _procesar_archivo_zpl(
+    content: bytes,
+    filename: str,
+    db: Session,
+    fecha_carga: date,
+) -> tuple[int, int, int, int, List[str]]:
     """
-    Sube un archivo ZPL de colecta (.zip o .txt), extrae los QR codes
-    y registra las etiquetas en la tabla etiquetas_colecta.
+    Procesa un archivo ZPL (.zip o .txt), extrae QRs y registra etiquetas.
+
+    Retorna (total, nuevas, duplicadas, errores, detalle_errores).
+    No hace commit — el caller decide cuándo commitear.
     """
-    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
-
-    filename = file.filename or ""
-    if not filename.endswith((".zip", ".txt")):
-        raise HTTPException(400, "Solo se aceptan archivos .zip o .txt")
-
-    content = await file.read()
-
-    # Extraer texto del archivo
     if filename.endswith(".zip"):
         try:
             with zipfile.ZipFile(BytesIO(content)) as zf:
                 txt_files = [n for n in zf.namelist() if n.endswith(".txt") and "__MACOSX" not in n]
                 if not txt_files:
-                    raise HTTPException(400, "El ZIP no contiene archivos .txt")
+                    return 0, 0, 0, 1, [f"{filename}: el ZIP no contiene archivos .txt"]
                 text_content = zf.read(txt_files[0]).decode("utf-8")
         except zipfile.BadZipFile:
-            raise HTTPException(400, "Archivo ZIP corrupto")
+            return 0, 0, 0, 1, [f"{filename}: archivo ZIP corrupto"]
     else:
         text_content = content.decode("utf-8")
 
-    # Extraer QR JSONs
     qr_jsons = _extraer_qrs_de_texto(text_content)
     if not qr_jsons:
-        raise HTTPException(400, "No se encontraron QR codes en el archivo")
+        return 0, 0, 0, 1, [f"{filename}: no se encontraron QR codes"]
 
     total = len(qr_jsons)
     nuevas = 0
     duplicadas = 0
     errores = 0
     detalle_errores: List[str] = []
-    hoy = date.today()
 
     for raw_json in qr_jsons:
         try:
@@ -331,7 +318,7 @@ async def upload_etiquetas_colecta(
                 sender_id=parsed["sender_id"],
                 hash_code=parsed["hash_code"],
                 nombre_archivo=filename,
-                fecha_carga=hoy,
+                fecha_carga=fecha_carga,
             )
             if insertada:
                 nuevas += 1
@@ -340,7 +327,51 @@ async def upload_etiquetas_colecta(
         except Exception as e:
             errores += 1
             if len(detalle_errores) < 20:
-                detalle_errores.append(str(e))
+                detalle_errores.append(f"{filename}: {e}")
+
+    return total, nuevas, duplicadas, errores, detalle_errores
+
+
+@router.post(
+    "/etiquetas-colecta/upload",
+    response_model=UploadResultResponse,
+    summary="Subir archivos ZPL de colecta",
+)
+async def upload_etiquetas_colecta(
+    files: List[UploadFile] = File(..., description="Archivos .zip o .txt con etiquetas ZPL de colecta"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> UploadResultResponse:
+    """
+    Sube uno o más archivos ZPL de colecta (.zip o .txt), extrae los QR codes
+    y registra las etiquetas en la tabla etiquetas_colecta.
+    """
+    _check_permiso(db, current_user, "envios_flex.subir_etiquetas")
+
+    total = 0
+    nuevas = 0
+    duplicadas = 0
+    errores = 0
+    detalle_errores: List[str] = []
+    hoy = date.today()
+
+    for file in files:
+        filename = file.filename or ""
+        if not filename.endswith((".zip", ".txt")):
+            errores += 1
+            detalle_errores.append(f"{filename}: solo se aceptan .zip o .txt")
+            continue
+
+        content = await file.read()
+        f_total, f_nuevas, f_dup, f_err, f_det = _procesar_archivo_zpl(content, filename, db, hoy)
+        total += f_total
+        nuevas += f_nuevas
+        duplicadas += f_dup
+        errores += f_err
+        detalle_errores.extend(f_det)
+
+    if total == 0 and errores == 0:
+        raise HTTPException(400, "No se encontraron etiquetas en los archivos")
 
     try:
         db.commit()
