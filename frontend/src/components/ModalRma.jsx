@@ -981,7 +981,7 @@ export default function ModalRma({ caso, onClose }) {
                       Listo para envio
                     </label>
                     <label className={styles.checkLabel}>
-                      <input type="checkbox" checked={item.enviado_proveedor || false} disabled title={item.shipping_id ? `Envio: ${item.shipping_id}` : 'Se marca automaticamente al crear envio'} />
+                      <input type="checkbox" checked={item.enviado_proveedor || false} onChange={(e) => handleItemUpdate(item.id, 'enviado_proveedor', e.target.checked)} disabled={!puedeGestionar || !!item.shipping_id} title={item.shipping_id ? `Envio: ${item.shipping_id}` : ''} />
                       Enviado a proveedor {item.shipping_id && <span className={styles.shippingRef}>({item.shipping_id})</span>}
                     </label>
                     <label>
