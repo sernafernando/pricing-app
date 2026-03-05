@@ -222,7 +222,7 @@ export default function ModalRma({ caso, onClose }) {
     const nuevoItem = {
       serial_number: serial || null,
       item_id: articulo?.item_id || null,
-      ean: null,
+      ean: articulo?.codigo || null,
       producto_desc: articulo?.descripcion || 'Sin descripción',
       precio: null,
       link_ml: pedido?.ml_id ? `https://www.mercadolibre.com.ar/ventas/${pedido.ml_id}/detalle` : null,
