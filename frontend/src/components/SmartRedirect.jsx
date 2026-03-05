@@ -10,13 +10,9 @@ export default function SmartRedirect() {
   const { tienePermiso, tieneAlgunPermiso, loading, initialized, permisos, recargar } = usePermisos();
   const [retryCount, setRetryCount] = useState(0);
 
-  // Debug: ver qué está pasando
-  console.log('SmartRedirect state:', { loading, initialized, permisosCount: permisos?.length, permisos, retryCount });
-
   // Si initialized pero permisos vacío, intentar recargar (máximo 2 veces)
   useEffect(() => {
     if (initialized && !loading && permisos?.length === 0 && retryCount < 2) {
-      console.log('SmartRedirect: permisos vacíos, recargando...');
       const timer = setTimeout(() => {
         setRetryCount(r => r + 1);
         recargar();
@@ -55,26 +51,21 @@ export default function SmartRedirect() {
     { path: '/mla-banlist', permiso: 'admin.gestionar_mla_banlist' },
     { path: '/items-sin-mla', permiso: 'admin.gestionar_mla_banlist' },
     { path: '/pedidos-preparacion', permiso: 'ordenes.ver_preparacion' },
+    { path: '/rma', permiso: 'rma.ver' },
   ];
 
   // Buscar la primera ruta a la que tenga acceso
   for (const ruta of rutas) {
     if (ruta.permisos) {
-      const tiene = tieneAlgunPermiso(ruta.permisos);
-      console.log(`SmartRedirect: ${ruta.path} (permisos: ${ruta.permisos.join(', ')}) = ${tiene}`);
-      if (tiene) {
+      if (tieneAlgunPermiso(ruta.permisos)) {
         return <Navigate to={ruta.path} replace />;
       }
     } else if (ruta.permiso) {
-      const tiene = tienePermiso(ruta.permiso);
-      console.log(`SmartRedirect: ${ruta.path} (permiso: ${ruta.permiso}) = ${tiene}`);
-      if (tiene) {
+      if (tienePermiso(ruta.permiso)) {
         return <Navigate to={ruta.path} replace />;
       }
     }
   }
-
-  console.log('SmartRedirect: No se encontró ninguna ruta con permiso');
 
   // Si no tiene acceso a ninguna ruta, mostrar mensaje
   return (
