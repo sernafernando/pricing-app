@@ -26,6 +26,7 @@ from app.models.rma_caso_historial import RmaCasoHistorial
 from app.models.rma_caso_item import RmaCasoItem
 from app.models.rma_proveedor import RmaProveedor
 from app.models.rma_seguimiento_opcion import RmaSeguimientoOpcion
+from app.models.tb_customer import TBCustomer
 from app.models.tb_storage import TbStorage
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
@@ -114,6 +115,10 @@ class ItemUpdate(BaseModel):
     estado_proveedor_id: Optional[int] = None
     nc_proveedor: Optional[str] = None
     monto_nc_proveedor: Optional[float] = None
+    # Cliente (envío de vuelta al comprador)
+    listo_envio_cliente: Optional[bool] = None
+    enviado_cliente: Optional[bool] = None
+    fecha_envio_cliente: Optional[str] = None
     # Observaciones
     observaciones: Optional[str] = None
     # ERP
@@ -180,6 +185,11 @@ class ItemResponse(BaseModel):
     estado_proveedor_color: Optional[str] = None
     nc_proveedor: Optional[str] = None
     monto_nc_proveedor: Optional[float] = None
+    # Cliente (envío de vuelta al comprador)
+    listo_envio_cliente: Optional[bool] = None
+    enviado_cliente: Optional[bool] = None
+    shipping_cliente_id: Optional[str] = None
+    fecha_envio_cliente: Optional[str] = None
     # Observaciones
     observaciones: Optional[str] = None
     # ERP
@@ -375,6 +385,11 @@ def _serialize_item(item: RmaCasoItem) -> dict:
         "estado_proveedor_color": item.estado_proveedor.color if item.estado_proveedor else None,
         "nc_proveedor": item.nc_proveedor,
         "monto_nc_proveedor": float(item.monto_nc_proveedor) if item.monto_nc_proveedor else None,
+        # Cliente (envío de vuelta al comprador)
+        "listo_envio_cliente": item.listo_envio_cliente,
+        "enviado_cliente": item.enviado_cliente,
+        "shipping_cliente_id": item.shipping_cliente_id,
+        "fecha_envio_cliente": (item.fecha_envio_cliente.isoformat() if item.fecha_envio_cliente else None),
         # Observaciones
         "observaciones": item.observaciones,
         # ERP
@@ -1251,6 +1266,255 @@ async def crear_envio_proveedor(
     db.commit()
 
     return CrearEnvioProveedorResponse(
+        shipping_id=shipping_id,
+        items_vinculados=len(items),
+        mensaje=f"Envío {shipping_id} creado con {len(items)} items a {receiver_name}",
+    )
+
+
+# ──────────────────────────────────────────────
+# ENVÍOS A CLIENTE — Items para devolver al comprador
+# ──────────────────────────────────────────────
+
+
+def _serialize_cliente(cust: Optional[TBCustomer], caso: RmaCaso) -> dict:
+    """Serializa datos del cliente para la vista de envíos.
+
+    Si tenemos el cust_id en tb_customer usa esos datos completos,
+    sino caemos al nombre desnormalizado del caso.
+    """
+    if not cust:
+        return {
+            "cust_id": caso.cust_id,
+            "nombre": caso.cliente_nombre or f"Cliente #{caso.cust_id}",
+            "direccion": None,
+            "ciudad": None,
+            "cp": None,
+            "telefono": None,
+            "celular": None,
+            "email": None,
+            "dni": caso.cliente_dni,
+        }
+    return {
+        "cust_id": cust.cust_id,
+        "nombre": cust.cust_name or caso.cliente_nombre,
+        "direccion": cust.cust_address,
+        "ciudad": cust.cust_city,
+        "cp": cust.cust_zip,
+        "telefono": cust.cust_phone1,
+        "celular": cust.cust_cellphone,
+        "email": cust.cust_email,
+        "dni": caso.cliente_dni or cust.cust_taxnumber,
+    }
+
+
+@router.get("/envios-cliente/pendientes")
+async def listar_items_envio_cliente(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list:
+    """Items pendientes de envío a cliente, agrupados por cust_id.
+
+    Incluye items que pertenecen a un caso con cust_id seteado,
+    tienen listo_envio_cliente=True y enviado_cliente != True,
+    de casos activos. Cada grupo trae datos del cliente desde tb_customer.
+    """
+    _check_permiso(db, current_user, "rma.ver")
+
+    # Items with listo_envio_cliente set, not yet sent, from active cases with cust_id
+    items = (
+        _build_item_query(db)
+        .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+        .filter(
+            RmaCaso.activo == True,  # noqa: E712
+            RmaCaso.cust_id.isnot(None),
+            RmaCasoItem.listo_envio_cliente == True,  # noqa: E712
+            (RmaCasoItem.enviado_cliente.is_(None)) | (RmaCasoItem.enviado_cliente == False),  # noqa: E712
+        )
+        .order_by(RmaCaso.cust_id, RmaCasoItem.id)
+        .all()
+    )
+
+    # Group by cust_id (from the parent caso)
+    from collections import defaultdict
+
+    groups: dict = defaultdict(list)
+    caso_cache: dict = {}
+    for item in items:
+        caso = item.caso
+        cust_id = caso.cust_id
+        groups[cust_id].append(item)
+        if item.caso_id not in caso_cache:
+            caso_cache[item.caso_id] = caso
+
+    # Fetch customer data from tb_customer
+    cust_ids = list(groups.keys())
+    customers = {c.cust_id: c for c in db.query(TBCustomer).filter(TBCustomer.cust_id.in_(cust_ids)).all()}
+
+    result = []
+    for cust_id, cust_items in groups.items():
+        # Find a caso for this group to get denormalized data
+        sample_caso = cust_items[0].caso
+        cust = customers.get(cust_id)
+
+        result.append(
+            {
+                "cust_id": cust_id,
+                "cliente_nombre": sample_caso.cliente_nombre,
+                "cliente": _serialize_cliente(cust, sample_caso),
+                "cantidad_items": len(cust_items),
+                "items": [
+                    {
+                        "id": i.id,
+                        "caso_id": i.caso_id,
+                        "numero_caso": caso_cache.get(i.caso_id).numero_caso if caso_cache.get(i.caso_id) else None,
+                        "serial_number": i.serial_number,
+                        "producto_desc": i.producto_desc,
+                        "ean": i.ean,
+                        "precio": float(i.precio) if i.precio else None,
+                        "descripcion_falla": i.descripcion_falla,
+                        "listo_envio_cliente": i.listo_envio_cliente or False,
+                        "estado_proceso_valor": i.estado_proceso.valor if i.estado_proceso else None,
+                        "estado_proceso_color": i.estado_proceso.color if i.estado_proceso else None,
+                    }
+                    for i in cust_items
+                ],
+            }
+        )
+
+    # Sort by quantity desc (biggest groups first)
+    result.sort(key=lambda g: g["cantidad_items"], reverse=True)
+
+    return result
+
+
+# ──────────────────────────────────────────────
+# CREAR ENVÍO A CLIENTE (EtiquetaEnvio + link items)
+# ──────────────────────────────────────────────
+
+
+class CrearEnvioClienteRequest(BaseModel):
+    """Crea un envío manual a cliente y vincula los items RMA seleccionados."""
+
+    cust_id: int = Field(description="ID del cliente (tb_customer.cust_id)")
+    item_ids: list[int] = Field(min_length=1, description="IDs de rma_caso_items a incluir")
+    fecha_envio: date = Field(description="Fecha programada del envío")
+    comment: Optional[str] = Field(None, max_length=1000, description="Observaciones del envío")
+
+
+class CrearEnvioClienteResponse(BaseModel):
+    ok: bool = True
+    shipping_id: str
+    items_vinculados: int
+    mensaje: str
+
+
+@router.post("/envios-cliente/crear-envio", response_model=CrearEnvioClienteResponse)
+async def crear_envio_cliente(
+    data: CrearEnvioClienteRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> CrearEnvioClienteResponse:
+    """Crea un envío manual a cliente y vincula los items RMA.
+
+    1. Valida que todos los items pertenezcan a casos del cust_id indicado y no estén ya enviados
+    2. Obtiene datos del cliente desde tb_customer para llenar dirección
+    3. Crea un EtiquetaEnvio manual (es_manual=True)
+    4. Vincula cada item con shipping_cliente_id, marca enviado_cliente=True, fecha_envio_cliente=now
+    5. Registra cambios en historial de auditoría de cada caso afectado
+    """
+    _check_permiso(db, current_user, "rma.gestionar")
+
+    # 1. Fetch and validate items
+    items = (
+        db.query(RmaCasoItem)
+        .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+        .filter(
+            RmaCasoItem.id.in_(data.item_ids),
+            RmaCaso.activo == True,  # noqa: E712
+            RmaCaso.cust_id == data.cust_id,
+        )
+        .all()
+    )
+
+    if len(items) != len(data.item_ids):
+        found_ids = {i.id for i in items}
+        missing = [iid for iid in data.item_ids if iid not in found_ids]
+        raise HTTPException(
+            status_code=404,
+            detail=f"Items no encontrados, de casos inactivos, o no pertenecen al cliente {data.cust_id}: {missing}",
+        )
+
+    # Validate not already shipped
+    for item in items:
+        if item.enviado_cliente and item.shipping_cliente_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Item {item.id} ya fue enviado al cliente (shipping_id={item.shipping_cliente_id})",
+            )
+
+    # 2. Get customer data for address
+    cust = db.query(TBCustomer).filter(TBCustomer.cust_id == data.cust_id).first()
+
+    # Get caso for denormalized data
+    sample_caso = items[0].caso
+
+    receiver_name = (cust.cust_name if cust else None) or sample_caso.cliente_nombre or f"Cliente #{data.cust_id}"
+    street_name = (cust.cust_address if cust else None) or "S/D"
+    zip_code = (cust.cust_zip if cust else None) or "0000"
+    city_name = (cust.cust_city if cust else None) or "S/D"
+    phone = (cust.cust_phone1 or cust.cust_cellphone) if cust else None
+
+    # 3. Create EtiquetaEnvio manual
+    now = datetime.now(UTC)
+    seq = db.query(func.count(EtiquetaEnvio.id)).filter(EtiquetaEnvio.es_manual == True).scalar() or 0  # noqa: E712
+    shipping_id = f"RMACLI_{now.strftime('%Y%m%d%H%M%S')}_{seq + 1}"
+
+    envio = EtiquetaEnvio(
+        shipping_id=shipping_id,
+        fecha_envio=data.fecha_envio,
+        es_manual=True,
+        manual_receiver_name=receiver_name,
+        manual_street_name=street_name,
+        manual_street_number="S/N",
+        manual_zip_code=zip_code,
+        manual_city_name=city_name,
+        manual_phone=phone,
+        manual_cust_id=data.cust_id,
+        manual_status="ready_to_ship",
+        manual_comment=data.comment or f"RMA devolución a cliente: {receiver_name} ({len(items)} items)",
+        creado_por_usuario_id=current_user.id,
+    )
+    db.add(envio)
+    db.flush()  # Ensure shipping_id is persisted before linking items
+
+    # 4. Link items and mark as shipped to client
+    for item in items:
+        old_enviado = item.enviado_cliente
+        old_shipping = item.shipping_cliente_id
+        old_fecha = item.fecha_envio_cliente
+
+        item.shipping_cliente_id = shipping_id
+        item.enviado_cliente = True
+        item.fecha_envio_cliente = now
+
+        _registrar_cambio(
+            db, item.caso_id, "shipping_cliente_id", old_shipping, shipping_id, current_user.id, caso_item_id=item.id
+        )
+        _registrar_cambio(db, item.caso_id, "enviado_cliente", old_enviado, True, current_user.id, caso_item_id=item.id)
+        _registrar_cambio(
+            db,
+            item.caso_id,
+            "fecha_envio_cliente",
+            old_fecha,
+            now.isoformat(),
+            current_user.id,
+            caso_item_id=item.id,
+        )
+
+    db.commit()
+
+    return CrearEnvioClienteResponse(
         shipping_id=shipping_id,
         items_vinculados=len(items),
         mensaje=f"Envío {shipping_id} creado con {len(items)} items a {receiver_name}",

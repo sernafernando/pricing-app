@@ -7,7 +7,8 @@ import ModalRma from '../components/ModalRma';
 import RmaAdminOpciones from '../components/RmaAdminOpciones';
 import RmaProveedores from '../components/RmaProveedores';
 import RmaEnviosProveedor from '../components/RmaEnviosProveedor';
-import { Plus, Search, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, ClipboardList } from 'lucide-react';
+import RmaEnviosCliente from '../components/RmaEnviosCliente';
+import { Plus, Search, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, PackageCheck, ClipboardList } from 'lucide-react';
 import styles from './Rma.module.css';
 
 export default function Rma() {
@@ -195,6 +196,15 @@ export default function Rma() {
             Envios a Proveedor
           </button>
         )}
+        {puedeGestionar && (
+          <button
+            className={`${styles.tab} ${activeTab === 'envios_cliente' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('envios_cliente')}
+          >
+            <PackageCheck size={15} />
+            Envios a Cliente
+          </button>
+        )}
       </div>
 
       {/* Tab: Casos */}
@@ -320,6 +330,11 @@ export default function Rma() {
       {/* Tab: Envios a Proveedor */}
       {activeTab === 'envios_proveedor' && puedeGestionar && (
         <RmaEnviosProveedor />
+      )}
+
+      {/* Tab: Envios a Cliente */}
+      {activeTab === 'envios_cliente' && puedeGestionar && (
+        <RmaEnviosCliente />
       )}
 
       {/* Modal */}
