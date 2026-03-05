@@ -1158,7 +1158,7 @@
 }
 
 .gremio-container:hover {
-  background-color: rgba(0, 0, 0, 0.02);
+  background-color: var(--cf-bg-hover);
   border-radius: 4px;
 }
 
@@ -1177,35 +1177,37 @@
 /* Edición precio gremio - Modo Precio */
 .gremio-edit-precio {
   padding: 10px;
-  background: #f8fafc;
+  background: var(--cf-bg-card);
   border-radius: 6px;
-  border: 2px solid #0066cc;
+  border: 2px solid var(--cf-accent-blue);
   min-width: 240px;
 }
 
 /* Edición precio gremio - Modo Markup */
 .gremio-edit-markup {
   padding: 10px;
-  background: #f0f9ff;
+  background: var(--cf-bg-card);
   border-radius: 6px;
-  border: 2px solid #0284c7;
+  border: 2px solid var(--cf-accent-orange);
   min-width: 200px;
 }
 
 .gremio-edit-precio input,
 .gremio-edit-markup input {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--cf-border-default);
   border-radius: 4px;
   padding: 4px 8px;
   font-size: 12px;
   font-family: inherit;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
 }
 
 .gremio-edit-precio input:focus,
 .gremio-edit-markup input:focus {
   outline: none;
-  border-color: #0066cc;
-  box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
 .gremio-edit-precio button,
