@@ -291,7 +291,7 @@ export default function ModalRma({ caso, onClose }) {
         });
       } else {
         await api.put(`/rma-seguimiento/${caso.id}`, {
-          estado: casoData.estado,
+          estado_caso_id: casoData.estado_caso_id,
           marcado_borrar_pedido: casoData.marcado_borrar_pedido,
           estado_reclamo_ml_id: casoData.estado_reclamo_ml_id,
           cobertura_ml_id: casoData.cobertura_ml_id,
@@ -801,11 +801,7 @@ export default function ModalRma({ caso, onClose }) {
                     <div className={styles.grid2}>
                       <label>
                         <span className={styles.label}>Estado del caso</span>
-                        <select className={styles.select} value={casoData.estado || 'abierto'} onChange={(e) => setCasoData({ ...casoData, estado: e.target.value })} disabled={!puedeGestionar}>
-                          <option value="abierto">Abierto</option>
-                          <option value="en_espera">En espera</option>
-                          <option value="cerrado">Cerrado</option>
-                        </select>
+                        {renderDropdown('estado_caso', casoData.estado_caso_id, (v) => setCasoData({ ...casoData, estado_caso_id: v }), !puedeGestionar)}
                       </label>
                       <label className={styles.checkLabel}>
                         <input type="checkbox" checked={casoData.marcado_borrar_pedido || false} onChange={(e) => setCasoData({ ...casoData, marcado_borrar_pedido: e.target.checked })} disabled={!puedeGestionar} />

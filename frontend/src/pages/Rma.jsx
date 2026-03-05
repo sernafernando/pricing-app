@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -19,15 +19,16 @@ export default function Rma() {
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [stats, setStats] = useState(null);
+  const [estadosCaso, setEstadosCaso] = useState([]);
 
   const { getFilter, updateFilters } = useQueryFilters(
-    { search: '', page: 1, page_size: 50, estado: '' },
+    { search: '', page: 1, page_size: 50, estado_caso_id: '' },
     { page: 'number', page_size: 'number' }
   );
 
   const search = getFilter('search');
   const page = getFilter('page');
-  const estado = getFilter('estado');
+  const estadoCasoId = getFilter('estado_caso_id');
   const debouncedSearch = useDebounce(search, 500);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -35,20 +36,12 @@ export default function Rma() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [showProveedores, setShowProveedores] = useState(false);
 
-  useEffect(() => {
-    cargarCasos();
-  }, [page, debouncedSearch, estado]);
-
-  useEffect(() => {
-    cargarStats();
-  }, []);
-
-  const cargarCasos = async () => {
+  const cargarCasos = useCallback(async () => {
     setLoading(true);
     try {
       const params = { page, page_size: 50 };
       if (debouncedSearch) params.search = debouncedSearch;
-      if (estado) params.estado = estado;
+      if (estadoCasoId) params.estado_caso_id = estadoCasoId;
       const { data } = await api.get('/rma-seguimiento', { params });
       setCasos(data.items);
       setTotalItems(data.total);
@@ -58,7 +51,16 @@ export default function Rma() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, debouncedSearch, estadoCasoId]);
+
+  useEffect(() => {
+    cargarCasos();
+  }, [cargarCasos]);
+
+  useEffect(() => {
+    cargarStats();
+    cargarEstadosCaso();
+  }, []);
 
   const cargarStats = async () => {
     try {
@@ -66,6 +68,18 @@ export default function Rma() {
       setStats(data);
     } catch {
       // stats opcionales
+    }
+  };
+
+  const cargarEstadosCaso = async () => {
+    try {
+      const { data } = await api.get('/rma-seguimiento/opciones', {
+        params: { solo_activas: true },
+      });
+      const estados = data.filter((op) => op.categoria === 'estado_caso');
+      setEstadosCaso(estados);
+    } catch {
+      // opciones vacías
     }
   };
 
@@ -97,8 +111,24 @@ export default function Rma() {
           <h1>RMA Seguimiento</h1>
           {stats && (
             <div className={styles.statsChips}>
-              <span className={styles.chipAbiertos}>{stats.abiertos} abiertos</span>
-              <span className={styles.chipTotal}>{stats.total} total</span>
+              {stats.por_estado ? (
+                stats.por_estado
+                  .filter((e) => e.cantidad > 0)
+                  .map((e) => (
+                    <span
+                      key={e.id}
+                      className={styles.chipDynamic}
+                      style={{ '--chip-color': `var(--color-${e.color || 'gray'})` }}
+                    >
+                      {e.cantidad} {e.valor.toLowerCase()}
+                    </span>
+                  ))
+              ) : (
+                <>
+                  <span className={styles.chipAbiertos}>{stats.abiertos} abiertos</span>
+                  <span className={styles.chipTotal}>{stats.total} total</span>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -143,14 +173,14 @@ export default function Rma() {
           />
         </div>
         <select
-          value={estado}
-          onChange={(e) => updateFilters({ estado: e.target.value, page: 1 })}
+          value={estadoCasoId}
+          onChange={(e) => updateFilters({ estado_caso_id: e.target.value, page: 1 })}
           className={styles.selectFiltro}
         >
           <option value="">Todos los estados</option>
-          <option value="abierto">Abiertos</option>
-          <option value="cerrado">Cerrados</option>
-          <option value="en_espera">En espera</option>
+          {estadosCaso.map((op) => (
+            <option key={op.id} value={op.id}>{op.valor}</option>
+          ))}
         </select>
       </div>
 
@@ -192,21 +222,30 @@ export default function Rma() {
               casos.map((caso) => (
                 <tr key={caso.id} onClick={() => handleEditar(caso)} className={styles.clickableRow}>
                   <td className={styles.cellCaso}>{caso.numero_caso}</td>
-                  <td>{caso.fecha_caso || '—'}</td>
+                  <td>{caso.fecha_caso || '\u2014'}</td>
                   <td>
                     <div className={styles.clienteCell}>
-                      <span className={styles.clienteNombre}>{caso.cliente_nombre || '—'}</span>
+                      <span className={styles.clienteNombre}>{caso.cliente_nombre || '\u2014'}</span>
                       {caso.cliente_numero && (
                         <span className={styles.clienteNumero}>#{caso.cliente_numero}</span>
                       )}
                     </div>
                   </td>
-                  <td className={styles.cellMono}>{caso.ml_id || '—'}</td>
+                  <td className={styles.cellMono}>{caso.ml_id || '\u2014'}</td>
                   <td className={styles.cellCenter}>{caso.total_items}</td>
                   <td>
-                    <span className={`${styles.badge} ${styles[`badge_${caso.estado}`] || ''}`}>
-                      {caso.estado}
-                    </span>
+                    {caso.estado_caso_color ? (
+                      <span
+                        className={styles.badgeOpcion}
+                        style={{ '--badge-color': `var(--color-${caso.estado_caso_color})` }}
+                      >
+                        {caso.estado}
+                      </span>
+                    ) : (
+                      <span className={`${styles.badge} ${styles[`badge_${caso.estado}`] || ''}`}>
+                        {caso.estado}
+                      </span>
+                    )}
                   </td>
                   <td>
                     {caso.estado_reclamo_ml_valor ? (
@@ -216,10 +255,10 @@ export default function Rma() {
                       >
                         {caso.estado_reclamo_ml_valor}
                       </span>
-                    ) : '—'}
+                    ) : '\u2014'}
                   </td>
                   <td className={styles.cellObs}>
-                    {caso.observaciones ? caso.observaciones.substring(0, 60) + (caso.observaciones.length > 60 ? '...' : '') : '—'}
+                    {caso.observaciones ? caso.observaciones.substring(0, 60) + (caso.observaciones.length > 60 ? '...' : '') : '\u2014'}
                   </td>
                 </tr>
               ))
@@ -228,7 +267,7 @@ export default function Rma() {
         </table>
       </div>
 
-      {/* Paginación */}
+      {/* Paginacion */}
       {totalPages > 1 && (
         <div className={styles.pagination}>
           <button
@@ -239,7 +278,7 @@ export default function Rma() {
             <ChevronLeft size={16} />
           </button>
           <span className={styles.pageInfo}>
-            Página {page} de {totalPages} ({totalItems} casos)
+            Pagina {page} de {totalPages} ({totalItems} casos)
           </span>
           <button
             className="btn-tesla ghost sm"

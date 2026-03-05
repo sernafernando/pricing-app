@@ -196,7 +196,8 @@ class CasoCreate(BaseModel):
 
 
 class CasoUpdate(BaseModel):
-    estado: Optional[str] = None
+    estado: Optional[str] = None  # legacy — still accepted but ignored if estado_caso_id is set
+    estado_caso_id: Optional[int] = None
     # Flag proceso
     marcado_borrar_pedido: Optional[bool] = None
     # Reclamo ML
@@ -233,7 +234,10 @@ class CasoResponse(BaseModel):
     cliente_numero: Optional[int] = None
     ml_id: Optional[str] = None
     origen: Optional[str] = None
-    estado: str
+    estado: str  # legacy — kept for compat, derived from estado_caso or old column
+    estado_caso_id: Optional[int] = None
+    estado_caso_valor: Optional[str] = None
+    estado_caso_color: Optional[str] = None
     # Flag proceso
     marcado_borrar_pedido: Optional[bool] = None
     # Reclamo ML
@@ -384,7 +388,10 @@ def _serialize_caso(caso: RmaCaso, include_items: bool = True) -> dict:
         "cliente_numero": caso.cliente_numero,
         "ml_id": caso.ml_id,
         "origen": caso.origen,
-        "estado": caso.estado,
+        "estado": (caso.estado_caso.valor if caso.estado_caso else caso.estado),
+        "estado_caso_id": caso.estado_caso_id,
+        "estado_caso_valor": (caso.estado_caso.valor if caso.estado_caso else None),
+        "estado_caso_color": (caso.estado_caso.color if caso.estado_caso else None),
         # Flag proceso
         "marcado_borrar_pedido": caso.marcado_borrar_pedido,
         # Reclamo ML
@@ -444,6 +451,7 @@ def _build_caso_query(db: Session) -> object:
         selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_proceso),
         # deposito_destino: ya no es relationship, se almacena stor_id directamente
         selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_proveedor),
+        selectinload(RmaCaso.estado_caso),
         selectinload(RmaCaso.estado_reclamo_ml),
         selectinload(RmaCaso.cobertura_ml),
         selectinload(RmaCaso.creado_por),
@@ -572,7 +580,8 @@ async def listar_casos(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     search: Optional[str] = Query(None, description="Buscar por nro caso, cliente, ML ID, serial"),
-    estado: Optional[str] = Query(None, description="Filtrar por estado del caso"),
+    estado: Optional[str] = Query(None, description="Filtrar por estado (legacy string)"),
+    estado_caso_id: Optional[int] = Query(None, description="Filtrar por estado_caso_id (nuevo)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> CasoListResponse:
@@ -581,7 +590,10 @@ async def listar_casos(
 
     query = _build_caso_query(db).filter(RmaCaso.activo == True)  # noqa: E712
 
-    if estado:
+    if estado_caso_id:
+        query = query.filter(RmaCaso.estado_caso_id == estado_caso_id)
+    elif estado:
+        # Legacy fallback — filter by old string column
         query = query.filter(RmaCaso.estado == estado)
 
     if search:
@@ -645,6 +657,17 @@ async def crear_caso(
 
     numero_caso = _generar_numero_caso(db)
 
+    # Resolve default estado_caso_id ("Abierto")
+    estado_abierto = (
+        db.query(RmaSeguimientoOpcion)
+        .filter(
+            RmaSeguimientoOpcion.categoria == "estado_caso",
+            RmaSeguimientoOpcion.valor == "Abierto",
+            RmaSeguimientoOpcion.activo == True,  # noqa: E712
+        )
+        .first()
+    )
+
     caso = RmaCaso(
         numero_caso=numero_caso,
         cust_id=data.cust_id,
@@ -654,6 +677,7 @@ async def crear_caso(
         ml_id=data.ml_id,
         origen=data.origen,
         estado="abierto",
+        estado_caso_id=estado_abierto.id if estado_abierto else None,
         creado_por_id=current_user.id,
         fecha_caso=datetime.now(UTC).date(),
     )
@@ -938,8 +962,32 @@ async def obtener_resumen(
 
     base = db.query(func.count(RmaCaso.id)).filter(RmaCaso.activo == True)  # noqa: E712
     total = base.scalar()
-    abiertos = base.filter(RmaCaso.estado == "abierto").scalar()
-    cerrados = base.filter(RmaCaso.estado == "cerrado").scalar()
+
+    # Dynamic per-state counts
+    from sqlalchemy.orm import aliased
+
+    EstadoOpc = aliased(RmaSeguimientoOpcion)
+    por_estado = (
+        db.query(
+            EstadoOpc.id,
+            EstadoOpc.valor,
+            EstadoOpc.color,
+            func.count(RmaCaso.id).label("cantidad"),
+        )
+        .join(RmaCaso, RmaCaso.estado_caso_id == EstadoOpc.id)
+        .filter(
+            RmaCaso.activo == True,  # noqa: E712
+            EstadoOpc.categoria == "estado_caso",
+            EstadoOpc.activo == True,  # noqa: E712
+        )
+        .group_by(EstadoOpc.id, EstadoOpc.valor, EstadoOpc.color)
+        .order_by(EstadoOpc.id)
+        .all()
+    )
+
+    # Legacy compat fields
+    abiertos = sum(r.cantidad for r in por_estado if r.valor == "Abierto")
+    cerrados = sum(r.cantidad for r in por_estado if r.valor == "Cerrado")
 
     top_causas = (
         db.query(
@@ -959,5 +1007,6 @@ async def obtener_resumen(
         "total": total,
         "abiertos": abiertos,
         "cerrados": cerrados,
+        "por_estado": [{"id": r.id, "valor": r.valor, "color": r.color, "cantidad": r.cantidad} for r in por_estado],
         "top_causas_devolucion": [{"causa": r[0], "cantidad": r[1]} for r in top_causas],
     }
