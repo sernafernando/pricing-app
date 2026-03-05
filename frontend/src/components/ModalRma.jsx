@@ -24,6 +24,7 @@ import styles from './ModalRma.module.css';
 export default function ModalRma({ caso, onClose }) {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rma.gestionar');
+  const puedeEliminar = tienePermiso('rma.eliminar');
   const esNuevo = !caso;
 
   const [activeTab, setActiveTab] = useState('info');
@@ -52,6 +53,12 @@ export default function ModalRma({ caso, onClose }) {
   // Claims de ML para el tab "Reclamo ML"
   const [casoClaims, setCasoClaims] = useState([]);
   const [claimsLoading, setClaimsLoading] = useState(false);
+
+  // Confirm dialog para eliminar caso (estilo TabEnviosFlex)
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [confirmInput, setConfirmInput] = useState('');
+  const [confirmComment, setConfirmComment] = useState('');
+  const [eliminando, setEliminando] = useState(false);
 
   useEffect(() => {
     cargarOpciones();
@@ -106,12 +113,21 @@ export default function ModalRma({ caso, onClose }) {
 
   const cargarOpciones = async () => {
     try {
-      const { data } = await api.get('/rma-seguimiento/opciones', { params: { solo_activas: true } });
+      const [opcionesRes, depositosRes] = await Promise.all([
+        api.get('/rma-seguimiento/opciones', { params: { solo_activas: true } }),
+        api.get('/rma-seguimiento/depositos'),
+      ]);
       const grouped = {};
-      for (const op of data) {
+      for (const op of opcionesRes.data) {
         if (!grouped[op.categoria]) grouped[op.categoria] = [];
         grouped[op.categoria].push(op);
       }
+      // Depósitos reales de tb_storage se usan para el dropdown deposito_destino
+      // Se guardan como opciones con id=stor_id y valor=stor_desc
+      grouped.deposito_destino = depositosRes.data.map((d) => ({
+        id: d.stor_id,
+        valor: d.stor_desc,
+      }));
       setOpciones(grouped);
     } catch {
       // opciones vacías
@@ -280,6 +296,52 @@ export default function ModalRma({ caso, onClose }) {
     }
   };
 
+  // ── Confirm dialog (estilo TabEnviosFlex) ────────────────────
+  const pedirConfirmacion = (title, message, { challengeWord = null, showComment = false } = {}) =>
+    new Promise((resolve) => {
+      setConfirmInput('');
+      setConfirmComment('');
+      setConfirmDialog({
+        title,
+        message,
+        challengeWord,
+        showComment,
+        onConfirm: (comment) => {
+          setConfirmDialog(null);
+          setConfirmInput('');
+          setConfirmComment('');
+          resolve({ confirmed: true, comment });
+        },
+        onCancel: () => {
+          setConfirmDialog(null);
+          setConfirmInput('');
+          setConfirmComment('');
+          resolve({ confirmed: false, comment: null });
+        },
+      });
+    });
+
+  const handleEliminar = async () => {
+    const { confirmed, comment } = await pedirConfirmacion(
+      'Eliminar caso RMA',
+      `¿Eliminar el caso ${casoData.numero_caso || '#' + caso.id}? El caso quedará inactivo y no se mostrará en el listado.`,
+      { challengeWord: casoData.numero_caso || null, showComment: true },
+    );
+    if (!confirmed) return;
+
+    setEliminando(true);
+    try {
+      await api.delete(`/rma-seguimiento/${caso.id}`, {
+        data: { motivo: comment },
+      });
+      onClose(true);
+    } catch {
+      // error feedback silenced — backend returns 403/404 with detail
+    } finally {
+      setEliminando(false);
+    }
+  };
+
   const handleItemUpdate = async (itemId, field, value) => {
     if (!caso?.id) return;
     try {
@@ -342,12 +404,23 @@ export default function ModalRma({ caso, onClose }) {
       onTabChange={setActiveTab}
       footer={
         puedeGestionar && (
-          <ModalFooterButtons
-            onCancel={() => onClose(false)}
-            onConfirm={handleGuardar}
-            confirmText={esNuevo ? 'Crear Caso' : 'Guardar'}
-            confirmLoading={guardando}
-          />
+          <div className={styles.footerRow}>
+            {!esNuevo && puedeEliminar && (
+              <button
+                className="btn-tesla outline-subtle-danger sm"
+                onClick={handleEliminar}
+                disabled={eliminando}
+              >
+                <Trash2 size={14} /> {eliminando ? 'Eliminando...' : 'Eliminar caso'}
+              </button>
+            )}
+            <ModalFooterButtons
+              onCancel={() => onClose(false)}
+              onConfirm={handleGuardar}
+              confirmText={esNuevo ? 'Crear Caso' : 'Guardar'}
+              confirmLoading={guardando}
+            />
+          </div>
         )
       }
     >
@@ -800,6 +873,17 @@ export default function ModalRma({ caso, onClose }) {
                       {renderDropdown('estado_revision', item.estado_revision_id, (v) => handleItemUpdate(item.id, 'estado_revision_id', v), !puedeGestionar)}
                     </label>
                   </div>
+                  <label>
+                    <span className={styles.label}>Descripción de falla</span>
+                    <textarea
+                      className={styles.textarea}
+                      rows={3}
+                      value={item.descripcion_falla || ''}
+                      onChange={(e) => handleItemUpdate(item.id, 'descripcion_falla', e.target.value)}
+                      disabled={!puedeGestionar}
+                      placeholder="Describir la falla encontrada en el producto..."
+                    />
+                  </label>
                   {renderItemMeta(item, 'revision_usuario_id', 'revision_fecha')}
                 </ModalSection>
               ))}
@@ -954,6 +1038,61 @@ export default function ModalRma({ caso, onClose }) {
         </>
       )}
     </ModalTesla>
+
+    {/* Confirm dialog para eliminación */}
+    {confirmDialog && (
+      <ModalTesla
+        isOpen={true}
+        onClose={confirmDialog.onCancel}
+        closeOnOverlay={false}
+        title={confirmDialog.title}
+        size="sm"
+        footer={
+          <ModalFooterButtons
+            onCancel={confirmDialog.onCancel}
+            cancelText="Cancelar"
+            onConfirm={() => confirmDialog.onConfirm(confirmComment.trim() || null)}
+            confirmText="Confirmar eliminación"
+            confirmDisabled={
+              confirmDialog.challengeWord
+                ? confirmInput !== confirmDialog.challengeWord
+                : false
+            }
+            confirmVariant="outline-subtle-danger"
+          />
+        }
+      >
+        <p style={{ margin: '0 0 12px', color: 'var(--cf-text-secondary)' }}>
+          {confirmDialog.message}
+        </p>
+        {confirmDialog.challengeWord && (
+          <label style={{ display: 'block', marginBottom: 12 }}>
+            <span className={styles.label}>
+              Escribí <strong>{confirmDialog.challengeWord}</strong> para confirmar:
+            </span>
+            <input
+              className={styles.input}
+              type="text"
+              value={confirmInput}
+              onChange={(e) => setConfirmInput(e.target.value)}
+              autoFocus
+            />
+          </label>
+        )}
+        {confirmDialog.showComment && (
+          <label style={{ display: 'block' }}>
+            <span className={styles.label}>Motivo (opcional):</span>
+            <textarea
+              className={styles.textarea}
+              rows={2}
+              value={confirmComment}
+              onChange={(e) => setConfirmComment(e.target.value)}
+              placeholder="Motivo de eliminación..."
+            />
+          </label>
+        )}
+      </ModalTesla>
+    )}
 
     </>
   );

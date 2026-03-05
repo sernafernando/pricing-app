@@ -44,12 +44,13 @@ class RmaCasoItem(Base):
     apto_venta_id = Column(Integer, ForeignKey("rma_seguimiento_opciones.id"), nullable=True, index=True)
     requirio_reacondicionamiento = Column(Boolean, nullable=True)
     estado_revision_id = Column(Integer, ForeignKey("rma_seguimiento_opciones.id"), nullable=True, index=True)
+    descripcion_falla = Column(Text, nullable=True)  # texto libre: qué falla tiene el producto
     revision_usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     revision_fecha = Column(DateTime(timezone=True), nullable=True)
 
     # --- Tab: Proceso Interno ---
     estado_proceso_id = Column(Integer, ForeignKey("rma_seguimiento_opciones.id"), nullable=True, index=True)
-    deposito_destino_id = Column(Integer, ForeignKey("rma_seguimiento_opciones.id"), nullable=True, index=True)
+    deposito_destino_id = Column(Integer, nullable=True, index=True)  # stor_id de tb_storage (sin FK)
     enviado_fisicamente_deposito = Column(Boolean, nullable=True)
     corroborar_nc = Column(Boolean, nullable=True)
     requirio_rma_interno = Column(Boolean, nullable=True)
@@ -86,7 +87,7 @@ class RmaCasoItem(Base):
     apto_venta = relationship("RmaSeguimientoOpcion", foreign_keys=[apto_venta_id])
     estado_revision = relationship("RmaSeguimientoOpcion", foreign_keys=[estado_revision_id])
     estado_proceso = relationship("RmaSeguimientoOpcion", foreign_keys=[estado_proceso_id])
-    deposito_destino = relationship("RmaSeguimientoOpcion", foreign_keys=[deposito_destino_id])
+    # deposito_destino: almacena stor_id de tb_storage directamente (sin FK ni relationship)
     estado_proveedor = relationship("RmaSeguimientoOpcion", foreign_keys=[estado_proveedor_id])
     recepcion_usuario = relationship("Usuario", foreign_keys=[recepcion_usuario_id])
     revision_usuario = relationship("Usuario", foreign_keys=[revision_usuario_id])

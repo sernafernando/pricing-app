@@ -89,6 +89,7 @@ class ItemUpdate(BaseModel):
     apto_venta_id: Optional[int] = None
     requirio_reacondicionamiento: Optional[bool] = None
     estado_revision_id: Optional[int] = None
+    descripcion_falla: Optional[str] = None
     # Proceso interno
     estado_proceso_id: Optional[int] = None
     deposito_destino_id: Optional[int] = None
@@ -144,6 +145,7 @@ class ItemResponse(BaseModel):
     estado_revision_id: Optional[int] = None
     estado_revision_valor: Optional[str] = None
     estado_revision_color: Optional[str] = None
+    descripcion_falla: Optional[str] = None
     revision_usuario_id: Optional[int] = None
     revision_fecha: Optional[str] = None
     # Proceso interno
@@ -330,6 +332,7 @@ def _serialize_item(item: RmaCasoItem) -> dict:
         "estado_revision_id": item.estado_revision_id,
         "estado_revision_valor": item.estado_revision.valor if item.estado_revision else None,
         "estado_revision_color": item.estado_revision.color if item.estado_revision else None,
+        "descripcion_falla": item.descripcion_falla,
         "revision_usuario_id": item.revision_usuario_id,
         "revision_fecha": item.revision_fecha.isoformat() if item.revision_fecha else None,
         # Proceso interno
@@ -337,8 +340,8 @@ def _serialize_item(item: RmaCasoItem) -> dict:
         "estado_proceso_valor": item.estado_proceso.valor if item.estado_proceso else None,
         "estado_proceso_color": item.estado_proceso.color if item.estado_proceso else None,
         "deposito_destino_id": item.deposito_destino_id,
-        "deposito_destino_valor": item.deposito_destino.valor if item.deposito_destino else None,
-        "deposito_destino_color": item.deposito_destino.color if item.deposito_destino else None,
+        "deposito_destino_valor": None,  # stor_id directo, nombre se resuelve en frontend
+        "deposito_destino_color": None,
         "enviado_fisicamente_deposito": item.enviado_fisicamente_deposito,
         "corroborar_nc": item.corroborar_nc,
         "requirio_rma_interno": item.requirio_rma_interno,
@@ -436,7 +439,7 @@ def _build_caso_query(db: Session) -> object:
         selectinload(RmaCaso.items).selectinload(RmaCasoItem.apto_venta),
         selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_revision),
         selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_proceso),
-        selectinload(RmaCaso.items).selectinload(RmaCasoItem.deposito_destino),
+        # deposito_destino: ya no es relationship, se almacena stor_id directamente
         selectinload(RmaCaso.items).selectinload(RmaCasoItem.estado_proveedor),
         selectinload(RmaCaso.estado_reclamo_ml),
         selectinload(RmaCaso.cobertura_ml),
@@ -452,7 +455,7 @@ def _build_item_query(db: Session) -> object:
         selectinload(RmaCasoItem.apto_venta),
         selectinload(RmaCasoItem.estado_revision),
         selectinload(RmaCasoItem.estado_proceso),
-        selectinload(RmaCasoItem.deposito_destino),
+        # deposito_destino: ya no es relationship, se almacena stor_id directamente
         selectinload(RmaCasoItem.estado_proveedor),
     )
 
@@ -573,7 +576,7 @@ async def listar_casos(
     """Lista casos RMA con paginación y búsqueda."""
     _check_permiso(db, current_user, "rma.ver")
 
-    query = _build_caso_query(db)
+    query = _build_caso_query(db).filter(RmaCaso.activo == True)  # noqa: E712
 
     if estado:
         query = query.filter(RmaCaso.estado == estado)
@@ -823,6 +826,54 @@ async def eliminar_item(
 
 
 # ──────────────────────────────────────────────
+# SOFT DELETE (Caso completo)
+# ──────────────────────────────────────────────
+
+
+class EliminarCasoBody(BaseModel):
+    motivo: Optional[str] = Field(None, max_length=500)
+
+
+@router.delete("/{caso_id}", status_code=status.HTTP_200_OK)
+async def eliminar_caso(
+    caso_id: int,
+    body: EliminarCasoBody = EliminarCasoBody(),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """Soft-delete de un caso RMA. Marca activo=False y registra auditoría."""
+    _check_permiso(db, current_user, "rma.eliminar")
+
+    caso = db.query(RmaCaso).filter(RmaCaso.id == caso_id).first()
+    if not caso:
+        raise HTTPException(status_code=404, detail="Caso no encontrado")
+
+    if not caso.activo:
+        raise HTTPException(status_code=400, detail="El caso ya fue eliminado")
+
+    # Registrar en historial ANTES de marcar como inactivo
+    motivo = body.motivo or "Sin motivo"
+    _registrar_cambio(
+        db,
+        caso_id,
+        "caso_eliminado",
+        caso.numero_caso,
+        f"Eliminado: {motivo}",
+        current_user.id,
+    )
+
+    # Soft delete
+    caso.activo = False
+    caso.eliminado_por_id = current_user.id
+    caso.eliminado_at = datetime.now(UTC)
+    caso.eliminado_motivo = motivo
+
+    db.commit()
+
+    return {"ok": True, "numero_caso": caso.numero_caso}
+
+
+# ──────────────────────────────────────────────
 # HISTORIAL (Auditoría)
 # ──────────────────────────────────────────────
 
@@ -872,9 +923,10 @@ async def obtener_resumen(
     """Resumen rápido: casos abiertos, cerrados, por estado."""
     _check_permiso(db, current_user, "rma.ver")
 
-    total = db.query(func.count(RmaCaso.id)).scalar()
-    abiertos = db.query(func.count(RmaCaso.id)).filter(RmaCaso.estado == "abierto").scalar()
-    cerrados = db.query(func.count(RmaCaso.id)).filter(RmaCaso.estado == "cerrado").scalar()
+    base = db.query(func.count(RmaCaso.id)).filter(RmaCaso.activo == True)  # noqa: E712
+    total = base.scalar()
+    abiertos = base.filter(RmaCaso.estado == "abierto").scalar()
+    cerrados = base.filter(RmaCaso.estado == "cerrado").scalar()
 
     top_causas = (
         db.query(
@@ -882,6 +934,8 @@ async def obtener_resumen(
             func.count(RmaCasoItem.id).label("cantidad"),
         )
         .join(RmaCasoItem, RmaCasoItem.causa_devolucion_id == RmaSeguimientoOpcion.id)
+        .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+        .filter(RmaCaso.activo == True)  # noqa: E712
         .group_by(RmaSeguimientoOpcion.valor)
         .order_by(func.count(RmaCasoItem.id).desc())
         .limit(10)
