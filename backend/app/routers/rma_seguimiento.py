@@ -637,6 +637,12 @@ async def crear_caso(
     """Crea un nuevo caso RMA con sus items iniciales."""
     _check_permiso(db, current_user, "rma.gestionar")
 
+    if not data.items:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El caso debe tener al menos un artículo.",
+        )
+
     numero_caso = _generar_numero_caso(db)
 
     caso = RmaCaso(

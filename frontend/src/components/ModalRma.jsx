@@ -254,7 +254,17 @@ export default function ModalRma({ caso, onClose }) {
     setShowManualForm(false);
   };
 
+  const [guardarError, setGuardarError] = useState(null);
+
   const handleGuardar = async () => {
+    setGuardarError(null);
+
+    // Validación: caso nuevo necesita al menos 1 item
+    if (esNuevo && (!casoData.items || casoData.items.length === 0)) {
+      setGuardarError('Agregá al menos un artículo antes de guardar el caso.');
+      return;
+    }
+
     setGuardando(true);
     try {
       if (esNuevo) {
@@ -405,7 +415,7 @@ export default function ModalRma({ caso, onClose }) {
       activeTab={activeTab}
       onTabChange={setActiveTab}
       footer={
-        puedeGestionar && (
+         puedeGestionar && (
           <div className={styles.footerRow}>
             {!esNuevo && puedeEliminar && (
               <button
@@ -416,6 +426,7 @@ export default function ModalRma({ caso, onClose }) {
                 <Trash2 size={14} /> {eliminando ? 'Eliminando...' : 'Eliminar caso'}
               </button>
             )}
+            {guardarError && <span className={styles.footerError}>{guardarError}</span>}
             <ModalFooterButtons
               onCancel={() => onClose(false)}
               onConfirm={handleGuardar}
