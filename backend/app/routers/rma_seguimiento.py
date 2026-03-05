@@ -10,7 +10,7 @@ Endpoints:
 - Generación automática de número de caso
 """
 
-from datetime import datetime, UTC
+from datetime import date, datetime, UTC
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.rma_caso import RmaCaso
 from app.models.rma_caso_historial import RmaCasoHistorial
 from app.models.rma_caso_item import RmaCasoItem
@@ -106,6 +107,7 @@ class ItemUpdate(BaseModel):
     # Proveedor
     supp_id: Optional[int] = None
     proveedor_nombre: Optional[str] = None
+    listo_envio_proveedor: Optional[bool] = None
     enviado_proveedor: Optional[bool] = None
     fecha_envio_proveedor: Optional[str] = None
     fecha_respuesta_proveedor: Optional[str] = None
@@ -168,7 +170,9 @@ class ItemResponse(BaseModel):
     # Proveedor
     supp_id: Optional[int] = None
     proveedor_nombre: Optional[str] = None
+    listo_envio_proveedor: Optional[bool] = None
     enviado_proveedor: Optional[bool] = None
+    shipping_id: Optional[str] = None
     fecha_envio_proveedor: Optional[str] = None
     fecha_respuesta_proveedor: Optional[str] = None
     estado_proveedor_id: Optional[int] = None
@@ -359,7 +363,9 @@ def _serialize_item(item: RmaCasoItem) -> dict:
         # Proveedor
         "supp_id": item.supp_id,
         "proveedor_nombre": item.proveedor_nombre,
+        "listo_envio_proveedor": item.listo_envio_proveedor,
         "enviado_proveedor": item.enviado_proveedor,
+        "shipping_id": item.shipping_id,
         "fecha_envio_proveedor": (item.fecha_envio_proveedor.isoformat() if item.fecha_envio_proveedor else None),
         "fecha_respuesta_proveedor": (
             item.fecha_respuesta_proveedor.isoformat() if item.fecha_respuesta_proveedor else None
@@ -1100,6 +1106,7 @@ async def listar_items_envio_proveedor(
                         "ean": i.ean,
                         "precio": float(i.precio) if i.precio else None,
                         "descripcion_falla": i.descripcion_falla,
+                        "listo_envio_proveedor": i.listo_envio_proveedor or False,
                         "estado_proveedor_valor": i.estado_proveedor.valor if i.estado_proveedor else None,
                         "estado_proveedor_color": i.estado_proveedor.color if i.estado_proveedor else None,
                     }
@@ -1112,3 +1119,139 @@ async def listar_items_envio_proveedor(
     result.sort(key=lambda g: g["cantidad_items"], reverse=True)
 
     return result
+
+
+# ──────────────────────────────────────────────
+# CREAR ENVÍO A PROVEEDOR (EtiquetaEnvio + link items)
+# ──────────────────────────────────────────────
+
+
+class CrearEnvioProveedorRequest(BaseModel):
+    """Crea un envío manual a proveedor y vincula los items RMA seleccionados."""
+
+    supp_id: int = Field(description="ID del proveedor (tb_supplier.supp_id)")
+    item_ids: list[int] = Field(min_length=1, description="IDs de rma_caso_items a incluir")
+    fecha_envio: date = Field(description="Fecha programada del envío")
+    comment: Optional[str] = Field(None, max_length=1000, description="Observaciones del envío")
+
+
+class CrearEnvioProveedorResponse(BaseModel):
+    ok: bool = True
+    shipping_id: str
+    items_vinculados: int
+    mensaje: str
+
+
+@router.post("/envios-proveedor/crear-envio", response_model=CrearEnvioProveedorResponse)
+async def crear_envio_proveedor(
+    data: CrearEnvioProveedorRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> CrearEnvioProveedorResponse:
+    """Crea un envío manual a proveedor y vincula los items RMA.
+
+    1. Valida que todos los items pertenezcan al supp_id indicado y no estén ya enviados
+    2. Obtiene datos del proveedor desde rma_proveedores para llenar dirección
+    3. Crea un EtiquetaEnvio manual (es_manual=True)
+    4. Vincula cada item con shipping_id, marca enviado_proveedor=True, fecha_envio_proveedor=now
+    5. Registra cambios en historial de auditoría de cada caso afectado
+    """
+    _check_permiso(db, current_user, "rma.gestionar")
+
+    # 1. Fetch and validate items
+    items = (
+        db.query(RmaCasoItem)
+        .join(RmaCaso, RmaCasoItem.caso_id == RmaCaso.id)
+        .filter(
+            RmaCasoItem.id.in_(data.item_ids),
+            RmaCaso.activo == True,  # noqa: E712
+        )
+        .all()
+    )
+
+    if len(items) != len(data.item_ids):
+        found_ids = {i.id for i in items}
+        missing = [iid for iid in data.item_ids if iid not in found_ids]
+        raise HTTPException(status_code=404, detail=f"Items no encontrados o de casos inactivos: {missing}")
+
+    # Validate all belong to the same supplier and not yet shipped
+    for item in items:
+        if item.supp_id != data.supp_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Item {item.id} pertenece a proveedor {item.supp_id}, no a {data.supp_id}",
+            )
+        if item.enviado_proveedor and item.shipping_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Item {item.id} ya fue enviado (shipping_id={item.shipping_id})",
+            )
+
+    # 2. Get supplier extended data for address
+    prov = (
+        db.query(RmaProveedor)
+        .filter(RmaProveedor.supp_id == data.supp_id, RmaProveedor.activo == True)  # noqa: E712
+        .first()
+    )
+
+    receiver_name = prov.nombre if prov else items[0].proveedor_nombre or f"Proveedor #{data.supp_id}"
+    street_name = prov.direccion if prov else "S/D"
+    zip_code = prov.cp if prov else "0000"
+    city_name = prov.ciudad if prov else "S/D"
+    phone = prov.telefono if prov else None
+
+    # 3. Create EtiquetaEnvio manual
+    now = datetime.now(UTC)
+    seq = db.query(func.count(EtiquetaEnvio.id)).filter(EtiquetaEnvio.es_manual == True).scalar() or 0  # noqa: E712
+    shipping_id = f"RMA_{now.strftime('%Y%m%d%H%M%S')}_{seq + 1}"
+
+    envio = EtiquetaEnvio(
+        shipping_id=shipping_id,
+        fecha_envio=data.fecha_envio,
+        es_manual=True,
+        manual_receiver_name=receiver_name,
+        manual_street_name=street_name,
+        manual_street_number="S/N",
+        manual_zip_code=zip_code,
+        manual_city_name=city_name,
+        manual_phone=phone,
+        manual_status="ready_to_ship",
+        manual_comment=data.comment or f"RMA a proveedor: {receiver_name} ({len(items)} items)",
+        creado_por_usuario_id=current_user.id,
+    )
+    db.add(envio)
+    db.flush()  # Ensure shipping_id is persisted before linking items
+
+    # 4. Link items and mark as shipped
+    for item in items:
+        old_enviado = item.enviado_proveedor
+        old_shipping = item.shipping_id
+        old_fecha = item.fecha_envio_proveedor
+
+        item.shipping_id = shipping_id
+        item.enviado_proveedor = True
+        item.fecha_envio_proveedor = now
+
+        _registrar_cambio(
+            db, item.caso_id, "shipping_id", old_shipping, shipping_id, current_user.id, caso_item_id=item.id
+        )
+        _registrar_cambio(
+            db, item.caso_id, "enviado_proveedor", old_enviado, True, current_user.id, caso_item_id=item.id
+        )
+        _registrar_cambio(
+            db,
+            item.caso_id,
+            "fecha_envio_proveedor",
+            old_fecha,
+            now.isoformat(),
+            current_user.id,
+            caso_item_id=item.id,
+        )
+
+    db.commit()
+
+    return CrearEnvioProveedorResponse(
+        shipping_id=shipping_id,
+        items_vinculados=len(items),
+        mensaje=f"Envío {shipping_id} creado con {len(items)} items a {receiver_name}",
+    )

@@ -84,6 +84,12 @@
   padding-top: 18px;
 }
 
+.shippingRef {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  font-family: var(--font-mono, monospace);
+}
+
 /* ═══════════ Meta (auditoría) ═══════════ */
 
 .meta {

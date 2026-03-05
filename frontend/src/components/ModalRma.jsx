@@ -977,8 +977,12 @@ export default function ModalRma({ caso, onClose }) {
                       {renderDropdown('estado_proveedor', item.estado_proveedor_id, (v) => handleItemUpdate(item.id, 'estado_proveedor_id', v), !puedeGestionar)}
                     </label>
                     <label className={styles.checkLabel}>
-                      <input type="checkbox" checked={item.enviado_proveedor || false} onChange={(e) => handleItemUpdate(item.id, 'enviado_proveedor', e.target.checked)} disabled={!puedeGestionar} />
-                      Enviado a proveedor
+                      <input type="checkbox" checked={item.listo_envio_proveedor || false} onChange={(e) => handleItemUpdate(item.id, 'listo_envio_proveedor', e.target.checked)} disabled={!puedeGestionar || item.enviado_proveedor} />
+                      Listo para envio
+                    </label>
+                    <label className={styles.checkLabel}>
+                      <input type="checkbox" checked={item.enviado_proveedor || false} disabled title={item.shipping_id ? `Envio: ${item.shipping_id}` : 'Se marca automaticamente al crear envio'} />
+                      Enviado a proveedor {item.shipping_id && <span className={styles.shippingRef}>({item.shipping_id})</span>}
                     </label>
                     <label>
                       <span className={styles.label}>NC Proveedor</span>
