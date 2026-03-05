@@ -275,6 +275,8 @@ export default function ModalRma({ caso, onClose }) {
             precio: i.precio,
             estado_facturacion: i.estado_facturacion,
             link_ml: i.link_ml,
+            supp_id: i.supp_id,
+            proveedor_nombre: i.proveedor_nombre,
           })),
         });
       } else {
