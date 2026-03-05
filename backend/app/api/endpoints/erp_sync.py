@@ -24,6 +24,7 @@ from app.models.tb_document_file import TBDocumentFile
 from app.models.tb_fiscal_class import TBFiscalClass
 from app.models.tb_tax_number_type import TBTaxNumberType
 from app.models.tb_state import TBState
+from app.models.rma_proveedor import RmaProveedor
 
 
 router = APIRouter(prefix="/erp-sync", tags=["ERP Sync"], dependencies=[Depends(get_current_admin)])
@@ -441,12 +442,46 @@ async def sync_suppliers(
 
         db.commit()
 
+        # --- Propagate to rma_proveedores (extended supplier data for RMA) ---
+        rma_insertados = 0
+        rma_actualizados = 0
+
+        existing_rma = {
+            (p.comp_id, p.supp_id): p for p in db.query(RmaProveedor).filter(RmaProveedor.supp_id.isnot(None)).all()
+        }
+
+        all_suppliers = db.query(TBSupplier).all()
+        for supp in all_suppliers:
+            key = (supp.comp_id, supp.supp_id)
+            if key in existing_rma:
+                prov = existing_rma[key]
+                if prov.nombre != supp.supp_name or prov.cuit != supp.supp_tax_number:
+                    prov.nombre = supp.supp_name
+                    prov.cuit = supp.supp_tax_number
+                    rma_actualizados += 1
+            else:
+                db.add(
+                    RmaProveedor(
+                        supp_id=supp.supp_id,
+                        comp_id=supp.comp_id,
+                        nombre=supp.supp_name,
+                        cuit=supp.supp_tax_number,
+                    )
+                )
+                rma_insertados += 1
+
+        db.commit()
+
         return {
             "success": True,
             "message": "Proveedores sincronizados correctamente",
             "insertados": insertados,
             "actualizados": actualizados,
             "total": insertados + actualizados,
+            "rma_proveedores": {
+                "insertados": rma_insertados,
+                "actualizados": rma_actualizados,
+            },
         }
 
     except Exception as e:

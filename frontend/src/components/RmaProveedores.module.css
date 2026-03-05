@@ -1,0 +1,303 @@
+/* RmaProveedores - ABM panel for RMA suppliers */
+
+.container {
+  padding: var(--spacing-md);
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-md);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.headerLeft svg {
+  color: var(--cf-accent-blue);
+}
+
+.title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.badge {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Spinning animation for sync button */
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Messages */
+.syncResult {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--cf-accent-green);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+}
+
+.errorMsg {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+}
+
+.dismissBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+}
+
+.dismissBtn:hover {
+  opacity: 1;
+}
+
+/* Filters */
+.filters {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: 0 var(--spacing-sm);
+  flex: 1;
+  min-width: 240px;
+  max-width: 460px;
+}
+
+.searchBox svg {
+  color: var(--cf-text-tertiary);
+  flex-shrink: 0;
+}
+
+.searchBox input {
+  border: none;
+  background: transparent;
+  color: var(--cf-text-primary);
+  padding: 7px 0;
+  width: 100%;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.toggleLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Table cells */
+.statusCell {
+  text-align: center;
+  padding: var(--spacing-lg) !important;
+  color: var(--cf-text-secondary);
+}
+
+.cellNombre {
+  font-weight: 500;
+}
+
+.cellMono {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+}
+
+.cellCenter {
+  text-align: center;
+}
+
+.iconActive {
+  color: var(--cf-accent-green);
+}
+
+.iconInactive {
+  color: var(--cf-text-muted);
+}
+
+.editingRow {
+  background: rgba(59, 130, 246, 0.06) !important;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-md);
+}
+
+.pageInfo {
+  font-size: 0.85rem;
+  color: var(--cf-text-secondary);
+}
+
+/* Edit panel */
+.editPanel {
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.editHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-md);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.editHeader h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.editActions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.editGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--spacing-md);
+}
+
+@media (max-width: 1200px) {
+  .editGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .editGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.editSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 var(--spacing-xs) 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sectionTitle svg {
+  color: var(--cf-accent-blue);
+}
+
+.fieldLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.78rem;
+  color: var(--cf-text-tertiary);
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--spacing-xs);
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 0.85rem;
+  color: var(--cf-text-primary);
+}
+
+/* Form inputs */
+.input,
+.select,
+.textarea {
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  font-size: 0.85rem;
+  transition: all var(--duration-200, 200ms) var(--ease-out, ease-out);
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 60px;
+}

@@ -5,7 +5,8 @@ import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import ModalRma from '../components/ModalRma';
 import RmaAdminOpciones from '../components/RmaAdminOpciones';
-import { Plus, Search, RotateCcw, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
+import RmaProveedores from '../components/RmaProveedores';
+import { Plus, Search, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck } from 'lucide-react';
 import styles from './Rma.module.css';
 
 export default function Rma() {
@@ -32,6 +33,7 @@ export default function Rma() {
   const [modalOpen, setModalOpen] = useState(false);
   const [casoSeleccionado, setCasoSeleccionado] = useState(null);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showProveedores, setShowProveedores] = useState(false);
 
   useEffect(() => {
     cargarCasos();
@@ -101,10 +103,20 @@ export default function Rma() {
           )}
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          {puedeGestionar && (
+            <button
+              className={`btn-tesla ${showProveedores ? 'primary' : 'ghost'} sm`}
+              onClick={() => { setShowProveedores(!showProveedores); if (!showProveedores) setShowAdmin(false); }}
+              title="Gestionar proveedores RMA"
+              aria-label="Gestionar proveedores RMA"
+            >
+              <Truck size={16} />
+            </button>
+          )}
           {puedeAdminOpciones && (
             <button
               className={`btn-tesla ${showAdmin ? 'primary' : 'ghost'} sm`}
-              onClick={() => setShowAdmin(!showAdmin)}
+              onClick={() => { setShowAdmin(!showAdmin); if (!showAdmin) setShowProveedores(false); }}
               title="Gestionar opciones de dropdowns"
               aria-label="Gestionar opciones de dropdowns"
             >
@@ -146,6 +158,13 @@ export default function Rma() {
       {showAdmin && puedeAdminOpciones && (
         <div className={styles.adminPanel}>
           <RmaAdminOpciones />
+        </div>
+      )}
+
+      {/* Proveedores Panel */}
+      {showProveedores && puedeGestionar && (
+        <div className={styles.adminPanel}>
+          <RmaProveedores />
         </div>
       )}
 
