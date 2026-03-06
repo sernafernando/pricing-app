@@ -79,6 +79,23 @@
   color: var(--cf-text-tertiary);
 }
 
+.statClickable {
+  cursor: pointer;
+  transition: all var(--duration-200, 200ms) var(--ease-out, ease-out);
+  font-family: inherit;
+}
+
+.statClickable:hover {
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  transform: translateY(-1px);
+}
+
+.statActive {
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cf-accent-blue) 20%, transparent);
+}
+
 .statCardDanger {
   border-color: color-mix(in srgb, var(--cf-accent-red) 40%, transparent);
   background: color-mix(in srgb, var(--cf-accent-red) 5%, var(--cf-bg-card));
