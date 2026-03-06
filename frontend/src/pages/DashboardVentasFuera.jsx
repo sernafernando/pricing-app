@@ -9,6 +9,7 @@ import PaginationControls from '../components/PaginationControls';
 import { useAuthStore } from '../store/authStore';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
+import { usePermisos } from '../contexts/PermisosContext';
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -24,6 +25,8 @@ const getDefaultFechaHasta = () => {
 export default function DashboardVentasFuera() {
   const user = useAuthStore((state) => state.user);
   const esAdmin = user?.rol === 'ADMIN' || user?.rol === 'SUPERADMIN';
+  const { tienePermiso } = usePermisos();
+  const puedeVerGanancia = tienePermiso('ventas_fuera.ver_ganancia');
 
   const [loading, setLoading] = useState(true);
   const [filtroRapidoActivo, setFiltroRapidoActivo] = useState('mesActual');
@@ -648,6 +651,7 @@ export default function DashboardVentasFuera() {
           fechaHasta={fechaHasta}
           sucursal={sucursalesSeleccionadas.join(',')}
           vendedor={vendedoresSeleccionados.join(',')}
+          puedeVerGanancia={puedeVerGanancia}
         />
       ) : (loading || (tabActivo === 'operaciones' && pagination.loading && pagination.currentPage === 1)) ? (
         <div className={styles.loading}>Cargando...</div>
@@ -959,7 +963,7 @@ export default function DashboardVentasFuera() {
               <div className={styles.kpiIcon}>📈</div>
               <div className={styles.kpiContent}>
                 <div className={styles.kpiLabel}>Ganancia Bruta</div>
-                <div className={styles.kpiValue}>{formatearMoneda(calcularGanancia())}</div>
+                <div className={styles.kpiValue}>{puedeVerGanancia ? formatearMoneda(calcularGanancia()) : '***'}</div>
                 <div className={styles.kpiStats}>
                   <span className={styles.kpiHighlight}>
                     {stats.markup_promedio !== null ? `${(stats.markup_promedio * 100).toFixed(1)}% markup prom` : 'Sin datos'}
@@ -993,7 +997,7 @@ export default function DashboardVentasFuera() {
             <div className={styles.metricMini}>
               <span className={styles.metricMiniLabel}>Ganancia/Venta</span>
               <span className={styles.metricMiniValue}>
-                {formatearMoneda(calcularGanancia() / stats.total_ventas)}
+                {puedeVerGanancia ? formatearMoneda(calcularGanancia() / stats.total_ventas) : '***'}
               </span>
             </div>
             <div className={styles.metricMini}>
@@ -1114,7 +1118,7 @@ export default function DashboardVentasFuera() {
                             />
                           </div>
                           <div className={styles.rankingMeta}>
-                            <span>Ganancia: {formatearMoneda(ganancia)}</span>
+                            <span>Ganancia: {puedeVerGanancia ? formatearMoneda(ganancia) : '***'}</span>
                             <span className={item.markup_promedio !== null && parseFloat(item.markup_promedio) >= 0.15 ? styles.markupBueno : item.markup_promedio !== null && parseFloat(item.markup_promedio) >= 0 ? styles.markupRegular : styles.markupMalo}>
                               {item.markup_promedio !== null ? `${(parseFloat(item.markup_promedio) * 100).toFixed(1)}% mkp` : '-'}
                             </span>

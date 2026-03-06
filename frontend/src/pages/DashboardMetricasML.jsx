@@ -8,6 +8,7 @@ import TabRentabilidad from '../components/TabRentabilidad';
 import PaginationControls from '../components/PaginationControls';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
+import { usePermisos } from '../contexts/PermisosContext';
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -21,6 +22,9 @@ const getDefaultFechaHasta = () => {
 };
 
 export default function DashboardMetricasML() {
+  const { tienePermiso } = usePermisos();
+  const puedeVerGanancia = tienePermiso('ventas_ml.ver_ganancia');
+
   const [loading, setLoading] = useState(true);
   const [filtroRapidoActivo, setFiltroRapidoActivo] = useState('mesActual');
   const [mostrarDropdownFecha, setMostrarDropdownFecha] = useState(false);
@@ -874,6 +878,7 @@ export default function DashboardMetricasML() {
           pmsSeleccionados={pmsSeleccionados}
           marcasSeleccionadas={marcasSeleccionadas}
           categoriasSeleccionadas={categoriasSeleccionadas}
+          puedeVerGanancia={puedeVerGanancia}
         />
       ) : metricasGenerales ? (
         /* Tab de Resumen (incluye tienda-oficial con filtro) */
@@ -912,7 +917,7 @@ export default function DashboardMetricasML() {
               <div className={styles.kpiIcon}>📈</div>
               <div className={styles.kpiContent}>
                 <div className={styles.kpiLabel}>Ganancia Neta</div>
-                <div className={styles.kpiValue}>{formatearMoneda(metricasGenerales.total_ganancia)}</div>
+                <div className={styles.kpiValue}>{puedeVerGanancia ? formatearMoneda(metricasGenerales.total_ganancia) : '***'}</div>
                 <div className={styles.kpiStats}>
                   <span className={styles.kpiHighlight}>{formatearPorcentaje(metricasGenerales.markup_porcentaje)} markup</span>
                   <span className={styles.kpiDivider}>•</span>
@@ -944,7 +949,7 @@ export default function DashboardMetricasML() {
             <div className={styles.metricMini}>
               <span className={styles.metricMiniLabel}>Ganancia/Venta</span>
               <span className={styles.metricMiniValue}>
-                {formatearMoneda(metricasGenerales.total_ganancia / (metricasGenerales.cantidad_operaciones || 1))}
+                {puedeVerGanancia ? formatearMoneda(metricasGenerales.total_ganancia / (metricasGenerales.cantidad_operaciones || 1)) : '***'}
               </span>
             </div>
             <div className={styles.metricMini}>
@@ -1061,7 +1066,7 @@ export default function DashboardMetricasML() {
                           />
                         </div>
                         <div className={styles.rankingMeta}>
-                          <span>Ganancia: {formatearMoneda(item.total_ganancia)}</span>
+                          <span>Ganancia: {puedeVerGanancia ? formatearMoneda(item.total_ganancia) : '***'}</span>
                           <span className={parseFloat(item.markup_porcentaje) >= 15 ? styles.markupBueno : parseFloat(item.markup_porcentaje) >= 0 ? styles.markupRegular : styles.markupMalo}>
                             {formatearPorcentaje(item.markup_porcentaje)} mkp
                           </span>
@@ -1095,7 +1100,7 @@ export default function DashboardMetricasML() {
                           />
                         </div>
                         <div className={styles.rankingMeta}>
-                          <span>Ganancia: {formatearMoneda(item.total_ganancia)}</span>
+                          <span>Ganancia: {puedeVerGanancia ? formatearMoneda(item.total_ganancia) : '***'}</span>
                           <span className={parseFloat(item.markup_porcentaje) >= 15 ? styles.markupBueno : parseFloat(item.markup_porcentaje) >= 0 ? styles.markupRegular : styles.markupMalo}>
                             {formatearPorcentaje(item.markup_porcentaje)} mkp
                           </span>
@@ -1158,7 +1163,7 @@ export default function DashboardMetricasML() {
                         <td className={styles.descripcion}>{item.descripcion}</td>
                         <td>{item.marca}</td>
                         <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
-                        <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>
+                        <td className={styles.monto}>{puedeVerGanancia ? formatearMoneda(item.total_ganancia) : '***'}</td>
                         <td className={styles.centrado}>{formatearPorcentaje(item.markup_porcentaje)}</td>
                         <td className={styles.centrado}>{item.cantidad_unidades}</td>
                       </tr>

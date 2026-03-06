@@ -231,6 +231,13 @@ PERMISOS_SISTEMA = [
         "categoria": CategoriaPermiso.VENTAS_ML,
         "orden": 13,
     },
+    {
+        "codigo": "ventas_ml.ver_ganancia",
+        "nombre": "Ver ganancia ML",
+        "descripcion": "Ver montos de ganancia en métricas y rentabilidad ML (no afecta markup %)",
+        "categoria": CategoriaPermiso.VENTAS_ML,
+        "orden": 14,
+    },
     # =========================================================================
     # VENTAS FUERA ML
     # =========================================================================
@@ -270,11 +277,18 @@ PERMISOS_SISTEMA = [
         "orden": 24,
     },
     {
+        "codigo": "ventas_fuera.ver_ganancia",
+        "nombre": "Ver ganancia Fuera ML",
+        "descripcion": "Ver montos de ganancia en métricas y rentabilidad fuera de ML (no afecta markup %)",
+        "categoria": CategoriaPermiso.VENTAS_FUERA,
+        "orden": 25,
+    },
+    {
         "codigo": "ventas_fuera.ver_admin",
         "nombre": "Acceso admin Fuera ML",
         "descripcion": "Acceso a la pestaña de administración fuera de ML",
         "categoria": CategoriaPermiso.VENTAS_FUERA,
-        "orden": 25,
+        "orden": 26,
     },
     # =========================================================================
     # VENTAS TIENDA NUBE
@@ -308,11 +322,18 @@ PERMISOS_SISTEMA = [
         "orden": 33,
     },
     {
+        "codigo": "ventas_tn.ver_ganancia",
+        "nombre": "Ver ganancia Tienda Nube",
+        "descripcion": "Ver montos de ganancia en métricas y rentabilidad Tienda Nube (no afecta markup %)",
+        "categoria": CategoriaPermiso.VENTAS_TN,
+        "orden": 34,
+    },
+    {
         "codigo": "ventas_tn.ver_admin",
         "nombre": "Acceso admin Tienda Nube",
         "descripcion": "Acceso a la pestaña de administración Tienda Nube",
         "categoria": CategoriaPermiso.VENTAS_TN,
-        "orden": 34,
+        "orden": 35,
     },
     # =========================================================================
     # REPORTES
@@ -709,12 +730,15 @@ PERMISOS_POR_ROL = {
         "ventas_ml.ver_operaciones",
         "ventas_ml.ver_rentabilidad",
         "ventas_ml.ver_todas_marcas",
+        "ventas_ml.ver_ganancia",
         "ventas_fuera.ver_dashboard",
         "ventas_fuera.ver_operaciones",
         "ventas_fuera.ver_rentabilidad",
+        "ventas_fuera.ver_ganancia",
         "ventas_tn.ver_dashboard",
         "ventas_tn.ver_operaciones",
         "ventas_tn.ver_rentabilidad",
+        "ventas_tn.ver_ganancia",
         "clientes.ver",
         "clientes.exportar",
         "reportes.ver_auditoria",
@@ -748,10 +772,13 @@ PERMISOS_POR_ROL = {
         "ventas_ml.ver_dashboard",
         "ventas_ml.ver_operaciones",
         "ventas_ml.ver_rentabilidad",
+        "ventas_ml.ver_ganancia",
         "ventas_fuera.ver_dashboard",
         "ventas_fuera.ver_operaciones",
+        "ventas_fuera.ver_ganancia",
         "ventas_tn.ver_dashboard",
         "ventas_tn.ver_operaciones",
+        "ventas_tn.ver_ganancia",
         "reportes.ver_notificaciones",
         "reportes.recibir_notificaciones_markup",
         "reportes.ver_calculadora",

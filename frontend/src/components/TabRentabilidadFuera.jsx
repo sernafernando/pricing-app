@@ -5,7 +5,7 @@ import styles from './TabRentabilidad.module.css';
 import ModalOffset from './ModalOffset';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 
-export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal, vendedor }) {
+export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal, vendedor, puedeVerGanancia = true }) {
   const [loading, setLoading] = useState(false);
   const [rentabilidad, setRentabilidad] = useState(null);
   const [filtrosDisponibles, setFiltrosDisponibles] = useState({
@@ -576,8 +576,8 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal,
               </div>
               <div className={styles.totalItem}>
                 <span className={styles.totalLabel}>Ganancia</span>
-                <span className={styles.totalValor} style={{ color: rentabilidad.totales.ganancia >= 0 ? '#22c55e' : '#ef4444' }}>
-                  {formatMoney(rentabilidad.totales.ganancia)}
+                <span className={styles.totalValor} style={{ color: puedeVerGanancia ? (rentabilidad.totales.ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                  {puedeVerGanancia ? formatMoney(rentabilidad.totales.ganancia) : '***'}
                 </span>
               </div>
               <div className={styles.totalItem}>
@@ -596,8 +596,8 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal,
                   </div>
                   <div className={styles.totalItem}>
                     <span className={styles.totalLabel}>Ganancia c/Offset</span>
-                    <span className={styles.totalValor} style={{ color: rentabilidad.totales.ganancia_con_offset >= 0 ? '#22c55e' : '#ef4444' }}>
-                      {formatMoney(rentabilidad.totales.ganancia_con_offset)}
+                    <span className={styles.totalValor} style={{ color: puedeVerGanancia ? (rentabilidad.totales.ganancia_con_offset >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                      {puedeVerGanancia ? formatMoney(rentabilidad.totales.ganancia_con_offset) : '***'}
                     </span>
                   </div>
                   <div className={styles.totalItem}>
@@ -638,8 +638,8 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal,
                   </div>
                   <div className={styles.cardMetrica}>
                     <span>Ganancia:</span>
-                    <span style={{ color: card.ganancia >= 0 ? '#22c55e' : '#ef4444' }}>
-                      {formatMoney(card.ganancia)}
+                    <span style={{ color: puedeVerGanancia ? (card.ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                      {puedeVerGanancia ? formatMoney(card.ganancia) : '***'}
                     </span>
                   </div>
                   <div className={styles.cardMetrica}>
@@ -670,8 +670,8 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal,
                           <span className={styles.desgloseMarca}>{dm.marca}</span>
                           <div className={styles.desgloseValores}>
                             <span>{formatMoney(dm.monto_venta)}</span>
-                            <span style={{ color: dm.ganancia >= 0 ? '#22c55e' : '#ef4444' }}>
-                              {formatMoney(dm.ganancia)}
+                            <span style={{ color: puedeVerGanancia ? (dm.ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                              {puedeVerGanancia ? formatMoney(dm.ganancia) : '***'}
                             </span>
                             <span style={{ color: getMarkupColor(dm.markup_promedio) }}>
                               {formatPercent(dm.markup_promedio)}

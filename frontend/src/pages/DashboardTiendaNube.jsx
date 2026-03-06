@@ -5,6 +5,7 @@ import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estil
 import TabRentabilidadTiendaNube from '../components/TabRentabilidadTiendaNube';
 import EditableCell from '../components/EditableCell';
 import { useQueryFilters } from '../hooks/useQueryFilters';
+import { usePermisos } from '../contexts/PermisosContext';
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -18,6 +19,9 @@ const getDefaultFechaHasta = () => {
 };
 
 export default function DashboardTiendaNube() {
+  const { tienePermiso } = usePermisos();
+  const puedeVerGanancia = tienePermiso('ventas_tn.ver_ganancia');
+
   const [loading, setLoading] = useState(true);
   const [filtroRapidoActivo, setFiltroRapidoActivo] = useState('mesActual');
   const [mostrarDropdownFecha, setMostrarDropdownFecha] = useState(false);
@@ -572,6 +576,7 @@ export default function DashboardTiendaNube() {
           fechaDesde={fechaDesde} 
           fechaHasta={fechaHasta}
           vendedoresSeleccionados={vendedoresSeleccionados}
+          puedeVerGanancia={puedeVerGanancia}
         />
       ) : loading ? (
         <div className={styles.loading}>Cargando...</div>
@@ -776,7 +781,7 @@ export default function DashboardTiendaNube() {
                         />
                       </td>
                       <td className={`${styles.monto} ${gananciaCalculada >= 0 ? styles.valorPositivo : styles.valorNegativo}`}>
-                        {formatearMoneda(gananciaCalculada)}
+                        {puedeVerGanancia ? formatearMoneda(gananciaCalculada) : '***'}
                       </td>
                       <td className={`${styles.centrado} ${markupCalculado !== null && markupCalculado < 0 ? styles.negativo : ''}`}>
                         {formatearPorcentaje(markupCalculado)}
@@ -822,7 +827,7 @@ export default function DashboardTiendaNube() {
               <div className={styles.kpiIcon}>📈</div>
               <div className={styles.kpiContent}>
                 <div className={styles.kpiLabel}>Ganancia Bruta</div>
-                <div className={styles.kpiValue}>{formatearMoneda(calcularGanancia())}</div>
+                <div className={styles.kpiValue}>{puedeVerGanancia ? formatearMoneda(calcularGanancia()) : '***'}</div>
                 <div className={styles.kpiStats}>
                   <span className={styles.kpiHighlight}>
                     {stats.markup_promedio !== null ? `${(stats.markup_promedio * 100).toFixed(1)}% markup` : 'Sin datos'}
@@ -856,7 +861,7 @@ export default function DashboardTiendaNube() {
             <div className={styles.metricMini}>
               <span className={styles.metricMiniLabel}>Ganancia/Venta</span>
               <span className={styles.metricMiniValue}>
-                {formatearMoneda(calcularGanancia() / stats.total_ventas)}
+                {puedeVerGanancia ? formatearMoneda(calcularGanancia() / stats.total_ventas) : '***'}
               </span>
             </div>
             <div className={styles.metricMini}>
@@ -977,7 +982,7 @@ export default function DashboardTiendaNube() {
                             />
                           </div>
                           <div className={styles.rankingMeta}>
-                            <span>Ganancia: {formatearMoneda(ganancia)}</span>
+                            <span>Ganancia: {puedeVerGanancia ? formatearMoneda(ganancia) : '***'}</span>
                             <span className={item.markup_promedio !== null && parseFloat(item.markup_promedio) >= 0.15 ? styles.markupBueno : item.markup_promedio !== null && parseFloat(item.markup_promedio) >= 0 ? styles.markupRegular : styles.markupMalo}>
                               {item.markup_promedio !== null ? `${(parseFloat(item.markup_promedio) * 100).toFixed(1)}% mkp` : '-'}
                             </span>
