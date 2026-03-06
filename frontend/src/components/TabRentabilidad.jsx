@@ -9,7 +9,8 @@ export default function TabRentabilidad({
   fechaDesde, 
   fechaHasta, 
   tiendasOficiales = [], 
-  pmsSeleccionados = []
+  pmsSeleccionados = [],
+  puedeVerGanancia = true
 }) {
   const [loading, setLoading] = useState(false);
   const [rentabilidad, setRentabilidad] = useState(null);
@@ -629,8 +630,8 @@ export default function TabRentabilidad({
               </div>
               <div className={styles.totalItem}>
                 <span className={styles.totalLabel}>Ganancia</span>
-                <span className={styles.totalValor} style={{ color: ajustarConFlex(rentabilidad.totales).ganancia >= 0 ? '#22c55e' : '#ef4444' }}>
-                  {formatMoney(ajustarConFlex(rentabilidad.totales).ganancia)}
+                <span className={styles.totalValor} style={{ color: puedeVerGanancia ? (ajustarConFlex(rentabilidad.totales).ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                  {puedeVerGanancia ? formatMoney(ajustarConFlex(rentabilidad.totales).ganancia) : '***'}
                 </span>
               </div>
               <div className={styles.totalItem}>
@@ -664,8 +665,8 @@ export default function TabRentabilidad({
                   </div>
                   <div className={styles.totalItem}>
                     <span className={styles.totalLabel}>Ganancia c/Offset</span>
-                    <span className={styles.totalValor} style={{ color: ajustarConFlex(rentabilidad.totales).gananciaConOffset >= 0 ? '#22c55e' : '#ef4444' }}>
-                      {formatMoney(ajustarConFlex(rentabilidad.totales).gananciaConOffset)}
+                    <span className={styles.totalValor} style={{ color: puedeVerGanancia ? (ajustarConFlex(rentabilidad.totales).gananciaConOffset >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                      {puedeVerGanancia ? formatMoney(ajustarConFlex(rentabilidad.totales).gananciaConOffset) : '***'}
                     </span>
                   </div>
                   <div className={styles.totalItem}>
@@ -727,8 +728,8 @@ export default function TabRentabilidad({
                   </div>
                   <div className={styles.cardMetrica}>
                     <span>Ganancia:</span>
-                    <span style={{ color: ajustarConFlex(card).ganancia >= 0 ? '#22c55e' : '#ef4444' }}>
-                      {formatMoney(ajustarConFlex(card).ganancia)}
+                    <span style={{ color: puedeVerGanancia ? (ajustarConFlex(card).ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                      {puedeVerGanancia ? formatMoney(ajustarConFlex(card).ganancia) : '***'}
                     </span>
                   </div>
                   <div className={styles.cardMetrica}>
@@ -781,8 +782,8 @@ export default function TabRentabilidad({
                           <span className={styles.desgloseMarca}>{dm.marca}</span>
                           <div className={styles.desgloseValores}>
                             <span>{formatMoney(dm.monto_venta)}</span>
-                            <span style={{ color: dm.ganancia >= 0 ? '#22c55e' : '#ef4444' }}>
-                              {formatMoney(dm.ganancia)}
+                            <span style={{ color: puedeVerGanancia ? (dm.ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                              {puedeVerGanancia ? formatMoney(dm.ganancia) : '***'}
                             </span>
                             <span style={{ color: getMarkupColor(dm.markup_promedio) }}>
                               {formatPercent(dm.markup_promedio)}
