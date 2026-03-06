@@ -126,26 +126,103 @@ class ClaimStatsResponse(BaseModel):
 # ──────────────────────────────────────────────
 
 
+def _parse_search_claim(c: dict) -> dict:
+    """Extract cache-ready fields from a single ML search result.
+
+    The search endpoint returns the same structure as GET /claims/{id},
+    including players[], resolution{}, reason_id, etc.
+    We parse what we can WITHOUT calling any additional HTTP endpoints.
+    """
+    # Parse players → seller_actions, mandatory_actions, nearest_due_date,
+    # action_responsible
+    seller_actions: list[str] = []
+    mandatory_actions: list[str] = []
+    nearest_due_date: Optional[str] = None
+    action_responsible: Optional[str] = None
+
+    for player in c.get("players") or []:
+        role = player.get("role")
+        actions = player.get("available_actions") or []
+        if actions and not action_responsible:
+            # The player with pending actions is the responsible
+            role_map = {
+                "respondent": "seller",
+                "complainant": "buyer",
+                "mediator": "mediator",
+            }
+            action_responsible = role_map.get(role, role)
+
+        if role == "respondent":
+            for action in actions:
+                action_name = action.get("action")
+                if action_name:
+                    seller_actions.append(action_name)
+                if action.get("mandatory"):
+                    if action_name:
+                        mandatory_actions.append(action_name)
+                    if action.get("due_date") and not nearest_due_date:
+                        nearest_due_date = action["due_date"]
+
+    # Resolution (for closed claims)
+    resolution = c.get("resolution") or {}
+
+    # Related entities — normalize mixed format
+    related_entities: Optional[list[str]] = None
+    raw_related = c.get("related_entities") or []
+    if raw_related:
+        parsed: list[str] = []
+        for e in raw_related:
+            if isinstance(e, str):
+                parsed.append(e)
+            elif isinstance(e, dict) and e.get("entity_type"):
+                parsed.append(e["entity_type"])
+        related_entities = parsed or None
+
+    reason_id = c.get("reason_id")
+    return {
+        "resource_id": int(c["resource_id"]) if c.get("resource_id") else None,
+        "claim_type": c.get("type"),
+        "claim_stage": c.get("stage"),
+        "status": c.get("status"),
+        "reason_id": reason_id,
+        "reason_category": (reason_id or "")[:3] or None,
+        "fulfilled": c.get("fulfilled"),
+        "quantity_type": c.get("quantity_type"),
+        "claimed_quantity": c.get("claimed_quantity"),
+        "seller_actions": seller_actions or None,
+        "mandatory_actions": mandatory_actions or None,
+        "nearest_due_date": nearest_due_date,
+        "action_responsible": action_responsible,
+        "resolution_reason": resolution.get("reason"),
+        "resolution_closed_by": resolution.get("closed_by"),
+        "resolution_coverage": resolution.get("applied_coverage"),
+        "related_entities": related_entities,
+        "ml_date_created": c.get("date_created"),
+        "ml_last_updated": c.get("last_updated"),
+        "raw_claim": c,
+    }
+
+
 @router.post("/sync", response_model=SyncResponse)
 async def sync_claims(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> SyncResponse:
-    """Sync all open claims from MercadoLibre search API into local cache.
+    """Lightweight sync: fetch claim list from ML search and cache base data.
 
-    1. Calls /claims/search?status=opened with pagination to get all open claims
-    2. For each claim, checks if already cached and current
-    3. If not cached or stale, enriches via 7+ HTTP endpoints and saves
-    4. Returns summary of what was synced
+    1. Calls /claims/search?status=opened with pagination
+    2. Parses players/resolution/reason from search results directly
+    3. Upserts into rma_claims_ml — NO per-claim HTTP enrichment
+    4. Detail/messages/return data are fetched on-demand when user clicks
 
-    This is a potentially slow operation (~5-30s depending on claim count).
+    Fast operation (~2-5s regardless of claim count).
     """
     _check_permiso(db, current_user, "rma.gestionar")
 
-    # Step 1: Fetch all open claim IDs from ML search
-    all_claim_ids: list[int] = []
+    # Step 1: Fetch all open claims from ML search (with full data)
+    all_claims: list[dict] = []
     offset = 0
-    limit = 100  # ML max per page
+    limit = 100
 
     try:
         with httpx.Client(timeout=_HTTPX_TIMEOUT * 2) as client:
@@ -167,10 +244,7 @@ async def sync_claims(
                 paging = search_data.get("paging", {})
                 total = paging.get("total", 0)
 
-                for c in claims_page:
-                    cid = c.get("id")
-                    if cid:
-                        all_claim_ids.append(int(cid))
+                all_claims.extend(claims_page)
 
                 offset += limit
                 if offset >= total or not claims_page:
@@ -180,7 +254,7 @@ async def sync_claims(
         logger.exception("Error fetching open claims from ML search")
         raise HTTPException(status_code=502, detail="Error connecting to MercadoLibre API")
 
-    if not all_claim_ids:
+    if not all_claims:
         return SyncResponse(
             total_from_ml=0,
             new_cached=0,
@@ -190,46 +264,57 @@ async def sync_claims(
             mensaje="No se encontraron claims abiertos en ML",
         )
 
-    # Step 2: Check which claims are already cached
-    existing = {row.claim_id: row for row in db.query(RmaClaimML).filter(RmaClaimML.claim_id.in_(all_claim_ids)).all()}
+    # Step 2: Bulk-fetch existing cached rows
+    claim_ids = [int(c["id"]) for c in all_claims if c.get("id")]
+    existing = {row.claim_id: row for row in db.query(RmaClaimML).filter(RmaClaimML.claim_id.in_(claim_ids)).all()}
 
     new_cached = 0
     updated = 0
     already_current = 0
     errors = 0
 
-    for claim_id in all_claim_ids:
-        cached = existing.get(claim_id)
-
-        if cached and cached.status == "closed":
-            # Closed claims are immutable
-            already_current += 1
+    # Step 3: Upsert each claim from search data (no extra HTTP calls)
+    for c in all_claims:
+        cid = c.get("id")
+        if not cid:
             continue
+        claim_id_int = int(cid)
 
-        # Enrich via HTTP (this also saves to cache via _save_claim_to_cache)
         try:
-            result = _enrich_claim_via_http(str(claim_id))
-            if result:
-                if cached:
-                    updated += 1
-                else:
-                    new_cached += 1
+            values = _parse_search_claim(c)
+            cached = existing.get(claim_id_int)
+
+            if cached:
+                # Only update fields that the search provides;
+                # preserve detail_title, messages_total, etc. from prior enrichment
+                for key, val in values.items():
+                    if val is not None:
+                        setattr(cached, key, val)
+                updated += 1
             else:
-                errors += 1
+                row = RmaClaimML(claim_id=claim_id_int, **values)
+                db.add(row)
+                new_cached += 1
         except Exception:
-            logger.exception("Error enriching claim %d", claim_id)
+            logger.warning("Error caching claim %s from search data", cid, exc_info=True)
             errors += 1
 
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Error committing sync batch")
+        raise HTTPException(status_code=500, detail="Error guardando claims en cache")
+
     return SyncResponse(
-        total_from_ml=len(all_claim_ids),
+        total_from_ml=len(all_claims),
         new_cached=new_cached,
         updated=updated,
         already_current=already_current,
         errors=errors,
         mensaje=(
-            f"Sync completado: {len(all_claim_ids)} claims de ML, "
-            f"{new_cached} nuevos, {updated} actualizados, "
-            f"{already_current} ya vigentes, {errors} errores"
+            f"Sync completado: {len(all_claims)} claims de ML, "
+            f"{new_cached} nuevos, {updated} actualizados, {errors} errores"
         ),
     )
 
@@ -472,18 +557,32 @@ async def obtener_claim(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
-    """Get a single claim detail. If cached, returns from cache. Otherwise enriches."""
+    """Get a single claim detail with full enrichment.
+
+    If cached AND already enriched (has detail_title or messages_total),
+    returns from cache. Otherwise enriches via HTTP (7+ endpoints) and saves.
+    This ensures clicking a claim always shows full detail + messages.
+    """
     _check_permiso(db, current_user, "rma.ver")
 
     cached = db.query(RmaClaimML).filter(RmaClaimML.claim_id == claim_id).first()
 
-    if cached:
-        claim = _build_claim_from_db_cache(cached)
-    else:
-        # Try to enrich from ML
-        claim = _enrich_claim_via_http(str(claim_id))
-        if not claim:
+    # Check if cache has full enrichment (detail endpoint data)
+    needs_enrich = not cached or (
+        cached.detail_title is None and cached.messages_total is None and cached.status != "closed"
+    )
+
+    if needs_enrich:
+        enriched = _enrich_claim_via_http(str(claim_id))
+        if enriched:
+            claim = enriched
+        elif cached:
+            # HTTP failed but we have cache — use it
+            claim = _build_claim_from_db_cache(cached)
+        else:
             raise HTTPException(status_code=404, detail=f"Claim {claim_id} no encontrado en ML")
+    else:
+        claim = _build_claim_from_db_cache(cached)
 
     # Check if there's a linked RMA caso
     rma_info = None

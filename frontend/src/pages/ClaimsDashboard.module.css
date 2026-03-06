@@ -323,12 +323,26 @@
   color: var(--cf-text-tertiary);
 }
 
+/* Message count in table */
+.msgCount {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--cf-accent-blue);
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
 /* Loading & empty */
 .loadingCell,
 .emptyCell {
   text-align: center;
   padding: var(--spacing-xl) !important;
   color: var(--cf-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
 }
 
 /* Pagination */
