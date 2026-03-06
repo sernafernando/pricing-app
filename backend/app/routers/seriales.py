@@ -3635,11 +3635,15 @@ def get_ml_claim_attachment(
 ) -> Response:
     """
     Proxy para descargar adjuntos de mensajes de RECLAMOS de ML.
-    Usa /post-purchase/v1/claims/{claim_id}/attachments/{filename}
+    Usa /post-purchase/v1/claims/{claim_id}/attachments/{filename}/download
     a través del proxy webhook.
     Endpoint público (sin auth) — las imágenes se cargan vía <img> tags.
+
+    NOTE: Claim attachments use a DIFFERENT API than order message attachments.
+    Order messages: /messages/attachments/{id} (404 for claim files)
+    Claim messages: /post-purchase/v1/claims/{claim_id}/attachments/{filename}/download
     """
-    resource = f"/post-purchase/v1/claims/{claim_id}/attachments/{filename}"
+    resource = f"/post-purchase/v1/claims/{claim_id}/attachments/{filename}/download"
     try:
         with httpx.Client(timeout=15.0) as client:
             r = client.get(
