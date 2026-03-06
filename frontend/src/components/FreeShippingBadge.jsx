@@ -36,8 +36,8 @@ export default function FreeShippingBadge() {
 
     fetchCount();
 
-    // Polling cada 5 minutos
-    const interval = setInterval(fetchCount, 300000);
+    // Polling cada 60 segundos (query liviano a DB interna)
+    const interval = setInterval(fetchCount, 60000);
     return () => clearInterval(interval);
   }, [canView]);
 
