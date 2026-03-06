@@ -28,6 +28,7 @@ import TurboRouting from './pages/TurboRouting';
 import CuentasCorrientes from './pages/CuentasCorrientes';
 import ConfigOperaciones from './pages/ConfigOperaciones';
 import Rma from './pages/Rma';
+import ClaimsDashboard from './pages/ClaimsDashboard';
 import Traza from './pages/Traza';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
@@ -193,6 +194,11 @@ function App() {
             <Route path="/rma" element={
               <ProtectedRoute permiso="rma.ver">
                 <Rma />
+              </ProtectedRoute>
+            } />
+            <Route path="/claims" element={
+              <ProtectedRoute permiso="rma.ver">
+                <ClaimsDashboard />
               </ProtectedRoute>
             } />
             <Route path="/traza" element={

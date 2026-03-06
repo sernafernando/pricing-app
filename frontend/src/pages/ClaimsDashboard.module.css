@@ -1,0 +1,397 @@
+/* ClaimsDashboard — ML Claims centralized view */
+
+.container {
+  padding: var(--spacing-lg);
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-md);
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.headerLeft h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+.headerLeft svg {
+  color: var(--cf-accent-orange);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.syncSuccess {
+  font-size: 0.8rem;
+  color: var(--cf-accent-green);
+  font-weight: 500;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.syncError {
+  font-size: 0.8rem;
+  color: var(--cf-accent-red);
+  font-weight: 500;
+}
+
+/* Stats grid */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.statCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.statCard svg {
+  color: var(--cf-text-tertiary);
+}
+
+.statCardDanger {
+  border-color: color-mix(in srgb, var(--cf-accent-red) 40%, transparent);
+  background: color-mix(in srgb, var(--cf-accent-red) 5%, var(--cf-bg-card));
+}
+
+.statCardDanger svg {
+  color: var(--cf-accent-red);
+}
+
+.statCardWarning {
+  border-color: color-mix(in srgb, var(--cf-accent-orange) 40%, transparent);
+  background: color-mix(in srgb, var(--cf-accent-orange) 5%, var(--cf-bg-card));
+}
+
+.statCardWarning svg {
+  color: var(--cf-accent-orange);
+}
+
+.statValue {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--cf-text-primary);
+}
+
+.statLabel {
+  font-size: 0.75rem;
+  color: var(--cf-text-secondary);
+  text-align: center;
+  font-weight: 500;
+}
+
+/* Filters bar */
+.filtersBar {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  padding: 0 var(--spacing-sm);
+  flex: 1;
+  min-width: 200px;
+  max-width: 400px;
+}
+
+.searchBox svg {
+  color: var(--cf-text-tertiary);
+  flex-shrink: 0;
+}
+
+.searchBox input {
+  border: none;
+  background: transparent;
+  color: var(--cf-text-primary);
+  padding: 8px 0;
+  width: 100%;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.select {
+  padding: 8px 12px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+/* Table cells */
+.clickableRow {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.clickableRow:hover {
+  background: var(--cf-bg-hover) !important;
+}
+
+.rowDispute {
+  border-left: 3px solid var(--cf-accent-red) !important;
+}
+
+.cellClaim {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.claimId {
+  font-weight: 600;
+  color: var(--cf-accent-blue);
+  font-size: 0.85rem;
+}
+
+.orderId {
+  font-size: 0.72rem;
+  color: var(--cf-text-tertiary);
+  font-family: var(--font-mono, monospace);
+}
+
+.cellDate {
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+
+.cellMotivo {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+
+.cellCenter {
+  text-align: center;
+}
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.badge_mediations {
+  background: color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+.badge_return,
+.badge_returns {
+  background: color-mix(in srgb, var(--cf-accent-orange) 15%, transparent);
+  color: var(--cf-accent-orange);
+}
+
+.badge_fulfillment {
+  background: color-mix(in srgb, var(--cf-accent-green) 15%, transparent);
+  color: var(--cf-accent-green);
+}
+
+.badge_change {
+  background: color-mix(in srgb, #8b5cf6 15%, transparent);
+  color: #8b5cf6;
+}
+
+.badge_claim {
+  background: color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+.badge_dispute {
+  background: color-mix(in srgb, var(--cf-accent-red) 15%, transparent);
+  color: var(--cf-accent-red);
+}
+
+.badge_recontact {
+  background: color-mix(in srgb, var(--cf-accent-orange) 15%, transparent);
+  color: var(--cf-accent-orange);
+}
+
+.badge_stale {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-tertiary);
+}
+
+/* Responsible badge */
+.badgeResp {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.resp_seller {
+  background: color-mix(in srgb, var(--cf-accent-orange) 15%, transparent);
+  color: var(--cf-accent-orange);
+}
+
+.resp_buyer {
+  background: color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+.resp_mediator {
+  background: color-mix(in srgb, #8b5cf6 15%, transparent);
+  color: #8b5cf6;
+}
+
+/* Due date */
+.dueUrgent {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--cf-accent-red);
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.dueNormal {
+  font-size: 0.8rem;
+  color: var(--cf-text-secondary);
+}
+
+/* RMA badge */
+.rmaBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--cf-accent-green) 15%, transparent);
+  color: var(--cf-accent-green);
+  border: none;
+  cursor: pointer;
+  transition: background var(--duration-200, 200ms) var(--ease-out, ease-out);
+}
+
+.rmaBadge:hover {
+  background: color-mix(in srgb, var(--cf-accent-green) 25%, transparent);
+}
+
+.noRma {
+  color: var(--cf-text-tertiary);
+}
+
+/* Loading & empty */
+.loadingCell,
+.emptyCell {
+  text-align: center;
+  padding: var(--spacing-xl) !important;
+  color: var(--cf-text-secondary);
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-md);
+}
+
+.pageInfo {
+  font-size: 0.85rem;
+  color: var(--cf-text-secondary);
+}
+
+/* Spinning animation */
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Detail modal */
+.detailBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.detailRma {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: color-mix(in srgb, var(--cf-accent-green) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cf-accent-green) 30%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: 0.9rem;
+}
+
+.detailRma svg {
+  color: var(--cf-accent-green);
+  flex-shrink: 0;
+}
+
+.detailNoRma {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: color-mix(in srgb, var(--cf-accent-orange) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cf-accent-orange) 30%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: 0.9rem;
+}
+
+.detailNoRma svg {
+  color: var(--cf-accent-orange);
+  flex-shrink: 0;
+}
