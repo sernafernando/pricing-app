@@ -2,7 +2,7 @@
 Router para alertas de Free Shipping Error.
 
 Lee directamente de la BD mlwebhook (ml_previews) los items que tienen
-free_shipping_error=true, es decir: envio gratis activado pero precio
+free_shipping_error=true, es decir: envío gratis activado pero precio
 rebate < $33.000.
 """
 
@@ -191,7 +191,7 @@ def obtener_count_free_shipping_errors(
         logger.error("Error querying free_shipping_errors count: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al consultar alertas de envio gratis",
+            detail="Error al consultar alertas de envío gratis",
         )
 
 
@@ -222,5 +222,5 @@ def obtener_free_shipping_errors(
         logger.error("Error querying free_shipping_errors: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al consultar alertas de envio gratis",
+            detail="Error al consultar alertas de envío gratis",
         )

@@ -4,8 +4,8 @@ import api from '../services/api';
 import styles from './FreeShippingAlerts.module.css';
 
 /**
- * FreeShippingAlerts - Pagina con el listado de publicaciones
- * que tienen free_shipping_error=true (envio gratis activado
+ * FreeShippingAlerts - Página con el listado de publicaciones
+ * que tienen free_shipping_error=true (envío gratis activado
  * pero precio rebate < $33.000).
  */
 export default function FreeShippingAlerts() {
@@ -27,11 +27,11 @@ export default function FreeShippingAlerts() {
       setData(result);
     } catch (err) {
       if (err.response?.status === 403) {
-        setError('No tienes permiso para ver esta seccion.');
+        setError('No tienes permiso para ver esta sección.');
       } else if (err.response?.status === 503) {
         setError('La base de datos de webhooks no esta disponible.');
       } else {
-        setError('Error al cargar las alertas de envio gratis.');
+        setError('Error al cargar las alertas de envío gratis.');
       }
     } finally {
       setLoading(false);
@@ -58,7 +58,7 @@ export default function FreeShippingAlerts() {
       <div className={styles.page}>
         <div className={styles.loadingContainer}>
           <RefreshCw size={24} className={styles.spinner} />
-          <span>Cargando alertas de envio gratis...</span>
+          <span>Cargando alertas de envío gratis...</span>
         </div>
       </div>
     );
@@ -85,9 +85,9 @@ export default function FreeShippingAlerts() {
         <div className={styles.headerLeft}>
           <Truck size={24} className={styles.headerIcon} />
           <div>
-            <h1 className={styles.title}>Alertas de Envio Gratis</h1>
+            <h1 className={styles.title}>Alertas de Envío Gratis</h1>
             <p className={styles.subtitle}>
-              Publicaciones con envio gratis activado y precio rebate menor a $33.000
+              Publicaciones con envío gratis activado y precio rebate menor a $33.000
             </p>
           </div>
         </div>
@@ -95,7 +95,7 @@ export default function FreeShippingAlerts() {
           <div className={styles.countBadge}>
             <span className={styles.countNumber}>{data?.count || 0}</span>
             <span className={styles.countLabel}>
-              publicacion{data?.count !== 1 ? 'es' : ''}
+              publicación{data?.count !== 1 ? 'es' : ''}
             </span>
           </div>
           <button
@@ -114,7 +114,7 @@ export default function FreeShippingAlerts() {
         <div className={styles.emptyState}>
           <Truck size={48} className={styles.emptyIcon} />
           <h2>Sin alertas</h2>
-          <p>No hay publicaciones con errores de envio gratis actualmente.</p>
+          <p>No hay publicaciones con errores de envío gratis actualmente.</p>
         </div>
       ) : (
         <div className={styles.tableWrapper}>

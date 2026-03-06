@@ -47,7 +47,7 @@ export default function FreeShippingBadge() {
     <Link
       to="/free-shipping-alerts"
       className={styles.badge}
-      title={`${count} publicacion${count !== 1 ? 'es' : ''} con error de envio gratis`}
+      title={`${count} publicación${count !== 1 ? 'es' : ''} con error de envío gratis`}
     >
       <Truck size={18} className={styles.icon} />
       <span className={styles.count}>{count}</span>

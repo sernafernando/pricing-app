@@ -121,7 +121,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Gestión PMs', path: '/gestion-pm', permiso: 'admin.gestionar_pms' },
         { label: 'Admin', path: '/admin', permiso: 'admin.ver_panel' },
         { label: 'Alertas', path: '/gestion/alertas', permiso: 'alertas.gestionar' },
-        { label: 'Envio Gratis', path: '/free-shipping-alerts', permiso: 'alertas.ver_free_shipping' },
+        { label: 'Envío Gratis', path: '/free-shipping-alerts', permiso: 'alertas.ver_free_shipping' },
       ],
     },
   ];
