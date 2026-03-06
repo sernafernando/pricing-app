@@ -371,11 +371,37 @@ export default function ClaimCards({ claims }) {
                       />
                       {msg.attachments && msg.attachments.length > 0 && (
                         <div className={styles.claimMsgAttachments}>
-                          {msg.attachments.map((att, i) => (
-                            <span key={i} className={styles.claimMsgAttachment}>
-                              <Package size={10} /> {att.original_filename || att.filename}
-                            </span>
-                          ))}
+                          {msg.attachments.map((att, i) => {
+                            const key = att.filename || att.original_filename || '';
+                            if (isImageAttachment(key)) {
+                              return (
+                                <button
+                                  key={i}
+                                  type="button"
+                                  className={styles.claimMsgImgThumb}
+                                  onClick={() => setLightboxUrl(attachmentProxyUrl(key))}
+                                  aria-label="Ver imagen adjunta"
+                                >
+                                  <img
+                                    src={attachmentProxyUrl(key)}
+                                    alt={att.original_filename || 'Adjunto'}
+                                    loading="lazy"
+                                  />
+                                </button>
+                              );
+                            }
+                            return (
+                              <a
+                                key={i}
+                                href={attachmentProxyUrl(key)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={styles.claimMsgAttachment}
+                              >
+                                <Package size={10} /> {att.original_filename || att.filename || 'Adjunto'}
+                              </a>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
