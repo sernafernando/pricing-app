@@ -13,6 +13,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import ClaimCards from '../components/ClaimCards';
 import ModalTesla from '../components/ModalTesla';
+import { PLAYER_ROLE_ES } from '../components/claimTranslations';
 import {
   ShieldAlert,
   RefreshCcw,
@@ -29,6 +30,7 @@ import {
   ShieldX,
   Filter,
   X,
+  MessageSquare,
 } from 'lucide-react';
 import styles from './ClaimsDashboard.module.css';
 
@@ -42,12 +44,12 @@ const STAGE_LABELS = {
 };
 
 const TYPE_LABELS = {
-  mediations: 'Mediacion',
-  return: 'Devolucion',
-  returns: 'Devolucion',
+  mediations: 'Mediación',
+  return: 'Devolución',
+  returns: 'Devolución',
   fulfillment: 'Fulfillment',
   ml_case: 'Caso ML',
-  cancel_sale: 'Cancelacion',
+  cancel_sale: 'Cancelación',
   change: 'Cambio',
   service: 'Servicio',
 };
@@ -56,6 +58,17 @@ const RESPONSIBLE_LABELS = {
   seller: 'Vendedor',
   buyer: 'Comprador',
   mediator: 'Mediador',
+  // ML uses respondent/complainant in players — backend now maps them,
+  // but just in case old cached data slips through:
+  respondent: 'Vendedor',
+  complainant: 'Comprador',
+};
+
+// Map reason_id prefixes to readable categories
+const REASON_CATEGORY_LABELS = {
+  PDD: 'Prod. diferente/defectuoso',
+  PNR: 'Prod. no recibido',
+  CS: 'Cancelación',
 };
 
 export default function ClaimsDashboard() {
@@ -150,6 +163,7 @@ export default function ClaimsDashboard() {
 
   const openDetail = async (claimId) => {
     setDetailLoading(true);
+    setDetailClaim(null);
     try {
       const { data } = await api.get(`/claims-dashboard/${claimId}`);
       setDetailClaim(data);
@@ -199,6 +213,18 @@ export default function ClaimsDashboard() {
     }
   };
 
+  /** Build a readable motivo from whatever data we have */
+  const getMotivo = (claim) => {
+    // Prefer detail_title (from enrichment), then reason_detail, then a translated reason_category
+    if (claim.detail_title) return claim.detail_title;
+    if (claim.reason_detail) return claim.reason_detail;
+    if (claim.reason_category) {
+      return REASON_CATEGORY_LABELS[claim.reason_category] || claim.reason_category;
+    }
+    if (claim.reason_id) return claim.reason_id;
+    return null;
+  };
+
   return (
     <div className={styles.container}>
       {/* Header */}
@@ -242,7 +268,7 @@ export default function ClaimsDashboard() {
           <div className={`${styles.statCard} ${stats.accion_vendedor > 0 ? styles.statCardWarning : ''}`}>
             <Clock size={16} />
             <div className={styles.statValue}>{stats.accion_vendedor}</div>
-            <div className={styles.statLabel}>Accion requerida</div>
+            <div className={styles.statLabel}>Acción requerida</div>
           </div>
           <div className={styles.statCard}>
             <ShieldCheck size={16} />
@@ -263,7 +289,7 @@ export default function ClaimsDashboard() {
           <Search size={16} />
           <input
             type="text"
-            placeholder="Buscar por motivo, titulo, claim ID, order ID..."
+            placeholder="Buscar por motivo, título, claim ID, order ID..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
           />
@@ -282,16 +308,16 @@ export default function ClaimsDashboard() {
         </select>
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={styles.select}>
           <option value="">Todos los tipos</option>
-          <option value="mediations">Mediacion</option>
-          <option value="return">Devolucion</option>
+          <option value="mediations">Mediación</option>
+          <option value="return">Devolución</option>
           <option value="fulfillment">Fulfillment</option>
           <option value="change">Cambio</option>
         </select>
         <select value={responsibleFilter} onChange={(e) => setResponsibleFilter(e.target.value)} className={styles.select}>
           <option value="">Todos</option>
-          <option value="seller">Accion nuestra</option>
-          <option value="buyer">Accion comprador</option>
-          <option value="mediator">Accion mediador</option>
+          <option value="seller">Acción nuestra</option>
+          <option value="buyer">Acción comprador</option>
+          <option value="mediator">Acción mediador</option>
         </select>
         <select value={hasRmaFilter} onChange={(e) => setHasRmaFilter(e.target.value)} className={styles.select}>
           <option value="">RMA: todos</option>
@@ -330,6 +356,7 @@ export default function ClaimsDashboard() {
             ) : (
               claims.map((claim) => {
                 const due = formatDueDate(claim.nearest_due_date);
+                const motivo = getMotivo(claim);
                 return (
                   <tr
                     key={claim.claim_id}
@@ -353,13 +380,13 @@ export default function ClaimsDashboard() {
                         {STAGE_LABELS[claim.claim_stage] || claim.claim_stage || '\u2014'}
                       </span>
                     </td>
-                    <td className={styles.cellMotivo}>
-                      {claim.detail_title || claim.reason_detail || '\u2014'}
+                    <td className={styles.cellMotivo} title={motivo || ''}>
+                      {motivo || '\u2014'}
                     </td>
                     <td>
                       {claim.action_responsible ? (
                         <span className={`${styles.badgeResp} ${styles[`resp_${claim.action_responsible}`] || ''}`}>
-                          {RESPONSIBLE_LABELS[claim.action_responsible] || claim.action_responsible}
+                          {RESPONSIBLE_LABELS[claim.action_responsible] || PLAYER_ROLE_ES[claim.action_responsible] || claim.action_responsible}
                         </span>
                       ) : '\u2014'}
                     </td>
@@ -372,7 +399,12 @@ export default function ClaimsDashboard() {
                       ) : '\u2014'}
                     </td>
                     <td className={styles.cellCenter}>
-                      {claim.messages_total != null ? claim.messages_total : '\u2014'}
+                      {claim.messages_total != null && claim.messages_total > 0 ? (
+                        <span className={styles.msgCount}>
+                          <MessageSquare size={12} />
+                          {claim.messages_total}
+                        </span>
+                      ) : '\u2014'}
                     </td>
                     <td>
                       {claim.rma_numero_caso ? (
@@ -385,9 +417,7 @@ export default function ClaimsDashboard() {
                           {claim.rma_numero_caso}
                         </button>
                       ) : (
-                        <span className={styles.noRma} title="Sin caso RMA">
-                          \u2014
-                        </span>
+                        <span className={styles.noRma}>{'\u2014'}</span>
                       )}
                     </td>
                   </tr>
@@ -405,7 +435,7 @@ export default function ClaimsDashboard() {
             <ChevronLeft size={16} />
           </button>
           <span className={styles.pageInfo}>
-            Pagina {page} de {totalPages} ({totalItems} claims)
+            Página {page} de {totalPages} ({totalItems} claims)
           </span>
           <button className="btn-tesla ghost sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
             <ChevronRight size={16} />
@@ -413,16 +443,19 @@ export default function ClaimsDashboard() {
         </div>
       )}
 
-      {/* Detail modal */}
+      {/* Detail modal — full enriched claim with ClaimCards */}
       {(detailClaim || detailLoading) && (
         <ModalTesla
-          title={detailClaim ? `Claim #${detailClaim.claim?.claim_id || ''}` : 'Cargando...'}
+          title={detailClaim ? `Claim #${detailClaim.claim?.claim_id || ''}` : 'Cargando detalle...'}
           onClose={() => { setDetailClaim(null); setDetailLoading(false); }}
           closeOnOverlay={false}
           size="lg"
         >
           {detailLoading ? (
-            <div className={styles.loadingCell}>Cargando detalle...</div>
+            <div className={styles.loadingCell}>
+              <Loader size={20} className={styles.spinning} />
+              <span>Enriqueciendo claim desde MercadoLibre...</span>
+            </div>
           ) : detailClaim ? (
             <div className={styles.detailBody}>
               {/* RMA link */}
@@ -452,7 +485,7 @@ export default function ClaimsDashboard() {
                 </div>
               )}
 
-              {/* Full claim card */}
+              {/* Full claim card — includes messages button, return, change, etc. */}
               <ClaimCards claims={[detailClaim.claim]} />
             </div>
           ) : null}
