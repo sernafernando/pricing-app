@@ -456,13 +456,46 @@ Conversación entre comprador, vendedor y mediador. En el fetch automático solo
 
 ---
 
-#### 9. Búsqueda por order — `/post-purchase/v1/claims/search?order_id={order_id}`
+#### 9. Búsqueda y listado de claims — `/post-purchase/v1/claims/search`
 
-Busca claims asociados a un `order_id`. Útil para encontrar claims que no llegaron como webhook.
+Endpoint principal para buscar y listar claims. Soporta múltiples filtros combinables, paginación y ordenamiento.
+
+**URL base:**
+```
+GET /post-purchase/v1/claims/search?{params}
+```
+
+**Parámetros de filtrado:**
+
+| Parámetro | Tipo | Descripción | Ejemplo |
+|-----------|------|-------------|---------|
+| `status` | string | Estado del claim | `opened`, `closed` |
+| `stage` | string | Etapa actual | `claim`, `dispute`, `recontact` |
+| `type` | string | Tipo de claim | `mediations`, `returns`, `change` |
+| `resource` | string | Tipo de recurso asociado | `order` |
+| `resource_id` | number | ID del recurso (order_id) | `2000007819609432` |
+| `order_id` | number | Alias de resource_id para órdenes | `2000007819609432` |
+| `reason_id` | string | ID del motivo del claim | `PDD9939` |
+| `date_created` | string | Rango de fecha creación (ISO 8601) | `2026-03-01T00:00:00Z-2026-03-05T23:59:59Z` |
+| `last_updated` | string | Rango de última actualización | Mismo formato que `date_created` |
+
+**Parámetros de paginación:**
+
+| Parámetro | Tipo | Default | Descripción |
+|-----------|------|---------|-------------|
+| `offset` | number | `0` | Índice de inicio |
+| `limit` | number | `50` | Cantidad por página (máx 100) |
+| `sort` | string | — | Ordenamiento, ej: `last_updated:desc`, `date_created:asc` |
+
+**Respuesta:**
 
 ```jsonc
 {
-  "paging": { "total": 1, "offset": 0, "limit": 50 },
+  "paging": {
+    "total": 15,      // total de claims que matchean los filtros
+    "offset": 0,
+    "limit": 50
+  },
   "data": [
     {
       "id": 5281510459,
@@ -471,12 +504,46 @@ Busca claims asociados a un `order_id`. Útil para encontrar claims que no llega
       "status": "opened",
       "reason_id": "PDD9939",
       "resource_id": 2000007819609432,
-      "date_created": "2026-03-04T08:28:44.000-04:00"
-      // ... misma estructura que /claims/{id} pero resumida
+      "date_created": "2026-03-04T08:28:44.000-04:00",
+      "last_updated": "2026-03-04T14:30:00.000-04:00"
+      // ... misma estructura que GET /claims/{id}
     }
+    // ... más claims
   ]
 }
 ```
+
+**Ejemplos de uso práctico:**
+
+```bash
+# Todos los claims abiertos (dashboard principal)
+GET /post-purchase/v1/claims/search?status=opened&sort=last_updated:desc&limit=100
+
+# Claims abiertos que son devoluciones
+GET /post-purchase/v1/claims/search?status=opened&type=returns
+
+# Claims en etapa de disputa (mediación abierta — urgentes)
+GET /post-purchase/v1/claims/search?status=opened&stage=dispute
+
+# Claims de una orden específica (el uso actual en el backend)
+GET /post-purchase/v1/claims/search?order_id=2000007819609432
+
+# Claims cerrados de la última semana
+GET /post-purchase/v1/claims/search?status=closed&date_created=2026-02-26T00:00:00Z-2026-03-05T23:59:59Z
+
+# Paginación: segunda página de 50 resultados
+GET /post-purchase/v1/claims/search?status=opened&offset=50&limit=50
+
+# Claims por motivo específico (producto diferente/defectuoso)
+GET /post-purchase/v1/claims/search?reason_id=PDD9939&status=opened
+```
+
+> **NOTA**: Todos estos requests pasan por el proxy:
+> `GET https://ml-webhook.gaussonline.com.ar/api/ml/render?resource=/post-purchase/v1/claims/search%3F{params_url_encoded}&format=json`
+>
+> El `?` del search se URL-encoda como `%3F` dentro del parámetro `resource`. Los `&` de los filtros del claims/search también deben estar URL-encodeados para que no se interpreten como parámetros del proxy.
+
+> **USO ACTUAL**: El backend (`seriales.py`) solo usa `?order_id={id}` en `_search_claims_via_api()`. Los demás filtros están disponibles en la API de ML pero no implementados aún. Son útiles para un futuro dashboard de claims centralizado.
 
 ---
 

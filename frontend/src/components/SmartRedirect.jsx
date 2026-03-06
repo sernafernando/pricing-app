@@ -53,6 +53,7 @@ export default function SmartRedirect() {
     { path: '/items-sin-mla', permiso: 'admin.gestionar_mla_banlist' },
     { path: '/pedidos-preparacion', permiso: 'ordenes.ver_preparacion' },
     { path: '/rma', permiso: 'rma.ver' },
+    { path: '/claims', permiso: 'rma.ver' },
   ];
 
   // Buscar la primera ruta a la que tenga acceso

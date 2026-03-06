@@ -34,6 +34,7 @@ export default function Navbar() {
   const puedeVerTiendaNube = tienePermiso('ventas_tn.ver_dashboard');
   const puedeVerCalculos = tienePermiso('reportes.ver_calculadora');
   const puedeVerClientes = tienePermiso('clientes.ver');
+  const puedeVerRma = tienePermiso('rma.ver');
 
   // Cargar facturado del día para todos los usuarios (el backend filtra por marcas del PM)
   useEffect(() => {
@@ -167,6 +168,43 @@ export default function Navbar() {
             >
               Clientes
             </Link>
+          )}
+
+          {/* Dropdown Postventa (RMA + Reclamos) */}
+          {puedeVerRma && (
+            <div
+              className={styles.dropdown}
+              onMouseEnter={() => setDropdownOpen('postventa')}
+              onMouseLeave={() => setDropdownOpen(null)}
+            >
+              <div
+                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/rma', '/claims']) ? styles.active : ''}`}
+                onClick={() => setDropdownOpen(dropdownOpen === 'postventa' ? null : 'postventa')}
+              >
+                Postventa ▾
+              </div>
+              {dropdownOpen === 'postventa' && (
+                <div
+                  className={styles.dropdownMenu}
+                  onMouseEnter={() => setDropdownOpen('postventa')}
+                >
+                  <Link
+                    to="/rma"
+                    className={`${styles.dropdownItem} ${isActive('/rma') ? styles.activeDropdown : ''}`}
+                    onClick={() => setDropdownOpen(null)}
+                  >
+                    RMA
+                  </Link>
+                  <Link
+                    to="/claims"
+                    className={`${styles.dropdownItem} ${isActive('/claims') ? styles.activeDropdown : ''}`}
+                    onClick={() => setDropdownOpen(null)}
+                  >
+                    Reclamos ML
+                  </Link>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Dropdown Reportes (solo si tiene algún permiso de reportes) */}
@@ -426,6 +464,26 @@ export default function Navbar() {
               onClick={handleLinkClick}
             >
               Admin
+            </Link>
+          )}
+
+          {puedeVerRma && (
+            <Link
+              to="/rma"
+              className={`${styles.mobileLink} ${isActive('/rma') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              RMA
+            </Link>
+          )}
+
+          {puedeVerRma && (
+            <Link
+              to="/claims"
+              className={`${styles.mobileLink} ${isActive('/claims') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              Reclamos ML
             </Link>
           )}
 
