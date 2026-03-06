@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
 import SidebarSection from './SidebarSection';
-import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp, X, Search, Headset } from 'lucide-react';
+import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp, X, Search, Headset, Truck } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
 export default function Sidebar({ mobileOpen = false, onMobileClose }) {
@@ -121,6 +121,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Gestión PMs', path: '/gestion-pm', permiso: 'admin.gestionar_pms' },
         { label: 'Admin', path: '/admin', permiso: 'admin.ver_panel' },
         { label: 'Alertas', path: '/gestion/alertas', permiso: 'alertas.gestionar' },
+        { label: 'Envio Gratis', path: '/free-shipping-alerts', permiso: 'alertas.ver_free_shipping' },
       ],
     },
   ];

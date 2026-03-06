@@ -253,33 +253,53 @@ export default function ClaimsDashboard() {
         </div>
       </div>
 
-      {/* Stats cards */}
+      {/* Stats cards — clickable as filter shortcuts */}
       {stats && (
         <div className={styles.statsGrid}>
-          <div className={styles.statCard}>
+          <button
+            type="button"
+            className={`${styles.statCard} ${styles.statClickable} ${statusFilter === 'opened' && !stageFilter && !responsibleFilter && !hasRmaFilter ? styles.statActive : ''}`}
+            onClick={() => { clearFilters(); setStatusFilter('opened'); }}
+          >
             <div className={styles.statValue}>{stats.total_abiertos}</div>
             <div className={styles.statLabel}>Abiertos</div>
-          </div>
-          <div className={`${styles.statCard} ${stats.en_disputa > 0 ? styles.statCardDanger : ''}`}>
+          </button>
+          <button
+            type="button"
+            className={`${styles.statCard} ${styles.statClickable} ${stats.en_disputa > 0 ? styles.statCardDanger : ''} ${stageFilter === 'dispute' ? styles.statActive : ''}`}
+            onClick={() => { clearFilters(); setStatusFilter('opened'); setStageFilter('dispute'); }}
+          >
             <Swords size={16} />
             <div className={styles.statValue}>{stats.en_disputa}</div>
             <div className={styles.statLabel}>En disputa</div>
-          </div>
-          <div className={`${styles.statCard} ${stats.accion_vendedor > 0 ? styles.statCardWarning : ''}`}>
+          </button>
+          <button
+            type="button"
+            className={`${styles.statCard} ${styles.statClickable} ${stats.accion_vendedor > 0 ? styles.statCardWarning : ''} ${responsibleFilter === 'seller' ? styles.statActive : ''}`}
+            onClick={() => { clearFilters(); setStatusFilter('opened'); setResponsibleFilter('seller'); }}
+          >
             <Clock size={16} />
             <div className={styles.statValue}>{stats.accion_vendedor}</div>
             <div className={styles.statLabel}>Acción requerida</div>
-          </div>
-          <div className={styles.statCard}>
+          </button>
+          <button
+            type="button"
+            className={`${styles.statCard} ${styles.statClickable} ${hasRmaFilter === 'true' ? styles.statActive : ''}`}
+            onClick={() => { clearFilters(); setStatusFilter('opened'); setHasRmaFilter('true'); }}
+          >
             <ShieldCheck size={16} />
             <div className={styles.statValue}>{stats.con_caso_rma}</div>
             <div className={styles.statLabel}>Con caso RMA</div>
-          </div>
-          <div className={styles.statCard}>
+          </button>
+          <button
+            type="button"
+            className={`${styles.statCard} ${styles.statClickable} ${hasRmaFilter === 'false' ? styles.statActive : ''}`}
+            onClick={() => { clearFilters(); setStatusFilter('opened'); setHasRmaFilter('false'); }}
+          >
             <ShieldX size={16} />
             <div className={styles.statValue}>{stats.sin_caso_rma}</div>
             <div className={styles.statLabel}>Sin caso RMA</div>
-          </div>
+          </button>
         </div>
       )}
 
@@ -366,7 +386,7 @@ export default function ClaimsDashboard() {
                     <td className={styles.cellClaim}>
                       <span className={styles.claimId}>{claim.claim_id}</span>
                       {claim.resource_id && (
-                        <span className={styles.orderId}>OID: {claim.resource_id}</span>
+                        <span className={styles.orderId}>Venta: {claim.resource_id}</span>
                       )}
                     </td>
                     <td className={styles.cellDate}>{formatDate(claim.ml_date_created)}</td>
@@ -444,13 +464,13 @@ export default function ClaimsDashboard() {
       )}
 
       {/* Detail modal — full enriched claim with ClaimCards */}
-      {(detailClaim || detailLoading) && (
-        <ModalTesla
-          title={detailClaim ? `Claim #${detailClaim.claim?.claim_id || ''}` : 'Cargando detalle...'}
-          onClose={() => { setDetailClaim(null); setDetailLoading(false); }}
-          closeOnOverlay={false}
-          size="lg"
-        >
+      <ModalTesla
+        isOpen={detailLoading || detailClaim !== null}
+        title={detailClaim ? `Claim #${detailClaim.claim?.claim_id || ''}` : 'Cargando detalle...'}
+        onClose={() => { setDetailClaim(null); setDetailLoading(false); }}
+        closeOnOverlay={false}
+        size="lg"
+      >
           {detailLoading ? (
             <div className={styles.loadingCell}>
               <Loader size={20} className={styles.spinning} />
@@ -489,8 +509,7 @@ export default function ClaimsDashboard() {
               <ClaimCards claims={[detailClaim.claim]} />
             </div>
           ) : null}
-        </ModalTesla>
-      )}
+      </ModalTesla>
     </div>
   );
 }

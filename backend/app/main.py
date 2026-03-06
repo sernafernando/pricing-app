@@ -57,7 +57,15 @@ from app.api.endpoints import (
     transportes,
     etiquetas_colecta,
 )
-from app.routers import alertas, claims_dashboard, seriales, rma_seguimiento, rma_proveedores, weather
+from app.routers import (
+    alertas,
+    claims_dashboard,
+    free_shipping_alerts,
+    seriales,
+    rma_seguimiento,
+    rma_proveedores,
+    weather,
+)
 from app.core.config import settings
 from app.core.exceptions import http_exception_handler
 from app.core.logging import get_logger
@@ -165,6 +173,7 @@ app.include_router(rma_proveedores.router, prefix="/api", tags=["RMA Proveedores
 app.include_router(claims_dashboard.router, prefix="/api", tags=["Claims Dashboard"])
 app.include_router(etiquetas_colecta.router, prefix="/api", tags=["etiquetas-colecta"])
 app.include_router(weather.router, prefix="/api", tags=["weather"])
+app.include_router(free_shipping_alerts.router, prefix="/api", tags=["free-shipping-alerts"])
 
 
 @app.get("/")
