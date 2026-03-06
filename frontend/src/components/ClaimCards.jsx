@@ -23,7 +23,7 @@ import {
   RESOLUTION_REASON_ES, CLOSED_BY_ES, RETURN_STATUS_ES, RETURN_SUBTYPE_ES,
   RETURN_MONEY_STATUS_ES, SHIPMENT_STATUS_ES, REFUND_AT_ES, CHANGE_TYPE_ES,
   CHANGE_STATUS_ES, EXPECTED_RES_STATUS_ES, PLAYER_ROLE_ES,
-  sanitizeMessageHtml, isImageAttachment, attachmentProxyUrl, claimAttachmentProxyUrl,
+  sanitizeMessageHtml, isImageAttachment, attachmentProxyUrl,
 } from './claimTranslations';
 import styles from './ClaimCards.module.css';
 
@@ -374,7 +374,7 @@ export default function ClaimCards({ claims }) {
                         <div className={styles.claimMsgAttachments}>
                           {msg.attachments.map((att, i) => {
                             const key = att.filename || att.original_filename || '';
-                            const url = claimAttachmentProxyUrl(claimMsgsClaimId, key);
+                            const url = attachmentProxyUrl(key);
                             if (isImageAttachment(key)) {
                               return (
                                 <button
