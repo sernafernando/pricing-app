@@ -46,7 +46,8 @@ router = APIRouter(prefix="/claims-dashboard", tags=["claims-dashboard"])
 
 
 def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
-    if not PermisosService.tiene_permiso(db, user, permiso):
+    svc = PermisosService(db)
+    if not svc.tiene_permiso(user, permiso):
         raise HTTPException(status_code=403, detail=f"Sin permiso: {permiso}")
 
 
