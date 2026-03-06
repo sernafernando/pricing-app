@@ -3586,7 +3586,7 @@ def get_ml_attachment(
     attachment_id = id
     resource = f"/messages/attachments/{attachment_id}?tag=post_sale&site_id=MLA"
     try:
-        with httpx.Client(timeout=15.0) as client:
+        with httpx.Client(timeout=30.0) as client:
             r = client.get(
                 ML_WEBHOOK_RENDER_URL,
                 params={"resource": resource, "format": "json"},
@@ -3597,17 +3597,20 @@ def get_ml_attachment(
                     detail=f"ML returned {r.status_code}",
                 )
 
-            # Determine content type from ML response or file extension
             content_type = r.headers.get("content-type", "application/octet-stream")
+
+            # If proxy returned JSON or HTML, it's an error — NOT the file
             if "json" in content_type or "text/html" in content_type:
-                # Proxy returned an error page or JSON error, not the file
-                # Try to guess from extension
-                ext = ""
-                for e in _EXT_TO_MIME:
-                    if attachment_id.lower().endswith(e):
-                        ext = e
-                        break
-                content_type = _EXT_TO_MIME.get(ext, "application/octet-stream")
+                logger.warning(
+                    "[ml-attachment] Proxy returned %s (%d bytes) for %s",
+                    content_type,
+                    len(r.content),
+                    attachment_id,
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail="ML proxy returned error instead of file",
+                )
 
             return Response(
                 content=r.content,
@@ -3645,7 +3648,7 @@ def get_ml_claim_attachment(
     """
     resource = f"/post-purchase/v1/claims/{claim_id}/attachments/{filename}/download"
     try:
-        with httpx.Client(timeout=15.0) as client:
+        with httpx.Client(timeout=30.0) as client:
             r = client.get(
                 ML_WEBHOOK_RENDER_URL,
                 params={"resource": resource, "format": "json"},
@@ -3657,13 +3660,29 @@ def get_ml_claim_attachment(
                 )
 
             content_type = r.headers.get("content-type", "application/octet-stream")
+
+            # If proxy returned JSON or HTML, it's an error — NOT the file
             if "json" in content_type or "text/html" in content_type:
-                ext = ""
-                for e in _EXT_TO_MIME:
-                    if filename.lower().endswith(e):
-                        ext = e
-                        break
-                content_type = _EXT_TO_MIME.get(ext, "application/octet-stream")
+                logger.warning(
+                    "[ml-claim-attachment] Proxy returned %s (%d bytes) for claim %s/%s",
+                    content_type,
+                    len(r.content),
+                    claim_id,
+                    filename,
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail="ML proxy returned error instead of file",
+                )
+
+            # Sanity check: images should be at least 1KB
+            if len(r.content) < 1000:
+                logger.warning(
+                    "[ml-claim-attachment] Suspiciously small response (%d bytes) for %s/%s",
+                    len(r.content),
+                    claim_id,
+                    filename,
+                )
 
             return Response(
                 content=r.content,
