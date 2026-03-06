@@ -11,6 +11,7 @@
  */
 
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../services/api';
 import ModalTesla, { ModalLoading } from './ModalTesla';
 import {
@@ -22,7 +23,7 @@ import {
   RESOLUTION_REASON_ES, CLOSED_BY_ES, RETURN_STATUS_ES, RETURN_SUBTYPE_ES,
   RETURN_MONEY_STATUS_ES, SHIPMENT_STATUS_ES, REFUND_AT_ES, CHANGE_TYPE_ES,
   CHANGE_STATUS_ES, EXPECTED_RES_STATUS_ES, PLAYER_ROLE_ES,
-  sanitizeMessageHtml, isImageAttachment, attachmentProxyUrl,
+  sanitizeMessageHtml, isImageAttachment, attachmentProxyUrl, claimAttachmentProxyUrl,
 } from './claimTranslations';
 import styles from './ClaimCards.module.css';
 
@@ -373,17 +374,18 @@ export default function ClaimCards({ claims }) {
                         <div className={styles.claimMsgAttachments}>
                           {msg.attachments.map((att, i) => {
                             const key = att.filename || att.original_filename || '';
+                            const url = claimAttachmentProxyUrl(claimMsgsClaimId, key);
                             if (isImageAttachment(key)) {
                               return (
                                 <button
                                   key={i}
                                   type="button"
                                   className={styles.claimMsgImgThumb}
-                                  onClick={() => setLightboxUrl(attachmentProxyUrl(key))}
+                                  onClick={() => setLightboxUrl(url)}
                                   aria-label="Ver imagen adjunta"
                                 >
                                   <img
-                                    src={attachmentProxyUrl(key)}
+                                    src={url}
                                     alt={att.original_filename || 'Adjunto'}
                                     loading="lazy"
                                   />
@@ -393,7 +395,7 @@ export default function ClaimCards({ claims }) {
                             return (
                               <a
                                 key={i}
-                                href={attachmentProxyUrl(key)}
+                                href={url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className={styles.claimMsgAttachment}
@@ -413,8 +415,8 @@ export default function ClaimCards({ claims }) {
         )}
       </ModalTesla>
 
-      {/* ── Lightbox: imagen adjunta ampliada ── */}
-      {lightboxUrl && (
+      {/* ── Lightbox: portal to body so it renders above modals ── */}
+      {lightboxUrl && createPortal(
         <div
           className={styles.lightboxOverlay}
           onClick={() => setLightboxUrl(null)}
@@ -435,7 +437,8 @@ export default function ClaimCards({ claims }) {
             className={styles.lightboxImg}
             onClick={(e) => e.stopPropagation()}
           />
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

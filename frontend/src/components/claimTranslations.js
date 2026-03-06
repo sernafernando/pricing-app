@@ -181,3 +181,7 @@ export const isImageAttachment = (key) => {
 };
 
 export const attachmentProxyUrl = (key) => `/api/seriales/ml-attachment?id=${encodeURIComponent(key)}`;
+
+/** Proxy URL for claim message attachments (different ML API than order messages) */
+export const claimAttachmentProxyUrl = (claimId, filename) =>
+  `/api/seriales/ml-claim-attachment?claim_id=${encodeURIComponent(claimId)}&filename=${encodeURIComponent(filename)}`;

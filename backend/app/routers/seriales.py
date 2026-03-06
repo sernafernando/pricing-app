@@ -3626,3 +3626,56 @@ def get_ml_attachment(
             exc_info=True,
         )
         raise HTTPException(status_code=502, detail="Failed to fetch attachment")
+
+
+@router.get("/ml-claim-attachment")
+def get_ml_claim_attachment(
+    claim_id: str = Query(..., description="ML claim ID"),
+    filename: str = Query(..., description="Attachment filename from claim message"),
+) -> Response:
+    """
+    Proxy para descargar adjuntos de mensajes de RECLAMOS de ML.
+    Usa /post-purchase/v1/claims/{claim_id}/attachments/{filename}
+    a través del proxy webhook.
+    Endpoint público (sin auth) — las imágenes se cargan vía <img> tags.
+    """
+    resource = f"/post-purchase/v1/claims/{claim_id}/attachments/{filename}"
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            r = client.get(
+                ML_WEBHOOK_RENDER_URL,
+                params={"resource": resource, "format": "json"},
+            )
+            if r.status_code != 200:
+                raise HTTPException(
+                    status_code=r.status_code,
+                    detail=f"ML returned {r.status_code}",
+                )
+
+            content_type = r.headers.get("content-type", "application/octet-stream")
+            if "json" in content_type or "text/html" in content_type:
+                ext = ""
+                for e in _EXT_TO_MIME:
+                    if filename.lower().endswith(e):
+                        ext = e
+                        break
+                content_type = _EXT_TO_MIME.get(ext, "application/octet-stream")
+
+            return Response(
+                content=r.content,
+                media_type=content_type,
+                headers={
+                    "Cache-Control": "public, max-age=86400",
+                    "Content-Disposition": f'inline; filename="{filename}"',
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.warning(
+            "[ml-claim-attachment] Failed to fetch claim %s attachment %s",
+            claim_id,
+            filename,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=502, detail="Failed to fetch claim attachment")
