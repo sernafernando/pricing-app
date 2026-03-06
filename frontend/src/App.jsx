@@ -30,6 +30,7 @@ import ConfigOperaciones from './pages/ConfigOperaciones';
 import Rma from './pages/Rma';
 import ClaimsDashboard from './pages/ClaimsDashboard';
 import Traza from './pages/Traza';
+import FreeShippingAlerts from './pages/FreeShippingAlerts';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
@@ -204,6 +205,11 @@ function App() {
             <Route path="/traza" element={
               <ProtectedRoute permiso="traza.ver">
                 <Traza />
+              </ProtectedRoute>
+            } />
+            <Route path="/free-shipping-alerts" element={
+              <ProtectedRoute permiso="alertas.ver_free_shipping">
+                <FreeShippingAlerts />
               </ProtectedRoute>
             } />
           </Route>

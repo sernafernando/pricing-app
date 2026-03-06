@@ -1,0 +1,62 @@
+/* FreeShippingBadge - Badge de alerta en TopBar */
+
+.badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  color: var(--cf-accent-red);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-in-out);
+  white-space: nowrap;
+  height: 34px;
+}
+
+.badge:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  transform: translateY(-1px);
+}
+
+.badge:active {
+  transform: translateY(0);
+}
+
+.icon {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* Light mode */
+:global([data-theme="light"]) .badge {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: #dc2626;
+}
+
+:global([data-theme="light"]) .badge:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+/* Responsive - ocultar texto en mobile */
+@media (max-width: 768px) {
+  .badge {
+    padding: 6px 8px;
+  }
+
+  .count {
+    display: none;
+  }
+}

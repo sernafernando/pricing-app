@@ -6,6 +6,7 @@ import { Menu, CloudRain, Droplets, Wind } from 'lucide-react';
 
 import ThemeToggleSimple from './ThemeToggleSimple';
 import NotificationBell from './NotificationBell';
+import FreeShippingBadge from './FreeShippingBadge';
 import { useWeather } from '../hooks/useWeather';
 import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
@@ -150,8 +151,9 @@ export default function TopBar({ sidebarExpanded = true, onMobileMenuToggle }) {
         )}
       </div>
 
-      {/* Right: Notifications, User Menu */}
+      {/* Right: Alerts, Notifications, User Menu */}
       <div className={styles.right}>
+        <FreeShippingBadge />
         <NotificationBell />
         
         <div 
