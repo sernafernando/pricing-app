@@ -95,6 +95,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       defaultOpen: false,
       items: [
         { label: 'RMA Seguimiento', path: '/rma', permiso: 'rma.ver' },
+        { label: 'Reclamos ML', path: '/claims', permiso: 'rma.ver' },
       ],
     },
     {
