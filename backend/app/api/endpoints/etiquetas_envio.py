@@ -28,7 +28,7 @@ from pathlib import Path as FilePath
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session, aliased
-from sqlalchemy import func, cast, case, and_, or_, desc, Numeric
+from sqlalchemy import func, cast, case, and_, or_, desc, Numeric, text
 from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -2123,6 +2123,15 @@ def borrar_etiquetas(
             delete_comment=payload.comment,
         )
         db.add(audit)
+
+    # Desasociar items de RMA que referencian estas etiquetas
+    if payload.shipping_ids:
+        placeholders = ", ".join(f":id_{i}" for i in range(len(payload.shipping_ids)))
+        params = {f"id_{i}": sid for i, sid in enumerate(payload.shipping_ids)}
+        db.execute(
+            text(f"UPDATE rma_caso_items SET shipping_id = NULL WHERE shipping_id IN ({placeholders})"),
+            params,
+        )
 
     # Borrar originales
     deleted = (
