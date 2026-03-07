@@ -351,13 +351,21 @@ export default function TabEnviosFlex({ operador = null }) {
     try {
       const params = buildFilterParams();
 
-      const [etiqResponse, statsResponse] = await Promise.all([
-        api.get(`/etiquetas-envio?${params}`),
-        api.get(`/etiquetas-envio/estadisticas?${params}`),
-      ]);
+      // Cargar listado y estadísticas en paralelo, pero independientes:
+      // si las estadísticas fallan (ej: timeout 524) el listado sigue funcionando.
+      const etiqPromise = api.get(`/etiquetas-envio?${params}`);
+      const statsPromise = api.get(`/etiquetas-envio/estadisticas?${params}`);
 
+      const etiqResponse = await etiqPromise;
       setEtiquetas(etiqResponse.data);
-      setEstadisticas(statsResponse.data);
+
+      // Estadísticas best-effort: si fallan, mostramos la tabla igual
+      try {
+        const statsResponse = await statsPromise;
+        setEstadisticas(statsResponse.data);
+      } catch {
+        // Silencioso — las estadísticas se pueden recuperar con el polling
+      }
 
       // Resetear polling ref para que el próximo poll no triggerea reload
       // (se recalcula en el siguiente tick de polling)
@@ -412,10 +420,12 @@ export default function TabEnviosFlex({ operador = null }) {
         const { data } = await api.get(`/etiquetas-envio/check-updates?${p}`);
         const prev = pollingRef.current;
 
-        // Primera vez: solo guardar la referencia
+        // Primera vez: guardar referencia y, si hay error previo, forzar reload
         if (prev.count === null) {
           pollingRef.current = { count: data.count, lastUpdated: data.last_updated };
-          return;
+          // Si hay error previo (ej: carga inicial falló por timeout),
+          // forzar un reload silencioso para recuperar la UI
+          if (!error) return;
         }
 
         // Detectar cambio: count distinto O timestamp distinto
@@ -424,12 +434,17 @@ export default function TabEnviosFlex({ operador = null }) {
           // Recargar silenciosamente (sin setLoading)
           try {
             const params = buildFilterParams();
-            const [etiqResponse, statsResponse] = await Promise.all([
-              api.get(`/etiquetas-envio?${params}`),
-              api.get(`/etiquetas-envio/estadisticas?${params}`),
-            ]);
+            const etiqResponse = await api.get(`/etiquetas-envio?${params}`);
             setEtiquetas(etiqResponse.data);
-            setEstadisticas(statsResponse.data);
+            setError(null); // Limpiar error previo si el listado ahora responde
+
+            // Estadísticas best-effort
+            try {
+              const statsResponse = await api.get(`/etiquetas-envio/estadisticas?${params}`);
+              setEstadisticas(statsResponse.data);
+            } catch {
+              // Silencioso — las estadísticas se recuperan en el próximo poll
+            }
           } catch {
             // Silencioso — no mostrar error por polling
           }
@@ -449,7 +464,7 @@ export default function TabEnviosFlex({ operador = null }) {
     fechaDesde, fechaHasta, filtroLogistica, sinLogistica, soloOutlet,
     soloTurbo, filtroPistoleado, showManualEnvioModal, showLogisticasModal,
     showTransportesModal, showExportModal, showPrintManualModal,
-    bulkActualizando, buildFilterParams,
+    bulkActualizando, buildFilterParams, error,
   ]);
 
   // ── Scroll horizontal sincronizado ──────────────────────────
