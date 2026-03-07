@@ -547,7 +547,7 @@ def _extraer_qrs_de_texto(text: str) -> List[str]:
     return QR_JSON_REGEX.findall(text)
 
 
-def _soh_status_subquery(db: Session):
+def _soh_status_subquery(db: Session, shipping_ids_sub=None):
     """
     Subquery deduplicada: estado ERP por shipping_id (envíos ML).
 
@@ -555,8 +555,11 @@ def _soh_status_subquery(db: Session):
     Un mismo mlo_id puede tener múltiples filas en SaleOrderHeader
     (una por combinación comp_id/bra_id). Se toma el pedido más reciente
     (mayor soh_cd) con ROW_NUMBER OVER (PARTITION BY mlshippingid ORDER BY soh_cd DESC).
+
+    Si shipping_ids_sub se proporciona, restringe a esos IDs para evitar
+    escanear la tabla completa (performance).
     """
-    ranked = (
+    base_q = (
         db.query(
             MercadoLibreOrderShipping.mlshippingid.label("shipping_id_str"),
             SaleOrderHeader.ssos_id.label("soh_ssos_id"),
@@ -576,8 +579,12 @@ def _soh_status_subquery(db: Session):
             MercadoLibreOrderShipping.mlo_id.isnot(None),
             SaleOrderHeader.mlo_id.isnot(None),
         )
-        .subquery()
     )
+
+    if shipping_ids_sub is not None:
+        base_q = base_q.filter(MercadoLibreOrderShipping.mlshippingid.in_(shipping_ids_sub))
+
+    ranked = base_q.subquery()
 
     return (
         db.query(
@@ -589,14 +596,17 @@ def _soh_status_subquery(db: Session):
     )
 
 
-def _manual_soh_status_subquery(db: Session):
+def _manual_soh_status_subquery(db: Session, shipping_ids_sub=None):
     """
     Subquery: estado ERP para envíos manuales (por manual_soh_id + manual_bra_id).
 
     Los envíos manuales creados desde pedidos tienen manual_soh_id y manual_bra_id
     que referencian directamente a SaleOrderHeader.
+
+    Si shipping_ids_sub se proporciona, restringe a esos IDs para evitar
+    escanear la tabla completa (performance).
     """
-    ranked = (
+    base_q = (
         db.query(
             EtiquetaEnvio.shipping_id.label("shipping_id_str"),
             SaleOrderHeader.ssos_id.label("manual_ssos_id"),
@@ -619,8 +629,12 @@ def _manual_soh_status_subquery(db: Session):
             EtiquetaEnvio.manual_soh_id.isnot(None),
             EtiquetaEnvio.manual_bra_id.isnot(None),
         )
-        .subquery()
     )
+
+    if shipping_ids_sub is not None:
+        base_q = base_q.filter(EtiquetaEnvio.shipping_id.in_(shipping_ids_sub))
+
+    ranked = base_q.subquery()
 
     return (
         db.query(
@@ -632,7 +646,7 @@ def _manual_soh_status_subquery(db: Session):
     )
 
 
-def _shipping_dedup_subquery(db: Session):
+def _shipping_dedup_subquery(db: Session, shipping_ids_sub=None):
     """
     Subquery deduplicada: una fila por mlshippingid de MercadoLibreOrderShipping.
 
@@ -642,27 +656,31 @@ def _shipping_dedup_subquery(db: Session):
     ROW_NUMBER OVER (PARTITION BY mlshippingid ORDER BY mlm_id DESC).
 
     Esto evita que los JOINs multipliquen filas en listado, export y estadísticas.
+
+    Si shipping_ids_sub se proporciona, restringe a esos IDs para evitar
+    escanear las 88k+ filas completas (performance: ~50 IDs vs tabla completa).
     """
-    ranked = (
-        db.query(
-            MercadoLibreOrderShipping.mlshippingid.label("mlshippingid"),
-            MercadoLibreOrderShipping.mlo_id,
-            MercadoLibreOrderShipping.mlreceiver_name,
-            MercadoLibreOrderShipping.mlstreet_name,
-            MercadoLibreOrderShipping.mlstreet_number,
-            MercadoLibreOrderShipping.mlzip_code,
-            MercadoLibreOrderShipping.mlcity_name,
-            MercadoLibreOrderShipping.mlstatus,
-            func.row_number()
-            .over(
-                partition_by=MercadoLibreOrderShipping.mlshippingid,
-                order_by=desc(MercadoLibreOrderShipping.mlm_id),
-            )
-            .label("rn"),
+    base_q = db.query(
+        MercadoLibreOrderShipping.mlshippingid.label("mlshippingid"),
+        MercadoLibreOrderShipping.mlo_id,
+        MercadoLibreOrderShipping.mlreceiver_name,
+        MercadoLibreOrderShipping.mlstreet_name,
+        MercadoLibreOrderShipping.mlstreet_number,
+        MercadoLibreOrderShipping.mlzip_code,
+        MercadoLibreOrderShipping.mlcity_name,
+        MercadoLibreOrderShipping.mlstatus,
+        func.row_number()
+        .over(
+            partition_by=MercadoLibreOrderShipping.mlshippingid,
+            order_by=desc(MercadoLibreOrderShipping.mlm_id),
         )
-        .filter(MercadoLibreOrderShipping.mlshippingid.isnot(None))
-        .subquery()
-    )
+        .label("rn"),
+    ).filter(MercadoLibreOrderShipping.mlshippingid.isnot(None))
+
+    if shipping_ids_sub is not None:
+        base_q = base_q.filter(MercadoLibreOrderShipping.mlshippingid.in_(shipping_ids_sub))
+
+    ranked = base_q.subquery()
 
     return (
         db.query(
@@ -896,8 +914,22 @@ def listar_etiquetas(
     """
     _check_permiso(db, current_user, "envios_flex.ver")
 
-    soh_sub = _soh_status_subquery(db)
-    manual_soh_sub = _manual_soh_status_subquery(db)
+    # ── Pre-filtrar shipping_ids por fecha ───────────────────────
+    # Obtener solo los IDs que coinciden con el rango de fechas ANTES de
+    # armar las subqueries pesadas. Esto reduce el scan de 88k+ filas a
+    # ~50-200 del día, haciendo que los JOINs sean instantáneos.
+    ids_fecha_q = db.query(EtiquetaEnvio.shipping_id)
+    if fecha_envio:
+        ids_fecha_q = ids_fecha_q.filter(EtiquetaEnvio.fecha_envio == fecha_envio)
+    elif fecha_desde or fecha_hasta:
+        if fecha_desde:
+            ids_fecha_q = ids_fecha_q.filter(EtiquetaEnvio.fecha_envio >= fecha_desde)
+        if fecha_hasta:
+            ids_fecha_q = ids_fecha_q.filter(EtiquetaEnvio.fecha_envio <= fecha_hasta)
+    ids_fecha_sub = ids_fecha_q.subquery()
+
+    soh_sub = _soh_status_subquery(db, shipping_ids_sub=ids_fecha_sub)
+    manual_soh_sub = _manual_soh_status_subquery(db, shipping_ids_sub=ids_fecha_sub)
     ManualSaleOrderStatus = aliased(SaleOrderStatus)
 
     # Subquery: costo vigente por (logistica_id, cordon) donde vigente_desde <= hoy.
@@ -938,7 +970,7 @@ def listar_etiquetas(
     cordon_normalizado = func.replace(CodigoPostalCordon.cordon, "ó", "o")
 
     # Subquery deduplicada: una fila por mlshippingid (evita duplicados por items)
-    shipping_sub = _shipping_dedup_subquery(db)
+    shipping_sub = _shipping_dedup_subquery(db, shipping_ids_sub=ids_fecha_sub)
 
     # Expresiones COALESCE: para envíos manuales priorizar manual_*, sino ML shipping
     eff_receiver = func.coalesce(EtiquetaEnvio.manual_receiver_name, shipping_sub.c.mlreceiver_name)
@@ -1227,13 +1259,18 @@ def estadisticas_etiquetas(
         fecha_filter = EtiquetaEnvio.fecha_envio == date.today()
         fecha_costo = date.today()
 
+    # ── Pre-filtrar shipping_ids por fecha ────────────────────────
+    # Obtener solo los IDs del rango de fechas ANTES de armar subqueries
+    # pesadas. Reduce scan de 88k+ filas a ~50-200 (performance).
+    ids_fecha_stats = db.query(EtiquetaEnvio.shipping_id).filter(fecha_filter).subquery()
+
     # ── Subquery de IDs filtrados ────────────────────────────────
     # Construye la misma lógica de filtros del listado como subquery
     # de shipping_ids. Todas las queries de stats la usan para limitar
     # al mismo set que ve el usuario en la tabla.
-    shipping_stats = _shipping_dedup_subquery(db)
-    soh_sub = _soh_status_subquery(db)
-    manual_soh_sub = _manual_soh_status_subquery(db)
+    shipping_stats = _shipping_dedup_subquery(db, shipping_ids_sub=ids_fecha_stats)
+    soh_sub = _soh_status_subquery(db, shipping_ids_sub=ids_fecha_stats)
+    manual_soh_sub = _manual_soh_status_subquery(db, shipping_ids_sub=ids_fecha_stats)
 
     stats_eff_zip = func.coalesce(
         EtiquetaEnvio.manual_zip_code,
@@ -1560,7 +1597,17 @@ def estadisticas_por_dia(
     """
     _check_permiso(db, current_user, "envios_flex.ver")
 
-    shipping_stats = _shipping_dedup_subquery(db)
+    # Pre-filtrar shipping_ids por rango de fechas (performance)
+    ids_fecha_cal = (
+        db.query(EtiquetaEnvio.shipping_id)
+        .filter(
+            EtiquetaEnvio.fecha_envio >= fecha_desde,
+            EtiquetaEnvio.fecha_envio <= fecha_hasta,
+        )
+        .subquery()
+    )
+
+    shipping_stats = _shipping_dedup_subquery(db, shipping_ids_sub=ids_fecha_cal)
 
     stats_eff_zip = func.coalesce(
         EtiquetaEnvio.manual_zip_code,
@@ -1701,9 +1748,19 @@ def exportar_etiquetas(
     else:
         cols_solicitadas = list(EXPORT_COLUMNS.keys())
 
+    # Pre-filtrar shipping_ids por rango de fechas (performance)
+    ids_fecha_exp = (
+        db.query(EtiquetaEnvio.shipping_id)
+        .filter(
+            EtiquetaEnvio.fecha_envio >= fecha_desde,
+            EtiquetaEnvio.fecha_envio <= fecha_hasta,
+        )
+        .subquery()
+    )
+
     # Reusar subquery deduplicada de estado ERP
-    soh_sub = _soh_status_subquery(db)
-    manual_soh_sub = _manual_soh_status_subquery(db)
+    soh_sub = _soh_status_subquery(db, shipping_ids_sub=ids_fecha_exp)
+    manual_soh_sub = _manual_soh_status_subquery(db, shipping_ids_sub=ids_fecha_exp)
     ManualSaleOrderStatus = aliased(SaleOrderStatus)
 
     hoy_export = date.today()
@@ -1738,7 +1795,7 @@ def exportar_etiquetas(
     lluvia_tipo_e, lluvia_valor_e = _get_lluvia_config(db)
 
     # Subquery deduplicada: una fila por mlshippingid (evita duplicados por items)
-    shipping_exp = _shipping_dedup_subquery(db)
+    shipping_exp = _shipping_dedup_subquery(db, shipping_ids_sub=ids_fecha_exp)
 
     # COALESCE para envíos manuales en export
     exp_receiver = func.coalesce(EtiquetaEnvio.manual_receiver_name, shipping_exp.c.mlreceiver_name)
