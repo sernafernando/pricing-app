@@ -724,11 +724,18 @@ async def setear_precio_rapido(
                 "precio_12_cuotas": 23,
             }
 
-        # Obtener markup adicional: primero del producto, si no de configuración global
-        if pricing and pricing.markup_adicional_cuotas_custom is not None:
-            markup_adicional = float(pricing.markup_adicional_cuotas_custom)
+        # Obtener markup adicional: primero del producto (custom), si no de configuración global
+        # Para PVP usar markup_adicional_cuotas_pvp_custom, para Web usar markup_adicional_cuotas_custom
+        if lista_tipo == "pvp":
+            if pricing and pricing.markup_adicional_cuotas_pvp_custom is not None:
+                markup_adicional = float(pricing.markup_adicional_cuotas_pvp_custom)
+            else:
+                markup_adicional = obtener_markup_adicional_cuotas(db)
         else:
-            markup_adicional = obtener_markup_adicional_cuotas(db)
+            if pricing and pricing.markup_adicional_cuotas_custom is not None:
+                markup_adicional = float(pricing.markup_adicional_cuotas_custom)
+            else:
+                markup_adicional = obtener_markup_adicional_cuotas(db)
 
         for nombre_campo, pricelist_id in cuotas_config.items():
             try:
