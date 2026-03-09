@@ -1,24 +1,41 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  RefreshCw, Calendar, ExternalLink, Flag, Search, X,
+  RefreshCw, MapPin, Calendar, Flag, Search, X, Building,
 } from 'lucide-react';
 import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
 import styles from './EnviosVistaFlag.module.css';
 
+const CORDONES = ['CABA', 'Cordón 1', 'Cordón 2', 'Cordón 3'];
+
 const FLAG_LABELS = {
   mal_pasado: 'Mal pasado',
-  envio_cancelado: 'Envío cancelado',
+  envio_cancelado: 'Cancelado',
   duplicado: 'Duplicado',
   otro: 'Otro',
 };
 
 const ML_STATUS_LABELS = {
-  ready_to_ship: 'Listo',
+  ready_to_ship: 'Listo para enviar',
   shipped: 'Enviado',
   delivered: 'Entregado',
   cancelled: 'Cancelado',
   not_delivered: 'No entregado',
+};
+
+const todayStr = () => toLocalDateString();
+
+// ── Helper: badge classes ───────────────────────────────────────
+
+const getCordonBadgeClass = (cordon) => {
+  if (!cordon) return styles.cordonSinAsignar;
+  switch (cordon) {
+    case 'CABA': return styles.cordonCaba;
+    case 'Cordón 1': return styles.cordonUno;
+    case 'Cordón 2': return styles.cordonDos;
+    case 'Cordón 3': return styles.cordonTres;
+    default: return styles.cordonSinAsignar;
+  }
 };
 
 const getMlStatusClass = (status) => {
@@ -32,7 +49,7 @@ const getMlStatusClass = (status) => {
   }
 };
 
-const todayStr = () => toLocalDateString();
+// ────────────────────────────────────────────────────────────────
 
 export default function EnviosVistaFlag() {
   // Data
@@ -47,9 +64,12 @@ export default function EnviosVistaFlag() {
   const [filtroRapidoActivo, setFiltroRapidoActivo] = useState('hoy');
   const [mostrarDropdownFecha, setMostrarDropdownFecha] = useState(false);
   const [fechaTemporal, setFechaTemporal] = useState({ desde: todayStr(), hasta: todayStr() });
+  const [filtroCordon, setFiltroCordon] = useState('');
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
+  const [filtroSsosId, setFiltroSsosId] = useState('');
   const [search, setSearch] = useState('');
   const [soloFlag, setSoloFlag] = useState(false);
+  const [sinCordon, setSinCordon] = useState(false);
 
   // Selección
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -62,7 +82,7 @@ export default function EnviosVistaFlag() {
   const [flagLoading, setFlagLoading] = useState(false);
   const [bulkActualizando, setBulkActualizando] = useState(false);
 
-  // Toast (inline error feedback)
+  // Error feedback
   const [errorMsg, setErrorMsg] = useState(null);
 
   // Filtro client-side por flag
@@ -119,32 +139,34 @@ export default function EnviosVistaFlag() {
     const p = new URLSearchParams();
     if (fechaDesde) p.append('fecha_desde', fechaDesde);
     if (fechaHasta) p.append('fecha_hasta', fechaHasta);
+    if (filtroCordon) p.append('cordon', filtroCordon);
+    if (sinCordon) p.append('sin_cordon', 'true');
+    if (filtroMlStatus) p.append('mlstatus', filtroMlStatus);
+    if (filtroSsosId) p.append('ssos_id', filtroSsosId);
     if (search) p.append('search', search);
-    if (filtroMlStatus) p.append('ml_status', filtroMlStatus);
-    return p.toString();
-  }, [fechaDesde, fechaHasta, search, filtroMlStatus]);
+    return p;
+  }, [fechaDesde, fechaHasta, filtroCordon, sinCordon, filtroMlStatus, filtroSsosId, search]);
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const params = buildFilterParams();
-      const [etiqRes, statsRes] = await Promise.allSettled([
-        api.get(`/etiquetas-envio?${params}`),
-        api.get(`/etiquetas-envio/estadisticas?${params}`),
-      ]);
 
-      if (etiqRes.status === 'fulfilled') {
-        setEtiquetas(etiqRes.value.data);
-      } else {
-        setError('Error cargando etiquetas');
-      }
+      const etiqPromise = api.get(`/etiquetas-envio?${params}`);
+      const statsPromise = api.get(`/etiquetas-envio/estadisticas?${params}`);
 
-      if (statsRes.status === 'fulfilled') {
-        setEstadisticas(statsRes.value.data);
+      const etiqResponse = await etiqPromise;
+      setEtiquetas(etiqResponse.data);
+
+      try {
+        const statsResponse = await statsPromise;
+        setEstadisticas(statsResponse.data);
+      } catch {
+        // Stats best-effort
       }
     } catch {
-      setError('Error cargando datos');
+      setError('Error cargando etiquetas');
     } finally {
       setLoading(false);
     }
@@ -228,7 +250,6 @@ export default function EnviosVistaFlag() {
       setShowFlagModal(false);
       limpiarSeleccion();
 
-      // Refresh stats
       try {
         const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
         setEstadisticas(statsData);
@@ -262,7 +283,6 @@ export default function EnviosVistaFlag() {
 
       limpiarSeleccion();
 
-      // Refresh stats
       try {
         const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
         setEstadisticas(statsData);
@@ -276,25 +296,44 @@ export default function EnviosVistaFlag() {
     }
   };
 
-  // ── Derived data ─────────────────────────────────────────────
-
-  const mlStatuses = [...new Set(etiquetas.map(e => e.mlstatus).filter(Boolean))];
-
   // ── Render ───────────────────────────────────────────────────
 
   return (
     <div className={styles.container}>
-      {/* Stats */}
+      {/* Estadísticas — same layout as TabEnviosFlex */}
       {estadisticas && (
         <div className={styles.statsGrid}>
           <div className={styles.statCard}>
             <div className={styles.statValue}>{estadisticas.total}</div>
             <div className={styles.statLabel}>Etiquetas</div>
           </div>
+          {Object.entries(estadisticas.por_cordon || {}).map(([cordonName, qty]) => (
+            <button
+              key={cordonName}
+              type="button"
+              className={`${styles.statCard} ${styles.statCardClickable} ${filtroCordon === cordonName && !sinCordon ? styles.statCardActive : ''}`}
+              onClick={() => { setFiltroCordon(prev => prev === cordonName ? '' : cordonName); setSinCordon(false); }}
+            >
+              <div className={styles.statValue}>{qty}</div>
+              <div className={styles.statLabel}>{cordonName}</div>
+            </button>
+          ))}
+          {estadisticas.sin_cordon > 0 && (
+            <button
+              type="button"
+              className={`${styles.statCard} ${styles.statCardClickable} ${sinCordon ? styles.statCardActive : ''}`}
+              onClick={() => { setSinCordon(prev => !prev); setFiltroCordon(''); }}
+            >
+              <div className={`${styles.statValue} ${styles.statSecondary}`}>
+                {estadisticas.sin_cordon}
+              </div>
+              <div className={styles.statLabel}>Sin cordón</div>
+            </button>
+          )}
           {estadisticas.flagged > 0 && (
             <button
               type="button"
-              className={`${styles.statCard} ${styles.statCardClickable} ${soloFlag ? styles.statCardActive : ''}`}
+              className={`${styles.statCard} ${styles.statCardClickable} ${styles.statCardFlag} ${soloFlag ? styles.statCardActive : ''}`}
               onClick={() => setSoloFlag(prev => !prev)}
             >
               <div className={`${styles.statValue} ${styles.statValueFlag}`}>
@@ -306,10 +345,9 @@ export default function EnviosVistaFlag() {
         </div>
       )}
 
-      {/* Controls */}
+      {/* Controls — same layout as TabEnviosFlex */}
       <div className={styles.controls}>
         <div className={styles.filtros}>
-          {/* Date quick filters */}
           <div className={styles.dateQuickFilters}>
             <button
               type="button"
@@ -319,16 +357,34 @@ export default function EnviosVistaFlag() {
             >
               <Calendar size={14} />
             </button>
-            {['hoy', 'ayer', '3d', '7d'].map(f => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => aplicarFiltroRapido(f)}
-                className={`${styles.btnDateQuick} ${filtroRapidoActivo === f ? styles.btnDateQuickActive : ''}`}
-              >
-                {f === 'hoy' ? 'Hoy' : f === 'ayer' ? 'Ayer' : f.toUpperCase()}
-              </button>
-            ))}
+            <button
+              type="button"
+              onClick={() => aplicarFiltroRapido('hoy')}
+              className={`${styles.btnDateQuick} ${filtroRapidoActivo === 'hoy' ? styles.btnDateQuickActive : ''}`}
+            >
+              Hoy
+            </button>
+            <button
+              type="button"
+              onClick={() => aplicarFiltroRapido('ayer')}
+              className={`${styles.btnDateQuick} ${filtroRapidoActivo === 'ayer' ? styles.btnDateQuickActive : ''}`}
+            >
+              Ayer
+            </button>
+            <button
+              type="button"
+              onClick={() => aplicarFiltroRapido('3d')}
+              className={`${styles.btnDateQuick} ${filtroRapidoActivo === '3d' ? styles.btnDateQuickActive : ''}`}
+            >
+              3d
+            </button>
+            <button
+              type="button"
+              onClick={() => aplicarFiltroRapido('7d')}
+              className={`${styles.btnDateQuick} ${filtroRapidoActivo === '7d' ? styles.btnDateQuickActive : ''}`}
+            >
+              7d
+            </button>
 
             {mostrarDropdownFecha && (
               <>
@@ -367,31 +423,61 @@ export default function EnviosVistaFlag() {
             )}
           </div>
 
-          {/* Search */}
-          <div className={styles.searchWrapper}>
-            <Search size={14} className={styles.searchIcon} />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Shipping ID o destinatario..."
-              className={styles.searchInput}
-            />
-          </div>
+          <input
+            type="text"
+            placeholder="Buscar (shipping ID, destinatario)..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className={styles.searchInput}
+          />
 
-          {/* ML Status filter */}
-          {mlStatuses.length > 0 && (
-            <select
-              value={filtroMlStatus}
-              onChange={(e) => setFiltroMlStatus(e.target.value)}
-              className={styles.selectSm}
-            >
-              <option value="">Estado ML</option>
-              {mlStatuses.map(s => (
-                <option key={s} value={s}>{ML_STATUS_LABELS[s] || s}</option>
-              ))}
-            </select>
-          )}
+          <select
+            value={filtroCordon}
+            onChange={(e) => setFiltroCordon(e.target.value)}
+            className={styles.selectSm}
+          >
+            <option value="">Cordón</option>
+            {CORDONES.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+
+          <select
+            value={filtroMlStatus}
+            onChange={(e) => setFiltroMlStatus(e.target.value)}
+            className={styles.selectSm}
+          >
+            <option value="">Estado ML</option>
+            {Object.entries(ML_STATUS_LABELS).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+
+          {/* Estado ERP filter — built from data */}
+          {(() => {
+            const erpOptions = [];
+            const seen = new Set();
+            for (const e of etiquetas) {
+              if (e.ssos_id != null && !seen.has(e.ssos_id)) {
+                seen.add(e.ssos_id);
+                erpOptions.push({ id: e.ssos_id, name: e.ssos_name || `Estado ${e.ssos_id}` });
+              }
+            }
+            erpOptions.sort((a, b) => a.name.localeCompare(b.name));
+            if (erpOptions.length === 0) return null;
+            return (
+              <select
+                value={filtroSsosId}
+                onChange={(e) => setFiltroSsosId(e.target.value)}
+                className={styles.selectSm}
+              >
+                <option value="">Estado ERP</option>
+                {erpOptions.map(opt => (
+                  <option key={opt.id} value={opt.id}>{opt.name}</option>
+                ))}
+              </select>
+            );
+          })()}
         </div>
 
         <div className={styles.actions}>
@@ -401,29 +487,25 @@ export default function EnviosVistaFlag() {
             disabled={loading}
             aria-label="Actualizar lista"
           >
-            <RefreshCw size={16} className={loading ? styles.spin : ''} />
+            <RefreshCw size={16} />
             Actualizar
           </button>
         </div>
       </div>
 
       {/* Error */}
-      {error && <div className={styles.errorMsg}>{error}</div>}
-      {errorMsg && <div className={styles.errorMsg}>{errorMsg}</div>}
+      {error && <div className={styles.error}>{error}</div>}
+      {errorMsg && <div className={styles.error}>{errorMsg}</div>}
 
       {/* Table */}
       {loading ? (
-        <div className={styles.loadingMsg}>Cargando etiquetas...</div>
-      ) : etiquetasFiltradas.length === 0 ? (
-        <div className={styles.emptyMsg}>
-          {soloFlag ? 'No hay etiquetas flaggeadas' : 'No hay etiquetas para la fecha seleccionada'}
-        </div>
+        <div className={styles.loading}>Cargando etiquetas...</div>
       ) : (
-        <div className={styles.tableWrapper}>
+        <div className={styles.tableContainer}>
           <table className={styles.table}>
             <thead>
               <tr>
-                <th style={{ width: 40 }}>
+                <th className={styles.thCheckbox}>
                   <input
                     type="checkbox"
                     checked={selectedIds.size === etiquetasFiltradas.length && etiquetasFiltradas.length > 0}
@@ -437,77 +519,242 @@ export default function EnviosVistaFlag() {
                 <th>Dirección</th>
                 <th>CP</th>
                 <th>Localidad</th>
+                <th>Cordón</th>
+                <th>Estado ERP</th>
                 <th>Estado ML</th>
-                <th>Fecha</th>
-                <th>Flag</th>
+                <th>Fecha Envío</th>
+                <th>Logística</th>
+                <th>Transporte</th>
+                <th>Pistoleado</th>
+                <th>Caja</th>
               </tr>
             </thead>
             <tbody>
-              {etiquetasFiltradas.map((e) => (
-                <tr
-                  key={e.shipping_id}
-                  className={`${selectedIds.has(e.shipping_id) ? styles.rowSelected : ''} ${e.flag_envio ? styles.rowFlagged : ''}`}
-                >
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(e.shipping_id)}
-                      onChange={(ev) => toggleSeleccion(e.shipping_id, ev.nativeEvent.shiftKey)}
-                      className={styles.checkbox}
-                      aria-label={`Seleccionar envío ${e.shipping_id}`}
-                    />
-                  </td>
-                  <td className={styles.shippingCell}>
-                    {!e.es_manual && e.ml_order_id ? (
-                      <a
-                        href={`https://www.mercadolibre.com.ar/ventas/${e.ml_order_id}/detalle`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.shippingLink}
-                      >
-                        {e.shipping_id}
-                        <ExternalLink size={12} className={styles.externalIcon} />
-                      </a>
-                    ) : (
-                      <span>{e.shipping_id}</span>
-                    )}
-                  </td>
-                  <td>{e.mlreceiver_name || <span className={styles.cellMuted}>—</span>}</td>
-                  <td className={styles.direccionCell}>
-                    {e.mlstreet_name ? `${e.mlstreet_name} ${e.mlstreet_number || ''}`.trim() : '—'}
-                  </td>
-                  <td>{e.mlzip_code || '—'}</td>
-                  <td>{e.mlcity_name || '—'}</td>
-                  <td>
-                    {e.mlstatus ? (
-                      <span className={`${styles.badge} ${getMlStatusClass(e.mlstatus)}`}>
-                        {ML_STATUS_LABELS[e.mlstatus] || e.mlstatus}
-                      </span>
-                    ) : (
-                      <span className={styles.cellMuted}>—</span>
-                    )}
-                  </td>
-                  <td className={styles.fechaCell}>{e.fecha_envio || '—'}</td>
-                  <td>
-                    {e.flag_envio ? (
-                      <span
-                        className={`${styles.flagBadge} ${
-                          e.flag_envio === 'mal_pasado' ? styles.flagBadgeMalPasado
-                          : e.flag_envio === 'envio_cancelado' ? styles.flagBadgeCancelado
-                          : e.flag_envio === 'duplicado' ? styles.flagBadgeDuplicado
-                          : styles.flagBadgeOtro
-                        }`}
-                        title={e.flag_envio_motivo || FLAG_LABELS[e.flag_envio]}
-                      >
-                        <Flag size={10} />
-                        {FLAG_LABELS[e.flag_envio] || e.flag_envio}
-                      </span>
-                    ) : (
-                      <span className={styles.cellMuted}>—</span>
-                    )}
+              {etiquetasFiltradas.length === 0 ? (
+                <tr>
+                  <td colSpan={14} className={styles.empty}>
+                    {soloFlag ? 'No hay etiquetas flaggeadas' : 'No hay etiquetas para la fecha seleccionada'}
                   </td>
                 </tr>
-              ))}
+              ) : (
+                etiquetasFiltradas.map((e) => (
+                  <tr
+                    key={e.shipping_id}
+                    className={`${selectedIds.has(e.shipping_id) ? styles.rowSelected : ''} ${e.flag_envio ? styles.rowFlagged : ''}`}
+                  >
+                    <td className={styles.tdCheckbox}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(e.shipping_id)}
+                        onChange={(ev) => toggleSeleccion(e.shipping_id, ev.nativeEvent.shiftKey)}
+                        className={styles.checkbox}
+                        aria-label={`Seleccionar envío ${e.shipping_id}`}
+                      />
+                    </td>
+                    {/* Shipping ID + badges */}
+                    <td>
+                      {!e.es_manual && e.ml_order_id ? (
+                        <a
+                          href={`https://www.mercadolibre.com.ar/ventas/${e.ml_order_id}/detalle`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.shippingIdLink}
+                        >
+                          {e.shipping_id}
+                        </a>
+                      ) : (
+                        <span className={styles.shippingId}>{e.shipping_id}</span>
+                      )}
+                      {e.es_outlet && (
+                        <span className={styles.outletBadge}>Outlet</span>
+                      )}
+                      {e.es_turbo && (
+                        <span className={styles.turboBadge}>Turbo</span>
+                      )}
+                      {e.es_lluvia && (
+                        <span className={styles.lluviaBadge}>Lluvia</span>
+                      )}
+                      {e.creado_por_usuario_nombre && (
+                        <span className={styles.creadoPorBadge} title={`Creado por ${e.creado_por_usuario_nombre} desde Pedidos`}>
+                          {e.creado_por_usuario_nombre}
+                        </span>
+                      )}
+                      {e.flag_envio && (
+                        <span
+                          className={`${styles.flagBadge} ${
+                            e.flag_envio === 'mal_pasado' ? styles.flagBadgeMalPasado
+                            : e.flag_envio === 'envio_cancelado' ? styles.flagBadgeCancelado
+                            : e.flag_envio === 'duplicado' ? styles.flagBadgeDuplicado
+                            : styles.flagBadgeOtro
+                          }`}
+                          title={e.flag_envio_motivo || FLAG_LABELS[e.flag_envio]}
+                        >
+                          <Flag size={10} />
+                          {FLAG_LABELS[e.flag_envio] || e.flag_envio}
+                        </span>
+                      )}
+                    </td>
+                    {/* Destinatario + nickname + comment */}
+                    <td className={styles.destinatario}>
+                      <div>{e.mlreceiver_name || '—'}</div>
+                      {e.mluser_nickname && (
+                        <div className={styles.buyerNickname} title={`Usuario ML: ${e.mluser_nickname}`}>
+                          @{e.mluser_nickname}
+                        </div>
+                      )}
+                      {e.manual_comment && (
+                        <div className={styles.manualComment} title={e.manual_comment}>
+                          {e.manual_comment}
+                        </div>
+                      )}
+                    </td>
+                    {/* Dirección — full layout like original */}
+                    <td className={styles.direccion} title={
+                      e.transporte_id && e.transporte_direccion
+                        ? `Transporte: ${e.transporte_direccion}${e.transporte_cp ? ` (${e.transporte_cp})` : ''}${e.transporte_localidad ? ` - ${e.transporte_localidad}` : ''} | Cliente: ${e.mlstreet_name || ''} ${e.mlstreet_number || ''}`
+                        : (e.direccion_completa || `${e.mlstreet_name || ''} ${e.mlstreet_number || ''}`)
+                    }>
+                      {e.transporte_id && e.transporte_direccion ? (
+                        <>
+                          <div className={styles.direccionTransporte}>
+                            <Building size={12} className={styles.transporteIcon} />
+                            {e.transporte_direccion}
+                            {(e.transporte_cp || e.transporte_localidad) && (
+                              <span className={styles.transporteCpLocalidad}>
+                                {' '}({[e.transporte_cp, e.transporte_localidad].filter(Boolean).join(' - ')})
+                              </span>
+                            )}
+                          </div>
+                          {e.mlstreet_name && (
+                            <div className={styles.direccionCliente} title={`Dir. cliente: ${e.mlstreet_name} ${e.mlstreet_number || ''}`}>
+                              {e.mlstreet_name} {e.mlstreet_number || ''}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            {e.mlstreet_name
+                              ? `${e.mlstreet_name} ${e.mlstreet_number || ''}`
+                              : '—'}
+                          </div>
+                          {e.direccion_comentario && (
+                            <div className={styles.direccionComentario} title={e.direccion_comentario}>
+                              {e.direccion_comentario}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </td>
+                    {/* CP — map link like original */}
+                    <td>
+                      {e.mlzip_code ? (
+                        <a
+                          href={
+                            e.latitud && e.longitud
+                              ? `https://www.google.com/maps?q=${e.latitud},${e.longitud}`
+                              : `https://www.google.com/maps/search/${e.mlzip_code}+${e.mlcity_name || 'Buenos Aires'}+Argentina`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`${styles.cpLink} ${e.latitud ? styles.cpLinkExact : ''}`}
+                          title={
+                            e.latitud && e.longitud
+                              ? 'Ver ubicación exacta en Google Maps'
+                              : `Buscar CP ${e.mlzip_code} en Google Maps`
+                          }
+                        >
+                          <MapPin size={12} className={styles.cpIcon} />
+                          <strong>{e.mlzip_code}</strong>
+                        </a>
+                      ) : (
+                        <span className={styles.cellMuted}>—</span>
+                      )}
+                    </td>
+                    {/* Localidad */}
+                    <td className={styles.direccion}>{e.mlcity_name || '—'}</td>
+                    {/* Cordón */}
+                    <td>
+                      <span className={`${styles.badge} ${getCordonBadgeClass(e.cordon)}`}>
+                        {e.cordon || 'Sin asignar'}
+                      </span>
+                    </td>
+                    {/* Estado ERP */}
+                    <td>
+                      {e.ssos_name ? (
+                        <span
+                          className={styles.erpBadge}
+                          style={
+                            e.ssos_color
+                              ? { background: `${e.ssos_color}20`, color: e.ssos_color }
+                              : undefined
+                          }
+                        >
+                          {e.ssos_name}
+                        </span>
+                      ) : (
+                        <span className={styles.cellMuted}>—</span>
+                      )}
+                    </td>
+                    {/* Estado ML — readonly badge */}
+                    <td>
+                      {e.mlstatus ? (
+                        <span className={`${styles.badge} ${getMlStatusClass(e.mlstatus)}`}>
+                          {ML_STATUS_LABELS[e.mlstatus] || e.mlstatus}
+                        </span>
+                      ) : (
+                        <span className={styles.cellMuted}>—</span>
+                      )}
+                    </td>
+                    {/* Fecha — readonly */}
+                    <td className={styles.fechaReadonly}>{e.fecha_envio || '—'}</td>
+                    {/* Logística — readonly badge */}
+                    <td>
+                      {e.logistica_nombre ? (
+                        <span
+                          className={styles.logisticaBadge}
+                          style={
+                            e.logistica_color
+                              ? { background: `${e.logistica_color}20`, color: e.logistica_color }
+                              : undefined
+                          }
+                        >
+                          {e.logistica_nombre}
+                        </span>
+                      ) : (
+                        <span className={styles.cellMuted}>—</span>
+                      )}
+                    </td>
+                    {/* Transporte — readonly badge */}
+                    <td>
+                      {e.transporte_nombre ? (
+                        <span
+                          className={styles.erpBadge}
+                          style={
+                            e.transporte_color
+                              ? { background: `${e.transporte_color}20`, color: e.transporte_color }
+                              : undefined
+                          }
+                        >
+                          {e.transporte_nombre}
+                        </span>
+                      ) : (
+                        <span className={styles.cellMuted}>—</span>
+                      )}
+                    </td>
+                    {/* Pistoleado — readonly */}
+                    <td className={e.pistoleado_at ? styles.cellSuccess : styles.cellMuted}>
+                      {e.pistoleado_at
+                        ? `${new Date(e.pistoleado_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} — ${e.pistoleado_operador_nombre || ''}`
+                        : '—'}
+                    </td>
+                    {/* Caja — readonly */}
+                    <td className={e.pistoleado_caja ? '' : styles.cellMuted}>
+                      {e.pistoleado_caja || '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
