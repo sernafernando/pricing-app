@@ -1803,6 +1803,194 @@
   font-weight: 500;
 }
 
+/* ── Flag Envío ────────────────────────────────────────────── */
+
+/* Row highlight for flagged items */
+.rowFlagged {
+  background: rgba(220, 38, 38, 0.04);
+}
+
+/* Flag badge — base style (inline pill next to shipping ID) */
+.flagBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+  line-height: 1.6;
+  cursor: default;
+}
+
+/* Mal pasado — red */
+.flagBadgeMalPasado {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+
+/* Envío cancelado — orange */
+.flagBadgeCancelado {
+  background: rgba(234, 88, 12, 0.12);
+  color: #ea580c;
+}
+
+/* Duplicado — amber */
+.flagBadgeDuplicado {
+  background: rgba(217, 119, 6, 0.12);
+  color: #d97706;
+}
+
+/* Otro — gray */
+.flagBadgeOtro {
+  background: rgba(107, 114, 128, 0.12);
+  color: #6b7280;
+}
+
+/* Stat card — flag variant */
+.statCardFlag {
+  border-color: transparent;
+}
+
+.statValueFlag {
+  color: #dc2626;
+}
+
+/* Selection bar — flag button (orange/amber) */
+.selectionBtnFlag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(234, 88, 12, 0.5);
+  background: rgba(234, 88, 12, 0.15);
+  color: #fdba74;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnFlag:hover:not(:disabled) {
+  background: rgba(234, 88, 12, 0.3);
+  border-color: rgba(234, 88, 12, 0.7);
+}
+
+.selectionBtnFlag:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Selection bar — quitar flag button (muted red) */
+.selectionBtnQuitarFlag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  background: rgba(220, 38, 38, 0.1);
+  color: #fca5a5;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnQuitarFlag:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.25);
+  border-color: rgba(220, 38, 38, 0.6);
+}
+
+.selectionBtnQuitarFlag:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Flag modal — info text */
+.flagModalInfo {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--cf-text-secondary);
+}
+
+/* Flag modal — form group */
+.flagFormGroup {
+  margin-bottom: 16px;
+}
+
+.flagLabel {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.flagSelect {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.flagSelect:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.flagTextarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+  transition: all var(--duration-200) var(--ease-out);
+  box-sizing: border-box;
+}
+
+.flagTextarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Flag modal — apply button (orange) */
+.btnFlag {
+  composes: btn-tesla primary sm from '../styles/buttons-tesla.css';
+  background: #ea580c;
+  border-color: #ea580c;
+}
+
+.btnFlag:hover:not(:disabled) {
+  background: #c2410c;
+  border-color: #c2410c;
+}
+
+.btnFlag:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 @media (max-width: 600px) {
   .formGrid {
     grid-template-columns: 1fr;

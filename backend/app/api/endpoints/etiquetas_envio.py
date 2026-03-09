@@ -303,6 +303,12 @@ class EtiquetaEnvioResponse(BaseModel):
     # Lluvia — recargo extra sobre turbo
     es_lluvia: bool = False
 
+    # Flag de envío (mal pasado, cancelado, duplicado, otro)
+    flag_envio: Optional[str] = None
+    flag_envio_motivo: Optional[str] = None
+    flag_envio_at: Optional[str] = None
+    flag_envio_usuario_nombre: Optional[str] = None
+
     # Creado por usuario del sistema (cuando viene de Pedidos Pendientes)
     creado_por_usuario_nombre: Optional[str] = None
 
@@ -331,6 +337,7 @@ class EstadisticasEnvioResponse(BaseModel):
     por_estado_erp: dict[str, int]
     costo_total: float = 0.0
     costo_por_logistica: dict[str, float] = {}
+    flagged: int = 0
 
 
 class EstadisticaDiaItem(BaseModel):
@@ -457,6 +464,38 @@ class ShippingIdsRequest(BaseModel):
     """Payload genérico con lista de shipping_ids."""
 
     shipping_ids: List[str] = Field(min_length=1)
+
+
+FLAG_ENVIO_VALIDOS = {"mal_pasado", "envio_cancelado", "duplicado", "otro"}
+
+
+class FlagEnvioRequest(BaseModel):
+    """Payload para flaggear un envío."""
+
+    flag_envio: Optional[str] = Field(
+        None,
+        description="Tipo de flag: mal_pasado, envio_cancelado, duplicado, otro. None para quitar flag.",
+    )
+    motivo: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Observación libre (se muestra como tooltip en el badge)",
+    )
+
+
+class FlagEnvioMasivoRequest(BaseModel):
+    """Payload para flaggear múltiples envíos."""
+
+    shipping_ids: List[str] = Field(min_length=1)
+    flag_envio: Optional[str] = Field(
+        None,
+        description="Tipo de flag: mal_pasado, envio_cancelado, duplicado, otro. None para quitar flag.",
+    )
+    motivo: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Observación libre",
+    )
 
 
 # ── Schemas Pistoleado ───────────────────────────────────────────────
@@ -988,6 +1027,9 @@ def listar_etiquetas(
     # Lluvia offset config
     lluvia_tipo, lluvia_valor = _get_lluvia_config(db)
 
+    # Alias para segundo join a Usuario (flag_envio_usuario)
+    FlagUsuario = aliased(Usuario)
+
     query = (
         db.query(
             EtiquetaEnvio.shipping_id,
@@ -1011,6 +1053,9 @@ def listar_etiquetas(
             EtiquetaEnvio.es_outlet,
             EtiquetaEnvio.es_turbo,
             EtiquetaEnvio.es_lluvia,
+            EtiquetaEnvio.flag_envio,
+            EtiquetaEnvio.flag_envio_motivo,
+            EtiquetaEnvio.flag_envio_at,
             Operador.nombre.label("pistoleado_operador_nombre"),
             Logistica.nombre.label("logistica_nombre"),
             Logistica.color.label("logistica_color"),
@@ -1044,6 +1089,7 @@ def listar_etiquetas(
             MercadoLibreUserData.nickname.label("mluser_nickname"),
             MercadoLibreOrderHeader.mlorder_id.label("ml_order_id"),
             Usuario.nombre.label("creado_por_usuario_nombre"),
+            FlagUsuario.nombre.label("flag_envio_usuario_nombre"),
         )
         .outerjoin(
             Logistica,
@@ -1092,6 +1138,10 @@ def listar_etiquetas(
         .outerjoin(
             Usuario,
             EtiquetaEnvio.creado_por_usuario_id == Usuario.id,
+        )
+        .outerjoin(
+            FlagUsuario,
+            EtiquetaEnvio.flag_envio_usuario_id == FlagUsuario.id,
         )
         .outerjoin(
             costo_sub,
@@ -1199,6 +1249,10 @@ def listar_etiquetas(
             es_outlet=row.es_outlet,
             es_turbo=row.es_turbo,
             es_lluvia=row.es_lluvia,
+            flag_envio=row.flag_envio,
+            flag_envio_motivo=row.flag_envio_motivo,
+            flag_envio_at=str(row.flag_envio_at) if row.flag_envio_at else None,
+            flag_envio_usuario_nombre=row.flag_envio_usuario_nombre,
             creado_por_usuario_nombre=row.creado_por_usuario_nombre,
             transporte_id=row.transporte_id,
             transporte_nombre=row.transporte_nombre,
@@ -1365,6 +1419,9 @@ def estadisticas_etiquetas(
 
     # Base: total de etiquetas que coinciden con los filtros
     total = db.query(EtiquetaEnvio).filter(ids_filter).count()
+
+    # Flaggeadas (mal pasado, cancelado, etc.)
+    flagged = db.query(EtiquetaEnvio).filter(ids_filter, EtiquetaEnvio.flag_envio.isnot(None)).count()
 
     # Por cordón
     cordon_rows = (
@@ -1571,6 +1628,7 @@ def estadisticas_etiquetas(
         por_estado_erp=por_estado_erp,
         costo_total=costo_total,
         costo_por_logistica=costo_por_logistica,
+        flagged=flagged,
     )
 
 
@@ -1705,6 +1763,9 @@ EXPORT_COLUMNS = {
     "pistoleado": "Pistoleado",
     "caja": "Caja",
     "turbo": "Turbo",
+    "lluvia": "Lluvia",
+    "flag_envio": "Flag",
+    "flag_envio_motivo": "Motivo Flag",
 }
 
 
@@ -1831,6 +1892,9 @@ def exportar_etiquetas(
                 ),
             ).label("costo_envio"),
             EtiquetaEnvio.es_turbo,
+            EtiquetaEnvio.es_lluvia,
+            EtiquetaEnvio.flag_envio,
+            EtiquetaEnvio.flag_envio_motivo,
         )
         .outerjoin(Logistica, EtiquetaEnvio.logistica_id == Logistica.id)
         .outerjoin(
@@ -1938,6 +2002,18 @@ def exportar_etiquetas(
             return row.pistoleado_caja or ""
         elif col_key == "turbo":
             return "Turbo" if row.es_turbo else ""
+        elif col_key == "lluvia":
+            return "Lluvia" if row.es_lluvia else ""
+        elif col_key == "flag_envio":
+            labels = {
+                "mal_pasado": "Mal pasado",
+                "envio_cancelado": "Cancelado",
+                "duplicado": "Duplicado",
+                "otro": "Otro",
+            }
+            return labels.get(row.flag_envio, row.flag_envio or "")
+        elif col_key == "flag_envio_motivo":
+            return row.flag_envio_motivo or ""
         return ""
 
     # Datos
@@ -1961,6 +2037,9 @@ def exportar_etiquetas(
         "pistoleado": 22,
         "caja": 14,
         "turbo": 8,
+        "lluvia": 8,
+        "flag_envio": 14,
+        "flag_envio_motivo": 30,
     }
     for col_idx, col_key in enumerate(cols_solicitadas, start=1):
         col_letter = ws.cell(row=1, column=col_idx).column_letter
@@ -2937,6 +3016,119 @@ def toggle_lluvia_masivo(
     return {
         "ok": True,
         "es_lluvia": es_lluvia,
+        "actualizados": updated,
+        "solicitados": len(payload.shipping_ids),
+    }
+
+
+# ── Flag de envío (mal pasado, cancelado, duplicado, otro) ───────
+
+
+@router.put(
+    "/etiquetas-envio/{shipping_id}/flag",
+    response_model=dict,
+    summary="Flaggear o desflaggear un envío",
+)
+def toggle_flag_envio(
+    shipping_id: str,
+    payload: FlagEnvioRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Marca un envío con un flag (mal_pasado, envio_cancelado, duplicado, otro)
+    o lo quita (flag_envio=None).
+
+    Los envíos flaggeados se muestran con badge visual en TabEnviosFlex
+    y se contabilizan separados en las estadísticas.
+
+    Requiere permiso envios_flex.config.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    if payload.flag_envio and payload.flag_envio not in FLAG_ENVIO_VALIDOS:
+        raise HTTPException(
+            422,
+            f"Flag inválido. Valores permitidos: {', '.join(sorted(FLAG_ENVIO_VALIDOS))}",
+        )
+
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    valor_anterior = etiqueta.flag_envio
+
+    if payload.flag_envio:
+        etiqueta.flag_envio = payload.flag_envio
+        etiqueta.flag_envio_motivo = payload.motivo
+        etiqueta.flag_envio_at = datetime.now(UTC)
+        etiqueta.flag_envio_usuario_id = current_user.id
+    else:
+        # Quitar flag
+        etiqueta.flag_envio = None
+        etiqueta.flag_envio_motivo = None
+        etiqueta.flag_envio_at = None
+        etiqueta.flag_envio_usuario_id = None
+
+    db.commit()
+
+    return {
+        "ok": True,
+        "shipping_id": shipping_id,
+        "flag_envio": etiqueta.flag_envio,
+        "valor_anterior": valor_anterior,
+    }
+
+
+@router.put(
+    "/etiquetas-envio/flag-masivo",
+    response_model=dict,
+    summary="Flaggear o desflaggear múltiples envíos",
+)
+def toggle_flag_envio_masivo(
+    payload: FlagEnvioMasivoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Marca o desmarca múltiples etiquetas con un flag en una sola operación.
+
+    Requiere permiso envios_flex.config.
+    """
+    _check_permiso(db, current_user, "envios_flex.config")
+
+    if payload.flag_envio and payload.flag_envio not in FLAG_ENVIO_VALIDOS:
+        raise HTTPException(
+            422,
+            f"Flag inválido. Valores permitidos: {', '.join(sorted(FLAG_ENVIO_VALIDOS))}",
+        )
+
+    update_values: dict = {}
+    if payload.flag_envio:
+        update_values = {
+            EtiquetaEnvio.flag_envio: payload.flag_envio,
+            EtiquetaEnvio.flag_envio_motivo: payload.motivo,
+            EtiquetaEnvio.flag_envio_at: datetime.now(UTC),
+            EtiquetaEnvio.flag_envio_usuario_id: current_user.id,
+        }
+    else:
+        update_values = {
+            EtiquetaEnvio.flag_envio: None,
+            EtiquetaEnvio.flag_envio_motivo: None,
+            EtiquetaEnvio.flag_envio_at: None,
+            EtiquetaEnvio.flag_envio_usuario_id: None,
+        }
+
+    updated = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
+        .update(update_values, synchronize_session="fetch")
+    )
+    db.commit()
+
+    return {
+        "ok": True,
+        "flag_envio": payload.flag_envio,
         "actualizados": updated,
         "solicitados": len(payload.shipping_ids),
     }

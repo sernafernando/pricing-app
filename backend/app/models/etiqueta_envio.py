@@ -86,6 +86,15 @@ class EtiquetaEnvio(Base):
     # Creado por usuario del sistema (cuando se crea desde Pedidos Pendientes)
     creado_por_usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
 
+    # ── Flag de envío (mal pasado, cancelado, etc.) ──────────────
+    # Cuando flag_envio IS NOT NULL, el envío se muestra con badge
+    # visual y se excluye del conteo operativo por defecto.
+    # Valores posibles: "mal_pasado", "envio_cancelado", "duplicado", "otro"
+    flag_envio = Column(String(50), nullable=True, index=True)
+    flag_envio_motivo = Column(Text, nullable=True)  # Observación libre (tooltip)
+    flag_envio_at = Column(DateTime(timezone=True), nullable=True)
+    flag_envio_usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+
     # Bultos — para tracking de pistoleado por bulto
     total_bultos = Column(Integer, nullable=True)  # Cantidad de bultos del envío
     pistoleado_bultos = Column(
@@ -104,7 +113,8 @@ class EtiquetaEnvio(Base):
     logistica = relationship("Logistica", lazy="joined")
     transporte = relationship("Transporte", lazy="joined")
     pistoleado_operador = relationship("Operador", lazy="joined")
-    creado_por_usuario = relationship("Usuario", lazy="joined")
+    creado_por_usuario = relationship("Usuario", foreign_keys=[creado_por_usuario_id], lazy="joined")
+    flag_envio_usuario = relationship("Usuario", foreign_keys=[flag_envio_usuario_id], lazy="joined")
 
     __table_args__ = (
         Index("idx_etiquetas_envio_fecha", "fecha_envio"),
@@ -112,6 +122,7 @@ class EtiquetaEnvio(Base):
         Index("idx_etiquetas_envio_transporte", "transporte_id"),
         Index("idx_etiquetas_pistoleado_operador", "pistoleado_operador_id"),
         Index("idx_etiquetas_envio_es_manual", "es_manual"),
+        Index("idx_etiquetas_envio_flag", "flag_envio"),
     )
 
     def __repr__(self) -> str:
