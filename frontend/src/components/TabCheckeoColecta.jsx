@@ -1,4 +1,5 @@
 import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
+import { useDebounce } from '../hooks/useDebounce';
 import {
   Upload, RefreshCw, Calendar, Table, ExternalLink,
   ScanBarcode, Trash2, X, CheckCircle, AlertCircle, ChevronRight,
@@ -84,6 +85,7 @@ export default function TabCheckeoColecta() {
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
   const [filtroSsosId, setFiltroSsosId] = useState('');
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 400);
 
   // Vista: tabla o calendario
   const [vista, setVista] = useState('tabla');
@@ -154,7 +156,7 @@ export default function TabCheckeoColecta() {
       };
       if (filtroMlStatus) params.mlstatus = filtroMlStatus;
       if (filtroSsosId) params.ssos_id = filtroSsosId;
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
 
       const { data } = await api.get('/etiquetas-colecta', { params });
 
@@ -173,7 +175,7 @@ export default function TabCheckeoColecta() {
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta, filtroMlStatus, filtroSsosId, search]);
+  }, [fechaDesde, fechaHasta, filtroMlStatus, filtroSsosId, debouncedSearch]);
 
   useEffect(() => {
     cargarDatos();

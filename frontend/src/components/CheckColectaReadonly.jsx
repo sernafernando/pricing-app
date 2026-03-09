@@ -1,4 +1,5 @@
 import { Fragment, useState, useEffect, useCallback } from 'react';
+import { useDebounce } from '../hooks/useDebounce';
 import {
   RefreshCw, Calendar, Table, ExternalLink, ChevronRight,
 } from 'lucide-react';
@@ -68,6 +69,7 @@ export default function CheckColectaReadonly() {
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
   const [filtroSsosId, setFiltroSsosId] = useState('');
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 400);
 
   // Vista
   const [vista, setVista] = useState('tabla');
@@ -131,7 +133,7 @@ export default function CheckColectaReadonly() {
       };
       if (filtroMlStatus) params.mlstatus = filtroMlStatus;
       if (filtroSsosId) params.ssos_id = filtroSsosId;
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
 
       const { data } = await api.get('/etiquetas-colecta', { params });
 
@@ -150,7 +152,7 @@ export default function CheckColectaReadonly() {
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta, filtroMlStatus, filtroSsosId, search]);
+  }, [fechaDesde, fechaHasta, filtroMlStatus, filtroSsosId, debouncedSearch]);
 
   useEffect(() => {
     cargarDatos();

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useDebounce } from '../hooks/useDebounce';
 import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
@@ -123,6 +124,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const [soloTurbo, setSoloTurbo] = useState(false);
   const [soloFlag, setSoloFlag] = useState(false);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 400);
 
   // Extrae shipping_id si el input es JSON de etiqueta (pistola/QR)
   const handleSearchChange = (value) => {
@@ -363,9 +365,9 @@ export default function TabEnviosFlex({ operador = null }) {
     if (filtroMlStatus) p.append('mlstatus', filtroMlStatus);
     if (filtroSsosId) p.append('ssos_id', filtroSsosId);
     if (filtroPistoleado) p.append('pistoleado', filtroPistoleado);
-    if (search) p.append('search', search);
+    if (debouncedSearch) p.append('search', debouncedSearch);
     return p;
-  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, sinCordon, soloOutlet, soloTurbo, filtroMlStatus, filtroSsosId, filtroPistoleado, search]);
+  }, [fechaDesde, fechaHasta, filtroCordon, filtroLogistica, sinLogistica, sinCordon, soloOutlet, soloTurbo, filtroMlStatus, filtroSsosId, filtroPistoleado, debouncedSearch]);
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
@@ -1344,7 +1346,7 @@ export default function TabEnviosFlex({ operador = null }) {
       if (soloOutlet) params.append('solo_outlet', 'true');
       if (soloTurbo) params.append('solo_turbo', 'true');
       if (filtroMlStatus) params.append('mlstatus', filtroMlStatus);
-      if (search) params.append('search', search);
+      if (debouncedSearch) params.append('search', debouncedSearch);
 
       const response = await api.get(`/etiquetas-envio/export?${params}`, {
         responseType: 'blob',

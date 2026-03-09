@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useDebounce } from '../hooks/useDebounce';
 import {
   RefreshCw, MapPin, Calendar, Flag, Search, X, Building,
 } from 'lucide-react';
@@ -68,6 +69,7 @@ export default function EnviosVistaFlag() {
   const [filtroMlStatus, setFiltroMlStatus] = useState('');
   const [filtroSsosId, setFiltroSsosId] = useState('');
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 400);
   const [soloFlag, setSoloFlag] = useState(false);
   const [sinCordon, setSinCordon] = useState(false);
 
@@ -143,9 +145,9 @@ export default function EnviosVistaFlag() {
     if (sinCordon) p.append('sin_cordon', 'true');
     if (filtroMlStatus) p.append('mlstatus', filtroMlStatus);
     if (filtroSsosId) p.append('ssos_id', filtroSsosId);
-    if (search) p.append('search', search);
+    if (debouncedSearch) p.append('search', debouncedSearch);
     return p;
-  }, [fechaDesde, fechaHasta, filtroCordon, sinCordon, filtroMlStatus, filtroSsosId, search]);
+  }, [fechaDesde, fechaHasta, filtroCordon, sinCordon, filtroMlStatus, filtroSsosId, debouncedSearch]);
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
