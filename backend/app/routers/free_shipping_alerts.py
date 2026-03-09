@@ -59,7 +59,7 @@ class FreeShippingAlertSummary(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────
 
 QUERY_FREE_SHIPPING_ERRORS = text("""
-    SELECT
+    SELECT DISTINCT ON (mla_base)
         p.resource,
         p.title,
         p.price,
@@ -70,24 +70,53 @@ QUERY_FREE_SHIPPING_ERRORS = text("""
         p.extra_data->>'logistic_type' AS logistic_type,
         p.extra_data->>'shipping_mode' AS shipping_mode,
         p.extra_data->'shipping_tags' AS shipping_tags,
-        p.last_updated
+        p.last_updated,
+        CASE
+            WHEN p.resource LIKE '%/price_to_win%'
+            THEN SUBSTRING(p.resource FROM '/items/(.+)/price_to_win')
+            ELSE REPLACE(p.resource, '/items/', '')
+        END AS mla_base
     FROM ml_previews p
     WHERE p.resource LIKE '/items/MLA%'
       AND (p.extra_data->>'free_shipping_error')::boolean = true
-    ORDER BY p.last_updated DESC
+    ORDER BY mla_base,
+             CASE WHEN p.resource NOT LIKE '%/price_to_win%' THEN 0 ELSE 1 END,
+             p.last_updated DESC
 """)
 
 QUERY_COUNT_ONLY = text("""
     SELECT COUNT(*) AS cnt
-    FROM ml_previews p
-    WHERE p.resource LIKE '/items/MLA%'
-      AND (p.extra_data->>'free_shipping_error')::boolean = true
+    FROM (
+        SELECT DISTINCT ON (
+            CASE
+                WHEN p.resource LIKE '%/price_to_win%'
+                THEN SUBSTRING(p.resource FROM '/items/(.+)/price_to_win')
+                ELSE REPLACE(p.resource, '/items/', '')
+            END
+        )
+            p.resource
+        FROM ml_previews p
+        WHERE p.resource LIKE '/items/MLA%'
+          AND (p.extra_data->>'free_shipping_error')::boolean = true
+        ORDER BY
+            CASE
+                WHEN p.resource LIKE '%/price_to_win%'
+                THEN SUBSTRING(p.resource FROM '/items/(.+)/price_to_win')
+                ELSE REPLACE(p.resource, '/items/', '')
+            END,
+            CASE WHEN p.resource NOT LIKE '%/price_to_win%' THEN 0 ELSE 1 END
+    ) deduped
 """)
 
 
 def _extract_mla_id(resource: str) -> str:
-    """Extrae 'MLA1234567890' de '/items/MLA1234567890'."""
-    return resource.replace("/items/", "")
+    """Extrae 'MLA1234567890' de '/items/MLA1234567890' o '/items/MLA1234567890/price_to_win'."""
+    mla_id = resource.replace("/items/", "")
+    # Limpiar sufijo /price_to_win si existe (bug de duplicados en ml_previews)
+    ptw_idx = mla_id.find("/price_to_win")
+    if ptw_idx != -1:
+        mla_id = mla_id[:ptw_idx]
+    return mla_id
 
 
 def _build_ml_url(mla_id: str) -> str:
