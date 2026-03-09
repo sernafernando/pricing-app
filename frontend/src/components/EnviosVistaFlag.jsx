@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 import {
   RefreshCw, MapPin, Calendar, Flag, Search, X, Building,
@@ -87,6 +87,9 @@ export default function EnviosVistaFlag() {
   // Error feedback
   const [errorMsg, setErrorMsg] = useState(null);
 
+  // Smart polling ref
+  const pollingRef = useRef({ count: null, lastUpdated: null });
+
   // Filtro client-side por flag
   const etiquetasFiltradas = soloFlag
     ? etiquetas.filter(e => e.flag_envio)
@@ -167,6 +170,7 @@ export default function EnviosVistaFlag() {
       } catch {
         // Stats best-effort
       }
+      pollingRef.current = { count: null, lastUpdated: null };
     } catch {
       setError('Error cargando etiquetas');
     } finally {
@@ -177,6 +181,56 @@ export default function EnviosVistaFlag() {
   useEffect(() => {
     cargarDatos();
   }, [cargarDatos]);
+
+  // ── Smart Polling: detectar cambios y recargar silenciosamente ──
+
+  useEffect(() => {
+    const POLL_INTERVAL = 60_000; // 60 segundos
+
+    const checkForUpdates = async () => {
+      if (document.hidden || showFlagModal) return;
+
+      try {
+        const p = new URLSearchParams();
+        if (fechaDesde) p.append('fecha_desde', fechaDesde);
+        if (fechaHasta) p.append('fecha_hasta', fechaHasta);
+
+        const { data } = await api.get(`/etiquetas-envio/check-updates?${p}`);
+        const prev = pollingRef.current;
+
+        if (prev.count === null) {
+          pollingRef.current = { count: data.count, lastUpdated: data.last_updated };
+          if (!error) return;
+        }
+
+        if (data.count !== prev.count || data.last_updated !== prev.lastUpdated) {
+          pollingRef.current = { count: data.count, lastUpdated: data.last_updated };
+          try {
+            const params = buildFilterParams();
+            const etiqResponse = await api.get(`/etiquetas-envio?${params}`);
+            setEtiquetas(etiqResponse.data);
+            setError(null);
+
+            try {
+              const statsResponse = await api.get(`/etiquetas-envio/estadisticas?${params}`);
+              setEstadisticas(statsResponse.data);
+            } catch {
+              // Stats best-effort
+            }
+          } catch {
+            // Silencioso
+          }
+        }
+      } catch {
+        // Silencioso
+      }
+    };
+
+    const intervalId = setInterval(checkForUpdates, POLL_INTERVAL);
+    pollingRef.current = { count: null, lastUpdated: null };
+
+    return () => clearInterval(intervalId);
+  }, [fechaDesde, fechaHasta, showFlagModal, buildFilterParams, error]);
 
   // ── Error feedback ───────────────────────────────────────────
 
