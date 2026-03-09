@@ -9,7 +9,7 @@ Asignaciones por rol:
 - GERENTE: sí
 - VENTAS: sí (este es el público objetivo)
 
-Revision ID: 20260309_permiso_seguimiento_envios
+Revision ID: 20260309_permiso_seg_envios
 Revises: 20260309_flag_envio
 Create Date: 2026-03-09
 
@@ -17,7 +17,7 @@ Create Date: 2026-03-09
 
 from alembic import op
 
-revision = "20260309_permiso_seguimiento_envios"
+revision = "20260309_permiso_seg_envios"
 down_revision = "20260309_flag_envio"
 branch_labels = None
 depends_on = None
