@@ -1701,7 +1701,7 @@ export default function TabEnviosFlex({ operador = null }) {
               <div className={styles.statLabel}>Sin cordón</div>
             </button>
           )}
-          {estadisticas.flagged > 0 && (
+          {(estadisticas.flagged > 0 || soloFlag) && (
             <button
               type="button"
               className={`${styles.statCard} ${styles.statCardClickable} ${styles.statCardFlag} ${soloFlag ? styles.statCardActive : ''}`}
