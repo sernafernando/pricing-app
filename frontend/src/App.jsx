@@ -31,6 +31,7 @@ import Rma from './pages/Rma';
 import ClaimsDashboard from './pages/ClaimsDashboard';
 import Traza from './pages/Traza';
 import FreeShippingAlerts from './pages/FreeShippingAlerts';
+import SeguimientoEnvios from './pages/SeguimientoEnvios';
 import ProtectedRoute from './components/ProtectedRoute';
 import ModalCalculadora from './components/ModalCalculadora';
 import SmartRedirect from './components/SmartRedirect';
@@ -210,6 +211,11 @@ function App() {
             <Route path="/free-shipping-alerts" element={
               <ProtectedRoute permiso="alertas.ver_free_shipping">
                 <FreeShippingAlerts />
+              </ProtectedRoute>
+            } />
+            <Route path="/seguimiento-envios" element={
+              <ProtectedRoute permiso="seguimiento_envios.ver">
+                <SeguimientoEnvios />
               </ProtectedRoute>
             } />
           </Route>

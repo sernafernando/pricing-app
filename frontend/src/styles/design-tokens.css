@@ -206,6 +206,52 @@
   --cf-role-gerente-to: #2563eb;
   --cf-role-default-from: #64748b;
   --cf-role-default-to: #475569;
+
+  /* ── ML Status badge colors ──────────────────────────── */
+  --cf-ml-ready-bg: rgba(59, 130, 246, 0.12);
+  --cf-ml-ready-text: #1d4ed8;
+  --cf-ml-shipped-bg: rgba(234, 179, 8, 0.15);
+  --cf-ml-shipped-text: #92400e;
+  --cf-ml-delivered-bg: rgba(34, 197, 94, 0.12);
+  --cf-ml-delivered-text: #065f46;
+  --cf-ml-cancelled-bg: rgba(239, 68, 68, 0.12);
+  --cf-ml-cancelled-text: #991b1b;
+  --cf-ml-not-delivered-bg: rgba(234, 179, 8, 0.18);
+  --cf-ml-not-delivered-text: #78350f;
+
+  /* ── Flag badge colors ───────────────────────────────── */
+  --cf-flag-mal-pasado-bg: rgba(239, 68, 68, 0.12);
+  --cf-flag-mal-pasado-text: var(--cf-accent-red);
+  --cf-flag-cancelado-bg: rgba(249, 115, 22, 0.12);
+  --cf-flag-cancelado-text: #ea580c;
+  --cf-flag-duplicado-bg: rgba(245, 158, 11, 0.12);
+  --cf-flag-duplicado-text: var(--cf-accent-orange);
+  --cf-flag-otro-bg: rgba(100, 116, 139, 0.12);
+  --cf-flag-otro-text: var(--cf-accent-gray);
+
+  /* ── Selection bar (floating dark overlay) ───────────── */
+  --cf-selection-bar-bg: rgba(30, 30, 35, 0.95);
+  --cf-selection-bar-border: rgba(255, 255, 255, 0.1);
+  --cf-selection-bar-text: #ffffff;
+  --cf-selection-bar-btn-subtle: rgba(255, 255, 255, 0.08);
+  --cf-selection-bar-btn-subtle-border: rgba(255, 255, 255, 0.15);
+  --cf-selection-bar-btn-subtle-text: rgba(255, 255, 255, 0.6);
+
+  /* ── Flag action button colors ───────────────────────── */
+  --cf-flag-action-bg: rgba(234, 88, 12, 0.15);
+  --cf-flag-action-border: rgba(234, 88, 12, 0.5);
+  --cf-flag-action-text: #fdba74;
+  --cf-flag-action-hover-bg: rgba(234, 88, 12, 0.3);
+  --cf-flag-action-hover-border: rgba(234, 88, 12, 0.7);
+  --cf-flag-remove-bg: rgba(220, 38, 38, 0.1);
+  --cf-flag-remove-border: rgba(220, 38, 38, 0.4);
+  --cf-flag-remove-text: #fca5a5;
+  --cf-flag-remove-hover-bg: rgba(220, 38, 38, 0.25);
+  --cf-flag-remove-hover-border: rgba(220, 38, 38, 0.6);
+
+  /* ── Flag modal button ───────────────────────────────── */
+  --cf-flag-btn-bg: #ea580c;
+  --cf-flag-btn-hover-bg: #c2410c;
 }
 
 /* ============================================
@@ -294,6 +340,16 @@
   --cf-shadow-sidebar-peek: 4px 0 12px rgba(0, 0, 0, 0.5);
   --cf-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   --cf-card-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.4);
+
+  /* ML status text — brighter in dark mode for contrast */
+  --cf-ml-ready-text: #60a5fa;
+  --cf-ml-shipped-text: #fbbf24;
+  --cf-ml-delivered-text: #34d399;
+  --cf-ml-cancelled-text: #f87171;
+  --cf-ml-not-delivered-text: #fbbf24;
+
+  /* Flag badge text — brighter in dark mode */
+  --cf-flag-cancelado-text: #fb923c;
 }
 
 /* ============================================

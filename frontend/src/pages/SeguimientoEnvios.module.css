@@ -1,0 +1,17 @@
+/* ── SeguimientoEnvios — composes tab pattern from PedidosPreparacion ── */
+
+.container {
+  composes: container from './PedidosPreparacion.module.css';
+}
+
+.tabsContainer {
+  composes: tabsContainer from './PedidosPreparacion.module.css';
+}
+
+.tabBtn {
+  composes: tabBtn from './PedidosPreparacion.module.css';
+}
+
+.tabActiva {
+  composes: tabActiva from './PedidosPreparacion.module.css';
+}

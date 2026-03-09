@@ -1,0 +1,107 @@
+/* ── EnviosVistaFlag — readonly view, composes from TabEnviosFlex ── */
+/* Same visual identity, no operational actions */
+
+.container { composes: container from './TabEnviosFlex.module.css'; }
+.statsGrid { composes: statsGrid from './TabEnviosFlex.module.css'; }
+.statCard { composes: statCard from './TabEnviosFlex.module.css'; }
+.statValue { composes: statValue from './TabEnviosFlex.module.css'; }
+.statLabel { composes: statLabel from './TabEnviosFlex.module.css'; }
+.statSecondary { composes: statSecondary from './TabEnviosFlex.module.css'; }
+.statCardClickable { composes: statCardClickable from './TabEnviosFlex.module.css'; }
+.statCardActive { composes: statCardActive from './TabEnviosFlex.module.css'; }
+.statCardFlag { composes: statCardFlag from './TabEnviosFlex.module.css'; }
+.statValueFlag { composes: statValueFlag from './TabEnviosFlex.module.css'; }
+.controls { composes: controls from './TabEnviosFlex.module.css'; }
+.filtros { composes: filtros from './TabEnviosFlex.module.css'; }
+.actions { composes: actions from './TabEnviosFlex.module.css'; }
+.dateQuickFilters { composes: dateQuickFilters from './TabEnviosFlex.module.css'; }
+.btnDateQuick { composes: btnDateQuick from './TabEnviosFlex.module.css'; }
+.btnDateCalendar { composes: btnDateCalendar from './TabEnviosFlex.module.css'; }
+.btnDateQuickActive { composes: btnDateQuickActive from './TabEnviosFlex.module.css'; }
+.dateDropdownOverlay { composes: dateDropdownOverlay from './TabEnviosFlex.module.css'; }
+.dateDropdown { composes: dateDropdown from './TabEnviosFlex.module.css'; }
+.dateDropdownField { composes: dateDropdownField from './TabEnviosFlex.module.css'; }
+.dateDropdownInput { composes: dateDropdownInput from './TabEnviosFlex.module.css'; }
+.searchInput { composes: searchInput from './TabEnviosFlex.module.css'; }
+.selectSm { composes: selectSm from './TabEnviosFlex.module.css'; }
+.btnRefresh { composes: btnRefresh from './TabEnviosFlex.module.css'; }
+.tableContainer { composes: tableContainer from './TabEnviosFlex.module.css'; }
+.table { composes: table from './TabEnviosFlex.module.css'; }
+.thCheckbox { composes: thCheckbox from './TabEnviosFlex.module.css'; }
+.tdCheckbox { composes: tdCheckbox from './TabEnviosFlex.module.css'; }
+.checkbox { composes: checkbox from './TabEnviosFlex.module.css'; }
+.rowSelected { composes: rowSelected from './TabEnviosFlex.module.css'; }
+.rowFlagged { composes: rowFlagged from './TabEnviosFlex.module.css'; }
+.shippingId { composes: shippingId from './TabEnviosFlex.module.css'; }
+.shippingIdLink { composes: shippingIdLink from './TabEnviosFlex.module.css'; }
+.outletBadge { composes: outletBadge from './TabEnviosFlex.module.css'; }
+.turboBadge { composes: turboBadge from './TabEnviosFlex.module.css'; }
+.lluviaBadge { composes: lluviaBadge from './TabEnviosFlex.module.css'; }
+.creadoPorBadge { composes: creadoPorBadge from './TabEnviosFlex.module.css'; }
+.flagBadge { composes: flagBadge from './TabEnviosFlex.module.css'; }
+.flagBadgeMalPasado { composes: flagBadgeMalPasado from './TabEnviosFlex.module.css'; }
+.flagBadgeCancelado { composes: flagBadgeCancelado from './TabEnviosFlex.module.css'; }
+.flagBadgeDuplicado { composes: flagBadgeDuplicado from './TabEnviosFlex.module.css'; }
+.flagBadgeOtro { composes: flagBadgeOtro from './TabEnviosFlex.module.css'; }
+.destinatario { composes: destinatario from './TabEnviosFlex.module.css'; }
+.buyerNickname { composes: buyerNickname from './TabEnviosFlex.module.css'; }
+.manualComment { composes: manualComment from './TabEnviosFlex.module.css'; }
+.direccion { composes: direccion from './TabEnviosFlex.module.css'; }
+.direccionTransporte { composes: direccionTransporte from './TabEnviosFlex.module.css'; }
+.direccionCliente { composes: direccionCliente from './TabEnviosFlex.module.css'; }
+.direccionComentario { composes: direccionComentario from './TabEnviosFlex.module.css'; }
+.transporteIcon { composes: transporteIcon from './TabEnviosFlex.module.css'; }
+.transporteCpLocalidad { composes: transporteCpLocalidad from './TabEnviosFlex.module.css'; }
+.cpLink { composes: cpLink from './TabEnviosFlex.module.css'; }
+.cpLinkExact { composes: cpLinkExact from './TabEnviosFlex.module.css'; }
+.cpIcon { composes: cpIcon from './TabEnviosFlex.module.css'; }
+.badge { composes: badge from './TabEnviosFlex.module.css'; }
+.cordonCaba { composes: cordonCaba from './TabEnviosFlex.module.css'; }
+.cordonUno { composes: cordonUno from './TabEnviosFlex.module.css'; }
+.cordonDos { composes: cordonDos from './TabEnviosFlex.module.css'; }
+.cordonTres { composes: cordonTres from './TabEnviosFlex.module.css'; }
+.cordonSinAsignar { composes: cordonSinAsignar from './TabEnviosFlex.module.css'; }
+.erpBadge { composes: erpBadge from './TabEnviosFlex.module.css'; }
+.mlReadyToShip { composes: mlReadyToShip from './TabEnviosFlex.module.css'; }
+.mlShipped { composes: mlShipped from './TabEnviosFlex.module.css'; }
+.mlDelivered { composes: mlDelivered from './TabEnviosFlex.module.css'; }
+.mlCancelled { composes: mlCancelled from './TabEnviosFlex.module.css'; }
+.mlNotDelivered { composes: mlNotDelivered from './TabEnviosFlex.module.css'; }
+.mlDefault { composes: mlDefault from './TabEnviosFlex.module.css'; }
+.cellMuted { composes: cellMuted from './TabEnviosFlex.module.css'; }
+.cellSuccess { composes: cellSuccess from './TabEnviosFlex.module.css'; }
+.loading { composes: loading from './TabEnviosFlex.module.css'; }
+.error { composes: error from './TabEnviosFlex.module.css'; }
+.empty { composes: empty from './TabEnviosFlex.module.css'; }
+.footer { composes: footer from './TabEnviosFlex.module.css'; }
+.selectionBar { composes: selectionBar from './TabEnviosFlex.module.css'; }
+.selectionCount { composes: selectionCount from './TabEnviosFlex.module.css'; }
+.selectionActions { composes: selectionActions from './TabEnviosFlex.module.css'; }
+.selectionBtnFlag { composes: selectionBtnFlag from './TabEnviosFlex.module.css'; }
+.selectionBtnQuitarFlag { composes: selectionBtnQuitarFlag from './TabEnviosFlex.module.css'; }
+.selectionBtnCancelar { composes: selectionBtnCancelar from './TabEnviosFlex.module.css'; }
+.modalOverlay { composes: modalOverlay from './TabEnviosFlex.module.css'; }
+.modalContent { composes: modalContent from './TabEnviosFlex.module.css'; }
+.modalHeader { composes: modalHeader from './TabEnviosFlex.module.css'; }
+.modalClose { composes: modalClose from './TabEnviosFlex.module.css'; }
+.modalBody { composes: modalBody from './TabEnviosFlex.module.css'; }
+.modalFooter { composes: modalFooter from './TabEnviosFlex.module.css'; }
+.btnCancelar { composes: btnCancelar from './TabEnviosFlex.module.css'; }
+.btnFlag { composes: btnFlag from './TabEnviosFlex.module.css'; }
+.flagModalInfo { composes: flagModalInfo from './TabEnviosFlex.module.css'; }
+.flagFormGroup { composes: flagFormGroup from './TabEnviosFlex.module.css'; }
+.flagLabel { composes: flagLabel from './TabEnviosFlex.module.css'; }
+.flagSelect { composes: flagSelect from './TabEnviosFlex.module.css'; }
+.flagTextarea { composes: flagTextarea from './TabEnviosFlex.module.css'; }
+
+/* ── Readonly overrides ─────────────────────────────────────── */
+
+/* Logística/transporte read-only display (reuse erpBadge style) */
+.logisticaBadge { composes: logisticaBadge from './TabEnviosFlex.module.css'; }
+
+/* Pistoleado/fecha displayed as read-only text */
+.fechaReadonly {
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-primary);
+}

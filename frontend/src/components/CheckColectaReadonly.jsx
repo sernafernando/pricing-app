@@ -1,14 +1,12 @@
-import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
 import { useDebounce } from '../hooks/useDebounce';
 import {
-  Upload, RefreshCw, Calendar, Table, ExternalLink,
-  ScanBarcode, Trash2, X, CheckCircle, AlertCircle, ChevronRight,
+  RefreshCw, Calendar, Table, ExternalLink, ChevronRight,
 } from 'lucide-react';
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
-import { usePermisos } from '../contexts/PermisosContext';
-import styles from './TabCheckeoColecta.module.css';
+import styles from './CheckColectaReadonly.module.css';
 
 const ML_STATUS_LABELS = {
   ready_to_ship: 'Listo para enviar',
@@ -37,7 +35,7 @@ const renderColectaDayBadges = (dia, calStyles) => (
     {dia.por_estado_erp && Object.keys(dia.por_estado_erp).length > 0 && (
       <div className={calStyles.badgeRow}>
         {Object.entries(dia.por_estado_erp).map(([name, count]) => (
-          <span key={name} className={calStyles.badge} style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+          <span key={name} className={`${calStyles.badge} ${styles.calBadgeErp}`}>
             {name} {count}
           </span>
         ))}
@@ -46,7 +44,7 @@ const renderColectaDayBadges = (dia, calStyles) => (
     {dia.por_estado_ml && Object.keys(dia.por_estado_ml).length > 0 && (
       <div className={calStyles.badgeRow}>
         {Object.entries(dia.por_estado_ml).map(([status, count]) => (
-          <span key={status} className={calStyles.badge} style={{ background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>
+          <span key={status} className={`${calStyles.badge} ${styles.calBadgeMl}`}>
             {ML_STATUS_LABELS[status] || status} {count}
           </span>
         ))}
@@ -55,28 +53,14 @@ const renderColectaDayBadges = (dia, calStyles) => (
   </>
 );
 
-export default function TabCheckeoColecta() {
-  const { tienePermiso } = usePermisos();
-  const puedeSubir = tienePermiso('envios_flex.subir_etiquetas');
-  const puedeEliminar = tienePermiso('envios_flex.eliminar');
-
+export default function CheckColectaReadonly() {
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Upload
-  const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState(null);
-  const fileInputRef = useRef(null);
-
-  // Scanner individual
-  const scannerRef = useRef(null);
-  const scanTimeoutRef = useRef(null);
-  const [scanFeedback, setScanFeedback] = useState(null);
-
-  // Filtros — date quick filters (copied from TabEnviosFlex)
+  // Filtros
   const [fechaDesde, setFechaDesde] = useState(todayStr());
   const [fechaHasta, setFechaHasta] = useState(todayStr());
   const [filtroRapidoActivo, setFiltroRapidoActivo] = useState('hoy');
@@ -87,21 +71,14 @@ export default function TabCheckeoColecta() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
 
-  // Vista: tabla o calendario
+  // Vista
   const [vista, setVista] = useState('tabla');
 
-  // Selección múltiple
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [lastSelected, setLastSelected] = useState(null);
-
-  // Delete confirmation (replaces window.confirm)
-  const [confirmDelete, setConfirmDelete] = useState(false);
-
-  // Expanded rows (product details)
+  // Expanded rows
   const [expandedRows, setExpandedRows] = useState(new Set());
-  const [rowItems, setRowItems] = useState({}); // { shipping_id: [items] | 'loading' | 'error' }
+  const [rowItems, setRowItems] = useState({});
 
-  // ── Date quick filter logic (copied from TabEnviosFlex) ──────
+  // ── Date quick filter logic ──────────────────────────────────
 
   const aplicarFiltroRapido = (filtro) => {
     const hoy = new Date();
@@ -162,7 +139,7 @@ export default function TabCheckeoColecta() {
 
       setEtiquetas(data);
 
-      // Compute stats in frontend from listing data (avoids second heavy query)
+      // Compute stats in frontend
       const porEstadoErp = {};
       const porEstadoMl = {};
       for (const e of data) {
@@ -181,153 +158,7 @@ export default function TabCheckeoColecta() {
     cargarDatos();
   }, [cargarDatos]);
 
-  // Cleanup scan timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-    };
-  }, []);
-
-  // ── Upload ZPL ───────────────────────────────────────────────
-
-  const handleUpload = async (event) => {
-    const fileList = event.target.files;
-    if (!fileList || fileList.length === 0) return;
-
-    setUploading(true);
-    setUploadResult(null);
-
-    try {
-      const formData = new FormData();
-      for (const file of fileList) {
-        formData.append('files', file);
-      }
-
-      const { data } = await api.post('/etiquetas-colecta/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      setUploadResult(data);
-      cargarDatos();
-    } catch (err) {
-      setUploadResult({
-        errores: 1,
-        detalle_errores: [err.response?.data?.detail || err.message],
-      });
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }
-  };
-
-  // ── Scan individual (pistola / QR) ───────────────────────────
-
-  const handleScan = async (value) => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-
-    let qrJson = trimmed;
-    if (!trimmed.startsWith('{')) {
-      const match = trimmed.match(/\{[^}]+\}/);
-      if (match) {
-        qrJson = match[0];
-      } else {
-        setScanFeedback({ type: 'error', msg: 'No se encontró JSON en el escaneo' });
-        return;
-      }
-    }
-
-    try {
-      const { data } = await api.post('/etiquetas-colecta/scan', { qr_json: qrJson });
-      if (data.nueva) {
-        setScanFeedback({ type: 'ok', msg: data.mensaje });
-        cargarDatos();
-      } else {
-        setScanFeedback({ type: 'dup', msg: data.mensaje });
-      }
-    } catch (err) {
-      setScanFeedback({
-        type: 'error',
-        msg: err.response?.data?.detail || err.message,
-      });
-    }
-
-    if (scannerRef.current) {
-      scannerRef.current.value = '';
-      scannerRef.current.focus();
-    }
-
-    // Auto-clear feedback with cleanup
-    if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-    scanTimeoutRef.current = setTimeout(() => setScanFeedback(null), 3000);
-  };
-
-  const handleScanKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleScan(e.target.value);
-    }
-  };
-
-  // ── Selección ────────────────────────────────────────────────
-
-  const toggleSeleccion = (shippingId, shiftKey) => {
-    const nueva = new Set(selectedIds);
-
-    if (shiftKey && lastSelected !== null) {
-      const ids = etiquetas.map((e) => e.shipping_id);
-      const idxActual = ids.indexOf(shippingId);
-      const idxUltimo = ids.indexOf(lastSelected);
-      const inicio = Math.min(idxActual, idxUltimo);
-      const fin = Math.max(idxActual, idxUltimo);
-      for (let i = inicio; i <= fin; i++) {
-        nueva.add(ids[i]);
-      }
-    } else if (nueva.has(shippingId)) {
-      nueva.delete(shippingId);
-    } else {
-      nueva.add(shippingId);
-    }
-
-    setSelectedIds(nueva);
-    setLastSelected(shippingId);
-  };
-
-  const seleccionarTodos = () => {
-    if (selectedIds.size === etiquetas.length && etiquetas.length > 0) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(etiquetas.map((e) => e.shipping_id)));
-    }
-  };
-
-  const limpiarSeleccion = () => {
-    setSelectedIds(new Set());
-    setLastSelected(null);
-    setConfirmDelete(false);
-  };
-
-  // ── Borrar seleccionados (with inline confirm) ───────────────
-
-  const borrarSeleccionados = async () => {
-    if (selectedIds.size === 0) return;
-
-    try {
-      await api.delete('/etiquetas-colecta', {
-        data: { shipping_ids: Array.from(selectedIds) },
-      });
-      setEtiquetas((prev) => prev.filter((e) => !selectedIds.has(e.shipping_id)));
-      limpiarSeleccion();
-      cargarDatos();
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Error borrando etiquetas');
-    }
-    setConfirmDelete(false);
-  };
-
-  // ── Expandable rows (product details) ────────────────────────
+  // ── Expandable rows ──────────────────────────────────────────
 
   const toggleExpanded = async (shippingId) => {
     const newExpanded = new Set(expandedRows);
@@ -341,14 +172,13 @@ export default function TabCheckeoColecta() {
     newExpanded.add(shippingId);
     setExpandedRows(newExpanded);
 
-    // Load items if not already loaded
     if (!rowItems[shippingId]) {
-      setRowItems((prev) => ({ ...prev, [shippingId]: 'loading' }));
+      setRowItems(prev => ({ ...prev, [shippingId]: 'loading' }));
       try {
         const { data } = await api.get(`/etiquetas-colecta/${shippingId}/items`);
-        setRowItems((prev) => ({ ...prev, [shippingId]: data }));
+        setRowItems(prev => ({ ...prev, [shippingId]: data }));
       } catch {
-        setRowItems((prev) => ({ ...prev, [shippingId]: 'error' }));
+        setRowItems(prev => ({ ...prev, [shippingId]: 'error' }));
       }
     }
   };
@@ -365,7 +195,7 @@ export default function TabCheckeoColecta() {
   // ── Derived data ─────────────────────────────────────────────
 
   const erpStatesMap = new Map();
-  const erpColorMap = new Map(); // name → ssos_color
+  const erpColorMap = new Map();
   for (const e of etiquetas) {
     if (e.ssos_id && e.ssos_name && !erpStatesMap.has(e.ssos_id)) {
       erpStatesMap.set(e.ssos_id, e.ssos_name);
@@ -375,7 +205,7 @@ export default function TabCheckeoColecta() {
     }
   }
 
-  const mlStatuses = [...new Set(etiquetas.map((e) => e.mlstatus).filter(Boolean))];
+  const mlStatuses = [...new Set(etiquetas.map(e => e.mlstatus).filter(Boolean))];
 
   // ── Render ───────────────────────────────────────────────────
 
@@ -406,34 +236,7 @@ export default function TabCheckeoColecta() {
         </div>
       )}
 
-      {/* Scanner individual */}
-      {puedeSubir && (
-        <div className={styles.scannerSection}>
-          <ScanBarcode size={20} style={{ color: 'var(--text-tertiary)' }} />
-          <input
-            ref={scannerRef}
-            type="text"
-            className={styles.scannerInput}
-            placeholder="Escaneá el QR de la etiqueta..."
-            onKeyDown={handleScanKeyDown}
-            autoComplete="off"
-          />
-          {scanFeedback && (
-            <div className={`${styles.scanFeedback} ${
-              scanFeedback.type === 'ok' ? styles.scanFeedbackOk
-                : scanFeedback.type === 'dup' ? styles.scanFeedbackDup
-                  : styles.scanFeedbackError
-            }`}>
-              {scanFeedback.type === 'ok' ? <CheckCircle size={16} />
-                : scanFeedback.type === 'dup' ? <AlertCircle size={16} />
-                  : <X size={16} />}
-              {scanFeedback.msg}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Controls (flex pattern) */}
+      {/* Controls */}
       <div className={styles.controls}>
         <div className={styles.filtros}>
           {/* Date quick filters */}
@@ -446,34 +249,16 @@ export default function TabCheckeoColecta() {
             >
               <Calendar size={14} />
             </button>
-            <button
-              type="button"
-              onClick={() => aplicarFiltroRapido('hoy')}
-              className={`${styles.btnDateQuick} ${filtroRapidoActivo === 'hoy' ? styles.btnDateQuickActive : ''}`}
-            >
-              Hoy
-            </button>
-            <button
-              type="button"
-              onClick={() => aplicarFiltroRapido('ayer')}
-              className={`${styles.btnDateQuick} ${filtroRapidoActivo === 'ayer' ? styles.btnDateQuickActive : ''}`}
-            >
-              Ayer
-            </button>
-            <button
-              type="button"
-              onClick={() => aplicarFiltroRapido('3d')}
-              className={`${styles.btnDateQuick} ${filtroRapidoActivo === '3d' ? styles.btnDateQuickActive : ''}`}
-            >
-              3d
-            </button>
-            <button
-              type="button"
-              onClick={() => aplicarFiltroRapido('7d')}
-              className={`${styles.btnDateQuick} ${filtroRapidoActivo === '7d' ? styles.btnDateQuickActive : ''}`}
-            >
-              7d
-            </button>
+            {['hoy', 'ayer', '3d', '7d'].map(f => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => aplicarFiltroRapido(f)}
+                className={`${styles.btnDateQuick} ${filtroRapidoActivo === f ? styles.btnDateQuickActive : ''}`}
+              >
+                {f === 'hoy' ? 'Hoy' : f === 'ayer' ? 'Ayer' : f.toUpperCase()}
+              </button>
+            ))}
 
             {mostrarDropdownFecha && (
               <>
@@ -522,16 +307,18 @@ export default function TabCheckeoColecta() {
           />
 
           {/* ML Status filter */}
-          <select
-            value={filtroMlStatus}
-            onChange={(e) => setFiltroMlStatus(e.target.value)}
-            className={styles.selectSm}
-          >
-            <option value="">Estado ML</option>
-            {mlStatuses.map((s) => (
-              <option key={s} value={s}>{ML_STATUS_LABELS[s] || s}</option>
-            ))}
-          </select>
+          {mlStatuses.length > 0 && (
+            <select
+              value={filtroMlStatus}
+              onChange={(e) => setFiltroMlStatus(e.target.value)}
+              className={styles.selectSm}
+            >
+              <option value="">Estado ML</option>
+              {mlStatuses.map(s => (
+                <option key={s} value={s}>{ML_STATUS_LABELS[s] || s}</option>
+              ))}
+            </select>
+          )}
 
           {/* ERP Status filter */}
           {erpStatesMap.size > 0 && (
@@ -573,71 +360,17 @@ export default function TabCheckeoColecta() {
             </button>
           </div>
 
-          {/* Refresh */}
-          <button onClick={cargarDatos} className={styles.btnRefresh} disabled={loading} aria-label="Actualizar lista">
+          <button
+            onClick={cargarDatos}
+            className={styles.btnRefresh}
+            disabled={loading}
+            aria-label="Actualizar lista"
+          >
             <RefreshCw size={16} className={loading ? styles.spin : ''} />
             Actualizar
           </button>
-
-          {/* Upload ZPL */}
-          {puedeSubir && (
-            <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".zip,.txt"
-                multiple
-                onChange={handleUpload}
-                className={styles.fileInputHidden}
-                id="colecta-zpl-upload"
-              />
-              <label
-                htmlFor="colecta-zpl-upload"
-                className={`${styles.btnUpload} ${uploading ? styles.btnDisabled : ''}`}
-              >
-                <Upload size={16} />
-                {uploading ? 'Subiendo...' : 'Subir ZPLs'}
-              </label>
-            </>
-          )}
         </div>
       </div>
-
-      {/* Upload result */}
-      {uploadResult && (
-        <div className={uploadResult.errores > 0 && !uploadResult.nuevas ? styles.uploadError : styles.uploadSuccess}>
-          {uploadResult.nuevas !== undefined && (
-            <p>
-              <strong>{uploadResult.total}</strong> etiquetas procesadas:{' '}
-              {uploadResult.nuevas} nuevas, {uploadResult.duplicadas} duplicadas
-              {uploadResult.errores > 0 && `, ${uploadResult.errores} errores`}
-            </p>
-          )}
-          {uploadResult.detalle_errores?.length > 0 && (
-            <ul className={styles.errorList}>
-              {uploadResult.detalle_errores.slice(0, 5).map((err, i) => (
-                <li key={i}>{err}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {/* Delete confirmation bar (replaces window.confirm) */}
-      {confirmDelete && (
-        <div className={styles.confirmBar}>
-          <span className={styles.confirmMsg}>
-            ¿Borrar {selectedIds.size} etiqueta{selectedIds.size !== 1 ? 's' : ''} de colecta? Esta acción no se puede deshacer.
-          </span>
-          <button onClick={borrarSeleccionados} className={styles.btnConfirmDelete}>
-            <Trash2 size={14} />
-            Confirmar
-          </button>
-          <button onClick={() => setConfirmDelete(false)} className={styles.btnConfirmCancel}>
-            Cancelar
-          </button>
-        </div>
-      )}
 
       {/* Error */}
       {error && <div className={styles.errorMsg}>{error}</div>}
@@ -663,13 +396,6 @@ export default function TabCheckeoColecta() {
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th style={{ width: 40 }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.size === etiquetas.length && etiquetas.length > 0}
-                        onChange={seleccionarTodos}
-                      />
-                    </th>
                     <th style={{ width: 24 }} />
                     <th>Shipping ID</th>
                     <th>Destinatario</th>
@@ -685,16 +411,9 @@ export default function TabCheckeoColecta() {
                     return (
                       <Fragment key={e.shipping_id}>
                         <tr
-                          className={`${selectedIds.has(e.shipping_id) ? styles.rowSelected : ''} ${styles.rowClickable}`}
+                          className={styles.rowClickable}
                           onClick={() => toggleExpanded(e.shipping_id)}
                         >
-                          <td onClick={(ev) => ev.stopPropagation()}>
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.has(e.shipping_id)}
-                              onChange={(ev) => toggleSeleccion(e.shipping_id, ev.nativeEvent.shiftKey)}
-                            />
-                          </td>
                           <td>
                             <ChevronRight
                               size={14}
@@ -748,7 +467,7 @@ export default function TabCheckeoColecta() {
                         {/* Expanded row — product details */}
                         {isExpanded && (
                           <tr className={styles.expandedRow}>
-                            <td colSpan={6}>
+                            <td colSpan={5}>
                               {items === 'loading' && (
                                 <div className={styles.expandedLoading}>Cargando productos...</div>
                               )}
@@ -768,11 +487,6 @@ export default function TabCheckeoColecta() {
                                         )}
                                         <span className={styles.itemDesc}>{item.descripcion}</span>
                                         <span className={styles.itemQty}>x{item.cantidad}</span>
-                                        {item.precio_unitario != null && (
-                                          <span className={styles.itemPrice}>
-                                            ${item.precio_unitario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                          </span>
-                                        )}
                                       </div>
                                     ))}
                                   </div>
@@ -796,37 +510,6 @@ export default function TabCheckeoColecta() {
             </div>
           )}
         </>
-      )}
-
-      {/* Selection bar (floating) */}
-      {selectedIds.size > 0 && !confirmDelete && (
-        <div className={styles.selectionBar}>
-          <span className={styles.selectionCount}>
-            {selectedIds.size} etiqueta{selectedIds.size !== 1 ? 's' : ''}
-          </span>
-
-          <div className={styles.selectionActions}>
-            {puedeEliminar && (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                className={styles.selectionBtnBorrar}
-                title="Borrar etiquetas seleccionadas"
-                aria-label="Borrar etiquetas seleccionadas"
-              >
-                <Trash2 size={16} />
-                Borrar
-              </button>
-            )}
-
-            <button
-              onClick={limpiarSeleccion}
-              className={styles.selectionBtnCancelar}
-              aria-label="Cancelar selección"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </div>
       )}
     </div>
   );

@@ -1,0 +1,68 @@
+/* ── CheckColectaReadonly — composes from TabCheckeoColecta ── */
+/* Readonly version: no scanner, upload, selection bar, or delete */
+
+.container { composes: container from './TabCheckeoColecta.module.css'; }
+.statsGrid { composes: statsGrid from './TabCheckeoColecta.module.css'; }
+.statCard { composes: statCard from './TabCheckeoColecta.module.css'; }
+.statValue { composes: statValue from './TabCheckeoColecta.module.css'; }
+.statLabel { composes: statLabel from './TabCheckeoColecta.module.css'; }
+.controls { composes: controls from './TabCheckeoColecta.module.css'; }
+.filtros { composes: filtros from './TabCheckeoColecta.module.css'; }
+.dateQuickFilters { composes: dateQuickFilters from './TabCheckeoColecta.module.css'; }
+.btnDateQuick { composes: btnDateQuick from './TabCheckeoColecta.module.css'; }
+.btnDateCalendar { composes: btnDateCalendar from './TabCheckeoColecta.module.css'; }
+.btnDateQuickActive { composes: btnDateQuickActive from './TabCheckeoColecta.module.css'; }
+.dateDropdownOverlay { composes: dateDropdownOverlay from './TabCheckeoColecta.module.css'; }
+.dateDropdown { composes: dateDropdown from './TabCheckeoColecta.module.css'; }
+.dateDropdownField { composes: dateDropdownField from './TabCheckeoColecta.module.css'; }
+.dateDropdownInput { composes: dateDropdownInput from './TabCheckeoColecta.module.css'; }
+.searchInput { composes: searchInput from './TabCheckeoColecta.module.css'; }
+.selectSm { composes: selectSm from './TabCheckeoColecta.module.css'; }
+.actions { composes: actions from './TabCheckeoColecta.module.css'; }
+.vistaToggle { composes: vistaToggle from './TabCheckeoColecta.module.css'; }
+.vistaBtn { composes: vistaBtn from './TabCheckeoColecta.module.css'; }
+.vistaBtnActive { composes: vistaBtnActive from './TabCheckeoColecta.module.css'; }
+.btnRefresh { composes: btnRefresh from './TabCheckeoColecta.module.css'; }
+.errorMsg { composes: errorMsg from './TabCheckeoColecta.module.css'; }
+.loadingMsg { composes: loadingMsg from './TabCheckeoColecta.module.css'; }
+.emptyMsg { composes: emptyMsg from './TabCheckeoColecta.module.css'; }
+.tableWrapper { composes: tableWrapper from './TabCheckeoColecta.module.css'; }
+.table { composes: table from './TabCheckeoColecta.module.css'; }
+.rowClickable { composes: rowClickable from './TabCheckeoColecta.module.css'; }
+.expandedRow { composes: expandedRow from './TabCheckeoColecta.module.css'; }
+.expandedContent { composes: expandedContent from './TabCheckeoColecta.module.css'; }
+.itemsList { composes: itemsList from './TabCheckeoColecta.module.css'; }
+.itemRow { composes: itemRow from './TabCheckeoColecta.module.css'; }
+.itemCode { composes: itemCode from './TabCheckeoColecta.module.css'; }
+.itemDesc { composes: itemDesc from './TabCheckeoColecta.module.css'; }
+.itemQty { composes: itemQty from './TabCheckeoColecta.module.css'; }
+.expandedLoading { composes: expandedLoading from './TabCheckeoColecta.module.css'; }
+.expandedEmpty { composes: expandedEmpty from './TabCheckeoColecta.module.css'; }
+.expandIcon { composes: expandIcon from './TabCheckeoColecta.module.css'; }
+.expandIconOpen { composes: expandIconOpen from './TabCheckeoColecta.module.css'; }
+.shippingCell { composes: shippingCell from './TabCheckeoColecta.module.css'; }
+.shippingLink { composes: shippingLink from './TabCheckeoColecta.module.css'; }
+.externalIcon { composes: externalIcon from './TabCheckeoColecta.module.css'; }
+.badge { composes: badge from './TabCheckeoColecta.module.css'; }
+.cellMuted { composes: cellMuted from './TabCheckeoColecta.module.css'; }
+.mlReadyToShip { composes: mlReadyToShip from './TabCheckeoColecta.module.css'; }
+.mlShipped { composes: mlShipped from './TabCheckeoColecta.module.css'; }
+.mlDelivered { composes: mlDelivered from './TabCheckeoColecta.module.css'; }
+.mlCancelled { composes: mlCancelled from './TabCheckeoColecta.module.css'; }
+.mlNotDelivered { composes: mlNotDelivered from './TabCheckeoColecta.module.css'; }
+.mlDefault { composes: mlDefault from './TabCheckeoColecta.module.css'; }
+.erpBadge { composes: erpBadge from './TabCheckeoColecta.module.css'; }
+.footer { composes: footer from './TabCheckeoColecta.module.css'; }
+.spin { composes: spin from './TabCheckeoColecta.module.css'; }
+
+/* ── Calendar badge overrides (readonly context) ────────── */
+
+.calBadgeErp {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+}
+
+.calBadgeMl {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-tertiary);
+}

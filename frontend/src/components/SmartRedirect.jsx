@@ -54,6 +54,7 @@ export default function SmartRedirect() {
     { path: '/pedidos-preparacion', permiso: 'ordenes.ver_preparacion' },
     { path: '/rma', permiso: 'rma.ver' },
     { path: '/claims', permiso: 'rma.ver' },
+    { path: '/seguimiento-envios', permiso: 'seguimiento_envios.ver' },
   ];
 
   // Buscar la primera ruta a la que tenga acceso

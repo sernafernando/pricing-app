@@ -86,6 +86,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       defaultOpen: false,
       items: [
         { label: 'Traza', path: '/traza', permiso: 'traza.ver' },
+        { label: 'Seguimiento Envíos', path: '/seguimiento-envios', permiso: 'seguimiento_envios.ver' },
       ],
     },
     {

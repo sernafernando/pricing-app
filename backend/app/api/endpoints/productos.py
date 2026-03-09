@@ -6667,8 +6667,11 @@ async def exportar_clasica(
             precio_final = precio_exportar / dolar_ajustado
             # Para USD, redondear a 2 decimales
             precio_str = f"{precio_final:.2f}"
+        elif tipo_cuotas.startswith("pvp"):
+            # Para PVP en ARS, exportar precio exacto sin redondear
+            precio_str = f"{float(precio_exportar):.2f}"
         else:
-            # Para ARS, redondear a múltiplo de 10
+            # Para ARS (clásica/cuotas), redondear a múltiplo de 10
             precio_final = round(precio_exportar / 10) * 10
             precio_str = str(int(precio_final))
 
