@@ -1,0 +1,657 @@
+/* ── EnviosVistaFlag — vista readonly con flag ───────────── */
+/* Reutiliza los mismos patterns de TabCheckeoColecta.module.css */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Stats ──────────────────────────────────────────────── */
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.statCard {
+  background: var(--cf-bg-card);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  border: 2px solid transparent;
+}
+
+.statValue {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--cf-accent-blue);
+}
+
+.statLabel {
+  font-size: 13px;
+  color: var(--cf-text-secondary);
+  margin-top: 2px;
+}
+
+.statCardClickable {
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.statCardClickable:hover {
+  border-color: var(--cf-accent-blue);
+  box-shadow: var(--shadow-md);
+}
+
+.statCardActive {
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 1px var(--cf-accent-blue);
+}
+
+.statValueFlag {
+  color: var(--cf-accent-red);
+}
+
+/* ── Controls ───────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ── Date quick filters ─────────────────────────────────── */
+
+.dateQuickFilters {
+  display: flex;
+  gap: 2px;
+  position: relative;
+}
+
+.btnDateQuick {
+  padding: 6px 12px;
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.btnDateQuick:first-child {
+  border-radius: 8px 0 0 8px;
+}
+
+.btnDateQuick:last-of-type {
+  border-radius: 0 8px 8px 0;
+}
+
+.btnDateQuickActive {
+  background: var(--cf-accent-blue);
+  color: white;
+  border-color: var(--cf-accent-blue);
+}
+
+.btnDateCalendar {
+  padding: 6px 10px;
+}
+
+.dateDropdownOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 99;
+}
+
+.dateDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 200px;
+}
+
+.dateDropdownField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dateDropdownField label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+}
+
+.dateDropdownInput {
+  padding: 6px 10px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 8px;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  font-size: 13px;
+}
+
+/* ── Search ─────────────────────────────────────────────── */
+
+.searchWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  color: var(--cf-text-tertiary);
+  pointer-events: none;
+}
+
+.searchInput {
+  padding: 7px 10px 7px 30px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 8px;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: 13px;
+  min-width: 200px;
+  transition: border-color 0.15s;
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 3px var(--cf-accent-blue-light);
+}
+
+.selectSm {
+  padding: 7px 10px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 8px;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.selectSm:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+}
+
+/* ── Buttons ────────────────────────────────────────────── */
+
+.btnRefresh {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
+}
+
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ── Messages ───────────────────────────────────────────── */
+
+.errorMsg {
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--cf-flag-mal-pasado-bg);
+  color: var(--cf-accent-red);
+  font-size: 14px;
+}
+
+.loadingMsg {
+  text-align: center;
+  padding: 40px;
+  color: var(--cf-text-secondary);
+  font-size: 14px;
+}
+
+.emptyMsg {
+  text-align: center;
+  padding: 40px;
+  color: var(--cf-text-tertiary);
+  font-size: 14px;
+}
+
+/* ── Table ──────────────────────────────────────────────── */
+
+.tableWrapper {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--cf-border-default);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table thead th {
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+  border-bottom: 1px solid var(--cf-border-default);
+  white-space: nowrap;
+}
+
+.table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--cf-border-default);
+  color: var(--cf-text-primary);
+  vertical-align: middle;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr:hover {
+  background: var(--cf-bg-hover);
+}
+
+.rowSelected {
+  background: var(--cf-accent-blue-light);
+}
+
+.rowFlagged {
+  background: var(--cf-flag-mal-pasado-bg);
+}
+
+.checkbox {
+  cursor: pointer;
+}
+
+.cellMuted {
+  color: var(--cf-text-tertiary);
+}
+
+.shippingCell {
+  white-space: nowrap;
+}
+
+.shippingLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.shippingLink:hover {
+  text-decoration: underline;
+}
+
+.externalIcon {
+  opacity: 0.5;
+}
+
+.direccionCell {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fechaCell {
+  white-space: nowrap;
+}
+
+/* ── ML Status badges ───────────────────────────────────── */
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mlReadyToShip { background: var(--cf-ml-ready-bg); color: var(--cf-ml-ready-text); }
+.mlShipped { background: var(--cf-ml-shipped-bg); color: var(--cf-ml-shipped-text); }
+.mlDelivered { background: var(--cf-ml-delivered-bg); color: var(--cf-ml-delivered-text); }
+.mlCancelled { background: var(--cf-ml-cancelled-bg); color: var(--cf-ml-cancelled-text); }
+.mlNotDelivered { background: var(--cf-ml-not-delivered-bg); color: var(--cf-ml-not-delivered-text); }
+.mlDefault { background: var(--cf-bg-hover); color: var(--cf-text-secondary); }
+
+/* ── Flag badges ────────────────────────────────────────── */
+
+.flagBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.flagBadgeMalPasado {
+  background: var(--cf-flag-mal-pasado-bg);
+  color: var(--cf-flag-mal-pasado-text);
+}
+
+.flagBadgeCancelado {
+  background: var(--cf-flag-cancelado-bg);
+  color: var(--cf-flag-cancelado-text);
+}
+
+.flagBadgeDuplicado {
+  background: var(--cf-flag-duplicado-bg);
+  color: var(--cf-flag-duplicado-text);
+}
+
+.flagBadgeOtro {
+  background: var(--cf-flag-otro-bg);
+  color: var(--cf-flag-otro-text);
+}
+
+/* ── Footer ─────────────────────────────────────────────── */
+
+.footer {
+  text-align: center;
+  padding: 8px;
+  font-size: 13px;
+  color: var(--cf-text-tertiary);
+}
+
+/* ── Selection bar ──────────────────────────────────────── */
+
+.selectionBar {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--cf-selection-bar-bg);
+  border: 1px solid var(--cf-selection-bar-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  color: var(--cf-selection-bar-text);
+}
+
+.selectionCount {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.selectionActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.selectionBtnFlag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--cf-flag-action-border);
+  background: var(--cf-flag-action-bg);
+  color: var(--cf-flag-action-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnFlag:hover:not(:disabled) {
+  background: var(--cf-flag-action-hover-bg);
+  border-color: var(--cf-flag-action-hover-border);
+}
+
+.selectionBtnFlag:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.selectionBtnQuitarFlag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--cf-flag-remove-border);
+  background: var(--cf-flag-remove-bg);
+  color: var(--cf-flag-remove-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.selectionBtnQuitarFlag:hover:not(:disabled) {
+  background: var(--cf-flag-remove-hover-bg);
+  border-color: var(--cf-flag-remove-hover-border);
+}
+
+.selectionBtnQuitarFlag:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.selectionBtnCancelar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--cf-selection-bar-btn-subtle-border);
+  background: var(--cf-selection-bar-btn-subtle);
+  color: var(--cf-selection-bar-btn-subtle-text);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.selectionBtnCancelar:hover {
+  background: var(--cf-selection-bar-btn-subtle-border);
+  color: var(--cf-selection-bar-text);
+}
+
+/* ── Modal ──────────────────────────────────────────────── */
+
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modalContent {
+  background: var(--cf-bg-card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg, 0 20px 60px rgba(0, 0, 0, 0.3));
+  width: 90%;
+  max-width: 480px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--cf-text-primary);
+}
+
+.modalClose {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--cf-text-secondary);
+  padding: 4px;
+  line-height: 1;
+}
+
+.modalClose:hover {
+  color: var(--cf-text-primary);
+}
+
+.modalBody {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modalFooter {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 16px 24px;
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.btnCancelar {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+}
+
+.btnFlag {
+  composes: btn-tesla primary sm from '../styles/buttons-tesla.css';
+  background: var(--cf-flag-btn-bg);
+  border-color: var(--cf-flag-btn-bg);
+}
+
+.btnFlag:hover:not(:disabled) {
+  background: var(--cf-flag-btn-hover-bg);
+  border-color: var(--cf-flag-btn-hover-bg);
+}
+
+.btnFlag:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Flag modal form ────────────────────────────────────── */
+
+.flagModalInfo {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--cf-text-secondary);
+}
+
+.flagFormGroup {
+  margin-bottom: 16px;
+}
+
+.flagLabel {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.flagSelect {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.flagSelect:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px var(--cf-accent-blue-light);
+}
+
+.flagTextarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+  transition: all var(--duration-200) var(--ease-out);
+  box-sizing: border-box;
+}
+
+.flagTextarea:focus {
+  outline: none;
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 3px var(--cf-accent-blue-light);
+}
