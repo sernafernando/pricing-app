@@ -624,6 +624,7 @@ async def get_operaciones_con_metricas(
             -- Comisión base porcentaje (comision_base + adicional_cuota según pricelist)
             -- SIEMPRE usar pe.subcategoria_id (productos_erp) para evitar errores cuando tb_item no existe
             -- Usar comisiones versionadas (comisiones_base + comisiones_versiones)
+            -- Resolución de pricelist: histórico > sale_order > publicación actual
             COALESCE(
                 (
                     SELECT 
@@ -633,10 +634,10 @@ async def get_operaciones_con_metricas(
                                 FROM comisiones_adicionales_cuota cac
                                 WHERE cac.version_id = cv.id
                                   AND cac.cuotas = CASE
-                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 17 THEN 3
-                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 14 THEN 6
-                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 13 THEN 9
-                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 23 THEN 12
+                                      WHEN COALESCE(tmloh.prli_id, tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) IN (17, 18) THEN 3
+                                      WHEN COALESCE(tmloh.prli_id, tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) IN (14, 19) THEN 6
+                                      WHEN COALESCE(tmloh.prli_id, tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) IN (13, 20) THEN 9
+                                      WHEN COALESCE(tmloh.prli_id, tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) IN (23, 21) THEN 12
                                       ELSE NULL
                                   END
                                 LIMIT 1
@@ -1007,10 +1008,10 @@ async def exportar_operaciones(
                                 FROM comisiones_adicionales_cuota cac
                                 WHERE cac.version_id = cv.id
                                   AND cac.cuotas = CASE
-                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 17 THEN 3
-                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 14 THEN 6
-                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 13 THEN 9
-                                      WHEN COALESCE(tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) = 23 THEN 12
+                                      WHEN COALESCE(tmloh.prli_id, tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) IN (17, 18) THEN 3
+                                      WHEN COALESCE(tmloh.prli_id, tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) IN (14, 19) THEN 6
+                                      WHEN COALESCE(tmloh.prli_id, tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) IN (13, 20) THEN 9
+                                      WHEN COALESCE(tmloh.prli_id, tsoh.prli_id, CASE WHEN tmloh.mlo_ismshops = TRUE THEN tmlip.prli_id4mercadoshop ELSE tmlip.prli_id END) IN (23, 21) THEN 12
                                       ELSE NULL
                                   END
                                 LIMIT 1
