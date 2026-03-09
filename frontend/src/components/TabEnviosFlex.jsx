@@ -3,7 +3,7 @@ import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
   Truck, Search, Printer, Pencil, Bike, Building, Calendar,
-  Table, Map, CloudRain,
+  Table, Map, CloudRain, Flag,
 } from 'lucide-react';
 import MapaEnviosFlex from './MapaEnviosFlex';
 import CalendarioEnvios from './CalendarioEnvios';
@@ -33,6 +33,15 @@ const EXPORT_COLUMNS = {
   caja: 'Caja',
   turbo: 'Turbo',
   lluvia: 'Lluvia',
+  flag_envio: 'Flag',
+  flag_envio_motivo: 'Motivo Flag',
+};
+
+const FLAG_LABELS = {
+  mal_pasado: 'Mal pasado',
+  envio_cancelado: 'Cancelado',
+  duplicado: 'Duplicado',
+  otro: 'Otro',
 };
 
 const ML_STATUS_LABELS = {
@@ -84,6 +93,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const puedeVerCostos = tienePermiso('envios_flex.config');
   const puedeAsignarTurbo = tienePermiso('envios_flex.asignar_turbo');
   const puedeAsignarLluvia = tienePermiso('envios_flex.asignar_lluvia');
+  const puedeFlag = tienePermiso('envios_flex.config');
 
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
@@ -111,6 +121,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const [filtroPistoleado, setFiltroPistoleado] = useState('');
   const [soloOutlet, setSoloOutlet] = useState(false);
   const [soloTurbo, setSoloTurbo] = useState(false);
+  const [soloFlag, setSoloFlag] = useState(false);
   const [search, setSearch] = useState('');
 
   // Extrae shipping_id si el input es JSON de etiqueta (pistola/QR)
@@ -268,6 +279,17 @@ export default function TabEnviosFlex({ operador = null }) {
   const [printTipoEnvio, setPrintTipoEnvio] = useState('');
   const [printManualLoading, setPrintManualLoading] = useState(false);
 
+  // Flag modal
+  const [showFlagModal, setShowFlagModal] = useState(false);
+  const [flagType, setFlagType] = useState('mal_pasado');
+  const [flagMotivo, setFlagMotivo] = useState('');
+  const [flagLoading, setFlagLoading] = useState(false);
+
+  // Filtrar flaggeadas client-side (los datos ya vienen con flag_envio)
+  const etiquetasFiltradas = soloFlag
+    ? etiquetas.filter(e => e.flag_envio)
+    : etiquetas;
+
   // Confirm modal (reemplaza confirm())
   const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, onConfirm, challengeWord?, showComment? }
   const [confirmInput, setConfirmInput] = useState('');
@@ -401,6 +423,7 @@ export default function TabEnviosFlex({ operador = null }) {
         showTransportesModal ||
         showExportModal ||
         showPrintManualModal ||
+        showFlagModal ||
         bulkActualizando
       ) {
         return;
@@ -463,7 +486,7 @@ export default function TabEnviosFlex({ operador = null }) {
   }, [
     fechaDesde, fechaHasta, filtroLogistica, sinLogistica, soloOutlet,
     soloTurbo, filtroPistoleado, showManualEnvioModal, showLogisticasModal,
-    showTransportesModal, showExportModal, showPrintManualModal,
+    showTransportesModal, showExportModal, showPrintManualModal, showFlagModal,
     bulkActualizando, buildFilterParams, error,
   ]);
 
@@ -981,7 +1004,7 @@ export default function TabEnviosFlex({ operador = null }) {
 
     if (shiftKey && lastSelected !== null) {
       // Shift+click: seleccionar rango
-      const ids = etiquetas.map(e => e.shipping_id);
+      const ids = etiquetasFiltradas.map(e => e.shipping_id);
       const idxActual = ids.indexOf(shippingId);
       const idxUltimo = ids.indexOf(lastSelected);
       const inicio = Math.min(idxActual, idxUltimo);
@@ -1003,10 +1026,10 @@ export default function TabEnviosFlex({ operador = null }) {
   };
 
   const seleccionarTodos = () => {
-    if (selectedIds.size === etiquetas.length && etiquetas.length > 0) {
+    if (selectedIds.size === etiquetasFiltradas.length && etiquetasFiltradas.length > 0) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(etiquetas.map(e => e.shipping_id)));
+      setSelectedIds(new Set(etiquetasFiltradas.map(e => e.shipping_id)));
     }
   };
 
@@ -1182,12 +1205,83 @@ export default function TabEnviosFlex({ operador = null }) {
     }
   };
 
+  // ── Flag envío ────────────────────────────────────────────────
+
+  const abrirFlagModal = () => {
+    setFlagType('mal_pasado');
+    setFlagMotivo('');
+    setShowFlagModal(true);
+  };
+
+  const aplicarFlag = async () => {
+    if (selectedIds.size === 0) return;
+    setFlagLoading(true);
+    try {
+      await api.put('/etiquetas-envio/flag-masivo', {
+        shipping_ids: Array.from(selectedIds),
+        flag_envio: flagType,
+        motivo: flagMotivo.trim() || null,
+      });
+
+      // Actualizar localmente
+      setEtiquetas(prev =>
+        prev.map(e =>
+          selectedIds.has(e.shipping_id)
+            ? { ...e, flag_envio: flagType, flag_envio_motivo: flagMotivo.trim() || null }
+            : e
+        )
+      );
+
+      setShowFlagModal(false);
+      limpiarSeleccion();
+
+      // Refresh stats
+      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
+      setEstadisticas(statsData);
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setFlagLoading(false);
+    }
+  };
+
+  const quitarFlagSeleccionados = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkActualizando(true);
+    try {
+      await api.put('/etiquetas-envio/flag-masivo', {
+        shipping_ids: Array.from(selectedIds),
+        flag_envio: null,
+        motivo: null,
+      });
+
+      // Actualizar localmente
+      setEtiquetas(prev =>
+        prev.map(e =>
+          selectedIds.has(e.shipping_id)
+            ? { ...e, flag_envio: null, flag_envio_motivo: null }
+            : e
+        )
+      );
+
+      limpiarSeleccion();
+
+      // Refresh stats
+      const { data: statsData } = await api.get(`/etiquetas-envio/estadisticas?${buildFilterParams()}`);
+      setEstadisticas(statsData);
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setBulkActualizando(false);
+    }
+  };
+
   const borrarSeleccionados = async () => {
     if (selectedIds.size === 0) return;
     const n = selectedIds.size;
 
     // Extraer palabra random de las direcciones de las etiquetas seleccionadas
-    const seleccionadas = etiquetas.filter(e => selectedIds.has(e.shipping_id));
+    const seleccionadas = etiquetasFiltradas.filter(e => selectedIds.has(e.shipping_id));
     const palabras = seleccionadas
       .flatMap(e => {
         const fuentes = [e.mlstreet_name, e.mlcity_name, e.mlreceiver_name];
@@ -1605,6 +1699,18 @@ export default function TabEnviosFlex({ operador = null }) {
               <div className={styles.statLabel}>Sin cordón</div>
             </button>
           )}
+          {estadisticas.flagged > 0 && (
+            <button
+              type="button"
+              className={`${styles.statCard} ${styles.statCardClickable} ${styles.statCardFlag} ${soloFlag ? styles.statCardActive : ''}`}
+              onClick={() => { setSoloFlag(prev => !prev); }}
+            >
+              <div className={`${styles.statValue} ${styles.statValueFlag}`}>
+                {estadisticas.flagged}
+              </div>
+              <div className={styles.statLabel}>Flaggeadas</div>
+            </button>
+          )}
           {puedeVerCostos && estadisticas.costo_total > 0 && (
             <div className={`${styles.statCard} ${styles.statCardCosto}`}>
               <div className={styles.statValue}>
@@ -1901,7 +2007,7 @@ export default function TabEnviosFlex({ operador = null }) {
             <button
               onClick={() => setShowExportModal(true)}
               className={styles.btnExport}
-              disabled={etiquetas.length === 0}
+              disabled={etiquetasFiltradas.length === 0}
               aria-label="Exportar a Excel"
             >
               <Download size={16} />
@@ -2001,7 +2107,7 @@ export default function TabEnviosFlex({ operador = null }) {
                 <th className={styles.thCheckbox}>
                   <input
                     type="checkbox"
-                    checked={selectedIds.size === etiquetas.length && etiquetas.length > 0}
+                    checked={selectedIds.size === etiquetasFiltradas.length && etiquetasFiltradas.length > 0}
                     onChange={seleccionarTodos}
                     className={styles.checkbox}
                     aria-label="Seleccionar todas las etiquetas"
@@ -2025,17 +2131,17 @@ export default function TabEnviosFlex({ operador = null }) {
               </tr>
             </thead>
             <tbody>
-              {etiquetas.length === 0 ? (
+              {etiquetasFiltradas.length === 0 ? (
                 <tr>
                   <td colSpan={puedeVerCostos ? 15 : 14} className={styles.empty}>
-                    No hay etiquetas para la fecha seleccionada
+                    {soloFlag ? 'No hay etiquetas flaggeadas' : 'No hay etiquetas para la fecha seleccionada'}
                   </td>
                 </tr>
               ) : (
-                etiquetas.map((e) => (
+                etiquetasFiltradas.map((e) => (
                   <tr
                     key={e.shipping_id}
-                    className={selectedIds.has(e.shipping_id) ? styles.rowSelected : ''}
+                    className={`${selectedIds.has(e.shipping_id) ? styles.rowSelected : ''} ${e.flag_envio ? styles.rowFlagged : ''}`}
                   >
                     <td className={styles.tdCheckbox}>
                       <input
@@ -2071,6 +2177,20 @@ export default function TabEnviosFlex({ operador = null }) {
                       {e.creado_por_usuario_nombre && (
                         <span className={styles.creadoPorBadge} title={`Creado por ${e.creado_por_usuario_nombre} desde Pedidos`}>
                           {e.creado_por_usuario_nombre}
+                        </span>
+                      )}
+                      {e.flag_envio && (
+                        <span
+                          className={`${styles.flagBadge} ${
+                            e.flag_envio === 'mal_pasado' ? styles.flagBadgeMalPasado
+                            : e.flag_envio === 'envio_cancelado' ? styles.flagBadgeCancelado
+                            : e.flag_envio === 'duplicado' ? styles.flagBadgeDuplicado
+                            : styles.flagBadgeOtro
+                          }`}
+                          title={e.flag_envio_motivo || FLAG_LABELS[e.flag_envio]}
+                        >
+                          <Flag size={10} />
+                          {FLAG_LABELS[e.flag_envio] || e.flag_envio}
                         </span>
                       )}
                     </td>
@@ -2327,7 +2447,7 @@ export default function TabEnviosFlex({ operador = null }) {
 
       {/* Footer */}
       <div className={styles.footer}>
-        <span>Mostrando {etiquetas.length} etiquetas</span>
+        <span>Mostrando {etiquetasFiltradas.length} etiquetas{soloFlag ? ' (flaggeadas)' : ''}</span>
       </div>
 
       {/* Barra de acciones flotante para selección múltiple */}
@@ -2385,7 +2505,7 @@ export default function TabEnviosFlex({ operador = null }) {
           )}
 
           {puedeAsignarTurbo && (() => {
-            const todasTurbo = etiquetas
+            const todasTurbo = etiquetasFiltradas
               .filter(e => selectedIds.has(e.shipping_id))
               .every(e => e.es_turbo);
             return (
@@ -2403,7 +2523,7 @@ export default function TabEnviosFlex({ operador = null }) {
           })()}
 
           {puedeAsignarLluvia && (() => {
-            const todasLluvia = etiquetas
+            const todasLluvia = etiquetasFiltradas
               .filter(e => selectedIds.has(e.shipping_id))
               .every(e => e.es_lluvia);
             return (
@@ -2433,10 +2553,42 @@ export default function TabEnviosFlex({ operador = null }) {
             </button>
           )}
 
+          {puedeFlag && (
+            <button
+              onClick={abrirFlagModal}
+              disabled={bulkActualizando}
+              className={styles.selectionBtnFlag}
+              title="Flaggear etiquetas seleccionadas"
+              aria-label="Flaggear etiquetas seleccionadas"
+            >
+              <Flag size={16} />
+              Flaggear
+            </button>
+          )}
+
+          {puedeFlag && (() => {
+            const algunaConFlag = etiquetasFiltradas
+              .filter(e => selectedIds.has(e.shipping_id))
+              .some(e => e.flag_envio);
+            if (!algunaConFlag) return null;
+            return (
+              <button
+                onClick={quitarFlagSeleccionados}
+                disabled={bulkActualizando}
+                className={styles.selectionBtnQuitarFlag}
+                title="Quitar flag de las seleccionadas"
+                aria-label="Quitar flag de las seleccionadas"
+              >
+                <Flag size={16} />
+                Quitar flag
+              </button>
+            );
+          })()}
+
           {/* Acciones rápidas cuando hay 1 solo envío seleccionado */}
           {selectedIds.size === 1 && (() => {
             const selId = Array.from(selectedIds)[0];
-            const envio = etiquetas.find(e => e.shipping_id === selId);
+            const envio = etiquetasFiltradas.find(e => e.shipping_id === selId);
             if (!envio) return null;
             return (
               <>
@@ -3371,7 +3523,7 @@ export default function TabEnviosFlex({ operador = null }) {
             <div className={styles.modalBody}>
               <p className={styles.exportInfo}>
                 Rango: <strong>{fechaDesde}</strong> — <strong>{fechaHasta}</strong>
-                {' · '}{etiquetas.length} etiquetas en pantalla
+                {' · '}{etiquetasFiltradas.length} etiquetas en pantalla
               </p>
 
               <div className={styles.exportColumnsHeader}>
@@ -3429,6 +3581,73 @@ export default function TabEnviosFlex({ operador = null }) {
               >
                 <Download size={16} />
                 {exporting ? 'Exportando...' : 'Descargar XLSX'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Flag modal */}
+      {showFlagModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowFlagModal(false)}>
+          <div className={styles.modalContent} onClick={(ev) => ev.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Flaggear etiquetas</h3>
+              <button
+                className={styles.modalClose}
+                onClick={() => setShowFlagModal(false)}
+                aria-label="Cerrar modal"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={styles.modalBody}>
+              <p className={styles.flagModalInfo}>
+                {selectedIds.size} etiqueta{selectedIds.size !== 1 ? 's' : ''} seleccionada{selectedIds.size !== 1 ? 's' : ''}
+              </p>
+
+              <div className={styles.flagFormGroup}>
+                <label className={styles.flagLabel} htmlFor="flagType">Tipo de flag</label>
+                <select
+                  id="flagType"
+                  value={flagType}
+                  onChange={(ev) => setFlagType(ev.target.value)}
+                  className={styles.flagSelect}
+                >
+                  {Object.entries(FLAG_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className={styles.flagFormGroup}>
+                <label className={styles.flagLabel} htmlFor="flagMotivo">Motivo / observación (opcional)</label>
+                <textarea
+                  id="flagMotivo"
+                  value={flagMotivo}
+                  onChange={(ev) => setFlagMotivo(ev.target.value)}
+                  className={styles.flagTextarea}
+                  placeholder="Ej: El cliente canceló la compra, se pasó doble..."
+                  rows={3}
+                />
+              </div>
+            </div>
+
+            <div className={styles.modalFooter}>
+              <button
+                className={styles.btnCancelar}
+                onClick={() => setShowFlagModal(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                className={styles.btnFlag}
+                onClick={aplicarFlag}
+                disabled={flagLoading}
+              >
+                <Flag size={16} />
+                {flagLoading ? 'Aplicando...' : 'Aplicar flag'}
               </button>
             </div>
           </div>
