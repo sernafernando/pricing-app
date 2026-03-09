@@ -8,27 +8,12 @@
   border-right: 1px solid var(--cf-border-subtle);
   transition: width var(--duration-200) var(--ease-out);
   z-index: var(--z-fixed);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Scrollbar styling para dark mode */
-.sidebar::-webkit-scrollbar {
-  width: 6px;
-}
-
-.sidebar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.sidebar::-webkit-scrollbar-thumb {
-  background: var(--cf-border-default);
-  border-radius: 3px;
-}
-
-.sidebar::-webkit-scrollbar-thumb:hover {
-  background: var(--cf-border-strong);
-}
+/* Scrollbar del sidebar (legacy - el scroll ahora está en .nav) */
 
 /* Estado expandido (pinned o hovering) */
 .sidebar[data-expanded="true"] {
@@ -99,11 +84,9 @@
 
 /* Toggle Sidebar Button - Abajo a la izquierda */
 .toggleBtn {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  flex-shrink: 0;
   height: 48px;
+  width: 100%;
   background: transparent;
   border: none;
   border-top: 1px solid var(--cf-border-subtle);
@@ -114,7 +97,6 @@
   align-items: center;
   justify-content: flex-start;
   padding-left: 14px; /* Ajustado para 48px */
-  z-index: 10;
 }
 
 .toggleBtn:hover {
@@ -140,10 +122,31 @@
 
 /* Navigation */
 .nav {
-  padding: 48px 8px 56px; /* Top padding para expandAll, bottom para toggleBtn */
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 48px 8px 8px; /* Top padding para expandAll */
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* Scrollbar styling para el nav */
+.nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.nav::-webkit-scrollbar-thumb {
+  background: var(--cf-border-default);
+  border-radius: 3px;
+}
+
+.nav::-webkit-scrollbar-thumb:hover {
+  background: var(--cf-border-strong);
 }
 
 /* Cuando el sidebar está colapsado, reducir padding horizontal */
