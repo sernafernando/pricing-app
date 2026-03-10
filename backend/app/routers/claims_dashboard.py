@@ -98,6 +98,12 @@ class ClaimListItem(BaseModel):
     # RMA link
     rma_caso_id: Optional[int] = None
     rma_numero_caso: Optional[str] = None
+    # Denormalized return fields
+    return_status: Optional[str] = None
+    return_shipment_status: Optional[str] = None
+    return_destination: Optional[str] = None
+    return_tracking: Optional[str] = None
+    return_shipment_type: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -117,6 +123,10 @@ class ClaimStatsResponse(BaseModel):
     accion_vendedor: int = 0
     con_caso_rma: int = 0
     sin_caso_rma: int = 0
+    # Return-to-local stats
+    devoluciones_al_local: int = 0
+    devoluciones_pendientes: int = 0  # shipped but not yet delivered
+    devoluciones_entregadas: int = 0
     por_etapa: list[dict] = []
     por_tipo: list[dict] = []
     por_categoria: list[dict] = []
@@ -333,6 +343,8 @@ async def listar_claims(
     reason_category: Optional[str] = Query(None, description="PDD, PNR, CS"),
     action_responsible: Optional[str] = Query(None, description="seller, buyer, mediator"),
     has_rma: Optional[bool] = Query(None, description="Only claims with/without RMA caso"),
+    return_destination: Optional[str] = Query(None, description="seller_address, warehouse"),
+    return_shipment_status: Optional[str] = Query(None, description="pending, ready_to_ship, shipped, delivered"),
     search: Optional[str] = Query(None, description="Search in reason_detail, detail_title"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -357,6 +369,10 @@ async def listar_claims(
         query = query.filter(RmaClaimML.reason_category == reason_category)
     if action_responsible:
         query = query.filter(RmaClaimML.action_responsible == action_responsible)
+    if return_destination:
+        query = query.filter(RmaClaimML.return_destination == return_destination)
+    if return_shipment_status:
+        query = query.filter(RmaClaimML.return_shipment_status == return_shipment_status)
     if search:
         like_term = f"%{search}%"
         query = query.filter(
@@ -429,6 +445,11 @@ async def listar_claims(
                 updated_at=c.updated_at.isoformat() if c.updated_at else None,
                 rma_caso_id=rma_info[0] if rma_info else None,
                 rma_numero_caso=rma_info[1] if rma_info else None,
+                return_status=c.return_status,
+                return_shipment_status=c.return_shipment_status,
+                return_destination=c.return_destination,
+                return_tracking=c.return_tracking,
+                return_shipment_type=c.return_shipment_type,
             )
         )
 
@@ -534,6 +555,42 @@ async def claim_stats(
         .all()
     ]
 
+    # Return-to-local stats (from denormalized columns)
+    return_counts = db.query(
+        func.count(
+            case(
+                (
+                    (RmaClaimML.status == "opened") & (RmaClaimML.return_destination == "seller_address"),
+                    1,
+                )
+            )
+        ).label("al_local"),
+        func.count(
+            case(
+                (
+                    (RmaClaimML.status == "opened")
+                    & (RmaClaimML.return_destination == "seller_address")
+                    & (RmaClaimML.return_shipment_status.in_(["pending", "ready_to_ship", "shipped"])),
+                    1,
+                )
+            )
+        ).label("pendientes"),
+        func.count(
+            case(
+                (
+                    (RmaClaimML.status == "opened")
+                    & (RmaClaimML.return_destination == "seller_address")
+                    & (RmaClaimML.return_shipment_status == "delivered"),
+                    1,
+                )
+            )
+        ).label("entregadas"),
+    ).first()
+
+    devoluciones_al_local = return_counts.al_local or 0 if return_counts else 0
+    devoluciones_pendientes = return_counts.pendientes or 0 if return_counts else 0
+    devoluciones_entregadas = return_counts.entregadas or 0 if return_counts else 0
+
     return ClaimStatsResponse(
         total_abiertos=total_abiertos,
         total_cerrados=total_cerrados,
@@ -541,6 +598,9 @@ async def claim_stats(
         accion_vendedor=accion_vendedor,
         con_caso_rma=con_rma,
         sin_caso_rma=sin_rma,
+        devoluciones_al_local=devoluciones_al_local,
+        devoluciones_pendientes=devoluciones_pendientes,
+        devoluciones_entregadas=devoluciones_entregadas,
         por_etapa=por_etapa,
         por_tipo=por_tipo,
         por_categoria=por_categoria,
