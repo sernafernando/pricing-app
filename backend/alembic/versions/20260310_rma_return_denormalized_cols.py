@@ -14,7 +14,7 @@ Columnas:
 Backfill: extrae datos de return_data JSONB existente para poblar las nuevas columnas.
 
 Revision ID: 20260310_return_denorm
-Revises: 20260309_flag_envio
+Revises: 20260309_permiso_seg_envios
 Create Date: 2026-03-10
 
 """
@@ -24,7 +24,7 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "20260310_return_denorm"
-down_revision = "20260309_flag_envio"
+down_revision = "20260309_permiso_seg_envios"
 branch_labels = None
 depends_on = None
 
