@@ -86,15 +86,6 @@ const RETURN_SHIPMENT_STATUS_LABELS = {
   cancelled: 'Cancelado',
 };
 
-const RETURN_STATUS_LABELS = {
-  pending: 'Pendiente',
-  label_generated: 'Etiqueta generada',
-  shipped: 'Enviado',
-  delivered: 'Entregado',
-  expired: 'Expirado',
-  cancelled: 'Cancelado',
-};
-
 export default function ClaimsDashboard() {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rma.gestionar');
@@ -108,6 +99,7 @@ export default function ClaimsDashboard() {
   const [claims, setClaims] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
@@ -130,6 +122,7 @@ export default function ClaimsDashboard() {
   // Returns tab data
   const [returns, setReturns] = useState([]);
   const [returnsLoading, setReturnsLoading] = useState(false);
+  const [returnsError, setReturnsError] = useState(null);
   const [returnsTotalItems, setReturnsTotalItems] = useState(0);
   const [returnsTotalPages, setReturnsTotalPages] = useState(0);
 
@@ -143,6 +136,7 @@ export default function ClaimsDashboard() {
 
   const cargarClaims = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = { page, page_size: 50 };
       if (statusFilter) params.status = statusFilter;
@@ -159,6 +153,7 @@ export default function ClaimsDashboard() {
       setTotalPages(data.total_pages);
     } catch {
       setClaims([]);
+      setError('Error al cargar reclamos');
     } finally {
       setLoading(false);
     }
@@ -175,6 +170,7 @@ export default function ClaimsDashboard() {
 
   const cargarReturns = useCallback(async () => {
     setReturnsLoading(true);
+    setReturnsError(null);
     try {
       const params = {
         page: returnPage,
@@ -191,6 +187,7 @@ export default function ClaimsDashboard() {
       setReturnsTotalPages(data.total_pages);
     } catch {
       setReturns([]);
+      setReturnsError('Error al cargar devoluciones');
     } finally {
       setReturnsLoading(false);
     }
@@ -456,6 +453,14 @@ export default function ClaimsDashboard() {
         )}
       </div>
 
+      {/* Error message */}
+      {error && (
+        <div className={styles.errorBar}>
+          <AlertTriangle size={14} />
+          {error}
+        </div>
+      )}
+
       {/* Table */}
       <div className="table-container-tesla">
         <table className="table-tesla striped">
@@ -638,6 +643,14 @@ export default function ClaimsDashboard() {
               </button>
             )}
           </div>
+
+          {/* Returns error */}
+          {returnsError && (
+            <div className={styles.errorBar}>
+              <AlertTriangle size={14} />
+              {returnsError}
+            </div>
+          )}
 
           {/* Returns table */}
           <div className="table-container-tesla">
