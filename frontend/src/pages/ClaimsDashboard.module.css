@@ -501,6 +501,19 @@
   color: var(--cf-accent-green);
 }
 
+/* Error bar */
+.errorBar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--cf-accent-red) 10%, transparent);
+  color: var(--cf-accent-red);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-md);
+}
+
 /* Tracking cell */
 .cellTracking {
   font-family: var(--font-mono, monospace);

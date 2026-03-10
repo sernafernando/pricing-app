@@ -17,7 +17,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, case, text
+from sqlalchemy import func, case, exists, String
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -125,7 +125,8 @@ class ClaimStatsResponse(BaseModel):
     sin_caso_rma: int = 0
     # Return-to-local stats
     devoluciones_al_local: int = 0
-    devoluciones_pendientes: int = 0  # shipped but not yet delivered
+    devoluciones_pendientes: int = 0  # pending + ready_to_ship (not dispatched yet)
+    devoluciones_en_camino: int = 0  # shipped (courier picked up, in transit)
     devoluciones_entregadas: int = 0
     por_etapa: list[dict] = []
     por_tipo: list[dict] = []
@@ -372,22 +373,45 @@ async def listar_claims(
     if return_destination:
         query = query.filter(RmaClaimML.return_destination == return_destination)
     if return_shipment_status:
-        query = query.filter(RmaClaimML.return_shipment_status == return_shipment_status)
+        if return_shipment_status == "pending":
+            # "pending" filter includes both pending and ready_to_ship (not yet dispatched)
+            query = query.filter(RmaClaimML.return_shipment_status.in_(["pending", "ready_to_ship"]))
+        else:
+            query = query.filter(RmaClaimML.return_shipment_status == return_shipment_status)
+    if has_rma is not None:
+        rma_exists = exists().where(
+            (RmaCaso.ml_id == func.cast(RmaClaimML.resource_id, String)) & RmaCaso.activo.is_(True)
+        )
+        if has_rma:
+            query = query.filter(rma_exists)
+        else:
+            query = query.filter(~rma_exists)
     if search:
-        like_term = f"%{search}%"
+        sanitized = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like_term = f"%{sanitized}%"
         query = query.filter(
             (RmaClaimML.reason_detail.ilike(like_term))
             | (RmaClaimML.detail_title.ilike(like_term))
             | (RmaClaimML.detail_problem.ilike(like_term))
-            | (func.cast(RmaClaimML.claim_id, text("text")).ilike(like_term))
-            | (func.cast(RmaClaimML.resource_id, text("text")).ilike(like_term))
+            | (func.cast(RmaClaimML.claim_id, String).ilike(like_term))
+            | (func.cast(RmaClaimML.resource_id, String).ilike(like_term))
         )
 
     # Total
     total = query.count()
 
-    # Sort
-    sort_col = getattr(RmaClaimML, sort, RmaClaimML.ml_last_updated)
+    # Sort (whitelist to prevent arbitrary column access)
+    allowed_sort_fields = {
+        "last_updated": RmaClaimML.ml_last_updated,
+        "ml_last_updated": RmaClaimML.ml_last_updated,
+        "ml_date_created": RmaClaimML.ml_date_created,
+        "claim_id": RmaClaimML.claim_id,
+        "status": RmaClaimML.status,
+        "claim_stage": RmaClaimML.claim_stage,
+        "claim_type": RmaClaimML.claim_type,
+        "return_shipment_status": RmaClaimML.return_shipment_status,
+    }
+    sort_col = allowed_sort_fields.get(sort, RmaClaimML.ml_last_updated)
     if sort_dir == "asc":
         query = query.order_by(sort_col.asc().nullslast())
     else:
@@ -405,7 +429,7 @@ async def listar_claims(
     if resource_id_strs:
         rma_cases = (
             db.query(RmaCaso.ml_id, RmaCaso.id, RmaCaso.numero_caso)
-            .filter(RmaCaso.ml_id.in_(resource_id_strs), RmaCaso.activo == True)  # noqa: E712
+            .filter(RmaCaso.ml_id.in_(resource_id_strs), RmaCaso.activo.is_(True))
             .all()
         )
         for ml_id, caso_id, numero_caso in rma_cases:
@@ -452,14 +476,6 @@ async def listar_claims(
                 return_shipment_type=c.return_shipment_type,
             )
         )
-
-    # Filter has_rma AFTER building items (needs rma_map)
-    if has_rma is True:
-        items = [i for i in items if i.rma_caso_id is not None]
-        total = len(items)
-    elif has_rma is False:
-        items = [i for i in items if i.rma_caso_id is None]
-        total = len(items)
 
     return ClaimListResponse(
         items=items,
@@ -522,7 +538,7 @@ async def claim_stats(
     if open_resource_ids:
         con_rma = (
             db.query(func.count(RmaCaso.id))
-            .filter(RmaCaso.ml_id.in_(open_resource_ids), RmaCaso.activo == True)  # noqa: E712
+            .filter(RmaCaso.ml_id.in_(open_resource_ids), RmaCaso.activo.is_(True))
             .scalar()
             or 0
         )
@@ -570,11 +586,21 @@ async def claim_stats(
                 (
                     (RmaClaimML.status == "opened")
                     & (RmaClaimML.return_destination == "seller_address")
-                    & (RmaClaimML.return_shipment_status.in_(["pending", "ready_to_ship", "shipped"])),
+                    & (RmaClaimML.return_shipment_status.in_(["pending", "ready_to_ship"])),
                     1,
                 )
             )
         ).label("pendientes"),
+        func.count(
+            case(
+                (
+                    (RmaClaimML.status == "opened")
+                    & (RmaClaimML.return_destination == "seller_address")
+                    & (RmaClaimML.return_shipment_status == "shipped"),
+                    1,
+                )
+            )
+        ).label("en_camino"),
         func.count(
             case(
                 (
@@ -589,6 +615,7 @@ async def claim_stats(
 
     devoluciones_al_local = return_counts.al_local or 0 if return_counts else 0
     devoluciones_pendientes = return_counts.pendientes or 0 if return_counts else 0
+    devoluciones_en_camino = return_counts.en_camino or 0 if return_counts else 0
     devoluciones_entregadas = return_counts.entregadas or 0 if return_counts else 0
 
     return ClaimStatsResponse(
@@ -600,6 +627,7 @@ async def claim_stats(
         sin_caso_rma=sin_rma,
         devoluciones_al_local=devoluciones_al_local,
         devoluciones_pendientes=devoluciones_pendientes,
+        devoluciones_en_camino=devoluciones_en_camino,
         devoluciones_entregadas=devoluciones_entregadas,
         por_etapa=por_etapa,
         por_tipo=por_tipo,
@@ -650,7 +678,7 @@ async def obtener_claim(
     if claim.resource_id:
         rma_caso = (
             db.query(RmaCaso.id, RmaCaso.numero_caso)
-            .filter(RmaCaso.ml_id == claim.resource_id, RmaCaso.activo == True)  # noqa: E712
+            .filter(RmaCaso.ml_id == claim.resource_id, RmaCaso.activo.is_(True))
             .first()
         )
         if rma_caso:
