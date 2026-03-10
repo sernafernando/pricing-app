@@ -1,8 +1,11 @@
 /**
  * ClaimsDashboard — Centralized view of all MercadoLibre claims.
  *
- * Shows stats cards, filterable table of claims from local cache,
- * sync button to fetch from ML, and links to RMA cases when they exist.
+ * Two tabs:
+ * 1. "Reclamos" — filterable table of all claims from local cache
+ * 2. "Devoluciones al Local" — filtered view of returns heading to seller_address
+ *
+ * Shows stats cards, sync button to fetch from ML, and links to RMA cases.
  * Uses ClaimCards for detail view of individual claims.
  */
 
@@ -31,6 +34,10 @@ import {
   Filter,
   X,
   MessageSquare,
+  PackageCheck,
+  Truck,
+  PackageX,
+  MapPin,
 } from 'lucide-react';
 import styles from './ClaimsDashboard.module.css';
 
@@ -71,10 +78,31 @@ const REASON_CATEGORY_LABELS = {
   CS: 'Cancelación',
 };
 
+const RETURN_SHIPMENT_STATUS_LABELS = {
+  pending: 'Pendiente',
+  ready_to_ship: 'Listo para envío',
+  shipped: 'En camino',
+  delivered: 'Entregado',
+  cancelled: 'Cancelado',
+};
+
+const RETURN_STATUS_LABELS = {
+  pending: 'Pendiente',
+  label_generated: 'Etiqueta generada',
+  shipped: 'Enviado',
+  delivered: 'Entregado',
+  expired: 'Expirado',
+  cancelled: 'Cancelado',
+};
+
 export default function ClaimsDashboard() {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rma.gestionar');
+  const puedeVerRma = tienePermiso('rma.ver');
   const navigate = useNavigate();
+
+  // Tab
+  const [activeTab, setActiveTab] = useState('claims');
 
   // Data
   const [claims, setClaims] = useState([]);
@@ -92,6 +120,18 @@ export default function ClaimsDashboard() {
   const [searchText, setSearchText] = useState('');
   const [page, setPage] = useState(1);
   const debouncedSearch = useDebounce(searchText, 500);
+
+  // Returns tab specific filters
+  const [returnShipmentFilter, setReturnShipmentFilter] = useState('');
+  const [returnSearchText, setReturnSearchText] = useState('');
+  const [returnPage, setReturnPage] = useState(1);
+  const debouncedReturnSearch = useDebounce(returnSearchText, 500);
+
+  // Returns tab data
+  const [returns, setReturns] = useState([]);
+  const [returnsLoading, setReturnsLoading] = useState(false);
+  const [returnsTotalItems, setReturnsTotalItems] = useState(0);
+  const [returnsTotalPages, setReturnsTotalPages] = useState(0);
 
   // Sync
   const [syncing, setSyncing] = useState(false);
@@ -133,9 +173,40 @@ export default function ClaimsDashboard() {
     }
   }, []);
 
+  const cargarReturns = useCallback(async () => {
+    setReturnsLoading(true);
+    try {
+      const params = {
+        page: returnPage,
+        page_size: 50,
+        status: 'opened',
+        return_destination: 'seller_address',
+      };
+      if (returnShipmentFilter) params.return_shipment_status = returnShipmentFilter;
+      if (debouncedReturnSearch) params.search = debouncedReturnSearch;
+
+      const { data } = await api.get('/claims-dashboard', { params });
+      setReturns(data.items);
+      setReturnsTotalItems(data.total);
+      setReturnsTotalPages(data.total_pages);
+    } catch {
+      setReturns([]);
+    } finally {
+      setReturnsLoading(false);
+    }
+  }, [returnPage, returnShipmentFilter, debouncedReturnSearch]);
+
   useEffect(() => {
-    cargarClaims();
-  }, [cargarClaims]);
+    if (activeTab === 'claims') {
+      cargarClaims();
+    }
+  }, [cargarClaims, activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'returns') {
+      cargarReturns();
+    }
+  }, [cargarReturns, activeTab]);
 
   useEffect(() => {
     cargarStats();
@@ -145,6 +216,11 @@ export default function ClaimsDashboard() {
   useEffect(() => {
     setPage(1);
   }, [statusFilter, stageFilter, typeFilter, responsibleFilter, hasRmaFilter, debouncedSearch]);
+
+  // Reset return page when return filters change
+  useEffect(() => {
+    setReturnPage(1);
+  }, [returnShipmentFilter, debouncedReturnSearch]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -253,6 +329,34 @@ export default function ClaimsDashboard() {
         </div>
       </div>
 
+      {/* Tabs */}
+      {puedeVerRma && (
+        <div className={styles.tabBar}>
+          <button
+            type="button"
+            className={`${styles.tab} ${activeTab === 'claims' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('claims')}
+          >
+            <ShieldAlert size={14} />
+            Reclamos
+          </button>
+          <button
+            type="button"
+            className={`${styles.tab} ${activeTab === 'returns' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('returns')}
+          >
+            <Truck size={14} />
+            Devoluciones al Local
+            {stats && stats.devoluciones_pendientes > 0 && (
+              <span className={styles.tabBadge}>{stats.devoluciones_pendientes}</span>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* ====== TAB: Claims ====== */}
+      {activeTab === 'claims' && (
+        <>
       {/* Stats cards — clickable as filter shortcuts */}
       {stats && (
         <div className={styles.statsGrid}>
@@ -461,6 +565,175 @@ export default function ClaimsDashboard() {
             <ChevronRight size={16} />
           </button>
         </div>
+      )}
+        </>
+      )}
+
+      {/* ====== TAB: Returns to Local ====== */}
+      {activeTab === 'returns' && (
+        <>
+          {/* Returns stats */}
+          {stats && (
+            <div className={styles.statsGrid}>
+              <button
+                type="button"
+                className={`${styles.statCard} ${styles.statClickable} ${!returnShipmentFilter ? styles.statActive : ''}`}
+                onClick={() => setReturnShipmentFilter('')}
+              >
+                <MapPin size={16} />
+                <div className={styles.statValue}>{stats.devoluciones_al_local}</div>
+                <div className={styles.statLabel}>Total al local</div>
+              </button>
+              <button
+                type="button"
+                className={`${styles.statCard} ${styles.statClickable} ${stats.devoluciones_pendientes > 0 ? styles.statCardWarning : ''} ${returnShipmentFilter === 'shipped' ? styles.statActive : ''}`}
+                onClick={() => setReturnShipmentFilter('shipped')}
+              >
+                <Truck size={16} />
+                <div className={styles.statValue}>{stats.devoluciones_pendientes}</div>
+                <div className={styles.statLabel}>En camino</div>
+              </button>
+              <button
+                type="button"
+                className={`${styles.statCard} ${styles.statClickable} ${returnShipmentFilter === 'delivered' ? styles.statActive : ''}`}
+                onClick={() => setReturnShipmentFilter('delivered')}
+              >
+                <PackageCheck size={16} />
+                <div className={styles.statValue}>{stats.devoluciones_entregadas}</div>
+                <div className={styles.statLabel}>Entregadas</div>
+              </button>
+            </div>
+          )}
+
+          {/* Returns filters */}
+          <div className={styles.filtersBar}>
+            <div className={styles.searchBox}>
+              <Search size={16} />
+              <input
+                type="text"
+                placeholder="Buscar por motivo, claim ID, order ID..."
+                value={returnSearchText}
+                onChange={(e) => setReturnSearchText(e.target.value)}
+              />
+            </div>
+            <select value={returnShipmentFilter} onChange={(e) => setReturnShipmentFilter(e.target.value)} className={styles.select}>
+              <option value="">Todos los estados</option>
+              <option value="pending">Pendiente</option>
+              <option value="ready_to_ship">Listo para envío</option>
+              <option value="shipped">En camino</option>
+              <option value="delivered">Entregado</option>
+            </select>
+            {(returnShipmentFilter || debouncedReturnSearch) && (
+              <button className="btn-tesla ghost sm" onClick={() => { setReturnShipmentFilter(''); setReturnSearchText(''); }} title="Limpiar filtros">
+                <Filter size={14} />
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* Returns table */}
+          <div className="table-container-tesla">
+            <table className="table-tesla striped">
+              <thead className="table-tesla-head">
+                <tr>
+                  <th>Claim</th>
+                  <th>Fecha</th>
+                  <th>Motivo</th>
+                  <th>Estado envío</th>
+                  <th>Tracking</th>
+                  <th>Tipo envío</th>
+                  <th>Etapa</th>
+                  <th>RMA</th>
+                </tr>
+              </thead>
+              <tbody className="table-tesla-body">
+                {returnsLoading ? (
+                  <tr><td colSpan={8} className={styles.loadingCell}>Cargando...</td></tr>
+                ) : returns.length === 0 ? (
+                  <tr><td colSpan={8} className={styles.emptyCell}>
+                    <PackageX size={20} />
+                    No hay devoluciones al local{returnShipmentFilter ? ` con estado "${RETURN_SHIPMENT_STATUS_LABELS[returnShipmentFilter] || returnShipmentFilter}"` : ''}
+                  </td></tr>
+                ) : (
+                  returns.map((claim) => {
+                    const motivo = getMotivo(claim);
+                    const shipStatus = claim.return_shipment_status;
+                    const isDelivered = shipStatus === 'delivered';
+                    const isInTransit = shipStatus === 'shipped';
+                    return (
+                      <tr
+                        key={claim.claim_id}
+                        className={styles.clickableRow}
+                        onClick={() => openDetail(claim.claim_id)}
+                      >
+                        <td className={styles.cellClaim}>
+                          <span className={styles.claimId}>{claim.claim_id}</span>
+                          {claim.resource_id && (
+                            <span className={styles.orderId}>Venta: {claim.resource_id}</span>
+                          )}
+                        </td>
+                        <td className={styles.cellDate}>{formatDate(claim.ml_date_created)}</td>
+                        <td className={styles.cellMotivo} title={motivo || ''}>
+                          {motivo || '\u2014'}
+                        </td>
+                        <td>
+                          <span className={`${styles.returnBadge} ${isDelivered ? styles.returnDelivered : ''} ${isInTransit ? styles.returnShipped : ''}`}>
+                            {isDelivered && <PackageCheck size={12} />}
+                            {isInTransit && <Truck size={12} />}
+                            {!isDelivered && !isInTransit && shipStatus === 'ready_to_ship' && <PackageCheck size={12} />}
+                            {RETURN_SHIPMENT_STATUS_LABELS[shipStatus] || shipStatus || '\u2014'}
+                          </span>
+                        </td>
+                        <td className={styles.cellTracking}>
+                          {claim.return_tracking || '\u2014'}
+                        </td>
+                        <td>
+                          <span className={styles.badge}>
+                            {claim.return_shipment_type === 'return_from_triage' ? 'Desde triage' : 'Devolución'}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`${styles.badge} ${styles[`badge_${claim.claim_stage}`] || ''}`}>
+                            {STAGE_LABELS[claim.claim_stage] || claim.claim_stage || '\u2014'}
+                          </span>
+                        </td>
+                        <td>
+                          {claim.rma_numero_caso ? (
+                            <button
+                              className={styles.rmaBadge}
+                              onClick={(e) => { e.stopPropagation(); navigate('/rma'); }}
+                              title={`Ir a RMA ${claim.rma_numero_caso}`}
+                            >
+                              <FileText size={12} />
+                              {claim.rma_numero_caso}
+                            </button>
+                          ) : (
+                            <span className={styles.noRma}>{'\u2014'}</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Returns pagination */}
+          {returnsTotalPages > 1 && (
+            <div className={styles.pagination}>
+              <button className="btn-tesla ghost sm" disabled={returnPage <= 1} onClick={() => setReturnPage(returnPage - 1)}>
+                <ChevronLeft size={16} />
+              </button>
+              <span className={styles.pageInfo}>
+                Página {returnPage} de {returnsTotalPages} ({returnsTotalItems} devoluciones)
+              </span>
+              <button className="btn-tesla ghost sm" disabled={returnPage >= returnsTotalPages} onClick={() => setReturnPage(returnPage + 1)}>
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {/* Detail modal — full enriched claim with ClaimCards */}

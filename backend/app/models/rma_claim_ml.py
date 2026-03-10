@@ -84,6 +84,15 @@ class RmaClaimML(Base):
     # --- Devolución (de /v2/claims/{id}/returns) ---
     return_data = Column(JSONB, nullable=True)  # objeto completo de la devolución
 
+    # --- Campos desnormalizados de return_data (para filtrar sin parsear JSONB) ---
+    return_status = Column(
+        String(50), nullable=True
+    )  # pending, label_generated, shipped, delivered, expired, cancelled
+    return_shipment_status = Column(String(50), nullable=True)  # pending, ready_to_ship, shipped, delivered, cancelled
+    return_destination = Column(String(50), nullable=True)  # seller_address, warehouse
+    return_tracking = Column(String(100), nullable=True)  # tracking number del correo
+    return_shipment_type = Column(String(50), nullable=True)  # return, return_from_triage
+
     # --- Cambio (de /v1/claims/{id}/changes) ---
     change_data = Column(JSONB, nullable=True)  # objeto completo del cambio
 
@@ -111,6 +120,8 @@ class RmaClaimML(Base):
         Index("idx_rma_claims_ml_resource_id", "resource_id"),
         Index("idx_rma_claims_ml_status", "status"),
         Index("idx_rma_claims_ml_reason_category", "reason_category"),
+        Index("idx_rma_claims_ml_return_destination", "return_destination"),
+        Index("idx_rma_claims_ml_return_status", "return_status"),
     )
 
     def __repr__(self) -> str:

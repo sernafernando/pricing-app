@@ -2788,6 +2788,22 @@ def _save_claim_to_cache(
                     for r in claim.expected_resolutions_detail
                 ]
 
+            # Denormalize return fields for efficient filtering
+            return_status = None
+            return_shipment_status = None
+            return_destination = None
+            return_tracking = None
+            return_shipment_type = None
+            if claim.claim_return:
+                cr = claim.claim_return
+                return_status = cr.status
+                if cr.shipments:
+                    first_ship = cr.shipments[0]
+                    return_shipment_status = first_ship.status
+                    return_destination = first_ship.destination_name
+                    return_tracking = first_ship.tracking_number
+                    return_shipment_type = first_ship.shipment_type
+
             values = {
                 "resource_id": int(claim.resource_id) if claim.resource_id and claim.resource_id.isdigit() else None,
                 "claim_type": claim.claim_type,
@@ -2824,6 +2840,12 @@ def _save_claim_to_cache(
                 "raw_claim": raw_claim,
                 "raw_detail": raw_detail,
                 "raw_reason": raw_reason,
+                # Denormalized return fields
+                "return_status": return_status,
+                "return_shipment_status": return_shipment_status,
+                "return_destination": return_destination,
+                "return_tracking": return_tracking,
+                "return_shipment_type": return_shipment_type,
             }
 
             if existing:
