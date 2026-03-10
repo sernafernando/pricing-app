@@ -347,8 +347,8 @@ export default function ClaimsDashboard() {
           >
             <Truck size={14} />
             Devoluciones al Local
-            {stats && stats.devoluciones_pendientes > 0 && (
-              <span className={styles.tabBadge}>{stats.devoluciones_pendientes}</span>
+            {stats && (stats.devoluciones_pendientes + stats.devoluciones_en_camino) > 0 && (
+              <span className={styles.tabBadge}>{stats.devoluciones_pendientes + stats.devoluciones_en_camino}</span>
             )}
           </button>
         </div>
@@ -586,11 +586,20 @@ export default function ClaimsDashboard() {
               </button>
               <button
                 type="button"
-                className={`${styles.statCard} ${styles.statClickable} ${stats.devoluciones_pendientes > 0 ? styles.statCardWarning : ''} ${returnShipmentFilter === 'shipped' ? styles.statActive : ''}`}
+                className={`${styles.statCard} ${styles.statClickable} ${stats.devoluciones_pendientes > 0 ? styles.statCardWarning : ''} ${returnShipmentFilter === 'pending' ? styles.statActive : ''}`}
+                onClick={() => setReturnShipmentFilter('pending')}
+              >
+                <Clock size={16} />
+                <div className={styles.statValue}>{stats.devoluciones_pendientes}</div>
+                <div className={styles.statLabel}>Pendientes</div>
+              </button>
+              <button
+                type="button"
+                className={`${styles.statCard} ${styles.statClickable} ${stats.devoluciones_en_camino > 0 ? styles.statCardWarning : ''} ${returnShipmentFilter === 'shipped' ? styles.statActive : ''}`}
                 onClick={() => setReturnShipmentFilter('shipped')}
               >
                 <Truck size={16} />
-                <div className={styles.statValue}>{stats.devoluciones_pendientes}</div>
+                <div className={styles.statValue}>{stats.devoluciones_en_camino}</div>
                 <div className={styles.statLabel}>En camino</div>
               </button>
               <button
@@ -618,8 +627,7 @@ export default function ClaimsDashboard() {
             </div>
             <select value={returnShipmentFilter} onChange={(e) => setReturnShipmentFilter(e.target.value)} className={styles.select}>
               <option value="">Todos los estados</option>
-              <option value="pending">Pendiente</option>
-              <option value="ready_to_ship">Listo para envío</option>
+              <option value="pending">Pendientes (sin despachar)</option>
               <option value="shipped">En camino</option>
               <option value="delivered">Entregado</option>
             </select>
