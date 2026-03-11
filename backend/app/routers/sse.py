@@ -77,7 +77,12 @@ async def sse_stream(
             detail=f"No valid channels. Valid: {', '.join(sorted(VALID_CHANNELS))}",
         )
 
-    manager: SSEConnectionManager = request.app.state.sse_manager
+    manager: SSEConnectionManager | None = request.app.state.sse_manager
+    if manager is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="SSE not available (Redis not connected)",
+        )
     client_id, queue = manager.register(valid)
 
     logger.info(
