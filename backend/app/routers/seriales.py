@@ -1134,6 +1134,41 @@ QUERY_PEDIDOS = text("""
     ORDER BY soh.soh_cd ASC NULLS LAST
 """)
 
+# Fallback: buscar pedidos vía tb_item_transaction_serials → ct_transaction → ct_soh_id → soh
+# Se usa cuando QUERY_PEDIDOS no encuentra nada (el serial no está en tb_sale_order_serials)
+QUERY_PEDIDOS_VIA_BRIDGE = text("""
+    SELECT DISTINCT
+        soh.soh_id,
+        soh.bra_id,
+        soh.soh_cd,
+        soh.cust_id,
+        cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
+        soh.soh_mlid,
+        soh.mlshippingid,
+        ssos.ssos_name AS estado_nombre
+    FROM tb_item_serials s
+    INNER JOIN tb_item_transaction_serials its
+        ON s.comp_id = its.comp_id
+        AND s.is_id = its.is_id
+    INNER JOIN tb_commercial_transactions ct
+        ON its.ct_transaction = ct.ct_transaction
+    INNER JOIN tb_sale_order_header soh
+        ON ct.comp_id = soh.comp_id
+        AND ct.ct_soh_id = soh.soh_id
+    LEFT JOIN tb_customer cust
+        ON soh.comp_id = cust.comp_id
+        AND soh.cust_id = cust.cust_id
+    LEFT JOIN tb_sale_order_status ssos
+        ON soh.ssos_id = ssos.ssos_id
+    WHERE s.is_serial = :serial
+        AND ct.cust_id IS NOT NULL
+        AND ct.cust_id > 0
+    ORDER BY soh.soh_cd ASC NULLS LAST
+""")
+
 QUERY_FACTURA_DETALLE = text("""
     SELECT
         it.it_transaction,
@@ -3774,8 +3809,16 @@ def traza_serial(
     # 1. Movimientos y artículo
     movimientos, articulo = _build_movimientos(db, serial)
 
-    # 2. Pedidos vinculados
+    # 2. Pedidos vinculados (directo por sale_order_serials)
     result_pedidos = db.execute(QUERY_PEDIDOS, {"serial": serial})
+    pedidos_rows = [dict(r._mapping) for r in result_pedidos]
+
+    # Fallback: si no hay pedidos vía sale_order_serials, buscar vía bridge table
+    # tb_item_serials → tb_item_transaction_serials → ct_transaction → ct_soh_id → soh
+    if not pedidos_rows:
+        result_bridge = db.execute(QUERY_PEDIDOS_VIA_BRIDGE, {"serial": serial})
+        pedidos_rows = [dict(r._mapping) for r in result_bridge]
+
     pedidos = [
         PedidoSerial(
             soh_id=row["soh_id"],
@@ -3790,7 +3833,7 @@ def traza_serial(
             ml_id=row.get("soh_mlid"),
             shipping_id=row.get("mlshippingid"),
         )
-        for row in (dict(r._mapping) for r in result_pedidos)
+        for row in pedidos_rows
     ]
 
     # 3. RMAs
