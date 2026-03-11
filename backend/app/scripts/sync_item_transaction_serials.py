@@ -114,18 +114,20 @@ def _upsert_batch(db: Session, rows: list[dict]) -> int:
     return len(rows)
 
 
-def sync_full(db: Session, batch_size: int = 10000, max_its_id: int = 500000) -> None:
-    """Full sync by its_id ranges."""
+def sync_full(db: Session, batch_size: int = 10000) -> None:
+    """Full sync by its_id ranges. Stops when consecutive empty batches are found."""
     print(f"\nSync FULL de tb_item_transaction_serials (rangos de its_id)")
     print("=" * 60)
-    print(f"Batch size: {batch_size} | Max its_id: {max_its_id}\n")
+    print(f"Batch size: {batch_size} | Frena con 3 batches vacíos consecutivos\n")
 
     current_from = 1
     total_processed = 0
     batch_num = 1
+    consecutive_empty = 0
+    max_consecutive_empty = 3  # Stop after 3 empty batches in a row
 
-    while current_from <= max_its_id:
-        current_to = min(current_from + batch_size - 1, max_its_id)
+    while True:
+        current_to = current_from + batch_size - 1
         print(f"Lote #{batch_num} (its_id: {current_from} - {current_to})...", end=" ")
 
         params = {
@@ -138,8 +140,13 @@ def sync_full(db: Session, batch_size: int = 10000, max_its_id: int = 500000) ->
             data = asyncio.run(_fetch_from_erp(params))
 
             if not data:
-                print("sin datos")
+                consecutive_empty += 1
+                print(f"sin datos ({consecutive_empty}/{max_consecutive_empty})")
+                if consecutive_empty >= max_consecutive_empty:
+                    print(f"\n{max_consecutive_empty} batches vacíos consecutivos, terminando.")
+                    break
             else:
+                consecutive_empty = 0
                 normalized = [r for row in data if (r := _normalize_row(row)) is not None]
 
                 # Insert in sub-batches of 500
@@ -208,7 +215,6 @@ def main() -> None:
     parser.add_argument("--full", action="store_true", help="Sync completo por rangos de its_id")
     parser.add_argument("--incremental", action="store_true", help="Sync incremental desde ultimo its_id")
     parser.add_argument("--batch-size", type=int, default=10000, help="Batch size para full (default: 10000)")
-    parser.add_argument("--max-id", type=int, default=500000, help="Max its_id para full (default: 500000)")
 
     args = parser.parse_args()
 
@@ -220,7 +226,7 @@ def main() -> None:
 
     try:
         if args.full:
-            sync_full(db, batch_size=args.batch_size, max_its_id=args.max_id)
+            sync_full(db, batch_size=args.batch_size)
         else:
             sync_incremental(db)
     except Exception as e:
