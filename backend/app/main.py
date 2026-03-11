@@ -84,16 +84,25 @@ async def lifespan(app: FastAPI):
     logger.info("Pricing API started (version=%s, env=%s)", app.version, settings.ENVIRONMENT)
     logger.info("CORS allowed origins: %s", settings.cors_origins)
 
-    # ── Redis for SSE pub/sub ────────────────────────────────────
-    redis = AsyncRedis.from_url(settings.REDIS_URL, decode_responses=False)
-    set_redis(redis)
-    app.state.redis = redis
+    # ── Redis for SSE pub/sub (best-effort — app works without it) ─
+    redis = None
+    sse_manager = None
+    try:
+        redis = AsyncRedis.from_url(settings.REDIS_URL, decode_responses=False)
+        await redis.ping()
+        set_redis(redis)
+        app.state.redis = redis
 
-    # ── SSE Connection Manager ───────────────────────────────────
-    sse_manager = SSEConnectionManager(redis, max_connections=settings.SSE_MAX_CONNECTIONS)
-    await sse_manager.start()
-    app.state.sse_manager = sse_manager
-    app.state.sse_heartbeat_seconds = settings.SSE_HEARTBEAT_SECONDS
+        sse_manager = SSEConnectionManager(redis, max_connections=settings.SSE_MAX_CONNECTIONS)
+        await sse_manager.start()
+        app.state.sse_manager = sse_manager
+        app.state.sse_heartbeat_seconds = settings.SSE_HEARTBEAT_SECONDS
+        logger.info("SSE enabled (Redis connected)")
+    except Exception:
+        logger.warning("Redis unavailable — SSE disabled, polling fallback active")
+        app.state.redis = None
+        app.state.sse_manager = None
+        app.state.sse_heartbeat_seconds = 30
 
     # ── Background tasks ─────────────────────────────────────────
     background_task = asyncio.create_task(sync_pedidos_preparacion_task())
@@ -108,8 +117,10 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         logger.info("Background task cancelled successfully")
 
-    await sse_manager.stop()
-    await redis.close()
+    if sse_manager:
+        await sse_manager.stop()
+    if redis:
+        await redis.close()
 
 
 app = FastAPI(

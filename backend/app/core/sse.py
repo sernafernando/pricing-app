@@ -20,7 +20,6 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import json
 from collections import OrderedDict
 from datetime import UTC, datetime
 from typing import Any
@@ -210,7 +209,12 @@ class SSEConnectionManager:
     async def _redis_subscriber(self) -> None:
         """Background task: subscribe to sse:* channels and fan out to clients."""
         pubsub = self._redis.pubsub()
-        await pubsub.psubscribe("sse:*")
+        try:
+            await pubsub.psubscribe("sse:*")
+        except Exception:
+            logger.warning("SSE: Redis subscriber failed to connect — SSE events disabled")
+            return
+
         logger.info("SSE: Redis subscriber started (pattern=sse:*)")
 
         try:
@@ -243,6 +247,11 @@ class SSEConnectionManager:
                             )
         except asyncio.CancelledError:
             pass
+        except Exception:
+            logger.exception("SSE: Redis subscriber crashed")
         finally:
-            await pubsub.punsubscribe("sse:*")
-            await pubsub.aclose()
+            try:
+                await pubsub.punsubscribe("sse:*")
+                await pubsub.aclose()
+            except Exception:
+                pass
