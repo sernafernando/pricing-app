@@ -678,6 +678,13 @@ PERMISOS_SISTEMA = [
         "categoria": CategoriaPermiso.ENVIOS_FLEX,
         "orden": 111,
     },
+    {
+        "codigo": "envios_flex.cambiar_estado_manual",
+        "nombre": "Cambiar estado ML de envíos manuales",
+        "descripcion": "Cambiar el estado ML (listo/enviado/entregado) de envíos manuales",
+        "categoria": CategoriaPermiso.ENVIOS_FLEX,
+        "orden": 112,
+    },
 ]
 
 
