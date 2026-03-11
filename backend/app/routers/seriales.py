@@ -1091,6 +1091,32 @@ QUERY_FACTURA_DETALLE = text("""
     ORDER BY it.it_order ASC NULLS LAST, it.it_transaction ASC
 """)
 
+QUERY_FACTURA_ITEMS_BY_SOHID = text("""
+    SELECT
+        ct.ct_transaction,
+        ct.ct_kindof,
+        ct.ct_pointofsale,
+        ct.ct_docnumber,
+        ct.ct_date,
+        it.it_transaction,
+        it.item_id,
+        ti.item_code,
+        COALESCE(pe.descripcion, ti.item_desc) AS item_desc,
+        it.it_price AS precio_unitario
+    FROM tb_commercial_transactions ct
+    INNER JOIN tb_item_transactions it
+        ON it.ct_transaction = ct.ct_transaction
+        AND it.comp_id = ct.comp_id
+    LEFT JOIN tb_item ti
+        ON it.comp_id = ti.comp_id
+        AND it.item_id = ti.item_id
+    LEFT JOIN productos_erp pe
+        ON it.item_id = pe.item_id
+    WHERE ct.comp_id = :comp_id
+        AND ct.ct_soh_id = :soh_id
+    ORDER BY ct.ct_date DESC NULLS LAST, ct.ct_transaction DESC, it.it_transaction DESC
+""")
+
 
 # ── Customer traza queries ───────────────────────────────────────
 
@@ -3587,6 +3613,90 @@ def _fetch_webhook_previews(
     return previews
 
 
+def _build_non_serial_items_from_invoice(
+    db: Session,
+    pedidos_rows: list[dict],
+    existing_serials: set[str],
+) -> list[TrazaMLSerialItem]:
+    """Arma items para RMA desde factura cuando no hay seriales en la traza."""
+    extra_items: list[TrazaMLSerialItem] = []
+    seen_it: set[int] = set()
+
+    for pedido_row in pedidos_rows:
+        soh_id = pedido_row.get("soh_id")
+        comp_id = pedido_row.get("comp_id")
+        if soh_id is None or comp_id is None:
+            continue
+
+        result = db.execute(
+            QUERY_FACTURA_ITEMS_BY_SOHID,
+            {
+                "soh_id": soh_id,
+                "comp_id": comp_id,
+            },
+        )
+
+        for row in result:
+            mapped = dict(row._mapping)
+            it_transaction = mapped.get("it_transaction")
+            if it_transaction is None:
+                continue
+            it_transaction_int = int(it_transaction)
+            if it_transaction_int in seen_it:
+                continue
+            seen_it.add(it_transaction_int)
+
+            item_id = mapped.get("item_id")
+            if item_id is None:
+                continue
+            item_id_int = int(item_id)
+
+            item_code = mapped.get("item_code")
+            item_desc = mapped.get("item_desc")
+            precio_unitario = mapped.get("precio_unitario")
+            ct_transaction = mapped.get("ct_transaction")
+            ct_kindof = mapped.get("ct_kindof")
+            ct_pointofsale = mapped.get("ct_pointofsale")
+            ct_docnumber = mapped.get("ct_docnumber")
+            ct_date = mapped.get("ct_date")
+
+            nro_documento = None
+            if ct_kindof and ct_pointofsale is not None and ct_docnumber is not None:
+                nro_documento = f"{ct_kindof} {ct_pointofsale}-{ct_docnumber}"
+
+            articulo = ArticuloInfo(
+                item_id=item_id_int,
+                codigo=str(item_code) if item_code else str(item_id_int),
+                descripcion=str(item_desc) if item_desc else f"Item {item_id_int}",
+            )
+
+            movimiento = MovimientoSerial(
+                is_id=0,
+                ct_transaction=int(ct_transaction) if ct_transaction is not None else None,
+                fecha_documento=str(ct_date) if ct_date else None,
+                tipo="CLIENTE",
+                nro_documento=nro_documento,
+            )
+
+            extra_items.append(
+                TrazaMLSerialItem(
+                    serial="",
+                    articulo=articulo,
+                    movimientos=[movimiento],
+                    rma=[],
+                )
+            )
+
+    # Deduplicar por item_id cuando no hay serial
+    dedup: dict[int, TrazaMLSerialItem] = {}
+    for item in extra_items:
+        if not item.articulo:
+            continue
+        dedup[item.articulo.item_id] = item
+
+    return list(dedup.values())
+
+
 @router.get("/traza/{serial}", response_model=TrazaSerialResponse)
 def traza_serial(
     serial: str,
@@ -3794,6 +3904,11 @@ def traza_ml(
                     rma=rma_list,
                 )
             )
+
+    # 2b. Ítems sin serial (fallback por factura) para poder crear RMA igual
+    seriales_presentes = {item.serial for item in seriales_list if item.serial}
+    seriales_no_seriados = _build_non_serial_items_from_invoice(db, pedidos_rows, seriales_presentes)
+    seriales_list.extend(seriales_no_seriados)
 
     # 3. Buscar RMAs vía factura (para productos no seriados o RMAs sin serial)
     # Cadena: soh_id → commercial_transactions → item_transactions → rma_detail
