@@ -461,6 +461,7 @@ export default function TabEnviosFlex({ operador = null }) {
   ]);
 
   useSSEChannel('etiquetas:changed', silentReload);
+  useSSEChannel('shipments:webhook', silentReload);
 
   // Fallback polling: re-activate 10s polling when SSE is degraded
   useEffect(() => {

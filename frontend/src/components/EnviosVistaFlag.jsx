@@ -209,6 +209,7 @@ export default function EnviosVistaFlag() {
   }, [showFlagModal, buildFilterParams]);
 
   useSSEChannel('etiquetas:changed', silentReload);
+  useSSEChannel('shipments:webhook', silentReload);
 
   // Fallback polling: re-activate 60s polling when SSE is degraded
   useEffect(() => {

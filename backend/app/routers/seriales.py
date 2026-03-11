@@ -4,6 +4,7 @@ Permite consultar el historial completo de movimientos de un serial.
 """
 
 import logging
+from collections.abc import Iterable
 from datetime import datetime, timezone
 
 import httpx
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 ML_WEBHOOK_RENDER_URL = "https://ml-webhook.gaussonline.com.ar/api/ml/render"
 _HTTPX_TIMEOUT = 10.0  # seconds per request to ML webhook proxy
+_GBP_TIMEOUT = 10.0
 
 router = APIRouter(prefix="/seriales", tags=["Seriales"])
 
@@ -728,6 +730,56 @@ QUERY_PEDIDOS_BY_PACKID = text("""
     LEFT JOIN tb_sale_order_status ssos
         ON soh.ssos_id = ssos.ssos_id
     WHERE mlo.ml_pack_id = :pack_id
+    ORDER BY soh.soh_cd ASC NULLS LAST
+""")
+
+QUERY_PEDIDOS_BY_SOHID = text("""
+    SELECT DISTINCT
+        soh.soh_id,
+        soh.bra_id,
+        soh.comp_id,
+        soh.soh_cd,
+        soh.cust_id,
+        cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
+        soh.soh_mlid,
+        soh.mlshippingid,
+        soh.soh_mlguia AS shipping_id_real,
+        ssos.ssos_name AS estado_nombre
+    FROM tb_sale_order_header soh
+    LEFT JOIN tb_customer cust
+        ON soh.comp_id = cust.comp_id
+        AND soh.cust_id = cust.cust_id
+    LEFT JOIN tb_sale_order_status ssos
+        ON soh.ssos_id = ssos.ssos_id
+    WHERE soh.soh_id = :soh_id
+      AND (:bra_id IS NULL OR soh.bra_id = :bra_id)
+    ORDER BY soh.soh_cd ASC NULLS LAST
+""")
+
+QUERY_PEDIDOS_BY_MLOID = text("""
+    SELECT DISTINCT
+        soh.soh_id,
+        soh.bra_id,
+        soh.comp_id,
+        soh.soh_cd,
+        soh.cust_id,
+        cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
+        soh.soh_mlid,
+        soh.mlshippingid,
+        ssos.ssos_name AS estado_nombre
+    FROM tb_sale_order_header soh
+    LEFT JOIN tb_customer cust
+        ON soh.comp_id = cust.comp_id
+        AND soh.cust_id = cust.cust_id
+    LEFT JOIN tb_sale_order_status ssos
+        ON soh.ssos_id = ssos.ssos_id
+    WHERE soh.mlo_id = :mlo_id
     ORDER BY soh.soh_cd ASC NULLS LAST
 """)
 
@@ -3201,6 +3253,105 @@ def _fetch_claims_by_order_ids(order_ids: list[str]) -> list[ClaimML]:
     return claims
 
 
+def _as_rows(data: object) -> list[dict]:
+    """Normaliza payloads del gbp-parser a una lista de dicts."""
+    if isinstance(data, list):
+        return [row for row in data if isinstance(row, dict)]
+
+    if isinstance(data, dict):
+        candidates: list[object] = []
+        for key in ("data", "rows", "result", "results"):
+            value = data.get(key)
+            if isinstance(value, list):
+                candidates.extend(value)
+        if candidates:
+            return [row for row in candidates if isinstance(row, dict)]
+
+    return []
+
+
+def _pick_str(source: dict, keys: Iterable[str]) -> Optional[str]:
+    """Toma el primer valor string no vacío de un set de keys."""
+    for key in keys:
+        value = source.get(key)
+        if value is None:
+            continue
+        text_value = str(value).strip()
+        if text_value:
+            return text_value
+    return None
+
+
+def _pick_int(source: dict, keys: Iterable[str]) -> Optional[int]:
+    """Toma el primer valor int válido de un set de keys."""
+    for key in keys:
+        value = source.get(key)
+        if value is None:
+            continue
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _fetch_pedidos_rows_from_gbp_fallback(db: Session, ml_id: str) -> list[dict]:
+    """
+    Fallback final para búsqueda por ML ID.
+
+    Consulta gbp-parser directo y, con IDs devueltos, reintenta contra DB local
+    para mantener el mismo shape de respuesta de Traza.
+    """
+    gbp_url = settings.GBP_PARSER_URL
+    if not gbp_url:
+        return []
+
+    try:
+        with httpx.Client(timeout=_GBP_TIMEOUT) as client:
+            response = client.get(gbp_url, params={"strScriptLabel": "mlidToSheets", "mlID": ml_id})
+            response.raise_for_status()
+            gbp_rows = _as_rows(response.json())
+    except Exception:
+        logger.warning("[traza_ml] fallback GBP mlidToSheets failed for ml_id=%s", ml_id, exc_info=True)
+        return []
+
+    pedidos_rows: list[dict] = []
+    seen_keys: set[tuple[int, int]] = set()
+
+    def append_rows(rows: list[dict]) -> None:
+        for row in rows:
+            key = (int(row["soh_id"]), int(row["bra_id"]))
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            pedidos_rows.append(row)
+
+    for gbp_row in gbp_rows:
+        soh_id = _pick_int(gbp_row, ("soh_id", "sohID", "sohId"))
+        bra_id = _pick_int(gbp_row, ("bra_id", "braID", "braId"))
+        mlo_id = _pick_int(gbp_row, ("mlo_id", "mloID", "mloId"))
+        shipping_id = _pick_str(gbp_row, ("mlshippingid", "MLShippingID", "shipping_id", "shippingId"))
+        ml_id_value = _pick_str(gbp_row, ("soh_mlid", "soh_MLId", "ml_id", "mlID"))
+
+        if soh_id is not None:
+            result = db.execute(QUERY_PEDIDOS_BY_SOHID, {"soh_id": soh_id, "bra_id": bra_id})
+            append_rows([dict(row._mapping) for row in result])
+
+        if mlo_id is not None:
+            result = db.execute(QUERY_PEDIDOS_BY_MLOID, {"mlo_id": mlo_id})
+            append_rows([dict(row._mapping) for row in result])
+
+        if shipping_id:
+            result = db.execute(QUERY_PEDIDOS_BY_SHIPPINGID, {"shipping_id": shipping_id})
+            append_rows([dict(row._mapping) for row in result])
+
+        if ml_id_value:
+            result = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id_value})
+            append_rows([dict(row._mapping) for row in result])
+
+    return pedidos_rows
+
+
 @router.get("/traza/{serial}", response_model=TrazaSerialResponse)
 def traza_serial(
     serial: str,
@@ -3312,6 +3463,11 @@ def traza_ml(
         busqueda_por = "soh_mlid"
         result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
         pedidos_rows = [dict(row._mapping) for row in result_pedidos]
+
+    if not pedidos_rows:
+        pedidos_rows = _fetch_pedidos_rows_from_gbp_fallback(db, ml_id)
+        if pedidos_rows:
+            busqueda_por = f"{busqueda_por}_fallback_gbp"
 
     if not pedidos_rows:
         raise HTTPException(

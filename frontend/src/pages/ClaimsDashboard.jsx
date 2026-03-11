@@ -13,6 +13,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDebounce } from '../hooks/useDebounce';
 import { usePermisos } from '../contexts/PermisosContext';
+import { useSSEChannel } from '../hooks/useSSEChannel';
 import api from '../services/api';
 import ClaimCards from '../components/ClaimCards';
 import ModalTesla from '../components/ModalTesla';
@@ -226,6 +227,15 @@ export default function ClaimsDashboard() {
   useEffect(() => {
     cargarStats();
   }, [cargarStats]);
+
+  // SSE-driven reload: instant update when ml-webhook detects claim changes
+  const reloadFromSSE = useCallback(() => {
+    cargarClaims();
+    cargarStats();
+    if (activeTab === 'returns') cargarReturns();
+  }, [cargarClaims, cargarStats, cargarReturns, activeTab]);
+
+  useSSEChannel('claims:updated', reloadFromSSE);
 
   // Reset page when filters change
   useEffect(() => {

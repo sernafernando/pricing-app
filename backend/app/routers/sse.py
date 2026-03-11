@@ -32,6 +32,8 @@ VALID_CHANNELS = {
     "notificaciones:updated",
     "free-shipping:count",
     "alertas:updated",
+    "claims:updated",
+    "shipments:webhook",
 }
 
 
