@@ -4315,6 +4315,8 @@ def exportar_manuales(
     from openpyxl.styles import numbers
 
     date_fmt = numbers.FORMAT_DATE_YYYYMMDD2  # YYYY-MM-DD
+    # Campos que deben escribirse como número en Excel
+    numeric_keys = {"codigo_postal", "valor_declarado", "peso_declarado", "total_a_cobrar"}
 
     for row_idx, envio in enumerate(body.envios, start=2):
         envio_dict = envio.model_dump()
@@ -4322,8 +4324,12 @@ def exportar_manuales(
             raw = envio_dict.get(key, "")
             cell = ws.cell(row=row_idx, column=col_idx)
 
+            if not raw:
+                cell.value = None
+                continue
+
             # fecha_venta: convertir string ISO a date nativo de Excel
-            if key == "fecha_venta" and raw:
+            if key == "fecha_venta":
                 try:
                     cell.value = date.fromisoformat(raw)
                     cell.number_format = date_fmt
@@ -4331,8 +4337,18 @@ def exportar_manuales(
                 except (ValueError, TypeError):
                     pass
 
-            # Escribir valor (o None si está vacío para evitar quotePrefix)
-            cell.value = raw if raw else None
+            # Campos numéricos: escribir como número para evitar quotePrefix
+            if key in numeric_keys:
+                try:
+                    cell.value = float(raw)
+                    # Si es entero, dejarlo como int (ej: CP 1043, no 1043.0)
+                    if cell.value == int(cell.value):
+                        cell.value = int(cell.value)
+                    continue
+                except (ValueError, TypeError):
+                    pass
+
+            cell.value = raw
 
     # Anchos de columna
     from openpyxl.utils import get_column_letter
