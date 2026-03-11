@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@geoman-io/leaflet-geoman-free": "^2.19.0",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@tanstack/react-query": "^5.90.2",
     "@tanstack/react-table": "^8.21.3",
     "@turf/turf": "^7.1.0",

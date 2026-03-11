@@ -62,6 +62,7 @@ from app.routers import (
     claims_dashboard,
     free_shipping_alerts,
     seriales,
+    sse,
     rma_seguimiento,
     rma_proveedores,
     weather,
@@ -76,21 +77,39 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle manager."""
+    from redis.asyncio import Redis as AsyncRedis
+
+    from app.core.sse import SSEConnectionManager, set_redis
+
     logger.info("Pricing API started (version=%s, env=%s)", app.version, settings.ENVIRONMENT)
     logger.info("CORS allowed origins: %s", settings.cors_origins)
 
-    # Iniciar tarea de sincronización de pedidos en preparación
+    # ── Redis for SSE pub/sub ────────────────────────────────────
+    redis = AsyncRedis.from_url(settings.REDIS_URL, decode_responses=False)
+    set_redis(redis)
+    app.state.redis = redis
+
+    # ── SSE Connection Manager ───────────────────────────────────
+    sse_manager = SSEConnectionManager(redis, max_connections=settings.SSE_MAX_CONNECTIONS)
+    await sse_manager.start()
+    app.state.sse_manager = sse_manager
+    app.state.sse_heartbeat_seconds = settings.SSE_HEARTBEAT_SECONDS
+
+    # ── Background tasks ─────────────────────────────────────────
     background_task = asyncio.create_task(sync_pedidos_preparacion_task())
 
     yield
 
-    # Shutdown: cancelar tarea de background
+    # Shutdown
     logger.info("Pricing API shutting down")
     background_task.cancel()
     try:
         await background_task
     except asyncio.CancelledError:
         logger.info("Background task cancelled successfully")
+
+    await sse_manager.stop()
+    await redis.close()
 
 
 app = FastAPI(
@@ -174,6 +193,7 @@ app.include_router(claims_dashboard.router, prefix="/api", tags=["Claims Dashboa
 app.include_router(etiquetas_colecta.router, prefix="/api", tags=["etiquetas-colecta"])
 app.include_router(weather.router, prefix="/api", tags=["weather"])
 app.include_router(free_shipping_alerts.router, prefix="/api", tags=["free-shipping-alerts"])
+app.include_router(sse.router, prefix="/api", tags=["SSE"])
 
 
 @app.get("/")

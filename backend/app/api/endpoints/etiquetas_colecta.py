@@ -37,6 +37,7 @@ from app.models.tb_item import TBItem
 from app.models.sale_order_header import SaleOrderHeader
 from app.models.sale_order_status import SaleOrderStatus
 from app.services.permisos_service import verificar_permiso
+from app.core.sse import sse_publish, sse_publish_bg
 
 router = APIRouter()
 
@@ -379,6 +380,8 @@ async def upload_etiquetas_colecta(
         db.rollback()
         logger.error("Error en commit de upload colecta: %s", e)
         raise HTTPException(500, "Error guardando etiquetas")
+
+    await sse_publish("etiquetas:changed", {"hint": "reload"})
 
     return UploadResultResponse(
         total=total,
@@ -759,6 +762,8 @@ def scan_individual_colecta(
         logger.error("Error en commit de scan individual colecta: %s", e)
         raise HTTPException(500, "Error guardando etiqueta")
 
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+
     if insertada:
         return ScanIndividualResponse(
             shipping_id=parsed["shipping_id"],
@@ -797,6 +802,8 @@ def borrar_etiquetas_colecta(
     )
 
     db.commit()
+
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {"ok": True, "eliminadas": deleted}
 

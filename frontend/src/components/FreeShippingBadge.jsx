@@ -36,7 +36,10 @@ export default function FreeShippingBadge() {
 
     fetchCount();
 
-    // Polling cada 60 segundos (query liviano a DB interna)
+    // FreeShippingBadge intentionally KEEPS 60s polling (not SSE).
+    // Reason: reads from external `mlwebhook` DB — no backend mutation triggers SSE.
+    // The SSE channel `free-shipping:count` is reserved for future use when the
+    // ML webhook processor publishes events. See design doc ADR §3.5.
     const interval = setInterval(fetchCount, 60000);
     return () => clearInterval(interval);
   }, [canView]);
