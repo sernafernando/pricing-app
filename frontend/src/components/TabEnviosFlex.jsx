@@ -246,6 +246,11 @@ export default function TabEnviosFlex({ operador = null }) {
   const [exportColumns, setExportColumns] = useState([...Object.keys(EXPORT_COLUMNS)]);
   const [exporting, setExporting] = useState(false);
 
+  // Export manuales — modal con tabla editable
+  const [showExportManualesModal, setShowExportManualesModal] = useState(false);
+  const [exportManualesData, setExportManualesData] = useState([]);
+  const [exportingManuales, setExportingManuales] = useState(false);
+
   // Modal envío manual
   const [showManualEnvioModal, setShowManualEnvioModal] = useState(false);
   const [manualEnvio, setManualEnvio] = useState({
@@ -424,6 +429,7 @@ export default function TabEnviosFlex({ operador = null }) {
         showLogisticasModal ||
         showTransportesModal ||
         showExportModal ||
+        showExportManualesModal ||
         showPrintManualModal ||
         showFlagModal ||
         bulkActualizando
@@ -488,7 +494,8 @@ export default function TabEnviosFlex({ operador = null }) {
   }, [
     fechaDesde, fechaHasta, filtroLogistica, sinLogistica, soloOutlet,
     soloTurbo, filtroPistoleado, showManualEnvioModal, showLogisticasModal,
-    showTransportesModal, showExportModal, showPrintManualModal, showFlagModal,
+    showTransportesModal, showExportModal, showExportManualesModal,
+    showPrintManualModal, showFlagModal,
     bulkActualizando, buildFilterParams, error,
   ]);
 
@@ -1367,6 +1374,82 @@ export default function TabEnviosFlex({ operador = null }) {
       mostrarError(err);
     } finally {
       setExporting(false);
+    }
+  };
+
+  // ── Export manuales (tabla editable → XLSX) ────────────────
+
+  const abrirExportManualesModal = () => {
+    const manuales = etiquetasFiltradas.filter(
+      (e) => selectedIds.has(e.shipping_id) && e.es_manual,
+    );
+    const rows = manuales.map((e) => ({
+      shipping_id: e.shipping_id,
+      numero_tracking: e.shipping_id,
+      fecha_venta: e.fecha_envio || '',
+      valor_declarado: '',
+      peso_declarado: '',
+      destinatario: e.mlreceiver_name || '',
+      telefono: e.manual_phone || '',
+      direccion: `${e.mlstreet_name || ''} ${e.mlstreet_number || ''}`.trim(),
+      localidad: e.mlcity_name || '',
+      codigo_postal: e.mlzip_code || '',
+      observaciones: e.manual_comment || '',
+      total_a_cobrar: '',
+      logistica_inversa: '',
+    }));
+    setExportManualesData(rows);
+    setShowExportManualesModal(true);
+  };
+
+  const handleExportManualesChange = (idx, field, value) => {
+    setExportManualesData((prev) =>
+      prev.map((row, i) => (i === idx ? { ...row, [field]: value } : row)),
+    );
+  };
+
+  const handleExportManuales = async () => {
+    if (exportManualesData.length === 0) return;
+    setExportingManuales(true);
+    try {
+      const payload = exportManualesData.map((row) => ({
+        numero_tracking: row.numero_tracking,
+        fecha_venta: row.fecha_venta,
+        valor_declarado: row.valor_declarado,
+        peso_declarado: row.peso_declarado,
+        destinatario: row.destinatario,
+        telefono: row.telefono,
+        direccion: row.direccion,
+        localidad: row.localidad,
+        codigo_postal: row.codigo_postal,
+        observaciones: row.observaciones,
+        total_a_cobrar: row.total_a_cobrar,
+        logistica_inversa: row.logistica_inversa,
+      }));
+
+      const response = await api.post(
+        '/etiquetas-envio/export-manuales',
+        { envios: payload },
+        { responseType: 'blob' },
+      );
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute(
+        'download',
+        `envios_manuales_${todayStr()}.xlsx`,
+      );
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      setShowExportManualesModal(false);
+    } catch (err) {
+      mostrarError(err);
+    } finally {
+      setExportingManuales(false);
     }
   };
 
@@ -2587,6 +2670,25 @@ export default function TabEnviosFlex({ operador = null }) {
             );
           })()}
 
+          {/* Exportar manuales — solo si todos los seleccionados son manuales */}
+          {puedeExportar && (() => {
+            const seleccionadas = etiquetasFiltradas.filter(e => selectedIds.has(e.shipping_id));
+            const todasManuales = seleccionadas.length > 0 && seleccionadas.every(e => e.es_manual);
+            if (!todasManuales) return null;
+            return (
+              <button
+                onClick={abrirExportManualesModal}
+                disabled={bulkActualizando}
+                className={styles.selectionBtnGeo}
+                title="Exportar envíos manuales seleccionados"
+                aria-label="Exportar envíos manuales seleccionados"
+              >
+                <Download size={16} />
+                Exportar manuales
+              </button>
+            );
+          })()}
+
           {/* Acciones rápidas cuando hay 1 solo envío seleccionado */}
           {selectedIds.size === 1 && (() => {
             const selId = Array.from(selectedIds)[0];
@@ -3583,6 +3685,174 @@ export default function TabEnviosFlex({ operador = null }) {
               >
                 <Download size={16} />
                 {exporting ? 'Exportando...' : 'Descargar XLSX'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Export Manuales */}
+      {showExportManualesModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowExportManualesModal(false)}>
+          <div className={`${styles.modalContent} ${styles.modalExportManuales}`} onClick={(ev) => ev.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Exportar envíos manuales</h3>
+              <button
+                className={styles.modalClose}
+                onClick={() => setShowExportManualesModal(false)}
+                aria-label="Cerrar modal"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={styles.modalBody}>
+              <p className={styles.exportInfo}>
+                {exportManualesData.length} envío{exportManualesData.length !== 1 ? 's' : ''} manual{exportManualesData.length !== 1 ? 'es' : ''}
+                {' · '}Los campos en blanco se pueden completar antes de exportar
+              </p>
+
+              <div className={styles.exportManualesTableWrap}>
+                <table className={styles.exportManualesTable}>
+                  <thead>
+                    <tr>
+                      <th>Numero de tracking</th>
+                      <th>Fecha de venta</th>
+                      <th>Valor declarado</th>
+                      <th>Peso declarado</th>
+                      <th>Destinatario</th>
+                      <th>Teléfono de contacto</th>
+                      <th>Dirección</th>
+                      <th>Localidad</th>
+                      <th>Código postal</th>
+                      <th>Observaciones</th>
+                      <th>4 Total a cobrar</th>
+                      <th>1 Logistica Inversa</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {exportManualesData.map((row, idx) => (
+                      <tr key={row.shipping_id}>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.numero_tracking}
+                            onChange={(ev) => handleExportManualesChange(idx, 'numero_tracking', ev.target.value)}
+                            className={styles.exportManualesInput}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="date"
+                            value={row.fecha_venta}
+                            onChange={(ev) => handleExportManualesChange(idx, 'fecha_venta', ev.target.value)}
+                            className={styles.exportManualesInput}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.valor_declarado}
+                            onChange={(ev) => handleExportManualesChange(idx, 'valor_declarado', ev.target.value)}
+                            className={styles.exportManualesInput}
+                            placeholder="$"
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.peso_declarado}
+                            onChange={(ev) => handleExportManualesChange(idx, 'peso_declarado', ev.target.value)}
+                            className={styles.exportManualesInput}
+                            placeholder="kg"
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.destinatario}
+                            onChange={(ev) => handleExportManualesChange(idx, 'destinatario', ev.target.value)}
+                            className={styles.exportManualesInput}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.telefono}
+                            onChange={(ev) => handleExportManualesChange(idx, 'telefono', ev.target.value)}
+                            className={styles.exportManualesInput}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.direccion}
+                            onChange={(ev) => handleExportManualesChange(idx, 'direccion', ev.target.value)}
+                            className={styles.exportManualesInput}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.localidad}
+                            onChange={(ev) => handleExportManualesChange(idx, 'localidad', ev.target.value)}
+                            className={styles.exportManualesInput}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.codigo_postal}
+                            onChange={(ev) => handleExportManualesChange(idx, 'codigo_postal', ev.target.value)}
+                            className={styles.exportManualesInput}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.observaciones}
+                            onChange={(ev) => handleExportManualesChange(idx, 'observaciones', ev.target.value)}
+                            className={styles.exportManualesInput}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.total_a_cobrar}
+                            onChange={(ev) => handleExportManualesChange(idx, 'total_a_cobrar', ev.target.value)}
+                            className={styles.exportManualesInput}
+                            placeholder="$"
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={row.logistica_inversa}
+                            onChange={(ev) => handleExportManualesChange(idx, 'logistica_inversa', ev.target.value)}
+                            className={styles.exportManualesInput}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className={styles.modalFooter}>
+              <button
+                className={styles.btnCancelar}
+                onClick={() => setShowExportManualesModal(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                className={styles.btnExportConfirm}
+                onClick={handleExportManuales}
+                disabled={exportManualesData.length === 0 || exportingManuales}
+              >
+                <Download size={16} />
+                {exportingManuales ? 'Exportando...' : 'Descargar XLSX'}
               </button>
             </div>
           </div>

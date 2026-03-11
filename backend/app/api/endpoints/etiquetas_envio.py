@@ -4215,3 +4215,108 @@ def check_updates(
         count=row.count,
         last_updated=row.last_updated.isoformat() if row.last_updated else None,
     )
+
+
+# ── Export manuales (datos editados por el usuario) ──────────
+
+
+class ExportManualEnvio(BaseModel):
+    """Un envío manual con datos editados para exportar."""
+
+    numero_tracking: str = ""
+    fecha_venta: str = ""
+    valor_declarado: str = ""
+    peso_declarado: str = ""
+    destinatario: str = ""
+    telefono: str = ""
+    direccion: str = ""
+    localidad: str = ""
+    codigo_postal: str = ""
+    observaciones: str = ""
+    total_a_cobrar: str = ""
+    logistica_inversa: str = ""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExportManualesRequest(BaseModel):
+    """Request body para exportar envíos manuales."""
+
+    envios: List[ExportManualEnvio]
+
+
+EXPORT_MANUALES_COLUMNS = [
+    ("numero_tracking", "Numero de tracking"),
+    ("fecha_venta", "Fecha de venta"),
+    ("valor_declarado", "Valor declarado"),
+    ("peso_declarado", "Peso declarado"),
+    ("destinatario", "Destinatario"),
+    ("telefono", "Teléfono de contacto"),
+    ("direccion", "Dirección"),
+    ("localidad", "Localidad"),
+    ("codigo_postal", "Código postal"),
+    ("observaciones", "Observaciones"),
+    ("total_a_cobrar", "4 Total a cobrar"),
+    ("logistica_inversa", "1 Logistica Inversa"),
+]
+
+
+@router.post(
+    "/etiquetas-envio/export-manuales",
+    summary="Exportar envíos manuales editados a Excel (XLSX)",
+    response_class=StreamingResponse,
+)
+def exportar_manuales(
+    body: ExportManualesRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> StreamingResponse:
+    """
+    Genera un XLSX con los datos de envíos manuales editados por el usuario.
+    Los datos vienen pre-rellenados desde el frontend y pueden haber sido
+    modificados antes de exportar. No consulta la DB.
+    """
+    _check_permiso(db, current_user, "envios_flex.exportar")
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Envíos Manuales"
+
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    # Headers
+    for col_idx, (_, label) in enumerate(EXPORT_MANUALES_COLUMNS, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=label)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+
+    # Datos
+    for row_idx, envio in enumerate(body.envios, start=2):
+        envio_dict = envio.model_dump()
+        for col_idx, (key, _) in enumerate(EXPORT_MANUALES_COLUMNS, start=1):
+            ws.cell(row=row_idx, column=col_idx, value=envio_dict.get(key, ""))
+
+    # Anchos de columna
+    from openpyxl.utils import get_column_letter
+
+    col_widths = [18, 14, 14, 14, 25, 18, 35, 20, 12, 30, 16, 16]
+    for col_idx, width in enumerate(col_widths, start=1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"envios_manuales_{date.today().isoformat()}.xlsx"
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
