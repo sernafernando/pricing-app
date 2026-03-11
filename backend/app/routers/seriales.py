@@ -1136,21 +1136,22 @@ QUERY_PEDIDOS = text("""
 
 # Fallback: buscar pedidos vía bridge table cuando QUERY_PEDIDOS no encuentra nada.
 # Cadena: tb_item_serials → tb_item_transaction_serials → tb_item_transactions (mlo_id)
-#        → tb_sale_order_header (mlo_id) → datos ML (soh_mlid, mlshippingid)
-# Nota: ct_soh_id suele ser NULL en estas transacciones, por eso vamos por mlo_id vía it.
+#        → tb_mercadolibre_orders_header (mlo_id) → datos ML directos
+# No pasamos por soh porque puede no existir (se archiva).
+# Devolvemos las mismas columnas que QUERY_PEDIDOS para reusar el mismo parser de rows.
 QUERY_PEDIDOS_VIA_BRIDGE = text("""
     SELECT DISTINCT
-        soh.soh_id,
-        soh.bra_id,
-        soh.soh_cd,
-        soh.cust_id,
+        0 AS soh_id,
+        s.bra_id,
+        mlo.mlo_cd AS soh_cd,
+        mlo.cust_id,
         cust.cust_name AS cliente_nombre,
         cust.cust_taxnumber AS cliente_dni,
         COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
         cust.cust_email AS cliente_email,
-        soh.soh_mlid,
-        soh.mlshippingid,
-        ssos.ssos_name AS estado_nombre
+        mlo.mlorder_id AS soh_mlid,
+        mlo.mlshippingid::bigint AS mlshippingid,
+        mlo.mlo_status AS estado_nombre
     FROM tb_item_serials s
     INNER JOIN tb_item_transaction_serials its
         ON s.comp_id = its.comp_id
@@ -1158,18 +1159,15 @@ QUERY_PEDIDOS_VIA_BRIDGE = text("""
     INNER JOIN tb_item_transactions it
         ON its.it_transaction = it.it_transaction
         AND its.comp_id = it.comp_id
-    INNER JOIN tb_sale_order_header soh
-        ON it.comp_id = soh.comp_id
-        AND it.mlo_id = soh.mlo_id
+    INNER JOIN tb_mercadolibre_orders_header mlo
+        ON it.mlo_id = mlo.mlo_id
     LEFT JOIN tb_customer cust
-        ON soh.comp_id = cust.comp_id
-        AND soh.cust_id = cust.cust_id
-    LEFT JOIN tb_sale_order_status ssos
-        ON soh.ssos_id = ssos.ssos_id
+        ON mlo.comp_id = cust.comp_id
+        AND mlo.cust_id = cust.cust_id
     WHERE s.is_serial = :serial
         AND it.mlo_id IS NOT NULL
         AND it.mlo_id > 0
-    ORDER BY soh.soh_cd ASC NULLS LAST
+    ORDER BY mlo.mlo_cd ASC NULLS LAST
 """)
 
 QUERY_FACTURA_DETALLE = text("""
