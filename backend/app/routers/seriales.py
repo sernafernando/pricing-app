@@ -261,6 +261,11 @@ class TrazaMLResponse(BaseModel):
 
     ml_id: str
     busqueda_por: str = "soh_mlid"  # soh_mlid | ml_pack_id | soh_mlguia | mlshippingid
+    ml_ids_relacionados: list[str] = []
+    shipping_ids_relacionados: list[str] = []
+    pack_ids_relacionados: list[str] = []
+    discrepancias_identificadores: list[str] = []
+    webhook_previews: list[dict] = []
     pedidos: list[PedidoSerial] = []
     seriales: list[TrazaMLSerialItem] = []
     rma_por_factura: list[RMASerial] = []  # RMAs encontrados vía factura (no por serial)
@@ -781,6 +786,81 @@ QUERY_PEDIDOS_BY_MLOID = text("""
         ON soh.ssos_id = ssos.ssos_id
     WHERE soh.mlo_id = :mlo_id
     ORDER BY soh.soh_cd ASC NULLS LAST
+""")
+
+QUERY_MLO_CANDIDATES_BY_INPUT = text("""
+    SELECT DISTINCT
+        mlo.mlo_id,
+        mlo.ml_pack_id,
+        mlo.mlshippingid,
+        mlo.mlorder_id,
+        mlo.ml_id
+    FROM tb_mercadolibre_orders_header mlo
+    WHERE mlo.ml_pack_id = :value
+       OR mlo.mlorder_id = :value
+       OR mlo.ml_id = :value
+
+    UNION
+
+    SELECT DISTINCT
+        ship.mlo_id,
+        mlo.ml_pack_id,
+        COALESCE(ship.mlshippingid, mlo.mlshippingid) AS mlshippingid,
+        mlo.mlorder_id,
+        mlo.ml_id
+    FROM tb_mercadolibre_orders_shipping ship
+    LEFT JOIN tb_mercadolibre_orders_header mlo
+        ON mlo.mlo_id = ship.mlo_id
+    WHERE ship.mlshippingid = :value
+""")
+
+QUERY_PEDIDOS_HISTORY_BY_MLOID = text("""
+    WITH sohh_latest AS (
+        SELECT
+            sohh.comp_id,
+            sohh.bra_id,
+            sohh.soh_id,
+            sohh.soh_cd,
+            sohh.cust_id,
+            sohh.soh_mlid,
+            sohh.soh_mlguia,
+            sohh.mlo_id,
+            sohh.ssos_id,
+            sohh.sohh_id,
+            ROW_NUMBER() OVER (
+                PARTITION BY sohh.comp_id, sohh.bra_id, sohh.soh_id
+                ORDER BY sohh.sohh_id DESC
+            ) AS rn
+        FROM tb_sale_order_header_history sohh
+        WHERE sohh.mlo_id = :mlo_id
+    )
+    SELECT DISTINCT
+        s.soh_id,
+        s.bra_id,
+        s.comp_id,
+        s.soh_cd,
+        s.cust_id,
+        cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
+        s.soh_mlid,
+        COALESCE(ship.mlshippingid, mlo.mlshippingid, s.soh_mlguia) AS mlshippingid,
+        s.soh_mlguia AS shipping_id_real,
+        mlo.ml_pack_id,
+        ssos.ssos_name AS estado_nombre
+    FROM sohh_latest s
+    LEFT JOIN tb_mercadolibre_orders_header mlo
+        ON mlo.mlo_id = s.mlo_id
+    LEFT JOIN tb_mercadolibre_orders_shipping ship
+        ON ship.mlo_id = s.mlo_id
+    LEFT JOIN tb_customer cust
+        ON s.comp_id = cust.comp_id
+        AND s.cust_id = cust.cust_id
+    LEFT JOIN tb_sale_order_status ssos
+        ON s.ssos_id = ssos.ssos_id
+    WHERE s.rn = 1
+    ORDER BY s.soh_cd ASC NULLS LAST
 """)
 
 QUERY_SERIALES_BY_PEDIDO = text("""
@@ -3352,6 +3432,161 @@ def _fetch_pedidos_rows_from_gbp_fallback(db: Session, ml_id: str) -> list[dict]
     return pedidos_rows
 
 
+def _fetch_pedidos_rows_from_history_fallback(
+    db: Session,
+    ml_id: str,
+) -> tuple[list[dict], set[str], set[str], set[str]]:
+    """Fallback de traza ML usando historial (sohh) cuando no existe SOH actual."""
+    rows_candidates = db.execute(QUERY_MLO_CANDIDATES_BY_INPUT, {"value": ml_id}).fetchall()
+
+    mlo_ids: set[int] = set()
+    ml_ids: set[str] = set()
+    shipping_ids: set[str] = set()
+    pack_ids: set[str] = set()
+
+    for row in rows_candidates:
+        mapped = dict(row._mapping)
+
+        mlo_id = mapped.get("mlo_id")
+        if mlo_id is not None:
+            try:
+                mlo_ids.add(int(mlo_id))
+            except (TypeError, ValueError):
+                pass
+
+        for key in ("mlorder_id", "ml_id"):
+            value = mapped.get(key)
+            if value:
+                ml_ids.add(str(value))
+
+        value_shipping = mapped.get("mlshippingid")
+        if value_shipping:
+            shipping_ids.add(str(value_shipping))
+
+        value_pack = mapped.get("ml_pack_id")
+        if value_pack:
+            pack_ids.add(str(value_pack))
+
+    pedidos_rows: list[dict] = []
+    seen_keys: set[tuple[int, int, int]] = set()
+    for mlo_id in mlo_ids:
+        result = db.execute(QUERY_PEDIDOS_HISTORY_BY_MLOID, {"mlo_id": mlo_id})
+        for row in result:
+            mapped = dict(row._mapping)
+            key = (
+                int(mapped["comp_id"]),
+                int(mapped["bra_id"]),
+                int(mapped["soh_id"]),
+            )
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            pedidos_rows.append(mapped)
+
+            if mapped.get("soh_mlid"):
+                ml_ids.add(str(mapped["soh_mlid"]))
+            if mapped.get("shipping_id_real"):
+                shipping_ids.add(str(mapped["shipping_id_real"]))
+            if mapped.get("mlshippingid"):
+                shipping_ids.add(str(mapped["mlshippingid"]))
+            if mapped.get("ml_pack_id"):
+                pack_ids.add(str(mapped["ml_pack_id"]))
+
+    return pedidos_rows, ml_ids, shipping_ids, pack_ids
+
+
+def _fetch_webhook_previews(
+    order_ids: list[str],
+    pack_ids: list[str],
+    shipping_ids: list[str],
+) -> list[dict]:
+    """Trae previews crudos de webhook DB para order/pack/shipping relacionados."""
+    previews: list[dict] = []
+    seen: set[str] = set()
+
+    def _append_rows(rows: list[tuple]) -> None:
+        for row in rows:
+            resource, status_value, title, extra_data, last_updated = row
+            if resource in seen:
+                continue
+            seen.add(resource)
+            previews.append(
+                {
+                    "resource": resource,
+                    "status": status_value,
+                    "title": title,
+                    "extra_data": extra_data,
+                    "last_updated": str(last_updated) if last_updated else None,
+                }
+            )
+
+    try:
+        engine = get_mlwebhook_engine()
+        with engine.connect() as conn:
+            # order_id en extra_data.resource_id + resources que lo incluyan
+            for order_id in order_ids:
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT resource, status, title, extra_data, last_updated
+                        FROM ml_previews
+                        WHERE (
+                            (extra_data->>'resource_id')::text = :order_id
+                            OR resource LIKE :resource_like
+                        )
+                        ORDER BY last_updated DESC
+                        LIMIT 200
+                        """
+                    ),
+                    {
+                        "order_id": order_id,
+                        "resource_like": f"%{order_id}%",
+                    },
+                ).fetchall()
+                _append_rows(rows)
+
+            # pack_id
+            for pack_id in pack_ids:
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT resource, status, title, extra_data, last_updated
+                        FROM ml_previews
+                        WHERE resource LIKE :resource_like
+                        ORDER BY last_updated DESC
+                        LIMIT 200
+                        """
+                    ),
+                    {"resource_like": f"%{pack_id}%"},
+                ).fetchall()
+                _append_rows(rows)
+
+            # shipping_id
+            for shipping_id in shipping_ids:
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT resource, status, title, extra_data, last_updated
+                        FROM ml_previews
+                        WHERE resource LIKE :resource_like
+                        ORDER BY last_updated DESC
+                        LIMIT 200
+                        """
+                    ),
+                    {"resource_like": f"%{shipping_id}%"},
+                ).fetchall()
+                _append_rows(rows)
+    except RuntimeError:
+        # ML_WEBHOOK_DB_URL no configurada
+        return []
+    except Exception:
+        logger.warning("[traza_ml] failed to fetch webhook previews", exc_info=True)
+        return []
+
+    previews.sort(key=lambda x: x.get("last_updated") or "", reverse=True)
+    return previews
+
+
 @router.get("/traza/{serial}", response_model=TrazaSerialResponse)
 def traza_serial(
     serial: str,
@@ -3425,6 +3660,11 @@ def traza_ml(
     # Si empieza con 2000 → nro de venta ML (soh_mlid)
     # Si no y es numérico → soh_mlguia → shipping table → soh_mlid (fallbacks)
     # Si no es numérico → buscar como soh_mlid
+    detected_ml_ids: set[str] = set()
+    detected_shipping_ids: set[str] = set()
+    detected_pack_ids: set[str] = set()
+    discrepancias_identificadores: list[str] = []
+
     if ml_id.startswith("2000"):
         # Buscar por order_id (soh_mlid) primero
         busqueda_por = "soh_mlid"
@@ -3470,6 +3710,16 @@ def traza_ml(
             busqueda_por = f"{busqueda_por}_fallback_gbp"
 
     if not pedidos_rows:
+        (
+            pedidos_rows,
+            detected_ml_ids,
+            detected_shipping_ids,
+            detected_pack_ids,
+        ) = _fetch_pedidos_rows_from_history_fallback(db, ml_id)
+        if pedidos_rows:
+            busqueda_por = f"{busqueda_por}_fallback_sohh"
+
+    if not pedidos_rows:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No se encontró la venta ML ni envío: {ml_id}",
@@ -3491,6 +3741,19 @@ def traza_ml(
         )
         for row in pedidos_rows
     ]
+
+    detected_ml_ids.update({p.ml_id for p in pedidos if p.ml_id})
+    detected_shipping_ids.update({str(p.shipping_id) for p in pedidos if p.shipping_id is not None})
+
+    if detected_ml_ids and ml_id not in detected_ml_ids:
+        discrepancias_identificadores.append(
+            f"ml_id buscado={ml_id} no coincide con ml_id detectados={sorted(detected_ml_ids)}"
+        )
+
+    if detected_shipping_ids and ml_id in detected_pack_ids:
+        discrepancias_identificadores.append(
+            "el valor buscado coincide con pack_id; shipping/order pueden ser distintos"
+        )
 
     # 2. Para cada pedido, buscar seriales vinculados
     seriales_vistos: set[str] = set()
@@ -3537,13 +3800,29 @@ def traza_ml(
     soh_ids = [row["soh_id"] for row in pedidos_rows]
     rma_por_factura = _build_rma_by_invoice(db, soh_ids, exclude_rmad_ids=rma_ids_por_serial)
 
-    # 4. Claims de ML (por order_id de los pedidos)
-    ml_order_ids = [p.ml_id for p in pedidos if p.ml_id]
-    claims = _fetch_claims_by_order_ids(ml_order_ids)
+    # 4. Claims de ML (por order_id detectados + input si parece order_id)
+    ml_order_ids_lookup: set[str] = {p.ml_id for p in pedidos if p.ml_id}
+    ml_order_ids_lookup.update(detected_ml_ids)
+    if ml_id.startswith("2000"):
+        ml_order_ids_lookup.add(ml_id)
+
+    claims = _fetch_claims_by_order_ids(sorted(ml_order_ids_lookup))
+
+    # 5. Snapshot crudo de webhook DB (order/pack/shipping)
+    webhook_previews = _fetch_webhook_previews(
+        order_ids=sorted(ml_order_ids_lookup),
+        pack_ids=sorted(detected_pack_ids),
+        shipping_ids=sorted(detected_shipping_ids),
+    )
 
     return TrazaMLResponse(
         ml_id=ml_id,
         busqueda_por=busqueda_por,
+        ml_ids_relacionados=sorted(detected_ml_ids),
+        shipping_ids_relacionados=sorted(detected_shipping_ids),
+        pack_ids_relacionados=sorted(detected_pack_ids),
+        discrepancias_identificadores=discrepancias_identificadores,
+        webhook_previews=webhook_previews,
         pedidos=pedidos,
         seriales=seriales_list,
         rma_por_factura=rma_por_factura,
