@@ -6,6 +6,7 @@ from typing import List, Optional
 from datetime import datetime
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.core.sse import sse_publish
 from app.models.usuario import Usuario
 from app.models.notificacion import Notificacion, SeveridadNotificacion, EstadoNotificacion
 from app.services.notificacion_service import NotificacionService
@@ -267,6 +268,7 @@ async def marcar_notificacion_leida(
         notificacion.leida = True
         notificacion.fecha_lectura = datetime.now()
         db.commit()
+        await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": "Notificación marcada como leída"}
 
@@ -291,6 +293,7 @@ async def marcar_notificacion_no_leida(
         notificacion.leida = False
         notificacion.fecha_lectura = None
         db.commit()
+        await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": "Notificación marcada como no leída"}
 
@@ -310,6 +313,7 @@ async def marcar_todas_leidas(
     count = query.update({"leida": True, "fecha_lectura": datetime.now()})
 
     db.commit()
+    await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": f"{count} notificaciones marcadas como leídas"}
 
@@ -329,6 +333,7 @@ async def marcar_todas_no_leidas(
     count = query.update({"leida": False, "fecha_lectura": None})
 
     db.commit()
+    await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": f"{count} notificaciones marcadas como no leídas"}
 
@@ -344,6 +349,7 @@ async def limpiar_notificaciones_leidas(
     """
     count = db.query(Notificacion).filter(Notificacion.user_id == current_user.id, Notificacion.leida == True).delete()
     db.commit()
+    await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": f"{count} notificaciones leídas eliminadas"}
 
@@ -366,6 +372,7 @@ async def eliminar_notificacion(
 
     db.delete(notificacion)
     db.commit()
+    await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": "Notificación eliminada"}
 
@@ -414,6 +421,7 @@ async def cambiar_estado_notificacion(
 
     db.commit()
     db.refresh(notificacion)
+    await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": f"Notificación marcada como {request.estado.value}", "notificacion": notificacion}
 
@@ -543,6 +551,7 @@ async def descartar_notificaciones_bulk(
     )
 
     db.commit()
+    await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": f"{count} notificaciones descartadas"}
 
@@ -670,6 +679,7 @@ async def eliminar_regla_ignorada(
 
     db.delete(regla)
     db.commit()
+    await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {
         "mensaje": "Regla eliminada. Ahora recibirás notificaciones para este caso.",
@@ -696,6 +706,7 @@ async def eliminar_reglas_ignoradas_bulk(
     )
 
     db.commit()
+    await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": f"{count} reglas eliminadas"}
 

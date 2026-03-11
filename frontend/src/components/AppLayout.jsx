@@ -1,13 +1,28 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import AlertBanner, { AlertBannerContainer } from './AlertBanner';
+import { SSEProvider } from '../contexts/SSEContext';
+import { useSSEChannel } from '../hooks/useSSEChannel';
+import { useSSE } from '../contexts/SSEContext';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
 import styles from './AppLayout.module.css';
 
+/**
+ * AppLayout wraps children with SSEProvider.
+ * AppLayoutInner uses SSE hooks (must be inside SSEProvider).
+ */
 export default function AppLayout() {
+  return (
+    <SSEProvider>
+      <AppLayoutInner />
+    </SSEProvider>
+  );
+}
+
+function AppLayoutInner() {
   // Sincronizar estado del sidebar para ajustar el layout
   const [sidebarExpanded, setSidebarExpanded] = useState(() => {
     const saved = localStorage.getItem('sidebarPinned');
@@ -23,21 +38,9 @@ export default function AppLayout() {
   const [indiceRotacion, setIndiceRotacion] = useState(0);
   const [maxAlertasVisibles, setMaxAlertasVisibles] = useState(1);
 
-  // Cargar alertas activas y configuración
-  useEffect(() => {
-    if (user) {
-      cargarAlertasActivas();
-      cargarConfiguracion();
-      // Refrescar cada 5 minutos
-      const interval = setInterval(() => {
-        cargarAlertasActivas();
-        cargarConfiguracion();
-      }, 300000);
-      return () => clearInterval(interval);
-    }
-  }, [user]);
+  const { isDegraded } = useSSE();
 
-  const cargarAlertasActivas = async () => {
+  const cargarAlertasActivas = useCallback(async () => {
     try {
       const response = await api.get('/alertas/activas');
       setTodasLasAlertas(response.data);
@@ -45,16 +48,39 @@ export default function AppLayout() {
     } catch (error) {
       console.error('Error al cargar alertas activas:', error);
     }
-  };
+  }, []);
 
-  const cargarConfiguracion = async () => {
+  const cargarConfiguracion = useCallback(async () => {
     try {
       const response = await api.get('/alertas/configuracion');
       setMaxAlertasVisibles(response.data.max_alertas_visibles);
     } catch (error) {
       console.error('Error al cargar configuración de alertas:', error);
     }
-  };
+  }, []);
+
+  const reloadAlertas = useCallback(() => {
+    cargarAlertasActivas();
+    cargarConfiguracion();
+  }, [cargarAlertasActivas, cargarConfiguracion]);
+
+  // Initial load
+  useEffect(() => {
+    if (user) {
+      reloadAlertas();
+    }
+  }, [user, reloadAlertas]);
+
+  // SSE-driven reload: instant alert updates
+  useSSEChannel('alertas:updated', reloadAlertas);
+
+  // Fallback polling: re-activate 300s polling when SSE is degraded
+  useEffect(() => {
+    if (!user || !isDegraded()) return;
+
+    const interval = setInterval(reloadAlertas, 300000);
+    return () => clearInterval(interval);
+  }, [user, isDegraded, reloadAlertas]);
 
   // Sistema de rotación de alertas
   useEffect(() => {
@@ -90,7 +116,7 @@ export default function AppLayout() {
     const alertasAMostrar = [...alertasSticky, ...rotativasVisibles];
     setAlertasVisibles(alertasAMostrar);
 
-    // Si hay más rotativas que slots, configurar rotación
+    // Si hay más rotativas que slots, configurar rotación (this is NOT polling — it rotates already-loaded alerts)
     if (alertasRotativas.length > slotsParaRotativas) {
       // Obtener duración de la PRIMERA alerta rotativa visible
       const duracionActual = rotativasVisibles[0]?.duracion_segundos || 5;

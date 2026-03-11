@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
 
+    # Redis (for SSE pub/sub fan-out)
+    REDIS_URL: str = "redis://localhost:6379/0"
+    SSE_HEARTBEAT_SECONDS: int = 30
+    SSE_MAX_CONNECTIONS: int = 100
+
     # GBP Parser (internal service) - SIEMPRE localhost porque corre en el mismo servidor
     GBP_PARSER_URL: str = "http://localhost:8002/api/gbp-parser"
 

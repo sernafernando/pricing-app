@@ -13,6 +13,8 @@ import { toLocalDateString } from '../utils/dateUtils';
 import { printZpl } from '../services/zebraPrint';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
+import { useSSEChannel } from '../hooks/useSSEChannel';
+import { useSSE } from '../contexts/SSEContext';
 import Toast from './Toast';
 import styles from './TabEnviosFlex.module.css';
 
@@ -416,29 +418,59 @@ export default function TabEnviosFlex({ operador = null }) {
     cargarDatos();
   }, [cargarDatos]);
 
-  // ── Smart Polling: detectar cambios y recargar silenciosamente ──
+  // ── SSE-driven reload: replace 10s polling with event-driven updates ──
 
-  useEffect(() => {
-    const POLL_INTERVAL = 10_000; // 10 segundos
+  const { isDegraded } = useSSE();
 
-    const checkForUpdates = async () => {
-      // No pollear si hay modal abierta, bulk action, o tab no visible
-      if (
-        document.hidden ||
-        showManualEnvioModal ||
-        showLogisticasModal ||
-        showTransportesModal ||
-        showExportModal ||
-        showExportManualesModal ||
-        showPrintManualModal ||
-        showFlagModal ||
-        bulkActualizando
-      ) {
-        return;
+  const silentReload = useCallback(async () => {
+    // Skip reload if modal is open, bulk action in progress, or tab hidden
+    if (
+      document.hidden ||
+      showManualEnvioModal ||
+      showLogisticasModal ||
+      showTransportesModal ||
+      showExportModal ||
+      showExportManualesModal ||
+      showPrintManualModal ||
+      showFlagModal ||
+      bulkActualizando
+    ) {
+      return;
+    }
+
+    try {
+      const params = buildFilterParams();
+      const etiqResponse = await api.get(`/etiquetas-envio?${params}`);
+      setEtiquetas(etiqResponse.data);
+      setError(null);
+
+      // Estadísticas best-effort
+      try {
+        const statsResponse = await api.get(`/etiquetas-envio/estadisticas?${params}`);
+        setEstadisticas(statsResponse.data);
+      } catch {
+        // Silencioso
       }
+    } catch {
+      // Silencioso — SSE-triggered reload shouldn't show errors
+    }
+  }, [
+    showManualEnvioModal, showLogisticasModal, showTransportesModal,
+    showExportModal, showExportManualesModal, showPrintManualModal,
+    showFlagModal, bulkActualizando, buildFilterParams,
+  ]);
+
+  useSSEChannel('etiquetas:changed', silentReload);
+
+  // Fallback polling: re-activate 10s polling when SSE is degraded
+  useEffect(() => {
+    if (!isDegraded()) return;
+
+    const POLL_INTERVAL = 10_000;
+    const checkForUpdates = async () => {
+      if (document.hidden) return;
 
       try {
-        // Construir solo los filtros livianos (los que el backend acepta sin JOINs)
         const p = new URLSearchParams();
         if (fechaDesde) p.append('fecha_desde', fechaDesde);
         if (fechaHasta) p.append('fecha_hasta', fechaHasta);
@@ -451,52 +483,28 @@ export default function TabEnviosFlex({ operador = null }) {
         const { data } = await api.get(`/etiquetas-envio/check-updates?${p}`);
         const prev = pollingRef.current;
 
-        // Primera vez: guardar referencia y, si hay error previo, forzar reload
         if (prev.count === null) {
           pollingRef.current = { count: data.count, lastUpdated: data.last_updated };
-          // Si hay error previo (ej: carga inicial falló por timeout),
-          // forzar un reload silencioso para recuperar la UI
           if (!error) return;
         }
 
-        // Detectar cambio: count distinto O timestamp distinto
         if (data.count !== prev.count || data.last_updated !== prev.lastUpdated) {
           pollingRef.current = { count: data.count, lastUpdated: data.last_updated };
-          // Recargar silenciosamente (sin setLoading)
-          try {
-            const params = buildFilterParams();
-            const etiqResponse = await api.get(`/etiquetas-envio?${params}`);
-            setEtiquetas(etiqResponse.data);
-            setError(null); // Limpiar error previo si el listado ahora responde
-
-            // Estadísticas best-effort
-            try {
-              const statsResponse = await api.get(`/etiquetas-envio/estadisticas?${params}`);
-              setEstadisticas(statsResponse.data);
-            } catch {
-              // Silencioso — las estadísticas se recuperan en el próximo poll
-            }
-          } catch {
-            // Silencioso — no mostrar error por polling
-          }
+          await silentReload();
         }
       } catch {
-        // Silencioso — el polling no debería molestar al usuario con errores
+        // Silencioso
       }
     };
 
     const intervalId = setInterval(checkForUpdates, POLL_INTERVAL);
-
-    // Resetear referencia cuando cambian los filtros
     pollingRef.current = { count: null, lastUpdated: null };
 
     return () => clearInterval(intervalId);
   }, [
-    fechaDesde, fechaHasta, filtroLogistica, sinLogistica, soloOutlet,
-    soloTurbo, filtroPistoleado, showManualEnvioModal, showLogisticasModal,
-    showTransportesModal, showExportModal, showExportManualesModal,
-    showPrintManualModal, showFlagModal,
-    bulkActualizando, buildFilterParams, error,
+    isDegraded, fechaDesde, fechaHasta, filtroLogistica, sinLogistica,
+    soloOutlet, soloTurbo, filtroPistoleado, buildFilterParams, error,
+    silentReload,
   ]);
 
   // ── Scroll horizontal sincronizado ──────────────────────────

@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
+import { useSSEChannel } from '../hooks/useSSEChannel';
+import { useSSE } from '../contexts/SSEContext';
 import styles from './EnviosVistaFlag.module.css';
 
 const CORDONES = ['CABA', 'Cordón 1', 'Cordón 2', 'Cordón 3'];
@@ -182,11 +184,37 @@ export default function EnviosVistaFlag() {
     cargarDatos();
   }, [cargarDatos]);
 
-  // ── Smart Polling: detectar cambios y recargar silenciosamente ──
+  // ── SSE-driven reload: replace 60s polling with event-driven updates ──
 
+  const { isDegraded } = useSSE();
+
+  const silentReload = useCallback(async () => {
+    if (document.hidden || showFlagModal) return;
+
+    try {
+      const params = buildFilterParams();
+      const etiqResponse = await api.get(`/etiquetas-envio?${params}`);
+      setEtiquetas(etiqResponse.data);
+      setError(null);
+
+      try {
+        const statsResponse = await api.get(`/etiquetas-envio/estadisticas?${params}`);
+        setEstadisticas(statsResponse.data);
+      } catch {
+        // Stats best-effort
+      }
+    } catch {
+      // Silencioso
+    }
+  }, [showFlagModal, buildFilterParams]);
+
+  useSSEChannel('etiquetas:changed', silentReload);
+
+  // Fallback polling: re-activate 60s polling when SSE is degraded
   useEffect(() => {
-    const POLL_INTERVAL = 60_000; // 60 segundos
+    if (!isDegraded()) return;
 
+    const POLL_INTERVAL = 60_000;
     const checkForUpdates = async () => {
       if (document.hidden || showFlagModal) return;
 
@@ -205,21 +233,7 @@ export default function EnviosVistaFlag() {
 
         if (data.count !== prev.count || data.last_updated !== prev.lastUpdated) {
           pollingRef.current = { count: data.count, lastUpdated: data.last_updated };
-          try {
-            const params = buildFilterParams();
-            const etiqResponse = await api.get(`/etiquetas-envio?${params}`);
-            setEtiquetas(etiqResponse.data);
-            setError(null);
-
-            try {
-              const statsResponse = await api.get(`/etiquetas-envio/estadisticas?${params}`);
-              setEstadisticas(statsResponse.data);
-            } catch {
-              // Stats best-effort
-            }
-          } catch {
-            // Silencioso
-          }
+          await silentReload();
         }
       } catch {
         // Silencioso
@@ -230,7 +244,7 @@ export default function EnviosVistaFlag() {
     pollingRef.current = { count: null, lastUpdated: null };
 
     return () => clearInterval(intervalId);
-  }, [fechaDesde, fechaHasta, showFlagModal, buildFilterParams, error]);
+  }, [isDegraded, fechaDesde, fechaHasta, showFlagModal, buildFilterParams, error, silentReload]);
 
   // ── Error feedback ───────────────────────────────────────────
 
