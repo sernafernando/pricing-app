@@ -4343,24 +4343,27 @@ def exportar_manuales(
             ws.write(0, col_idx, label, header_style)
 
     # -- Datos --
+    # IMPORTANTE: Lightdata valida que TODAS las celdas tengan formato
+    # explícito.  Escribir siempre, incluso vacías (string vacío "").
     for row_idx, envio in enumerate(body.envios, start=1):
         envio_dict = envio.model_dump()
         for col_idx, (key, _) in enumerate(EXPORT_MANUALES_COLUMNS):
-            raw = envio_dict.get(key, "")
+            raw = envio_dict.get(key, "") or ""
 
-            if not raw:
-                # Columna B siempre con formato @, incluso vacía
-                if col_idx == 1:
-                    ws.write(row_idx, col_idx, "", date_text_style)
-                # Otras columnas: dejar vacía
+            # Columna B (Fecha de venta): formato Text (@), dd/mm/yyyy
+            if col_idx == 1:
+                fecha_str = str(raw)
+                # Convertir ISO (yyyy-mm-dd) a dd/mm/yyyy para Lightdata
+                if fecha_str and len(fecha_str) == 10 and "-" in fecha_str:
+                    try:
+                        dt = date.fromisoformat(fecha_str)
+                        fecha_str = dt.strftime("%d/%m/%Y")
+                    except (ValueError, TypeError):
+                        pass
+                ws.write(row_idx, col_idx, fecha_str, date_text_style)
                 continue
 
-            # Columna B (Fecha de venta): siempre como texto con formato @
-            if key == "fecha_venta":
-                ws.write(row_idx, col_idx, str(raw), date_text_style)
-                continue
-
-            # Texto normal para el resto
+            # Todas las demás columnas: texto con formato General
             ws.write(row_idx, col_idx, str(raw), text_style)
 
     # Pre-formatear filas vacías restantes (columna B con @) hasta 500 filas
