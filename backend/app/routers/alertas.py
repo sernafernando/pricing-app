@@ -19,6 +19,7 @@ from app.schemas.alerta import (
 )
 from app.services.alertas_service import AlertasService
 from app.services.permisos_service import PermisosService
+from app.core.sse import sse_publish_bg
 
 router = APIRouter(prefix="/alertas", tags=["Alertas"])
 
@@ -80,6 +81,7 @@ def cerrar_alerta(alerta_id: int, current_user: Usuario = Depends(get_current_us
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alerta no encontrada")
 
     service.marcar_alerta_cerrada(alerta_id, current_user.id)
+    sse_publish_bg("alertas:updated", {"hint": "reload"})
     return None
 
 
@@ -116,6 +118,7 @@ def actualizar_configuracion(
     config = service.actualizar_configuracion(
         max_alertas_visibles=config_data.max_alertas_visibles, updated_by_id=current_user.id
     )
+    sse_publish_bg("alertas:updated", {"hint": "reload"})
     return config
 
 
@@ -202,6 +205,7 @@ def crear_alerta(
     db.refresh(alerta)
     alerta.usuarios_destinatarios = [dest.usuario for dest in alerta.usuarios_destinatarios]
 
+    sse_publish_bg("alertas:updated", {"hint": "reload"})
     return alerta
 
 
@@ -242,6 +246,7 @@ def actualizar_alerta(
     # Cargar relaciones
     alerta.usuarios_destinatarios = [dest.usuario for dest in alerta.usuarios_destinatarios]
 
+    sse_publish_bg("alertas:updated", {"hint": "reload"})
     return alerta
 
 
@@ -265,4 +270,5 @@ def desactivar_alerta(
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alerta no encontrada")
 
+    sse_publish_bg("alertas:updated", {"hint": "reload"})
     return None

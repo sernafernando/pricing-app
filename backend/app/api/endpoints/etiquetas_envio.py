@@ -33,6 +33,7 @@ from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.database import get_db
+from app.core.sse import sse_publish_bg
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.etiqueta_envio import EtiquetaEnvio
@@ -858,6 +859,9 @@ def upload_etiquetas(
     if nuevos_shipping_ids:
         background_tasks.add_task(enriquecer_etiquetas_sync, nuevos_shipping_ids)
 
+    # SSE: notify clients that etiquetas changed (single event for bulk upload)
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+
     return UploadResultResponse(
         total=total,
         nuevas=nuevas,
@@ -909,6 +913,9 @@ def registrar_manual(
     if es_nueva:
         # Enriquecer en background (coords, dirección, comentario)
         background_tasks.add_task(enriquecer_etiquetas_sync, [shipping_id])
+
+        # SSE: notify clients that etiquetas changed
+        sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
         return ManualScanResponse(
             duplicada=False,
@@ -2099,6 +2106,7 @@ def asignar_logistica(
 
     etiqueta.logistica_id = payload.logistica_id
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {"ok": True, "shipping_id": shipping_id, "logistica_id": payload.logistica_id}
 
@@ -2123,6 +2131,7 @@ def cambiar_fecha(
 
     etiqueta.fecha_envio = payload.fecha_envio
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {"ok": True, "shipping_id": shipping_id, "fecha_envio": str(payload.fecha_envio)}
 
@@ -2176,6 +2185,7 @@ def set_costo_override(
     db.add(actividad)
 
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {
         "ok": True,
@@ -2213,6 +2223,7 @@ def asignar_masivo(
     )
 
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {
         "ok": True,
@@ -2292,6 +2303,7 @@ def borrar_etiquetas(
     )
 
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {"ok": True, "eliminadas": deleted}
 
@@ -2486,6 +2498,9 @@ def crear_envio_desde_pedido(
         zip_code=payload.zip_code,
     )
 
+    # SSE: notify clients that etiquetas changed
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+
     soh_label = f" desde pedido GBP:{payload.soh_id}" if payload.soh_id else ""
     return CrearEnvioManualResponse(
         ok=True,
@@ -2643,6 +2658,9 @@ def crear_envio_manual(
         transporte_id=payload.transporte_id,
         zip_code=payload.zip_code,
     )
+
+    # SSE: notify clients that etiquetas changed
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return CrearEnvioManualResponse(
         ok=True,
@@ -2827,6 +2845,9 @@ async def editar_envio_manual(
         )
         cordon_val = cordon_row.cordon if cordon_row else None
 
+    # SSE: notify clients that etiquetas changed
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+
     return {
         "ok": True,
         "shipping_id": shipping_id,
@@ -2892,6 +2913,7 @@ def cambiar_estado_ml(
     db.add(actividad)
 
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {
         "ok": True,
@@ -2926,6 +2948,7 @@ def toggle_turbo(
     valor_anterior = etiqueta.es_turbo
     etiqueta.es_turbo = es_turbo
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {
         "ok": True,
@@ -2959,6 +2982,7 @@ def toggle_turbo_masivo(
         .update({EtiquetaEnvio.es_turbo: es_turbo}, synchronize_session="fetch")
     )
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {
         "ok": True,
@@ -2994,6 +3018,7 @@ def toggle_lluvia(
     valor_anterior = etiqueta.es_lluvia
     etiqueta.es_lluvia = es_lluvia
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {
         "ok": True,
@@ -3027,6 +3052,7 @@ def toggle_lluvia_masivo(
         .update({EtiquetaEnvio.es_lluvia: es_lluvia}, synchronize_session="fetch")
     )
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {
         "ok": True,
@@ -3086,6 +3112,7 @@ def toggle_flag_envio(
         etiqueta.flag_envio_usuario_id = None
 
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {
         "ok": True,
@@ -3140,6 +3167,7 @@ def toggle_flag_envio_masivo(
         .update(update_values, synchronize_session="fetch")
     )
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {
         "ok": True,
@@ -3185,6 +3213,7 @@ def asignar_transporte_masivo(
         )
     )
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {
         "ok": True,
@@ -3401,6 +3430,7 @@ def pistolear_etiqueta(
     db.add(actividad)
 
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     # Obtener datos de ML shipping para el feedback
     ml_shipping = (
@@ -3636,6 +3666,7 @@ def deshacer_pistoleado(
     db.add(actividad)
 
     db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {"ok": True, "shipping_id": shipping_id, "anulado_por": operador.nombre}
 
@@ -4139,6 +4170,8 @@ async def geocodificar_etiquetas(
             errores += 1
 
     db.commit()
+    if geocodificados > 0:
+        sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return GeocodificarResponse(
         total=len(etiquetas),

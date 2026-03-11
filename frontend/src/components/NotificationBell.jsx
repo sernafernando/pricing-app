@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Bell } from 'lucide-react';
 import styles from './NotificationBell.module.css';
 import api from '../services/api';
+import { useSSEChannel } from '../hooks/useSSEChannel';
+import { useSSE } from '../contexts/SSEContext';
 
 export default function NotificationBell() {
   const navigate = useNavigate();
@@ -29,12 +31,22 @@ export default function NotificationBell() {
     }
   };
 
+  const { isDegraded } = useSSE();
+
   useEffect(() => {
     fetchNotificaciones();
-    // Actualizar cada 2 minutos
+  }, []);
+
+  // SSE-driven reload: instant notification updates
+  useSSEChannel('notificaciones:updated', fetchNotificaciones);
+
+  // Fallback polling: re-activate 120s polling when SSE is degraded
+  useEffect(() => {
+    if (!isDegraded()) return;
+
     const interval = setInterval(fetchNotificaciones, 120000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isDegraded]);
 
   const marcarComoLeida = async (notificacionesIds) => {
     try {
