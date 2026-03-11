@@ -87,7 +87,7 @@ export function SSEProvider({ children }) {
     const controller = new AbortController();
     controllerRef.current = controller;
 
-    const url = `${API_BASE}/api/sse/stream?channels=${channels.join(',')}`;
+    const url = `${API_BASE}/sse/stream?channels=${channels.join(',')}`;
     const headers = { Authorization: `Bearer ${token}` };
     if (lastEventIdRef.current) {
       headers['Last-Event-ID'] = lastEventIdRef.current;
