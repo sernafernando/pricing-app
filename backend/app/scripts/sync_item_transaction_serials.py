@@ -116,7 +116,7 @@ def _upsert_batch(db: Session, rows: list[dict]) -> int:
 
 def sync_full(db: Session, batch_size: int = 10000) -> None:
     """Full sync by its_id ranges. Stops when consecutive empty batches are found."""
-    print(f"\nSync FULL de tb_item_transaction_serials (rangos de its_id)")
+    print("\nSync FULL de tb_item_transaction_serials (rangos de its_id)")
     print("=" * 60)
     print(f"Batch size: {batch_size} | Frena con 3 batches vacíos consecutivos\n")
 
@@ -168,7 +168,7 @@ def sync_full(db: Session, batch_size: int = 10000) -> None:
 
 def sync_incremental(db: Session) -> None:
     """Incremental sync from last its_id in our DB."""
-    print(f"\nSync INCREMENTAL de tb_item_transaction_serials")
+    print("\nSync INCREMENTAL de tb_item_transaction_serials")
     print("=" * 60)
 
     last_its_id = db.query(func.max(TbItemTransactionSerial.its_id)).scalar()

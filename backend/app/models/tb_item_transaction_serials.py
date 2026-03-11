@@ -7,7 +7,7 @@ GBP usa esta tabla para mostrar TODOS los movimientos de un serial (compra + ven
 en la pantalla "Traza de Artículos por Nº Serie".
 """
 
-from sqlalchemy import Column, BigInteger, Integer, String, Index
+from sqlalchemy import Column, BigInteger, Integer, Index
 from app.core.database import Base
 
 

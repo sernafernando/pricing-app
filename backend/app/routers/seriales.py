@@ -3717,7 +3717,6 @@ def _build_non_serial_items_from_invoice(
 
             item_code = mapped.get("item_code")
             item_desc = mapped.get("item_desc")
-            precio_unitario = mapped.get("precio_unitario")
             ct_transaction = mapped.get("ct_transaction")
             ct_kindof = mapped.get("ct_kindof")
             ct_pointofsale = mapped.get("ct_pointofsale")
