@@ -3852,7 +3852,7 @@ export default function TabEnviosFlex({ operador = null }) {
                 disabled={exportManualesData.length === 0 || exportingManuales}
               >
                 <Download size={16} />
-                {exportingManuales ? 'Exportando...' : 'Descargar XLSX'}
+                {exportingManuales ? 'Exportando...' : 'Descargar XLS'}
               </button>
             </div>
           </div>

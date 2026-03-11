@@ -4350,9 +4350,17 @@ def exportar_manuales(
         for col_idx, (key, _) in enumerate(EXPORT_MANUALES_COLUMNS):
             raw = envio_dict.get(key, "") or ""
 
-            # Columna B (Fecha de venta): siempre con formato Text (@)
+            # Columna B (Fecha de venta): formato Text (@), dd/mm/yyyy
             if col_idx == 1:
-                ws.write(row_idx, col_idx, str(raw), date_text_style)
+                fecha_str = str(raw)
+                # Convertir ISO (yyyy-mm-dd) a dd/mm/yyyy para Lightdata
+                if fecha_str and len(fecha_str) == 10 and "-" in fecha_str:
+                    try:
+                        dt = date.fromisoformat(fecha_str)
+                        fecha_str = dt.strftime("%d/%m/%Y")
+                    except (ValueError, TypeError):
+                        pass
+                ws.write(row_idx, col_idx, fecha_str, date_text_style)
                 continue
 
             # Todas las demás columnas: texto con formato General
