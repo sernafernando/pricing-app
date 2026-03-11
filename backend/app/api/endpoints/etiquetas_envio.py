@@ -4312,10 +4312,27 @@ def exportar_manuales(
         cell.alignment = header_alignment
 
     # Datos
+    from openpyxl.styles import numbers
+
+    date_fmt = numbers.FORMAT_DATE_YYYYMMDD2  # YYYY-MM-DD
+
     for row_idx, envio in enumerate(body.envios, start=2):
         envio_dict = envio.model_dump()
         for col_idx, (key, _) in enumerate(EXPORT_MANUALES_COLUMNS, start=1):
-            ws.cell(row=row_idx, column=col_idx, value=envio_dict.get(key, ""))
+            raw = envio_dict.get(key, "")
+            cell = ws.cell(row=row_idx, column=col_idx)
+
+            # fecha_venta: convertir string ISO a date nativo de Excel
+            if key == "fecha_venta" and raw:
+                try:
+                    cell.value = date.fromisoformat(raw)
+                    cell.number_format = date_fmt
+                    continue
+                except (ValueError, TypeError):
+                    pass
+
+            # Escribir valor (o None si está vacío para evitar quotePrefix)
+            cell.value = raw if raw else None
 
     # Anchos de columna
     from openpyxl.utils import get_column_letter
