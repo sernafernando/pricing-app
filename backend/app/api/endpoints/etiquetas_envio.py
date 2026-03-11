@@ -351,6 +351,8 @@ class EstadisticaDiaItem(BaseModel):
     sin_cordon: int = 0
     con_logistica: int = 0
     sin_logistica: int = 0
+    enviados: int = 0
+    no_entregados: int = 0
 
 
 class EstadisticasPorDiaResponse(BaseModel):
@@ -1673,7 +1675,13 @@ def estadisticas_por_dia(
     )
     stats_eff_zip_for_cordon = func.coalesce(Transporte.cp, stats_eff_zip)
 
-    # Query base: una fila por (fecha_envio, es_manual, cordon, tiene_logistica)
+    # Estado ML efectivo (manual_status overrides mlstatus de ML)
+    stats_eff_status = func.coalesce(
+        EtiquetaEnvio.manual_status,
+        shipping_stats.c.mlstatus,
+    )
+
+    # Query base: una fila por (fecha_envio, es_manual, cordon, tiene_logistica, mlstatus)
     base_q = (
         db.query(
             EtiquetaEnvio.fecha_envio,
@@ -1683,6 +1691,7 @@ def estadisticas_por_dia(
                 (EtiquetaEnvio.logistica_id.isnot(None), True),
                 else_=False,
             ).label("tiene_logistica"),
+            stats_eff_status.label("mlstatus"),
             func.count().label("cantidad"),
         )
         .outerjoin(
@@ -1708,6 +1717,7 @@ def estadisticas_por_dia(
             EtiquetaEnvio.es_manual,
             CodigoPostalCordon.cordon,
             "tiene_logistica",
+            stats_eff_status,
         )
         .all()
     )
@@ -1739,6 +1749,11 @@ def estadisticas_por_dia(
             dia.con_logistica += cantidad
         else:
             dia.sin_logistica += cantidad
+
+        if row.mlstatus == "shipped":
+            dia.enviados += cantidad
+        elif row.mlstatus == "not_delivered":
+            dia.no_entregados += cantidad
 
     # Ordenar por fecha
     dias = sorted(dias_map.values(), key=lambda d: d.fecha)

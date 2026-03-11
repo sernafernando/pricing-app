@@ -309,6 +309,22 @@ export default function CalendarioEnvios({ onDiaClick, endpointUrl = '/etiquetas
                             </span>
                           )}
                         </div>
+
+                        {/* Estado ML: enviados / no entregados */}
+                        {(dia.enviados > 0 || dia.no_entregados > 0) && (
+                          <div className={styles.badgeRow}>
+                            {dia.enviados > 0 && (
+                              <span className={`${styles.badge} ${styles.badgeEnviado}`}>
+                                Enviados {dia.enviados}
+                              </span>
+                            )}
+                            {dia.no_entregados > 0 && (
+                              <span className={`${styles.badge} ${styles.badgeNoEntregado}`}>
+                                No entreg. {dia.no_entregados}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
