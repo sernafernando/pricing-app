@@ -505,7 +505,9 @@ class TrazaClienteResponse(BaseModel):
 # =============================================================================
 
 QUERY_TRAZA = text("""
-    WITH serial_movimientos AS (
+    WITH
+    -- 1. Movimiento directo de tb_item_serials (típicamente la COMPRA)
+    direct_movimientos AS (
         SELECT
             s.is_id,
             s.item_id,
@@ -514,7 +516,6 @@ QUERY_TRAZA = text("""
             s.stor_id,
             s.is_cd,
             s.is_available,
-            -- Tipo de documento y número
             ct.ct_kindof,
             ct.ct_pointofsale,
             ct.ct_docnumber,
@@ -522,15 +523,10 @@ QUERY_TRAZA = text("""
             ct.cust_id,
             ct.supp_id,
             ct.df_id,
-            -- Document file description
             df.df_desc,
-            -- Cliente
             cust.cust_name AS cliente_nombre,
-            -- Proveedor
             supp.supp_name AS proveedor_nombre,
-            -- Depósito
             stor.stor_desc,
-            -- Artículo
             pe.codigo AS item_codigo,
             pe.descripcion AS item_descripcion,
             pe.marca AS item_marca,
@@ -560,9 +556,77 @@ QUERY_TRAZA = text("""
             ON ti.comp_id = cat.comp_id
             AND ti.cat_id = cat.cat_id
         WHERE s.is_serial = :serial
-        ORDER BY s.is_cd ASC NULLS LAST, s.is_id ASC
+    ),
+    -- 2. Movimientos adicionales vía tb_item_transaction_serials (típicamente la VENTA)
+    --    Vincula is_id → its → it_transaction/ct_transaction
+    bridge_movimientos AS (
+        SELECT
+            s.is_id,
+            s.item_id,
+            its.ct_transaction,
+            its.it_transaction,
+            s.stor_id,
+            s.is_cd,
+            s.is_available,
+            ct.ct_kindof,
+            ct.ct_pointofsale,
+            ct.ct_docnumber,
+            ct.ct_date,
+            ct.cust_id,
+            ct.supp_id,
+            ct.df_id,
+            df.df_desc,
+            cust.cust_name AS cliente_nombre,
+            supp.supp_name AS proveedor_nombre,
+            stor.stor_desc,
+            pe.codigo AS item_codigo,
+            pe.descripcion AS item_descripcion,
+            pe.marca AS item_marca,
+            cat.cat_desc AS item_categoria
+        FROM tb_item_serials s
+        INNER JOIN tb_item_transaction_serials its
+            ON s.comp_id = its.comp_id
+            AND s.is_id = its.is_id
+        INNER JOIN tb_commercial_transactions ct
+            ON its.ct_transaction = ct.ct_transaction
+        LEFT JOIN tb_document_file df
+            ON ct.comp_id = df.comp_id
+            AND ct.bra_id = df.bra_id
+            AND ct.df_id = df.df_id
+        LEFT JOIN tb_customer cust
+            ON ct.comp_id = cust.comp_id
+            AND ct.cust_id = cust.cust_id
+        LEFT JOIN tb_supplier supp
+            ON ct.comp_id = supp.comp_id
+            AND ct.supp_id = supp.supp_id
+        LEFT JOIN tb_storage stor
+            ON s.comp_id = stor.comp_id
+            AND s.stor_id = stor.stor_id
+        LEFT JOIN productos_erp pe
+            ON s.item_id = pe.item_id
+        LEFT JOIN tb_item ti
+            ON s.comp_id = ti.comp_id
+            AND s.item_id = ti.item_id
+        LEFT JOIN tb_category cat
+            ON ti.comp_id = cat.comp_id
+            AND ti.cat_id = cat.cat_id
+        WHERE s.is_serial = :serial
+            -- Excluir la misma ct_transaction que ya viene del directo
+            AND its.ct_transaction != s.ct_transaction
+    ),
+    -- 3. Combinar ambos, deduplicar por ct_transaction
+    combined AS (
+        SELECT * FROM direct_movimientos
+        UNION ALL
+        SELECT * FROM bridge_movimientos
+    ),
+    deduped AS (
+        SELECT DISTINCT ON (ct_transaction) *
+        FROM combined
+        ORDER BY ct_transaction, is_id ASC
     )
-    SELECT * FROM serial_movimientos
+    SELECT * FROM deduped
+    ORDER BY ct_date ASC NULLS LAST, is_id ASC
 """)
 
 QUERY_RMA = text("""
@@ -3653,7 +3717,6 @@ def _build_non_serial_items_from_invoice(
 
             item_code = mapped.get("item_code")
             item_desc = mapped.get("item_desc")
-            precio_unitario = mapped.get("precio_unitario")
             ct_transaction = mapped.get("ct_transaction")
             ct_kindof = mapped.get("ct_kindof")
             ct_pointofsale = mapped.get("ct_pointofsale")
