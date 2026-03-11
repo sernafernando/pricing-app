@@ -2877,8 +2877,9 @@ def cambiar_estado_ml(
 
     Solo aplica a etiquetas con es_manual=True.
     Registra la acción en operador_actividad.
+    Requiere permiso envios_flex.cambiar_estado_manual.
     """
-    _check_permiso(db, current_user, "envios_flex.config")
+    _check_permiso(db, current_user, "envios_flex.cambiar_estado_manual")
 
     etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
     if not etiqueta:

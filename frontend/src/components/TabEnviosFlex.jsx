@@ -97,6 +97,7 @@ export default function TabEnviosFlex({ operador = null }) {
   const puedeAsignarTurbo = tienePermiso('envios_flex.asignar_turbo');
   const puedeAsignarLluvia = tienePermiso('envios_flex.asignar_lluvia');
   const puedeFlag = tienePermiso('envios_flex.config');
+  const puedeCambiarEstadoManual = tienePermiso('envios_flex.cambiar_estado_manual');
 
   // Data
   const [etiquetas, setEtiquetas] = useState([]);
@@ -2385,7 +2386,7 @@ export default function TabEnviosFlex({ operador = null }) {
                       )}
                     </td>
                     <td>
-                      {e.es_manual && puedeVerCostos ? (
+                      {e.es_manual && puedeCambiarEstadoManual ? (
                         <select
                           value={e.mlstatus || ''}
                           onChange={(ev) => cambiarEstadoManual(e.shipping_id, ev.target.value)}
