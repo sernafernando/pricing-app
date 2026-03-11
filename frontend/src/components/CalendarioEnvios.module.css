@@ -209,6 +209,17 @@
   color: #dc2626;
 }
 
+/* Estado ML */
+.badgeEnviado {
+  background: #0284c720;
+  color: #0284c7;
+}
+
+.badgeNoEntregado {
+  background: #dc262620;
+  color: #dc2626;
+}
+
 /* Total del día */
 .dayTotal {
   font-size: var(--font-xs);
