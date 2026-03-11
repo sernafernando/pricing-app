@@ -75,13 +75,13 @@ export function SSEProvider({ children }) {
       return;
     }
 
-    // Abort existing connection
+    // Abort existing connection (reconnect with updated channel list)
     if (controllerRef.current) {
       controllerRef.current.abort();
       controllerRef.current = null;
     }
 
-    if (isConnectingRef.current) return;
+    // Reset connecting flag — previous abort may not have cleared it yet
     isConnectingRef.current = true;
 
     const controller = new AbortController();
@@ -298,15 +298,14 @@ export function SSEProvider({ children }) {
       }
       subscribersRef.current.get(channel).add(callback);
 
-      const hadConnection = controllerRef.current !== null;
+      const isNewChannel = subscribersRef.current.get(channel).size === 1;
       const channelCount = subscribersRef.current.size;
 
-      debugLog('Subscribe:', channel, `(${channelCount} channels total)`);
+      debugLog('Subscribe:', channel, `(${channelCount} channels total, new=${isNewChannel})`);
 
-      // If this is the first subscriber or a new channel was added, reconnect
-      // to include the new channel in the SSE connection
-      if (!hadConnection || channelCount > 0) {
-        // Small delay to batch multiple subscribe calls on mount
+      // Reconnect to include new channel in SSE connection.
+      // Debounce with setTimeout(0) to batch multiple subscribe calls on mount.
+      if (isNewChannel) {
         setTimeout(() => connect(), 0);
       }
 
