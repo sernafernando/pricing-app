@@ -1170,6 +1170,55 @@ QUERY_PEDIDOS_VIA_BRIDGE = text("""
     ORDER BY mlo.mlo_cd ASC NULLS LAST
 """)
 
+# Fallback 2: buscar pedidos por cust_id del movimiento de venta → soh / sohh.
+# Para ventas ML que no se facturaron (no hay ct_transaction pero sí soh con mlo_id).
+# Usa cust_id extraído del movimiento CLIENTE del serial.
+QUERY_PEDIDOS_VIA_CUSTID_SOH = text("""
+    SELECT DISTINCT
+        soh.soh_id,
+        soh.bra_id,
+        soh.soh_cd,
+        soh.cust_id,
+        cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
+        soh.soh_mlid,
+        soh.mlshippingid,
+        ssos.ssos_name AS estado_nombre
+    FROM tb_sale_order_header soh
+    LEFT JOIN tb_customer cust
+        ON soh.comp_id = cust.comp_id
+        AND soh.cust_id = cust.cust_id
+    LEFT JOIN tb_sale_order_status ssos
+        ON soh.ssos_id = ssos.ssos_id
+    WHERE soh.cust_id = :cust_id
+    ORDER BY soh.soh_cd DESC
+    LIMIT 5
+""")
+
+QUERY_PEDIDOS_VIA_CUSTID_SOHH = text("""
+    SELECT DISTINCT
+        sohh.soh_id,
+        sohh.bra_id,
+        sohh.soh_cd,
+        sohh.cust_id,
+        cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
+        sohh.soh_mlid,
+        NULL::bigint AS mlshippingid,
+        NULL AS estado_nombre
+    FROM tb_sale_order_header_history sohh
+    LEFT JOIN tb_customer cust
+        ON sohh.comp_id = cust.comp_id
+        AND sohh.cust_id = cust.cust_id
+    WHERE sohh.cust_id = :cust_id
+    ORDER BY sohh.soh_cd DESC
+    LIMIT 5
+""")
+
 QUERY_FACTURA_DETALLE = text("""
     SELECT
         it.it_transaction,
@@ -3810,15 +3859,32 @@ def traza_serial(
     # 1. Movimientos y artículo
     movimientos, articulo = _build_movimientos(db, serial)
 
-    # 2. Pedidos vinculados (directo por sale_order_serials)
+    # 2. Pedidos vinculados — cadena de fallbacks
+    # 2a. Directo por sale_order_serials (el ideal)
     result_pedidos = db.execute(QUERY_PEDIDOS, {"serial": serial})
     pedidos_rows = [dict(r._mapping) for r in result_pedidos]
 
-    # Fallback: si no hay pedidos vía sale_order_serials, buscar vía bridge table
-    # tb_item_serials → tb_item_transaction_serials → ct_transaction → ct_soh_id → soh
+    # 2b. Fallback: bridge → it.mlo_id → mlo (cuando hay factura pero no sale_order_serial)
     if not pedidos_rows:
         result_bridge = db.execute(QUERY_PEDIDOS_VIA_BRIDGE, {"serial": serial})
         pedidos_rows = [dict(r._mapping) for r in result_bridge]
+
+    # 2c. Fallback: cust_id del movimiento CLIENTE → soh / sohh
+    #     Para ventas ML sin facturar (no hay ct_transaction pero sí pedido)
+    if not pedidos_rows and movimientos:
+        venta_cust_ids = [
+            m.referencia_id for m in movimientos if m.tipo == "CLIENTE" and m.referencia_id and m.referencia_id > 0
+        ]
+        for cust_id in venta_cust_ids:
+            if pedidos_rows:
+                break
+            # Primero en soh
+            result_soh = db.execute(QUERY_PEDIDOS_VIA_CUSTID_SOH, {"cust_id": cust_id})
+            pedidos_rows = [dict(r._mapping) for r in result_soh]
+            # Si no, en sohh (history)
+            if not pedidos_rows:
+                result_sohh = db.execute(QUERY_PEDIDOS_VIA_CUSTID_SOHH, {"cust_id": cust_id})
+                pedidos_rows = [dict(r._mapping) for r in result_sohh]
 
     pedidos = [
         PedidoSerial(
