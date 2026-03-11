@@ -1134,8 +1134,10 @@ QUERY_PEDIDOS = text("""
     ORDER BY soh.soh_cd ASC NULLS LAST
 """)
 
-# Fallback: buscar pedidos vía tb_item_transaction_serials → ct_transaction → ct_soh_id → soh
-# Se usa cuando QUERY_PEDIDOS no encuentra nada (el serial no está en tb_sale_order_serials)
+# Fallback: buscar pedidos vía bridge table cuando QUERY_PEDIDOS no encuentra nada.
+# Cadena: tb_item_serials → tb_item_transaction_serials → tb_item_transactions (mlo_id)
+#        → tb_sale_order_header (mlo_id) → datos ML (soh_mlid, mlshippingid)
+# Nota: ct_soh_id suele ser NULL en estas transacciones, por eso vamos por mlo_id vía it.
 QUERY_PEDIDOS_VIA_BRIDGE = text("""
     SELECT DISTINCT
         soh.soh_id,
@@ -1153,19 +1155,20 @@ QUERY_PEDIDOS_VIA_BRIDGE = text("""
     INNER JOIN tb_item_transaction_serials its
         ON s.comp_id = its.comp_id
         AND s.is_id = its.is_id
-    INNER JOIN tb_commercial_transactions ct
-        ON its.ct_transaction = ct.ct_transaction
+    INNER JOIN tb_item_transactions it
+        ON its.it_transaction = it.it_transaction
+        AND its.comp_id = it.comp_id
     INNER JOIN tb_sale_order_header soh
-        ON ct.comp_id = soh.comp_id
-        AND ct.ct_soh_id = soh.soh_id
+        ON it.comp_id = soh.comp_id
+        AND it.mlo_id = soh.mlo_id
     LEFT JOIN tb_customer cust
         ON soh.comp_id = cust.comp_id
         AND soh.cust_id = cust.cust_id
     LEFT JOIN tb_sale_order_status ssos
         ON soh.ssos_id = ssos.ssos_id
     WHERE s.is_serial = :serial
-        AND ct.cust_id IS NOT NULL
-        AND ct.cust_id > 0
+        AND it.mlo_id IS NOT NULL
+        AND it.mlo_id > 0
     ORDER BY soh.soh_cd ASC NULLS LAST
 """)
 
