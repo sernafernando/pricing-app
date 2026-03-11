@@ -4363,6 +4363,10 @@ def exportar_manuales(
                 ws.write(row_idx, col_idx, fecha_str, date_text_style)
                 continue
 
+            # Observaciones: Lightdata rechaza celda vacía, poner "-"
+            if key == "observaciones" and not raw:
+                raw = "-"
+
             # Todas las demás columnas: texto con formato General
             ws.write(row_idx, col_idx, str(raw), text_style)
 
