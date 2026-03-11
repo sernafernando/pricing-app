@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
     try:
         redis = AsyncRedis.from_url(settings.REDIS_URL, decode_responses=False)
         await redis.ping()
-        set_redis(redis)
+        set_redis(redis, loop=asyncio.get_running_loop())
         app.state.redis = redis
 
         sse_manager = SSEConnectionManager(redis, max_connections=settings.SSE_MAX_CONNECTIONS)

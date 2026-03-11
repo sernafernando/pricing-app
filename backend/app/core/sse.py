@@ -57,12 +57,14 @@ class SSEEvent(BaseModel):
 # ── Redis reference + publish utility ────────────────────────────
 
 _redis: Redis | None = None
+_event_loop: asyncio.AbstractEventLoop | None = None
 
 
-def set_redis(redis_client: Redis) -> None:
-    """Called from main.py lifespan to inject the Redis connection."""
-    global _redis
+def set_redis(redis_client: Redis, loop: asyncio.AbstractEventLoop | None = None) -> None:
+    """Called from main.py lifespan to inject the Redis connection and event loop."""
+    global _redis, _event_loop
     _redis = redis_client
+    _event_loop = loop
 
 
 async def sse_publish(channel: str, data: dict[str, Any] | None = None) -> None:
@@ -95,19 +97,17 @@ def sse_publish_bg(channel: str, data: dict[str, Any] | None = None) -> None:
     """
     Synchronous wrapper for sse_publish — for use from sync (def) endpoints.
 
-    Runs the async publish in the running event loop via asyncio.ensure_future.
-    Safe to call from FastAPI sync endpoints running in a thread pool because
-    Starlette copies the event loop reference into the thread.
-    If no loop is available, logs a warning and returns silently.
+    Uses asyncio.run_coroutine_threadsafe to schedule the publish on the main
+    event loop from the threadpool where sync endpoints run.
     """
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(sse_publish(channel, data))
-        else:
-            loop.run_until_complete(sse_publish(channel, data))
-    except RuntimeError:
+    if _event_loop is None or _event_loop.is_closed():
         logger.warning("sse_publish_bg: no event loop available (channel=%s)", channel)
+        return
+
+    try:
+        asyncio.run_coroutine_threadsafe(sse_publish(channel, data), _event_loop)
+    except RuntimeError:
+        logger.warning("sse_publish_bg: event loop closed (channel=%s)", channel)
 
 
 # ── Connection Manager ───────────────────────────────────────────
