@@ -4278,7 +4278,7 @@ EXPORT_MANUALES_COLUMNS = [
 
 @router.post(
     "/etiquetas-envio/export-manuales",
-    summary="Exportar envíos manuales editados a Excel (XLSX)",
+    summary="Exportar envíos manuales editados a Excel (.xls) para Lightdata",
     response_class=StreamingResponse,
 )
 def exportar_manuales(
@@ -4287,84 +4287,101 @@ def exportar_manuales(
     current_user: Usuario = Depends(get_current_user),
 ) -> StreamingResponse:
     """
-    Genera un XLSX con los datos de envíos manuales editados por el usuario.
-    Los datos vienen pre-rellenados desde el frontend y pueden haber sido
-    modificados antes de exportar. No consulta la DB.
+    Genera un .xls (BIFF8) con los datos de envíos manuales editados por el
+    usuario.  El formato replica exactamente el template de Lightdata:
+    - Formato .xls (no .xlsx)
+    - Sheet llamada "Simple"
+    - Columna B (Fecha de venta) con formato Text (@)
+    - Headers sin negrita, sin fondo, Calibri 11
+    - 500 filas pre-formateadas (columna B con formato @)
     """
     _check_permiso(db, current_user, "envios_flex.exportar")
 
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill
+    import xlwt
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Envíos Manuales"
+    wb = xlwt.Workbook(encoding="utf-8")
+    ws = wb.add_sheet("Simple")
 
-    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-    header_font = Font(bold=True, color="FFFFFF", size=11)
-    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    # -- Estilos que matchean el template de Lightdata --
+    # Header: Calibri 11, sin bold, sin fondo, negro
+    header_style = xlwt.XFStyle()
+    header_font = xlwt.Font()
+    header_font.name = "Calibri"
+    header_font.height = 220  # 11pt * 20
+    header_font.bold = False
+    header_style.font = header_font
 
-    # Headers
-    for col_idx, (_, label) in enumerate(EXPORT_MANUALES_COLUMNS, start=1):
-        cell = ws.cell(row=1, column=col_idx, value=label)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = header_alignment
+    # Estilo normal para celdas de texto
+    text_style = xlwt.XFStyle()
+    text_font = xlwt.Font()
+    text_font.name = "Calibri"
+    text_font.height = 220
+    text_style.font = text_font
 
-    # Datos
-    from openpyxl.styles import numbers
+    # Estilo para columna B (Fecha de venta): formato Text (@)
+    date_text_style = xlwt.XFStyle()
+    date_text_font = xlwt.Font()
+    date_text_font.name = "Calibri"
+    date_text_font.height = 220
+    date_text_style.font = date_text_font
+    date_text_style.num_format_str = "@"
 
-    date_fmt = numbers.FORMAT_DATE_YYYYMMDD2  # YYYY-MM-DD
-    # Campos que deben escribirse como número en Excel
-    numeric_keys = {"codigo_postal", "valor_declarado", "peso_declarado", "total_a_cobrar"}
+    # Estilo para header de columna B (también @)
+    header_date_style = xlwt.XFStyle()
+    header_date_font = xlwt.Font()
+    header_date_font.name = "Calibri"
+    header_date_font.height = 220
+    header_date_font.bold = False
+    header_date_style.font = header_date_font
+    header_date_style.num_format_str = "@"
 
-    for row_idx, envio in enumerate(body.envios, start=2):
+    # -- Headers (row 0) --
+    for col_idx, (_, label) in enumerate(EXPORT_MANUALES_COLUMNS):
+        if col_idx == 1:  # Columna B: Fecha de venta
+            ws.write(0, col_idx, label, header_date_style)
+        else:
+            ws.write(0, col_idx, label, header_style)
+
+    # -- Datos --
+    for row_idx, envio in enumerate(body.envios, start=1):
         envio_dict = envio.model_dump()
-        for col_idx, (key, _) in enumerate(EXPORT_MANUALES_COLUMNS, start=1):
+        for col_idx, (key, _) in enumerate(EXPORT_MANUALES_COLUMNS):
             raw = envio_dict.get(key, "")
-            cell = ws.cell(row=row_idx, column=col_idx)
 
             if not raw:
-                cell.value = None
+                # Columna B siempre con formato @, incluso vacía
+                if col_idx == 1:
+                    ws.write(row_idx, col_idx, "", date_text_style)
+                # Otras columnas: dejar vacía
                 continue
 
-            # fecha_venta: convertir string ISO a date nativo de Excel
+            # Columna B (Fecha de venta): siempre como texto con formato @
             if key == "fecha_venta":
-                try:
-                    cell.value = date.fromisoformat(raw)
-                    cell.number_format = date_fmt
-                    continue
-                except (ValueError, TypeError):
-                    pass
+                ws.write(row_idx, col_idx, str(raw), date_text_style)
+                continue
 
-            # Campos numéricos: escribir como número para evitar quotePrefix
-            if key in numeric_keys:
-                try:
-                    cell.value = float(raw)
-                    # Si es entero, dejarlo como int (ej: CP 1043, no 1043.0)
-                    if cell.value == int(cell.value):
-                        cell.value = int(cell.value)
-                    continue
-                except (ValueError, TypeError):
-                    pass
+            # Texto normal para el resto
+            ws.write(row_idx, col_idx, str(raw), text_style)
 
-            cell.value = raw
+    # Pre-formatear filas vacías restantes (columna B con @) hasta 500 filas
+    # como hace el template de Lightdata
+    data_rows = len(body.envios)
+    for row_idx in range(data_rows + 1, 500):
+        ws.write(row_idx, 1, "", date_text_style)
 
-    # Anchos de columna
-    from openpyxl.utils import get_column_letter
-
-    col_widths = [18, 14, 14, 14, 25, 18, 35, 20, 12, 30, 16, 16]
-    for col_idx, width in enumerate(col_widths, start=1):
-        ws.column_dimensions[get_column_letter(col_idx)].width = width
+    # -- Anchos de columna (en unidades de 1/256 del ancho de un carácter) --
+    col_widths_chars = [18, 14, 14, 14, 25, 18, 35, 20, 12, 30, 16, 16]
+    for col_idx, w in enumerate(col_widths_chars):
+        ws.col(col_idx).width = w * 256
 
     output = BytesIO()
     wb.save(output)
     output.seek(0)
 
-    filename = f"envios_manuales_{date.today().isoformat()}.xlsx"
+    filename = f"envios_manuales_{date.today().isoformat()}.xls"
 
     return StreamingResponse(
         output,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type="application/vnd.ms-excel",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

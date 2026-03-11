@@ -1438,7 +1438,7 @@ export default function TabEnviosFlex({ operador = null }) {
       link.href = url;
       link.setAttribute(
         'download',
-        `envios_manuales_${todayStr()}.xlsx`,
+        `envios_manuales_${todayStr()}.xls`,
       );
       document.body.appendChild(link);
       link.click();
