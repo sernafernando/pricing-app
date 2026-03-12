@@ -1,14 +1,14 @@
 """Add functional index on UPPER(is_serial) for case-insensitive search
 
-Revision ID: 20260312a001
-Revises: 20260311a001
+Revision ID: 20260312_upper_serial_idx
+Revises: 20260311_estado_manual_perm
 Create Date: 2026-03-12
 """
 
 from alembic import op
 
-revision = "20260312a001"
-down_revision = "20260311a001"
+revision = "20260312_upper_serial_idx"
+down_revision = "20260311_estado_manual_perm"
 branch_labels = None
 depends_on = None
 
