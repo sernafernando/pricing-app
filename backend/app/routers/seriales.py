@@ -555,7 +555,7 @@ QUERY_TRAZA = text("""
         LEFT JOIN tb_category cat
             ON ti.comp_id = cat.comp_id
             AND ti.cat_id = cat.cat_id
-        WHERE s.is_serial = :serial
+        WHERE UPPER(s.is_serial) = UPPER(:serial)
     ),
     -- 2. Movimientos adicionales vía tb_item_transaction_serials (típicamente la VENTA)
     --    Vincula is_id → its → it_transaction/ct_transaction
@@ -610,7 +610,7 @@ QUERY_TRAZA = text("""
         LEFT JOIN tb_category cat
             ON ti.comp_id = cat.comp_id
             AND ti.cat_id = cat.cat_id
-        WHERE s.is_serial = :serial
+        WHERE UPPER(s.is_serial) = UPPER(:serial)
             -- Excluir la misma ct_transaction que ya viene del directo
             AND its.ct_transaction != s.ct_transaction
     ),
@@ -681,10 +681,10 @@ QUERY_RMA = text("""
     LEFT JOIN productos_erp pe
         ON d.item_id = pe.item_id
     WHERE d.is_id IN (
-        SELECT s.is_id FROM tb_item_serials s WHERE s.is_serial = :serial
+        SELECT s.is_id FROM tb_item_serials s WHERE UPPER(s.is_serial) = UPPER(:serial)
     )
-    OR d.rmad_serial = :serial
-    OR d."rmad_Manual" = :serial
+    OR UPPER(d.rmad_serial) = UPPER(:serial)
+    OR UPPER(d."rmad_Manual") = UPPER(:serial)
     ORDER BY h.rmah_cd ASC NULLS LAST, d.rmad_id ASC
 """)
 
@@ -1130,7 +1130,7 @@ QUERY_PEDIDOS = text("""
         AND soh.cust_id = cust.cust_id
     LEFT JOIN tb_sale_order_status ssos
         ON soh.ssos_id = ssos.ssos_id
-    WHERE s.is_serial = :serial
+    WHERE UPPER(s.is_serial) = UPPER(:serial)
     ORDER BY soh.soh_cd ASC NULLS LAST
 """)
 
@@ -1164,7 +1164,7 @@ QUERY_PEDIDOS_VIA_BRIDGE = text("""
     LEFT JOIN tb_customer cust
         ON mlo.comp_id = cust.comp_id
         AND mlo.cust_id = cust.cust_id
-    WHERE s.is_serial = :serial
+    WHERE UPPER(s.is_serial) = UPPER(:serial)
         AND it.mlo_id IS NOT NULL
         AND it.mlo_id > 0
     ORDER BY mlo.mlo_cd ASC NULLS LAST
@@ -3856,6 +3856,9 @@ def traza_serial(
     Devuelve artículo, movimientos (compras/ventas/transferencias),
     pedidos vinculados y RMAs.
     """
+    # Normalizar serial a uppercase (GBP los guarda en mayúsculas)
+    serial = serial.strip().upper()
+
     # 1. Movimientos y artículo
     movimientos, articulo = _build_movimientos(db, serial)
 
