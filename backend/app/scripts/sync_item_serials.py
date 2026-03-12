@@ -37,220 +37,183 @@ async def fetch_from_erp(params: dict) -> list:
         return response.json()
 
 
-def sync_full(db: Session, batch_size: int = 10000, max_is_id: int = 1000000):
-    """Sincronización completa por rangos de is_id"""
-    print("\n🔄 Sincronización COMPLETA de tb_item_serials (por rangos de is_id)")
+def sync_full(db: Session, batch_size: int = 10000):
+    """Sincronización completa por rangos de is_id. Frena con 3 batches vacíos."""
+    print("\n Sincronización COMPLETA de tb_item_serials (por rangos de is_id)")
     print("=" * 60)
-    print(f"Tamaño de lote: {batch_size} registros")
-    print(f"Rango máximo: hasta is_id={max_is_id}")
-    print()
+    print(f"Batch size: {batch_size} | Frena con 3 batches vacíos consecutivos\n")
 
     current_from = 1
     total_procesado = 0
     batch_num = 1
+    consecutive_empty = 0
+    max_consecutive_empty = 3
 
-    while current_from < max_is_id:
+    while True:
         current_to = current_from + batch_size - 1
-        if current_to > max_is_id:
-            current_to = max_is_id
-
-        print(f"📦 Lote #{batch_num} (is_id: {current_from} - {current_to})...")
+        print(f"Lote #{batch_num} (is_id: {current_from} - {current_to})...", end=" ")
 
         params = {"strScriptLabel": "scriptItemSerials", "isIDfrom": current_from, "isIDto": current_to}
 
         try:
             data = asyncio.run(fetch_from_erp(params))
 
-            if not data or len(data) == 0:
-                print("   ⚠️  Sin registros en este rango")
+            # GBP empty response
+            if data and len(data) == 1 and "Column1" in data[0]:
+                data = []
+
+            if not data:
+                consecutive_empty += 1
+                print(f"sin datos ({consecutive_empty}/{max_consecutive_empty})")
+                if consecutive_empty >= max_consecutive_empty:
+                    print(f"\n{max_consecutive_empty} batches vacíos consecutivos, terminando.")
+                    break
             else:
-                print(f"   ✓ Obtenidos {len(data)} registros")
+                consecutive_empty = 0
+                normalized = [r for row in data if (r := _normalize_row(row)) is not None]
 
-                # Normalizar todos los datos primero
-                normalized_data = []
-                for row in data:
-                    # Verificar que tenga los campos de primary key
-                    if not row.get("comp_id") or not row.get("is_id") or not row.get("bra_id"):
-                        continue  # Saltar registros sin PK válida
+                for i in range(0, len(normalized), 500):
+                    _upsert_batch(db, normalized[i : i + 500])
 
-                    # Mapear is_IsOwnGeneration a is_isowngeneration
-                    if "is_IsOwnGeneration" in row:
-                        row["is_isowngeneration"] = row.pop("is_IsOwnGeneration")
-
-                    # Convertir booleanos
-                    for bool_field in ["is_available", "is_isowngeneration", "is_checked", "is_printed"]:
-                        if bool_field in row and row[bool_field] is not None:
-                            row[bool_field] = bool(row[bool_field])
-
-                    # Convertir fechas
-                    if "is_cd" in row and row["is_cd"]:
-                        try:
-                            row["is_cd"] = datetime.fromisoformat(row["is_cd"].replace("Z", "+00:00"))
-                        except:
-                            row["is_cd"] = None
-
-                    # Filtrar solo campos válidos de la tabla
-                    valid_fields = {
-                        "comp_id",
-                        "is_id",
-                        "bra_id",
-                        "ct_transaction",
-                        "it_transaction",
-                        "item_id",
-                        "stor_id",
-                        "is_serial",
-                        "is_cd",
-                        "is_available",
-                        "is_guid",
-                        "is_isowngeneration",
-                        "is_checked",
-                        "is_printed",
-                    }
-                    normalized_row = {k: v for k, v in row.items() if k in valid_fields}
-                    normalized_data.append(normalized_row)
-
-                # Procesar en batches más pequeños para INSERT
-                insert_batch_size = 500
-                for i in range(0, len(normalized_data), insert_batch_size):
-                    batch = normalized_data[i : i + insert_batch_size]
-
-                    # Upsert usando executemany
-                    stmt = insert(TbItemSerial)
-                    stmt = stmt.on_conflict_do_update(
-                        index_elements=["comp_id", "is_id", "bra_id"],
-                        set_={
-                            "ct_transaction": stmt.excluded.ct_transaction,
-                            "it_transaction": stmt.excluded.it_transaction,
-                            "item_id": stmt.excluded.item_id,
-                            "stor_id": stmt.excluded.stor_id,
-                            "is_serial": stmt.excluded.is_serial,
-                            "is_cd": stmt.excluded.is_cd,
-                            "is_available": stmt.excluded.is_available,
-                            "is_guid": stmt.excluded.is_guid,
-                            "is_isowngeneration": stmt.excluded.is_isowngeneration,
-                            "is_checked": stmt.excluded.is_checked,
-                            "is_printed": stmt.excluded.is_printed,
-                        },
-                    )
-
-                    db.execute(stmt, batch)
-                    db.commit()
-
-                total_procesado += len(data)
-                print(f"   💾 Insertados en DB (Total acumulado: {total_procesado})")
-
-            # Avanzar al siguiente rango
-            current_from = current_to + 1
-            batch_num += 1
+                total_procesado += len(normalized)
+                print(f"{len(normalized)} registros (acum: {total_procesado})")
 
         except Exception as e:
-            print(f"   ❌ Error: {str(e)}")
-            import traceback
+            print(f"ERROR: {e}")
 
-            traceback.print_exc()
-            # Continuar con el siguiente batch
-            current_from = current_to + 1
-            batch_num += 1
+        current_from = current_to + 1
+        batch_num += 1
 
-    print("\n✅ Sincronización completa finalizada")
-    print(f"   Total procesado: {total_procesado} registros")
+    print(f"\n Sincronización completa finalizada. Total: {total_procesado} registros")
+
+
+def _normalize_row(row: dict) -> dict | None:
+    """Normaliza una fila del ERP para upsert."""
+    if not row.get("comp_id") or not row.get("is_id") or not row.get("bra_id"):
+        return None
+
+    if "is_IsOwnGeneration" in row:
+        row["is_isowngeneration"] = row.pop("is_IsOwnGeneration")
+
+    for bool_field in ["is_available", "is_isowngeneration", "is_checked", "is_printed"]:
+        if bool_field in row and row[bool_field] is not None:
+            row[bool_field] = bool(row[bool_field])
+
+    if "is_cd" in row and row["is_cd"]:
+        try:
+            row["is_cd"] = datetime.fromisoformat(row["is_cd"].replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            row["is_cd"] = None
+
+    valid_fields = {
+        "comp_id",
+        "is_id",
+        "bra_id",
+        "ct_transaction",
+        "it_transaction",
+        "item_id",
+        "stor_id",
+        "is_serial",
+        "is_cd",
+        "is_available",
+        "is_guid",
+        "is_isowngeneration",
+        "is_checked",
+        "is_printed",
+    }
+    return {k: v for k, v in row.items() if k in valid_fields}
+
+
+def _upsert_batch(db: Session, rows: list[dict]) -> int:
+    """Upsert un batch de filas normalizadas. Retorna cantidad procesada."""
+    if not rows:
+        return 0
+
+    stmt = insert(TbItemSerial)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["comp_id", "is_id", "bra_id"],
+        set_={
+            "ct_transaction": stmt.excluded.ct_transaction,
+            "it_transaction": stmt.excluded.it_transaction,
+            "item_id": stmt.excluded.item_id,
+            "stor_id": stmt.excluded.stor_id,
+            "is_serial": stmt.excluded.is_serial,
+            "is_cd": stmt.excluded.is_cd,
+            "is_available": stmt.excluded.is_available,
+            "is_guid": stmt.excluded.is_guid,
+            "is_isowngeneration": stmt.excluded.is_isowngeneration,
+            "is_checked": stmt.excluded.is_checked,
+            "is_printed": stmt.excluded.is_printed,
+        },
+    )
+
+    db.execute(stmt, rows)
+    db.commit()
+    return len(rows)
 
 
 def sync_incremental(db: Session, days_back: int = 7):
-    """Sincronización incremental (últimos N días)"""
-    print(f"\n🔄 Sincronización INCREMENTAL de tb_item_serials (últimos {days_back} días)")
+    """Sincronización incremental: por fecha + por is_id (gap fill)."""
+    from sqlalchemy import func
+
+    print("\n Sincronización INCREMENTAL de tb_item_serials")
     print("=" * 60)
 
-    # Fecha desde
+    total_updated = 0
+
+    # ── Paso 1: por fecha (últimos N días) ────────────────────────
     from_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
     to_date = datetime.now().strftime("%Y-%m-%d")
 
     params = {"strScriptLabel": "scriptItemSerials", "fromDate": from_date, "toDate": to_date}
 
-    print(f"📡 Consultando ERP (desde {from_date} hasta {to_date})...")
+    print(f"[1/2] Por fecha (desde {from_date} hasta {to_date})...")
     data = asyncio.run(fetch_from_erp(params))
 
-    if not data:
-        print("⚠️  No se obtuvieron datos del ERP")
-        return
+    if data:
+        normalized = [r for row in data if (r := _normalize_row(row)) is not None]
+        for i in range(0, len(normalized), 500):
+            total_updated += _upsert_batch(db, normalized[i : i + 500])
+        print(f"  Actualizados {total_updated} registros por fecha")
+    else:
+        print("  Sin datos nuevos por fecha")
 
-    print(f"✓ Obtenidos {len(data)} registros del ERP")
+    # ── Paso 2: por is_id (gap fill) ─────────────────────────────
+    # Trae todo lo que tenga is_id mayor al último sincronizado,
+    # sin importar la fecha. Cubre seriales con is_cd vieja o NULL.
+    last_is_id = db.query(func.max(TbItemSerial.is_id)).scalar()
 
-    # Insertar/actualizar
-    print("💾 Actualizando base de datos...")
+    if last_is_id is None:
+        print("[2/2] No hay datos previos, saltando gap fill (usá --full)")
+    else:
+        print(f"[2/2] Por is_id (desde {last_is_id})...")
+        params_gap = {"strScriptLabel": "scriptItemSerials", "isID": last_is_id}
 
-    total_updated = 0
+        try:
+            data_gap = asyncio.run(fetch_from_erp(params_gap))
+        except Exception as e:
+            print(f"  Error consultando gap fill: {e}")
+            data_gap = None
 
-    for row in data:
-        # Verificar que tenga los campos de primary key
-        if not row.get("comp_id") or not row.get("is_id") or not row.get("bra_id"):
-            continue  # Saltar registros sin PK válida
+        if data_gap:
+            # Filtrar respuesta vacía de GBP
+            if len(data_gap) == 1 and "Column1" in data_gap[0]:
+                data_gap = []
 
-        # Mapear is_IsOwnGeneration a is_isowngeneration
-        if "is_IsOwnGeneration" in row:
-            row["is_isowngeneration"] = row.pop("is_IsOwnGeneration")
+            if data_gap:
+                normalized_gap = [r for row in data_gap if (r := _normalize_row(row)) is not None]
+                gap_count = 0
+                for i in range(0, len(normalized_gap), 500):
+                    gap_count += _upsert_batch(db, normalized_gap[i : i + 500])
+                total_updated += gap_count
+                new_max = db.query(func.max(TbItemSerial.is_id)).scalar()
+                print(f"  Actualizados {gap_count} registros por is_id (nuevo max: {new_max})")
+            else:
+                print("  Sin datos nuevos por is_id")
+        else:
+            print("  Sin datos nuevos por is_id")
 
-        # Convertir booleanos
-        for bool_field in ["is_available", "is_isowngeneration", "is_checked", "is_printed"]:
-            if bool_field in row and row[bool_field] is not None:
-                row[bool_field] = bool(row[bool_field])
-
-        # Convertir fechas
-        if "is_cd" in row and row["is_cd"]:
-            try:
-                row["is_cd"] = datetime.fromisoformat(row["is_cd"].replace("Z", "+00:00"))
-            except:
-                row["is_cd"] = None
-
-        # Filtrar solo campos válidos de la tabla
-        valid_fields = {
-            "comp_id",
-            "is_id",
-            "bra_id",
-            "ct_transaction",
-            "it_transaction",
-            "item_id",
-            "stor_id",
-            "is_serial",
-            "is_cd",
-            "is_available",
-            "is_guid",
-            "is_isowngeneration",
-            "is_checked",
-            "is_printed",
-        }
-        normalized_row = {k: v for k, v in row.items() if k in valid_fields}
-
-        # Upsert
-        stmt = insert(TbItemSerial).values(normalized_row)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["comp_id", "is_id", "bra_id"],
-            set_={
-                "ct_transaction": stmt.excluded.ct_transaction,
-                "it_transaction": stmt.excluded.it_transaction,
-                "item_id": stmt.excluded.item_id,
-                "stor_id": stmt.excluded.stor_id,
-                "is_serial": stmt.excluded.is_serial,
-                "is_cd": stmt.excluded.is_cd,
-                "is_available": stmt.excluded.is_available,
-                "is_guid": stmt.excluded.is_guid,
-                "is_isowngeneration": stmt.excluded.is_isowngeneration,
-                "is_checked": stmt.excluded.is_checked,
-                "is_printed": stmt.excluded.is_printed,
-            },
-        )
-
-        db.execute(stmt)
-        total_updated += 1
-
-        if total_updated % 100 == 0:
-            db.commit()
-            print(f"  ✓ Procesados {total_updated}/{len(data)} registros")
-
-    db.commit()
-
-    print("\n✅ Sincronización incremental finalizada")
-    print(f"   Total actualizado: {total_updated} registros")
+    print(f"\n Sincronización incremental finalizada. Total: {total_updated} registros")
 
 
 def main():
@@ -260,9 +223,6 @@ def main():
     parser.add_argument("--days", type=int, default=7, help="Días hacia atrás para incremental (default: 7)")
     parser.add_argument(
         "--batch-size", type=int, default=10000, help="Tamaño de lote para sincronización full (default: 10000)"
-    )
-    parser.add_argument(
-        "--max-id", type=int, default=1000000, help="ID máximo para sincronización full (default: 1000000)"
     )
 
     args = parser.parse_args()
@@ -275,7 +235,7 @@ def main():
 
     try:
         if args.full:
-            sync_full(db, batch_size=args.batch_size, max_is_id=args.max_id)
+            sync_full(db, batch_size=args.batch_size)
         else:
             sync_incremental(db, args.days)
 
