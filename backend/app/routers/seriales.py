@@ -3856,6 +3856,9 @@ def traza_serial(
     Devuelve artículo, movimientos (compras/ventas/transferencias),
     pedidos vinculados y RMAs.
     """
+    # Normalizar serial a uppercase (GBP los guarda en mayúsculas)
+    serial = serial.strip().upper()
+
     # 1. Movimientos y artículo
     movimientos, articulo = _build_movimientos(db, serial)
 
