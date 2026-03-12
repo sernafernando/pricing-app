@@ -106,16 +106,22 @@ async def lifespan(app: FastAPI):
 
     # ── Background tasks ─────────────────────────────────────────
     background_task = asyncio.create_task(sync_pedidos_preparacion_task())
+    free_shipping_task = asyncio.create_task(free_shipping_auto_fix_task())
 
     yield
 
     # Shutdown
     logger.info("Pricing API shutting down")
     background_task.cancel()
+    free_shipping_task.cancel()
     try:
         await background_task
     except asyncio.CancelledError:
         logger.info("Background task cancelled successfully")
+    try:
+        await free_shipping_task
+    except asyncio.CancelledError:
+        logger.info("Free shipping auto-fix task cancelled successfully")
 
     if sse_manager:
         await sse_manager.stop()
@@ -232,6 +238,29 @@ async def sync_pedidos_preparacion_task():
             await sync_pedidos_preparacion()
         except Exception as e:
             logger.error("Sync pedidos preparacion failed: %s", e, exc_info=True)
+
+        # Esperar 5 minutos
+        await asyncio.sleep(300)
+
+
+async def free_shipping_auto_fix_task():
+    """
+    Tarea de background que desactiva envío gratis en publicaciones
+    con free_shipping_error=true (no mandatory) cada 5 minutos.
+    """
+    from app.services.free_shipping_auto_fix import run_free_shipping_auto_fix
+
+    # Esperar 60 segundos para que todo esté listo (DB, ML client, etc.)
+    await asyncio.sleep(60)
+    logger.info("Background task started: free_shipping_auto_fix (interval=300s)")
+
+    while True:
+        try:
+            stats = await run_free_shipping_auto_fix()
+            if stats["fixed"] > 0 or stats["failed"] > 0:
+                logger.info("Free shipping auto-fix stats: %s", stats)
+        except Exception as e:
+            logger.error("Free shipping auto-fix failed: %s", e, exc_info=True)
 
         # Esperar 5 minutos
         await asyncio.sleep(300)

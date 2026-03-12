@@ -130,6 +130,51 @@ class MercadoLibreAPIClient:
 
         return results
 
+    async def update_item_shipping(self, item_id: str, *, free_shipping: bool = False) -> Optional[Dict]:
+        """Actualiza el shipping de un item en ML.
+
+        Args:
+            item_id: El ID del item (e.g. MLA1234567890)
+            free_shipping: True para activar envío gratis, False para desactivar
+
+        Returns:
+            Dict con la respuesta de ML o None si hubo error
+        """
+        try:
+            token = await self.get_access_token()
+
+            payload = {
+                "shipping": {
+                    "free_shipping": free_shipping,
+                    "free_methods": [] if not free_shipping else None,
+                }
+            }
+            # Limpiar None del payload
+            payload["shipping"] = {k: v for k, v in payload["shipping"].items() if v is not None}
+
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.put(
+                    f"{self.base_url}/items/{item_id}",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+                if response.status_code == 200:
+                    logger.info("Item %s shipping updated: free_shipping=%s", item_id, free_shipping)
+                    return response.json()
+
+                logger.warning(
+                    "ML rejected shipping update for %s: %s %s",
+                    item_id,
+                    response.status_code,
+                    response.text,
+                )
+                return None
+
+        except Exception as e:
+            logger.error("Error updating shipping for %s: %s", item_id, e)
+            return None
+
     async def get_user_items(self, user_id: Optional[str] = None, limit: int = 50) -> List[Dict]:
         """Obtiene los items de un usuario
 
