@@ -4,7 +4,12 @@ Router para alertas de Free Shipping Error.
 Lee directamente de la BD mlwebhook (ml_previews) los items que tienen
 free_shipping_error=true, es decir: envío gratis activado pero precio
 rebate < $33.000.
+
+Incluye estado del auto-fix (último intento de PUT free_shipping=false)
+y endpoint POST para disparo manual.
 """
+
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
@@ -14,9 +19,12 @@ from pydantic import BaseModel, ConfigDict
 
 from app.core.database import get_mlwebhook_engine
 from app.core.deps import get_current_user
-from app.core.database import get_db
+from app.core.database import get_db, SessionLocal
 from app.models.usuario import Usuario
+from app.models.free_shipping_fix_log import FreeShippingFixLog
 from app.services.permisos_service import PermisosService
+from app.services.ml_api_client import ml_client
+from app.utils.ml_shipping import parse_shipping_tags
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -24,6 +32,18 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/free-shipping-alerts", tags=["Free Shipping Alerts"])
 
 # ── Schemas ──────────────────────────────────────────────────────
+
+
+class AutoFixStatus(BaseModel):
+    """Estado del último intento de auto-fix para un item."""
+
+    attempted: bool = False
+    success: Optional[bool] = None
+    skipped: bool = False
+    skip_reason: Optional[str] = None
+    attempted_at: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FreeShippingAlertItem(BaseModel):
@@ -43,6 +63,7 @@ class FreeShippingAlertItem(BaseModel):
     mandatory_free_shipping: bool = False
     last_updated: Optional[str] = None
     ml_url: str
+    auto_fix: AutoFixStatus = AutoFixStatus()
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -128,24 +149,42 @@ def _build_ml_url(mla_id: str) -> str:
     )
 
 
-def _parse_shipping_tags(raw_tags: object) -> tuple[list, bool]:
-    """Parsea shipping_tags y detecta mandatory_free_shipping."""
-    import json
-
-    tags = []
-    if raw_tags is not None:
-        if isinstance(raw_tags, str):
-            try:
-                tags = json.loads(raw_tags)
-            except (json.JSONDecodeError, TypeError):
-                tags = []
-        elif isinstance(raw_tags, list):
-            tags = raw_tags
-    mandatory = "mandatory_free_shipping" in tags
-    return tags, mandatory
+_parse_shipping_tags = parse_shipping_tags  # alias local para brevedad
 
 
-def _row_to_item(row: object) -> FreeShippingAlertItem:
+def _get_auto_fix_statuses(mla_ids: list[str]) -> dict[str, AutoFixStatus]:
+    """Obtiene el último estado de auto-fix para una lista de MLA IDs."""
+    if not mla_ids:
+        return {}
+
+    db = SessionLocal()
+    try:
+        from sqlalchemy import desc  # noqa: E402 — lazy import to avoid circular
+
+        results = (
+            db.query(FreeShippingFixLog)
+            .filter(FreeShippingFixLog.mla_id.in_(mla_ids))
+            .order_by(FreeShippingFixLog.mla_id, desc(FreeShippingFixLog.created_at))
+            .all()
+        )
+
+        # Tomar solo el más reciente por mla_id
+        statuses: dict[str, AutoFixStatus] = {}
+        for log_entry in results:
+            if log_entry.mla_id not in statuses:
+                statuses[log_entry.mla_id] = AutoFixStatus(
+                    attempted=True,
+                    success=log_entry.success,
+                    skipped=log_entry.skipped,
+                    skip_reason=log_entry.skip_reason,
+                    attempted_at=log_entry.created_at.isoformat() if log_entry.created_at else None,
+                )
+        return statuses
+    finally:
+        db.close()
+
+
+def _row_to_item(row: object, auto_fix_status: Optional[AutoFixStatus] = None) -> FreeShippingAlertItem:
     """Convierte una fila de la query en un schema."""
     resource = row.resource
     mla_id = _extract_mla_id(resource)
@@ -166,6 +205,7 @@ def _row_to_item(row: object) -> FreeShippingAlertItem:
         mandatory_free_shipping=mandatory,
         last_updated=row.last_updated.isoformat() if row.last_updated else None,
         ml_url=_build_ml_url(mla_id),
+        auto_fix=auto_fix_status or AutoFixStatus(),
     )
 
 
@@ -174,11 +214,10 @@ def _row_to_item(row: object) -> FreeShippingAlertItem:
 
 def require_free_shipping_permission():
     """Dependency: requiere permiso alertas.ver_free_shipping."""
-    from sqlalchemy.orm import Session
 
     def _check(
         current_user: Usuario = Depends(get_current_user),
-        db: Session = Depends(get_db),
+        db=Depends(get_db),
     ) -> Usuario:
         permisos_service = PermisosService(db)
         if not permisos_service.tiene_permiso(current_user, "alertas.ver_free_shipping"):
@@ -230,7 +269,7 @@ def obtener_free_shipping_errors(
 ) -> FreeShippingAlertSummary:
     """
     Lista todos los items con free_shipping_error=true.
-    Incluye datos de precio, rebate, shipping, y URL de ML.
+    Incluye datos de precio, rebate, shipping, URL de ML, y estado del auto-fix.
     Requiere permiso: alertas.ver_free_shipping
     """
     try:
@@ -239,7 +278,11 @@ def obtener_free_shipping_errors(
             result = conn.execute(QUERY_FREE_SHIPPING_ERRORS)
             rows = result.fetchall()
 
-        items = [_row_to_item(row) for row in rows]
+        # Extraer MLA IDs para buscar auto-fix statuses
+        mla_ids = [_extract_mla_id(row.resource) for row in rows]
+        fix_statuses = _get_auto_fix_statuses(mla_ids)
+
+        items = [_row_to_item(row, fix_statuses.get(_extract_mla_id(row.resource))) for row in rows]
         return FreeShippingAlertSummary(count=len(items), items=items)
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
@@ -252,4 +295,88 @@ def obtener_free_shipping_errors(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al consultar alertas de envío gratis",
+        )
+
+
+class ManualFixResponse(BaseModel):
+    """Respuesta del disparo manual de fix."""
+
+    mla_id: str
+    success: bool
+    message: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+MLA_PATTERN = re.compile(r"^MLA\d{5,15}$")
+
+
+@router.post("/{mla_id}/disable-free-shipping", response_model=ManualFixResponse)
+async def manual_disable_free_shipping(
+    mla_id: str,
+    db=Depends(get_db),
+    current_user: Usuario = Depends(require_free_shipping_permission()),
+) -> ManualFixResponse:
+    """
+    Disparo manual: PUT free_shipping=false a ML para un item específico.
+
+    Salta la validación de mandatory_free_shipping (el usuario sabe lo que
+    hace). Si ML lo rechaza, se loguea igual.
+    Requiere permiso: alertas.ver_free_shipping
+    """
+    # Validar formato MLA
+    if not MLA_PATTERN.match(mla_id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Formato de MLA inválido: {mla_id}",
+        )
+
+    logger.info(
+        "Manual free_shipping fix triggered for %s by user %s",
+        mla_id,
+        current_user.username,
+    )
+
+    try:
+        result_ml = await ml_client.update_item_shipping(mla_id, free_shipping=False)
+
+        success = result_ml is not None
+        message = "Envío gratis desactivado correctamente" if success else "ML rechazó el cambio"
+
+        # Loguear el intento
+        entry = FreeShippingFixLog(
+            mla_id=mla_id,
+            success=success,
+            skipped=False,
+            skip_reason=None if success else "manual_ml_rejected",
+            item_price=None,
+            mandatory_free_shipping=False,
+            ml_response_status=200 if success else None,
+            ml_response_body=None,
+        )
+        db.add(entry)
+        db.commit()
+
+        if not success:
+            logger.warning("Manual fix FAILED for %s — ML rejected", mla_id)
+
+        return ManualFixResponse(mla_id=mla_id, success=success, message=message)
+
+    except Exception as e:
+        logger.error("Manual fix ERROR for %s: %s", mla_id, e, exc_info=True)
+
+        # Loguear el fallo
+        entry = FreeShippingFixLog(
+            mla_id=mla_id,
+            success=False,
+            skipped=False,
+            skip_reason=f"manual_exception: {str(e)[:80]}",
+            mandatory_free_shipping=False,
+        )
+        db.add(entry)
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al desactivar envío gratis",
         )
