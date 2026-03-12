@@ -1683,7 +1683,7 @@ def _build_movimientos(db: Session, serial: str) -> tuple[list[MovimientoSerial]
                 referencia_id=ref_id,
                 referencia_nombre=ref_nombre,
                 nro_documento=construir_nro_documento(row),
-                dias_a_la_fecha=calcular_dias(is_cd or ct_date),
+                dias_a_la_fecha=calcular_dias(ct_date or is_cd),
                 estado=estado,
                 deposito=row.get("stor_desc"),
                 deposito_id=row.get("stor_id"),
