@@ -802,6 +802,76 @@ QUERY_PEDIDOS_BY_PACKID = text("""
     ORDER BY soh.soh_cd ASC NULLS LAST
 """)
 
+# Fallback directo a mlo cuando soh fue archivado.
+# No pasa por soh ni sohh — trae datos directamente de mercadolibre_orders_header.
+QUERY_PEDIDOS_BY_MLO_DIRECT = text("""
+    SELECT DISTINCT
+        0 AS soh_id,
+        mlo.bra_id,
+        mlo.comp_id,
+        mlo.mlo_cd AS soh_cd,
+        COALESCE(mlo.cust_id, 0) AS cust_id,
+        cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
+        mlo.mlorder_id AS soh_mlid,
+        mlo.mlshippingid::bigint AS mlshippingid,
+        mlo.mlo_status AS estado_nombre
+    FROM tb_mercadolibre_orders_header mlo
+    LEFT JOIN tb_customer cust
+        ON mlo.comp_id = cust.comp_id
+        AND mlo.cust_id = cust.cust_id
+    WHERE mlo.mlorder_id = :ml_id
+    ORDER BY mlo.mlo_cd ASC NULLS LAST
+""")
+
+# Same but searching by pack_id directly in mlo
+QUERY_PEDIDOS_BY_MLO_PACKID_DIRECT = text("""
+    SELECT DISTINCT
+        0 AS soh_id,
+        mlo.bra_id,
+        mlo.comp_id,
+        mlo.mlo_cd AS soh_cd,
+        COALESCE(mlo.cust_id, 0) AS cust_id,
+        cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
+        mlo.mlorder_id AS soh_mlid,
+        mlo.mlshippingid::bigint AS mlshippingid,
+        mlo.mlo_status AS estado_nombre
+    FROM tb_mercadolibre_orders_header mlo
+    LEFT JOIN tb_customer cust
+        ON mlo.comp_id = cust.comp_id
+        AND mlo.cust_id = cust.cust_id
+    WHERE mlo.ml_pack_id = :pack_id
+    ORDER BY mlo.mlo_cd ASC NULLS LAST
+""")
+
+# Same but searching by shipping_id directly in mlo
+QUERY_PEDIDOS_BY_MLO_SHIPPINGID_DIRECT = text("""
+    SELECT DISTINCT
+        0 AS soh_id,
+        mlo.bra_id,
+        mlo.comp_id,
+        mlo.mlo_cd AS soh_cd,
+        COALESCE(mlo.cust_id, 0) AS cust_id,
+        cust.cust_name AS cliente_nombre,
+        cust.cust_taxnumber AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
+        cust.cust_email AS cliente_email,
+        mlo.mlorder_id AS soh_mlid,
+        mlo.mlshippingid::bigint AS mlshippingid,
+        mlo.mlo_status AS estado_nombre
+    FROM tb_mercadolibre_orders_header mlo
+    LEFT JOIN tb_customer cust
+        ON mlo.comp_id = cust.comp_id
+        AND mlo.cust_id = cust.cust_id
+    WHERE mlo.mlshippingid = :shipping_id
+    ORDER BY mlo.mlo_cd ASC NULLS LAST
+""")
+
 QUERY_PEDIDOS_BY_SOHID = text("""
     SELECT DISTINCT
         soh.soh_id,
@@ -1144,11 +1214,12 @@ QUERY_PEDIDOS_VIA_BRIDGE = text("""
         0 AS soh_id,
         s.bra_id,
         mlo.mlo_cd AS soh_cd,
-        mlo.cust_id,
-        cust.cust_name AS cliente_nombre,
-        cust.cust_taxnumber AS cliente_dni,
-        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
-        cust.cust_email AS cliente_email,
+        COALESCE(mlo.cust_id, ct.cust_id) AS cust_id,
+        COALESCE(cust_mlo.cust_name, cust_ct.cust_name) AS cliente_nombre,
+        COALESCE(cust_mlo.cust_taxnumber, cust_ct.cust_taxnumber) AS cliente_dni,
+        COALESCE(cust_mlo.cust_cellphone, cust_mlo.cust_phone1,
+                 cust_ct.cust_cellphone, cust_ct.cust_phone1) AS cliente_telefono,
+        COALESCE(cust_mlo.cust_email, cust_ct.cust_email) AS cliente_email,
         mlo.mlorder_id AS soh_mlid,
         mlo.mlshippingid::bigint AS mlshippingid,
         mlo.mlo_status AS estado_nombre
@@ -1161,9 +1232,14 @@ QUERY_PEDIDOS_VIA_BRIDGE = text("""
         AND its.comp_id = it.comp_id
     INNER JOIN tb_mercadolibre_orders_header mlo
         ON it.mlo_id = mlo.mlo_id
-    LEFT JOIN tb_customer cust
-        ON mlo.comp_id = cust.comp_id
-        AND mlo.cust_id = cust.cust_id
+    LEFT JOIN tb_commercial_transactions ct
+        ON its.ct_transaction = ct.ct_transaction
+    LEFT JOIN tb_customer cust_mlo
+        ON mlo.comp_id = cust_mlo.comp_id
+        AND mlo.cust_id = cust_mlo.cust_id
+    LEFT JOIN tb_customer cust_ct
+        ON ct.comp_id = cust_ct.comp_id
+        AND ct.cust_id = cust_ct.cust_id
     WHERE UPPER(s.is_serial) = UPPER(:serial)
         AND it.mlo_id IS NOT NULL
         AND it.mlo_id > 0
@@ -3989,6 +4065,26 @@ def traza_ml(
         busqueda_por = "soh_mlid"
         result_pedidos = db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": ml_id})
         pedidos_rows = [dict(row._mapping) for row in result_pedidos]
+
+    # Fallback: buscar directo en mlo (sin pasar por soh que se archiva)
+    if not pedidos_rows:
+        if ml_id.startswith("2000"):
+            result_mlo = db.execute(QUERY_PEDIDOS_BY_MLO_DIRECT, {"ml_id": ml_id})
+            pedidos_rows = [dict(r._mapping) for r in result_mlo]
+            if not pedidos_rows:
+                result_mlo = db.execute(QUERY_PEDIDOS_BY_MLO_PACKID_DIRECT, {"pack_id": ml_id})
+                pedidos_rows = [dict(r._mapping) for r in result_mlo]
+        elif ml_id.isdigit():
+            result_mlo = db.execute(QUERY_PEDIDOS_BY_MLO_SHIPPINGID_DIRECT, {"shipping_id": ml_id})
+            pedidos_rows = [dict(r._mapping) for r in result_mlo]
+            if not pedidos_rows:
+                result_mlo = db.execute(QUERY_PEDIDOS_BY_MLO_DIRECT, {"ml_id": ml_id})
+                pedidos_rows = [dict(r._mapping) for r in result_mlo]
+        else:
+            result_mlo = db.execute(QUERY_PEDIDOS_BY_MLO_DIRECT, {"ml_id": ml_id})
+            pedidos_rows = [dict(r._mapping) for r in result_mlo]
+        if pedidos_rows:
+            busqueda_por = f"{busqueda_por}_fallback_mlo_direct"
 
     if not pedidos_rows:
         pedidos_rows = _fetch_pedidos_rows_from_gbp_fallback(db, ml_id)
