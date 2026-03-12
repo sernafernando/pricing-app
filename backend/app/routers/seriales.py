@@ -804,17 +804,24 @@ QUERY_PEDIDOS_BY_PACKID = text("""
 
 # Fallback directo a mlo cuando soh fue archivado.
 # No pasa por soh ni sohh — trae datos directamente de mercadolibre_orders_header.
+# Usa datos del buyer de ML (mluser_*) como fallback cuando cust_id es NULL/0.
 QUERY_PEDIDOS_BY_MLO_DIRECT = text("""
     SELECT DISTINCT
         0 AS soh_id,
-        mlo.bra_id,
+        mlo.mlbra_id AS bra_id,
         mlo.comp_id,
         mlo.mlo_cd AS soh_cd,
-        COALESCE(mlo.cust_id, 0) AS cust_id,
-        cust.cust_name AS cliente_nombre,
-        cust.cust_taxnumber AS cliente_dni,
-        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
-        cust.cust_email AS cliente_email,
+        COALESCE(NULLIF(mlo.cust_id, 0), 0) AS cust_id,
+        COALESCE(cust.cust_name,
+                 TRIM(COALESCE(mlo.mluser_first_name, '') || ' ' || COALESCE(mlo.mluser_last_name, ''))
+        ) AS cliente_nombre,
+        COALESCE(cust.cust_taxnumber,
+                 mlo.identificationnumber::text
+        ) AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1,
+                 mlo.mluser_phone, mlo.mluser_receiver_phone
+        ) AS cliente_telefono,
+        COALESCE(cust.cust_email, mlo.mlo_email) AS cliente_email,
         mlo.mlorder_id AS soh_mlid,
         mlo.mlshippingid::bigint AS mlshippingid,
         mlo.mlo_status AS estado_nombre
@@ -822,6 +829,8 @@ QUERY_PEDIDOS_BY_MLO_DIRECT = text("""
     LEFT JOIN tb_customer cust
         ON mlo.comp_id = cust.comp_id
         AND mlo.cust_id = cust.cust_id
+        AND mlo.cust_id IS NOT NULL
+        AND mlo.cust_id > 0
     WHERE mlo.mlorder_id = :ml_id
     ORDER BY mlo.mlo_cd ASC NULLS LAST
 """)
@@ -830,14 +839,20 @@ QUERY_PEDIDOS_BY_MLO_DIRECT = text("""
 QUERY_PEDIDOS_BY_MLO_PACKID_DIRECT = text("""
     SELECT DISTINCT
         0 AS soh_id,
-        mlo.bra_id,
+        mlo.mlbra_id AS bra_id,
         mlo.comp_id,
         mlo.mlo_cd AS soh_cd,
-        COALESCE(mlo.cust_id, 0) AS cust_id,
-        cust.cust_name AS cliente_nombre,
-        cust.cust_taxnumber AS cliente_dni,
-        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
-        cust.cust_email AS cliente_email,
+        COALESCE(NULLIF(mlo.cust_id, 0), 0) AS cust_id,
+        COALESCE(cust.cust_name,
+                 TRIM(COALESCE(mlo.mluser_first_name, '') || ' ' || COALESCE(mlo.mluser_last_name, ''))
+        ) AS cliente_nombre,
+        COALESCE(cust.cust_taxnumber,
+                 mlo.identificationnumber::text
+        ) AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1,
+                 mlo.mluser_phone, mlo.mluser_receiver_phone
+        ) AS cliente_telefono,
+        COALESCE(cust.cust_email, mlo.mlo_email) AS cliente_email,
         mlo.mlorder_id AS soh_mlid,
         mlo.mlshippingid::bigint AS mlshippingid,
         mlo.mlo_status AS estado_nombre
@@ -845,6 +860,8 @@ QUERY_PEDIDOS_BY_MLO_PACKID_DIRECT = text("""
     LEFT JOIN tb_customer cust
         ON mlo.comp_id = cust.comp_id
         AND mlo.cust_id = cust.cust_id
+        AND mlo.cust_id IS NOT NULL
+        AND mlo.cust_id > 0
     WHERE mlo.ml_pack_id = :pack_id
     ORDER BY mlo.mlo_cd ASC NULLS LAST
 """)
@@ -853,14 +870,20 @@ QUERY_PEDIDOS_BY_MLO_PACKID_DIRECT = text("""
 QUERY_PEDIDOS_BY_MLO_SHIPPINGID_DIRECT = text("""
     SELECT DISTINCT
         0 AS soh_id,
-        mlo.bra_id,
+        mlo.mlbra_id AS bra_id,
         mlo.comp_id,
         mlo.mlo_cd AS soh_cd,
-        COALESCE(mlo.cust_id, 0) AS cust_id,
-        cust.cust_name AS cliente_nombre,
-        cust.cust_taxnumber AS cliente_dni,
-        COALESCE(cust.cust_cellphone, cust.cust_phone1) AS cliente_telefono,
-        cust.cust_email AS cliente_email,
+        COALESCE(NULLIF(mlo.cust_id, 0), 0) AS cust_id,
+        COALESCE(cust.cust_name,
+                 TRIM(COALESCE(mlo.mluser_first_name, '') || ' ' || COALESCE(mlo.mluser_last_name, ''))
+        ) AS cliente_nombre,
+        COALESCE(cust.cust_taxnumber,
+                 mlo.identificationnumber::text
+        ) AS cliente_dni,
+        COALESCE(cust.cust_cellphone, cust.cust_phone1,
+                 mlo.mluser_phone, mlo.mluser_receiver_phone
+        ) AS cliente_telefono,
+        COALESCE(cust.cust_email, mlo.mlo_email) AS cliente_email,
         mlo.mlorder_id AS soh_mlid,
         mlo.mlshippingid::bigint AS mlshippingid,
         mlo.mlo_status AS estado_nombre
@@ -868,6 +891,8 @@ QUERY_PEDIDOS_BY_MLO_SHIPPINGID_DIRECT = text("""
     LEFT JOIN tb_customer cust
         ON mlo.comp_id = cust.comp_id
         AND mlo.cust_id = cust.cust_id
+        AND mlo.cust_id IS NOT NULL
+        AND mlo.cust_id > 0
     WHERE mlo.mlshippingid = :shipping_id
     ORDER BY mlo.mlo_cd ASC NULLS LAST
 """)
@@ -1214,12 +1239,20 @@ QUERY_PEDIDOS_VIA_BRIDGE = text("""
         0 AS soh_id,
         s.bra_id,
         mlo.mlo_cd AS soh_cd,
-        COALESCE(mlo.cust_id, ct.cust_id) AS cust_id,
-        COALESCE(cust_mlo.cust_name, cust_ct.cust_name) AS cliente_nombre,
-        COALESCE(cust_mlo.cust_taxnumber, cust_ct.cust_taxnumber) AS cliente_dni,
+        COALESCE(NULLIF(mlo.cust_id, 0), ct.cust_id, 0) AS cust_id,
+        COALESCE(cust_mlo.cust_name, cust_ct.cust_name,
+                 TRIM(COALESCE(mlo.mluser_first_name, '') || ' ' || COALESCE(mlo.mluser_last_name, ''))
+        ) AS cliente_nombre,
+        COALESCE(cust_mlo.cust_taxnumber, cust_ct.cust_taxnumber,
+                 mlo.identificationnumber::text
+        ) AS cliente_dni,
         COALESCE(cust_mlo.cust_cellphone, cust_mlo.cust_phone1,
-                 cust_ct.cust_cellphone, cust_ct.cust_phone1) AS cliente_telefono,
-        COALESCE(cust_mlo.cust_email, cust_ct.cust_email) AS cliente_email,
+                 cust_ct.cust_cellphone, cust_ct.cust_phone1,
+                 mlo.mluser_phone, mlo.mluser_receiver_phone
+        ) AS cliente_telefono,
+        COALESCE(cust_mlo.cust_email, cust_ct.cust_email,
+                 mlo.mlo_email
+        ) AS cliente_email,
         mlo.mlorder_id AS soh_mlid,
         mlo.mlshippingid::bigint AS mlshippingid,
         mlo.mlo_status AS estado_nombre
@@ -1237,6 +1270,8 @@ QUERY_PEDIDOS_VIA_BRIDGE = text("""
     LEFT JOIN tb_customer cust_mlo
         ON mlo.comp_id = cust_mlo.comp_id
         AND mlo.cust_id = cust_mlo.cust_id
+        AND mlo.cust_id IS NOT NULL
+        AND mlo.cust_id > 0
     LEFT JOIN tb_customer cust_ct
         ON ct.comp_id = cust_ct.comp_id
         AND ct.cust_id = cust_ct.cust_id
