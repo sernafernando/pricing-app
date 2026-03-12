@@ -69,8 +69,8 @@ class MovimientoSerial(BaseModel):
 class PedidoSerial(BaseModel):
     """Sale order vinculado al serial"""
 
-    soh_id: int
-    bra_id: int
+    soh_id: Optional[int] = 0
+    bra_id: Optional[int] = 0
     fecha: Optional[str] = None
     estado: Optional[str] = None
     cust_id: Optional[int] = None
@@ -808,7 +808,7 @@ QUERY_PEDIDOS_BY_PACKID = text("""
 QUERY_PEDIDOS_BY_MLO_DIRECT = text("""
     SELECT DISTINCT
         0 AS soh_id,
-        mlo.mlbra_id AS bra_id,
+        COALESCE(mlo.mlbra_id, 45) AS bra_id,
         mlo.comp_id,
         mlo.mlo_cd AS soh_cd,
         COALESCE(NULLIF(mlo.cust_id, 0), 0) AS cust_id,
@@ -839,7 +839,7 @@ QUERY_PEDIDOS_BY_MLO_DIRECT = text("""
 QUERY_PEDIDOS_BY_MLO_PACKID_DIRECT = text("""
     SELECT DISTINCT
         0 AS soh_id,
-        mlo.mlbra_id AS bra_id,
+        COALESCE(mlo.mlbra_id, 45) AS bra_id,
         mlo.comp_id,
         mlo.mlo_cd AS soh_cd,
         COALESCE(NULLIF(mlo.cust_id, 0), 0) AS cust_id,
@@ -870,7 +870,7 @@ QUERY_PEDIDOS_BY_MLO_PACKID_DIRECT = text("""
 QUERY_PEDIDOS_BY_MLO_SHIPPINGID_DIRECT = text("""
     SELECT DISTINCT
         0 AS soh_id,
-        mlo.mlbra_id AS bra_id,
+        COALESCE(mlo.mlbra_id, 45) AS bra_id,
         mlo.comp_id,
         mlo.mlo_cd AS soh_cd,
         COALESCE(NULLIF(mlo.cust_id, 0), 0) AS cust_id,
