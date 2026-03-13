@@ -67,6 +67,10 @@ export default function RRHHVacaciones() {
   const [rechazarMotivo, setRechazarMotivo] = useState('');
   const [rechazarSaving, setRechazarSaving] = useState(false);
 
+  // ── Cancel confirmation + action error ──
+  const [confirmCancel, setConfirmCancel] = useState(null);
+  const [actionError, setActionError] = useState(null);
+
   // ── Fetch empleados (for selects) ──
   useEffect(() => {
     const fetchEmpleados = async () => {
@@ -178,12 +182,13 @@ export default function RRHHVacaciones() {
 
   // ── Approve ──
   const handleAprobar = async (id) => {
+    setActionError(null);
     try {
       await rrhhAPI.aprobarSolicitud(id);
       fetchSolicitudes();
       fetchPeriodos();
-    } catch {
-      // error silently
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Error al aprobar solicitud');
     }
   };
 
@@ -201,21 +206,28 @@ export default function RRHHVacaciones() {
       await rrhhAPI.rechazarSolicitud(rechazarSolicitudId, { motivo: rechazarMotivo });
       setRechazarModalOpen(false);
       fetchSolicitudes();
-    } catch {
-      // error silently
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Error al rechazar solicitud');
     } finally {
       setRechazarSaving(false);
     }
   };
 
   // ── Cancel ──
-  const handleCancelar = async (id) => {
+  const openCancelar = (solicitud) => {
+    setActionError(null);
+    setConfirmCancel(solicitud);
+  };
+
+  const handleConfirmCancelar = async () => {
+    if (!confirmCancel) return;
     try {
-      await rrhhAPI.cancelarSolicitud(id);
+      await rrhhAPI.cancelarSolicitud(confirmCancel.id);
+      setConfirmCancel(null);
       fetchSolicitudes();
       fetchPeriodos();
-    } catch {
-      // error silently
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Error al cancelar solicitud');
     }
   };
 
@@ -238,7 +250,7 @@ export default function RRHHVacaciones() {
         {puedeGestionar && (
           <div className={styles.headerActions}>
             <button
-              className={styles.btnPrimary}
+              className={styles.btnCreate}
               onClick={() => {
                 setCrearError(null);
                 setCrearForm({ empleado_id: '', periodo_id: '', fecha_desde: '', fecha_hasta: '' });
@@ -256,13 +268,13 @@ export default function RRHHVacaciones() {
       <div className={styles.tabs}>
         <button
           className={activeTab === 'periodos' ? styles.tabActive : styles.tab}
-          onClick={() => setActiveTab('periodos')}
+          onClick={() => { setActiveTab('periodos'); setActionError(null); }}
         >
           <Calendar size={14} /> Periodos
         </button>
         <button
           className={activeTab === 'solicitudes' ? styles.tabActive : styles.tab}
-          onClick={() => setActiveTab('solicitudes')}
+          onClick={() => { setActiveTab('solicitudes'); setActionError(null); }}
         >
           <Palmtree size={14} /> Solicitudes
           {totalSolicitudes > 0 && <span className={styles.badge}>{totalSolicitudes}</span>}
@@ -286,7 +298,7 @@ export default function RRHHVacaciones() {
                 ))}
               </select>
               <button
-                className={styles.btnPrimary}
+                className={styles.btnGenerate}
                 onClick={handleGenerar}
                 disabled={genLoading}
               >
@@ -364,6 +376,8 @@ export default function RRHHVacaciones() {
       {/* ── TAB: Solicitudes ── */}
       {activeTab === 'solicitudes' && (
         <>
+          {actionError && <div className={styles.errorMsg}>{actionError}</div>}
+
           {/* Solicitudes filters */}
           <div className={styles.filters}>
             <select
@@ -428,14 +442,14 @@ export default function RRHHVacaciones() {
                               {s.estado === 'pendiente' && (
                                 <>
                                   <button
-                                    className={styles.btnSuccess}
+                                    className={styles.btnApprove}
                                     onClick={() => handleAprobar(s.id)}
                                     title="Aprobar"
                                   >
                                     <Check size={14} /> Aprobar
                                   </button>
                                   <button
-                                    className={styles.btnDanger}
+                                    className={styles.btnReject}
                                     onClick={() => openRechazar(s.id)}
                                     title="Rechazar"
                                   >
@@ -445,8 +459,8 @@ export default function RRHHVacaciones() {
                               )}
                               {(s.estado === 'pendiente' || s.estado === 'aprobada') && (
                                 <button
-                                  className={styles.btnWarning}
-                                  onClick={() => handleCancelar(s.id)}
+                                  className={styles.btnCancelAction}
+                                  onClick={() => openCancelar(s)}
                                   title="Cancelar"
                                 >
                                   <Ban size={14} /> Cancelar
@@ -465,7 +479,7 @@ export default function RRHHVacaciones() {
               {totalSolPages > 1 && (
                 <div className={styles.filters} style={{ justifyContent: 'center', marginTop: 'var(--spacing-md)' }}>
                   <button
-                    className={styles.btnSmall}
+                    className={styles.btnPage}
                     onClick={() => setSolPage((p) => Math.max(1, p - 1))}
                     disabled={solPage <= 1}
                   >
@@ -475,7 +489,7 @@ export default function RRHHVacaciones() {
                     Pagina {solPage} de {totalSolPages}
                   </span>
                   <button
-                    className={styles.btnSmall}
+                    className={styles.btnPage}
                     onClick={() => setSolPage((p) => Math.min(totalSolPages, p + 1))}
                     disabled={solPage >= totalSolPages}
                   >
@@ -490,15 +504,14 @@ export default function RRHHVacaciones() {
 
       {/* ── Modal: Crear Solicitud ── */}
       {crearModalOpen && (
-        <div className={styles.modal}>
-          <div className={styles.modalOverlay} onClick={() => setCrearModalOpen(false)} />
-          <div className={styles.modalContent}>
-            <div className={styles.modalHeader}>
-              <h2>Nueva Solicitud de Vacaciones</h2>
-              <button onClick={() => setCrearModalOpen(false)}><X size={18} /></button>
+        <div className="modal-overlay-tesla" onClick={() => setCrearModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Nueva Solicitud de Vacaciones</h2>
+              <button className="btn-close-tesla" onClick={() => setCrearModalOpen(false)} aria-label="Cerrar">✕</button>
             </div>
             <form onSubmit={handleCrear}>
-              <div className={styles.modalBody}>
+              <div className="modal-body-tesla">
                 {crearError && <div className={styles.errorMsg}>{crearError}</div>}
 
                 <div className={styles.formGroup}>
@@ -559,11 +572,11 @@ export default function RRHHVacaciones() {
                   </div>
                 </div>
               </div>
-              <div className={styles.modalFooter}>
-                <button type="button" className={styles.btnSecondary} onClick={() => setCrearModalOpen(false)}>
+              <div className="modal-footer-tesla">
+                <button type="button" className={styles.btnCancel} onClick={() => setCrearModalOpen(false)}>
                   Cancelar
                 </button>
-                <button type="submit" className={styles.btnPrimary} disabled={crearSaving}>
+                <button type="submit" className={styles.btnSave} disabled={crearSaving}>
                   {crearSaving ? 'Creando...' : 'Crear Solicitud'}
                 </button>
               </div>
@@ -574,15 +587,14 @@ export default function RRHHVacaciones() {
 
       {/* ── Modal: Rechazar ── */}
       {rechazarModalOpen && (
-        <div className={styles.modal}>
-          <div className={styles.modalOverlay} onClick={() => setRechazarModalOpen(false)} />
-          <div className={styles.modalContent}>
-            <div className={styles.modalHeader}>
-              <h2>Rechazar Solicitud</h2>
-              <button onClick={() => setRechazarModalOpen(false)}><X size={18} /></button>
+        <div className="modal-overlay-tesla" onClick={() => setRechazarModalOpen(false)}>
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Rechazar Solicitud</h2>
+              <button className="btn-close-tesla" onClick={() => setRechazarModalOpen(false)} aria-label="Cerrar">✕</button>
             </div>
             <form onSubmit={handleRechazar}>
-              <div className={styles.modalBody}>
+              <div className="modal-body-tesla">
                 <div className={styles.formGroup}>
                   <label>Motivo del rechazo</label>
                   <textarea
@@ -594,15 +606,38 @@ export default function RRHHVacaciones() {
                   />
                 </div>
               </div>
-              <div className={styles.modalFooter}>
-                <button type="button" className={styles.btnSecondary} onClick={() => setRechazarModalOpen(false)}>
+              <div className="modal-footer-tesla">
+                <button type="button" className={styles.btnCancel} onClick={() => setRechazarModalOpen(false)}>
                   Cancelar
                 </button>
-                <button type="submit" className={styles.btnDanger} disabled={rechazarSaving || !rechazarMotivo.trim()}>
+                <button type="submit" className={styles.btnReject} disabled={rechazarSaving || !rechazarMotivo.trim()}>
                   {rechazarSaving ? 'Rechazando...' : 'Rechazar'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Confirmar Cancelación ── */}
+      {confirmCancel && (
+        <div className="modal-overlay-tesla" onClick={() => setConfirmCancel(null)}>
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Confirmar cancelación</h2>
+              <button className="btn-close-tesla" onClick={() => setConfirmCancel(null)} aria-label="Cerrar">✕</button>
+            </div>
+            <div className="modal-body-tesla">
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)' }}>
+                ¿Cancelar la solicitud de vacaciones de <strong>{confirmCancel.empleado_nombre || `#${confirmCancel.empleado_id}`}</strong>?
+                ({confirmCancel.fecha_desde} - {confirmCancel.fecha_hasta})
+              </p>
+              {actionError && <div className={styles.errorMsg}>{actionError}</div>}
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setConfirmCancel(null)}>Volver</button>
+              <button className={styles.btnCancelAction} onClick={handleConfirmCancelar}>Confirmar cancelación</button>
+            </div>
           </div>
         </div>
       )}

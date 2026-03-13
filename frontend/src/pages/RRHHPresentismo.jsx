@@ -10,8 +10,6 @@ import {
   Eye,
   Edit3,
   Download,
-  Trash2,
-  X,
   FileText,
 } from 'lucide-react';
 import styles from './RRHHPresentismo.module.css';
@@ -84,12 +82,31 @@ export default function RRHHPresentismo() {
   // --- ART state ---
   const [artCasos, setArtCasos] = useState([]);
   const [loadingArt, setLoadingArt] = useState(false);
-  const [artPage] = useState(1);
+  const [artPage, setArtPage] = useState(1);
   const [artModalOpen, setArtModalOpen] = useState(false);
   const [artForm, setArtForm] = useState({});
   const [artSaving, setArtSaving] = useState(false);
   const [artFormError, setArtFormError] = useState(null);
   const [artDetalle, setArtDetalle] = useState(null);
+
+  // --- Error feedback ---
+  const [markError, setMarkError] = useState(null);
+
+  // --- Empleados for ART select ---
+  const [empleados, setEmpleados] = useState([]);
+
+  // ── Fetch empleados for ART form ──
+  useEffect(() => {
+    const fetchEmpleados = async () => {
+      try {
+        const { data } = await rrhhAPI.listarEmpleados({ page_size: 200, estado: 'activo' });
+        setEmpleados(Array.isArray(data) ? data : data.items || []);
+      } catch {
+        setEmpleados([]);
+      }
+    };
+    fetchEmpleados();
+  }, []);
 
   // ── Fetch presentismo grid ──
   const cargarGrilla = useCallback(async () => {
@@ -168,7 +185,8 @@ export default function RRHHPresentismo() {
         ),
       }));
     } catch {
-      // Silent fail — user can retry
+      setMarkError('Error al marcar presentismo. Intentá de nuevo.');
+      setTimeout(() => setMarkError(null), 4000);
     }
   };
 
@@ -214,8 +232,9 @@ export default function RRHHPresentismo() {
     try {
       const { data } = await rrhhAPI.obtenerArtCaso(casoId);
       setArtDetalle(data);
-    } catch {
-      // noop
+    } catch (err) {
+      setMarkError(err.response?.data?.detail || 'Error al cargar detalle del caso');
+      setTimeout(() => setMarkError(null), 4000);
     }
   };
 
@@ -291,7 +310,7 @@ export default function RRHHPresentismo() {
         <div className={styles.artHeader}>
           <h2>Casos ART</h2>
           {puedeGestionar && (
-            <button className={styles.btnPrimary} onClick={openArtCreate}>
+            <button className={styles.btnCreate} onClick={openArtCreate}>
               <Plus size={16} /> Nuevo Caso
             </button>
           )}
@@ -326,7 +345,7 @@ export default function RRHHPresentismo() {
                     </td>
                     <td>
                       <button
-                        className={styles.btnSmall}
+                        className={styles.btnView}
                         onClick={() => openArtDetalle(c.id)}
                         title="Ver detalle"
                       >
@@ -334,7 +353,7 @@ export default function RRHHPresentismo() {
                       </button>
                       {puedeGestionar && (
                         <button
-                          className={styles.btnSmall}
+                          className={styles.btnEditAction}
                           onClick={() => openArtEdit(c)}
                           title="Editar"
                           style={{ marginLeft: 4 }}
@@ -349,6 +368,18 @@ export default function RRHHPresentismo() {
             </table>
           </div>
         )}
+
+        {artCasos.length > 0 && (
+          <div className={styles.filters} style={{ justifyContent: 'center', marginTop: 'var(--spacing-md)' }}>
+            <button className={styles.btnRefresh} onClick={() => setArtPage((p) => Math.max(1, p - 1))} disabled={artPage <= 1}>
+              Anterior
+            </button>
+            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--cf-text-secondary)' }}>Página {artPage}</span>
+            <button className={styles.btnRefresh} onClick={() => setArtPage((p) => p + 1)} disabled={artCasos.length < 50}>
+              Siguiente
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -357,13 +388,13 @@ export default function RRHHPresentismo() {
   const renderArtDetalleModal = () => {
     if (!artDetalle) return null;
     return (
-      <div className={styles.modalOverlay} onClick={() => setArtDetalle(null)}>
-        <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-          <div className={styles.modalHeader}>
-            <h3>Caso ART #{artDetalle.id}</h3>
-            <button onClick={() => setArtDetalle(null)} aria-label="Cerrar"><X size={18} /></button>
+      <div className="modal-overlay-tesla" onClick={() => setArtDetalle(null)}>
+        <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header-tesla">
+            <h3 className="modal-title-tesla">Caso ART #{artDetalle.id}</h3>
+            <button className="btn-close-tesla" onClick={() => setArtDetalle(null)} aria-label="Cerrar">✕</button>
           </div>
-          <div className={styles.modalBody}>
+          <div className="modal-body-tesla">
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
                 <label>Siniestro</label>
@@ -428,7 +459,7 @@ export default function RRHHPresentismo() {
                     <FileText size={14} />
                     <span>{d.nombre_archivo}</span>
                     <button
-                      className={styles.btnSmall}
+                      className={styles.btnDownload}
                       onClick={async () => {
                         try {
                           const response = await rrhhAPI.descargarArtDocumento(artDetalle.id, d.id);
@@ -452,8 +483,8 @@ export default function RRHHPresentismo() {
               </div>
             )}
           </div>
-          <div className={styles.modalFooter}>
-            <button className={styles.btnSecondary} onClick={() => setArtDetalle(null)}>Cerrar</button>
+          <div className="modal-footer-tesla">
+            <button className={styles.btnCancel} onClick={() => setArtDetalle(null)}>Cerrar</button>
           </div>
         </div>
       </div>
@@ -464,26 +495,32 @@ export default function RRHHPresentismo() {
   const renderArtFormModal = () => {
     if (!artModalOpen) return null;
     return (
-      <div className={styles.modalOverlay} onClick={() => setArtModalOpen(false)}>
-        <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-          <div className={styles.modalHeader}>
-            <h3>{artForm.id ? 'Editar Caso ART' : 'Nuevo Caso ART'}</h3>
-            <button onClick={() => setArtModalOpen(false)} aria-label="Cerrar"><X size={18} /></button>
+      <div className="modal-overlay-tesla" onClick={() => setArtModalOpen(false)}>
+        <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header-tesla">
+            <h3 className="modal-title-tesla">{artForm.id ? 'Editar Caso ART' : 'Nuevo Caso ART'}</h3>
+            <button className="btn-close-tesla" onClick={() => setArtModalOpen(false)} aria-label="Cerrar">✕</button>
           </div>
           <form onSubmit={handleArtSubmit}>
-            <div className={styles.modalBody}>
+            <div className="modal-body-tesla">
               {artFormError && <div className={styles.formError}>{artFormError}</div>}
 
               {!artForm.id && (
                 <div className={styles.formGroup}>
-                  <label>Empleado ID *</label>
-                  <input
-                    className={styles.input}
-                    type="number"
+                  <label>Empleado *</label>
+                  <select
+                    className={styles.select}
                     value={artForm.empleado_id || ''}
                     onChange={(e) => setArtForm({ ...artForm, empleado_id: parseInt(e.target.value) || '' })}
                     required
-                  />
+                  >
+                    <option value="">Seleccionar empleado...</option>
+                    {empleados.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.legajo} - {emp.apellido}, {emp.nombre}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
 
@@ -618,11 +655,11 @@ export default function RRHHPresentismo() {
                 </div>
               )}
             </div>
-            <div className={styles.modalFooter}>
-              <button type="button" className={styles.btnSecondary} onClick={() => setArtModalOpen(false)}>
+            <div className="modal-footer-tesla">
+              <button type="button" className={styles.btnCancel} onClick={() => setArtModalOpen(false)}>
                 Cancelar
               </button>
-              <button type="submit" className={styles.btnPrimary} disabled={artSaving}>
+              <button type="submit" className={styles.btnSave} disabled={artSaving}>
                 {artSaving ? 'Guardando...' : 'Guardar'}
               </button>
             </div>
@@ -675,10 +712,11 @@ export default function RRHHPresentismo() {
               value={fechaHasta}
               onChange={(e) => setFechaHasta(e.target.value)}
             />
-            <button className={styles.btnSmall} onClick={cargarGrilla} title="Recargar">
+            <button className={styles.btnRefresh} onClick={cargarGrilla} title="Recargar">
               <RotateCcw size={14} />
             </button>
           </div>
+          {markError && <div className={styles.formError} style={{ marginBottom: 'var(--spacing-sm)' }}>{markError}</div>}
           {renderPresentismoGrid()}
         </>
       )}

@@ -2738,6 +2738,32 @@ async def obtener_stats_dinamicos(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
 
+    # EXCLUIR PRODUCTOS BANEADOS (consistente con /productos)
+    from app.models.producto_banlist import ProductoBanlist
+
+    productos_baneados_item_ids = (
+        db.query(ProductoBanlist.item_id)
+        .filter(ProductoBanlist.activo == True, ProductoBanlist.item_id.isnot(None))
+        .all()
+    )
+
+    productos_baneados_eans = (
+        db.query(ProductoBanlist.ean).filter(ProductoBanlist.activo == True, ProductoBanlist.ean.isnot(None)).all()
+    )
+
+    filtros_ban = []
+
+    if productos_baneados_item_ids:
+        banned_ids = [pid[0] for pid in productos_baneados_item_ids]
+        filtros_ban.append(ProductoERP.item_id.in_(banned_ids))
+
+    if productos_baneados_eans:
+        banned_eans = [ean[0] for ean in productos_baneados_eans]
+        filtros_ban.append(and_(ProductoERP.ean.in_(banned_eans), ProductoERP.ean.isnot(None), ProductoERP.ean != ""))
+
+    if filtros_ban:
+        query = query.filter(~or_(*filtros_ban))
+
     # FILTRADO POR AUDITORÍA
     if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
         from app.models.auditoria import Auditoria
@@ -3215,6 +3241,32 @@ async def listar_marcas(
         .distinct()
         .join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id, isouter=True)
     )
+
+    # EXCLUIR PRODUCTOS BANEADOS (consistente con /productos)
+    from app.models.producto_banlist import ProductoBanlist
+
+    productos_baneados_item_ids = (
+        db.query(ProductoBanlist.item_id)
+        .filter(ProductoBanlist.activo == True, ProductoBanlist.item_id.isnot(None))
+        .all()
+    )
+
+    productos_baneados_eans = (
+        db.query(ProductoBanlist.ean).filter(ProductoBanlist.activo == True, ProductoBanlist.ean.isnot(None)).all()
+    )
+
+    filtros_ban = []
+
+    if productos_baneados_item_ids:
+        banned_ids = [pid[0] for pid in productos_baneados_item_ids]
+        filtros_ban.append(ProductoERP.item_id.in_(banned_ids))
+
+    if productos_baneados_eans:
+        banned_eans = [ean[0] for ean in productos_baneados_eans]
+        filtros_ban.append(and_(ProductoERP.ean.in_(banned_eans), ProductoERP.ean.isnot(None), ProductoERP.ean != ""))
+
+    if filtros_ban:
+        query = query.filter(~or_(*filtros_ban))
 
     # Aplicar filtros (reutilizar la lógica del endpoint de listar productos)
     if search:
@@ -5503,6 +5555,32 @@ async def listar_subcategorias(
         .distinct()
         .join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id, isouter=True)
     )
+
+    # EXCLUIR PRODUCTOS BANEADOS (consistente con /productos)
+    from app.models.producto_banlist import ProductoBanlist
+
+    productos_baneados_item_ids = (
+        db.query(ProductoBanlist.item_id)
+        .filter(ProductoBanlist.activo == True, ProductoBanlist.item_id.isnot(None))
+        .all()
+    )
+
+    productos_baneados_eans = (
+        db.query(ProductoBanlist.ean).filter(ProductoBanlist.activo == True, ProductoBanlist.ean.isnot(None)).all()
+    )
+
+    filtros_ban = []
+
+    if productos_baneados_item_ids:
+        banned_ids = [pid[0] for pid in productos_baneados_item_ids]
+        filtros_ban.append(ProductoERP.item_id.in_(banned_ids))
+
+    if productos_baneados_eans:
+        banned_eans = [ean[0] for ean in productos_baneados_eans]
+        filtros_ban.append(and_(ProductoERP.ean.in_(banned_eans), ProductoERP.ean.isnot(None), ProductoERP.ean != ""))
+
+    if filtros_ban:
+        query = query.filter(~or_(*filtros_ban))
 
     # Aplicar filtros
     if search:

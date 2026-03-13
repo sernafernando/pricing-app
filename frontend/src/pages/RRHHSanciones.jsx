@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { rrhhAPI } from '../services/api';
-import { Shield, Plus, RotateCcw, Ban, X, Eye } from 'lucide-react';
+import { Shield, Plus, RotateCcw, Ban, Eye } from 'lucide-react';
 import styles from './RRHHSanciones.module.css';
 
 const INITIAL_FORM = {
@@ -97,6 +97,10 @@ export default function RRHHSanciones() {
 
   // ── Create sancion ──
   const handleCrear = async () => {
+    if (!crearForm.empleado_id || !crearForm.tipo_sancion_id) {
+      setCrearError('Empleado y tipo de sanción son obligatorios');
+      return;
+    }
     if (!crearForm.motivo.trim()) {
       setCrearError('El motivo es obligatorio');
       return;
@@ -120,8 +124,8 @@ export default function RRHHSanciones() {
       setCrearModalOpen(false);
       setCrearForm(INITIAL_FORM);
       cargarSanciones();
-    } catch {
-      setCrearError('Error al crear la sancion');
+    } catch (err) {
+      setCrearError(err.response?.data?.detail || 'Error al crear la sancion');
     } finally {
       setCrearSaving(false);
     }
@@ -140,8 +144,8 @@ export default function RRHHSanciones() {
       setAnularTarget(null);
       setAnularMotivo('');
       cargarSanciones();
-    } catch {
-      setAnularError('Error al anular la sancion');
+    } catch (err) {
+      setAnularError(err.response?.data?.detail || 'Error al anular la sancion');
     } finally {
       setAnularSaving(false);
     }
@@ -149,7 +153,7 @@ export default function RRHHSanciones() {
 
   // ── Open create modal ──
   const openCrear = () => {
-    setCrearForm(INITIAL_FORM);
+    setCrearForm({ ...INITIAL_FORM, fecha: new Date().toISOString().slice(0, 10) });
     setCrearError(null);
     setCrearModalOpen(true);
   };
@@ -179,7 +183,7 @@ export default function RRHHSanciones() {
           {total > 0 && <span className={styles.badge}>{total}</span>}
         </div>
         {puedeGestionar && (
-          <button className={styles.btnPrimary} onClick={openCrear}>
+          <button className={styles.btnCreate} onClick={openCrear}>
             <Plus size={16} /> Nueva sancion
           </button>
         )}
@@ -227,7 +231,7 @@ export default function RRHHSanciones() {
           />
           Mostrar anuladas
         </label>
-        <button className={styles.btnSmall} onClick={() => { setPage(1); cargarSanciones(); }} title="Recargar">
+        <button className={styles.btnRefresh} onClick={() => { setPage(1); cargarSanciones(); }} title="Recargar">
           <RotateCcw size={14} />
         </button>
       </div>
@@ -272,7 +276,7 @@ export default function RRHHSanciones() {
                 <td>
                   <div className={styles.actions}>
                     <button
-                      className={styles.btnSmall}
+                      className={styles.btnView}
                       onClick={() => setDetalleOpen(s)}
                       title="Ver detalle"
                     >
@@ -280,7 +284,7 @@ export default function RRHHSanciones() {
                     </button>
                     {puedeGestionar && !s.anulada && (
                       <button
-                        className={styles.btnDanger}
+                        className={styles.btnAnular}
                         onClick={() => openAnular(s)}
                         title="Anular sancion"
                       >
@@ -299,7 +303,7 @@ export default function RRHHSanciones() {
       {totalPages > 1 && (
         <div className={styles.filters} style={{ marginTop: 'var(--spacing-md)', justifyContent: 'center' }}>
           <button
-            className={styles.btnSmall}
+            className={styles.btnCancel}
             disabled={page <= 1}
             onClick={() => setPage((p) => p - 1)}
           >
@@ -309,7 +313,7 @@ export default function RRHHSanciones() {
             Pagina {page} de {totalPages}
           </span>
           <button
-            className={styles.btnSmall}
+            className={styles.btnCancel}
             disabled={page >= totalPages}
             onClick={() => setPage((p) => p + 1)}
           >
@@ -320,16 +324,13 @@ export default function RRHHSanciones() {
 
       {/* Create modal */}
       {crearModalOpen && (
-        <div className={styles.modal}>
-          <div className={styles.modalOverlay} onClick={() => setCrearModalOpen(false)} />
-          <div className={styles.modalContent}>
-            <div className={styles.modalHeader}>
-              <h2>Nueva sancion</h2>
-              <button onClick={() => setCrearModalOpen(false)} aria-label="Cerrar modal">
-                <X size={18} />
-              </button>
+        <div className="modal-overlay-tesla" onClick={() => setCrearModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Nueva sancion</h2>
+              <button className="btn-close-tesla" onClick={() => setCrearModalOpen(false)} aria-label="Cerrar modal">✕</button>
             </div>
-            <div className={styles.modalBody}>
+            <div className="modal-body-tesla">
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>
                   <label>Empleado ID</label>
@@ -404,13 +405,13 @@ export default function RRHHSanciones() {
                   />
                 </div>
               </div>
-              {crearError && <div style={{ color: 'var(--cf-accent-red)', fontSize: 'var(--font-xs)', marginTop: 'var(--spacing-xs)' }}>{crearError}</div>}
+              {crearError && <div className={styles.formError}>{crearError}</div>}
             </div>
-            <div className={styles.modalFooter}>
-              <button className={styles.btnSecondary} onClick={() => setCrearModalOpen(false)}>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setCrearModalOpen(false)}>
                 Cancelar
               </button>
-              <button className={styles.btnPrimary} onClick={handleCrear} disabled={crearSaving}>
+              <button className={styles.btnSave} onClick={handleCrear} disabled={crearSaving}>
                 {crearSaving ? 'Guardando...' : 'Crear sancion'}
               </button>
             </div>
@@ -420,16 +421,13 @@ export default function RRHHSanciones() {
 
       {/* Anular modal */}
       {anularTarget && (
-        <div className={styles.modal}>
-          <div className={styles.modalOverlay} onClick={() => setAnularTarget(null)} />
-          <div className={styles.modalContent} style={{ maxWidth: '450px' }}>
-            <div className={styles.modalHeader}>
-              <h2>Anular sancion</h2>
-              <button onClick={() => setAnularTarget(null)} aria-label="Cerrar modal">
-                <X size={18} />
-              </button>
+        <div className="modal-overlay-tesla" onClick={() => setAnularTarget(null)}>
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Anular sancion</h2>
+              <button className="btn-close-tesla" onClick={() => setAnularTarget(null)} aria-label="Cerrar modal">✕</button>
             </div>
-            <div className={styles.modalBody}>
+            <div className="modal-body-tesla">
               <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)', marginBottom: 'var(--spacing-md)' }}>
                 Se anulara la sancion del empleado {anularTarget.empleado_nombre || `#${anularTarget.empleado_id}`}.
                 Esta accion no se puede deshacer.
@@ -445,11 +443,11 @@ export default function RRHHSanciones() {
               </div>
               {anularError && <div style={{ color: 'var(--cf-accent-red)', fontSize: 'var(--font-xs)' }}>{anularError}</div>}
             </div>
-            <div className={styles.modalFooter}>
-              <button className={styles.btnSecondary} onClick={() => setAnularTarget(null)}>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setAnularTarget(null)}>
                 Cancelar
               </button>
-              <button className={styles.btnDanger} onClick={handleAnular} disabled={anularSaving}>
+              <button className={styles.btnAnular} onClick={handleAnular} disabled={anularSaving}>
                 {anularSaving ? 'Anulando...' : 'Confirmar anulacion'}
               </button>
             </div>
@@ -459,16 +457,13 @@ export default function RRHHSanciones() {
 
       {/* Detail modal */}
       {detalleOpen && (
-        <div className={styles.modal}>
-          <div className={styles.modalOverlay} onClick={() => setDetalleOpen(null)} />
-          <div className={styles.modalContent}>
-            <div className={styles.modalHeader}>
-              <h2>Detalle de sancion</h2>
-              <button onClick={() => setDetalleOpen(null)} aria-label="Cerrar modal">
-                <X size={18} />
-              </button>
+        <div className="modal-overlay-tesla" onClick={() => setDetalleOpen(null)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Detalle de sancion</h2>
+              <button className="btn-close-tesla" onClick={() => setDetalleOpen(null)} aria-label="Cerrar modal">✕</button>
             </div>
-            <div className={styles.modalBody}>
+            <div className="modal-body-tesla">
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>
                   <label>Empleado</label>
@@ -540,8 +535,8 @@ export default function RRHHSanciones() {
                 </div>
               )}
             </div>
-            <div className={styles.modalFooter}>
-              <button className={styles.btnSecondary} onClick={() => setDetalleOpen(null)}>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setDetalleOpen(null)}>
                 Cerrar
               </button>
             </div>

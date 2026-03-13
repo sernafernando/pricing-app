@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { rrhhAPI } from '../services/api';
 import {
-  Clock, Plus, RefreshCw, Trash2, Edit2, X, Link, Unlink,
+  Clock, Plus, RefreshCw, Trash2, Edit2, Link, Unlink,
   Fingerprint, Settings, CalendarOff, LogIn, LogOut,
 } from 'lucide-react';
 import styles from './RRHHHorarios.module.css';
@@ -100,10 +100,18 @@ export default function RRHHHorarios() {
   const [hikUsers, setHikUsers] = useState([]);
   const [loadingHik, setLoadingHik] = useState(false);
   const [hikError, setHikError] = useState(null);
-  const [mappingEmpleadoId, setMappingEmpleadoId] = useState('');
+  const [mappingSelections, setMappingSelections] = useState({});
 
   // ── Empleados list (for selects) ──
   const [empleados, setEmpleados] = useState([]);
+
+  // ── Confirmation modal ──
+  const [confirmAction, setConfirmAction] = useState(null); // { title, message, onConfirm }
+  const [actionError, setActionError] = useState(null);
+
+  const updateMappingSelection = (employeeNo, value) => {
+    setMappingSelections((prev) => ({ ...prev, [employeeNo]: value }));
+  };
 
   useEffect(() => {
     const fetchEmpleados = async () => {
@@ -225,13 +233,21 @@ export default function RRHHHorarios() {
     }
   };
 
-  const handleDeleteFichada = async (fichadaId) => {
-    try {
-      await rrhhAPI.eliminarFichada(fichadaId);
-      cargarFichadas();
-    } catch {
-      // silent
-    }
+  const handleDeleteFichada = (fichadaId) => {
+    setActionError(null);
+    setConfirmAction({
+      title: 'Eliminar fichada',
+      message: '¿Eliminar esta fichada manual? Esta acción no se puede deshacer.',
+      onConfirm: async () => {
+        try {
+          await rrhhAPI.eliminarFichada(fichadaId);
+          setConfirmAction(null);
+          cargarFichadas();
+        } catch (err) {
+          setActionError(err.response?.data?.detail || 'Error al eliminar fichada');
+        }
+      },
+    });
   };
 
   // ── Handler: Hikvision sync ──
@@ -299,13 +315,21 @@ export default function RRHHHorarios() {
     }
   };
 
-  const handleDeleteHorario = async (horarioId) => {
-    try {
-      await rrhhAPI.eliminarHorario(horarioId);
-      cargarHorarios();
-    } catch {
-      // silent
-    }
+  const handleDeleteHorario = (horarioId) => {
+    setActionError(null);
+    setConfirmAction({
+      title: 'Desactivar horario',
+      message: '¿Desactivar este horario? Los empleados asignados quedarán sin horario.',
+      onConfirm: async () => {
+        try {
+          await rrhhAPI.eliminarHorario(horarioId);
+          setConfirmAction(null);
+          cargarHorarios();
+        } catch (err) {
+          setActionError(err.response?.data?.detail || 'Error al desactivar horario');
+        }
+      },
+    });
   };
 
   // ── Handler: Excepción CRUD ──
@@ -357,37 +381,58 @@ export default function RRHHHorarios() {
     }
   };
 
-  const handleDeleteExcep = async (excepId) => {
-    try {
-      await rrhhAPI.eliminarExcepcion(excepId);
-      cargarExcepciones();
-    } catch {
-      // silent
-    }
+  const handleDeleteExcep = (excepId) => {
+    setActionError(null);
+    setConfirmAction({
+      title: 'Eliminar excepción',
+      message: '¿Eliminar esta excepción del calendario?',
+      onConfirm: async () => {
+        try {
+          await rrhhAPI.eliminarExcepcion(excepId);
+          setConfirmAction(null);
+          cargarExcepciones();
+        } catch (err) {
+          setActionError(err.response?.data?.detail || 'Error al eliminar excepción');
+        }
+      },
+    });
   };
 
   // ── Handler: Hikvision mapping ──
   const handleMapearHikvision = async (hikEmployeeNo) => {
-    if (!mappingEmpleadoId) return;
+    const selectedId = mappingSelections[hikEmployeeNo];
+    if (!selectedId) return;
     try {
       await rrhhAPI.mapearEmpleadoHikvision({
-        empleado_id: parseInt(mappingEmpleadoId, 10),
+        empleado_id: parseInt(selectedId, 10),
         hikvision_employee_no: hikEmployeeNo,
       });
-      setMappingEmpleadoId('');
+      setMappingSelections((prev) => {
+        const next = { ...prev };
+        delete next[hikEmployeeNo];
+        return next;
+      });
       cargarHikUsers();
     } catch (err) {
       setHikError(err.response?.data?.detail || 'Error al vincular');
     }
   };
 
-  const handleDesmapearHikvision = async (empleadoId) => {
-    try {
-      await rrhhAPI.desmapearEmpleadoHikvision(empleadoId);
-      cargarHikUsers();
-    } catch {
-      // silent
-    }
+  const handleDesmapearHikvision = (empleadoId) => {
+    setActionError(null);
+    setConfirmAction({
+      title: 'Desvincular empleado',
+      message: '¿Desvincular este empleado del dispositivo Hikvision?',
+      onConfirm: async () => {
+        try {
+          await rrhhAPI.desmapearEmpleadoHikvision(empleadoId);
+          setConfirmAction(null);
+          cargarHikUsers();
+        } catch (err) {
+          setActionError(err.response?.data?.detail || 'Error al desvincular');
+        }
+      },
+    });
   };
 
   // ── RENDER ──
@@ -402,21 +447,21 @@ export default function RRHHHorarios() {
         <div className={styles.headerActions}>
           {puedeGestionar && activeTab === 'fichadas' && (
             <>
-              <button className={styles.btnSecondary} onClick={handleSyncHikvision} disabled={syncing}>
+              <button className={styles.btnSync} onClick={handleSyncHikvision} disabled={syncing}>
                 <Fingerprint size={16} /> {syncing ? 'Sincronizando...' : 'Sync Hikvision'}
               </button>
-              <button className={styles.btnPrimary} onClick={handleOpenFichadaModal}>
+              <button className={styles.btnCreate} onClick={handleOpenFichadaModal}>
                 <Plus size={16} /> Fichada Manual
               </button>
             </>
           )}
           {puedeConfig && activeTab === 'horarios' && (
-            <button className={styles.btnPrimary} onClick={() => handleOpenHorarioModal()}>
+            <button className={styles.btnCreate} onClick={() => handleOpenHorarioModal()}>
               <Plus size={16} /> Nuevo Horario
             </button>
           )}
           {puedeConfig && activeTab === 'excepciones' && (
-            <button className={styles.btnPrimary} onClick={() => handleOpenExcepModal()}>
+            <button className={styles.btnCreate} onClick={() => handleOpenExcepModal()}>
               <Plus size={16} /> Nueva Excepción
             </button>
           )}
@@ -515,7 +560,7 @@ export default function RRHHHorarios() {
               <option value="hikvision">Hikvision</option>
               <option value="manual">Manual</option>
             </select>
-            <button className={styles.btnIcon} onClick={cargarFichadas} title="Refrescar">
+            <button className={styles.btnRefresh} onClick={cargarFichadas} title="Refrescar">
               <RefreshCw size={16} />
             </button>
           </div>
@@ -567,7 +612,7 @@ export default function RRHHHorarios() {
                         <td>
                           {f.origen === 'manual' && (
                             <button
-                              className={styles.btnIcon}
+                              className={styles.btnDeleteAction}
                               onClick={() => handleDeleteFichada(f.id)}
                               title="Eliminar fichada"
                             >
@@ -587,14 +632,14 @@ export default function RRHHHorarios() {
                   </span>
                   <div className={styles.paginationButtons}>
                     <button
-                      className={styles.btnSmall}
+                      className={styles.btnPage}
                       disabled={fichadasPage <= 1}
                       onClick={() => setFichadasPage((p) => p - 1)}
                     >
                       Anterior
                     </button>
                     <button
-                      className={styles.btnSmall}
+                      className={styles.btnPage}
                       disabled={fichadasPage * PAGE_SIZE >= fichadasTotal}
                       onClick={() => setFichadasPage((p) => p + 1)}
                     >
@@ -639,14 +684,14 @@ export default function RRHHHorarios() {
                   {puedeConfig && (
                     <div className={styles.horarioCardActions}>
                       <button
-                        className={styles.btnSmall}
+                        className={styles.btnEdit}
                         onClick={() => handleOpenHorarioModal(h)}
                       >
                         <Edit2 size={12} /> Editar
                       </button>
                       {h.activo && (
                         <button
-                          className={styles.btnSmall}
+                          className={styles.btnDeactivate}
                           onClick={() => handleDeleteHorario(h.id)}
                           title="Desactivar horario"
                         >
@@ -676,7 +721,7 @@ export default function RRHHHorarios() {
               placeholder="Año"
               style={{ width: '100px' }}
             />
-            <button className={styles.btnIcon} onClick={cargarExcepciones} title="Refrescar">
+            <button className={styles.btnRefresh} onClick={cargarExcepciones} title="Refrescar">
               <RefreshCw size={16} />
             </button>
           </div>
@@ -711,14 +756,14 @@ export default function RRHHHorarios() {
                       {puedeConfig && (
                         <td>
                           <button
-                            className={styles.btnIcon}
+                            className={styles.btnEditAction}
                             onClick={() => handleOpenExcepModal(exc)}
                             title="Editar"
                           >
                             <Edit2 size={14} />
                           </button>
                           <button
-                            className={styles.btnIcon}
+                            className={styles.btnDeleteAction}
                             onClick={() => handleDeleteExcep(exc.id)}
                             title="Eliminar"
                           >
@@ -746,7 +791,7 @@ export default function RRHHHorarios() {
           {hikError && <div className={styles.error}>{hikError}</div>}
 
           <div className={styles.filters}>
-            <button className={styles.btnIcon} onClick={cargarHikUsers} title="Refrescar desde dispositivo">
+            <button className={styles.btnRefresh} onClick={cargarHikUsers} title="Refrescar desde dispositivo">
               <RefreshCw size={16} />
             </button>
           </div>
@@ -785,7 +830,7 @@ export default function RRHHHorarios() {
                       <td>
                         {u.empleado_id ? (
                           <button
-                            className={styles.btnIcon}
+                            className={styles.btnUnlink}
                             onClick={() => handleDesmapearHikvision(u.empleado_id)}
                             title="Desvincular"
                           >
@@ -795,8 +840,8 @@ export default function RRHHHorarios() {
                           <div style={{ display: 'flex', gap: 'var(--spacing-xs)', alignItems: 'center' }}>
                             <select
                               className={styles.select}
-                              value={mappingEmpleadoId}
-                              onChange={(e) => setMappingEmpleadoId(e.target.value)}
+                              value={mappingSelections[u.employee_no] || ''}
+                              onChange={(e) => updateMappingSelection(u.employee_no, e.target.value)}
                               style={{ minWidth: '200px' }}
                             >
                               <option value="">Seleccionar empleado...</option>
@@ -809,9 +854,9 @@ export default function RRHHHorarios() {
                                 ))}
                             </select>
                             <button
-                              className={styles.btnSmall}
+                              className={styles.btnLink}
                               onClick={() => handleMapearHikvision(u.employee_no)}
-                              disabled={!mappingEmpleadoId}
+                              disabled={!mappingSelections[u.employee_no]}
                               title="Vincular"
                             >
                               <Link size={12} /> Vincular
@@ -830,75 +875,73 @@ export default function RRHHHorarios() {
 
       {/* ─── MODAL: Fichada Manual ─── */}
       {fichadaModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => setFichadaModalOpen(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <span className={styles.modalTitle}>
-                <Plus size={20} /> Fichada Manual
-              </span>
-              <button className={styles.btnIcon} onClick={() => setFichadaModalOpen(false)}>
-                <X size={20} />
-              </button>
+        <div className="modal-overlay-tesla" onClick={() => setFichadaModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Fichada Manual</h2>
+              <button className="btn-close-tesla" onClick={() => setFichadaModalOpen(false)} aria-label="Cerrar">✕</button>
             </div>
-            {fichadaError && <div className={styles.formError}>{fichadaError}</div>}
             <form onSubmit={handleSubmitFichada}>
-              <div className={styles.formGroup}>
-                <label>Empleado</label>
-                <select
-                  className={styles.select}
-                  value={fichadaForm.empleado_id}
-                  onChange={(e) => setFichadaForm({ ...fichadaForm, empleado_id: e.target.value })}
-                  required
-                >
-                  <option value="">Seleccionar...</option>
-                  {empleados.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.legajo} - {emp.apellido}, {emp.nombre}
-                    </option>
-                  ))}
-                </select>
+              <div className="modal-body-tesla">
+                {fichadaError && <div className={styles.formError}>{fichadaError}</div>}
+                <div className={styles.formGroup}>
+                  <label>Empleado</label>
+                  <select
+                    className={styles.select}
+                    value={fichadaForm.empleado_id}
+                    onChange={(e) => setFichadaForm({ ...fichadaForm, empleado_id: e.target.value })}
+                    required
+                  >
+                    <option value="">Seleccionar...</option>
+                    {empleados.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.legajo} - {emp.apellido}, {emp.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Fecha y hora</label>
+                  <input
+                    className={styles.input}
+                    type="datetime-local"
+                    value={fichadaForm.timestamp}
+                    onChange={(e) => setFichadaForm({ ...fichadaForm, timestamp: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Tipo</label>
+                  <select
+                    className={styles.select}
+                    value={fichadaForm.tipo}
+                    onChange={(e) => setFichadaForm({ ...fichadaForm, tipo: e.target.value })}
+                  >
+                    <option value="entrada">Entrada</option>
+                    <option value="salida">Salida</option>
+                  </select>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Motivo</label>
+                  <textarea
+                    className={styles.textarea}
+                    value={fichadaForm.motivo_manual}
+                    onChange={(e) => setFichadaForm({ ...fichadaForm, motivo_manual: e.target.value })}
+                    maxLength={500}
+                    placeholder="Razón de la fichada manual"
+                    required
+                  />
+                </div>
               </div>
-              <div className={styles.formGroup}>
-                <label>Fecha y hora</label>
-                <input
-                  className={styles.input}
-                  type="datetime-local"
-                  value={fichadaForm.timestamp}
-                  onChange={(e) => setFichadaForm({ ...fichadaForm, timestamp: e.target.value })}
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Tipo</label>
-                <select
-                  className={styles.select}
-                  value={fichadaForm.tipo}
-                  onChange={(e) => setFichadaForm({ ...fichadaForm, tipo: e.target.value })}
-                >
-                  <option value="entrada">Entrada</option>
-                  <option value="salida">Salida</option>
-                </select>
-              </div>
-              <div className={styles.formGroup}>
-                <label>Motivo</label>
-                <textarea
-                  className={styles.textarea}
-                  value={fichadaForm.motivo_manual}
-                  onChange={(e) => setFichadaForm({ ...fichadaForm, motivo_manual: e.target.value })}
-                  maxLength={500}
-                  placeholder="Razón de la fichada manual"
-                  required
-                />
-              </div>
-              <div className={styles.formActions}>
+              <div className="modal-footer-tesla">
                 <button
                   type="button"
-                  className={styles.btnSecondary}
+                  className={styles.btnCancel}
                   onClick={() => setFichadaModalOpen(false)}
                 >
                   Cancelar
                 </button>
-                <button type="submit" className={styles.btnPrimary} disabled={fichadaSaving}>
+                <button type="submit" className={styles.btnSave} disabled={fichadaSaving}>
                   {fichadaSaving ? 'Guardando...' : 'Registrar'}
                 </button>
               </div>
@@ -909,93 +952,91 @@ export default function RRHHHorarios() {
 
       {/* ─── MODAL: Horario ─── */}
       {horarioModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => setHorarioModalOpen(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <span className={styles.modalTitle}>
-                <Settings size={20} /> {horarioEditing ? 'Editar Horario' : 'Nuevo Horario'}
-              </span>
-              <button className={styles.btnIcon} onClick={() => setHorarioModalOpen(false)}>
-                <X size={20} />
-              </button>
+        <div className="modal-overlay-tesla" onClick={() => setHorarioModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">{horarioEditing ? 'Editar Horario' : 'Nuevo Horario'}</h2>
+              <button className="btn-close-tesla" onClick={() => setHorarioModalOpen(false)} aria-label="Cerrar">✕</button>
             </div>
-            {horarioError && <div className={styles.formError}>{horarioError}</div>}
             <form onSubmit={handleSubmitHorario}>
-              <div className={styles.formGroup}>
-                <label>Nombre</label>
-                <input
-                  className={styles.input}
-                  type="text"
-                  maxLength={100}
-                  value={horarioForm.nombre}
-                  onChange={(e) => setHorarioForm({ ...horarioForm, nombre: e.target.value })}
-                  placeholder="Turno Mañana 8-17"
-                  required
-                />
-              </div>
-              <div className={styles.formRow}>
+              <div className="modal-body-tesla">
+                {horarioError && <div className={styles.formError}>{horarioError}</div>}
                 <div className={styles.formGroup}>
-                  <label>Hora entrada</label>
+                  <label>Nombre</label>
                   <input
                     className={styles.input}
-                    type="time"
-                    value={horarioForm.hora_entrada}
-                    onChange={(e) => setHorarioForm({ ...horarioForm, hora_entrada: e.target.value })}
+                    type="text"
+                    maxLength={100}
+                    value={horarioForm.nombre}
+                    onChange={(e) => setHorarioForm({ ...horarioForm, nombre: e.target.value })}
+                    placeholder="Turno Mañana 8-17"
+                    required
+                  />
+                </div>
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label>Hora entrada</label>
+                    <input
+                      className={styles.input}
+                      type="time"
+                      value={horarioForm.hora_entrada}
+                      onChange={(e) => setHorarioForm({ ...horarioForm, hora_entrada: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Hora salida</label>
+                    <input
+                      className={styles.input}
+                      type="time"
+                      value={horarioForm.hora_salida}
+                      onChange={(e) => setHorarioForm({ ...horarioForm, hora_salida: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Tolerancia (minutos)</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    min="0"
+                    max="120"
+                    value={horarioForm.tolerancia_minutos}
+                    onChange={(e) => setHorarioForm({ ...horarioForm, tolerancia_minutos: e.target.value })}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Días laborables (1=Lun ... 7=Dom)</label>
+                  <input
+                    className={styles.input}
+                    type="text"
+                    value={horarioForm.dias_semana}
+                    onChange={(e) => setHorarioForm({ ...horarioForm, dias_semana: e.target.value })}
+                    placeholder="1,2,3,4,5"
                     required
                   />
                 </div>
                 <div className={styles.formGroup}>
-                  <label>Hora salida</label>
-                  <input
-                    className={styles.input}
-                    type="time"
-                    value={horarioForm.hora_salida}
-                    onChange={(e) => setHorarioForm({ ...horarioForm, hora_salida: e.target.value })}
-                    required
-                  />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
+                    <input
+                      type="checkbox"
+                      checked={horarioForm.activo}
+                      onChange={(e) => setHorarioForm({ ...horarioForm, activo: e.target.checked })}
+                    />
+                    Activo
+                  </label>
                 </div>
               </div>
-              <div className={styles.formGroup}>
-                <label>Tolerancia (minutos)</label>
-                <input
-                  className={styles.input}
-                  type="number"
-                  min="0"
-                  max="120"
-                  value={horarioForm.tolerancia_minutos}
-                  onChange={(e) => setHorarioForm({ ...horarioForm, tolerancia_minutos: e.target.value })}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Días laborables (1=Lun ... 7=Dom)</label>
-                <input
-                  className={styles.input}
-                  type="text"
-                  value={horarioForm.dias_semana}
-                  onChange={(e) => setHorarioForm({ ...horarioForm, dias_semana: e.target.value })}
-                  placeholder="1,2,3,4,5"
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
-                  <input
-                    type="checkbox"
-                    checked={horarioForm.activo}
-                    onChange={(e) => setHorarioForm({ ...horarioForm, activo: e.target.checked })}
-                  />
-                  Activo
-                </label>
-              </div>
-              <div className={styles.formActions}>
+              <div className="modal-footer-tesla">
                 <button
                   type="button"
-                  className={styles.btnSecondary}
+                  className={styles.btnCancel}
                   onClick={() => setHorarioModalOpen(false)}
                 >
                   Cancelar
                 </button>
-                <button type="submit" className={styles.btnPrimary} disabled={horarioSaving}>
+                <button type="submit" className={styles.btnSave} disabled={horarioSaving}>
                   {horarioSaving ? 'Guardando...' : horarioEditing ? 'Actualizar' : 'Crear'}
                 </button>
               </div>
@@ -1006,75 +1047,95 @@ export default function RRHHHorarios() {
 
       {/* ─── MODAL: Excepción ─── */}
       {excepModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => setExcepModalOpen(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <span className={styles.modalTitle}>
-                <CalendarOff size={20} /> {excepEditing ? 'Editar Excepción' : 'Nueva Excepción'}
-              </span>
-              <button className={styles.btnIcon} onClick={() => setExcepModalOpen(false)}>
-                <X size={20} />
-              </button>
+        <div className="modal-overlay-tesla" onClick={() => setExcepModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">{excepEditing ? 'Editar Excepción' : 'Nueva Excepción'}</h2>
+              <button className="btn-close-tesla" onClick={() => setExcepModalOpen(false)} aria-label="Cerrar">✕</button>
             </div>
-            {excepError && <div className={styles.formError}>{excepError}</div>}
             <form onSubmit={handleSubmitExcep}>
-              <div className={styles.formGroup}>
-                <label>Fecha</label>
-                <input
-                  className={styles.input}
-                  type="date"
-                  value={excepForm.fecha}
-                  onChange={(e) => setExcepForm({ ...excepForm, fecha: e.target.value })}
-                  required
-                  disabled={!!excepEditing}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Tipo</label>
-                <select
-                  className={styles.select}
-                  value={excepForm.tipo}
-                  onChange={(e) => setExcepForm({ ...excepForm, tipo: e.target.value })}
-                >
-                  <option value="feriado">Feriado</option>
-                  <option value="dia_especial">Día especial</option>
-                </select>
-              </div>
-              <div className={styles.formGroup}>
-                <label>Descripción</label>
-                <input
-                  className={styles.input}
-                  type="text"
-                  maxLength={255}
-                  value={excepForm.descripcion}
-                  onChange={(e) => setExcepForm({ ...excepForm, descripcion: e.target.value })}
-                  placeholder="Día del Trabajador"
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
+              <div className="modal-body-tesla">
+                {excepError && <div className={styles.formError}>{excepError}</div>}
+                <div className={styles.formGroup}>
+                  <label>Fecha</label>
                   <input
-                    type="checkbox"
-                    checked={excepForm.es_laborable}
-                    onChange={(e) => setExcepForm({ ...excepForm, es_laborable: e.target.checked })}
+                    className={styles.input}
+                    type="date"
+                    value={excepForm.fecha}
+                    onChange={(e) => setExcepForm({ ...excepForm, fecha: e.target.value })}
+                    required
+                    disabled={!!excepEditing}
                   />
-                  Es laborable (se trabaja igual)
-                </label>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Tipo</label>
+                  <select
+                    className={styles.select}
+                    value={excepForm.tipo}
+                    onChange={(e) => setExcepForm({ ...excepForm, tipo: e.target.value })}
+                  >
+                    <option value="feriado">Feriado</option>
+                    <option value="dia_especial">Día especial</option>
+                  </select>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Descripción</label>
+                  <input
+                    className={styles.input}
+                    type="text"
+                    maxLength={255}
+                    value={excepForm.descripcion}
+                    onChange={(e) => setExcepForm({ ...excepForm, descripcion: e.target.value })}
+                    placeholder="Día del Trabajador"
+                    required
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
+                    <input
+                      type="checkbox"
+                      checked={excepForm.es_laborable}
+                      onChange={(e) => setExcepForm({ ...excepForm, es_laborable: e.target.checked })}
+                    />
+                    Es laborable (se trabaja igual)
+                  </label>
+                </div>
               </div>
-              <div className={styles.formActions}>
+              <div className="modal-footer-tesla">
                 <button
                   type="button"
-                  className={styles.btnSecondary}
+                  className={styles.btnCancel}
                   onClick={() => setExcepModalOpen(false)}
                 >
                   Cancelar
                 </button>
-                <button type="submit" className={styles.btnPrimary} disabled={excepSaving}>
+                <button type="submit" className={styles.btnSave} disabled={excepSaving}>
                   {excepSaving ? 'Guardando...' : excepEditing ? 'Actualizar' : 'Crear'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: Confirmación ─── */}
+      {confirmAction && (
+        <div className="modal-overlay-tesla" onClick={() => setConfirmAction(null)}>
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">{confirmAction.title}</h2>
+              <button className="btn-close-tesla" onClick={() => setConfirmAction(null)} aria-label="Cerrar">✕</button>
+            </div>
+            <div className="modal-body-tesla">
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)' }}>
+                {confirmAction.message}
+              </p>
+              {actionError && <div className={styles.formError}>{actionError}</div>}
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setConfirmAction(null)}>Cancelar</button>
+              <button className={styles.btnDeactivate} onClick={confirmAction.onConfirm}>Confirmar</button>
+            </div>
           </div>
         </div>
       )}

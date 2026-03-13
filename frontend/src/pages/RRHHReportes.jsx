@@ -175,7 +175,17 @@ export default function RRHHReportes() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Error al exportar');
+      if (err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const parsed = JSON.parse(text);
+          setError(parsed.detail || 'Error al exportar');
+        } catch {
+          setError('Error al exportar reporte');
+        }
+      } else {
+        setError(err.response?.data?.detail || 'Error al exportar');
+      }
     } finally {
       setExporting(false);
     }
@@ -775,7 +785,7 @@ export default function RRHHReportes() {
           <button
             key={tab.id}
             className={activeTab === tab.id ? styles.tabActive : styles.tab}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => { setActiveTab(tab.id); setError(null); }}
           >
             <tab.icon size={16} />
             {tab.label}
@@ -787,7 +797,7 @@ export default function RRHHReportes() {
       <div className={styles.filters}>
         {renderFilters()}
         <button
-          className={styles.btnPrimary}
+          className={styles.btnGenerate}
           onClick={handleGenerar}
           disabled={loading}
         >

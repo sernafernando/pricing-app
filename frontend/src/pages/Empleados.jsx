@@ -47,6 +47,10 @@ export default function Empleados() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
 
+  // Delete confirmation state
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [actionError, setActionError] = useState(null);
+
   const PAGE_SIZE = 50;
 
   // --- Debounce search ---
@@ -77,10 +81,10 @@ export default function Empleados() {
     cargarEmpleados();
   }, [cargarEmpleados]);
 
-  // Reset page when filters change
+  // Reset page when debounced search changes
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, estado]);
+  }, [debouncedSearch]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -94,6 +98,7 @@ export default function Empleados() {
       cuil: '',
       legajo: '',
       fecha_ingreso: new Date().toISOString().split('T')[0],
+      fecha_egreso: '',
       puesto: '',
       area: '',
       estado: 'activo',
@@ -147,13 +152,21 @@ export default function Empleados() {
     }
   };
 
-  const handleEliminar = async (emp) => {
+  const handleEliminar = (emp) => {
     if (!puedeGestionar) return;
+    setActionError(null);
+    setConfirmDelete(emp);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDelete) return;
+    setActionError(null);
     try {
-      await rrhhAPI.eliminarEmpleado(emp.id);
+      await rrhhAPI.eliminarEmpleado(confirmDelete.id);
+      setConfirmDelete(null);
       cargarEmpleados();
-    } catch {
-      // silently handled
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Error al desactivar empleado');
     }
   };
 
@@ -171,7 +184,7 @@ export default function Empleados() {
           <span className={styles.badge}>{total}</span>
         </div>
         {puedeGestionar && (
-          <button className={styles.btnPrimary} onClick={handleNuevo}>
+          <button className={styles.btnCreate} onClick={handleNuevo}>
             <Plus size={16} />
             Nuevo Empleado
           </button>
@@ -192,7 +205,7 @@ export default function Empleados() {
         </div>
         <select
           value={estado}
-          onChange={(e) => setEstado(e.target.value)}
+          onChange={(e) => { setEstado(e.target.value); setPage(1); }}
           className={styles.select}
         >
           {ESTADOS.map((e) => (
@@ -202,7 +215,7 @@ export default function Empleados() {
           ))}
         </select>
         <button
-          className={styles.btnIcon}
+          className={styles.btnRefresh}
           onClick={() => { setSearch(''); setEstado(''); setPage(1); }}
           title="Limpiar filtros"
         >
@@ -261,14 +274,14 @@ export default function Empleados() {
                     <td className={styles.actions}>
                       <button
                         onClick={() => handleEditar(emp)}
-                        className={styles.btnAction}
+                        className={styles.btnEdit}
                         title="Editar"
                       >
                         <Edit3 size={14} />
                       </button>
                       <button
                         onClick={() => handleEliminar(emp)}
-                        className={`${styles.btnAction} ${styles.btnDanger}`}
+                        className={styles.btnDanger}
                         title="Desactivar"
                       >
                         <Trash2 size={14} />
@@ -305,148 +318,176 @@ export default function Empleados() {
         </div>
       )}
 
+      {/* Confirm Delete Modal */}
+      {confirmDelete && (
+        <div className="modal-overlay-tesla" onClick={() => setConfirmDelete(null)}>
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Confirmar desactivación</h2>
+              <button className="btn-close-tesla" onClick={() => setConfirmDelete(null)} aria-label="Cerrar">✕</button>
+            </div>
+            <div className="modal-body-tesla">
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)' }}>
+                ¿Desactivar a <strong>{confirmDelete.apellido}, {confirmDelete.nombre}</strong> (Legajo: {confirmDelete.legajo})?
+                Esta acción cambiará su estado a baja.
+              </p>
+              {actionError && <div className={styles.formError}>{actionError}</div>}
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setConfirmDelete(null)}>Cancelar</button>
+              <button className={styles.btnDanger} onClick={handleConfirmDelete}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal */}
       {modalOpen && (
-        <div className={styles.overlay} onClick={() => setModalOpen(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h2>{editando ? 'Editar Empleado' : 'Nuevo Empleado'}</h2>
+        <div className="modal-overlay-tesla" onClick={() => setModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">{editando ? 'Editar Empleado' : 'Nuevo Empleado'}</h2>
+              <button className="btn-close-tesla" onClick={() => setModalOpen(false)}>✕</button>
+            </div>
 
-            {formError && <div className={styles.formError}>{formError}</div>}
+            <div className="modal-body-tesla">
+              {formError && <div className={styles.formError}>{formError}</div>}
 
-            <div className={styles.formGrid}>
-              <div className={styles.formGroup}>
-                <label>Nombre *</label>
-                <input
-                  className={styles.input}
-                  value={formData.nombre}
-                  onChange={(e) => handleField('nombre', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Apellido *</label>
-                <input
-                  className={styles.input}
-                  value={formData.apellido}
-                  onChange={(e) => handleField('apellido', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>DNI *</label>
-                <input
-                  className={styles.input}
-                  value={formData.dni}
-                  onChange={(e) => handleField('dni', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>CUIL</label>
-                <input
-                  className={styles.input}
-                  value={formData.cuil}
-                  onChange={(e) => handleField('cuil', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Legajo *</label>
-                <input
-                  className={styles.input}
-                  value={formData.legajo}
-                  onChange={(e) => handleField('legajo', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Fecha Ingreso *</label>
-                <input
-                  type="date"
-                  className={styles.input}
-                  value={formData.fecha_ingreso}
-                  onChange={(e) => handleField('fecha_ingreso', e.target.value)}
-                />
-              </div>
-              {editando && (
+              <div className={styles.formGrid}>
                 <div className={styles.formGroup}>
-                  <label>Fecha Egreso</label>
+                  <label>Nombre *</label>
+                  <input
+                    className={styles.input}
+                    value={formData.nombre}
+                    onChange={(e) => handleField('nombre', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Apellido *</label>
+                  <input
+                    className={styles.input}
+                    value={formData.apellido}
+                    onChange={(e) => handleField('apellido', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>DNI *</label>
+                  <input
+                    className={styles.input}
+                    value={formData.dni}
+                    onChange={(e) => handleField('dni', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>CUIL</label>
+                  <input
+                    className={styles.input}
+                    value={formData.cuil}
+                    onChange={(e) => handleField('cuil', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Legajo *</label>
+                  <input
+                    className={styles.input}
+                    value={formData.legajo}
+                    onChange={(e) => handleField('legajo', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Fecha Ingreso *</label>
                   <input
                     type="date"
                     className={styles.input}
-                    value={formData.fecha_egreso || ''}
-                    onChange={(e) => handleField('fecha_egreso', e.target.value || null)}
+                    value={formData.fecha_ingreso}
+                    onChange={(e) => handleField('fecha_ingreso', e.target.value)}
                   />
                 </div>
-              )}
-              <div className={styles.formGroup}>
-                <label>Puesto</label>
-                <input
-                  className={styles.input}
-                  value={formData.puesto}
-                  onChange={(e) => handleField('puesto', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Area</label>
-                <input
-                  className={styles.input}
-                  value={formData.area}
-                  onChange={(e) => handleField('area', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Estado</label>
-                <select
-                  className={styles.select}
-                  value={formData.estado}
-                  onChange={(e) => handleField('estado', e.target.value)}
-                >
-                  <option value="activo">Activo</option>
-                  <option value="licencia">Licencia</option>
-                  <option value="baja">Baja</option>
-                </select>
-              </div>
-              <div className={styles.formGroup}>
-                <label>Teléfono</label>
-                <input
-                  className={styles.input}
-                  value={formData.telefono}
-                  onChange={(e) => handleField('telefono', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Email Personal</label>
-                <input
-                  type="email"
-                  className={styles.input}
-                  value={formData.email_personal}
-                  onChange={(e) => handleField('email_personal', e.target.value)}
-                />
-              </div>
-              <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
-                <label>Domicilio</label>
-                <input
-                  className={styles.input}
-                  value={formData.domicilio}
-                  onChange={(e) => handleField('domicilio', e.target.value)}
-                />
-              </div>
-              <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
-                <label>Observaciones</label>
-                <textarea
-                  className={styles.textarea}
-                  value={formData.observaciones}
-                  onChange={(e) => handleField('observaciones', e.target.value)}
-                  rows={3}
-                />
+                {editando && (
+                  <div className={styles.formGroup}>
+                    <label>Fecha Egreso</label>
+                    <input
+                      type="date"
+                      className={styles.input}
+                      value={formData.fecha_egreso || ''}
+                      onChange={(e) => handleField('fecha_egreso', e.target.value || null)}
+                    />
+                  </div>
+                )}
+                <div className={styles.formGroup}>
+                  <label>Puesto</label>
+                  <input
+                    className={styles.input}
+                    value={formData.puesto}
+                    onChange={(e) => handleField('puesto', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Area</label>
+                  <input
+                    className={styles.input}
+                    value={formData.area}
+                    onChange={(e) => handleField('area', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Estado</label>
+                  <select
+                    className={styles.select}
+                    value={formData.estado}
+                    onChange={(e) => handleField('estado', e.target.value)}
+                  >
+                    <option value="activo">Activo</option>
+                    <option value="licencia">Licencia</option>
+                    <option value="baja">Baja</option>
+                  </select>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Teléfono</label>
+                  <input
+                    className={styles.input}
+                    value={formData.telefono}
+                    onChange={(e) => handleField('telefono', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Email Personal</label>
+                  <input
+                    type="email"
+                    className={styles.input}
+                    value={formData.email_personal}
+                    onChange={(e) => handleField('email_personal', e.target.value)}
+                  />
+                </div>
+                <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
+                  <label>Domicilio</label>
+                  <input
+                    className={styles.input}
+                    value={formData.domicilio}
+                    onChange={(e) => handleField('domicilio', e.target.value)}
+                  />
+                </div>
+                <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
+                  <label>Observaciones</label>
+                  <textarea
+                    className={styles.textarea}
+                    value={formData.observaciones}
+                    onChange={(e) => handleField('observaciones', e.target.value)}
+                    rows={3}
+                  />
+                </div>
               </div>
             </div>
 
-            <div className={styles.modalActions}>
+            <div className="modal-footer-tesla">
               <button
-                className={styles.btnSecondary}
+                className={styles.btnCancel}
                 onClick={() => setModalOpen(false)}
               >
                 Cancelar
               </button>
               <button
-                className={styles.btnPrimary}
+                className={styles.btnSave}
                 onClick={handleGuardar}
                 disabled={saving}
               >

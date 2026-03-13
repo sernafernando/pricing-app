@@ -3,7 +3,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import { rrhhAPI } from '../services/api';
 import {
   Wallet, Plus, Minus, ArrowLeft, CreditCard, Wrench,
-  X, Calendar, RefreshCw, ArrowUpCircle, ArrowDownCircle,
+  Calendar, RefreshCw, ArrowUpCircle, ArrowDownCircle,
 } from 'lucide-react';
 import styles from './RRHHCuentaCorriente.module.css';
 
@@ -42,6 +42,12 @@ export default function RRHHCuentaCorriente() {
   const [loadingCuentas, setLoadingCuentas] = useState(true);
   const [soloConSaldo, setSoloConSaldo] = useState(false);
   const [searchCuentas, setSearchCuentas] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchCuentas), 400);
+    return () => clearTimeout(timer);
+  }, [searchCuentas]);
 
   // ── Detail view ──
   const [detalle, setDetalle] = useState(null);
@@ -78,6 +84,10 @@ export default function RRHHCuentaCorriente() {
   const [herrEmpleadoId, setHerrEmpleadoId] = useState('');
   const [empleados, setEmpleados] = useState([]);
 
+  // ── Confirmation modal ──
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [actionError, setActionError] = useState(null);
+
   // ── Herramienta modal ──
   const [herrModalOpen, setHerrModalOpen] = useState(false);
   const [herrForm, setHerrForm] = useState({
@@ -110,7 +120,7 @@ export default function RRHHCuentaCorriente() {
     try {
       const params = {};
       if (soloConSaldo) params.solo_con_saldo = true;
-      if (searchCuentas) params.search = searchCuentas;
+      if (debouncedSearch) params.search = debouncedSearch;
       const { data } = await rrhhAPI.listarCuentasCorrientes(params);
       setCuentas(Array.isArray(data) ? data : []);
     } catch {
@@ -118,7 +128,7 @@ export default function RRHHCuentaCorriente() {
     } finally {
       setLoadingCuentas(false);
     }
-  }, [soloConSaldo, searchCuentas]);
+  }, [soloConSaldo, debouncedSearch]);
 
   useEffect(() => {
     if (activeTab === 'cuentas' && !detalleEmpleadoId) {
@@ -279,13 +289,21 @@ export default function RRHHCuentaCorriente() {
     }
   };
 
-  const handleDevolverHerr = async (herrId) => {
-    try {
-      await rrhhAPI.devolverHerramienta(herrId, {});
-      cargarHerramientas();
-    } catch {
-      // silent — user sees no change
-    }
+  const handleDevolverHerr = (herrId, descripcion) => {
+    setActionError(null);
+    setConfirmAction({
+      title: 'Devolver herramienta',
+      message: `¿Confirmar la devolución de "${descripcion}"?`,
+      onConfirm: async () => {
+        try {
+          await rrhhAPI.devolverHerramienta(herrId, {});
+          setConfirmAction(null);
+          cargarHerramientas();
+        } catch (err) {
+          setActionError(err.response?.data?.detail || 'Error al devolver herramienta');
+        }
+      },
+    });
   };
 
   // ── Navigate to detail ──
@@ -312,8 +330,12 @@ export default function RRHHCuentaCorriente() {
         <div className={styles.headerActions}>
           {puedeGestionar && activeTab === 'cuentas' && !detalleEmpleadoId && (
             <button
-              className={styles.btnPrimary}
-              onClick={() => setLiquidacionModalOpen(true)}
+              className={styles.btnLiquidacion}
+              onClick={() => {
+                setLiquidacionResult(null);
+                setLiquidacionError(null);
+                setLiquidacionModalOpen(true);
+              }}
             >
               <Calendar size={16} /> Liquidación Mensual
             </button>
@@ -360,7 +382,7 @@ export default function RRHHCuentaCorriente() {
               />
               Solo con saldo
             </label>
-            <button className={styles.btnIcon} onClick={cargarCuentas} title="Refrescar">
+            <button className={styles.btnRefresh} onClick={cargarCuentas} title="Refrescar">
               <RefreshCw size={16} />
             </button>
           </div>
@@ -428,10 +450,10 @@ export default function RRHHCuentaCorriente() {
                 </div>
                 {puedeGestionar && (
                   <div className={styles.headerActions}>
-                    <button className={styles.btnPrimary} onClick={handleOpenCargo}>
+                    <button className={styles.btnCargo} onClick={handleOpenCargo}>
                       <ArrowUpCircle size={16} /> Registrar Cargo
                     </button>
-                    <button className={styles.btnSecondary} onClick={handleOpenAbono}>
+                    <button className={styles.btnAbono} onClick={handleOpenAbono}>
                       <ArrowDownCircle size={16} /> Registrar Abono
                     </button>
                   </div>
@@ -509,14 +531,14 @@ export default function RRHHCuentaCorriente() {
                     </span>
                     <div className={styles.paginationButtons}>
                       <button
-                        className={styles.btnSmall}
+                        className={styles.btnPage}
                         disabled={detallePage <= 1}
                         onClick={() => setDetallePage((p) => p - 1)}
                       >
                         Anterior
                       </button>
                       <button
-                        className={styles.btnSmall}
+                        className={styles.btnPage}
                         disabled={detallePage * DETAIL_PAGE_SIZE >= detalle.total_movimientos}
                         onClick={() => setDetallePage((p) => p + 1)}
                       >
@@ -550,7 +572,7 @@ export default function RRHHCuentaCorriente() {
               ))}
             </select>
             {puedeGestionar && (
-              <button className={styles.btnPrimary} onClick={handleOpenHerrModal}>
+              <button className={styles.btnCreate} onClick={handleOpenHerrModal}>
                 <Plus size={16} /> Asignar Herramienta
               </button>
             )}
@@ -593,8 +615,8 @@ export default function RRHHCuentaCorriente() {
                         <td>
                           {h.estado === 'asignado' && (
                             <button
-                              className={styles.btnSmall}
-                              onClick={() => handleDevolverHerr(h.id)}
+                              className={styles.btnDevolver}
+                              onClick={() => handleDevolverHerr(h.id, h.descripcion)}
                             >
                               Devolver
                             </button>
@@ -612,71 +634,69 @@ export default function RRHHCuentaCorriente() {
 
       {/* ─── MODAL: Cargo ─── */}
       {cargoModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => setCargoModalOpen(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <span className={styles.modalTitle}>
-                <ArrowUpCircle size={20} /> Registrar Cargo
-              </span>
-              <button className={styles.btnIcon} onClick={() => setCargoModalOpen(false)}>
-                <X size={20} />
-              </button>
+        <div className="modal-overlay-tesla" onClick={() => setCargoModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Registrar Cargo</h2>
+              <button className="btn-close-tesla" onClick={() => setCargoModalOpen(false)} aria-label="Cerrar">✕</button>
             </div>
-            {cargoError && <div className={styles.formError}>{cargoError}</div>}
             <form onSubmit={handleSubmitCargo}>
-              <div className={styles.formGroup}>
-                <label>Monto ($)</label>
-                <input
-                  className={styles.input}
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={cargoForm.monto}
-                  onChange={(e) => setCargoForm({ ...cargoForm, monto: e.target.value })}
-                  required
-                />
+              <div className="modal-body-tesla">
+                {cargoError && <div className={styles.formError}>{cargoError}</div>}
+                <div className={styles.formGroup}>
+                  <label>Monto ($)</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={cargoForm.monto}
+                    onChange={(e) => setCargoForm({ ...cargoForm, monto: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Concepto</label>
+                  <input
+                    className={styles.input}
+                    type="text"
+                    maxLength={255}
+                    value={cargoForm.concepto}
+                    onChange={(e) => setCargoForm({ ...cargoForm, concepto: e.target.value })}
+                    placeholder="Compra: Auriculares Sony WH-1000XM5"
+                    required
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Cuotas</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    min="1"
+                    max="48"
+                    value={cargoForm.cuotas}
+                    onChange={(e) => setCargoForm({ ...cargoForm, cuotas: e.target.value })}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Descripción (opcional)</label>
+                  <textarea
+                    className={styles.textarea}
+                    value={cargoForm.descripcion}
+                    onChange={(e) => setCargoForm({ ...cargoForm, descripcion: e.target.value })}
+                    maxLength={2000}
+                  />
+                </div>
               </div>
-              <div className={styles.formGroup}>
-                <label>Concepto</label>
-                <input
-                  className={styles.input}
-                  type="text"
-                  maxLength={255}
-                  value={cargoForm.concepto}
-                  onChange={(e) => setCargoForm({ ...cargoForm, concepto: e.target.value })}
-                  placeholder="Compra: Auriculares Sony WH-1000XM5"
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Cuotas</label>
-                <input
-                  className={styles.input}
-                  type="number"
-                  min="1"
-                  max="48"
-                  value={cargoForm.cuotas}
-                  onChange={(e) => setCargoForm({ ...cargoForm, cuotas: e.target.value })}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Descripción (opcional)</label>
-                <textarea
-                  className={styles.textarea}
-                  value={cargoForm.descripcion}
-                  onChange={(e) => setCargoForm({ ...cargoForm, descripcion: e.target.value })}
-                  maxLength={2000}
-                />
-              </div>
-              <div className={styles.formActions}>
+              <div className="modal-footer-tesla">
                 <button
                   type="button"
-                  className={styles.btnSecondary}
+                  className={styles.btnCancel}
                   onClick={() => setCargoModalOpen(false)}
                 >
                   Cancelar
                 </button>
-                <button type="submit" className={styles.btnPrimary} disabled={cargoSaving}>
+                <button type="submit" className={styles.btnSave} disabled={cargoSaving}>
                   {cargoSaving ? 'Guardando...' : 'Registrar Cargo'}
                 </button>
               </div>
@@ -687,60 +707,58 @@ export default function RRHHCuentaCorriente() {
 
       {/* ─── MODAL: Abono ─── */}
       {abonoModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => setAbonoModalOpen(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <span className={styles.modalTitle}>
-                <ArrowDownCircle size={20} /> Registrar Abono
-              </span>
-              <button className={styles.btnIcon} onClick={() => setAbonoModalOpen(false)}>
-                <X size={20} />
-              </button>
+        <div className="modal-overlay-tesla" onClick={() => setAbonoModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Registrar Abono</h2>
+              <button className="btn-close-tesla" onClick={() => setAbonoModalOpen(false)} aria-label="Cerrar">✕</button>
             </div>
-            {abonoError && <div className={styles.formError}>{abonoError}</div>}
             <form onSubmit={handleSubmitAbono}>
-              <div className={styles.formGroup}>
-                <label>Monto ($)</label>
-                <input
-                  className={styles.input}
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={abonoForm.monto}
-                  onChange={(e) => setAbonoForm({ ...abonoForm, monto: e.target.value })}
-                  required
-                />
+              <div className="modal-body-tesla">
+                {abonoError && <div className={styles.formError}>{abonoError}</div>}
+                <div className={styles.formGroup}>
+                  <label>Monto ($)</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={abonoForm.monto}
+                    onChange={(e) => setAbonoForm({ ...abonoForm, monto: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Concepto</label>
+                  <input
+                    className={styles.input}
+                    type="text"
+                    maxLength={255}
+                    value={abonoForm.concepto}
+                    onChange={(e) => setAbonoForm({ ...abonoForm, concepto: e.target.value })}
+                    placeholder="Deducción salarial mes 03/2026"
+                    required
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Descripción (opcional)</label>
+                  <textarea
+                    className={styles.textarea}
+                    value={abonoForm.descripcion}
+                    onChange={(e) => setAbonoForm({ ...abonoForm, descripcion: e.target.value })}
+                    maxLength={2000}
+                  />
+                </div>
               </div>
-              <div className={styles.formGroup}>
-                <label>Concepto</label>
-                <input
-                  className={styles.input}
-                  type="text"
-                  maxLength={255}
-                  value={abonoForm.concepto}
-                  onChange={(e) => setAbonoForm({ ...abonoForm, concepto: e.target.value })}
-                  placeholder="Deducción salarial mes 03/2026"
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Descripción (opcional)</label>
-                <textarea
-                  className={styles.textarea}
-                  value={abonoForm.descripcion}
-                  onChange={(e) => setAbonoForm({ ...abonoForm, descripcion: e.target.value })}
-                  maxLength={2000}
-                />
-              </div>
-              <div className={styles.formActions}>
+              <div className="modal-footer-tesla">
                 <button
                   type="button"
-                  className={styles.btnSecondary}
+                  className={styles.btnCancel}
                   onClick={() => setAbonoModalOpen(false)}
                 >
                   Cancelar
                 </button>
-                <button type="submit" className={styles.btnPrimary} disabled={abonoSaving}>
+                <button type="submit" className={styles.btnSave} disabled={abonoSaving}>
                   {abonoSaving ? 'Guardando...' : 'Registrar Abono'}
                 </button>
               </div>
@@ -751,58 +769,56 @@ export default function RRHHCuentaCorriente() {
 
       {/* ─── MODAL: Liquidación Mensual ─── */}
       {liquidacionModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => setLiquidacionModalOpen(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <span className={styles.modalTitle}>
-                <Calendar size={20} /> Liquidación Mensual
-              </span>
-              <button className={styles.btnIcon} onClick={() => setLiquidacionModalOpen(false)}>
-                <X size={20} />
-              </button>
+        <div className="modal-overlay-tesla" onClick={() => setLiquidacionModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Liquidación Mensual</h2>
+              <button className="btn-close-tesla" onClick={() => setLiquidacionModalOpen(false)} aria-label="Cerrar">✕</button>
             </div>
-            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--cf-text-secondary)', marginBottom: 'var(--spacing-md)' }}>
-              Genera abonos automáticos para empleados con cuotas pendientes.
-            </p>
-            {liquidacionError && <div className={styles.formError}>{liquidacionError}</div>}
             <form onSubmit={handleSubmitLiquidacion}>
-              <div className={styles.formGroup}>
-                <label>Mes</label>
-                <select
-                  className={styles.select}
-                  value={liquidacionForm.mes}
-                  onChange={(e) => setLiquidacionForm({ ...liquidacionForm, mes: e.target.value })}
-                >
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <option key={i + 1} value={i + 1}>
-                      {new Date(2026, i).toLocaleDateString('es-AR', { month: 'long' })}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className={styles.formGroup}>
-                <label>Año</label>
-                <input
-                  className={styles.input}
-                  type="number"
-                  min="2020"
-                  max="2100"
-                  value={liquidacionForm.anio}
-                  onChange={(e) => setLiquidacionForm({ ...liquidacionForm, anio: e.target.value })}
-                  required
-                />
-              </div>
-              {liquidacionResult && (
-                <div className={styles.liquidacionResult}>
-                  <p><strong>Cargos procesados:</strong> {liquidacionResult.procesados}</p>
-                  <p><strong>Abonos generados:</strong> {liquidacionResult.abonos_generados}</p>
-                  <p><strong>Monto total:</strong> {formatMonto(liquidacionResult.monto_total)}</p>
+              <div className="modal-body-tesla">
+                <p style={{ fontSize: 'var(--font-sm)', color: 'var(--cf-text-secondary)', marginBottom: 'var(--spacing-md)' }}>
+                  Genera abonos automáticos para empleados con cuotas pendientes.
+                </p>
+                {liquidacionError && <div className={styles.formError}>{liquidacionError}</div>}
+                <div className={styles.formGroup}>
+                  <label>Mes</label>
+                  <select
+                    className={styles.select}
+                    value={liquidacionForm.mes}
+                    onChange={(e) => setLiquidacionForm({ ...liquidacionForm, mes: e.target.value })}
+                  >
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <option key={i + 1} value={i + 1}>
+                        {new Date(2026, i).toLocaleDateString('es-AR', { month: 'long' })}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              )}
-              <div className={styles.formActions}>
+                <div className={styles.formGroup}>
+                  <label>Año</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    min="2020"
+                    max="2100"
+                    value={liquidacionForm.anio}
+                    onChange={(e) => setLiquidacionForm({ ...liquidacionForm, anio: e.target.value })}
+                    required
+                  />
+                </div>
+                {liquidacionResult && (
+                  <div className={styles.liquidacionResult}>
+                    <p><strong>Cargos procesados:</strong> {liquidacionResult.procesados}</p>
+                    <p><strong>Abonos generados:</strong> {liquidacionResult.abonos_generados}</p>
+                    <p><strong>Monto total:</strong> {formatMonto(liquidacionResult.monto_total)}</p>
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer-tesla">
                 <button
                   type="button"
-                  className={styles.btnSecondary}
+                  className={styles.btnCancel}
                   onClick={() => {
                     setLiquidacionModalOpen(false);
                     setLiquidacionResult(null);
@@ -810,7 +826,7 @@ export default function RRHHCuentaCorriente() {
                 >
                   Cerrar
                 </button>
-                <button type="submit" className={styles.btnPrimary} disabled={liquidacionSaving}>
+                <button type="submit" className={styles.btnSave} disabled={liquidacionSaving}>
                   {liquidacionSaving ? 'Procesando...' : 'Ejecutar Liquidación'}
                 </button>
               </div>
@@ -821,98 +837,118 @@ export default function RRHHCuentaCorriente() {
 
       {/* ─── MODAL: Asignar Herramienta ─── */}
       {herrModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => setHerrModalOpen(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <span className={styles.modalTitle}>
-                <Wrench size={20} /> Asignar Herramienta
-              </span>
-              <button className={styles.btnIcon} onClick={() => setHerrModalOpen(false)}>
-                <X size={20} />
-              </button>
+        <div className="modal-overlay-tesla" onClick={() => setHerrModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">Asignar Herramienta</h2>
+              <button className="btn-close-tesla" onClick={() => setHerrModalOpen(false)} aria-label="Cerrar">✕</button>
             </div>
-            {herrError && <div className={styles.formError}>{herrError}</div>}
             <form onSubmit={handleSubmitHerr}>
-              <div className={styles.formGroup}>
-                <label>Empleado</label>
-                <select
-                  className={styles.select}
-                  value={herrForm.empleado_id}
-                  onChange={(e) => setHerrForm({ ...herrForm, empleado_id: e.target.value })}
-                  required
-                >
-                  <option value="">Seleccionar...</option>
-                  {empleados.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.legajo} - {emp.apellido}, {emp.nombre}
-                    </option>
-                  ))}
-                </select>
+              <div className="modal-body-tesla">
+                {herrError && <div className={styles.formError}>{herrError}</div>}
+                <div className={styles.formGroup}>
+                  <label>Empleado</label>
+                  <select
+                    className={styles.select}
+                    value={herrForm.empleado_id}
+                    onChange={(e) => setHerrForm({ ...herrForm, empleado_id: e.target.value })}
+                    required
+                  >
+                    <option value="">Seleccionar...</option>
+                    {empleados.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.legajo} - {emp.apellido}, {emp.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Descripción</label>
+                  <input
+                    className={styles.input}
+                    type="text"
+                    maxLength={255}
+                    value={herrForm.descripcion}
+                    onChange={(e) => setHerrForm({ ...herrForm, descripcion: e.target.value })}
+                    placeholder="Notebook Lenovo T14"
+                    required
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Código inventario (opcional)</label>
+                  <input
+                    className={styles.input}
+                    type="text"
+                    maxLength={100}
+                    value={herrForm.codigo_inventario}
+                    onChange={(e) => setHerrForm({ ...herrForm, codigo_inventario: e.target.value })}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Cantidad</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    min="1"
+                    value={herrForm.cantidad}
+                    onChange={(e) => setHerrForm({ ...herrForm, cantidad: e.target.value })}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Fecha de asignación</label>
+                  <input
+                    className={styles.input}
+                    type="date"
+                    value={herrForm.fecha_asignacion}
+                    onChange={(e) => setHerrForm({ ...herrForm, fecha_asignacion: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Observaciones (opcional)</label>
+                  <textarea
+                    className={styles.textarea}
+                    value={herrForm.observaciones}
+                    onChange={(e) => setHerrForm({ ...herrForm, observaciones: e.target.value })}
+                    maxLength={2000}
+                  />
+                </div>
               </div>
-              <div className={styles.formGroup}>
-                <label>Descripción</label>
-                <input
-                  className={styles.input}
-                  type="text"
-                  maxLength={255}
-                  value={herrForm.descripcion}
-                  onChange={(e) => setHerrForm({ ...herrForm, descripcion: e.target.value })}
-                  placeholder="Notebook Lenovo T14"
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Código inventario (opcional)</label>
-                <input
-                  className={styles.input}
-                  type="text"
-                  maxLength={100}
-                  value={herrForm.codigo_inventario}
-                  onChange={(e) => setHerrForm({ ...herrForm, codigo_inventario: e.target.value })}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Cantidad</label>
-                <input
-                  className={styles.input}
-                  type="number"
-                  min="1"
-                  value={herrForm.cantidad}
-                  onChange={(e) => setHerrForm({ ...herrForm, cantidad: e.target.value })}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Fecha de asignación</label>
-                <input
-                  className={styles.input}
-                  type="date"
-                  value={herrForm.fecha_asignacion}
-                  onChange={(e) => setHerrForm({ ...herrForm, fecha_asignacion: e.target.value })}
-                  required
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Observaciones (opcional)</label>
-                <textarea
-                  className={styles.textarea}
-                  value={herrForm.observaciones}
-                  onChange={(e) => setHerrForm({ ...herrForm, observaciones: e.target.value })}
-                  maxLength={2000}
-                />
-              </div>
-              <div className={styles.formActions}>
+              <div className="modal-footer-tesla">
                 <button
                   type="button"
-                  className={styles.btnSecondary}
+                  className={styles.btnCancel}
                   onClick={() => setHerrModalOpen(false)}
                 >
                   Cancelar
                 </button>
-                <button type="submit" className={styles.btnPrimary} disabled={herrSaving}>
+                <button type="submit" className={styles.btnSave} disabled={herrSaving}>
                   {herrSaving ? 'Guardando...' : 'Asignar'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: Confirmación ─── */}
+      {confirmAction && (
+        <div className="modal-overlay-tesla" onClick={() => setConfirmAction(null)}>
+          <div className="modal-tesla" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">{confirmAction.title}</h2>
+              <button className="btn-close-tesla" onClick={() => setConfirmAction(null)} aria-label="Cerrar">✕</button>
+            </div>
+            <div className="modal-body-tesla">
+              <p style={{ color: 'var(--cf-text-secondary)', fontSize: 'var(--font-sm)' }}>
+                {confirmAction.message}
+              </p>
+              {actionError && <div className={styles.formError}>{actionError}</div>}
+            </div>
+            <div className="modal-footer-tesla">
+              <button className={styles.btnCancel} onClick={() => setConfirmAction(null)}>Cancelar</button>
+              <button className={styles.btnDevolver} onClick={confirmAction.onConfirm}>Confirmar</button>
+            </div>
           </div>
         </div>
       )}
