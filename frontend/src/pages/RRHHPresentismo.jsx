@@ -291,7 +291,7 @@ export default function RRHHPresentismo() {
         <div className={styles.artHeader}>
           <h2>Casos ART</h2>
           {puedeGestionar && (
-            <button className={styles.btnPrimary} onClick={openArtCreate}>
+            <button className={styles.btnCreate} onClick={openArtCreate}>
               <Plus size={16} /> Nuevo Caso
             </button>
           )}
@@ -326,7 +326,7 @@ export default function RRHHPresentismo() {
                     </td>
                     <td>
                       <button
-                        className={styles.btnSmall}
+                        className={styles.btnView}
                         onClick={() => openArtDetalle(c.id)}
                         title="Ver detalle"
                       >
@@ -334,7 +334,7 @@ export default function RRHHPresentismo() {
                       </button>
                       {puedeGestionar && (
                         <button
-                          className={styles.btnSmall}
+                          className={styles.btnEditAction}
                           onClick={() => openArtEdit(c)}
                           title="Editar"
                           style={{ marginLeft: 4 }}
@@ -357,13 +357,13 @@ export default function RRHHPresentismo() {
   const renderArtDetalleModal = () => {
     if (!artDetalle) return null;
     return (
-      <div className={styles.modalOverlay} onClick={() => setArtDetalle(null)}>
-        <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-          <div className={styles.modalHeader}>
-            <h3>Caso ART #{artDetalle.id}</h3>
-            <button onClick={() => setArtDetalle(null)} aria-label="Cerrar"><X size={18} /></button>
+      <div className="modal-overlay-tesla" onClick={() => setArtDetalle(null)}>
+        <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header-tesla">
+            <h3 className="modal-title-tesla">Caso ART #{artDetalle.id}</h3>
+            <button className="btn-close-tesla" onClick={() => setArtDetalle(null)} aria-label="Cerrar">✕</button>
           </div>
-          <div className={styles.modalBody}>
+          <div className="modal-body-tesla">
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
                 <label>Siniestro</label>
@@ -428,7 +428,7 @@ export default function RRHHPresentismo() {
                     <FileText size={14} />
                     <span>{d.nombre_archivo}</span>
                     <button
-                      className={styles.btnSmall}
+                      className={styles.btnDownload}
                       onClick={async () => {
                         try {
                           const response = await rrhhAPI.descargarArtDocumento(artDetalle.id, d.id);
@@ -452,8 +452,8 @@ export default function RRHHPresentismo() {
               </div>
             )}
           </div>
-          <div className={styles.modalFooter}>
-            <button className={styles.btnSecondary} onClick={() => setArtDetalle(null)}>Cerrar</button>
+          <div className="modal-footer-tesla">
+            <button className={styles.btnCancel} onClick={() => setArtDetalle(null)}>Cerrar</button>
           </div>
         </div>
       </div>
@@ -464,14 +464,14 @@ export default function RRHHPresentismo() {
   const renderArtFormModal = () => {
     if (!artModalOpen) return null;
     return (
-      <div className={styles.modalOverlay} onClick={() => setArtModalOpen(false)}>
-        <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-          <div className={styles.modalHeader}>
-            <h3>{artForm.id ? 'Editar Caso ART' : 'Nuevo Caso ART'}</h3>
-            <button onClick={() => setArtModalOpen(false)} aria-label="Cerrar"><X size={18} /></button>
+      <div className="modal-overlay-tesla" onClick={() => setArtModalOpen(false)}>
+        <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header-tesla">
+            <h3 className="modal-title-tesla">{artForm.id ? 'Editar Caso ART' : 'Nuevo Caso ART'}</h3>
+            <button className="btn-close-tesla" onClick={() => setArtModalOpen(false)} aria-label="Cerrar">✕</button>
           </div>
           <form onSubmit={handleArtSubmit}>
-            <div className={styles.modalBody}>
+            <div className="modal-body-tesla">
               {artFormError && <div className={styles.formError}>{artFormError}</div>}
 
               {!artForm.id && (
@@ -618,11 +618,11 @@ export default function RRHHPresentismo() {
                 </div>
               )}
             </div>
-            <div className={styles.modalFooter}>
-              <button type="button" className={styles.btnSecondary} onClick={() => setArtModalOpen(false)}>
+            <div className="modal-footer-tesla">
+              <button type="button" className={styles.btnCancel} onClick={() => setArtModalOpen(false)}>
                 Cancelar
               </button>
-              <button type="submit" className={styles.btnPrimary} disabled={artSaving}>
+              <button type="submit" className={styles.btnSave} disabled={artSaving}>
                 {artSaving ? 'Guardando...' : 'Guardar'}
               </button>
             </div>
@@ -675,7 +675,7 @@ export default function RRHHPresentismo() {
               value={fechaHasta}
               onChange={(e) => setFechaHasta(e.target.value)}
             />
-            <button className={styles.btnSmall} onClick={cargarGrilla} title="Recargar">
+            <button className={styles.btnRefresh} onClick={cargarGrilla} title="Recargar">
               <RotateCcw size={14} />
             </button>
           </div>

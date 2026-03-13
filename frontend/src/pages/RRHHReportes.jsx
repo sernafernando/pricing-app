@@ -787,7 +787,7 @@ export default function RRHHReportes() {
       <div className={styles.filters}>
         {renderFilters()}
         <button
-          className={styles.btnPrimary}
+          className={styles.btnGenerate}
           onClick={handleGenerar}
           disabled={loading}
         >

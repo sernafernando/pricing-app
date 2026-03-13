@@ -171,7 +171,7 @@ export default function Empleados() {
           <span className={styles.badge}>{total}</span>
         </div>
         {puedeGestionar && (
-          <button className={styles.btnPrimary} onClick={handleNuevo}>
+          <button className={styles.btnCreate} onClick={handleNuevo}>
             <Plus size={16} />
             Nuevo Empleado
           </button>
@@ -202,7 +202,7 @@ export default function Empleados() {
           ))}
         </select>
         <button
-          className={styles.btnIcon}
+          className={styles.btnRefresh}
           onClick={() => { setSearch(''); setEstado(''); setPage(1); }}
           title="Limpiar filtros"
         >
@@ -261,14 +261,14 @@ export default function Empleados() {
                     <td className={styles.actions}>
                       <button
                         onClick={() => handleEditar(emp)}
-                        className={styles.btnAction}
+                        className={styles.btnEdit}
                         title="Editar"
                       >
                         <Edit3 size={14} />
                       </button>
                       <button
                         onClick={() => handleEliminar(emp)}
-                        className={`${styles.btnAction} ${styles.btnDanger}`}
+                        className={styles.btnDanger}
                         title="Desactivar"
                       >
                         <Trash2 size={14} />
@@ -307,146 +307,151 @@ export default function Empleados() {
 
       {/* Modal */}
       {modalOpen && (
-        <div className={styles.overlay} onClick={() => setModalOpen(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h2>{editando ? 'Editar Empleado' : 'Nuevo Empleado'}</h2>
+        <div className="modal-overlay-tesla" onClick={() => setModalOpen(false)}>
+          <div className="modal-tesla lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-tesla">
+              <h2 className="modal-title-tesla">{editando ? 'Editar Empleado' : 'Nuevo Empleado'}</h2>
+              <button className="btn-close-tesla" onClick={() => setModalOpen(false)}>✕</button>
+            </div>
 
-            {formError && <div className={styles.formError}>{formError}</div>}
+            <div className="modal-body-tesla">
+              {formError && <div className={styles.formError}>{formError}</div>}
 
-            <div className={styles.formGrid}>
-              <div className={styles.formGroup}>
-                <label>Nombre *</label>
-                <input
-                  className={styles.input}
-                  value={formData.nombre}
-                  onChange={(e) => handleField('nombre', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Apellido *</label>
-                <input
-                  className={styles.input}
-                  value={formData.apellido}
-                  onChange={(e) => handleField('apellido', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>DNI *</label>
-                <input
-                  className={styles.input}
-                  value={formData.dni}
-                  onChange={(e) => handleField('dni', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>CUIL</label>
-                <input
-                  className={styles.input}
-                  value={formData.cuil}
-                  onChange={(e) => handleField('cuil', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Legajo *</label>
-                <input
-                  className={styles.input}
-                  value={formData.legajo}
-                  onChange={(e) => handleField('legajo', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Fecha Ingreso *</label>
-                <input
-                  type="date"
-                  className={styles.input}
-                  value={formData.fecha_ingreso}
-                  onChange={(e) => handleField('fecha_ingreso', e.target.value)}
-                />
-              </div>
-              {editando && (
+              <div className={styles.formGrid}>
                 <div className={styles.formGroup}>
-                  <label>Fecha Egreso</label>
+                  <label>Nombre *</label>
+                  <input
+                    className={styles.input}
+                    value={formData.nombre}
+                    onChange={(e) => handleField('nombre', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Apellido *</label>
+                  <input
+                    className={styles.input}
+                    value={formData.apellido}
+                    onChange={(e) => handleField('apellido', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>DNI *</label>
+                  <input
+                    className={styles.input}
+                    value={formData.dni}
+                    onChange={(e) => handleField('dni', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>CUIL</label>
+                  <input
+                    className={styles.input}
+                    value={formData.cuil}
+                    onChange={(e) => handleField('cuil', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Legajo *</label>
+                  <input
+                    className={styles.input}
+                    value={formData.legajo}
+                    onChange={(e) => handleField('legajo', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Fecha Ingreso *</label>
                   <input
                     type="date"
                     className={styles.input}
-                    value={formData.fecha_egreso || ''}
-                    onChange={(e) => handleField('fecha_egreso', e.target.value || null)}
+                    value={formData.fecha_ingreso}
+                    onChange={(e) => handleField('fecha_ingreso', e.target.value)}
                   />
                 </div>
-              )}
-              <div className={styles.formGroup}>
-                <label>Puesto</label>
-                <input
-                  className={styles.input}
-                  value={formData.puesto}
-                  onChange={(e) => handleField('puesto', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Area</label>
-                <input
-                  className={styles.input}
-                  value={formData.area}
-                  onChange={(e) => handleField('area', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Estado</label>
-                <select
-                  className={styles.select}
-                  value={formData.estado}
-                  onChange={(e) => handleField('estado', e.target.value)}
-                >
-                  <option value="activo">Activo</option>
-                  <option value="licencia">Licencia</option>
-                  <option value="baja">Baja</option>
-                </select>
-              </div>
-              <div className={styles.formGroup}>
-                <label>Teléfono</label>
-                <input
-                  className={styles.input}
-                  value={formData.telefono}
-                  onChange={(e) => handleField('telefono', e.target.value)}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Email Personal</label>
-                <input
-                  type="email"
-                  className={styles.input}
-                  value={formData.email_personal}
-                  onChange={(e) => handleField('email_personal', e.target.value)}
-                />
-              </div>
-              <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
-                <label>Domicilio</label>
-                <input
-                  className={styles.input}
-                  value={formData.domicilio}
-                  onChange={(e) => handleField('domicilio', e.target.value)}
-                />
-              </div>
-              <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
-                <label>Observaciones</label>
-                <textarea
-                  className={styles.textarea}
-                  value={formData.observaciones}
-                  onChange={(e) => handleField('observaciones', e.target.value)}
-                  rows={3}
-                />
+                {editando && (
+                  <div className={styles.formGroup}>
+                    <label>Fecha Egreso</label>
+                    <input
+                      type="date"
+                      className={styles.input}
+                      value={formData.fecha_egreso || ''}
+                      onChange={(e) => handleField('fecha_egreso', e.target.value || null)}
+                    />
+                  </div>
+                )}
+                <div className={styles.formGroup}>
+                  <label>Puesto</label>
+                  <input
+                    className={styles.input}
+                    value={formData.puesto}
+                    onChange={(e) => handleField('puesto', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Area</label>
+                  <input
+                    className={styles.input}
+                    value={formData.area}
+                    onChange={(e) => handleField('area', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Estado</label>
+                  <select
+                    className={styles.select}
+                    value={formData.estado}
+                    onChange={(e) => handleField('estado', e.target.value)}
+                  >
+                    <option value="activo">Activo</option>
+                    <option value="licencia">Licencia</option>
+                    <option value="baja">Baja</option>
+                  </select>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Teléfono</label>
+                  <input
+                    className={styles.input}
+                    value={formData.telefono}
+                    onChange={(e) => handleField('telefono', e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Email Personal</label>
+                  <input
+                    type="email"
+                    className={styles.input}
+                    value={formData.email_personal}
+                    onChange={(e) => handleField('email_personal', e.target.value)}
+                  />
+                </div>
+                <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
+                  <label>Domicilio</label>
+                  <input
+                    className={styles.input}
+                    value={formData.domicilio}
+                    onChange={(e) => handleField('domicilio', e.target.value)}
+                  />
+                </div>
+                <div className={`${styles.formGroup} ${styles.formGroupFull}`}>
+                  <label>Observaciones</label>
+                  <textarea
+                    className={styles.textarea}
+                    value={formData.observaciones}
+                    onChange={(e) => handleField('observaciones', e.target.value)}
+                    rows={3}
+                  />
+                </div>
               </div>
             </div>
 
-            <div className={styles.modalActions}>
+            <div className="modal-footer-tesla">
               <button
-                className={styles.btnSecondary}
+                className={styles.btnCancel}
                 onClick={() => setModalOpen(false)}
               >
                 Cancelar
               </button>
               <button
-                className={styles.btnPrimary}
+                className={styles.btnSave}
                 onClick={handleGuardar}
                 disabled={saving}
               >

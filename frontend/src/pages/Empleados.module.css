@@ -100,76 +100,32 @@
 }
 
 /* Buttons */
-.btnPrimary {
-  composes: btn-primary from '../styles/buttons-tesla.css';
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
+.btnCreate {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
 }
 
-.btnSecondary {
-  composes: btn-secondary from '../styles/buttons-tesla.css';
+.btnRefresh {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
 
-.btnIcon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--spacing-sm);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  background: var(--cf-bg-card);
-  color: var(--cf-text-secondary);
-  cursor: pointer;
-  transition: all var(--duration-200) var(--ease-out);
+.btnCancel {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
 
-.btnIcon:hover {
-  background: var(--cf-bg-hover);
-  color: var(--cf-text-primary);
+.btnSave {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
 }
 
-.btnAction {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border: none;
-  background: transparent;
-  color: var(--cf-text-secondary);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: all var(--duration-200) var(--ease-out);
+.btnEdit {
+  composes: btn-tesla outline-subtle-primary icon-only sm from '../styles/buttons-tesla.css';
 }
 
-.btnAction:hover {
-  background: var(--cf-bg-hover);
-  color: var(--cf-accent-blue);
-}
-
-.btnDanger:hover {
-  color: var(--cf-accent-red);
+.btnDanger {
+  composes: btn-tesla outline-subtle-danger icon-only sm from '../styles/buttons-tesla.css';
 }
 
 .btnPage {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  background: var(--cf-bg-card);
-  color: var(--cf-text-primary);
-  cursor: pointer;
-}
-
-.btnPage:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.btnPage:hover:not(:disabled) {
-  background: var(--cf-bg-hover);
+  composes: btn-tesla secondary icon-only sm from '../styles/buttons-tesla.css';
 }
 
 /* Table */
@@ -271,33 +227,14 @@
   color: var(--cf-text-secondary);
 }
 
-/* Modal */
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal {
-  background: var(--cf-bg-card);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-xl);
-  width: 90%;
-  max-width: 700px;
-  max-height: 85vh;
-  overflow-y: auto;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-}
-
-.modal h2 {
-  margin: 0 0 var(--spacing-lg);
-  color: var(--cf-text-primary);
-  font-size: var(--font-lg);
-}
+/*
+ * Modal uses global Tesla classes directly in JSX:
+ * - .modal-overlay-tesla
+ * - .modal-tesla.lg
+ * - .modal-header-tesla
+ * - .modal-body-tesla
+ * - .modal-footer-tesla
+ */
 
 .formGrid {
   display: grid;
@@ -332,14 +269,7 @@
   margin-bottom: var(--spacing-md);
 }
 
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-sm);
-  margin-top: var(--spacing-lg);
-  padding-top: var(--spacing-md);
-  border-top: 1px solid var(--cf-border-default);
-}
+/* Modal actions use .modal-footer-tesla global class */
 
 /* Responsive */
 @media (max-width: 768px) {

@@ -153,51 +153,31 @@
 }
 
 /* Buttons */
-.btnPrimary {
-  composes: btn-primary from '../styles/buttons-tesla.css';
+.btnCreate {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
 }
 
-.btnSecondary {
-  composes: btn-secondary from '../styles/buttons-tesla.css';
+.btnCancel {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
 
-.btnSmall {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  font-size: var(--font-xs);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  background: var(--cf-bg-card);
-  color: var(--cf-text-primary);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: all var(--duration-200) var(--ease-out);
+.btnSave {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
 }
 
-.btnSmall:hover {
-  background: var(--cf-bg-hover);
-  border-color: var(--cf-accent-blue);
+.btnRefresh {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
 
-.btnDanger {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  font-size: var(--font-xs);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: var(--radius-md);
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--cf-accent-red);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: all var(--duration-200) var(--ease-out);
+.btnView {
+  composes: btn-tesla outline-subtle-primary icon-only sm from '../styles/buttons-tesla.css';
 }
 
-.btnDanger:hover {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: var(--cf-accent-red);
+.btnAnular {
+  composes: btn-tesla outline-subtle-danger sm from '../styles/buttons-tesla.css';
 }
+
+/* Custom buttons replaced by tesla composes above */
 
 /* Loading / Empty */
 .loading {
@@ -212,31 +192,14 @@
   color: var(--cf-text-tertiary);
 }
 
-/* Modal */
-.modal {
-  composes: modal from '../styles/modals-tesla.css';
-}
-
-.modalOverlay {
-  composes: modal-overlay from '../styles/modals-tesla.css';
-}
-
-.modalContent {
-  composes: modal-content from '../styles/modals-tesla.css';
-  max-width: 600px;
-}
-
-.modalHeader {
-  composes: modal-header from '../styles/modals-tesla.css';
-}
-
-.modalBody {
-  composes: modal-body from '../styles/modals-tesla.css';
-}
-
-.modalFooter {
-  composes: modal-footer from '../styles/modals-tesla.css';
-}
+/*
+ * Modal uses global Tesla classes directly in JSX:
+ * - .modal-overlay-tesla
+ * - .modal-tesla.lg
+ * - .modal-header-tesla
+ * - .modal-body-tesla
+ * - .modal-footer-tesla
+ */
 
 /* Form */
 .formGroup {
@@ -275,6 +238,16 @@
   border-color: var(--cf-accent-blue);
   background: var(--cf-bg-hover);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.formError {
+  padding: var(--spacing-sm);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--cf-accent-red);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-md);
 }
 
 .actions {

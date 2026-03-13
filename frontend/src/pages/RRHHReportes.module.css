@@ -93,36 +93,12 @@
 }
 
 /* Buttons */
-.btnPrimary {
-  composes: btn-primary from '../styles/buttons-tesla.css';
-}
-
-.btnSecondary {
-  composes: btn-secondary from '../styles/buttons-tesla.css';
+.btnGenerate {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
 }
 
 .btnExport {
-  padding: var(--spacing-sm) var(--spacing-md);
-  font-size: var(--font-sm);
-  border: 1px solid var(--cf-accent-green);
-  border-radius: var(--radius-md);
-  background: rgba(34, 197, 94, 0.1);
-  color: var(--cf-accent-green);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  font-weight: 500;
-  transition: all var(--duration-200) var(--ease-out);
-}
-
-.btnExport:hover {
-  background: rgba(34, 197, 94, 0.2);
-}
-
-.btnExport:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
 }
 
 /* Summary cards */

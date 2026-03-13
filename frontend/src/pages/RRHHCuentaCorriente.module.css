@@ -324,43 +324,14 @@
   gap: var(--spacing-xs);
 }
 
-/* Modals */
-.modalOverlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal {
-  background: var(--cf-bg-card);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--cf-border-default);
-  padding: var(--spacing-lg);
-  width: 90%;
-  max-width: 520px;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.modalHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--spacing-md);
-}
-
-.modalTitle {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  font-size: var(--font-lg);
-  font-weight: 600;
-  color: var(--cf-text-primary);
-}
+/*
+ * Modal uses global Tesla classes directly in JSX:
+ * - .modal-overlay-tesla
+ * - .modal-tesla.lg
+ * - .modal-header-tesla
+ * - .modal-body-tesla
+ * - .modal-footer-tesla
+ */
 
 .formGroup {
   margin-bottom: var(--spacing-md);
@@ -397,39 +368,43 @@
 }
 
 /* Buttons */
-.btnPrimary {
-  composes: btn-primary from '../styles/buttons-tesla.css';
+.btnCreate {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
 }
 
-.btnSecondary {
-  composes: btn-secondary from '../styles/buttons-tesla.css';
+.btnCargo {
+  composes: btn-tesla outline-subtle-danger sm from '../styles/buttons-tesla.css';
 }
 
-.btnDanger {
-  composes: btn-danger from '../styles/buttons-tesla.css';
+.btnAbono {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
 }
 
-.btnSmall {
-  composes: btn-sm from '../styles/buttons-tesla.css';
+.btnCancel {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
 }
 
-.btnIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--spacing-xs);
-  border: none;
-  background: transparent;
-  color: var(--cf-text-secondary);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: all var(--duration-200) var(--ease-out);
+.btnSave {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
 }
 
-.btnIcon:hover {
-  background: var(--cf-bg-hover);
-  color: var(--cf-text-primary);
+.btnLiquidacion {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
 }
+
+.btnRefresh {
+  composes: btn-tesla secondary icon-only sm from '../styles/buttons-tesla.css';
+}
+
+.btnPage {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+}
+
+.btnDevolver {
+  composes: btn-tesla outline-subtle-warning sm from '../styles/buttons-tesla.css';
+}
+
+/* btnIcon replaced by btnRefresh tesla compose above */
 
 /* Back link in detail */
 .backLink {
