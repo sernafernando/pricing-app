@@ -27,7 +27,7 @@ PERMISOS = [
         "seguimiento_envios.ver",
         "Ver seguimiento de envíos",
         "Vista readonly de etiquetas de envío con capacidad de flaggeo y checkeo de colecta",
-        "envios",
+        "envios_flex",
         50,
         False,
     ),
@@ -41,6 +41,11 @@ ROL_PERMISOS = {
 
 
 def upgrade():
+    # 0. Ensure 'envios_flex' exists in the categoriapermiso enum
+    op.execute("ALTER TYPE categoriapermiso ADD VALUE IF NOT EXISTS 'envios_flex'")
+    # Commit so the new enum value is visible to subsequent statements
+    op.execute("COMMIT")
+
     # 1. Insertar permiso en catálogo
     for codigo, nombre, desc, cat, orden, critico in PERMISOS:
         critico_str = "true" if critico else "false"
